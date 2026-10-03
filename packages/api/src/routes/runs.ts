@@ -293,74 +293,25 @@ export function runsRouter(
   });
 
   // ---------- POST /:runId/resume ----------
-  r.post('/:runId/resume', async (c) => {
-    const requestId = c.get('requestId');
-    const tenantId = c.get('tenantId') as TenantId;
-    const runId = c.req.param('runId') as RunId;
-
-    let body: unknown = {};
-    const hasBody =
-      (c.req.header('content-type') ?? '').includes('json') ||
-      (c.req.header('content-length') !== undefined && c.req.header('content-length') !== '0');
-    if (hasBody) {
-      try {
-        const text = await c.req.text();
-        body = text.length > 0 ? JSON.parse(text) : {};
-      } catch {
-        c.status(statusFor('bad-input') as never);
-        return c.json(
-          toWireError({ code: 'bad-input', message: 'Request body must be valid JSON' }, requestId),
-        );
-      }
-    }
-    const parsed = parseResumeBody(body);
-    if (parsed.kind === 'err') {
-      c.status(statusFor(parsed.error.code) as never);
-      return c.json(toWireError(parsed.error, requestId));
-    }
-
-    // Resume completes a waitpoint (`completeToken`) and then drives the
-    // run on. Resuming without a `waitpointId` is not supported.
-    if (parsed.value.waitpointId === undefined) {
-      c.status(statusFor('bad-input') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'bad-input',
-            message:
-              'Programmatic resume without `waitpointId` is not supported yet — supply a waitpoint id to complete a wait token.',
-          },
-          requestId,
-        ),
-      );
-    }
-
-    const completed = await runBinding.completeToken(
-      tenantId,
-      runId,
-      parsed.value.waitpointId,
-      parsed.value.value,
-      eventBus,
+  // Not available in this release. Every waitpoint a run can wait at
+  // belongs to an approval or to the runtime itself (a flow's agent step
+  // waiting on its child turn). Completing one here would skip what owns
+  // it: an approval's reviewer check and recorded decision, or the
+  // runtime's own wake-up. A run waiting for an approval continues
+  // through `POST /v1/approvals/:id/complete`. So nothing is read or
+  // completed; the route stays mounted for a clear answer.
+  r.post('/:runId/resume', (c) => {
+    c.status(statusFor('run-resume-not-supported') as never);
+    return c.json(
+      toWireError(
+        {
+          code: 'run-resume-not-supported',
+          message:
+            'Resuming a run at a waitpoint is not available in this release: every waitpoint belongs to an approval or to the runtime. A run waiting for an approval continues when a reviewer decides it (POST /v1/approvals/{approvalId}/complete, or `kindgi approvals complete`).',
+        },
+        c.get('requestId'),
+      ),
     );
-    if (completed.kind === 'err') {
-      const err = completed.error;
-      c.status(statusFor(err.code) as never);
-      return c.json(toWireError(err as never, requestId));
-    }
-
-    // Drive the run on in the same request, as approvals do. Soft on
-    // failure: the token completion is already durable, so the run is
-    // resumable later; the response shows the status it reached.
-    await binding.resumeRun({ tenantId, runId }).catch(() => undefined);
-
-    const reloaded = await runBinding.getRun(tenantId, runId);
-    if (reloaded === null) {
-      c.status(statusFor('run-not-found') as never);
-      return c.json(
-        toWireError({ code: 'run-not-found', message: `No run with id ${runId}` }, requestId),
-      );
-    }
-    return c.json(serializeRun(reloaded, { output: true }));
   });
 
   // ---------- GET /:runId/stream and /:runId/progress/stream (SSE) ----------
@@ -770,9 +721,6 @@ function listRunsInput(input: {
   };
 }
 
-/** Waitpoint ids the runtime reserves for a parent waiting on a child run. */
-const RESERVED_WAITPOINT_PREFIX = 'child:';
-
 interface RunListFilter {
   readonly parentRunId?: RunId;
   readonly topLevelOnly: boolean;
@@ -805,43 +753,6 @@ function parseRunListFilter(
       ...(parentRunId !== undefined && { parentRunId: parentRunId as RunId }),
       topLevelOnly,
       includeOutput: includes.includes('output'),
-    },
-  };
-}
-
-function parseResumeBody(
-  body: unknown,
-):
-  | { kind: 'ok'; value: { waitpointId?: string; value?: unknown } }
-  | { kind: 'err'; error: { code: string; message: string } } {
-  if (body === null || typeof body !== 'object') {
-    return { kind: 'err', error: { code: 'bad-input', message: 'Request body must be an object' } };
-  }
-  const b = body as Record<string, unknown>;
-  const waitpointId = b.waitpointId;
-  if (waitpointId !== undefined && (typeof waitpointId !== 'string' || waitpointId.length === 0)) {
-    return {
-      kind: 'err',
-      error: {
-        code: 'bad-input',
-        message: '`waitpointId` must be a non-empty string when supplied',
-      },
-    };
-  }
-  if (typeof waitpointId === 'string' && waitpointId.startsWith(RESERVED_WAITPOINT_PREFIX)) {
-    return {
-      kind: 'err',
-      error: {
-        code: 'bad-input',
-        message: `Waitpoint ids starting with "${RESERVED_WAITPOINT_PREFIX}" belong to the runtime (a parent waiting on a child run) and cannot be completed by a caller.`,
-      },
-    };
-  }
-  return {
-    kind: 'ok',
-    value: {
-      ...(waitpointId !== undefined && { waitpointId: waitpointId as string }),
-      ...('value' in b && { value: b.value }),
     },
   };
 }

@@ -28,6 +28,18 @@ export const UNWIRED_COMMANDS: ReadonlySet<string> = new Set([
   'agents unregister',
   'agents versions',
   'tools publish',
+  'runs resume',
+]);
+
+/**
+ * Why a listed command isn't available, when the reason isn't simply "not
+ * wired yet": what the CLI prints instead of the generic message.
+ */
+export const UNWIRED_REASONS: ReadonlyMap<string, string> = new Map([
+  [
+    'runs resume',
+    'resuming a run at a waitpoint is not available in this release: every waitpoint belongs to an approval or to the runtime. A run waiting for an approval continues when a reviewer decides it: `kindgi approvals complete <approval-id> --decision=approve`.',
+  ],
 ]);
 
 /** Whether the command at `path` (its words, from the root) is wired. */

@@ -11391,21 +11391,11 @@
     "/v1/runs/{runId}/resume": {
       "post": {
         "operationId": "runs.resume",
-        "summary": "Resume a suspended run at a waitpoint",
+        "summary": "Resume a suspended run at a waitpoint (not available in this release)",
         "tags": [
           "runs"
         ],
         "responses": {
-          "200": {
-            "description": "Updated run row.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Run"
-                }
-              }
-            }
-          },
           "400": {
             "description": "Malformed request body.",
             "content": {
@@ -11426,8 +11416,8 @@
               }
             }
           },
-          "404": {
-            "description": "No run with that id under this tenant.",
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
             "content": {
               "application/json": {
                 "schema": {
@@ -11436,8 +11426,8 @@
               }
             }
           },
-          "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+          "422": {
+            "description": "`run-resume-not-supported`: not available in this release.",
             "content": {
               "application/json": {
                 "schema": {
@@ -11457,7 +11447,7 @@
             }
           }
         },
-        "description": "Completes a pending waitpoint token (`RunBinding.completeToken`), then resumes the run in the same request; the response shows the status it reached. Resuming without a `waitpointId` returns `400 bad-input`.",
+        "description": "Not available in this release: always `422 run-resume-not-supported`, and no waitpoint is completed. Every waitpoint a run can wait at belongs to an approval or to the runtime itself. A run waiting for an approval continues when a reviewer decides it: `POST /v1/approvals/{approvalId}/complete`.",
         "parameters": [
           {
             "name": "runId",

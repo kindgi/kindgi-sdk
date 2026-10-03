@@ -3,6 +3,8 @@
 
 import { KindgiApiError, type KindgiError } from '@kindgi/client';
 
+import { UNWIRED_REASONS } from './commands/unwired.js';
+
 /**
  * The CLI-level exit envelope. Every command handler returns one so the
  * top-level dispatcher can pick exit codes and write stdout/stderr
@@ -35,8 +37,11 @@ export function formatThrown(
       const label = options.commandLabel.startsWith('kindgi ')
         ? options.commandLabel
         : `kindgi ${options.commandLabel}`;
+      const reason = UNWIRED_REASONS.get(label.slice('kindgi '.length));
       return cliError(
-        `Command '${label}' is not yet wired — SDK method '${wire.method}' is not available in this preview release.`,
+        reason !== undefined
+          ? `Command '${label}' is not available: ${reason}`
+          : `Command '${label}' is not yet wired — SDK method '${wire.method}' is not available in this preview release.`,
         2,
       );
     }

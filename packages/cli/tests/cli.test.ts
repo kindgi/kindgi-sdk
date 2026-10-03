@@ -249,6 +249,35 @@ describe('not-implemented-in-preview SDK errors', () => {
     expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain("Command 'kindgi runs get' is not yet wired");
   });
+
+  test('runs resume says why it is not available, and never calls the runtime', async () => {
+    let called = false;
+    const out = await runCli(
+      baseInputs({
+        argv: [
+          'runs',
+          'resume',
+          'run-1',
+          '--waitpoint=wp-1',
+          '--value={"decided":"approve"}',
+          '--url=https://x',
+          '--token=t',
+        ],
+        clientFactory: () =>
+          ({
+            runs: {
+              resume: async () => {
+                called = true;
+              },
+            },
+          }) as never,
+      }),
+    );
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain("Command 'kindgi runs resume' is not available");
+    expect(out.stderr).toContain('kindgi approvals complete <approval-id> --decision=approve');
+    expect(called).toBe(false);
+  });
 });
 
 describe('kindgi runs start', () => {
