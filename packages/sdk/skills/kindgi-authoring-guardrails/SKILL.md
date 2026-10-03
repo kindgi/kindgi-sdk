@@ -15,7 +15,7 @@ description: >
   kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.5"
+version: "0.3.6"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -167,7 +167,10 @@ available to the runtime that evaluates it.
 - **`config`** — the check's parameters, validated against the check's
   `configSchema` by `defineGuardrail`. In a pack, the declaration's
   `config` goes into the index and the check runs with it; without one
-  it runs with `{}`. `evaluate` receives the config as declared —
+  it runs with `{}`. A declaration a pack file default-exports isn't run
+  through `defineGuardrail`, so nothing validates its `config`: keep it
+  valid against the schema yourself. `evaluate` receives the config as
+  declared —
   schema defaults are not filled in — so handle absent optional fields.
 - **`action.on-violation`** — `'halt'`, `'retry'` (with
   `retry.maxAttempts`, 1–10), `'escalate'` (with `escalateTo`),
@@ -177,7 +180,9 @@ available to the runtime that evaluates it.
   any other action are reported in `AgentTurnResult.violations` and the
   turn completes. The action handlers in `@kindgi/guardrails`
   (`retryHandler`, `escalateHandler`, `compensateHandler`, …) record the
-  intent for callers that act on it.
+  intent for callers that act on it. In 0.1 the runtime acts only on
+  `halt`: `retry`, `escalate` and `compensate` are recorded on the
+  violation, with no second attempt, escalation or compensating call.
 - **`severity`** — `'info'` / `'warn'` / `'error'` (the default) /
   `'critical'`. Orthogonal to `action`: logs and dashboards group by
   severity; execution follows the action. A `log-only` guardrail can
@@ -236,8 +241,9 @@ guardrails: ['acme.no-fabricated-quotes'],
 
 At the start of each turn, the runtime resolves these ids against the
 guardrails available to the run. An id that isn't registered fails the
-turn with `unresolved-guardrail`, so register the guardrail before an
-agent references it.
+turn before the model is called (`Error [invalid-request]: Agent "…"
+references guardrails not in the registry: <id>`), so register the
+guardrail before an agent references it.
 
 ## Changing a guardrail
 
@@ -277,7 +283,7 @@ ready for the stricter enforcement.
 - Type surface: hover any `@kindgi/sdk/define` export for full JSDoc;
   `Guardrail`, `defineGuardrail` and the built-in checks are in
   `@kindgi/guardrails`.
-- Companion docs: `pnpm --filter @kindgi/sdk exec typedoc`.
+- API reference: https://docs.kindgi.com/v0.1/reference/typescript/sdk/kindgi/sdk/define/
 - Built-in check implementations: `packages/guardrails/src/checks.ts`.
 
 ## When the framework itself is the problem

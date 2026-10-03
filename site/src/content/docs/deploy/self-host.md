@@ -98,7 +98,7 @@ pnpm exec kindgi build --local --push --env selfhost
 ```
 
 ```text
-    ✓ Pushed registry.localhost:5050/acme-pack@sha256:11c12784…
+    ✓ Pushed registry.localhost:5050/acme-pack@sha256:faca44e8…
     ✓ /app/index.json in the image matches the local index byte for byte
     ✓ Ed25519 signature over (imageDigest, artifactVersion, indexHash, tenantId, publishedAt)
   Deploy envelope written to …/acme-pack/.kindgi/build/deploy-envelope.json
@@ -181,6 +181,7 @@ Kindgi API server listening on http://localhost:4000
   …
   Deployments: on (signed images, /v1/deployments)
   License: Docs example · non-production · until 2026-11-02
+  ⚠ The license key expires in 29 days (2026-11-02). Renew it: contact@kindgi.com.
   Env: production (tool secrets resolve in it)
   Tenant host access: deployed (stdio MCP endpoints refused; KINDGI_TENANT_HOST_ACCESS)
   Pack service: http://kindgi-pack:8080 — acme-pack (artifact 20261003.1), protocol 2, 3 tools, 1 check
@@ -192,7 +193,7 @@ Without `KINDGI_LICENSE_KEY`, the runtime doesn't start. It exits with code 2 an
 KINDGI_LICENSE_KEY is not set. Outside development mode the Kindgi runtime needs a license key: a production key comes with a commercial license, and a free non-production key covers staging and CI. To get one: contact@kindgi.com. Local development needs none: `kindgi dev` runs the runtime with KINDGI_DEV=true.
 ```
 
-A key within 30 days of expiry adds a warning under the license line.
+A key within 30 days of expiry adds the warning under the license line, as this example key does.
 
 ## 7. Trust your key and deploy
 
@@ -248,12 +249,12 @@ pnpm exec kindgi runs start --flow=acme-pack.echo-flow --input='{"name":"Ada"}' 
   "status": "completed",
   …
   "output": {
-    "reply": "…Hello, Ada!…",
+    "reply": "…",
     "greeting": "Hello, Ada!"
   }
 ```
 
-The flow's tool step ran in your pack's container, and its agent step answered with the model. A first call can outlast the agent's time budget while the model loads; run it again.
+The flow's tool step ran in your pack's container, and its agent step answered with the model; what the reply says depends on the model. A first call can outlast the agent's time budget while the model loads; run it again.
 
 :::note[Models that need a key]
 A provider that needs an API key (Anthropic, OpenAI, Gemini) keeps it in the runtime's secrets store. In 0.1.0 that's Postgres with Google Cloud KMS: `KINDGI_SECRETS_BACKEND=postgres`, `KINDGI_SECRETS_BACKEND_KMS=gcp` and their settings, in the [reference](../../reference/env-vars/). A keyless endpoint (Ollama, vLLM) needs no secrets store.

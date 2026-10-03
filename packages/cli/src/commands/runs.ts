@@ -150,7 +150,7 @@ const start: LeafCommand = {
     'no-wait': {
       type: 'boolean',
       description:
-        'Return a flow run as soon as it exists; follow it with `kindgi runs get`. An agent run still waits for its turn.',
+        'Return the run as soon as it exists, agent or flow; follow it with `kindgi runs stream` or `kindgi runs get`.',
     },
     'dry-run': {
       type: 'boolean',

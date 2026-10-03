@@ -58,5 +58,5 @@ its model call. Use it to check a flow's wiring before it touches real data.
 
 Because every step is recorded, every answer can be traced to where it came
 from: the agent's turn, the model call, the tool results it used. The
-console shows a run as that graph, with the cost of each model call; the
-API exports it.
+console shows a run as that graph, with the cost of each model call, and
+`GET /v1/provenance/{runId}` returns it.

@@ -12,6 +12,8 @@ Node 22 for the CLI, Docker, Python 3.11 and uv ([Install](../install/)).
 
 :::note[Private preview]
 The runtime image is in private preview: request access at contact@kindgi.com.
+Then log in to its registry once, with `docker login quay.io`
+([Install](../install/)).
 :::
 
 ## 1. Create the pack
@@ -22,6 +24,16 @@ cd my-pack
 uv sync          # a .venv with the kindgi package
 uv run pytest    # the template's tests: the tools and the check, called directly
 ```
+
+:::caution[Kindgi 0.1.0: add a `.gitignore`]
+`init` from npm doesn't write the pack's `.gitignore` yet, so git would track
+`.env` files (where model keys go) and `.kindgirc.json` (the dev token).
+Before your first commit:
+
+```sh
+printf '%s\n' .venv/ __pycache__/ .kindgi/ .kindgirc.json .env '.env.*' >> .gitignore
+```
+:::
 
 The pack's config is the `[tool.kindgi]` table of its `pyproject.toml`; its
 tools, guardrails, agents and flows live in four folders:
@@ -59,10 +71,18 @@ npx --yes @kindgi/cli@0.1 runs start --flow=my-pack.echo-flow --input='{"message
 ```
 
 Without a model, the agent's answer comes from `dev-echo`, a stand-in that
-calls the agent's first tool and replies with what it returned (the run
-carries a `fallback-provider` warning). The flow runs the `echo` tool on its
-input and returns what the tool returned. Either way, your Python tool ran:
-the runtime called it over HTTP in the pack service.
+calls the agent's first tool with `{"message": <your userMessage>}` and
+replies with what it returned (the run carries a `fallback-provider`
+warning). The flow runs the `echo` tool on its input and returns what the
+tool returned. Either way, your Python tool ran: the runtime called it over
+HTTP in the pack service.
+
+:::caution[dev-echo checks the wiring, nothing more]
+It can't fill in any other tool input, and it can't produce a typed answer
+(an agent with an `output` fails with `output-schema-violation`).
+Connect a model ([step 5](#5-connect-a-real-model)) before you write an agent
+of your own.
+:::
 
 ## 4. Look at the code
 
@@ -146,5 +166,5 @@ preset too; any OpenAI-compatible endpoint registers from a short spec file.
 
 - [Add Kindgi to an existing Python app](../existing-app/#a-python-app):
   your app's own modules as tools.
-- [Tutorials](../../tutorials/) and [Guides](../../guides/).
+- [Concepts](../../concepts/): packs, runs and the journal, security.
 - [The Python SDK reference](../../reference/python/).

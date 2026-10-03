@@ -86,6 +86,10 @@
   },
   "overrides": [
     {
+      "include": ["**/*.jsonc"],
+      "json": { "parser": { "allowComments": true } }
+    },
+    {
       "include": ["scripts/*.mjs", "scripts/*.js", "site/scripts/*.mjs"],
       "linter": {
         "rules": {

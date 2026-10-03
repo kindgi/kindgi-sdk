@@ -49,7 +49,7 @@ export const testCommand: LeafCommand = {
     path: {
       type: 'string',
       description:
-        'The pack root, with a `kindgi.config.ts` and a `vitest.config.*`. Default: the current directory.',
+        'The pack root, with a `kindgi.config.ts` (or `.mts`) and a `vitest.config.*`. Default: the current directory.',
     },
   },
   run: async (ctx): Promise<CommandResult> => runTestCommand(ctx),

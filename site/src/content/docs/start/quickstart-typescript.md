@@ -12,6 +12,8 @@ Docker ([Install](../install/)).
 
 :::note[Private preview]
 The runtime image is in private preview: request access at contact@kindgi.com.
+Then log in to its registry once, with `docker login quay.io`
+([Install](../install/)).
 :::
 
 ## 1. Create the pack
@@ -21,6 +23,16 @@ npx @kindgi/cli init my-pack --template=sample
 cd my-pack
 pnpm install
 ```
+
+:::caution[Kindgi 0.1.0: add a `.gitignore`]
+`init` from npm doesn't write the pack's `.gitignore` yet, so git would track
+`.env` (where your model key goes) and `.kindgirc.json` (the dev token).
+Before your first commit:
+
+```sh
+printf '%s\n' node_modules/ dist/ .kindgi/ .kindgirc.json '*.tsbuildinfo' .env .env.local >> .gitignore
+```
+:::
 
 `my-pack` is the pack's id: every tool, agent and flow in it is named
 `my-pack.<name>`. The `sample` template gives you:
@@ -60,16 +72,35 @@ In a second terminal, in `my-pack`:
 pnpm exec kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
 ```
 
+```text
+  "status": "completed",
+…
+⚠ Answered by "dev-echo", a fallback provider: no other registered provider satisfies agent "my-pack.echo-agent".
+```
+
 There's no model yet, so the answer comes from `dev-echo`, a stand-in a new
-pack gets: it calls the agent's first tool and replies with what the tool
-returned, and the run carries a `fallback-provider` warning. That's enough
-to see the whole path: the agent's turn, the tool call into your code, the
-guardrail's check.
+pack gets: it calls the agent's first tool with `{"message": <your
+userMessage>}` and replies with what the tool returned, and the run carries a
+`fallback-provider` warning. That's enough to see the whole path: the agent's
+turn, the tool call into your code, the guardrail's check.
+
+:::caution[dev-echo checks the wiring, nothing more]
+It can't fill in any other tool input, and it can't produce a typed answer
+(an agent with an `output` schema fails with `output-schema-violation`).
+Connect a model ([step 6](#6-connect-a-real-model)) before you write an agent
+of your own.
+:::
 
 ## 4. Run the flow
 
 ```sh
 pnpm exec kindgi runs start --flow=my-pack.echo-flow --input='{"name":"Ada"}'
+```
+
+```text
+  "status": "completed",
+…
+    "greeting": "Hello, Ada!"
 ```
 
 The flow greets the name with the `greet` tool, then hands the greeting to
@@ -82,28 +113,45 @@ A tool is a typed function. Its input and output are schemas, checked on
 every call:
 
 ```ts
-// tools/echo/index.ts
+// tools/greet/index.ts
 import { defineTool } from '@kindgi/sdk/define';
 import type { ToolId } from '@kindgi/sdk/types';
 import { z } from 'zod';
 
+const GreetInput = z.object({
+  name: z.string().min(1).max(100),
+  greeting: z.string().min(1).max(50).default('Hello'),
+});
+
+const GreetOutput = z.object({
+  message: z.string(),
+});
+
 const defined = defineTool({
-  id: 'my-pack.echo' as ToolId,
-  description: 'Echoes the caller-provided message with a UTC timestamp + character count.',
+  id: 'my-pack.greet' as ToolId,
+  description: 'Formats a greeting for the named recipient.',
   version: '0.1.0',
-  input: z.object({ message: z.string().min(1).max(500) }),
-  output: z.object({ echo: z.string(), echoedAt: z.string(), characterCount: z.number() }),
+  input: GreetInput,
+  output: GreetOutput,
   effects: [],
+  mutating: false,
   handler: async (input) => ({
-    echo: input.message,
-    echoedAt: new Date().toISOString(),
-    characterCount: input.message.length,
+    message: `${input.greeting}, ${input.name}!`,
   }),
 });
 
-if (defined.kind === 'err') throw new Error(defined.error.message);
+if (defined.kind === 'err') {
+  throw new Error(`my-pack.greet failed to compile: ${defined.error.message}`);
+}
+
 export default defined.value;
 ```
+
+`mutating: false` says the tool changes nothing, so a dry run calls it and
+approval gates don't stop it by default. Leave it out for a tool that writes,
+sends or charges anything: a tool is treated as changing something unless it
+says otherwise. `effects` names what a tool does outside your code (writes,
+network calls), for policies and the audit trail.
 
 The agent is data: its instructions, the tools it may call, the guardrails
 on its answers, its budget. Change a file and save; `kindgi dev` picks it
@@ -126,8 +174,8 @@ from a short spec file.
 
 ## Next
 
-- [Tutorials](../../tutorials/): build something real, step by step.
-- [Guides](../../guides/): one task at a time: tools, agents, flows,
-  models, secrets, webhooks, deploying.
+- [Add Kindgi to an existing app](../existing-app/): your app's own code
+  as tools, and your app starting runs.
+- [Concepts](../../concepts/): packs, runs and the journal, security.
 - [Set up your coding agent](../coding-agents/): it already has Kindgi's
   skills.
