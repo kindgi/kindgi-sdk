@@ -314,8 +314,9 @@ data. `kindgi dev` runs it the same way, with the pack's own interpreter:
   it from a Node pack.
 - **Watch:** any `.py` file under the pack root (shared modules included)
   and `pyproject.toml`.
-- **The CLI:** a Python pack has no npm project, so it runs the `kindgi` on
-  `PATH`, in the startup hints and in the `.mcp.json` entries
+- **The CLI:** a Python pack has no npm project, so it runs the published
+  CLI through npx (Node 22 needed): `npx --yes @kindgi/cli@0.1 <command>`, within
+  the CLI's minor, in the startup hints and in the `.mcp.json` entries
   `kindgi mcp add` writes.
 
 ### Stopping

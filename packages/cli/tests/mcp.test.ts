@@ -106,7 +106,7 @@ describe('buildMcpServerEntry', () => {
     expect(entry.args.slice(0, 3)).toEqual(['--no', 'kindgi', 'mcp-launch']);
   });
 
-  test('a Python pack runs the kindgi on PATH (no npm project to install it into)', () => {
+  test('a Python pack runs the published CLI through npx (no npm project to install it into)', () => {
     const entry = buildMcpServerEntry(
       postgresPreset,
       'X',
@@ -114,8 +114,10 @@ describe('buildMcpServerEntry', () => {
       { kind: 'tenant', raw: 'tenant' },
       'path',
     );
-    expect(entry.command).toBe('kindgi');
-    expect(entry.args.slice(0, 2)).toEqual(['mcp-launch', '--']);
+    expect(entry.command).toBe('npx');
+    expect(entry.args[0]).toBe('--yes');
+    expect(entry.args[1]).toMatch(/^@kindgi\/cli@\d+\.\d+$/);
+    expect(entry.args.slice(2, 4)).toEqual(['mcp-launch', '--']);
   });
 
   test('embeds project scope with id', () => {
@@ -182,7 +184,7 @@ describe('kindgi mcp add', () => {
     expect(entry?.args).toContain('--env-map=DATABASE_URI=secret:GRIEVANCE_DB_URL@local:tenant');
   });
 
-  test('a Python pack ([tool.kindgi] in pyproject.toml) gets the kindgi on PATH', async () => {
+  test('a Python pack ([tool.kindgi] in pyproject.toml) gets the published CLI through npx', async () => {
     await rm(join(packDir, 'kindgi.config.ts'));
     await writeFile(
       join(packDir, 'pyproject.toml'),
@@ -197,8 +199,10 @@ describe('kindgi mcp add', () => {
       mcpServers?: Record<string, { command: string; args: string[] }>;
     };
     const entry = mcpJson.mcpServers?.grievance_db;
-    expect(entry?.command).toBe('kindgi');
-    expect(entry?.args.slice(0, 2)).toEqual(['mcp-launch', '--']);
+    expect(entry?.command).toBe('npx');
+    expect(entry?.args.slice(0, 1)).toEqual(['--yes']);
+    expect(entry?.args[1]).toMatch(/^@kindgi\/cli@\d+\.\d+$/);
+    expect(entry?.args.slice(2, 4)).toEqual(['mcp-launch', '--']);
   });
 
   test('prints restart hint to stderr on success', async () => {

@@ -214,7 +214,7 @@ describe('kindgi init — python template', () => {
     const tool = await readFile(join(cwd, 'my-pack', 'tools/echo.py'), 'utf8');
     expect(tool).toContain('@tool(id="my-pack.echo")');
     expect(out.stderr).toContain('uv sync');
-    expect(out.stderr).toContain('kindgi dev');
+    expect(out.stderr).toMatch(/npx --yes @kindgi\/cli@\d+\.\d+ dev/);
   });
 });
 

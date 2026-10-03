@@ -73,9 +73,16 @@ describe('binCommand — runs the project-local bin, never downloads', () => {
     expect(binCommand(pm, 'kindgi', ['dev'])).toEqual({ command, args });
   });
 
-  test('path — the bin on PATH (a Python pack has no npm project)', () => {
-    expect(binCommand('path', 'kindgi', ['dev'])).toEqual({ command: 'kindgi', args: ['dev'] });
-    expect(binDisplay('path', 'kindgi', ['skills', 'sync'])).toBe('kindgi skills sync');
+  test('path — a Python pack (no npm project) runs the published CLI through npx, within its minor', () => {
+    const cli = expect.stringMatching(/^@kindgi\/cli@\d+\.\d+$/);
+    expect(binCommand('path', 'kindgi', ['dev'])).toEqual({
+      command: 'npx',
+      args: ['--yes', cli, 'dev'],
+    });
+    expect(binDisplay('path', 'kindgi', ['skills', 'sync'])).toMatch(
+      /^npx --yes @kindgi\/cli@\d+\.\d+ skills sync$/,
+    );
+    expect(binCommand('path', 'uv', ['sync'])).toEqual({ command: 'uv', args: ['sync'] });
   });
 
   test('binDisplay / installCommand / localLinkProtocol', () => {
