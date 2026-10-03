@@ -9,7 +9,13 @@ const factsList: LeafCommand = {
   name: 'list',
   description: 'List memory facts.',
   usage: 'kindgi memory facts list [--limit=<n>] [--cursor=<c>]',
-  optionSpec: { limit: { type: 'string' }, cursor: { type: 'string' } },
+  optionSpec: {
+    limit: { type: 'string', description: 'The most facts to return (default 25, at most 100).' },
+    cursor: {
+      type: 'string',
+      description: "Resume after this cursor, from the previous page's `nextCursor`.",
+    },
+  },
   run: (ctx) => runSdk(ctx, 'memory facts list', async () => throwUnwired('memory.facts.list')),
 };
 
@@ -30,7 +36,13 @@ const factsWrite: LeafCommand = {
   name: 'write',
   description: 'Write a memory fact.',
   usage: 'kindgi memory facts write --input=<json-or-@file>',
-  optionSpec: { input: { type: 'string' } },
+  optionSpec: {
+    input: {
+      type: 'string',
+      description:
+        'The fact as inline JSON or `@<file>`: its `type`, `scope` and `content`, and optionally `retention`.',
+    },
+  },
   run: (ctx) => runSdk(ctx, 'memory facts write', async () => throwUnwired('memory.facts.write')),
 };
 
@@ -39,7 +51,13 @@ const factsSupersede: LeafCommand = {
   name: 'supersede',
   description: 'Supersede an existing memory fact.',
   usage: 'kindgi memory facts supersede <fact-id> --input=<json-or-@file>',
-  optionSpec: { input: { type: 'string' } },
+  optionSpec: {
+    input: {
+      type: 'string',
+      description:
+        'Inline JSON or `@<file>`. Currently unused: superseding a fact takes only its id.',
+    },
+  },
   run: (ctx) =>
     runSdk(ctx, 'memory facts supersede', async () => {
       requiredPositional(ctx, 0, 'fact-id');
@@ -52,7 +70,13 @@ const factsRetrieve: LeafCommand = {
   name: 'retrieve',
   description: 'Retrieve memory facts by query.',
   usage: 'kindgi memory facts retrieve --query=<json-or-@file>',
-  optionSpec: { query: { type: 'string' } },
+  optionSpec: {
+    query: {
+      type: 'string',
+      description:
+        'The retrieval as inline JSON or `@<file>`: a `mode` (`list`, `keyword`, `semantic` or `both`), and optionally `query`, `type`, `scope` and `limit`.',
+    },
+  },
   run: (ctx) => runSdk(ctx, 'memory facts retrieve', async () => throwUnwired('memory.retrieve')),
 };
 

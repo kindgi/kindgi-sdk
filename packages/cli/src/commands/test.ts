@@ -38,9 +38,19 @@ export const testCommand: LeafCommand = {
   description: "Run the pack's tests via vitest. Ergonomic wrapper over `vitest run`.",
   usage: 'kindgi test [--watch] [--reporter <name>] [--path <dir>] [-- <vitest-args>...]',
   optionSpec: {
-    watch: { type: 'boolean' },
-    reporter: { type: 'string' },
-    path: { type: 'string' },
+    watch: {
+      type: 'boolean',
+      description: 'Run vitest in watch mode. By default the tests run once (`vitest run`).',
+    },
+    reporter: {
+      type: 'string',
+      description: "The vitest reporter to use (vitest's `--reporter`), e.g. `verbose` or `json`.",
+    },
+    path: {
+      type: 'string',
+      description:
+        'The pack root, with a `kindgi.config.ts` and a `vitest.config.*`. Default: the current directory.',
+    },
   },
   run: async (ctx): Promise<CommandResult> => runTestCommand(ctx),
 };

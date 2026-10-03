@@ -9,7 +9,16 @@ const list: LeafCommand = {
   name: 'list',
   description: 'List provenance records.',
   usage: 'kindgi provenance list [--limit=<n>] [--cursor=<c>]',
-  optionSpec: { limit: { type: 'string' }, cursor: { type: 'string' } },
+  optionSpec: {
+    limit: {
+      type: 'string',
+      description: 'The most provenance records to return (default 25, at most 100).',
+    },
+    cursor: {
+      type: 'string',
+      description: "Resume after this cursor, from the previous page's `nextCursor`.",
+    },
+  },
   run: (ctx) => runSdk(ctx, 'provenance list', async () => throwUnwired('provenance.list')),
 };
 
@@ -30,7 +39,13 @@ const exportCmd: LeafCommand = {
   name: 'export',
   description: 'Export a signed provenance bundle.',
   usage: 'kindgi provenance export <run-id> [--input=<json-or-@file>]',
-  optionSpec: { input: { type: 'string' } },
+  optionSpec: {
+    input: {
+      type: 'string',
+      description:
+        "Export options as inline JSON or `@<file>`: the `signingKeyId` to sign with, and `includeMessages` (default `false`) to add the run's messages.",
+    },
+  },
   run: (ctx) =>
     runSdk(ctx, 'provenance export', async () => {
       requiredPositional(ctx, 0, 'run-id');

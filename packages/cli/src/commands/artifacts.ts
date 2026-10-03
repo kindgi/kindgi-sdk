@@ -9,7 +9,16 @@ const list: LeafCommand = {
   name: 'list',
   description: 'List artifacts.',
   usage: 'kindgi artifacts list [--limit=<n>] [--cursor=<c>]',
-  optionSpec: { limit: { type: 'string' }, cursor: { type: 'string' } },
+  optionSpec: {
+    limit: {
+      type: 'string',
+      description: 'The most artifacts to return (default 25, at most 100).',
+    },
+    cursor: {
+      type: 'string',
+      description: "Resume after this cursor, from the previous page's `nextCursor`.",
+    },
+  },
   run: (ctx) => runSdk(ctx, 'artifacts list', async () => throwUnwired('artifacts.list')),
 };
 
@@ -42,7 +51,12 @@ const upload: LeafCommand = {
   name: 'upload',
   description: 'Upload a file as an artifact.',
   usage: 'kindgi artifacts upload <file> [--content-type=<mime>]',
-  optionSpec: { 'content-type': { type: 'string' } },
+  optionSpec: {
+    'content-type': {
+      type: 'string',
+      description: 'Store the artifact with this MIME type, such as `application/pdf`.',
+    },
+  },
   run: (ctx) =>
     runSdk(ctx, 'artifacts upload', async () => {
       requiredPositional(ctx, 0, 'file');
@@ -55,7 +69,9 @@ const download: LeafCommand = {
   name: 'download',
   description: 'Download an artifact.',
   usage: 'kindgi artifacts download <blob-id> [-o <file>]',
-  optionSpec: { o: { type: 'string' } },
+  optionSpec: {
+    o: { type: 'string', description: 'Write the download to this file instead of stdout.' },
+  },
   run: (ctx) =>
     runSdk(ctx, 'artifacts download', async () => {
       requiredPositional(ctx, 0, 'blob-id');

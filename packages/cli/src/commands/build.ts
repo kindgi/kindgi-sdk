@@ -99,23 +99,86 @@ export const buildCommand: LeafCommand = {
     '[--artifact-version <v>] [--published-at <iso>] [--tenant <id>] [--signing-key <path>] ' +
     '[--registry-push-creds <ref>] [--skip-integrity-gate] [--skip-image-pull] [--skip-sign] [--path <dir>]',
   optionSpec: {
-    local: { type: 'boolean' },
-    push: { type: 'string', optionalValue: true },
-    platform: { type: 'string' },
-    target: { type: 'string' },
-    endpoint: { type: 'string' },
-    env: { type: 'string' },
-    out: { type: 'string' },
-    'artifact-version': { type: 'string' },
-    'published-at': { type: 'string' },
-    tenant: { type: 'string' },
-    'signing-key': { type: 'string' },
-    'signer-key-id': { type: 'string' },
-    'registry-push-creds': { type: 'string' },
-    'skip-integrity-gate': { type: 'boolean' },
-    'skip-image-pull': { type: 'boolean' },
-    'skip-sign': { type: 'boolean' },
-    path: { type: 'string' },
+    local: {
+      type: 'boolean',
+      description:
+        "Build with this machine's Docker instead of a build server: no signing and no envelope unless `--push`. TypeScript packs only.",
+    },
+    push: {
+      type: 'string',
+      optionalValue: true,
+      description:
+        "With `--local`: push the image, sign it and write the envelope. Default repository: the env block's `registry` + `/<packId>`.",
+    },
+    platform: {
+      type: 'string',
+      description:
+        "With `--local`: the image's platform. Default: `linux/amd64` when pushing, else this machine's.",
+    },
+    target: {
+      type: 'string',
+      description:
+        "The build target, set in the image build and sent to the build server. Default: the env block's `buildTarget`, else the env name.",
+    },
+    endpoint: {
+      type: 'string',
+      description: "The build server. Default: the env block's `build`. Not used with `--local`.",
+    },
+    env: {
+      type: 'string',
+      description: 'The environment block in `kindgi.config.ts` to build for. Default: `staging`.',
+    },
+    out: {
+      type: 'string',
+      description:
+        'Where the build output and `deploy-envelope.json` go. Default: `.kindgi/build` under the pack root.',
+    },
+    'artifact-version': {
+      type: 'string',
+      description:
+        "The artifact version, in the image and its signature. Default: today's date as `YYYYMMDD.1` (UTC).",
+    },
+    'published-at': {
+      type: 'string',
+      description:
+        'The publish time (ISO 8601), in the image and its signature. Default: the Unix epoch, so builds are reproducible.',
+    },
+    tenant: {
+      type: 'string',
+      description:
+        "The tenant the signature names. Default: the env block's `tenantId`, else `KINDGI_TENANT_ID`.",
+    },
+    'signing-key': {
+      type: 'string',
+      description:
+        "The Ed25519 private key (PEM) to sign with. Default: the env block's `signingKey`.",
+    },
+    'signer-key-id': {
+      type: 'string',
+      description:
+        "The key id the signature names. Default: the env block's `signerKeyId`, else the key file's name.",
+    },
+    'registry-push-creds': {
+      type: 'string',
+      description:
+        'A reference to the registry push credentials for the build server to use, passed through as is.',
+    },
+    'skip-integrity-gate': {
+      type: 'boolean',
+      description:
+        "Sign without checking the image's index against the local one. Prints a warning. Build-server builds only.",
+    },
+    'skip-image-pull': {
+      type: 'boolean',
+      description:
+        "Check the image's index by hash only, without pulling the image. Build-server builds only.",
+    },
+    'skip-sign': {
+      type: 'boolean',
+      description:
+        'Write an unsigned envelope (for CI that signs elsewhere); `kindgi deploy` refuses it.',
+    },
+    path: { type: 'string', description: 'The pack root. Default: the current directory.' },
   },
   run: async (ctx): Promise<CommandResult> => runBuild(ctx),
 };

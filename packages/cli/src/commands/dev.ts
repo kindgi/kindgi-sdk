@@ -78,29 +78,71 @@ export const devCommand: LeafCommand = {
   usage:
     'kindgi dev [--port <n>] [--database-url <url>] [--tenant <id>] [--dev-token <token>] [--no-watch] [--path <dir>] [--reset] [--recreate-services] [--runtime-image <ref> | --runtime-url <url>]',
   optionSpec: {
-    port: { type: 'string' },
+    port: {
+      type: 'string',
+      description:
+        "The port the runtime's API is reached on, on `127.0.0.1`. Default: `4000`. Not used with `--runtime-url`.",
+    },
     // The Kindgi runtime image to run (default: the one this CLI release pins).
-    'runtime-image': { type: 'string' },
+    'runtime-image': {
+      type: 'string',
+      description: 'The runtime image to run. Default: the one this CLI release pins.',
+    },
     // A runtime you run yourself (e.g. from source) instead of the image.
-    'runtime-url': { type: 'string' },
-    'database-url': { type: 'string' },
-    tenant: { type: 'string' },
+    'runtime-url': {
+      type: 'string',
+      description:
+        "Use a runtime you run yourself, at this origin, instead of starting the container. Start it with the pack's `.kindgi/dev/runtime.env`.",
+    },
+    'database-url': {
+      type: 'string',
+      description:
+        "The Postgres to use. Default: `KINDGI_DATABASE_URL` (the shell's, then the env files'), else the bundled Postgres.",
+    },
+    tenant: {
+      type: 'string',
+      description:
+        "Pin the tenant. Default: the previous run's (from `.kindgirc.json`), else a new one.",
+    },
     // Named `dev-token` to avoid clobbering the global `--token`
     // (which is the caller's bearer token to a remote API). In dev
     // mode, we CREATE a token for the freshly-booted api-server; this
     // flag lets the caller pin it.
-    'dev-token': { type: 'string' },
-    watch: { type: 'boolean' },
-    'no-watch': { type: 'boolean' },
-    path: { type: 'string' },
+    'dev-token': {
+      type: 'string',
+      description:
+        "Pin the API token. Default: the previous run's (from `.kindgirc.json`), else a new one.",
+    },
+    watch: {
+      type: 'boolean',
+      description:
+        'Re-index and reload the pack on every save. On by default; `--no-watch` turns it off.',
+    },
+    'no-watch': {
+      type: 'boolean',
+      description: 'Start, index and register once, then exit. For smoke tests and CI.',
+    },
+    path: {
+      type: 'string',
+      description:
+        'The pack root, with a `kindgi.config.ts` or a `pyproject.toml` with `[tool.kindgi]`. Default: the current directory.',
+    },
     // --reset: a fresh start for this pack only — a new tenant and token
     // (it removes .kindgirc.json). The shared services and their data,
     // which every kindgi dev on the machine uses, are never touched.
-    reset: { type: 'boolean' },
+    reset: {
+      type: 'boolean',
+      description:
+        'Start this pack fresh: removes `.kindgirc.json`, so the run gets a new tenant and token. The shared Postgres is left alone.',
+    },
     // --recreate-services: let `docker compose` recreate the shared
     // Postgres if its definition changed. Default: an existing container
     // is reused as it is, so no other kindgi dev loses its database.
-    'recreate-services': { type: 'boolean' },
+    'recreate-services': {
+      type: 'boolean',
+      description:
+        'Let `docker compose` recreate the bundled Postgres if its definition changed. By default an existing container is reused.',
+    },
   },
   run: async (ctx): Promise<CommandResult> => runDev(ctx),
 };

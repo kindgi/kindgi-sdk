@@ -12,9 +12,15 @@ const list: LeafCommand = {
   description: 'List registered tools.',
   usage: 'kindgi tools list [--name=<prefix>] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
-    name: { type: 'string' },
-    limit: { type: 'string' },
-    cursor: { type: 'string' },
+    name: { type: 'string', description: 'Only the tools whose id starts with this prefix.' },
+    limit: {
+      type: 'string',
+      description: 'The most tools to return (default 25, at most 100).',
+    },
+    cursor: {
+      type: 'string',
+      description: "Resume after this cursor, from the previous page's `nextCursor`.",
+    },
   },
   run: (ctx) =>
     runSdk(ctx, 'tools list', async () => {
@@ -50,7 +56,12 @@ const publish: LeafCommand = {
   name: 'publish',
   description: 'Publish a tool manifest at a specific version.',
   usage: 'kindgi tools publish --manifest=<json-or-@file>',
-  optionSpec: { manifest: { type: 'string' } },
+  optionSpec: {
+    manifest: {
+      type: 'string',
+      description: 'The tool manifest as JSON, or `@<file>` to read it from a file. Required.',
+    },
+  },
   run: (ctx) => runSdk(ctx, 'tools publish', async () => throwUnwired('tools.publish')),
 };
 
@@ -59,7 +70,13 @@ const unregister: LeafCommand = {
   name: 'unregister',
   description: 'Unregister a specific tool version.',
   usage: 'kindgi tools unregister <tool-id> --version=<semver>',
-  optionSpec: { version: { type: 'string' } },
+  optionSpec: {
+    version: {
+      type: 'string',
+      description:
+        'The version to unregister (semver); `kindgi tools reinstate` brings it back. Required.',
+    },
+  },
   run: (ctx) =>
     runSdk(ctx, 'tools unregister', async () => {
       const toolId = requiredPositional(ctx, 0, 'tool-id');
@@ -75,9 +92,18 @@ const versions: LeafCommand = {
   description: 'List published versions of a tool (active + optionally tombstoned).',
   usage: 'kindgi tools versions <tool-id> [--include-tombstoned] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
-    'include-tombstoned': { type: 'boolean' },
-    limit: { type: 'string' },
-    cursor: { type: 'string' },
+    'include-tombstoned': {
+      type: 'boolean',
+      description: 'Include unregistered versions too, each with its `unregisteredAt`.',
+    },
+    limit: {
+      type: 'string',
+      description: 'The most versions to return (default 25, at most 100).',
+    },
+    cursor: {
+      type: 'string',
+      description: "Resume after this cursor, from the previous page's `nextCursor`.",
+    },
   },
   run: (ctx) =>
     runSdk(ctx, 'tools versions', async () => {
@@ -102,7 +128,9 @@ const getVersion: LeafCommand = {
   name: 'get-version',
   description: 'Fetch a specific tool version by exact semver.',
   usage: 'kindgi tools get-version <tool-id> --version=<semver>',
-  optionSpec: { version: { type: 'string' } },
+  optionSpec: {
+    version: { type: 'string', description: 'The exact version to fetch (semver). Required.' },
+  },
   run: (ctx) =>
     runSdk(ctx, 'tools get-version', async () => {
       const toolId = requiredPositional(ctx, 0, 'tool-id');
@@ -117,7 +145,12 @@ const reinstate: LeafCommand = {
   name: 'reinstate',
   description: 'Un-tombstone a specific tool version.',
   usage: 'kindgi tools reinstate <tool-id> --version=<semver>',
-  optionSpec: { version: { type: 'string' } },
+  optionSpec: {
+    version: {
+      type: 'string',
+      description: 'The unregistered version to bring back (semver). Required.',
+    },
+  },
   run: (ctx) =>
     runSdk(ctx, 'tools reinstate', async () => {
       const toolId = requiredPositional(ctx, 0, 'tool-id');

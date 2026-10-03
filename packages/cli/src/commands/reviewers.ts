@@ -12,7 +12,16 @@ const list: LeafCommand = {
   name: 'list',
   description: 'List reviewers.',
   usage: 'kindgi reviewers list [--limit=<n>] [--cursor=<c>]',
-  optionSpec: { limit: { type: 'string' }, cursor: { type: 'string' } },
+  optionSpec: {
+    limit: {
+      type: 'string',
+      description: 'The most reviewers to return (default 25, at most 100).',
+    },
+    cursor: {
+      type: 'string',
+      description: "Resume after this cursor, from the previous page's `nextCursor`.",
+    },
+  },
   run: (ctx) =>
     runSdk(ctx, 'reviewers list', async () => {
       const limit = integerFlag(ctx, 'limit');
@@ -42,7 +51,13 @@ const register: LeafCommand = {
   description:
     'Register a reviewer — `{ userId?, role, displayName? }`; without `userId`, you. Registering again changes the role.',
   usage: 'kindgi reviewers register --spec=<json-or-@file>',
-  optionSpec: { spec: { type: 'string' } },
+  optionSpec: {
+    spec: {
+      type: 'string',
+      description:
+        'The reviewer as inline JSON or `@<file>`: `role` (`standard`, `senior` or `admin`), plus optional `userId` (default: you) and `displayName`. Required.',
+    },
+  },
   run: (ctx) =>
     runSdk(ctx, 'reviewers register', async () => {
       const raw = stringFlag(ctx, 'spec');

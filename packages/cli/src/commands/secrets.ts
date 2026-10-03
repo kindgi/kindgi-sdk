@@ -43,8 +43,16 @@ import type { Command, CommandResult, LeafCommand } from './types.js';
 // ---------------------------------------------------------------------
 
 const SCOPE_OPTION_SPEC = {
-  env: { type: 'string' as const },
-  scope: { type: 'string' as const },
+  env: {
+    type: 'string' as const,
+    description:
+      "The environment the secret belongs to. Required; under `kindgi dev`, `local` is the pack's env files.",
+  },
+  scope: {
+    type: 'string' as const,
+    description:
+      'Where the secret lives: `tenant`, `org:<orgId>` or `project:<projectId>`. Required.',
+  },
 };
 
 // ---------------------------------------------------------------------
@@ -331,10 +339,23 @@ const listCmd: LeafCommand = {
     'kindgi secrets list --env=<name> --scope=<kind>[:id] [--include-revoked] [--name-prefix=<p>] [--cursor=<c>] [--limit=<n>]',
   optionSpec: {
     ...SCOPE_OPTION_SPEC,
-    'include-revoked': { type: 'boolean' as const },
-    'name-prefix': { type: 'string' as const },
-    cursor: { type: 'string' as const },
-    limit: { type: 'string' as const },
+    'include-revoked': {
+      type: 'boolean' as const,
+      description:
+        'Include revoked secrets. Not applied yet: the API ignores it, so revoked secrets stay hidden.',
+    },
+    'name-prefix': {
+      type: 'string' as const,
+      description: 'Only the secrets whose name starts with this prefix.',
+    },
+    cursor: {
+      type: 'string' as const,
+      description: "Resume after this cursor, from the previous page's `nextCursor`.",
+    },
+    limit: {
+      type: 'string' as const,
+      description: 'The most secrets to return (default 25, at most 100).',
+    },
   },
   run: async (ctx): Promise<CommandResult> => {
     const parsed = parseScopeAndEnv(ctx);
@@ -430,11 +451,30 @@ const setCmd: LeafCommand = {
     'kindgi secrets set <NAME> --env=<name> --scope=<kind>[:id] [--write-mode=create-new|add-version] [--from-stdin | --from-file <path>] [--rotation-due-at=<iso>] [--if-version=<n>]',
   optionSpec: {
     ...SCOPE_OPTION_SPEC,
-    'from-stdin': { type: 'boolean' as const },
-    'from-file': { type: 'string' as const },
-    'write-mode': { type: 'string' as const },
-    'rotation-due-at': { type: 'string' as const },
-    'if-version': { type: 'string' as const },
+    'from-stdin': {
+      type: 'boolean' as const,
+      description: "Read the secret's value from stdin instead of prompting.",
+    },
+    'from-file': {
+      type: 'string' as const,
+      description:
+        'Read the value from this file instead of prompting. A file group or others can access is refused (`chmod 600`).',
+    },
+    'write-mode': {
+      type: 'string' as const,
+      description:
+        '`create-new` (the default) refuses a secret that exists; `add-version` writes a new version, creating it if needed.',
+    },
+    'rotation-due-at': {
+      type: 'string' as const,
+      description:
+        'When the secret is due for rotation, as an ISO 8601 timestamp; kept with its metadata.',
+    },
+    'if-version': {
+      type: 'string' as const,
+      description:
+        "Write only if the secret is still at this version (`0` when it doesn't exist yet); otherwise fail with a conflict.",
+    },
   },
   run: async (ctx): Promise<CommandResult> => {
     const parsed = parseScopeAndEnv(ctx);
@@ -520,11 +560,30 @@ const rotateCmd: LeafCommand = {
     'kindgi secrets rotate <NAME> --env=<name> --scope=<kind>[:id] [--new-value | --from-stdin | --from-file <path>] [--revoke-old-after=<ms>] [--no-wait]',
   optionSpec: {
     ...SCOPE_OPTION_SPEC,
-    'from-stdin': { type: 'boolean' as const },
-    'from-file': { type: 'string' as const },
-    'new-value': { type: 'boolean' as const },
-    'revoke-old-after': { type: 'string' as const },
-    'no-wait': { type: 'boolean' as const },
+    'from-stdin': {
+      type: 'boolean' as const,
+      description: 'Read the new value from stdin.',
+    },
+    'from-file': {
+      type: 'string' as const,
+      description:
+        'Read the new value from this file. A file group or others can access is refused (`chmod 600`).',
+    },
+    'new-value': {
+      type: 'boolean' as const,
+      description:
+        'Prompt for the new value (no echo). Without it, `--from-stdin` or `--from-file`, the secret store must rotate the value itself.',
+    },
+    'revoke-old-after': {
+      type: 'string' as const,
+      description:
+        'Revoke the old version this many milliseconds after the rotation (`0`: at once). Without it, the old version stays valid.',
+    },
+    'no-wait': {
+      type: 'boolean' as const,
+      description:
+        "Print the API's first response instead of waiting for an asynchronous rotation to finish.",
+    },
   },
   run: async (ctx): Promise<CommandResult> => {
     const parsed = parseScopeAndEnv(ctx);
@@ -641,8 +700,15 @@ const revokeCmd: LeafCommand = {
   usage: 'kindgi secrets revoke <NAME> --env=<name> --scope=<kind>[:id] [--hard] [--reason=<r>]',
   optionSpec: {
     ...SCOPE_OPTION_SPEC,
-    hard: { type: 'boolean' as const },
-    reason: { type: 'string' as const },
+    hard: {
+      type: 'boolean' as const,
+      description:
+        'Erase the value for good instead of keeping an audit tombstone. Cannot be undone.',
+    },
+    reason: {
+      type: 'string' as const,
+      description: 'Why the secret is revoked; kept on the record as `revokeReason`.',
+    },
   },
   run: async (ctx): Promise<CommandResult> => {
     const parsed = parseScopeAndEnv(ctx);
@@ -692,7 +758,11 @@ const pullCmd: LeafCommand = {
   usage: 'kindgi secrets pull --env=<name> --scope=<kind>[:id] [--path <dir>]',
   optionSpec: {
     ...SCOPE_OPTION_SPEC,
-    path: { type: 'string' as const },
+    path: {
+      type: 'string' as const,
+      description:
+        'The pack directory to write `.secrets/<env>/manifest.json` under (default: the current directory).',
+    },
   },
   run: async (ctx): Promise<CommandResult> => {
     const parsed = parseScopeAndEnv(ctx);

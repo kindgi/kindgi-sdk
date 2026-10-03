@@ -9,7 +9,16 @@ const list: LeafCommand = {
   name: 'list',
   description: 'List supervisor observations.',
   usage: 'kindgi observations list [--limit=<n>] [--cursor=<c>]',
-  optionSpec: { limit: { type: 'string' }, cursor: { type: 'string' } },
+  optionSpec: {
+    limit: {
+      type: 'string',
+      description: 'The most observations to return (default 25, at most 100).',
+    },
+    cursor: {
+      type: 'string',
+      description: "Resume after this cursor, from the previous page's `nextCursor`.",
+    },
+  },
   run: (ctx) => runSdk(ctx, 'observations list', async () => throwUnwired('observations.list')),
 };
 

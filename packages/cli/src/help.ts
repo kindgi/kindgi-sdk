@@ -2,8 +2,9 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { ROOT_COMMANDS } from './commands/index.js';
-import type { Command } from './commands/types.js';
+import type { Command, ParseArgsOption } from './commands/types.js';
 import { wiredCommands } from './commands/unwired.js';
+import { GLOBAL_OPTION_SPEC } from './parse.js';
 
 export function rootHelpText(): string {
   const lines: string[] = [];
@@ -17,17 +18,11 @@ export function rootHelpText(): string {
   }
   lines.push('');
   lines.push('Global flags:');
-  lines.push('  --url=<url>          Override KINDGI_API_URL.');
-  lines.push('  --token=<token>      Override KINDGI_API_TOKEN.');
-  lines.push('  --json               Pretty JSON output (default).');
-  lines.push('  --raw                Tight one-line JSON.');
-  lines.push('  --table              Table output for list responses.');
-  lines.push('  --quiet              Suppress stdout; exit code only.');
-  lines.push('  --verbose, -v        Verbose error output.');
-  lines.push('  --version            Print CLI version.');
-  lines.push('  --help, -h           Show help.');
+  lines.push(...flagLines(GLOBAL_OPTION_SPEC));
   lines.push('');
-  lines.push('Config precedence: --flag > env var > ~/.kindgi/config.json.');
+  lines.push(
+    'Config precedence: --flag > env var > .kindgirc.json (this directory) > ~/.kindgi/config.json.',
+  );
   return `${lines.join('\n')}\n`;
 }
 
@@ -41,6 +36,14 @@ export function commandHelpText(
   lines.push('');
   if (command.kind === 'leaf') {
     lines.push(`Usage: ${command.usage}`);
+    const flags = flagLines(command.optionSpec ?? {});
+    if (flags.length > 0) {
+      lines.push('');
+      lines.push('Flags:');
+      lines.push(...flags);
+    }
+    lines.push('');
+    lines.push('Global flags (--json, --url, --token, …): kindgi --help');
   } else {
     lines.push(`Usage: kindgi ${command.name} <subcommand> [args] [flags]`);
     lines.push('');
@@ -50,4 +53,18 @@ export function commandHelpText(
     }
   }
   return `${lines.join('\n')}\n`;
+}
+
+/** `  --name <value>, -n   What it does.`, one line per flag, by name. */
+function flagLines(spec: Readonly<Record<string, ParseArgsOption>>): string[] {
+  const rows = Object.entries(spec)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, option]) => {
+      const value =
+        option.type === 'string' ? (option.optionalValue ? '[=<value>]' : ' <value>') : '';
+      const short = option.short ? `, -${option.short}` : '';
+      return [`--${name}${value}${short}`, option.description ?? ''] as const;
+    });
+  const width = Math.max(0, ...rows.map(([label]) => label.length));
+  return rows.map(([label, description]) => `  ${label.padEnd(width)}  ${description}`.trimEnd());
 }

@@ -38,6 +38,8 @@ export type ParseArgsOption =
       multiple?: boolean;
       short?: string;
       default?: string;
+      /** What the flag does, in one sentence: `--help` and the docs show it. */
+      description?: string;
       /**
        * The value may be left out (`--push`, or `--push` before another
        * flag): the option is then `''`. Given, it's the next token or
@@ -45,4 +47,11 @@ export type ParseArgsOption =
        */
       optionalValue?: boolean;
     }
-  | { type: 'boolean'; multiple?: boolean; short?: string; default?: boolean };
+  | {
+      type: 'boolean';
+      multiple?: boolean;
+      short?: string;
+      default?: boolean;
+      /** What the flag does, in one sentence: `--help` and the docs show it. */
+      description?: string;
+    };

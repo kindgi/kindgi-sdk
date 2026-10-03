@@ -12,9 +12,15 @@ const list: LeafCommand = {
   description: 'List registered guardrails.',
   usage: 'kindgi guardrails list [--name=<prefix>] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
-    name: { type: 'string' },
-    limit: { type: 'string' },
-    cursor: { type: 'string' },
+    name: { type: 'string', description: 'Only the guardrails whose id starts with this prefix.' },
+    limit: {
+      type: 'string',
+      description: 'The most guardrails to return (default 25, at most 100).',
+    },
+    cursor: {
+      type: 'string',
+      description: "Resume after this cursor, from the previous page's `nextCursor`.",
+    },
   },
   run: (ctx) =>
     runSdk(ctx, 'guardrails list', async () => {
@@ -36,7 +42,7 @@ const list: LeafCommand = {
 const get: LeafCommand = {
   kind: 'leaf',
   name: 'get',
-  description: 'Fetch an guardrail by id.',
+  description: 'Fetch a guardrail by id.',
   usage: 'kindgi guardrails get <guardrail-id>',
   run: (ctx) =>
     runSdk(ctx, 'guardrails get', async () => {
@@ -48,9 +54,20 @@ const get: LeafCommand = {
 const register: LeafCommand = {
   kind: 'leaf',
   name: 'register',
-  description: 'Register an guardrail.',
+  description: 'Register a guardrail.',
   usage: 'kindgi guardrails register --spec=<json-or-@file> [--project=<project-id>]',
-  optionSpec: { spec: { type: 'string' }, project: { type: 'string' } },
+  optionSpec: {
+    spec: {
+      type: 'string',
+      description:
+        'The guardrail definition as JSON, or `@<file>` to read it from a file. Required.',
+    },
+    project: {
+      type: 'string',
+      description:
+        "The project to register the guardrail in, by id (default: the tenant's Default project).",
+    },
+  },
   run: (ctx) =>
     runSdk(ctx, 'guardrails register', async () => {
       const specText = stringFlag(ctx, 'spec');
@@ -64,7 +81,7 @@ const register: LeafCommand = {
 const unregister: LeafCommand = {
   kind: 'leaf',
   name: 'unregister',
-  description: 'Unregister an guardrail.',
+  description: 'Unregister a guardrail.',
   usage: 'kindgi guardrails unregister <guardrail-id>',
   run: (ctx) =>
     runSdk(ctx, 'guardrails unregister', async () => {

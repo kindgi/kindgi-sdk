@@ -86,9 +86,19 @@ const sync: LeafCommand = {
   description: 'Refresh .claude/skills/ from the CLI-bundled SDK skills.',
   usage: 'kindgi skills sync [--path=<dir>] [--force] [--dry-run]',
   optionSpec: {
-    path: { type: 'string' },
-    force: { type: 'boolean' },
-    'dry-run': { type: 'boolean' },
+    path: {
+      type: 'string',
+      description:
+        'The pack root, whose `.claude/skills/` is refreshed. Default: the current directory.',
+    },
+    force: {
+      type: 'boolean',
+      description: 'Overwrite skills you edited locally. By default they are kept.',
+    },
+    'dry-run': {
+      type: 'boolean',
+      description: 'Report what would change without writing anything.',
+    },
   },
   run: async (ctx): Promise<CommandResult> => {
     try {

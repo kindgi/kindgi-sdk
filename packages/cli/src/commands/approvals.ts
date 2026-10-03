@@ -32,9 +32,19 @@ const list: LeafCommand = {
   description: 'List the approvals your reviewer role can see.',
   usage: `kindgi approvals list [--status=${STATUSES.join('|')}] [--limit=<n>] [--cursor=<c>]`,
   optionSpec: {
-    status: { type: 'string' },
-    limit: { type: 'string' },
-    cursor: { type: 'string' },
+    status: {
+      type: 'string',
+      description:
+        'Only approvals in this status: `pending`, `assigned`, `in_review`, `approved`, `rejected`, `escalated`, `expired` or `withdrawn`.',
+    },
+    limit: {
+      type: 'string',
+      description: 'The most approvals to return (default 25, at most 100).',
+    },
+    cursor: {
+      type: 'string',
+      description: "Resume after this cursor, from the previous page's `nextCursor`.",
+    },
   },
   run: (ctx) =>
     runSdk(ctx, 'approvals list', async () => {
@@ -67,7 +77,13 @@ const complete: LeafCommand = {
   description:
     'Decide an approval. Approving or rejecting resumes the run that waits on it (and the flow it is a step of).',
   usage: `kindgi approvals complete <approval-id> --decision=${DECISIONS.join('|')} [--rationale=<text>]`,
-  optionSpec: { decision: { type: 'string' }, rationale: { type: 'string' } },
+  optionSpec: {
+    decision: {
+      type: 'string',
+      description: 'The decision: `approve`, `reject`, `escalate` or `withdraw`. Required.',
+    },
+    rationale: { type: 'string', description: 'Why, recorded with the decision.' },
+  },
   run: (ctx) =>
     runSdk(ctx, 'approvals complete', async () => {
       const id = requiredPositional(ctx, 0, 'approval-id') as ApprovalId;
