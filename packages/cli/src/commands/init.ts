@@ -19,7 +19,12 @@ import {
 } from '../init/dependency-specs.js';
 import { detectInitMode } from '../init/mode-detect.js';
 import { runInitPythonAugment } from '../init/python-augment.js';
-import { type Substitutions, collectTemplateFiles, substitute } from '../init/template-files.js';
+import {
+  type Substitutions,
+  collectTemplateFiles,
+  substitute,
+  templateTarget,
+} from '../init/template-files.js';
 import { renderJson } from '../output.js';
 import { binDisplay, detectPackageManager, installCommand } from '../package-manager.js';
 import { resolveSdkPackageRoot } from '../sdk-package.js';
@@ -431,8 +436,7 @@ async function scaffoldTemplate(inputs: {
   const written: string[] = [];
   for (const rel of files) {
     const src = join(inputs.templateDir, rel);
-    const targetRel = rel.endsWith('.tmpl') ? rel.slice(0, -'.tmpl'.length) : rel;
-    const dest = join(inputs.targetDir, targetRel);
+    const dest = join(inputs.targetDir, templateTarget(rel));
     await mkdir(dirname(dest), { recursive: true });
     if (rel.endsWith('.tmpl')) {
       const raw = await readFile(src, 'utf8');

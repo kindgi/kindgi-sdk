@@ -258,6 +258,31 @@ describe('kindgi init — sample template', () => {
     expect(echoTool).toContain("from '@kindgi/sdk/define'");
     expect(echoTool).toContain("from '@kindgi/sdk/types'");
   });
+
+  test('the sample guardrail types its inline check through @kindgi/sdk (TS2742 under pnpm otherwise)', async () => {
+    await runCli(baseInputs({ argv: ['init', 'my-pack', '--template=sample'] }));
+    const guardrail = await readFile(
+      join(cwd, 'my-pack', 'guardrails/response-not-empty/index.ts'),
+      'utf8',
+    );
+    // Inferred, the check's type names @kindgi/guardrails, which a pnpm
+    // pack can't reach: `tsc` with `declaration: true` refuses it.
+    expect(guardrail).toContain(
+      "import { type DefinedCheck, defineCheck } from '@kindgi/sdk/define'",
+    );
+    expect(guardrail).toContain('const inlineCheck: InlineCheck = {');
+    expect(guardrail).toContain('  check: inlineCheck,');
+    // The pack depends on @kindgi/sdk and zod only: no file imports anything else.
+    const primitives = (await listRecursive(join(cwd, 'my-pack'))).filter(
+      (f) => /^(agents|flows|guardrails|tools)\//.test(f) && f.endsWith('.ts'),
+    );
+    for (const file of primitives) {
+      const source = await readFile(join(cwd, 'my-pack', file), 'utf8');
+      for (const [, specifier] of source.matchAll(/from '([^']+)'/g)) {
+        expect(specifier, file).toMatch(/^(@kindgi\/sdk\/[a-z]+|zod|vitest|\.{1,2}\/.*)$/);
+      }
+    }
+  });
 });
 
 describe('kindgi init — path + force flags', () => {

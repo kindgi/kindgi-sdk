@@ -7,7 +7,7 @@
 // `kind` at the top level; the runtime registers the inline check at
 // boot.
 
-import { defineCheck } from '@kindgi/sdk/define';
+import { type DefinedCheck, defineCheck } from '@kindgi/sdk/define';
 import { z } from 'zod';
 
 const ConfigSchema = z.object({
@@ -31,15 +31,23 @@ const check = defineCheck({
   },
 });
 
+// The check as the runtime registers it, typed with the SDK's
+// `DefinedCheck`. Left to inference, its type would name
+// `@kindgi/guardrails`, which the pack reaches only through
+// `@kindgi/sdk` — `tsc` then stops with TS2742 (`declaration: true`).
+type InlineCheck = Pick<DefinedCheck<typeof ConfigSchema>, 'id' | 'evaluate' | 'validateConfig'>;
+
+const inlineCheck: InlineCheck = {
+  id: check.id,
+  evaluate: check.evaluate,
+  ...(check.validateConfig !== undefined && { validateConfig: check.validateConfig }),
+};
+
 const guardrail = {
   id: '{{PACK_ID}}.response-not-empty',
   name: 'Response is non-empty',
   kind: 'zero-llm' as const,
-  check: {
-    id: check.id,
-    evaluate: check.evaluate,
-    ...(check.validateConfig !== undefined && { validateConfig: check.validateConfig }),
-  },
+  check: inlineCheck,
   configSchema: check.configJsonSchema,
   action: { 'on-violation': 'halt' } as const,
   severity: 'error' as const,

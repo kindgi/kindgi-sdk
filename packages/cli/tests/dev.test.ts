@@ -385,6 +385,16 @@ function baseInputs(
   };
 }
 
+/** Collect what `kindgi dev` writes live to stderr; `restore` puts stderr back. */
+function captureStderr(): { readonly writes: string[]; restore(): void } {
+  const writes: string[] = [];
+  const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+    writes.push(String(chunk));
+    return true;
+  });
+  return { writes, restore: () => spy.mockRestore() };
+}
+
 // ---------- tests ----------
 
 describe('kindgi dev — argument validation', () => {
@@ -765,11 +775,11 @@ describe('kindgi dev — boot flow (no watch)', () => {
     );
   });
 
-  test('emits JSON summary to stdout with server + boot report', async () => {
+  test('--json: a JSON summary on stdout with server + boot report', async () => {
     const fixtures = makeFixtures();
     const out = await runCli({
       ...baseInputs(fixtures),
-      argv: ['dev', '--no-watch', `--path=${packDir}`],
+      argv: ['dev', '--no-watch', '--json', `--path=${packDir}`],
     });
     const parsed = JSON.parse(out.stdout) as {
       readonly apiUrl?: string;
@@ -780,6 +790,22 @@ describe('kindgi dev — boot flow (no watch)', () => {
     expect(parsed.tenantId).toBe('tenant-abc');
     expect(parsed.boot?.ok).toBe(true);
     expect(parsed.boot?.counts).toEqual({ tools: 1, guardrails: 1, agents: 1, flows: 1 });
+  });
+
+  test('without --json or --raw, stdout stays empty: the output is for people', async () => {
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['dev', '--no-watch', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(0);
+    expect(out.stdout).toBe('');
+    expect(out.stderr).toContain('--no-watch: single boot + register cycle complete.');
+    const raw = await runCli({
+      ...baseInputs(makeFixtures()),
+      argv: ['dev', '--no-watch', '--raw', `--path=${packDir}`],
+    });
+    expect(JSON.parse(raw.stdout)).toMatchObject({ boot: { ok: true } });
   });
 
   test('dev-echo is a provider like any other — there is no flag for it', async () => {
@@ -942,7 +968,7 @@ describe('kindgi dev — watch flow', () => {
     });
     const promise = runCli({
       ...baseInputs(fixtures, { stopSignal: controller.signal }),
-      argv: ['dev', `--path=${packDir}`],
+      argv: ['dev', '--json', `--path=${packDir}`],
     });
     await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2));
     fixtures.triggerChange();
@@ -986,7 +1012,7 @@ describe('kindgi dev — watch flow', () => {
     };
     const promise = runCli({
       ...baseInputs(fixtures, { stopSignal: controller.signal, devRunners }),
-      argv: ['dev', `--path=${packDir}`],
+      argv: ['dev', '--json', `--path=${packDir}`],
     });
     await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2));
     fixtures.triggerChange();
@@ -1006,6 +1032,96 @@ describe('kindgi dev — watch flow', () => {
     expect(parsed.lastWatch?.ok).toBe(true);
   });
 
+  test('Ctrl+C prints one "stopped" line: no boot banner again, no JSON', async () => {
+    const controller = new AbortController();
+    const fixtures = makeFixtures({
+      outcomes: [
+        { kind: 'err', code: 'discovery-empty', message: 'Indexer discovered zero files' },
+      ],
+    });
+    const { writes, restore } = captureStderr();
+    let out: Awaited<ReturnType<typeof runCli>>;
+    try {
+      const promise = runCli({
+        ...baseInputs(fixtures, { stopSignal: controller.signal }),
+        argv: ['dev', `--path=${packDir}`],
+      });
+      await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2));
+      writes.length = 0;
+      controller.abort();
+      out = await promise;
+    } finally {
+      restore();
+    }
+    expect(out.exitCode).toBe(0);
+    expect(out.stdout).toBe('');
+    expect(out.stderr).toBe('');
+    expect(writes.join('')).toBe('  Stopping kindgi dev... stopped.\n');
+    expect(fixtures.server.shutdownCount).toBe(1);
+  });
+
+  test('a line printed while stopping starts on its own line', async () => {
+    const controller = new AbortController();
+    const fixtures = makeFixtures();
+    let releaseTick: (() => void) | undefined;
+    const runIndexer = fixtures.runners.runIndexer;
+    const devRunners: DevRunners = {
+      ...fixtures.runners,
+      runIndexer: async (dir, out, opts) => {
+        if (fixtures.captureIndexerCalls.length === 0) return runIndexer(dir, out, opts);
+        const outcome = await runIndexer(dir, out, opts);
+        await new Promise<void>((resolve) => {
+          releaseTick = resolve;
+        });
+        return outcome;
+      },
+    };
+    const { writes, restore } = captureStderr();
+    try {
+      const promise = runCli({
+        ...baseInputs(fixtures, { stopSignal: controller.signal, devRunners }),
+        argv: ['dev', `--path=${packDir}`],
+      });
+      await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2));
+      fixtures.triggerChange();
+      await vi.waitFor(() => expect(releaseTick).toBeDefined());
+      writes.length = 0;
+      controller.abort();
+      await new Promise((r) => setTimeout(r, 20));
+      releaseTick?.();
+      await promise;
+    } finally {
+      restore();
+    }
+    const log = writes.join('');
+    expect(log.startsWith('  Stopping kindgi dev...\n  ')).toBe(true);
+    expect(log).toContain('✓ loaded');
+    expect(log.endsWith('  kindgi dev stopped.\n')).toBe(true);
+  });
+
+  test('--json in watch mode: the summary reports an empty pack as ok, not as an indexer error', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const fixtures = makeFixtures({
+      outcomes: [
+        { kind: 'err', code: 'discovery-empty', message: 'Indexer discovered zero files' },
+      ],
+    });
+    const out = await runCli({
+      ...baseInputs(fixtures, { stopSignal: controller.signal }),
+      argv: ['dev', '--json', `--path=${packDir}`],
+    });
+    const parsed = JSON.parse(out.stdout) as Record<string, unknown>;
+    expect(parsed.boot).toEqual({
+      ok: true,
+      empty: true,
+      counts: { tools: 0, guardrails: 0, agents: 0, flows: 0 },
+      registered: 0,
+      failed: [],
+    });
+    expect(out.stderr).toBe('');
+  });
+
   test('pre-aborted stopSignal shuts down immediately without a watch tick', async () => {
     const controller = new AbortController();
     controller.abort();
@@ -1021,6 +1137,55 @@ describe('kindgi dev — watch flow', () => {
     expect(fixtures.captureWatchCalls).toHaveLength(2);
     expect(fixtures.watchHandle.closeCount).toBe(2);
     expect(fixtures.server.shutdownCount).toBe(1);
+  });
+});
+
+describe("kindgi dev — the runtime's pack-service warning", () => {
+  const WARNING =
+    "  ⚠ Pack service at http://127.0.0.1:50523 isn't answering (pack-service-unavailable: The pack service is busy or draining). The server is up; pack tools and checks fail until it answers.";
+
+  /** Boot with a runtime that prints `WARNING`, as the runtime's boot probe does. */
+  async function bootWith(outcome: IndexResult): Promise<string> {
+    const fixtures = makeFixtures({ outcomes: [outcome] });
+    const devRunners: DevRunners = {
+      ...fixtures.runners,
+      startApiServer: async (opts) => {
+        opts.onLog?.('Kindgi API server listening on http://localhost:4000');
+        opts.onLog?.(WARNING);
+        return fixtures.server;
+      },
+    };
+    const { writes, restore } = captureStderr();
+    try {
+      await runCli({
+        ...baseInputs(fixtures, { devRunners }),
+        argv: ['dev', '--no-watch', `--path=${packDir}`],
+      });
+    } finally {
+      restore();
+    }
+    return writes.join('');
+  }
+
+  test('a pack with no primitives yet: the output says there are none yet', async () => {
+    await writeFile(
+      join(packDir, 'kindgi.config.ts'),
+      "export default { pack: { id: 'my-pack', version: '0.1.0' }, discovery: { tools: 'kindgi/tools/**/*.ts' } };\n",
+      'utf8',
+    );
+    const log = await bootWith({
+      kind: 'err',
+      code: 'discovery-empty',
+      message: 'Indexer discovered zero files',
+    });
+    expect(log).toContain('[runtime] Kindgi API server listening');
+    expect(log).toContain('  No primitives yet — add a tool or agent under ');
+    expect(log).toContain('kindgi/tools/; it registers on save.');
+  });
+
+  test('a pack with primitives whose service is down: the warning stays', async () => {
+    const log = await bootWith(defaultHappyOutcome());
+    expect(log).toContain(`[runtime] ${WARNING}`);
   });
 });
 

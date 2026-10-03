@@ -18,9 +18,11 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { defaultTemplatesRoot } from '../src/commands/init.js';
 import { detectSkillDrift } from '../src/commands/skills.js';
 import {
+  ZOD_DEPENDENCY,
   derivePackId,
   renderAugmentConfig,
   runInitAugment,
+  zodWarnings,
 } from '../src/init/augment-scaffolder.js';
 
 let root: string;
@@ -423,7 +425,7 @@ describe('runInitAugment — the sample template', () => {
       name: 'my-app',
       version: '1.0.0',
       type: 'module',
-      dependencies: { zod: '^3.25.0' },
+      dependencies: { zod: '^4.1.0' },
     });
     await runInitAugment({
       targetDir: root,
@@ -433,7 +435,7 @@ describe('runInitAugment — the sample template', () => {
       templatesRoot,
     });
     const pkg = JSON.parse(await fileContents(join(root, 'package.json')));
-    expect(pkg.dependencies.zod).toBe('^3.25.0');
+    expect(pkg.dependencies.zod).toBe('^4.1.0');
   });
 
   test('a primitive already there is kept unless --force', async () => {
@@ -451,11 +453,154 @@ describe('runInitAugment — the sample template', () => {
     expect(await fileContents(mine)).toBe('// mine\n');
   });
 
-  test('the minimal template (the default) adds no primitives and no Zod', async () => {
+  test('the minimal template (the default) adds no primitives, and Zod all the same', async () => {
     await writePkgJson(root, { name: 'my-app', version: '1.0.0', type: 'module' });
     await runInitAugment({ targetDir: root, skillsRoot, force: false, templatesRoot });
     expect(await exists(join(root, 'kindgi', 'tools', 'echo', 'index.ts'))).toBe(false);
     const pkg = JSON.parse(await fileContents(join(root, 'package.json')));
-    expect(pkg.dependencies?.zod).toBeUndefined();
+    expect(pkg.dependencies?.zod).toBe('^4.0.0');
+  });
+});
+
+describe('runInitAugment — Zod', () => {
+  async function initWith(pkg: Record<string, unknown>) {
+    await writePkgJson(root, { name: 'my-app', version: '1.0.0', ...pkg });
+    const result = await runInitAugment({ targetDir: root, skillsRoot, force: false });
+    if (result.kind !== 'ok') throw new Error(result.stderr);
+    const summary = JSON.parse(result.rendered.stdout) as {
+      created: string[];
+      warnings: string[];
+    };
+    const written = JSON.parse(await fileContents(join(root, 'package.json')));
+    return { result, summary, written };
+  }
+
+  test("an app without Zod gets the fresh templates' range", async () => {
+    const { summary, written } = await initWith({});
+    expect(written.dependencies.zod).toBe('^4.0.0');
+    expect(summary.created.join('\n')).toContain('+zod');
+    expect(summary.warnings).toEqual([]);
+  });
+
+  test('the range is the one the fresh templates use', async () => {
+    for (const template of ['minimal', 'sample']) {
+      const raw = await fileContents(join(defaultTemplatesRoot(), template, 'package.json.tmpl'));
+      expect(JSON.parse(raw).dependencies.zod, template).toBe(ZOD_DEPENDENCY.spec);
+    }
+  });
+
+  test('an app on zod 4 keeps its own, without a warning', async () => {
+    const { summary, written } = await initWith({ devDependencies: { zod: '~4.1.0' } });
+    expect(written.devDependencies.zod).toBe('~4.1.0');
+    expect(written.dependencies.zod).toBeUndefined();
+    expect(summary.warnings).toEqual([]);
+  });
+
+  test('an app on zod 3 keeps it, and init says Kindgi needs zod 4', async () => {
+    const { result, summary, written } = await initWith({ dependencies: { zod: '^3.25.0' } });
+    expect(written.dependencies.zod).toBe('^3.25.0');
+    expect(summary.warnings).toHaveLength(1);
+    expect(summary.warnings[0]).toContain('zod ^3.25.0');
+    expect(summary.warnings[0]).toContain('zod 4');
+    if (result.kind === 'ok')
+      expect(result.rendered.stderr).toContain('  ⚠ zod: the app has zod ^3.25.0');
+  });
+
+  test('a spec that is not a semver range is taken on trust', () => {
+    expect(zodWarnings({ dependencies: { zod: 'catalog:' } })).toEqual([]);
+    expect(zodWarnings({ dependencies: { zod: '>=3.20.0' } })).toEqual([]);
+    expect(zodWarnings({ peerDependencies: { zod: '3.22.4' } })).toHaveLength(1);
+  });
+});
+
+describe('runInitAugment — pnpm-workspace.yaml', () => {
+  async function initPnpm(packageManager: 'pnpm' | 'npm' = 'pnpm') {
+    await writePkgJson(root, { name: 'my-app', version: '1.0.0' });
+    const result = await runInitAugment({
+      targetDir: root,
+      skillsRoot,
+      force: false,
+      packageManager,
+      dependencySpecs: { source: 'published', sdk: '0.1.0', cli: '0.1.0' },
+    });
+    if (result.kind !== 'ok') throw new Error(result.stderr);
+    return {
+      result,
+      summary: JSON.parse(result.rendered.stdout) as {
+        created: string[];
+        skipped: string[];
+        warnings: string[];
+      },
+    };
+  }
+  const workspaceFile = () => join(root, 'pnpm-workspace.yaml');
+
+  test('a pnpm app without the file gets one allowing esbuild, reported like the other edits', async () => {
+    const { summary } = await initPnpm();
+    expect(await fileContents(workspaceFile())).toContain('allowBuilds:\n  esbuild: true\n');
+    expect(summary.created).toContain(`${workspaceFile()} (created: allowBuilds.esbuild: true)`);
+    expect(summary.warnings).toEqual([]);
+  });
+
+  test("an existing file is merged: the app's keys and comments stay", async () => {
+    const before =
+      '# Our workspace\nallowBuilds:\n  sharp: false # prebuilt\nnodeLinker: hoisted\n';
+    await writeFile(workspaceFile(), before, 'utf8');
+    const { summary } = await initPnpm();
+    expect(await fileContents(workspaceFile())).toBe(
+      '# Our workspace\nallowBuilds:\n  sharp: false # prebuilt\n  esbuild: true\nnodeLinker: hoisted\n',
+    );
+    expect(summary.created).toContain(`${workspaceFile()} (patched: +allowBuilds.esbuild: true)`);
+  });
+
+  test("pnpm's placeholder is replaced", async () => {
+    await writeFile(
+      workspaceFile(),
+      'allowBuilds:\n  esbuild: set this to true or false\n',
+      'utf8',
+    );
+    const { summary } = await initPnpm();
+    expect(await fileContents(workspaceFile())).toBe('allowBuilds:\n  esbuild: true\n');
+    expect(summary.created.join('\n')).toContain("replacing pnpm's placeholder");
+  });
+
+  test('an explicit false is left alone, with a warning', async () => {
+    await writeFile(workspaceFile(), 'allowBuilds:\n  esbuild: false\n', 'utf8');
+    const { result, summary } = await initPnpm();
+    expect(await fileContents(workspaceFile())).toBe('allowBuilds:\n  esbuild: false\n');
+    expect(summary.skipped).toContain(
+      `${workspaceFile()} (allowBuilds.esbuild is false, left as is)`,
+    );
+    expect(summary.warnings.join('\n')).toContain('sets allowBuilds.esbuild to false');
+    if (result.kind === 'ok') expect(result.rendered.stderr).toContain('  ⚠ pnpm: ');
+  });
+
+  test('a file it cannot edit safely is left alone; the warning says what to add', async () => {
+    await writeFile(workspaceFile(), 'allowBuilds: [esbuild]\n', 'utf8');
+    const { summary } = await initPnpm();
+    expect(await fileContents(workspaceFile())).toBe('allowBuilds: [esbuild]\n');
+    expect(summary.warnings.join('\n')).toContain('ERR_PNPM_IGNORED_BUILDS');
+  });
+
+  test("an app in a pnpm monorepo: the workspace root's file is the one edited", async () => {
+    const app = join(root, 'apps', 'web');
+    await mkdir(app, { recursive: true });
+    await writeFile(workspaceFile(), "packages:\n  - 'apps/*'\n", 'utf8');
+    await writePkgJson(app, { name: 'web', version: '1.0.0' });
+    const result = await runInitAugment({
+      targetDir: app,
+      skillsRoot,
+      force: false,
+      packageManager: 'pnpm',
+      dependencySpecs: { source: 'published', sdk: '0.1.0', cli: '0.1.0' },
+    });
+    expect(result.kind).toBe('ok');
+    expect(await fileContents(workspaceFile())).toContain('  esbuild: true\n');
+    expect(await exists(join(app, 'pnpm-workspace.yaml'))).toBe(false);
+  });
+
+  test('an app on another package manager gets no pnpm-workspace.yaml', async () => {
+    await initPnpm('npm');
+    expect(await exists(workspaceFile())).toBe(false);
   });
 });

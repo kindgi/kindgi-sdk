@@ -42,6 +42,12 @@ export interface GlobalFlags {
   readonly help: boolean;
   readonly version: boolean;
   readonly format: OutputFormat;
+  /**
+   * The caller named the format (`--json`, `--table`, `--raw` or
+   * `--quiet`); `false` when `format` is the default. A command whose
+   * output is for people (`kindgi dev`) prints JSON only when asked.
+   */
+  readonly formatRequested: boolean;
 }
 
 export interface CommandParse {
@@ -105,6 +111,7 @@ export function parseCommand(
     help: values.help === true,
     version: values.version === true,
     format,
+    formatRequested: [values.json, values.table, values.raw, values.quiet].includes(true),
     ...(typeof values.url === 'string' ? { url: values.url } : {}),
     ...(typeof values.token === 'string' ? { token: values.token } : {}),
   };

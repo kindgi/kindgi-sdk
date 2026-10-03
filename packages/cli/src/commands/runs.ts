@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import type { Run, RunPage } from '@kindgi/client';
 import type { AgentId, FlowId, RunId } from '@kindgi/types';
 
 import { renderJson } from '../output.js';
 import {
+  type TableSpec,
   readJsonInput,
   requiredPositional,
   runSdk,
@@ -12,6 +14,17 @@ import {
   stringFlag,
 } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
+
+/** `runs list --table`. */
+const RUNS_TABLE: TableSpec<RunPage, Run> = {
+  rows: (page) => page.data,
+  columns: [
+    { header: 'ID', get: (run) => String(run.id) },
+    { header: 'STATUS', get: (run) => run.status },
+    { header: 'FLOW', get: (run) => run.flowId },
+    { header: 'CREATED', get: (run) => String(run.createdAt) },
+  ],
+};
 
 const list: LeafCommand = {
   kind: 'leaf',
@@ -29,18 +42,23 @@ const list: LeafCommand = {
     },
   },
   run: (ctx) =>
-    runSdk(ctx, 'runs list', async () => {
-      const cursor = stringFlag(ctx, 'cursor');
-      const limitStr = stringFlag(ctx, 'limit');
-      const limit = limitStr !== undefined ? Number.parseInt(limitStr, 10) : undefined;
-      if (limit !== undefined && Number.isNaN(limit)) {
-        throw new Error(`--limit must be an integer, got "${limitStr}"`);
-      }
-      return await ctx.client().runs.list({
-        ...(cursor !== undefined && { cursor: cursor as never }),
-        ...(limit !== undefined && { limit }),
-      });
-    }),
+    runSdk(
+      ctx,
+      'runs list',
+      async () => {
+        const cursor = stringFlag(ctx, 'cursor');
+        const limitStr = stringFlag(ctx, 'limit');
+        const limit = limitStr !== undefined ? Number.parseInt(limitStr, 10) : undefined;
+        if (limit !== undefined && Number.isNaN(limit)) {
+          throw new Error(`--limit must be an integer, got "${limitStr}"`);
+        }
+        return await ctx.client().runs.list({
+          ...(cursor !== undefined && { cursor: cursor as never }),
+          ...(limit !== undefined && { limit }),
+        });
+      },
+      RUNS_TABLE,
+    ),
 };
 
 const get: LeafCommand = {
