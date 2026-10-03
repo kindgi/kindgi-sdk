@@ -11,15 +11,28 @@ import type { OutputFormat } from './output.js';
  * on parse.
  */
 export const GLOBAL_OPTION_SPEC = {
-  url: { type: 'string' as const },
-  token: { type: 'string' as const },
-  verbose: { type: 'boolean' as const, short: 'v' as const },
-  help: { type: 'boolean' as const, short: 'h' as const },
-  version: { type: 'boolean' as const },
-  json: { type: 'boolean' as const },
-  table: { type: 'boolean' as const },
-  raw: { type: 'boolean' as const },
-  quiet: { type: 'boolean' as const },
+  url: {
+    type: 'string' as const,
+    description: "The Kindgi API's URL. Overrides `KINDGI_API_URL` and the config files.",
+  },
+  token: {
+    type: 'string' as const,
+    description: 'The API token. Overrides `KINDGI_API_TOKEN` and the config files.',
+  },
+  verbose: {
+    type: 'boolean' as const,
+    short: 'v' as const,
+    description: 'Show more detail when a command fails.',
+  },
+  help: { type: 'boolean' as const, short: 'h' as const, description: 'Show help.' },
+  version: { type: 'boolean' as const, description: "Print the CLI's version." },
+  json: { type: 'boolean' as const, description: 'Output pretty-printed JSON (the default).' },
+  table: { type: 'boolean' as const, description: 'Output a table, for commands that list.' },
+  raw: { type: 'boolean' as const, description: 'Output compact, one-line JSON.' },
+  quiet: {
+    type: 'boolean' as const,
+    description: 'Print nothing: the exit code alone reports the result.',
+  },
 } as const;
 
 export interface GlobalFlags {
@@ -60,10 +73,15 @@ export function parseCommand(
       ? `${token}=`
       : token;
   });
+  // `parseArgs` takes only its own keys: drop the description and the
+  // optional-value marker.
   const options = Object.fromEntries(
     Object.entries(merged).map(([name, spec]) => {
-      if (spec.type !== 'string') return [name, spec];
-      const { optionalValue: _optional, ...rest } = spec;
+      if (spec.type !== 'string') {
+        const { description: _description, ...rest } = spec;
+        return [name, rest];
+      }
+      const { optionalValue: _optional, description: _description, ...rest } = spec;
       return [name, rest];
     }),
   );
@@ -107,8 +125,15 @@ type ParseArgsOption =
       default?: string;
       /** See `commands/types.ts`. */
       optionalValue?: boolean;
+      description?: string;
     }
-  | { type: 'boolean'; multiple?: boolean; short?: string; default?: boolean };
+  | {
+      type: 'boolean';
+      multiple?: boolean;
+      short?: string;
+      default?: boolean;
+      description?: string;
+    };
 
 function pickFormat(json: boolean, table: boolean, raw: boolean, quiet: boolean): OutputFormat {
   if (quiet) return 'quiet';

@@ -21,7 +21,13 @@ const list: LeafCommand = {
   name: 'list',
   description: 'List registered agents.',
   usage: 'kindgi agents list [--limit=<n>] [--cursor=<c>]',
-  optionSpec: { limit: { type: 'string' }, cursor: { type: 'string' } },
+  optionSpec: {
+    limit: { type: 'string', description: 'The most agents to return.' },
+    cursor: {
+      type: 'string',
+      description: "Resume after this cursor, from the previous page's `nextCursor`.",
+    },
+  },
   run: (ctx) => runSdk(ctx, 'agents list', async () => throwUnwired('agents.list')),
 };
 
@@ -42,7 +48,17 @@ const publish: LeafCommand = {
   name: 'publish',
   description: 'Register an agent definition.',
   usage: 'kindgi agents publish --spec=<json-or-@file> [--project=<project-id>]',
-  optionSpec: { spec: { type: 'string' }, project: { type: 'string' } },
+  optionSpec: {
+    spec: {
+      type: 'string',
+      description: 'The agent definition as JSON, or `@<file>` to read it from a file. Required.',
+    },
+    project: {
+      type: 'string',
+      description:
+        "The project to register the agent in, by id (default: the tenant's Default project).",
+    },
+  },
   run: (ctx) =>
     runSdk(ctx, 'agents publish', async () => {
       const specText = stringFlag(ctx, 'spec');
@@ -59,7 +75,9 @@ const unregister: LeafCommand = {
   name: 'unregister',
   description: 'Unregister a specific agent version.',
   usage: 'kindgi agents unregister <agent-id> --version=<semver>',
-  optionSpec: { version: { type: 'string' } },
+  optionSpec: {
+    version: { type: 'string', description: 'The agent version to unregister (semver).' },
+  },
   run: (ctx) =>
     runSdk(ctx, 'agents unregister', async () => {
       requiredPositional(ctx, 0, 'agent-id');

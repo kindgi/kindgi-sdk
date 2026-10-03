@@ -71,31 +71,106 @@ export const deployCommand: LeafCommand = {
     '[--signing-key <path>] [--signer-key-id <id>] [--registry-push-creds <ref>] ' +
     '[--skip-integrity-gate] [--skip-image-pull] [--skip-sign] [--path <dir>]',
   optionSpec: {
-    env: { type: 'string' },
-    'from-envelope': { type: 'string' },
-    endpoint: { type: 'string' },
-    tenant: { type: 'string' },
-    'idempotency-key': { type: 'string' },
-    'dry-run': { type: 'boolean' },
+    env: {
+      type: 'string',
+      description:
+        'The environment: its block in `kindgi.config.ts` and its `.env.<name>` file. Default: `staging`.',
+    },
+    'from-envelope': {
+      type: 'string',
+      description:
+        'The envelope to deploy. Default: `deploy-envelope.json` in `--out`; when there is none, `kindgi build` runs first.',
+    },
+    endpoint: {
+      type: 'string',
+      description:
+        "The API to deploy to. Default: the env block's `endpoint`, else the CLI's API URL (`--url`, `KINDGI_API_URL`, config files).",
+    },
+    tenant: {
+      type: 'string',
+      description:
+        'Refuse unless the envelope was signed for this tenant (checked before sending). Also passed to an inline build.',
+    },
+    'idempotency-key': {
+      type: 'string',
+      description:
+        'The `Idempotency-Key` header. Default: a hash of the request body, so the same image deployed again returns the same deployment.',
+    },
+    'dry-run': {
+      type: 'boolean',
+      description:
+        'Print the equivalent `curl` request instead of sending it. A missing envelope is still built first.',
+    },
     // Opt-in post-deploy secret sync. Default OFF: regulated
     // verticals rotate secrets on a separate cadence.
-    'sync-secrets': { type: 'boolean' },
+    'sync-secrets': {
+      type: 'boolean',
+      description:
+        "After the deploy lands, also send the values in `.env.<env>` to the deployment's secrets. Off by default.",
+    },
     // Deploy although a name the pack's env.required declares has no
     // value for --env (the pack service won't be ready until it has).
-    'allow-missing-env': { type: 'boolean' },
+    'allow-missing-env': {
+      type: 'boolean',
+      description:
+        "Deploy, with a warning, even when a name in the pack's `env.required` has no value for `--env`.",
+    },
     // Pass-through build flags for inline-build fallback.
-    target: { type: 'string' },
-    'build-endpoint': { type: 'string' },
-    out: { type: 'string' },
-    'artifact-version': { type: 'string' },
-    'published-at': { type: 'string' },
-    'signing-key': { type: 'string' },
-    'signer-key-id': { type: 'string' },
-    'registry-push-creds': { type: 'string' },
-    'skip-integrity-gate': { type: 'boolean' },
-    'skip-image-pull': { type: 'boolean' },
-    'skip-sign': { type: 'boolean' },
-    path: { type: 'string' },
+    target: {
+      type: 'string',
+      description:
+        "For an inline build: the build target. Default: the env block's `buildTarget`, else the env name.",
+    },
+    'build-endpoint': {
+      type: 'string',
+      description:
+        "For an inline build: the build server (`kindgi build --endpoint`). Default: the env block's `build`.",
+    },
+    out: {
+      type: 'string',
+      description:
+        'Where the envelope is looked for, and an inline build writes. Default: `.kindgi/build` under the pack root.',
+    },
+    'artifact-version': {
+      type: 'string',
+      description:
+        "For an inline build: the artifact version. Default: today's date as `YYYYMMDD.1` (UTC).",
+    },
+    'published-at': {
+      type: 'string',
+      description: 'For an inline build: the publish time (ISO 8601). Default: the Unix epoch.',
+    },
+    'signing-key': {
+      type: 'string',
+      description:
+        "For an inline build: the Ed25519 private key (PEM) to sign with. Default: the env block's `signingKey`.",
+    },
+    'signer-key-id': {
+      type: 'string',
+      description:
+        "For an inline build: the key id the signature names. Default: the env block's `signerKeyId`, else the key file's name.",
+    },
+    'registry-push-creds': {
+      type: 'string',
+      description:
+        'For an inline build: a reference to the registry push credentials for the build server to use.',
+    },
+    'skip-integrity-gate': {
+      type: 'boolean',
+      description:
+        "For an inline build: sign without checking the image's index against the local one.",
+    },
+    'skip-image-pull': {
+      type: 'boolean',
+      description:
+        "For an inline build: check the image's index by hash only, without pulling the image.",
+    },
+    'skip-sign': {
+      type: 'boolean',
+      description:
+        'For an inline build: write an unsigned envelope, which the deploy then refuses unless `--dry-run`.',
+    },
+    path: { type: 'string', description: 'The pack root. Default: the current directory.' },
   },
   run: async (ctx): Promise<CommandResult> => runDeploy(ctx),
 };

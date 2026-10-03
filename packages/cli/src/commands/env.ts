@@ -179,10 +179,25 @@ const listCmd: LeafCommand = {
   description: 'List resolved env values for the target env (merges config + .env.<envName>).',
   usage: 'kindgi env list [--env <name>] [--reveal] [--force-reveal] [--path <dir>]',
   optionSpec: {
-    env: { type: 'string' },
-    reveal: { type: 'boolean' },
-    'force-reveal': { type: 'boolean' },
-    path: { type: 'string' },
+    env: {
+      type: 'string',
+      description:
+        "The environment: `local` is the project's own env files, any other name its `.env.<name>`. Default: `staging`.",
+    },
+    reveal: {
+      type: 'boolean',
+      description:
+        "Print the values instead of redacting them. Refused when stdout isn't a terminal (a file, a pipe), unless `--force-reveal` is also given.",
+    },
+    'force-reveal': {
+      type: 'boolean',
+      description:
+        "With `--reveal`, print the values even when stdout isn't a terminal (a file, a pipe, CI).",
+    },
+    path: {
+      type: 'string',
+      description: 'The pack root, where the env files are. Default: the current directory.',
+    },
   },
   run: async (ctx): Promise<CommandResult> => {
     const runnersOutcome = pickRunners(ctx);
@@ -308,9 +323,20 @@ const setCmd: LeafCommand = {
   description: 'Set a KEY=VALUE in .env.<envName>. Refuses to overwrite unless --force.',
   usage: 'kindgi env set <KEY> <VALUE> [--env <name>] [--force] [--path <dir>]',
   optionSpec: {
-    env: { type: 'string' },
-    force: { type: 'boolean' },
-    path: { type: 'string' },
+    env: {
+      type: 'string',
+      description:
+        "The environment: `local` is the project's own env files, any other name its `.env.<name>`. Default: `staging`.",
+    },
+    force: {
+      type: 'boolean',
+      description:
+        'Change a key an env file already sets: overwrite it, or override a lower-precedence file. By default `set` refuses.',
+    },
+    path: {
+      type: 'string',
+      description: 'The pack root, where the env files are. Default: the current directory.',
+    },
   },
   run: async (ctx): Promise<CommandResult> => {
     const key = ctx.positionals[0];
@@ -431,8 +457,15 @@ const unsetCmd: LeafCommand = {
   description: 'Remove KEY from .env.<envName>. Idempotent — no error if the key is absent.',
   usage: 'kindgi env unset <KEY> [--env <name>] [--path <dir>]',
   optionSpec: {
-    env: { type: 'string' },
-    path: { type: 'string' },
+    env: {
+      type: 'string',
+      description:
+        "The environment: `local` is the project's own env files, any other name its `.env.<name>`. Default: `staging`.",
+    },
+    path: {
+      type: 'string',
+      description: 'The pack root, where the env files are. Default: the current directory.',
+    },
   },
   run: async (ctx): Promise<CommandResult> => {
     const key = ctx.positionals[0];
@@ -537,10 +570,24 @@ const pullCmd: LeafCommand = {
     'Fetch remote env values via /v1/env/* and merge into .env.<envName>. Requires --scope.',
   usage: 'kindgi env pull [--env <name>] --scope=<kind>[:id] [--path <dir>] [--overwrite-existing]',
   optionSpec: {
-    env: { type: 'string' },
-    path: { type: 'string' },
-    scope: { type: 'string' },
-    'overwrite-existing': { type: 'boolean' },
+    env: {
+      type: 'string',
+      description:
+        "The environment to pull, written to its `.env.<name>` (`local`: the project's own env files). Default: `staging`.",
+    },
+    path: {
+      type: 'string',
+      description: 'The pack root, where the env files are. Default: the current directory.',
+    },
+    scope: {
+      type: 'string',
+      description:
+        'Whose values to pull: `tenant`, `org:<orgId>` or `project:<projectId>`. Required.',
+    },
+    'overwrite-existing': {
+      type: 'boolean',
+      description: 'Replace keys an env file already sets. By default they are skipped.',
+    },
   },
   run: async (ctx): Promise<CommandResult> => {
     const runnersOutcome = pickRunners(ctx);
@@ -711,11 +758,28 @@ const initCmd: LeafCommand = {
   usage:
     'kindgi env init [--secrets-backend=<none|postgres|secret-manager>] [--kms=<gcp|aws|libsodium|vault>] [--out=<path>] [--force] [--non-interactive]',
   optionSpec: {
-    'secrets-backend': { type: 'string' as const },
-    kms: { type: 'string' as const },
-    out: { type: 'string' as const },
-    force: { type: 'boolean' as const },
-    'non-interactive': { type: 'boolean' as const },
+    'secrets-backend': {
+      type: 'string' as const,
+      description:
+        "The deployment's secrets backend: `none`, `postgres` or `secret-manager`. Asked for when omitted on a terminal.",
+    },
+    kms: {
+      type: 'string' as const,
+      description:
+        'The KMS for the `postgres` or `secret-manager` backend: `gcp`, `aws`, `libsodium` or `vault`. Asked for when needed and omitted.',
+    },
+    out: {
+      type: 'string' as const,
+      description: 'Where to write the file. Default: `.env.example` in the current directory.',
+    },
+    force: {
+      type: 'boolean' as const,
+      description: 'Overwrite an existing file at the output path. By default `init` refuses.',
+    },
+    'non-interactive': {
+      type: 'boolean' as const,
+      description: 'Never prompt: fail when `--secrets-backend`, or a needed `--kms`, is missing.',
+    },
   },
   run: async (ctx): Promise<CommandResult> => {
     const runnersRes = pickRunners(ctx);
@@ -887,9 +951,20 @@ const planCmd: LeafCommand = {
     'Show the process env a deployed pack service gets in --env: each name the pack declares (env.required / env.optional) and its value or Secret Manager reference from environments.<name>.env. Prints Terraform input (default) or gcloud flags; exits 1 when a required name has no value or a secret is given in the clear.',
   usage: 'kindgi env plan [--env <name>] [--format=terraform|gcloud] [--path <dir>]',
   optionSpec: {
-    env: { type: 'string' },
-    format: { type: 'string' },
-    path: { type: 'string' },
+    env: {
+      type: 'string',
+      description:
+        'The environment to plan, from `environments.<name>.env` in `kindgi.config.ts`. Default: `staging`.',
+    },
+    format: {
+      type: 'string',
+      description:
+        'The output: `terraform` (default) for Terraform input, or `gcloud` for `--set-env-vars` / `--set-secrets` flags.',
+    },
+    path: {
+      type: 'string',
+      description: 'The pack root, where `kindgi.config.ts` is. Default: the current directory.',
+    },
   },
   run: async (ctx): Promise<CommandResult> => {
     const format = stringFlag(ctx, 'format') ?? 'terraform';

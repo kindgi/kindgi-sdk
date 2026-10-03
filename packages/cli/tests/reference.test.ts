@@ -33,7 +33,9 @@ describe('describeCommands', () => {
     const set = find(commands, ['secrets', 'set']);
     expect(set?.path).toEqual(['secrets', 'set']);
     expect(set?.usage).toMatch(/^kindgi secrets set /);
-    expect(set?.flags).toContainEqual({ name: 'from-stdin', type: 'boolean' });
+    expect(set?.flags).toContainEqual(
+      expect.objectContaining({ name: 'from-stdin', type: 'boolean' }),
+    );
     const names = set?.flags.map((f) => f.name) ?? [];
     expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)));
   });
@@ -55,8 +57,28 @@ describe('describeCommands', () => {
 describe('describeGlobalFlags', () => {
   test('the flags every command takes', () => {
     const flags = describeGlobalFlags();
-    expect(flags).toContainEqual({ name: 'json', type: 'boolean' });
-    expect(flags).toContainEqual({ name: 'verbose', type: 'boolean', short: 'v' });
-    expect(flags).toContainEqual({ name: 'url', type: 'string' });
+    expect(flags).toContainEqual(expect.objectContaining({ name: 'json', type: 'boolean' }));
+    expect(flags).toContainEqual(
+      expect.objectContaining({ name: 'verbose', type: 'boolean', short: 'v' }),
+    );
+    expect(flags).toContainEqual(expect.objectContaining({ name: 'url', type: 'string' }));
+  });
+});
+
+describe('flag descriptions', () => {
+  // `--help` and the CLI reference on the docs site both show them, so a
+  // flag without one is a gap in both.
+  test('every flag of every command, and every global flag, says what it does', () => {
+    const missing: string[] = [];
+    for (const command of walk(describeCommands())) {
+      for (const flag of command.flags) {
+        if (!flag.description?.trim())
+          missing.push(`kindgi ${command.path.join(' ')} --${flag.name}`);
+      }
+    }
+    for (const flag of describeGlobalFlags()) {
+      if (!flag.description?.trim()) missing.push(`(global) --${flag.name}`);
+    }
+    expect(missing).toEqual([]);
   });
 });

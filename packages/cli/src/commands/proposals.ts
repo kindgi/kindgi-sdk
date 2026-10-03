@@ -10,9 +10,19 @@ const list: LeafCommand = {
   description: 'List fix proposals.',
   usage: 'kindgi proposals list [--status=<status>] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
-    status: { type: 'string' },
-    limit: { type: 'string' },
-    cursor: { type: 'string' },
+    status: {
+      type: 'string',
+      description:
+        'Only proposals in this status: `draft`, `dry-running`, `dry-run-passed`, `dry-run-failed`, `proposed-for-review`, `approved`, `rejected`, `applied`, `rolled-back` or `withdrawn`.',
+    },
+    limit: {
+      type: 'string',
+      description: 'The most proposals to return (default 25, at most 100).',
+    },
+    cursor: {
+      type: 'string',
+      description: "Resume after this cursor, from the previous page's `nextCursor`.",
+    },
   },
   run: (ctx) =>
     runSdk(ctx, 'proposals list', async () => throwUnwired('supervisor.proposals.list')),
@@ -35,7 +45,13 @@ const draft: LeafCommand = {
   name: 'draft',
   description: 'Draft fix proposals for an agent version.',
   usage: 'kindgi proposals draft --input=<json-or-@file>',
-  optionSpec: { input: { type: 'string' } },
+  optionSpec: {
+    input: {
+      type: 'string',
+      description:
+        'The proposal as inline JSON or `@<file>`: `agentId`, `agentVersion`, `tier`, `change`, `patternRefs`, `hypothesis` and `proposerRuleId`.',
+    },
+  },
   run: (ctx) =>
     runSdk(ctx, 'proposals draft', async () => throwUnwired('supervisor.proposals.draft')),
 };
@@ -45,7 +61,13 @@ const dryRun: LeafCommand = {
   name: 'dry-run',
   description: 'Dry-run a fix proposal against a dataset.',
   usage: 'kindgi proposals dry-run <proposal-id> --input=<json-or-@file>',
-  optionSpec: { input: { type: 'string' } },
+  optionSpec: {
+    input: {
+      type: 'string',
+      description:
+        'The dry run as inline JSON or `@<file>`: `datasetId`, `datasetVersion`, and a `criterion` of kind `min-pass-rate` or `strict-improvement`.',
+    },
+  },
   run: (ctx) =>
     runSdk(ctx, 'proposals dry-run', async () => {
       requiredPositional(ctx, 0, 'proposal-id');
@@ -58,7 +80,13 @@ const submitReview: LeafCommand = {
   name: 'submit-review',
   description: 'Submit a proposal for reviewer approval.',
   usage: 'kindgi proposals submit-review <proposal-id> [--input=<json-or-@file>]',
-  optionSpec: { input: { type: 'string' } },
+  optionSpec: {
+    input: {
+      type: 'string',
+      description:
+        'Review options as inline JSON or `@<file>`: `requiredRole`, and `expiresAt` for the approval deadline. Omit it to take the defaults.',
+    },
+  },
   run: (ctx) =>
     runSdk(ctx, 'proposals submit-review', async () => {
       requiredPositional(ctx, 0, 'proposal-id');

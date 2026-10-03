@@ -29,9 +29,18 @@ const list: LeafCommand = {
   description: 'List model providers.',
   usage: 'kindgi providers list [--feature=<name>] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
-    feature: { type: 'string' },
-    limit: { type: 'string' },
-    cursor: { type: 'string' },
+    feature: {
+      type: 'string',
+      description: 'Only the providers with a model that has this feature (e.g. `tool-use`).',
+    },
+    limit: {
+      type: 'string',
+      description: 'The most providers to return (default 25, at most 100).',
+    },
+    cursor: {
+      type: 'string',
+      description: "Resume after this cursor, from the previous page's `nextCursor`.",
+    },
   },
   run: (ctx) =>
     runSdk(ctx, 'providers list', async () => {
@@ -69,12 +78,35 @@ const register: LeafCommand = {
   usage:
     'kindgi providers register (--spec=<json-or-@file> | --preset=<name> [--models=<a,b>] [--project=<id>] [--secret=<NAME>] [--env=<name>])',
   optionSpec: {
-    spec: { type: 'string' },
-    preset: { type: 'string' },
-    models: { type: 'string' },
-    project: { type: 'string' },
-    secret: { type: 'string' },
-    env: { type: 'string' },
+    spec: {
+      type: 'string',
+      description:
+        'The registration body as JSON, or `@<file>` to read it from a file. Give `--spec` or `--preset`.',
+    },
+    preset: {
+      type: 'string',
+      description: 'Register a built-in preset by name; `kindgi providers presets` lists them.',
+    },
+    models: {
+      type: 'string',
+      description:
+        'With `--preset`, register only these of its models, comma-separated (default: all).',
+    },
+    project: {
+      type: 'string',
+      description:
+        'For a preset that needs one (`gemini`), the Google Cloud project Vertex AI runs and bills in.',
+    },
+    secret: {
+      type: 'string',
+      description:
+        "With `--preset`, the name of the secret holding the API key, in place of the preset's own.",
+    },
+    env: {
+      type: 'string',
+      description:
+        "With `--preset`, the environment of the key's secret (default `local`; in a pack, the key must already be in its env files).",
+    },
   },
   run: (ctx) =>
     runSdkRendered(ctx, 'providers register', async () => {

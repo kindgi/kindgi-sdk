@@ -48,19 +48,43 @@ export const initCommand: LeafCommand = {
   usage:
     'kindgi init [<pack-name>] [--template=minimal|sample|python] [--path=<dir>] [--force] [--link-local] [--new-repo]',
   optionSpec: {
-    template: { type: 'string' },
-    path: { type: 'string' },
-    force: { type: 'boolean' },
-    'link-local': { type: 'boolean' },
+    template: {
+      type: 'string',
+      description:
+        'The starter: `minimal` (default; empty primitive folders), `sample` (tools, a guardrail, an agent and a flow) or `python` (a Python pack).',
+    },
+    path: {
+      type: 'string',
+      description:
+        'Where to scaffold. Default: `<pack-name>` (its last dot segment) under the current directory; in an existing app, the current directory.',
+    },
+    force: {
+      type: 'boolean',
+      description:
+        'Write into a non-empty directory; in an existing app, overwrite the Kindgi config and files already there instead of refusing or skipping them.',
+    },
+    'link-local': {
+      type: 'boolean',
+      description:
+        'Node packs: link `@kindgi/*` from the Kindgi checkout the CLI runs from, even inside its workspace. No effect for an installed CLI.',
+    },
     // Force fresh mode even when a package.json sits at the target
     // dir. Only relevant to disambiguate: someone in an existing repo
     // who wants a NESTED standalone pack rather than augment mode.
-    'new-repo': { type: 'boolean' },
+    'new-repo': {
+      type: 'boolean',
+      description:
+        'In an existing app, scaffold a separate pack instead of adding Kindgi to the app. Requires `<pack-name>`.',
+    },
     // Augment mode only. Override the pack id derived from the
     // surrounding `package.json` `name`. Required if the name can't
     // be normalized to `PACK_ID_REGEX` (underscores, uppercase-only,
     // etc.).
-    'pack-id': { type: 'string' },
+    'pack-id': {
+      type: 'string',
+      description:
+        "Adding Kindgi to an existing app: the pack id, instead of the one derived from the app's name. Needed when that name makes no valid id.",
+    },
   },
   run: async (ctx): Promise<CommandResult> =>
     runInit(ctx, defaultTemplatesRoot(), defaultSdkSkillsRoot()),

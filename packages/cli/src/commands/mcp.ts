@@ -196,12 +196,33 @@ const addCmd: LeafCommand = {
   usage:
     'kindgi mcp add <KIND> --secret=<name> [--env=<name>] [--scope=<kind>[:id]] [--server-name=<label>] [--path=<pack-dir>] [--force]',
   optionSpec: {
-    secret: { type: 'string' as const },
-    env: { type: 'string' as const },
-    scope: { type: 'string' as const },
-    'server-name': { type: 'string' as const },
-    path: { type: 'string' as const },
-    force: { type: 'boolean' as const },
+    secret: {
+      type: 'string' as const,
+      description:
+        "The secret's name in the pack's env files for `--env`; the server gets its value at start, never `.mcp.json`. Required.",
+    },
+    env: {
+      type: 'string' as const,
+      description: 'The environment whose env files hold the secret. Default: `local`.',
+    },
+    scope: {
+      type: 'string' as const,
+      description:
+        "The secret's scope, recorded in the entry: `tenant` (default), `org:<id>` or `project:<id>`.",
+    },
+    'server-name': {
+      type: 'string' as const,
+      description:
+        "The entry's name in `.mcp.json`. Default: derived from `--secret` (`MY_DB_URL` becomes `my_db`).",
+    },
+    path: {
+      type: 'string' as const,
+      description: 'The pack root, where `.mcp.json` is. Default: the current directory.',
+    },
+    force: {
+      type: 'boolean' as const,
+      description: 'Replace an entry with the same name. By default `add` refuses.',
+    },
   },
   run: async (ctx): Promise<CommandResult> => {
     let kind: string;
@@ -331,7 +352,10 @@ const listCmd: LeafCommand = {
   description: 'List MCP servers configured in .mcp.json.',
   usage: 'kindgi mcp list [--path=<pack-dir>]',
   optionSpec: {
-    path: { type: 'string' as const },
+    path: {
+      type: 'string' as const,
+      description: 'The pack root, where `.mcp.json` is. Default: the current directory.',
+    },
   },
   run: async (ctx): Promise<CommandResult> => {
     const packDir = resolvePackDir(ctx);
@@ -357,7 +381,10 @@ const removeCmd: LeafCommand = {
   description: 'Remove a server entry from .mcp.json. Idempotent.',
   usage: 'kindgi mcp remove <SERVER_NAME> [--path=<pack-dir>]',
   optionSpec: {
-    path: { type: 'string' as const },
+    path: {
+      type: 'string' as const,
+      description: 'The pack root, where `.mcp.json` is. Default: the current directory.',
+    },
   },
   run: async (ctx): Promise<CommandResult> => {
     let serverName: string;

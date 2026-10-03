@@ -10,9 +10,15 @@ const list: LeafCommand = {
   description: 'List capability descriptors.',
   usage: 'kindgi capabilities list [--feature=<prefix>] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
-    feature: { type: 'string' },
-    limit: { type: 'string' },
-    cursor: { type: 'string' },
+    feature: {
+      type: 'string',
+      description: 'Only the capabilities whose feature starts with this prefix.',
+    },
+    limit: { type: 'string', description: 'The most capabilities to return.' },
+    cursor: {
+      type: 'string',
+      description: "Resume after this cursor, from the previous page's `nextCursor`.",
+    },
   },
   run: (ctx) => runSdk(ctx, 'capabilities list', async () => throwUnwired('capabilities.list')),
 };

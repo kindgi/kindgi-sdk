@@ -19,8 +19,14 @@ const list: LeafCommand = {
   description: 'List runs (paginated).',
   usage: 'kindgi runs list [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
-    limit: { type: 'string' },
-    cursor: { type: 'string' },
+    limit: {
+      type: 'string',
+      description: 'The most runs to return (default 25, at most 100).',
+    },
+    cursor: {
+      type: 'string',
+      description: "Resume after this cursor, from the previous page's `nextCursor`.",
+    },
   },
   run: (ctx) =>
     runSdk(ctx, 'runs list', async () => {
@@ -68,9 +74,19 @@ const journal: LeafCommand = {
   description: 'Read the durable journal for a run.',
   usage: 'kindgi runs journal <run-id> [--since=<seq>] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
-    since: { type: 'string' },
-    limit: { type: 'string' },
-    cursor: { type: 'string' },
+    since: {
+      type: 'string',
+      description: 'Only the entries after this sequence number.',
+    },
+    limit: {
+      type: 'string',
+      description:
+        'The most entries to return. Not applied yet: the API returns the whole journal.',
+    },
+    cursor: {
+      type: 'string',
+      description: 'Resume after this cursor. Not applied yet: the API returns the whole journal.',
+    },
   },
   run: (ctx) =>
     runSdk(ctx, 'runs journal', async () => {
@@ -115,12 +131,32 @@ const start: LeafCommand = {
   usage:
     'kindgi runs start (--agent=<agent-id> | --flow=<flow-id>) --input=<json-or-@file> [--no-wait] [--dry-run] [--idempotency-key=<key>]',
   optionSpec: {
-    agent: { type: 'string' },
-    flow: { type: 'string' },
-    input: { type: 'string' },
-    'idempotency-key': { type: 'string' },
-    'no-wait': { type: 'boolean' },
-    'dry-run': { type: 'boolean' },
+    agent: {
+      type: 'string',
+      description: 'The agent to run, by id (`<pack>.<agent>`). Give `--agent` or `--flow`.',
+    },
+    flow: {
+      type: 'string',
+      description: 'The flow to run, by id. Give `--flow` or `--agent`, not both.',
+    },
+    input: {
+      type: 'string',
+      description: "The run's input as JSON, or `@<file>` to read it from a file. Required.",
+    },
+    'idempotency-key': {
+      type: 'string',
+      description: 'A retry with the same key returns the run the first call started.',
+    },
+    'no-wait': {
+      type: 'boolean',
+      description:
+        'Return a flow run as soon as it exists; follow it with `kindgi runs get`. An agent run still waits for its turn.',
+    },
+    'dry-run': {
+      type: 'boolean',
+      description:
+        'Run only the tools declared read-only (`mutating: false`); an agent turn skips its model call.',
+    },
   },
   run: (ctx) =>
     runSdkRendered(ctx, 'runs start', async () => {
@@ -182,8 +218,15 @@ const resume: LeafCommand = {
   description: 'Resume a suspended run at a waitpoint.',
   usage: 'kindgi runs resume <run-id> --waitpoint=<id> --value=<json-or-@file>',
   optionSpec: {
-    waitpoint: { type: 'string' },
-    value: { type: 'string' },
+    waitpoint: {
+      type: 'string',
+      description: 'The waitpoint to complete, by id. Required.',
+    },
+    value: {
+      type: 'string',
+      description:
+        'The value to resume with, as JSON or `@<file>` to read it from a file. Required.',
+    },
   },
   run: (ctx) =>
     runSdk(ctx, 'runs resume', async () => {

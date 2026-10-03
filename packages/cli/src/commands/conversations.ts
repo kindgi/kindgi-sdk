@@ -10,9 +10,15 @@ const list: LeafCommand = {
   description: 'List conversations.',
   usage: 'kindgi conversations list [--status=<status>] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
-    status: { type: 'string' },
-    limit: { type: 'string' },
-    cursor: { type: 'string' },
+    status: {
+      type: 'string',
+      description: 'Only the conversations with this status: `open` or `closed`.',
+    },
+    limit: { type: 'string', description: 'The most conversations to return.' },
+    cursor: {
+      type: 'string',
+      description: "Resume after this cursor, from the previous page's `nextCursor`.",
+    },
   },
   run: (ctx) => runSdk(ctx, 'conversations list', async () => throwUnwired('conversations.list')),
 };
@@ -34,7 +40,9 @@ const open: LeafCommand = {
   name: 'open',
   description: 'Open a new conversation.',
   usage: 'kindgi conversations open [--agent-id=<id>]',
-  optionSpec: { 'agent-id': { type: 'string' } },
+  optionSpec: {
+    'agent-id': { type: 'string', description: 'The agent the conversation is with, by id.' },
+  },
   run: (ctx) => runSdk(ctx, 'conversations open', async () => throwUnwired('conversations.open')),
 };
 
@@ -55,7 +63,13 @@ const messages: LeafCommand = {
   name: 'messages',
   description: "List a conversation's messages.",
   usage: 'kindgi conversations messages <conversation-id> [--limit=<n>] [--cursor=<c>]',
-  optionSpec: { limit: { type: 'string' }, cursor: { type: 'string' } },
+  optionSpec: {
+    limit: { type: 'string', description: 'The most messages to return.' },
+    cursor: {
+      type: 'string',
+      description: "Resume after this cursor, from the previous page's `nextCursor`.",
+    },
+  },
   run: (ctx) =>
     runSdk(ctx, 'conversations messages', async () => {
       requiredPositional(ctx, 0, 'conversation-id');

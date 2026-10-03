@@ -112,14 +112,33 @@ const write: LeafCommand = {
     '[--severity=<blocker|high|medium|low>] [--body=@<file> | --body-stdin | --interactive] ' +
     '[--authored-by=<claude-code|human|mixed>] [--path=<pack-dir>]',
   optionSpec: {
-    kind: { type: 'string' },
-    severity: { type: 'string' },
-    title: { type: 'string' },
-    body: { type: 'string' },
-    'body-stdin': { type: 'boolean' },
-    interactive: { type: 'boolean' },
-    'authored-by': { type: 'string' },
-    path: { type: 'string' },
+    kind: {
+      type: 'string',
+      description: "The entry's kind: `bug`, `friction`, `question` or `design`. Required.",
+    },
+    severity: {
+      type: 'string',
+      description: "The entry's severity: `blocker`, `high`, `medium` (default) or `low`.",
+    },
+    title: { type: 'string', description: "A short title: the entry's heading. Required." },
+    body: {
+      type: 'string',
+      description: "The entry's body: the text itself, or `@<file>` to read it from a file.",
+    },
+    'body-stdin': { type: 'boolean', description: "Read the entry's body from stdin." },
+    interactive: {
+      type: 'boolean',
+      description:
+        'Write the body in `$EDITOR`: the default when neither `--body` nor `--body-stdin` is given.',
+    },
+    'authored-by': {
+      type: 'string',
+      description: 'Who wrote the entry: `human` (default), `claude-code` or `mixed`.',
+    },
+    path: {
+      type: 'string',
+      description: 'The pack root, where `FEEDBACK.md` is. Default: the current directory.',
+    },
   },
   run: async (ctx): Promise<CommandResult> => {
     try {

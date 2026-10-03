@@ -9,7 +9,13 @@ const list: LeafCommand = {
   name: 'list',
   description: 'List registered flows.',
   usage: 'kindgi flows list [--limit=<n>] [--cursor=<c>]',
-  optionSpec: { limit: { type: 'string' }, cursor: { type: 'string' } },
+  optionSpec: {
+    limit: { type: 'string', description: 'The most flows to return.' },
+    cursor: {
+      type: 'string',
+      description: "Resume after this cursor, from the previous page's `nextCursor`.",
+    },
+  },
   run: (ctx) => runSdk(ctx, 'flows list', async () => throwUnwired('flows.list')),
 };
 
@@ -30,7 +36,12 @@ const publish: LeafCommand = {
   name: 'publish',
   description: 'Publish a flow definition.',
   usage: 'kindgi flows publish --spec=<json-or-@file>',
-  optionSpec: { spec: { type: 'string' } },
+  optionSpec: {
+    spec: {
+      type: 'string',
+      description: 'The flow definition as JSON, or `@<file>` to read it from a file. Required.',
+    },
+  },
   run: (ctx) => runSdk(ctx, 'flows publish', async () => throwUnwired('flows.publish')),
 };
 
@@ -39,7 +50,9 @@ const unregister: LeafCommand = {
   name: 'unregister',
   description: 'Unregister a specific flow version.',
   usage: 'kindgi flows unregister <flow-id> --version=<semver>',
-  optionSpec: { version: { type: 'string' } },
+  optionSpec: {
+    version: { type: 'string', description: 'The flow version to unregister (semver).' },
+  },
   run: (ctx) =>
     runSdk(ctx, 'flows unregister', async () => {
       requiredPositional(ctx, 0, 'flow-id');

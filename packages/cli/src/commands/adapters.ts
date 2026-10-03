@@ -29,8 +29,15 @@ const prepareCmd: LeafCommand = {
     'Pre-warm an adapter (download weights, initialize sessions). Streams SSE progress. Call after `providers register`, before `runs start`.',
   usage: 'kindgi adapters prepare <adapter-id> [--model=<key>] [--params=<json-or-@file>]',
   optionSpec: {
-    model: { type: 'string' as const },
-    params: { type: 'string' as const },
+    model: {
+      type: 'string' as const,
+      description:
+        'The model to prepare, by key: shorthand for a `model` field in `--params`, and wins over it.',
+    },
+    params: {
+      type: 'string' as const,
+      description: "The adapter's prepare settings, as an inline JSON object.",
+    },
   },
   run: async (ctx): Promise<CommandResult> => {
     let adapterId: string;

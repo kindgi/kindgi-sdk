@@ -87,8 +87,15 @@ const createCmd: LeafCommand = {
   description: 'Generate a new Ed25519 keypair under ~/.kindgi/keys/.',
   usage: 'kindgi key create <keyId> [--env <name>] [--home <dir>]',
   optionSpec: {
-    env: { type: 'string' },
-    home: { type: 'string' },
+    env: {
+      type: 'string',
+      description:
+        'Also print the `signingKey` and `signerKeyId` lines to add to this env block in `kindgi.config.ts`.',
+    },
+    home: {
+      type: 'string',
+      description: 'The home directory whose `.kindgi/keys/` holds the keys. Default: `$HOME`.',
+    },
   },
   run: async (ctx): Promise<CommandResult> => {
     const idCheck = validateKeyId(ctx.positionals[0]);
@@ -193,8 +200,14 @@ const exportCmd: LeafCommand = {
   description: 'Print the PUBLIC key material for a local key. Never exports the private key.',
   usage: 'kindgi key export <keyId> [--format=pem|base64|raw-hex] [--home <dir>]',
   optionSpec: {
-    format: { type: 'string' },
-    home: { type: 'string' },
+    format: {
+      type: 'string',
+      description: "The public key's encoding: `pem` (default), `base64` or `raw-hex`.",
+    },
+    home: {
+      type: 'string',
+      description: 'The home directory whose `.kindgi/keys/` holds the keys. Default: `$HOME`.',
+    },
   },
   run: async (ctx): Promise<CommandResult> => {
     const idCheck = validateKeyId(ctx.positionals[0]);
@@ -277,7 +290,10 @@ const listCmd: LeafCommand = {
   description: 'List local Ed25519 keys under ~/.kindgi/keys/.',
   usage: 'kindgi key list [--home <dir>]',
   optionSpec: {
-    home: { type: 'string' },
+    home: {
+      type: 'string',
+      description: 'The home directory whose `.kindgi/keys/` holds the keys. Default: `$HOME`.',
+    },
   },
   run: async (ctx): Promise<CommandResult> => {
     const runnersOutcome = pickRunners(ctx);

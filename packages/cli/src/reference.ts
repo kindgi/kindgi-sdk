@@ -21,6 +21,8 @@ export interface FlagReference {
   /** The flag may be repeated. */
   readonly multiple?: boolean;
   readonly default?: string | boolean;
+  /** What the flag does, in one sentence. */
+  readonly description?: string;
 }
 
 /** One command; a group of commands has subcommands and no usage. */
@@ -75,6 +77,7 @@ function flags(spec: Readonly<Record<string, ParseArgsOption>>): readonly FlagRe
       ...(option.short !== undefined && { short: option.short }),
       ...(option.multiple !== undefined && { multiple: option.multiple }),
       ...(option.default !== undefined && { default: option.default }),
+      ...(option.description !== undefined && { description: option.description }),
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }

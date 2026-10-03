@@ -18,7 +18,9 @@ function flagLine(flag) {
   const notes = [];
   if (flag.multiple) notes.push('repeatable');
   if (flag.default !== undefined) notes.push(`default \`${flag.default}\``);
-  return `- ${name}${short}${notes.length ? `: ${notes.join(', ')}` : ''}`;
+  const description = flag.description ? `: ${text(flag.description)}` : '';
+  const extra = notes.length ? ` (${notes.join(', ')})` : '';
+  return `- ${name}${short}${description}${extra}`;
 }
 
 function section(command, depth) {

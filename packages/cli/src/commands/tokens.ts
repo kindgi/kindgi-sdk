@@ -9,7 +9,13 @@ const create: LeafCommand = {
   name: 'create',
   description: 'Create a new API token.',
   usage: 'kindgi tokens create --spec=<json-or-@file>',
-  optionSpec: { spec: { type: 'string' } },
+  optionSpec: {
+    spec: {
+      type: 'string',
+      description:
+        'The token as inline JSON or `@<file>`, every field optional: `role` (`admin` or `member`, default `member`), `capabilities`, `label`, `expiresAt`, `projectId`.',
+    },
+  },
   run: (ctx) => runSdk(ctx, 'tokens create', async () => throwUnwired('tokens.create')),
 };
 
