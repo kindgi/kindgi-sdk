@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/adapter-model-in-process",
-  "version": "0.1.0-preview.7",
+  "version": "0.1.0",
   "description": "In-process ModelProvider for @kindgi/capabilities. Runs small instruction-tuned LLMs inside the Node.js process via @huggingface/transformers (ONNX runtime; no external processes, no API keys). SmolLM2-360M by default (~273MB q4f16, Apache 2.0, tuned for function calling); SmolLM2-135M and Qwen3-0.6B selectable via the `models` option. prepareInProcessModel downloads a model ahead of first use and streams progress. Positioned as the cheapest tier for routing/classification/smoke-test workloads — not a replacement for hosted providers on real reasoning tasks.",
   "license": "Apache-2.0",
   "repository": {

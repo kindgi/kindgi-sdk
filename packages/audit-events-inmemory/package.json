@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/audit-events-inmemory",
-  "version": "0.1.0-preview.7",
+  "version": "0.1.0",
   "description": "Reference in-memory `AuditEventBinding` adapter for dev + tests. Implements the full `@kindgi/audit-events` contract (idempotent append, cursor-paginated query, per-kind purge) and pins down the cursor shape and ordering durable adapters match, so consumers swap adapters without code changes.",
   "license": "Apache-2.0",
   "repository": {

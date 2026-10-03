@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/pack-conformance",
-  "version": "0.1.0-preview.7",
+  "version": "0.1.0",
   "description": "Conformance suite for pack services: a black-box HTTP and process test of pack protocol v2 and the pack index, run against any language's pack service and indexer over the same fixture pack. Kindgi's Node pack service and the Python `kindgi` package both pass it.",
   "license": "Apache-2.0",
   "repository": {
