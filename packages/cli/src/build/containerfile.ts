@@ -169,6 +169,7 @@ RUN node --enable-source-maps ./dist/kindgi-index.mjs \\
       --module-root ./dist \\
       --artifact-version "\${KINDGI_ARTIFACT_VERSION}" \\
       --published-at "\${KINDGI_PUBLISHED_AT}" \\
+      --strict \\
       --output /app/index.json
 
 # --- stage: final ---

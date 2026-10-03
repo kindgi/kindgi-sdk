@@ -720,6 +720,14 @@ async function prepareNodeContext(
   );
   lines(`    ✓ ${bundle.emitted.length} files emitted (${humanBytes(bundle.totalBytes)})`);
   lines(renderExternalsSummary(bundle.externals));
+  const devOnly = devOnlyImports(bundle.externals, install.packDependencies);
+  if (devOnly.length > 0) {
+    const manifest = install.packRel === '' ? 'package.json' : `${install.packRel}/package.json`;
+    const one = devOnly.length === 1;
+    return failure(
+      `The pack imports ${devOnly.join(', ')}, which ${manifest} lists only in devDependencies. The image keeps production dependencies only, so ${one ? 'it' : 'they'} wouldn't load there: move ${one ? 'it' : 'them'} to dependencies.\n`,
+    );
+  }
 
   // ---- 2. Local indexer over the bundles ----------------------------------
   const localIndex = await runners.runLocalIndexer({
@@ -732,6 +740,13 @@ async function prepareNodeContext(
   if (localIndex.kind === 'err') {
     return failure(
       `Local indexer failed: [${localIndex.code}] ${localIndex.message}${localIndex.filePath !== undefined ? ` (at ${localIndex.filePath})` : ''}\n`,
+    );
+  }
+  if (localIndex.fileErrors.length > 0) {
+    return failure(
+      `Local indexer reported file errors — fix them before building:\n${localIndex.fileErrors
+        .map((e) => `  [${e.code}] ${e.message}`)
+        .join('\n')}\n`,
     );
   }
   lines(
@@ -1113,6 +1128,18 @@ function failure(stderr: string): CommandResult & { readonly kind: 'error' } {
  * The packages the bundles load from the app's `node_modules`, for the
  * summary. Empty list → empty string (caller emits no extra line).
  */
+/**
+ * The packages the pack's bundles import that its project lists only in
+ * devDependencies: the image's prune to production drops them, so they'd
+ * be missing there although they load locally.
+ */
+export function devOnlyImports(
+  externals: readonly string[],
+  deps: HostInstall['packDependencies'],
+): string[] {
+  return externals.filter((name) => deps.dev.includes(name) && !deps.runtime.includes(name));
+}
+
 function renderExternalsSummary(externals: readonly string[]): string {
   if (externals.length === 0) return '';
   const suffix = externals.length === 1 ? '' : 's';

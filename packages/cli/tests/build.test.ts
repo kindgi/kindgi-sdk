@@ -192,6 +192,7 @@ function makeFixtures(opts: FixtureOptions = {}): Fixtures {
       packId: 'my-pack',
       packVersion: '0.1.0',
       counts: { tools: 1, guardrails: 0, agents: 0, flows: 0 },
+      fileErrors: [],
       index: SAMPLE_INDEX,
     } as LocalIndexResult);
 
@@ -757,6 +758,59 @@ describe('kindgi build --local', () => {
     });
     expect(out.stderr).toContain('matches the local index byte for byte');
     expect(out.stderr).toContain('docker run --rm -p 8080:8080');
+  });
+
+  test('a pack import its project lists only in devDependencies is refused before the image is built', async () => {
+    await writeFile(
+      join(packDir, 'package.json'),
+      `${JSON.stringify({ name: 'test-pack', version: '0.1.0', devDependencies: { '@acme/db-client': '1.0.0' } })}\n`,
+      'utf8',
+    );
+    const fixtures = makeFixtures();
+    const runners: BuildRunners = {
+      ...fixtures.runners,
+      esbuildBundle: async (o) => ({
+        ...(await fixtures.runners.esbuildBundle(o)),
+        externals: ['@acme/db-client'],
+      }),
+    };
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: {} }, { environments: {} }),
+      buildRunners: runners,
+      argv: ['build', '--local', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      'The pack imports @acme/db-client, which package.json lists only in devDependencies',
+    );
+    expect(out.stderr).toContain('move it to dependencies');
+    expect(fixtures.state.dockerBuilds).toHaveLength(0);
+  });
+
+  test('a module that fails to load locally fails the build, saying which', async () => {
+    const fixtures = makeFixtures({
+      indexOutcome: {
+        kind: 'ok',
+        packId: 'my-pack',
+        packVersion: '0.1.0',
+        counts: { tools: 0, guardrails: 0, agents: 0, flows: 0 },
+        fileErrors: [
+          {
+            code: 'file-import-failed',
+            message: 'Failed to import tools/echo/index.ts: Error: boom',
+            filePath: 'tools/echo/index.ts',
+          },
+        ],
+        index: SAMPLE_INDEX,
+      } as LocalIndexResult,
+    });
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: {} }, { environments: {} }),
+      argv: ['build', '--local', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('[file-import-failed] Failed to import tools/echo/index.ts');
+    expect(fixtures.state.dockerBuilds).toHaveLength(0);
   });
 
   test("the app's registry config reaches the install as a build secret", async () => {

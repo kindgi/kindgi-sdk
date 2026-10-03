@@ -28,6 +28,7 @@ function install(over: Partial<HostInstall> = {}): HostInstall {
     files: ['package.json', 'pnpm-lock.yaml'],
     projectManifests: ['package.json'],
     skippedScripts: [],
+    packDependencies: { runtime: [], dev: [] },
     secrets: [],
     ...over,
   };
@@ -168,6 +169,8 @@ describe('the Containerfile', () => {
     expect(text).toContain('--bundle-map ./dist/bundle-map.json');
     expect(text).toContain('--config ./dist/kindgi.config.mjs');
     expect(text).toContain('--output /app/index.json');
+    // A module that fails to load in the image fails the build there.
+    expect(text).toContain('--strict');
     expect(text).toContain('COPY --from=indexer --chown=node:node /app/index.json /app/index.json');
   });
 

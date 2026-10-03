@@ -593,6 +593,8 @@ export async function runIndexer(
  *   --module-root <path>       where the bundle map's paths resolve (optional)
  *   --artifact-version <str>   pin artifact version (optional)
  *   --published-at <iso>       pin publishedAt (optional; enables reproducible builds)
+ *   --strict                   exit 1 when a module fails to load (a pack image's
+ *                              build: the image would serve less than the pack has)
  *   --help
  *   --version
  */
@@ -625,6 +627,12 @@ export async function main(argv: readonly string[]): Promise<number> {
     return 1;
   }
   process.stdout.write(`${JSON.stringify(outcome.value, null, 2)}\n`);
+  if (parsed.value.strict && outcome.value.fileErrors.length > 0) {
+    for (const e of outcome.value.fileErrors) {
+      process.stderr.write(`kindgi-index: ${e.code}: ${e.message}\n`);
+    }
+    return 1;
+  }
   return 0;
 }
 
@@ -633,7 +641,7 @@ export const HELP_TEXT = `kindgi-index — build-time pack manifest indexer
 Usage:
   kindgi-index --pack-dir <path> [--config <path>] [--output <path>]
                [--bundle-map <path> [--module-root <path>]]
-               [--artifact-version <str>] [--published-at <iso>]
+               [--artifact-version <str>] [--published-at <iso>] [--strict]
 
 Options:
   --pack-dir <path>          Root of the pack (required).
@@ -643,13 +651,18 @@ Options:
   --module-root <path>       Where the bundle map's paths resolve (default: --pack-dir).
   --artifact-version <str>   Pin artifact version (default: YYYYMMDD.N auto).
   --published-at <iso>       Pin publishedAt for reproducible builds.
+  --strict                   Exit 1 when a module fails to load.
   --help                     Show this help.
   --version                  Print version and exit.`;
 
 type ParsedArgs =
   | {
       readonly kind: 'ok';
-      readonly value: { readonly options: RunIndexerOptions; readonly bundleMapPath?: string };
+      readonly value: {
+        readonly options: RunIndexerOptions;
+        readonly bundleMapPath?: string;
+        readonly strict: boolean;
+      };
     }
   | { readonly kind: 'help' }
   | { readonly kind: 'version' }
@@ -663,6 +676,7 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
   let publishedAt: string | undefined;
   let bundleMapPath: string | undefined;
   let moduleRoot: string | undefined;
+  let strict = false;
 
   let i = 0;
   while (i < argv.length) {
@@ -677,6 +691,11 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
       return value;
     };
 
+    if (arg === '--strict') {
+      strict = true;
+      i += 1;
+      continue;
+    }
     if (arg === '--pack-dir') {
       const value = takeValue();
       if (typeof value !== 'string') return { kind: 'err', error: value.err };
@@ -744,7 +763,7 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
   };
   return {
     kind: 'ok',
-    value: { options, ...(bundleMapPath !== undefined && { bundleMapPath }) },
+    value: { options, strict, ...(bundleMapPath !== undefined && { bundleMapPath }) },
   };
 }
 
