@@ -15,6 +15,10 @@
  *      closed-source code) in tracked files.
  *   3. Every path a skill's frontmatter lists under `sources:` (repository-
  *      relative) is a tracked file or directory.
+ *   4. A skill's links to docs.kindgi.com name this release line's docs
+ *      (`/v<major>.<minor>/…`, from `@kindgi/sdk`'s version): a skill ships
+ *      inside a release, and the site's root moves to the next line's docs.
+ *      When a release changes the minor, this fails until the links follow.
  *
  * A reference to `.claude/skills/<name>/SKILL.md` is a path in a user's
  * project, where `kindgi init` installs this repository's skills: it
@@ -81,6 +85,12 @@ function resolves(from, ref) {
   return !ref.includes('/') && byName.has(ref);
 }
 
+const sdkVersion = JSON.parse(
+  readFileSync(join(root, 'packages/sdk/package.json'), 'utf8'),
+).version;
+const docsLine = `https://docs.kindgi.com/v${sdkVersion.split('.').slice(0, 2).join('.')}/`;
+const DOCS_URL = /https:\/\/docs\.kindgi\.com\/[^\s)>`'"]*/g;
+
 const problems = [];
 for (const file of tracked) {
   if (!TEXT.test(file) || file === SELF) continue;
@@ -89,6 +99,12 @@ for (const file of tracked) {
     for (const source of skillSources(text)) {
       if (!isTrackedPath(source))
         problems.push(`${file}: sources lists ${source}, which is not in this repository`);
+    }
+    for (const url of text.match(DOCS_URL) ?? []) {
+      if (!url.startsWith(docsLine))
+        problems.push(
+          `${file}: links ${url}; a skill links this release line's docs (${docsLine}…)`,
+        );
     }
   }
   const lines = text.split('\n');

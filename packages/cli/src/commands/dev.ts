@@ -132,7 +132,7 @@ export const devCommand: LeafCommand = {
     path: {
       type: 'string',
       description:
-        'The pack root, with a `kindgi.config.ts` or a `pyproject.toml` with `[tool.kindgi]`. Default: the current directory.',
+        'The pack root, with a `kindgi.config.ts` (or `.mts`) or a `pyproject.toml` with `[tool.kindgi]`. Default: the current directory.',
     },
     // --reset: a fresh start for this pack only — a new tenant and token
     // (it removes .kindgirc.json). The shared services and their data,

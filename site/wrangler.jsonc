@@ -1,0 +1,17 @@
+// docs.kindgi.com: Cloudflare Workers static assets.
+// Build every version first (`pnpm run docs:versions`, from the repo root),
+// then deploy from this directory: `pnpm dlx wrangler deploy`.
+{
+  "$schema": "https://unpkg.com/wrangler/config-schema.json",
+  "name": "kindgi-docs",
+  "compatibility_date": "2026-10-03",
+  "assets": {
+    "directory": "./dist-versions",
+    "not_found_handling": "404-page"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "workers_dev": false,
+  "routes": [{ "pattern": "docs.kindgi.com", "custom_domain": true }]
+}

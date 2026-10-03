@@ -6,7 +6,6 @@ sidebar:
   label: Overview
 ---
 
-The ideas behind Kindgi: packs and their primitives, runs and the journal,
-durability, provenance, the security model, tenancy, and where Kindgi runs.
-Read these to understand a behavior; read [Guides](../guides/) to get
-something done.
+The ideas behind Kindgi: how it fits your app, packs and their primitives,
+runs and the journal, the security model, and licensing. Read these to
+understand a behavior.
