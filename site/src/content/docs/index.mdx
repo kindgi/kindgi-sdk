@@ -1,0 +1,26 @@
+---
+title: Kindgi documentation
+description: Write tools, agents and flows in your app's own code. Kindgi runs them durably, on your infrastructure, and records every step.
+template: splash
+hero:
+  title: Kindgi documentation
+  tagline: Write tools, agents and flows in your app's own TypeScript or Python. Kindgi runs them durably, on your infrastructure, and records every step.
+  actions:
+    - text: What is Kindgi?
+      link: start/introduction/
+      icon: right-arrow
+    - text: Concepts
+      link: concepts/
+      variant: minimal
+---
+
+import { LinkCard, CardGrid } from '@astrojs/starlight/components';
+
+<CardGrid>
+  <LinkCard title="Start" href="start/" description="What Kindgi is, installing it, and your first pack in TypeScript or Python." />
+  <LinkCard title="Tutorials" href="tutorials/" description="Build something real, step by step: every tutorial is tested against this version." />
+  <LinkCard title="Guides" href="guides/" description="How to do one thing: tools, agents, flows, models, secrets, webhooks, deploying." />
+  <LinkCard title="Concepts" href="concepts/" description="How Kindgi works: packs, runs and the journal, provenance, the security model." />
+  <LinkCard title="Reference" href="reference/" description="Every API route, SDK export, CLI command, setting and event." />
+  <LinkCard title="Contributing" href="contributing/" description="How the SDK repository is organized and the rules for changes." />
+</CardGrid>

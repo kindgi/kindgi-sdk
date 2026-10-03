@@ -1,0 +1,61 @@
+{
+  "name": "@kindgi/tools",
+  "version": "0.1.0-preview.7",
+  "description": "Tool authoring shape + registry + invocation for Kindgi. A tool is a typed, effect-declared unit of work — the same definition runs in-process for one flow, over MCP for another. Pure — no kernel dependency; the kernel bridges tools to node handlers separately.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
+    "directory": "packages/tools"
+  },
+  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/tools#readme",
+  "bugs": {
+    "url": "https://github.com/kindgi/kindgi-sdk/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "src", "README.md", "SPEC.md", "type-manifest.json"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@kindgi/schema": "workspace:*",
+    "@kindgi/types": "workspace:*",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "semver": "^7.6.3"
+  },
+  "peerDependencies": {
+    "zod": "^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "zod": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@kindgi/specs": "workspace:*",
+    "@types/node": "^22.10.5",
+    "@types/semver": "^7.5.8",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8",
+    "zod": "^4.6.5"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

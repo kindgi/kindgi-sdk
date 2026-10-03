@@ -1,0 +1,18 @@
+{
+  "$schema": "https://kindgi.com/schemas/v1/type-manifest.schema.json",
+  "package": "@kindgi/specs",
+  "version": "0.0.0",
+  "description": "Canonical JSON Schemas for every Kindgi artifact kind, importable by name as `@kindgi/specs/<name>.schema.json`.",
+  "exports": {
+    "SPECS_SCHEMAS_DIR": {
+      "kind": "const",
+      "type": "string",
+      "description": "Absolute path to the directory holding every `<name>.schema.json`. For enumerating the whole set; resolve single schemas by name."
+    },
+    "SPECS_EXAMPLES_DIR": {
+      "kind": "const",
+      "type": "string",
+      "description": "Absolute path to the example fixtures (`<schema-name>.example.<label>.json`), each valid against its schema."
+    }
+  }
+}

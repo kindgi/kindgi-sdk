@@ -1,0 +1,181 @@
+---
+name: kindgi-getting-started
+description: >
+  Bootstrap a Kindgi pack from scratch: scaffold with
+  kindgi init, understand the pack layout (tools / agents /
+  guardrails / flows), boot the dev harness with kindgi dev, and hit
+  the first end-to-end run with kindgi runs start. Load this when a
+  project has no kindgi.config.ts yet and the user asks to "add
+  Kindgi", "create a pack", "scaffold a Kindgi pack", "start a
+  new pack", or when the user needs the mental model for what a Kindgi
+  pack IS. Once the pack is scaffolded and you are authoring code,
+  switch to kindgi-authoring-tools / kindgi-authoring-agents /
+  kindgi-authoring-guardrails / kindgi-authoring-flows for the specific
+  primitive.
+type: core
+library: "@kindgi/sdk"
+version: "0.3.2"
+sdk_version: "0.0.0"
+pack_languages: [node]
+---
+
+# Getting started with Kindgi
+
+> **Running `kindgi`:** the CLI is a devDependency of the project (`@kindgi/cli`),
+> not a global command. Run it through the project's package manager —
+> `pnpm exec kindgi …`, `npx --no kindgi …` (npm), `yarn kindgi …` or
+> `bun run kindgi …`. Commands below are written `kindgi …` for brevity.
+
+Scaffold a Kindgi pack — a versioned, deployable bundle
+of tools, agents, guardrails, and flows — and run it end-to-end
+locally.
+
+## What a pack IS
+
+A pack is one directory containing four primitive kinds authored via
+`@kindgi/sdk`:
+
+- **Tools** (`tools/<name>/index.ts`) — callable units of work.
+- **Agents** (`agents/<name>/index.ts`) — LLM orchestrators that call
+  tools.
+- **Guardrails** (`guardrails/<name>/index.ts`) — safety checks that
+  gate agent turns.
+- **Flows** (`flows/<name>/index.ts`) — declarative workflows
+  composing multiple nodes.
+
+Each primitive is a single TypeScript file whose default export is the
+definition: `defineTool` / `defineAgent` / `defineFlow` build tools,
+agents and flows; a guardrail file default-exports its declaration and
+builds its check with `defineCheck` (see
+`kindgi-authoring-guardrails`). The pack indexer discovers them by
+folder convention.
+
+## Scaffold
+
+**A new pack:**
+
+```bash
+npx @kindgi/cli init my-pack
+cd my-pack
+pnpm install
+```
+
+**Kindgi inside an existing app** (Next.js, NestJS, …) — in the app's
+root, no pack name:
+
+```bash
+npx @kindgi/cli init
+pnpm install          # or the app's own package manager
+```
+
+This adds `kindgi.config.ts` and a `kindgi/` folder beside the app's code,
+and never creates env files: `kindgi dev` reads the app's own `.env` /
+`.env.local`.
+
+Either way, `init` adds `@kindgi/sdk` and `@kindgi/cli` to the project's
+`package.json`, so the project runs the `kindgi` it pins — never a global
+one. (`npx @kindgi/cli` is the scoped package; a bare `npx kindgi` would
+fetch an unrelated package.)
+
+Two templates:
+
+- `--template=minimal` (default) — folder structure only, no example
+  primitives. Right when you know what you want to build.
+- `--template=sample` — worked kitchen-sink example (echo tool + agent
+  + guardrail + flow). Right for exploring the primitive kinds.
+
+## Boot the dev harness
+
+```bash
+pnpm exec kindgi dev
+```
+
+`kindgi dev` boots a local Kindgi runtime (starting the services it
+needs on first run), indexes the pack, registers every primitive, and
+re-registers on every save. The banner prints the API URL, the seeded
+bearer token, and (if the console is bundled) the `/console/` URL.
+
+The local runtime includes a built-in `demo.echo-agent` you can hit to
+verify the harness before authoring anything.
+
+## First run
+
+From a second terminal, with `cd my-pack`:
+
+```bash
+pnpm exec kindgi runs start --agent=demo.echo-agent --input='{"userMessage":"hi"}'
+```
+
+The CLI reads `.kindgirc.json` (auto-written by `kindgi dev`) for the
+API URL + token, so second-terminal commands work without flags.
+
+Once you author your own agent, replace `demo.echo-agent` with your
+own id.
+
+## Layout
+
+```
+my-pack/
+├── kindgi.config.ts        # pack id + version + discovery patterns
+├── package.json               # @kindgi/sdk + zod; devDependency @kindgi/cli
+├── tsconfig.json
+├── .claude/
+│   └── skills/                # auto-copied from @kindgi/sdk on init
+├── tools/                  # place `<name>/index.ts` per tool
+├── agents/                    # place `<name>/index.ts` per agent
+├── guardrails/                # place `<name>/index.ts` per guardrail
+└── flows/                    # place `<name>/index.ts` per flow
+```
+
+## Next steps
+
+When authoring a primitive, switch to the specific skill:
+
+- **Adding a tool** → `kindgi-authoring-tools`
+- **Adding an agent** → `kindgi-authoring-agents`
+- **Adding a guardrail** → `kindgi-authoring-guardrails`
+- **Adding a flow** → `kindgi-authoring-flows`
+
+Each of those skills is auto-loaded when working in the corresponding
+folder or when the user's request mentions the primitive kind.
+
+## Two things need the human
+
+Most of the setup is automatable, but two require your knowledge:
+
+- **The pack id + version** in `kindgi.config.ts` — the pack id
+  becomes the namespace prefix (`<pack-id>.<primitive-name>`) for
+  every primitive. Pick a stable kebab-case name; changing it later
+  breaks all published references.
+- **Real LLM provider credentials** — the built-in dev-echo provider
+  returns canned responses (great for the loop test, useless for real
+  agents). It is a fallback, so it steps aside once a real provider is
+  registered — `kindgi providers register --preset=anthropic` with the
+  key in `.env`; see `kindgi-authoring-providers`.
+
+## References
+
+- Full CLI surface: `kindgi --help`.
+- SDK hover docs: every `@kindgi/sdk/define` + `@kindgi/sdk/types`
+  export ships with JSDoc — hover in your editor.
+- Companion API docs: `pnpm --filter @kindgi/sdk exec typedoc`
+  regenerates markdown at `packages/sdk/docs/`.
+
+## Keeping skills up to date
+
+Skills in `.claude/skills/` are copied at `kindgi init` time. When the
+framework SDK ships a new version of a skill (better docs, corrected
+example, new capabilities), the pack's local copy stays stale until
+you resync. `kindgi dev` boot prints a warning when it detects drift;
+run `kindgi skills sync` to pull the latest framework skills.
+Local edits are preserved by default (marked `skipped-modified`);
+pass `--force` to overwrite them.
+
+## When the framework itself is the problem
+
+Kindgi is early. You will hit rough edges — SDK type drift, wire
+schemas that silently drop a field, misleading error messages, CLI
+friction. When you diagnose that the bug is in the framework (not in
+your pack), load the `kindgi-framework-feedback` skill and file a
+structured report with `kindgi feedback write`. Your diagnostic is
+exactly what the maintainers need.

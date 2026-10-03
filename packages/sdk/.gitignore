@@ -1,0 +1,4 @@
+# Generated API docs. Regenerate via `pnpm docs`; TypeDoc reads
+# JSDoc from `src/` (via re-exports of the @kindgi/* packages)
+# and emits markdown.
+docs/

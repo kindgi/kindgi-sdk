@@ -1,0 +1,173 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kindgi.com/schemas/v1/audit-bundle.schema.json",
+  "$comment": "schema-version: 1.0.0",
+  "title": "HITL audit bundle",
+  "description": "A signed export bundling one or more HITL approvals + their decisions + references to the provenance DAGs those approvals concern. Produced by the Kindgi runtime's HITL audit export. Ed25519-signed with the same key material used for provenance signing. Verifiable outside the runtime by an external auditor with only the public key.",
+  "type": "object",
+  "required": [
+    "id",
+    "tenantId",
+    "generatedAt",
+    "approvals",
+    "decisions",
+    "provenanceRefs",
+    "signature"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique bundle identifier (UUID). Stable across re-reads."
+    },
+    "tenantId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Sovereignty boundary. All included approvals + decisions belong to this tenant."
+    },
+    "generatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC timestamp when the bundle was materialized."
+    },
+    "approvals": {
+      "type": "array",
+      "description": "The approval records included in this bundle. Ordering is not guaranteed; consumers must key by `id`.",
+      "items": { "$ref": "#/$defs/approval" }
+    },
+    "decisions": {
+      "type": "array",
+      "description": "The decision records for approvals in this bundle. Some approvals may not yet have a decision (bundle exported mid-flight); a consumer joins by `approvalId`.",
+      "items": { "$ref": "#/$defs/reviewDecision" }
+    },
+    "provenanceRefs": {
+      "type": "array",
+      "description": "Back-references to the provenance DAGs the approvals concern. Only present when an approval carried a `provenanceRef`. Consumers fetch the DAGs from the provenance API separately — they are NOT embedded here to keep bundles small.",
+      "items": {
+        "type": "object",
+        "required": ["runId"],
+        "additionalProperties": false,
+        "properties": {
+          "runId": { "type": "string", "minLength": 1 },
+          "provenanceId": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "signature": {
+      "$ref": "#/$defs/signature"
+    }
+  },
+  "$defs": {
+    "approval": {
+      "type": "object",
+      "required": [
+        "id",
+        "tenantId",
+        "subjectKind",
+        "subjectRef",
+        "requiredRole",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "tenantId": { "type": "string", "minLength": 1 },
+        "projectId": { "type": "string", "minLength": 1 },
+        "subjectKind": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Free-form kind identifier (e.g. 'agent-turn:session-hitl-gate', 'supervisor:fix-proposal', 'pack:install'). Callers namespace their kinds."
+        },
+        "subjectRef": {
+          "type": "object",
+          "description": "Polymorphic payload describing what needs approval. Shape depends on `subjectKind`.",
+          "additionalProperties": true
+        },
+        "requiredRole": { "$ref": "#/$defs/reviewerRole" },
+        "status": { "$ref": "#/$defs/approvalStatus" },
+        "assignedTo": { "type": "string", "minLength": 1 },
+        "batchKey": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "context": { "type": "object", "additionalProperties": true },
+        "provenanceRef": {
+          "type": "object",
+          "required": ["runId"],
+          "additionalProperties": false,
+          "properties": {
+            "runId": { "type": "string", "minLength": 1 },
+            "provenanceId": { "type": "string", "minLength": 1 }
+          }
+        },
+        "waitTokenId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "decidedAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "reviewDecision": {
+      "type": "object",
+      "required": [
+        "id",
+        "tenantId",
+        "approvalId",
+        "reviewerId",
+        "decision",
+        "reviewerRoleAtDecision",
+        "decidedAt"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "tenantId": { "type": "string", "minLength": 1 },
+        "approvalId": { "type": "string", "minLength": 1 },
+        "reviewerId": { "type": "string", "minLength": 1 },
+        "decision": {
+          "type": "string",
+          "enum": ["approve", "reject", "escalate", "withdraw"]
+        },
+        "rationale": { "type": "string" },
+        "evidence": { "type": "object", "additionalProperties": true },
+        "reviewerRoleAtDecision": {
+          "$ref": "#/$defs/reviewerRole",
+          "description": "Snapshot of the reviewer's role at the moment of decision. A subsequent role rotation does not rewrite this audit record."
+        },
+        "decidedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "reviewerRole": {
+      "type": "string",
+      "enum": ["standard", "senior", "admin"],
+      "description": "Reviewer role class. Ordered by escalation authority: standard < senior < admin. `requiredRole` on an approval is the minimum; a higher-ranked reviewer can always decide a lower-tier approval."
+    },
+    "approvalStatus": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "assigned",
+        "in_review",
+        "approved",
+        "rejected",
+        "escalated",
+        "expired",
+        "withdrawn"
+      ]
+    },
+    "signature": {
+      "type": "object",
+      "required": ["algorithm", "keyId", "value", "signedAt"],
+      "additionalProperties": false,
+      "description": "Ed25519 signature over the canonical JSON projection of the bundle (all fields except this signature). Same algorithm and canonicalization as signed provenance exports.",
+      "properties": {
+        "algorithm": { "type": "string", "enum": ["ed25519"] },
+        "keyId": { "type": "string", "minLength": 1 },
+        "value": { "type": "string", "pattern": "^[A-Za-z0-9+/]+={0,2}$" },
+        "signedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

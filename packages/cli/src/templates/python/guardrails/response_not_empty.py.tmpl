@@ -1,0 +1,27 @@
+"""{{PACK_ID}}.response-not-empty — a zero-LLM guardrail: the run's answer has content."""
+
+from pydantic import BaseModel, Field
+
+from kindgi import CheckResult, RunTrace, guardrail
+
+
+class Config(BaseModel):
+    min_length: int = Field(1, alias="minLength", ge=0)
+
+
+@guardrail(
+    id="{{PACK_ID}}.response-not-empty",
+    name="Response is non-empty",
+    check_id="{{PACK_ID}}.checks.response-not-empty",
+    on_violation="halt",
+    severity="error",
+    scope={"when": "runtime-only"},
+)
+def response_not_empty(config: Config, trace: RunTrace) -> CheckResult:
+    text = (trace.output or "").strip()
+    if len(text) < config.min_length:
+        return CheckResult(
+            passed=False,
+            reason=f"Response too short: {len(text)} chars, expected >= {config.min_length}.",
+        )
+    return CheckResult(passed=True)

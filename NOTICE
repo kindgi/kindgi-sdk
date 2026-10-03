@@ -1,0 +1,40 @@
+Kindgi SDK
+Copyright (C) 2026 Kindgi Inc.
+
+This product is licensed under the Apache License, Version 2.0. See the
+LICENSE file for the full text.
+
+------------------------------------------------------------------------
+
+Third-party attributions
+
+Each entry lists the upstream project, its license, and the scope of
+use. No upstream source code is imported or vendored; the listed
+patterns were reimplemented independently.
+
+------------------------------------------------------------------------
+
+Trigger.dev v3
+Copyright (C) Trigger.dev, Inc.
+Licensed under the Apache License, Version 2.0.
+Upstream: https://github.com/triggerdotdev/trigger.dev
+
+- The multi-stage Containerfile `kindgi build` writes (base, build, code,
+  indexer, final; `packages/cli/src/build/containerfile.ts`) follows
+  trigger.dev's `packages/cli-v3/src/deploy/buildImage.ts`.
+- The build-time indexer stage that produces an in-image manifest
+  (`packages/handler-runtime/src/kindgi-index.ts` and the
+  `/app/index.json` shape) is inspired by trigger.dev's indexer approach.
+- The "framework runtime bundled per-deploy alongside user code" model
+  informs `@kindgi/handler-runtime`'s deployment shape.
+
+------------------------------------------------------------------------
+
+Cloudflare Sandbox SDK
+Copyright (C) Cloudflare, Inc.
+Licensed under the Apache License, Version 2.0.
+Upstream: https://github.com/cloudflare/sandbox-sdk
+
+- The `SandboxProvider` interface shape and the isolation levels
+  (`none | context-isolated | strict`) in `@kindgi/sandbox` are inspired
+  by the Cloudflare Sandbox SDK.

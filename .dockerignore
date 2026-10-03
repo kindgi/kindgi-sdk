@@ -1,0 +1,8 @@
+# Docker builds that use this repository as a build context (e.g. as a
+# named `--build-context`) never need host-installed or built artifacts:
+# the image installs and builds from source for its own platform.
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+**/coverage
+.git

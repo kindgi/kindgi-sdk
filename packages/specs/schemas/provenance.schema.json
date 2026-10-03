@@ -1,0 +1,183 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kindgi.com/schemas/v1/provenance.schema.json",
+  "$comment": "schema-version: 1.0.0",
+  "title": "Provenance DAG",
+  "description": "Causal DAG for a run. Every output node has edges back to every input that influenced it — prompts, retrieved chunks, tool results, prior turns, model version, tenant policy in effect. This is the PRIMARY audit artifact, not a derivative of OTel spans. Signed with Ed25519 for verification outside the runtime.",
+  "type": "object",
+  "required": ["id", "runId", "tenantId", "version", "nodes", "edges", "createdAt"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique provenance record identifier."
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The kernel run this DAG describes."
+    },
+    "tenantId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Tenant that owns this provenance record. Cross-tenant reads are denied by policy."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Schema version for this DAG document (semver)."
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When this DAG was emitted (ISO-8601 UTC)."
+    },
+    "flowRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The flow and version this run executed.",
+      "required": ["id", "version"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Node"
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Edge"
+      }
+    },
+    "signature": {
+      "$ref": "#/$defs/Signature"
+    }
+  },
+  "$defs": {
+    "Node": {
+      "type": "object",
+      "required": ["id", "kind", "timestamp"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "input",
+            "prompt",
+            "retrieval",
+            "tool-call",
+            "tool-result",
+            "model-call",
+            "model-output",
+            "artifact",
+            "guardrail-check",
+            "event",
+            "policy-decision",
+            "memory-read",
+            "memory-write",
+            "wait",
+            "resume"
+          ],
+          "description": "What this node represents in the causal chain."
+        },
+        "actor": {
+          "type": "string",
+          "description": "Which agent/tool/subsystem produced this node (id or name)."
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "contentHash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "Content-addressed hash of the node's payload. Enables dedup + tamper detection without storing the payload inline."
+        },
+        "contentRef": {
+          "type": "string",
+          "description": "Optional blob reference for large payloads (e.g. full model outputs). Format: 'blob://<provider>/<bucket>/<key>'."
+        },
+        "modelVersion": {
+          "type": "string",
+          "description": "Model + version, for model-call and model-output nodes (e.g. 'anthropic/claude-opus-4-7@2026-06-01')."
+        },
+        "policyDecisionId": {
+          "type": "string",
+          "description": "For policy-decision nodes: the ID that resolves to the full decision record."
+        },
+        "attributes": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Kind-specific attributes. Interpreted per node kind; consumers should tolerate unknown attributes for forward compatibility."
+        }
+      }
+    },
+    "Edge": {
+      "type": "object",
+      "required": ["from", "to", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "type": "string",
+          "minLength": 1
+        },
+        "to": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "caused-by",
+            "influenced-by",
+            "retrieved-from",
+            "invoked",
+            "produced",
+            "checked-against",
+            "waited-on",
+            "resumed-from"
+          ]
+        }
+      }
+    },
+    "Signature": {
+      "type": "object",
+      "required": ["algorithm", "keyId", "value", "signedAt"],
+      "additionalProperties": false,
+      "description": "Cryptographic signature over the canonical serialization of (nodes, edges, id, runId, tenantId, createdAt, flowRef).",
+      "properties": {
+        "algorithm": {
+          "type": "string",
+          "enum": ["ed25519"]
+        },
+        "keyId": {
+          "type": "string",
+          "description": "Identifier of the signing key (per-tenant or per-deployment)."
+        },
+        "value": {
+          "type": "string",
+          "description": "Base64-encoded signature bytes.",
+          "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+        },
+        "signedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}

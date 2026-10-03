@@ -1,0 +1,5 @@
+# The workspace-root .gitignore treats `build/` as a build-output folder,
+# which collides with `src/build/` — the pipeline-stage folder for the
+# `kindgi build` command (mirrors `src/dev/` for `kindgi dev`).
+# This exception scopes the negation to the CLI's source tree only.
+!src/build/

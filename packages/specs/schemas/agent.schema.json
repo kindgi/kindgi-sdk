@@ -1,0 +1,238 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kindgi.com/schemas/v1/agent.schema.json",
+  "$comment": "schema-version: 1.3.0",
+  "title": "Agent",
+  "description": "An agent definition. Declarative composition of instructions + capabilities + tools + memory retrieval + guardrails + conversation policy. The same definition is durable across restarts and versioned like flows — provenance references agents by (id, version).",
+  "type": "object",
+  "required": [
+    "id",
+    "version",
+    "name",
+    "instructions",
+    "capabilities",
+    "tools",
+    "retrieval",
+    "guardrails"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Agent identifier. Convention: '<pack>.<agent>' (e.g. 'acme.citation-verifier')."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+      "description": "Semver identifying this iteration of the agent. Different versions are different agents for audit purposes."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable display name."
+    },
+    "description": {
+      "type": "string",
+      "description": "Prose describing what the agent does. Shown in catalog + provenance metadata."
+    },
+    "instructions": {
+      "type": "string",
+      "minLength": 1,
+      "description": "System-prompt rendered at the top of every turn. LiquidJS template — {{ variable }} substitution, {% if %} / {% for %} control flow, {{ value | filter }} filters. Every referenced variable must be a declared PromptParameter or a framework auto-var (today, now, agent.*, conversation.*). Rendered with strictVariables — unresolved refs are hard errors."
+    },
+    "parameters": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/PromptParameter" },
+      "description": "Typed parameters supplied at invoke time. UI reads this to build a configuration form; runtime validates required parameters are provided before the model call."
+    },
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "description": "One Capability declaration — see capability.schema.json."
+      },
+      "description": "Capability declarations consumed by the router at turn time. One entry per resource kind the agent needs (e.g. LLM inference, embedding, gpu-compute). The router matches each entry by its kind (`Capability.kind`, default `llm-inference`) and its requirements; the array shape lets new kinds arrive without a schema break."
+    },
+    "tools": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ToolRef" },
+      "description": "Tools the agent may invoke, as `{ id, version }` references; an empty array makes the agent chat-only. At run start each reference resolves to the highest registered version that satisfies its range; an unresolvable reference fails the turn. Schema-version 1.1.0 replaced the bare-string tool ids of 1.0.0, which `defineAgent` already rejected."
+    },
+    "retrieval": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/RetrievalIntent" },
+      "description": "Fact-retrieval intents run before every turn to ground the model's context."
+    },
+    "guardrails": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Guardrail ids the agent is subject to. Resolved at turn start against the guardrails bound for the run (an unknown id fails the turn); evaluated on each turn's final response, before it is stored."
+    },
+    "preferredProvider": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Preferred model provider id. Soft hint: the router prefers this provider when it satisfies the agent's capabilities and tenant policy, and otherwise routes normally."
+    },
+    "preferredModel": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Preferred model name within the selected provider. Soft hint, combined with preferredProvider."
+    },
+    "conversationPolicy": { "$ref": "#/$defs/ConversationPolicy" },
+    "budget": { "$ref": "#/$defs/TurnBudget" },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Free-form filter tags for the catalog. Not consumed by execution."
+    },
+    "output": { "$ref": "#/$defs/AgentOutputSpec" },
+    "toolErrors": { "$ref": "#/$defs/ToolErrorsSpec" }
+  },
+  "$defs": {
+    "ToolErrorsSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What the turn does when a tool call fails (schema-version 1.3.0): the failure goes back to the model as the call's result, so it can correct the call, up to `maxRetries` times per turn, for the kinds in `retryOn`. Default: one retry, for `invalid-arguments` and `unknown-tool`. A tenant `tool-errors` policy can lower it.",
+      "properties": {
+        "maxRetries": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10,
+          "description": "Failed calls sent back to the model per turn. Default 1."
+        },
+        "retryOn": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["invalid-arguments", "unknown-tool", "tool-error"] },
+          "description": "Which failures are sent back: arguments that don't fit the input schema, a tool the agent doesn't have, a tool that ran and failed. Default `invalid-arguments`, `unknown-tool`."
+        }
+      }
+    },
+    "AgentOutputSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema"],
+      "description": "A typed result (schema-version 1.2.0): the final answer must be JSON matching `schema`. An invalid answer is sent back to the model with the problems listed, up to `maxRepairs` times; then the turn fails with `output-schema-violation`.",
+      "properties": {
+        "schema": {
+          "type": "object",
+          "description": "JSON Schema (draft 2020-12) the final answer must match."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A name for the output, shown to the model and in errors. Default `output`."
+        },
+        "maxRepairs": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many times the model is asked to repair an invalid answer. Default 1."
+        }
+      }
+    },
+    "ToolRef": {
+      "type": "object",
+      "required": ["id", "version"],
+      "additionalProperties": false,
+      "description": "A typed tool reference: a tool id plus a semver range. Bare-string ids are not accepted — every reference names both.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "description": "Tool id (e.g. 'acme.verify-citation'). Must not be blank."
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "description": "npm-style semver range: '1.2.3' pins exactly, '^1.2.3' allows compatible updates, '~1.2.3' patch updates only, '>=1.0.0 <2.0.0' an explicit range. Must not be blank; the range grammar is checked when the reference resolves at run start."
+        }
+      }
+    },
+    "PromptParameter": {
+      "type": "object",
+      "required": ["name", "type"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Variable name referenced in the instructions template. Must NOT collide with reserved auto-var namespaces: today, now, agent, conversation."
+        },
+        "description": {
+          "type": "string",
+          "description": "UI-facing description of what the caller should supply."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["string", "number", "boolean", "date"]
+        },
+        "required": {
+          "type": "boolean",
+          "description": "Default true. Set false to allow the parameter to be omitted."
+        },
+        "default": {
+          "description": "Value used when the caller omits this parameter. Must match the declared type."
+        }
+      }
+    },
+    "RetrievalIntent": {
+      "type": "object",
+      "required": ["types", "scope"],
+      "additionalProperties": false,
+      "properties": {
+        "types": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "scope": {
+          "type": "string",
+          "enum": ["same-conversation", "same-project", "tenant"]
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Cap on facts per turn. Default 10."
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["keyword", "semantic", "both"]
+        }
+      }
+    },
+    "ConversationPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "historyLimit": { "type": "integer", "minimum": 1 },
+        "autoCloseAfterInactiveSeconds": { "type": "integer", "minimum": 1 },
+        "hitlAfterTurns": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "TurnBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxSteps": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum model→tool→model iterations per turn. Default 8."
+        },
+        "maxCostUsd": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Maximum USD spend per turn."
+        },
+        "maxWallMs": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Wall-clock cap in ms. Default 120000."
+        }
+      }
+    }
+  }
+}

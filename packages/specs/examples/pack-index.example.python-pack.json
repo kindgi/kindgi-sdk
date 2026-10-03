@@ -1,0 +1,70 @@
+{
+  "agents": [
+    {
+      "capabilities": [{ "needs": [{ "feature": "tool-use" }] }],
+      "guardrails": ["acme.ledger.response-not-empty"],
+      "id": "acme.ledger.bookkeeper",
+      "instructions": "Classify the document, then call acme.ledger.record-expense.",
+      "modulePath": "agents/bookkeeper.py",
+      "name": "Bookkeeper",
+      "retrieval": [],
+      "tools": [{ "id": "acme.ledger.record-expense", "version": "1.0.0" }],
+      "version": "1.0.0"
+    }
+  ],
+  "artifactVersion": "20261001.1",
+  "flows": [
+    {
+      "edges": [
+        { "from": "$start", "id": "e-start", "to": "record" },
+        { "from": "record", "id": "e-end", "to": "$end" }
+      ],
+      "id": "acme.ledger.record-flow",
+      "kernelPayloadVersion": 1,
+      "modulePath": "flows/record.py",
+      "nodes": [{ "id": "record", "kind": "tool", "ref": "acme.ledger.record-expense" }],
+      "version": "1.0.0"
+    }
+  ],
+  "guardrails": [
+    {
+      "action": { "on-violation": "halt" },
+      "checkId": "acme.ledger.checks.response-not-empty",
+      "checkModulePath": "guardrails/response.py",
+      "configSchema": {
+        "properties": { "minLength": { "default": 1, "minimum": 0, "type": "integer" } },
+        "type": "object"
+      },
+      "id": "acme.ledger.response-not-empty",
+      "kind": "zero-llm",
+      "scope": { "when": "runtime-only" },
+      "severity": "error"
+    }
+  ],
+  "packId": "acme.ledger",
+  "packVersion": "1.0.0",
+  "publishedAt": "2026-10-01T12:00:00.000Z",
+  "tools": [
+    {
+      "description": "Records an expense in the ledger.",
+      "effects": [{ "kind": "writes", "resource": "db:ledger" }],
+      "id": "acme.ledger.record-expense",
+      "input": {
+        "properties": {
+          "amountCents": { "minimum": 0, "type": "integer" },
+          "vendor": { "type": "string" }
+        },
+        "required": ["vendor", "amountCents"],
+        "type": "object"
+      },
+      "modulePath": "tools/ledger.py",
+      "output": {
+        "properties": { "expenseId": { "type": "string" } },
+        "required": ["expenseId"],
+        "type": "object"
+      },
+      "version": "1.0.0"
+    }
+  ],
+  "v": 1
+}

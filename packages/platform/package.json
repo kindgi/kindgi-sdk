@@ -1,0 +1,47 @@
+{
+  "name": "@kindgi/platform",
+  "version": "0.1.0-preview.7",
+  "description": "Multi-tenant hierarchy primitives — the Tenant → Org → Team → Project + User type surface, the `Scope` discriminated access-boundary, binding interfaces for orgs, teams, projects, memberships, team-project grants and the tenant hierarchy, and reference in-memory adapters.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
+    "directory": "packages/platform"
+  },
+  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/platform#readme",
+  "bugs": {
+    "url": "https://github.com/kindgi/kindgi-sdk/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./tests/*": "./tests/*"
+  },
+  "files": ["dist", "src", "tests", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@kindgi/types": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

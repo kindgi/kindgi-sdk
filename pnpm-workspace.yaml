@@ -1,0 +1,23 @@
+packages:
+  - "packages/*"
+  - "packages/adapters/*"
+  - "sdks/*"
+  # The documentation site (docs.kindgi.com); private, never published.
+  - "site"
+
+# Dev-only cycle: @kindgi/api tests use @kindgi/testing, which types against
+# @kindgi/api. Builds order by production deps (scripts/build-workspace.mjs).
+ignoreWorkspaceCycles: true
+
+# pnpm blocks dependency lifecycle scripts by default; reviewed allowlist.
+allowBuilds:
+  '@biomejs/biome': true
+  '@google/genai': false
+  'esbuild': true
+  'msw': true
+  'onnxruntime-node': true
+  'protobufjs': true
+  'sharp': true
+
+minimumReleaseAgeExclude:
+  - openai@7.17.0

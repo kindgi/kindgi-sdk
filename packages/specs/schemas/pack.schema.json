@@ -1,0 +1,320 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kindgi.com/schemas/v1/pack.schema.json",
+  "$comment": "schema-version: 1.1.0",
+  "title": "Pack manifest",
+  "description": "An installable vertical application. Bundles agents, tools, guardrails, memory schemas, capability declarations, and UI metadata — all as data. Installation is 'load this manifest into tenant config'. Pack tools reach the runtime over MCP (`mcpEndpoint`), as a handler artifact (`codeArtifactRef`), or as a declarative `spec`; pack code runs outside the runtime server process, in a separate process or container.",
+  "type": "object",
+  "required": ["id", "version", "name", "manifestVersion"],
+  "additionalProperties": false,
+  "properties": {
+    "manifestVersion": {
+      "type": "string",
+      "const": "1.0",
+      "description": "Version of the pack manifest schema itself. Bumped on breaking manifest changes."
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)*$",
+      "minLength": 1,
+      "description": "Globally unique pack id (dotted lowercase, e.g. 'com.acme.support')."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string"
+    },
+    "author": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "email": {
+          "type": "string",
+          "format": "email"
+        }
+      }
+    },
+    "homepage": {
+      "type": "string",
+      "format": "uri"
+    },
+    "license": {
+      "type": "string"
+    },
+    "requiresOsVersion": {
+      "type": "string",
+      "description": "Semver range of Kindgi runtime versions this pack is compatible with (e.g. '>=1.0.0 <2.0.0')."
+    },
+    "agents": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/AgentDecl"
+      },
+      "description": "Agents this pack contributes. Each is a full agent definition (declarative)."
+    },
+    "flows": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/FlowDecl"
+      },
+      "description": "Task flows this pack contributes (references to flow documents)."
+    },
+    "tools": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ToolDecl"
+      },
+      "description": "Tools this pack contributes. Tools that run pack code point at it through an `mcpEndpoint` (the pack's MCP server) or a `codeArtifactRef` (a handler artifact); declarative tools carry a `spec`."
+    },
+    "guardrails": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/GuardrailDecl"
+      }
+    },
+    "memorySchemas": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/MemorySchemaDecl"
+      },
+      "description": "Fact type schemas this pack defines. Registered so the memory layer knows how to validate writes."
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/CapabilityDecl"
+      },
+      "description": "Capability declarations named by this pack (referenced by pack agents)."
+    },
+    "ui": {
+      "$ref": "#/$defs/UiMetadata",
+      "description": "Optional metadata for how Kindgi UIs display this pack (icon, category, tags, external app URL)."
+    },
+    "requiredNeeds": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Context slots this pack requires the tenant to have configured (e.g. 'model:vision-capable', 'blob', 'compliance-provider'). Install fails if any is unmet."
+    },
+    "permissions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Permissions this pack asks the admin to grant on install (e.g. 'memory:write:facts', 'blob:write', 'events:emit'). Enforced by the tenant policy engine."
+    },
+    "signature": {
+      "$ref": "#/$defs/PackSignature"
+    }
+  },
+  "$defs": {
+    "AgentDecl": {
+      "type": "object",
+      "required": ["id", "instructions", "capabilities"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "instructions": {
+          "type": "string",
+          "description": "System prompt / instructions for the agent."
+        },
+        "capabilities": {
+          "description": "Reference to a capability declaration by id, or an inline capability declaration.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "https://kindgi.com/schemas/v1/capability.schema.json"
+            }
+          ]
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "$ref": "https://kindgi.com/schemas/v1/agent.schema.json#/$defs/ToolRef"
+          },
+          "description": "Tools this agent is allowed to call, as `{ id, version }` references — the same `ToolRef` shape as `agent.schema.json`. Schema-version 1.1.0 replaced the bare-string tool ids of 1.0.0."
+        },
+        "memory": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Memory binding configuration (which fact types the agent reads/writes, retrieval hints)."
+        },
+        "guardrails": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Guardrail ids that apply to this agent."
+        },
+        "exitConditions": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "maxTurns": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxToolCalls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "maxDurationMs": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "FlowDecl": {
+      "type": "object",
+      "required": ["path"],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Relative path (within the pack bundle) to a JSON file conforming to flow.schema.json."
+        }
+      }
+    },
+    "ToolDecl": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["path"],
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Relative path to a JSON file conforming to tool.schema.json."
+            }
+          }
+        },
+        {
+          "$ref": "https://kindgi.com/schemas/v1/tool.schema.json"
+        }
+      ]
+    },
+    "GuardrailDecl": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["path"],
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "$ref": "https://kindgi.com/schemas/v1/guardrail.schema.json"
+        }
+      ]
+    },
+    "MemorySchemaDecl": {
+      "type": "object",
+      "required": ["factType", "schema"],
+      "additionalProperties": false,
+      "properties": {
+        "factType": {
+          "type": "string",
+          "description": "Fact type identifier this schema governs."
+        },
+        "schema": {
+          "type": "object",
+          "description": "JSON Schema (Draft 2020-12) for the fact content."
+        },
+        "retrieve": {
+          "type": "string",
+          "enum": ["semantic", "recency", "exact", "flow", "none"],
+          "description": "Default retrieval hint for facts of this type."
+        }
+      }
+    },
+    "CapabilityDecl": {
+      "type": "object",
+      "required": ["id", "declaration"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "declaration": {
+          "$ref": "https://kindgi.com/schemas/v1/capability.schema.json"
+        }
+      }
+    },
+    "UiMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "icon": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "externalAppUrl": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL of the pack's own user-facing UI (separate app consuming the Kindgi client SDK). A pack's own drafting UI, for example, lives here — not embedded in Kindgi's own UI."
+        }
+      }
+    },
+    "PackSignature": {
+      "type": "object",
+      "required": ["algorithm", "keyId", "value", "signedAt"],
+      "additionalProperties": false,
+      "properties": {
+        "algorithm": {
+          "type": "string",
+          "enum": ["ed25519"]
+        },
+        "keyId": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+        },
+        "signedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}

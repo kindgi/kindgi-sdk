@@ -1,0 +1,76 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+.pnpm-debug.log*
+
+# Build output
+dist/
+.astro/
+build/
+out/
+*.tsbuildinfo
+.turbo/
+
+# Test + coverage
+coverage/
+.vitest/
+*.log
+
+# Environment
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Editor
+.vscode/*
+!.vscode/settings.example.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# OS
+.DS_Store
+._*
+
+# Docker
+.docker-data/
+
+# Local data volumes (docker-compose)
+data/postgres/
+data/minio/
+
+# Temporary
+tmp/
+temp/
+*.tmp
+
+# Local chat transcripts from coding assistants
+chats/
+
+# Local pack test tarballs (from `pnpm pack`)
+*.tgz
+
+# Local scratch notes (never committed)
+.scratch/
+
+# Python (sdks/python)
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# The docs site's generated reference pages (site/scripts/generate-reference.mjs)
+site/src/content/docs/reference/cli/
+site/src/content/docs/reference/env-vars.md
+site/src/content/docs/reference/schemas/
+site/src/content/docs/reference/packages/
+site/src/content/docs/reference/typescript/
+site/src/content/docs/reference/python/
+site/generated/
+site/dist-versions/

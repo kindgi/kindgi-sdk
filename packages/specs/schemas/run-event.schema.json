@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kindgi.com/schemas/v1/run-event.schema.json",
+  "$comment": "schema-version: 1.0.0",
+  "title": "Run event",
+  "description": "Kernel-emitted lifecycle events for a specific run. Streamed over SSE to subscribers (browser via client SDK, admin UI, external observers). Distinct from the general Event type: RunEvents are always about a specific run, always emitted by the kernel, and are used by the run subscription API rather than the general subscription API.",
+  "type": "object",
+  "required": ["eventId", "runId", "tenantId", "timestamp", "kind"],
+  "additionalProperties": false,
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "`<runId>:<sequence>`; monotonic within the run. Used as `Last-Event-Id` for SSE resumability."
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tenantId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "run.queued",
+        "run.started",
+        "run.step-started",
+        "run.step-completed",
+        "run.step-failed",
+        "run.step-retry-scheduled",
+        "run.iteration-started",
+        "run.iteration-completed",
+        "run.tool-invoked",
+        "run.tool-result",
+        "run.model-token",
+        "run.artifact-produced",
+        "run.guardrail-violated",
+        "run.wait-suspended",
+        "run.wait-resumed",
+        "run.approval-requested",
+        "run.approval-completed",
+        "run.completed",
+        "run.failed",
+        "run.cancelled"
+      ]
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Monotonic sequence within the run: the journal entry's `sequence` (`JournalEntry.sequence` in `@kindgi/runtime`)."
+    },
+    "nodeId": {
+      "type": "string",
+      "description": "For step-scoped events: the flow node id."
+    },
+    "payload": {
+      "description": "Kind-specific payload. Model tokens carry text; guardrail-violated carries the guardrail id and evidence; approval-requested carries the token id and prompt; etc."
+    }
+  }
+}

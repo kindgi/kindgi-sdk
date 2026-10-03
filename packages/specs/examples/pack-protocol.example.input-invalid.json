@@ -1,0 +1,16 @@
+{
+  "v": 2,
+  "kind": "error",
+  "code": "input-validation-failed",
+  "message": "Tool \"acme.ledger.record-expense\" input failed validation",
+  "toolId": "acme.ledger.record-expense",
+  "issues": [
+    {
+      "instancePath": "",
+      "schemaPath": "#/required",
+      "keyword": "required",
+      "params": { "missingProperty": "amountCents" },
+      "message": "must have required property 'amountCents'"
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "name": "@kindgi/types",
+  "version": "0.1.0-preview.7",
+  "description": "Foundational TypeScript types shared across Kindgi. Branded IDs, timestamps, hashes, refs, Result, list filter / page shapes. Zero runtime dependencies; the only runtime export is the makeEnvName validator.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
+    "directory": "packages/types"
+  },
+  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/types#readme",
+  "bugs": {
+    "url": "https://github.com/kindgi/kindgi-sdk/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "src", "README.md", "SPEC.md", "type-manifest.json"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --typecheck --typecheck.only --passWithNoTests",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}

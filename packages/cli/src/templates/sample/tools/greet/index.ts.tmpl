@@ -1,0 +1,35 @@
+// {{PACK_ID}}.greet — greets a named recipient. Second Zod-authored tool
+// alongside `echo` to show how a pack composes multiple primitives. It is
+// read-only (`mutating: false`), so it also runs in a dry run.
+
+import { defineTool } from '@kindgi/sdk/define';
+import type { ToolId } from '@kindgi/sdk/types';
+import { z } from 'zod';
+
+const GreetInput = z.object({
+  name: z.string().min(1).max(100),
+  greeting: z.string().min(1).max(50).default('Hello'),
+});
+
+const GreetOutput = z.object({
+  message: z.string(),
+});
+
+const defined = defineTool({
+  id: '{{PACK_ID}}.greet' as ToolId,
+  description: 'Formats a greeting for the named recipient.',
+  version: '{{PACK_VERSION}}',
+  input: GreetInput,
+  output: GreetOutput,
+  effects: [],
+  mutating: false,
+  handler: async (input) => ({
+    message: `${input.greeting}, ${input.name}!`,
+  }),
+});
+
+if (defined.kind === 'err') {
+  throw new Error(`{{PACK_ID}}.greet failed to compile: ${defined.error.message}`);
+}
+
+export default defined.value;

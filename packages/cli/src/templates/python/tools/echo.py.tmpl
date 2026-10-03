@@ -1,0 +1,27 @@
+"""{{PACK_ID}}.echo — echoes the message back with a UTC timestamp and its length."""
+
+from datetime import UTC, datetime
+
+from pydantic import BaseModel, Field
+
+from kindgi import tool
+
+
+class EchoInput(BaseModel):
+    message: str = Field(min_length=1, max_length=500)
+
+
+class Echo(BaseModel):
+    echo: str
+    echoed_at: str = Field(alias="echoedAt")
+    character_count: int = Field(alias="characterCount", ge=0)
+
+
+@tool(id="{{PACK_ID}}.echo")
+def echo(input: EchoInput) -> Echo:
+    """Echoes the caller-provided message with a UTC timestamp and character count."""
+    return Echo(
+        echo=input.message,
+        echoedAt=datetime.now(UTC).isoformat(),
+        characterCount=len(input.message),
+    )

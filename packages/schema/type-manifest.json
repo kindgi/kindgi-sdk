@@ -1,0 +1,101 @@
+{
+  "$schema": "https://kindgi.com/schemas/v1/type-manifest.schema.json",
+  "package": "@kindgi/schema",
+  "version": "0.0.0",
+  "description": "JSON Schema utilities: registry, validation, versioning. Backed by Ajv (Draft 2020-12).",
+  "exports": {
+    "SpecRegistry": {
+      "kind": "type",
+      "form": "interface",
+      "methods": {
+        "validate": "<T = unknown>(id: string, data: unknown) => Result<T, SchemaError>",
+        "getSchema": "(id: string) => Result<unknown, SchemaError>",
+        "ids": "() => readonly string[]"
+      }
+    },
+    "createSpecRegistry": {
+      "kind": "function",
+      "signature": "(schemas: readonly unknown[]) => Result<SpecRegistry, SchemaError>",
+      "description": "Build a registry from already-parsed schema documents. Synchronous."
+    },
+    "loadSpecRegistry": {
+      "kind": "function",
+      "signature": "(dir: string) => Promise<Result<SpecRegistry, SchemaError>>",
+      "description": "Build a registry by reading every *.schema.json in a directory. Async."
+    },
+    "versionOf": {
+      "kind": "function",
+      "signature": "(schema: unknown) => Result<SchemaVersion, SchemaError>",
+      "description": "Extract { major, semver } from a schema's $id and $comment."
+    },
+    "SchemaVersion": {
+      "kind": "type",
+      "form": "interface",
+      "fields": {
+        "major": "SchemaMajor",
+        "semver": "Semver"
+      }
+    },
+    "SchemaError": {
+      "kind": "type",
+      "form": "discriminated-union",
+      "discriminator": "code",
+      "members": [
+        "SchemaLoadError",
+        "SchemaParseError",
+        "SchemaCompileError",
+        "SchemaNotFoundError",
+        "ValidationError"
+      ]
+    },
+    "SchemaLoadError": {
+      "kind": "type",
+      "form": "interface",
+      "fields": {
+        "code": "'schema-load-error'",
+        "message": "string",
+        "path": "string",
+        "cause": "unknown"
+      }
+    },
+    "SchemaParseError": {
+      "kind": "type",
+      "form": "interface",
+      "fields": {
+        "code": "'schema-parse-error'",
+        "message": "string",
+        "path": "string",
+        "cause": "unknown"
+      }
+    },
+    "SchemaCompileError": {
+      "kind": "type",
+      "form": "interface",
+      "fields": {
+        "code": "'schema-compile-error'",
+        "message": "string",
+        "id": "string",
+        "cause": "unknown"
+      }
+    },
+    "SchemaNotFoundError": {
+      "kind": "type",
+      "form": "interface",
+      "fields": { "code": "'schema-not-found'", "message": "string", "id": "string" }
+    },
+    "ValidationError": {
+      "kind": "type",
+      "form": "interface",
+      "fields": {
+        "code": "'validation-error'",
+        "message": "string",
+        "id": "string",
+        "errors": "readonly unknown[]"
+      }
+    }
+  },
+  "runtime": {
+    "hasCode": true,
+    "dependencies": ["ajv", "ajv-formats", "@kindgi/types"]
+  }
+}

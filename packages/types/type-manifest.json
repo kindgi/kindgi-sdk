@@ -1,0 +1,99 @@
+{
+  "$schema": "https://kindgi.com/schemas/v1/type-manifest.schema.json",
+  "package": "@kindgi/types",
+  "version": "0.0.0",
+  "description": "Foundational TypeScript types. Type-only exports; zero runtime code.",
+  "exports": {
+    "brand": {
+      "kind": "type",
+      "generic": ["T", "B extends string"],
+      "description": "Nominal-type utility for branded types."
+    },
+    "TenantId": { "kind": "type", "form": "Brand<string, 'TenantId'>" },
+    "UserId": { "kind": "type", "form": "Brand<string, 'UserId'>" },
+    "OrgId": { "kind": "type", "form": "Brand<string, 'OrgId'>" },
+    "TeamId": { "kind": "type", "form": "Brand<string, 'TeamId'>" },
+    "ProjectId": { "kind": "type", "form": "Brand<string, 'ProjectId'>" },
+    "ThreadId": { "kind": "type", "form": "Brand<string, 'ThreadId'>" },
+    "SessionId": { "kind": "type", "form": "Brand<string, 'SessionId'>" },
+    "RunId": { "kind": "type", "form": "Brand<string, 'RunId'>" },
+    "FlowId": { "kind": "type", "form": "Brand<string, 'FlowId'>" },
+    "NodeId": { "kind": "type", "form": "Brand<string, 'NodeId'>" },
+    "EdgeId": { "kind": "type", "form": "Brand<string, 'EdgeId'>" },
+    "AgentId": { "kind": "type", "form": "Brand<string, 'AgentId'>" },
+    "ToolId": { "kind": "type", "form": "Brand<string, 'ToolId'>" },
+    "GuardrailId": { "kind": "type", "form": "Brand<string, 'GuardrailId'>" },
+    "PolicyId": { "kind": "type", "form": "Brand<string, 'PolicyId'>" },
+    "PackId": { "kind": "type", "form": "Brand<string, 'PackId'>" },
+    "EventId": { "kind": "type", "form": "Brand<string, 'EventId'>" },
+    "FactId": { "kind": "type", "form": "Brand<string, 'FactId'>" },
+    "LogEntryId": { "kind": "type", "form": "Brand<string, 'LogEntryId'>" },
+    "ArtifactId": { "kind": "type", "form": "Brand<string, 'ArtifactId'>" },
+    "ProvenanceId": { "kind": "type", "form": "Brand<string, 'ProvenanceId'>" },
+    "SubscriptionId": { "kind": "type", "form": "Brand<string, 'SubscriptionId'>" },
+    "ApprovalId": { "kind": "type", "form": "Brand<string, 'ApprovalId'>" },
+    "ComplianceEvidenceId": { "kind": "type", "form": "Brand<string, 'ComplianceEvidenceId'>" },
+    "WaitTokenId": { "kind": "type", "form": "Brand<string, 'WaitTokenId'>" },
+    "DatasetId": { "kind": "type", "form": "Brand<string, 'DatasetId'>" },
+    "Timestamp": { "kind": "type", "form": "Brand<string, 'Timestamp'>" },
+    "DurationMs": { "kind": "type", "form": "Brand<number, 'DurationMs'>" },
+    "IsoDuration": { "kind": "type", "form": "Brand<string, 'IsoDuration'>" },
+    "ContentHash": { "kind": "type", "form": "Brand<string, 'ContentHash'>" },
+    "SignatureValue": { "kind": "type", "form": "Brand<string, 'SignatureValue'>" },
+    "KeyId": { "kind": "type", "form": "Brand<string, 'KeyId'>" },
+    "BlobRef": {
+      "kind": "type",
+      "form": "interface",
+      "fields": {
+        "provider": "string",
+        "bucket": "string",
+        "key": "string",
+        "size": "number",
+        "sha256": "ContentHash",
+        "contentType": "string",
+        "tenantId": "TenantId",
+        "createdAt": "Timestamp",
+        "retentionUntil?": "Timestamp"
+      }
+    },
+    "DatasetRef": {
+      "kind": "type",
+      "form": "interface",
+      "fields": {
+        "datasetId": "string",
+        "tenantId": "TenantId",
+        "version": "string",
+        "factType": "string",
+        "count": "number",
+        "createdAt": "Timestamp"
+      }
+    },
+    "Result": {
+      "kind": "type",
+      "generic": ["T", "E"],
+      "form": "discriminated-union",
+      "members": [{ "kind": "ok", "value": "T" }, { "kind": "err", "error": "E" }]
+    },
+    "OkOf": {
+      "kind": "type",
+      "generic": ["R"],
+      "description": "Extract success type from Result."
+    },
+    "ErrOf": { "kind": "type", "generic": ["R"], "description": "Extract error type from Result." },
+    "Semver": { "kind": "type", "form": "Brand<string, 'Semver'>" },
+    "SchemaMajor": { "kind": "type", "form": "Brand<number, 'SchemaMajor'>" },
+    "VersionedRef": {
+      "kind": "type",
+      "generic": ["Id extends string"],
+      "form": "interface",
+      "fields": {
+        "id": "Id",
+        "version": "Semver"
+      }
+    }
+  },
+  "runtime": {
+    "hasCode": false,
+    "note": "Compiles to .d.ts declarations only. Package emits no JavaScript."
+  }
+}

@@ -1,0 +1,542 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Kindgi Inc.
+
+/**
+ * @kindgi/client — TypeScript client for the Kindgi HTTP API (preview).
+ *
+ * Resource clients mirror the API's routes (tagged `@wire` in their
+ * JSDoc); identifier and shared shapes come from `@kindgi/types`.
+ * Methods and types with no matching route or schema in the API are
+ * tagged `@unwired`; such methods throw `KindgiApiError` with code
+ * `not-yet-wired`.
+ */
+
+export { createClient } from './client.js';
+export type { KindgiClient } from './client.js';
+
+export type {
+  AgentsClient,
+  DefineAgentOptions,
+  ReinstateAgentVersionResult,
+} from './resources/agents.js';
+export type {
+  Run,
+  RunsClient,
+  ResumeRunInput,
+  StartedRun,
+  StartRunInput,
+  StartRunOptions,
+} from './resources/runs.js';
+export type {
+  ApplyProposalInput,
+  DraftProposalsInput,
+  ProposalDryRunInput,
+  ProposalListInput,
+  ProposalsClient,
+  ReflectReviewInput,
+  RollbackProposalInput,
+  SubmitForReviewInput,
+  SupervisorClient,
+  WithdrawProposalInput,
+} from './resources/supervisor.js';
+export type {
+  ObservationFilter,
+  ObservationsClient,
+  PatternsInput,
+} from './resources/observations.js';
+export type { Transport, TransportRequest } from './transport.js';
+export type {
+  ApprovalFilter,
+  ApprovalsClient,
+  AuditClient,
+  AuditExportInput,
+  BatchDecideInput,
+  CompleteTokenInput,
+  DecideInput,
+  ReviewerFilter,
+  ReviewersClient,
+} from './resources/approvals.js';
+export type {
+  DefineFlowOptions,
+  FlowFilter,
+  FlowsClient,
+  FlowValidateResult,
+  PageFilter,
+} from './resources/flows.js';
+export type {
+  ReinstateToolVersionResult,
+  ToolFilter,
+  ToolVersionFilter,
+  ToolsClient,
+} from './resources/tools.js';
+export type {
+  EnvClient,
+  EnvDeleteInput,
+  EnvDeleteOutcome,
+  EnvGetInput,
+  EnvListInput,
+  EnvListPage,
+  EnvRecord,
+  EnvSetInput,
+  EnvSetOutcome,
+} from './resources/env.js';
+export type {
+  PollingOverrides,
+  RawRotationResponse,
+  RotationOutcome,
+  RotationStatus,
+  SecretGetInput,
+  SecretGetVersionInput,
+  SecretListInput,
+  SecretListPage,
+  SecretListVersionsInput,
+  SecretRecord,
+  SecretRevokeInput,
+  SecretRevokeOutcome,
+  SecretRotateInput,
+  SecretSetInput,
+  SecretSetOutcome,
+  SecretVersionPage,
+  SecretVersionRecord,
+  SecretsClient,
+} from './resources/secrets.js';
+export type {
+  AuthorGuardrailOptions,
+  GuardrailFilter,
+  GuardrailsClient,
+} from './resources/guardrails.js';
+export type {
+  ConversationFilter,
+  ConversationsClient,
+  MessageFilter,
+} from './resources/conversations.js';
+export type { FactsClient, LogsClient, MemoryClient } from './resources/memory.js';
+export type { ProvenanceClient, ProvenanceExportInput } from './resources/provenance.js';
+export type { TenantClient, TenantConfigClient } from './resources/tenant.js';
+export type {
+  BudgetsClient,
+  CostClient,
+  UsageClient,
+  UsageSummaryInput,
+} from './resources/cost.js';
+export type {
+  CapabilitiesClient,
+  CapabilityFilter,
+  ProviderFilter,
+  // Note: `ProvidersClient` and `Provider` are re-exported from
+  // `./resources/providers.js` below. Both `client.providers` (top
+  // level) and `client.capabilities.providers` exist and use the same
+  // wire shape.
+} from './resources/capabilities.js';
+export type {
+  AdapterConfigureInput,
+  AdapterFilter,
+  AdapterPrepareInput,
+  AdapterTestInput,
+  AdaptersClient,
+  PrepareEvent,
+} from './resources/adapters.js';
+export type {
+  PoliciesClient,
+  PolicyListFilter,
+  PolicyVersionsFilter,
+} from './resources/policies.js';
+export type { SessionsClient, UserFilter, UsersClient } from './resources/users.js';
+export type {
+  AddMembershipInput,
+  AddMembershipResult,
+  CreateTeamInput,
+  ListMembershipsFilter,
+  ListTeamsFilter,
+  TeamMembershipPage,
+  TeamMembershipsClient,
+  TeamPage,
+  TeamRecordShape,
+  TeamRoleValue,
+  TeamsClient,
+  UpdateTeamInput,
+} from './resources/teams.js';
+export type {
+  AddProjectMembershipInput,
+  AddProjectMembershipOutcome,
+  CreateProjectInput,
+  ListProjectMembershipsFilter,
+  ListProjectsFilter,
+  ProjectMembershipPage,
+  ProjectMembershipsClient,
+  ProjectPage,
+  ProjectRecordShape,
+  ProjectRoleValue,
+  ProjectsClient,
+  UpdateProjectInput,
+} from './resources/projects.js';
+export type {
+  CreateOrgInput,
+  ListOrgsFilter,
+  OrgPage,
+  OrgRecord,
+  OrgsClient,
+  UpdateOrgInput,
+} from './resources/orgs.js';
+export type { PackFilter, PacksClient, RegistryClient, RegistryFilter } from './resources/packs.js';
+export type {
+  MintPublicRunTokenInput,
+  PublicRunToken,
+  TokenFilter,
+  TokensClient,
+} from './resources/tokens.js';
+export { followRun, subscribeToRun } from './run-follow.js';
+export type { RunProgress } from './generated/api.js';
+export type { FollowRunOptions, RunProgressEvent, SubscribeToRunOptions } from './run-follow.js';
+export type {
+  McpClient,
+  McpEndpointFilter,
+  McpEndpointsClient,
+} from './resources/mcp.js';
+export type {
+  EventsClient,
+  SubscriptionsClient,
+} from './resources/events.js';
+export type { ArtifactFilter, ArtifactsClient } from './resources/artifacts.js';
+export type {
+  ListSchedulesFilter,
+  RegisterScheduleInput,
+  Schedule,
+  SchedulePage,
+  SchedulesClient,
+  UnregisterScheduleResult,
+  UpdateScheduleInput,
+} from './resources/schedules.js';
+export type {
+  EventTrigger,
+  EventTriggerPage,
+  EventTriggersClient,
+  ListEventTriggersFilter,
+  RegisterEventTriggerInput,
+  UnregisterEventTriggerResult,
+  UpdateEventTriggerInput,
+} from './resources/event-triggers.js';
+export type {
+  ListWebhookTriggersFilter,
+  RegisterWebhookTriggerInput,
+  UnregisterWebhookTriggerResult,
+  UpdateWebhookTriggerInput,
+  WebhookTrigger,
+  WebhookTriggerPage,
+  WebhooksClient,
+} from './resources/webhooks.js';
+export type {
+  CreateWebhookEndpointInput,
+  ListWebhookDeliveriesFilter,
+  ListWebhookEndpointsFilter,
+  RunFinishedEvent,
+  UnregisterWebhookEndpointResult,
+  UpdateWebhookEndpointInput,
+  WebhookDelivery,
+  WebhookDeliveryPage,
+  WebhookDeliveryStatus,
+  WebhookEndpoint,
+  WebhookEndpointPage,
+  GeneratedWebhookSecret,
+  WebhookEndpointsClient,
+  WebhookSecretRef,
+  WebhookEvent,
+  WebhookTestEvent,
+} from './resources/webhook-endpoints.js';
+export type {
+  ListSigningKeysFilter,
+  RevokeSigningKeyResult,
+  SigningKeyPage,
+  SigningKeysClient,
+  TrustSigningKeyInput,
+  TrustedSigningKey,
+} from './resources/signing-keys.js';
+export type {
+  ComplianceClient,
+  Evidence,
+  EvidenceClient,
+  EvidenceExportBundle,
+  EvidenceExportInput,
+  EvidencePage,
+  ListEvidenceFilter,
+} from './resources/compliance.js';
+export type {
+  Deployment,
+  DeploymentPage,
+  DeploymentsClient,
+  ListDeploymentsFilter,
+  RegisterDeploymentInput,
+  SyncSecretsInput,
+  SyncSecretsResult,
+} from './resources/deployments.js';
+export type {
+  EvalSuitesClient,
+  EvalSuiteVersionsClient,
+  ListSuiteVersionsFilter,
+  ListSuitesFilter,
+  PublishSuiteInput,
+  PublishSuiteOptions,
+  PublishSuiteResult,
+  ReinstateSuiteVersionResult,
+  Suite,
+  SuitePage,
+  UnregisterSuiteVersionResult,
+} from './resources/eval-suites.js';
+export type {
+  EvalRunEvent,
+  EvalRunPage,
+  EvalRunRecord,
+  EvalRunsClient,
+  ListEvalRunsFilter,
+  StartEvalRunInput,
+  StartEvalRunOptions,
+  StartEvalRunOutcome,
+} from './resources/eval-runs.js';
+export type {
+  ListProvidersFilter,
+  Provider,
+  ProviderCapabilities,
+  ProviderPage,
+  ProvidersClient,
+  RegisterProviderInput,
+  RegisterProviderOutcome,
+  UnregisterProviderOutcome,
+} from './resources/providers.js';
+export type {
+  IdentityClient,
+  IdentitySessionPage,
+  IdentityUser,
+  IdentityUserPage,
+  IdentityUsersClient,
+  ListIdentityUsersFilter,
+  RevokeSessionsOutcome,
+  WhoamiInfo,
+} from './resources/identity.js';
+export type {
+  AuthClient,
+  AuthProvidersClient,
+  CallbackInput,
+  CallbackResultShape,
+  IdentityProviderPage,
+  IdentityProviderRegisterInput,
+  IdentityProviderRegisterOutcome,
+  IdentityProviderUnregisterOutcome,
+  LoginInput,
+  LoginResult,
+  LogoutResultShape,
+  RefreshResultShape,
+} from './resources/auth.js';
+export type { ListRunsFilter, RunPage } from './resources/runs.js';
+
+export type {
+  Adapter,
+  AdapterKind,
+  AdapterStatus,
+  AdapterTestOutcome,
+  AgentId,
+  ApiToken,
+  ApiTokenCreated,
+  ApiTokenId,
+  ApiTokenRole,
+  ApiTokenSpec,
+  AppendLogInput,
+  ApplyProposalResult,
+  Approval,
+  ApprovalDecision,
+  ApprovalId,
+  ApprovalStatus,
+  ArtifactId,
+  AuditBundle,
+  AuditBundleId,
+  AuditBundleMeta,
+  AuditVerifyResult,
+  CompleteApprovalResult,
+  AuthConfig,
+  BlobMeta,
+  BlobRef,
+  BuiltInGuardrail,
+  Budgets,
+  BudgetsRemaining,
+  CostAggregateGroup,
+  CostAggregateResult,
+  CostGroupDimension,
+  CostRecord,
+  CostRecordFilter,
+  CapabilityDeclaration,
+  CapabilityNeed,
+  ClientOptions,
+  Conversation,
+  ConversationMessage,
+  ConversationStatus,
+  CostEstimate,
+  Cursor,
+  DatasetId,
+  DryRunCriterion,
+  DryRunProposalResult,
+  DryRunResult,
+  DryRunWarning,
+  EdgeEvaluatedEvent,
+  EvaluationResult,
+  Event,
+  EventFilter,
+  EventId,
+  EventListFilter,
+  EventSpec,
+  ExportedProvenance,
+  Fact,
+  FactFilter,
+  FactId,
+  GetArtifactResult,
+  InstallationId,
+  InstalledPack,
+  Filter,
+  FixProposal,
+  FixProposalId,
+  FixProposalStatus,
+  Flow,
+  FlowEdge,
+  FlowId,
+  FlowNode,
+  Guardrail,
+  GuardrailAction,
+  GuardrailEvaluation,
+  GuardrailId,
+  GuardrailScope,
+  GuardrailSpec,
+  LogEntry,
+  LogFilter,
+  LogVerifyResult,
+  McpAgentExposure,
+  McpEndpoint,
+  McpEndpointConfig,
+  McpEndpointSecretRef,
+  McpServerInfo,
+  McpTransport,
+  MessageRole,
+  Observation,
+  ObservationId,
+  ObservationStatus,
+  OpenConversationInput,
+  Org,
+  OrgId,
+  OrgPatch,
+  OrgSpec,
+  Pack,
+  PackId,
+  PackInstallInput,
+  PackInstallStatus,
+  PackManifest,
+  PackToolBinding,
+  Page,
+  PlannedMemoryWrite,
+  PlannedNode,
+  PlannedRetrieval,
+  PlannedToolCall,
+  Policy,
+  PolicyDecision,
+  PolicyEvaluateInput,
+  PolicyId,
+  PolicyKind,
+  PolicySpec,
+  PolicyStatus,
+  PresignedUrl,
+  PresignInput,
+  ProposalDryRunResult,
+  ProposalDryRunScore,
+  ProposalReviewOutcome,
+  ReviewDecision,
+  RollbackProposalResult,
+  SubmitReviewProposalResult,
+  UnregisterReviewerResult,
+  ProvenanceId,
+  ProvenanceQueryFilter,
+  ProvenanceRecord,
+  ProvenanceRecordMetadata,
+  ProvenanceVerifyResult,
+  // `Provider` is re-exported from `./resources/providers.js`. Only
+  // the branded id / spec are exported from here.
+  ProviderId,
+  ProviderSpec,
+  PutArtifactInput,
+  RetrievalResult,
+  RevokeSessionsResult,
+  RouteResult,
+  RegisterMcpEndpointInput,
+  Reviewer,
+  ReviewerId,
+  ReviewerRole,
+  ReviewerSpec,
+  RunCompletedEvent,
+  RunEvent,
+  RunEventKind,
+  RunFailedEvent,
+  RunId,
+  RunStartedEvent,
+  ScheduleId,
+  ScheduleSpec,
+  SearchInput,
+  Session,
+  SessionId,
+  StepCompletedEvent,
+  StepFailedEvent,
+  StepRetryScheduledEvent,
+  StepStartedEvent,
+  Subscription,
+  SubscriptionId,
+  SubscriptionSpec,
+  Supervisor,
+  SupervisorId,
+  SupervisorSpec,
+  Team,
+  TeamId,
+  TeamMembership,
+  TeamPatch,
+  TeamRole,
+  TeamSpec,
+  Tenant,
+  TenantConfig,
+  TenantConfigUpdate,
+  TenantId,
+  Timestamp,
+  Tool,
+  ToolId,
+  ToolInvocationResult,
+  ToolManifest,
+  TurnDetailEvent,
+  UsageQueryFilter,
+  UsageRecord,
+  UsageSummary,
+  User,
+  UserId,
+  UserPatch,
+  UserSpec,
+  WaitResumedEvent,
+  WaitSuspendedEvent,
+  WebhookEndpointId,
+  WhoamiResult,
+  WriteFactInput,
+} from './types.js';
+
+export type {
+  AuthError,
+  ConflictError,
+  GuardrailViolation,
+  GuardrailViolationError,
+  InvalidRequestError,
+  NetworkError,
+  NotFoundError,
+  NotImplementedInPreviewError,
+  NotYetWiredError,
+  RateLimitedError,
+  ServerError,
+  KindgiError,
+} from './errors.js';
+export { KindgiApiError, fromWire, notImplementedInPreview, notYetWired } from './errors.js';
+
+export { SseHttpError, readSse, unwrapSseData } from './streaming.js';
+export type { SseEvent, SseReadOptions } from './streaming.js';
+
+// Type re-exports from other workspace packages (not generated from
+// @kindgi/api/openapi.json).
+export type { DefineAgentSpec } from '@kindgi/agents';
+export type { RunStatus } from '@kindgi/runtime';

@@ -1,0 +1,50 @@
+// {{PACK_ID}}.response-not-empty — zero-LLM guardrail that fails when the
+// run's final `output` is empty or whitespace-only. Cheap, deterministic,
+// replayable — the preferred kind of guardrail.
+//
+// The module exports a guardrail object literal whose `check` sub-object
+// carries an inline `evaluate` handler. The indexer picks up `action` +
+// `kind` at the top level; the runtime registers the inline check at
+// boot.
+
+import { defineCheck } from '@kindgi/sdk/define';
+import { z } from 'zod';
+
+const ConfigSchema = z.object({
+  minLength: z.number().int().min(0).default(1),
+});
+
+const check = defineCheck({
+  id: '{{PACK_ID}}.checks.response-not-empty',
+  kind: 'zero-llm',
+  configSchema: ConfigSchema,
+  evaluate: async (config, trace) => {
+    const output = trace.output;
+    const text = typeof output === 'string' ? output.trim() : '';
+    if (text.length < config.minLength) {
+      return {
+        passed: false,
+        reason: `Response too short: got ${text.length} chars, expected >= ${config.minLength}.`,
+      };
+    }
+    return { passed: true };
+  },
+});
+
+const guardrail = {
+  id: '{{PACK_ID}}.response-not-empty',
+  name: 'Response is non-empty',
+  kind: 'zero-llm' as const,
+  check: {
+    id: check.id,
+    evaluate: check.evaluate,
+    ...(check.validateConfig !== undefined && { validateConfig: check.validateConfig }),
+  },
+  configSchema: check.configJsonSchema,
+  action: { 'on-violation': 'halt' } as const,
+  severity: 'error' as const,
+  scope: { when: 'runtime-only' as const },
+};
+
+export default guardrail;
+export { check };

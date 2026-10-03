@@ -1,0 +1,172 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Kindgi Inc.
+
+//
+// HITL binding surface — types + `HitlBinding` interface consumed by
+// the approvals routes. Deployments plug in an implementation (the
+// Kindgi runtime provides one); @kindgi/api never touches HITL storage
+// directly.
+//
+
+import type { ReviewerRole } from '@kindgi/authz';
+import type {
+  ApprovalId,
+  Cursor,
+  ProjectId,
+  ProvenanceId,
+  Result,
+  ReviewerId,
+  RunId,
+  TenantId,
+  Timestamp,
+} from '@kindgi/types';
+
+// ---------- domain type surface ----------
+
+export type ApprovalStatus =
+  | 'pending'
+  | 'assigned'
+  | 'in_review'
+  | 'approved'
+  | 'rejected'
+  | 'escalated'
+  | 'expired'
+  | 'withdrawn';
+
+export type ReviewDecisionKind = 'approve' | 'reject' | 'escalate' | 'withdraw';
+
+export interface Approval {
+  readonly id: ApprovalId;
+  readonly tenantId: TenantId;
+  readonly projectId?: ProjectId;
+  readonly subjectKind: string;
+  readonly subjectRef: Readonly<Record<string, unknown>>;
+  readonly requiredRole: ReviewerRole;
+  readonly status: ApprovalStatus;
+  readonly assignedTo?: ReviewerId;
+  readonly batchKey?: string;
+  readonly title?: string;
+  readonly description?: string;
+  readonly context?: Readonly<Record<string, unknown>>;
+  readonly provenanceRef?: {
+    readonly runId: RunId;
+    readonly provenanceId?: ProvenanceId;
+  };
+  readonly waitTokenId?: string;
+  readonly createdAt: Timestamp;
+  readonly updatedAt: Timestamp;
+  readonly decidedAt?: Timestamp;
+  readonly expiresAt?: Timestamp;
+}
+
+export interface ReviewDecision {
+  readonly id: string;
+  readonly tenantId: TenantId;
+  readonly approvalId: ApprovalId;
+  readonly reviewerId: ReviewerId;
+  readonly decision: ReviewDecisionKind;
+  readonly rationale?: string;
+  readonly evidence?: Readonly<Record<string, unknown>>;
+  readonly reviewerRoleAtDecision: ReviewerRole;
+  readonly decidedAt: Timestamp;
+}
+
+// ---------- method inputs / outputs ----------
+
+export interface ListApprovalsBindingInput {
+  readonly tenantId: TenantId;
+  readonly limit: number;
+  readonly status?: ApprovalStatus;
+  readonly requiredRole?: ReviewerRole;
+  readonly since?: Timestamp;
+  readonly cursor?: Cursor;
+}
+
+export interface ListApprovalsBindingResult {
+  readonly approvals: readonly Approval[];
+  readonly nextCursor?: Cursor;
+}
+
+export interface SubmitReviewBindingInput {
+  readonly tenantId: TenantId;
+  readonly approvalId: ApprovalId;
+  readonly reviewerId: ReviewerId;
+  readonly decision: ReviewDecisionKind;
+  readonly rationale?: string;
+}
+
+/**
+ * Two shapes: `terminal` — reviewer's decision terminated the approval;
+ * `escalated` — a new higher-tier approval was opened. Consumers narrow
+ * `nextApproval` via the discriminant.
+ */
+export type SubmitReviewBindingResult =
+  | { readonly kind: 'terminal'; readonly approval: Approval; readonly decision: ReviewDecision }
+  | {
+      readonly kind: 'escalated';
+      readonly approval: Approval;
+      readonly decision: ReviewDecision;
+      readonly nextApproval: Approval;
+    };
+
+/**
+ * A single review-decision row hydrated for the audit-bundle route.
+ * `null` = the approval terminated without a recorded decision (e.g.
+ * status `expired`).
+ */
+export interface ReviewDecisionRecord {
+  readonly decision: ReviewDecisionKind;
+  readonly reviewerId: ReviewerId;
+  readonly reviewerRoleAtDecision: ReviewerRole;
+  readonly decidedAt: Timestamp;
+  readonly rationale?: string;
+}
+
+// ---------- error shape ----------
+
+/**
+ * Structural error surface returned by `HitlBinding` methods.
+ * Implementations emit these codes (`approval-not-found`,
+ * `reviewer-not-found`, `reviewer-deactivated`, `insufficient-role`,
+ * `approval-terminal`, `approval-already-decided`, `invalid-transition`,
+ * `persistence-error`) — the routes pass them through to `statusFor()` /
+ * `toWireError()`, which key off the string.
+ */
+export interface HitlBindingError {
+  readonly code: string;
+  readonly message: string;
+  readonly [key: string]: unknown;
+}
+
+// ---------- binding ----------
+
+/**
+ * Approvals data-access binding. Every method takes typed inputs and
+ * returns `Promise<Result<T, HitlBindingError>>`. The implementation
+ * owns its storage, so callers never touch it directly; the Kindgi
+ * runtime provides one.
+ */
+export interface HitlBinding {
+  getApproval(
+    tenantId: TenantId,
+    approvalId: ApprovalId,
+  ): Promise<Result<Approval, HitlBindingError>>;
+
+  listApprovals(
+    input: ListApprovalsBindingInput,
+  ): Promise<Result<ListApprovalsBindingResult, HitlBindingError>>;
+
+  submitReview(
+    input: SubmitReviewBindingInput,
+  ): Promise<Result<SubmitReviewBindingResult, HitlBindingError>>;
+
+  /**
+   * Hydrate the recorded decision row for an approval — used by the
+   * audit-bundle route. Returns `null` when the approval terminated
+   * without a recorded decision (status `expired`).
+   */
+  loadReviewDecision(
+    tenantId: TenantId,
+    approvalId: ApprovalId,
+  ): Promise<Result<ReviewDecisionRecord | null, HitlBindingError>>;
+}

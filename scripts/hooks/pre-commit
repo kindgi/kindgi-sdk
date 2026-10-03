@@ -1,0 +1,134 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+#
+# Pre-commit checks:
+#   1. Every staged .ts / .js source carries an SPDX-License-Identifier header
+#   2. When staged files touch the API layer, run the OpenAPI drift test
+#      — every mounted route MUST have an OPERATIONS entry, and vice
+#      versa. Catches "landed a route without registering it in
+#      packages/api/src/openapi/operations.ts." Also runs the artifact
+#      freshness test — packages/api/openapi.json MUST match the
+#      generator. Catches "changed the API, forgot `gen:openapi`."
+#   3. When staged files touch the API layer OR the SDK, regenerate the
+#      SDK's wire types from the artifact, then run the SDK coverage
+#      drift test — every generated wire endpoint MUST have a
+#      hand-written resource-client method (or be listed in the
+#      documented skip set with a rationale). Catches "regen'd types
+#      but forgot the ergonomic wrapper."
+#   4. When staged files touch the API layer OR the Python client, check
+#      the generated Python client (sdks/python) is in step with
+#      openapi.json. Needs `uv`; without it the hook says so and CI checks.
+#
+# See CONTRIBUTING.md and docs/ADDING-A-ROUTE.md for the full
+# authoring workflow.
+
+set -eu
+
+staged_all=$(git diff --cached --name-only --diff-filter=AM || true)
+
+# ------------------------------------------------------------------- #
+# 1. SPDX headers on staged .ts sources                                #
+# ------------------------------------------------------------------- #
+staged_ts=$(printf '%s\n' "$staged_all" \
+  | grep -E '\.(ts|tsx|mts|cts|js|mjs|cjs|py)$' \
+  | grep -vE '\.d\.(ts|mts|cts)$' \
+  | grep -vE '(^|/)(node_modules|dist)/' \
+  || true)
+
+if [ -n "$staged_ts" ]; then
+  missing=""
+  for file in $staged_ts; do
+    [ -f "$file" ] || continue
+    if ! head -n 5 "$file" | grep -q "SPDX-License-Identifier"; then
+      missing="$missing $file"
+    fi
+  done
+
+  if [ -n "$missing" ]; then
+    printf "\n\033[31mpre-commit: SPDX-License-Identifier header missing:\033[0m\n\n"
+    for f in $missing; do
+      printf "  %s\n" "$f"
+    done
+    printf "\nEvery source file must start with (\`#\` comments in Python):\n\n"
+    printf "  // SPDX-License-Identifier: Apache-2.0\n"
+    printf "  // Copyright (C) 2026 Kindgi Inc.\n\n"
+    printf "See CONTRIBUTING.md for details.\n\n"
+    exit 1
+  fi
+fi
+
+# ------------------------------------------------------------------- #
+# 2. API drift — routes ↔ OPERATIONS entries + artifact freshness     #
+#    Runs only when staged files touch the API layer.                  #
+# ------------------------------------------------------------------- #
+api_touched=$(printf '%s\n' "$staged_all" \
+  | grep -E '^packages/api/(src/(routes|openapi)/|src/app\.ts$|openapi\.json$)' \
+  || true)
+
+if [ -n "$api_touched" ]; then
+  printf "\033[36mpre-commit: running API drift + openapi.json freshness tests...\033[0m\n"
+  if ! pnpm --filter @kindgi/api --fail-if-no-match exec vitest run \
+      tests/openapi.test.ts tests/openapi-artifact.test.ts \
+      --reporter=dot >/tmp/precommit-api-drift.log 2>&1; then
+    printf "\n\033[31mpre-commit: API drift / freshness test FAILED\033[0m\n\n"
+    tail -60 /tmp/precommit-api-drift.log
+    printf "\n\033[31m→ A mounted route is missing its OPERATIONS entry (or vice versa),\033[0m\n"
+    printf "\033[31m  or packages/api/openapi.json is stale (run: pnpm --filter @kindgi/api gen:openapi).\033[0m\n"
+    printf "See docs/ADDING-A-ROUTE.md for the checklist.\n\n"
+    exit 1
+  fi
+fi
+
+# ------------------------------------------------------------------- #
+# 3. SDK coverage drift — generated endpoints ↔ resource-client methods #
+#    Runs when API or SDK is touched. Regenerates the SDK's wire types #
+#    from packages/api/openapi.json first so the check runs against    #
+#    the committed artifact, not a stale src/generated/ (a stale       #
+#    artifact itself is caught by section 2).                          #
+# ------------------------------------------------------------------- #
+sdk_touched=$(printf '%s\n' "$staged_all" \
+  | grep -E '^sdks/typescript/src/' \
+  || true)
+
+if [ -n "$api_touched" ] || [ -n "$sdk_touched" ]; then
+  printf "\033[36mpre-commit: regenerating SDK wire types + running coverage drift test...\033[0m\n"
+  if ! pnpm --filter @kindgi/client --fail-if-no-match run gen >/tmp/precommit-sdk-gen.log 2>&1; then
+    printf "\n\033[31mpre-commit: SDK codegen FAILED\033[0m\n\n"
+    tail -40 /tmp/precommit-sdk-gen.log
+    exit 1
+  fi
+  if ! pnpm --filter @kindgi/client --fail-if-no-match exec vitest run tests/coverage-drift.test.ts \
+      --reporter=dot >/tmp/precommit-sdk-drift.log 2>&1; then
+    printf "\n\033[31mpre-commit: SDK coverage drift test FAILED\033[0m\n\n"
+    tail -60 /tmp/precommit-sdk-drift.log
+    printf "\n\033[31m→ A generated wire endpoint has no resource-client wrapper.\033[0m\n"
+    printf "Fix by adding the resource method (see schedules.ts / orgs.ts as templates)\n"
+    printf "OR by adding the endpoint to the documented skip set in\n"
+    printf "sdks/typescript/tests/coverage-drift.test.ts with a rationale.\n\n"
+    exit 1
+  fi
+fi
+
+# ------------------------------------------------------------------- #
+# 4. Python client drift — sdks/python's generated client ↔ openapi.json #
+# ------------------------------------------------------------------- #
+py_client_touched=$(printf '%s\n' "$staged_all" \
+  | grep -E '^sdks/python/(src/kindgi/client/|scripts/gen_client\.py$)' \
+  || true)
+
+if [ -n "$api_touched" ] || [ -n "$py_client_touched" ]; then
+  if command -v uv >/dev/null 2>&1; then
+    printf "\033[36mpre-commit: checking the Python client against openapi.json...\033[0m\n"
+    if ! uv run --quiet --project sdks/python python sdks/python/scripts/gen_client.py --check \
+        >/tmp/precommit-py-client.log 2>&1; then
+      printf "\n\033[31mpre-commit: the Python client is out of step with openapi.json\033[0m\n\n"
+      tail -20 /tmp/precommit-py-client.log
+      printf "\n\033[31m→ Run: (cd sdks/python && uv run python scripts/gen_client.py)\033[0m\n\n"
+      exit 1
+    fi
+  else
+    printf "\033[33mpre-commit: uv not found — skipping the Python client check (CI runs it).\033[0m\n"
+  fi
+fi
+
+exit 0

@@ -1,0 +1,135 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Kindgi Inc.
+
+import type { ToolId } from '@kindgi/types';
+
+import { requiredPositional, runSdk, stringFlag, throwUnwired } from './helpers.js';
+import type { Command, LeafCommand } from './types.js';
+
+const list: LeafCommand = {
+  kind: 'leaf',
+  name: 'list',
+  description: 'List registered tools.',
+  usage: 'kindgi tools list [--name=<prefix>] [--limit=<n>] [--cursor=<c>]',
+  optionSpec: {
+    name: { type: 'string' },
+    limit: { type: 'string' },
+    cursor: { type: 'string' },
+  },
+  run: (ctx) =>
+    runSdk(ctx, 'tools list', async () => {
+      const name = stringFlag(ctx, 'name');
+      const cursor = stringFlag(ctx, 'cursor');
+      const limitStr = stringFlag(ctx, 'limit');
+      const limit = limitStr !== undefined ? Number.parseInt(limitStr, 10) : undefined;
+      if (limit !== undefined && Number.isNaN(limit)) {
+        throw new Error(`--limit must be an integer, got "${limitStr}"`);
+      }
+      return await ctx.client().tools.list({
+        ...(name !== undefined && { name }),
+        ...(cursor !== undefined && { cursor: cursor as never }),
+        ...(limit !== undefined && { limit }),
+      });
+    }),
+};
+
+const get: LeafCommand = {
+  kind: 'leaf',
+  name: 'get',
+  description: 'Fetch the latest active version of a tool.',
+  usage: 'kindgi tools get <tool-id>',
+  run: (ctx) =>
+    runSdk(ctx, 'tools get', async () => {
+      const toolId = requiredPositional(ctx, 0, 'tool-id');
+      return await ctx.client().tools.get(toolId as ToolId);
+    }),
+};
+
+const publish: LeafCommand = {
+  kind: 'leaf',
+  name: 'publish',
+  description: 'Publish a tool manifest at a specific version.',
+  usage: 'kindgi tools publish --manifest=<json-or-@file>',
+  optionSpec: { manifest: { type: 'string' } },
+  run: (ctx) => runSdk(ctx, 'tools publish', async () => throwUnwired('tools.publish')),
+};
+
+const unregister: LeafCommand = {
+  kind: 'leaf',
+  name: 'unregister',
+  description: 'Unregister a specific tool version.',
+  usage: 'kindgi tools unregister <tool-id> --version=<semver>',
+  optionSpec: { version: { type: 'string' } },
+  run: (ctx) =>
+    runSdk(ctx, 'tools unregister', async () => {
+      const toolId = requiredPositional(ctx, 0, 'tool-id');
+      const version = stringFlag(ctx, 'version');
+      if (version === undefined) throw new Error('--version=<semver> is required');
+      return await ctx.client().tools.unregisterVersion(toolId as ToolId, version);
+    }),
+};
+
+const versions: LeafCommand = {
+  kind: 'leaf',
+  name: 'versions',
+  description: 'List published versions of a tool (active + optionally tombstoned).',
+  usage: 'kindgi tools versions <tool-id> [--include-tombstoned] [--limit=<n>] [--cursor=<c>]',
+  optionSpec: {
+    'include-tombstoned': { type: 'boolean' },
+    limit: { type: 'string' },
+    cursor: { type: 'string' },
+  },
+  run: (ctx) =>
+    runSdk(ctx, 'tools versions', async () => {
+      const toolId = requiredPositional(ctx, 0, 'tool-id');
+      const cursor = stringFlag(ctx, 'cursor');
+      const limitStr = stringFlag(ctx, 'limit');
+      const limit = limitStr !== undefined ? Number.parseInt(limitStr, 10) : undefined;
+      if (limit !== undefined && Number.isNaN(limit)) {
+        throw new Error(`--limit must be an integer, got "${limitStr}"`);
+      }
+      const includeTombstoned = ctx.options['include-tombstoned'] === true;
+      return await ctx.client().tools.listVersions(toolId as ToolId, {
+        ...(cursor !== undefined && { cursor: cursor as never }),
+        ...(limit !== undefined && { limit }),
+        ...(includeTombstoned && { includeTombstoned: true }),
+      });
+    }),
+};
+
+const getVersion: LeafCommand = {
+  kind: 'leaf',
+  name: 'get-version',
+  description: 'Fetch a specific tool version by exact semver.',
+  usage: 'kindgi tools get-version <tool-id> --version=<semver>',
+  optionSpec: { version: { type: 'string' } },
+  run: (ctx) =>
+    runSdk(ctx, 'tools get-version', async () => {
+      const toolId = requiredPositional(ctx, 0, 'tool-id');
+      const version = stringFlag(ctx, 'version');
+      if (version === undefined) throw new Error('--version=<semver> is required');
+      return await ctx.client().tools.getVersion(toolId as ToolId, version);
+    }),
+};
+
+const reinstate: LeafCommand = {
+  kind: 'leaf',
+  name: 'reinstate',
+  description: 'Un-tombstone a specific tool version.',
+  usage: 'kindgi tools reinstate <tool-id> --version=<semver>',
+  optionSpec: { version: { type: 'string' } },
+  run: (ctx) =>
+    runSdk(ctx, 'tools reinstate', async () => {
+      const toolId = requiredPositional(ctx, 0, 'tool-id');
+      const version = stringFlag(ctx, 'version');
+      if (version === undefined) throw new Error('--version=<semver> is required');
+      return await ctx.client().tools.reinstateVersion(toolId as ToolId, version);
+    }),
+};
+
+export const toolsCommand: Command = {
+  kind: 'group',
+  name: 'tools',
+  description: 'Manage tool registrations.',
+  subcommands: [list, get, publish, unregister, versions, getVersion, reinstate],
+};

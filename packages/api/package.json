@@ -1,0 +1,73 @@
+{
+  "name": "@kindgi/api",
+  "version": "0.1.0-preview.7",
+  "description": "REST + SSE HTTP surface for Kindgi™. createApp assembles a Hono app serving the /v1/* REST API (bearer or session-token auth; OpenAPI 3.1 document at /v1/openapi.json) and an optional S3-compatible /s3/* surface (SigV4), over caller-plugged bindings for the runtime (runs, agents, flows, HITL, supervisor) and for storage. Route conventions: docs/API-ROUTE-CONVENTIONS.md.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
+    "directory": "packages/api"
+  },
+  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/api#readme",
+  "bugs": {
+    "url": "https://github.com/kindgi/kindgi-sdk/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./openapi.json": "./openapi.json",
+    "./package.json": "./package.json"
+  },
+  "files": ["dist", "src", "scripts", "README.md", "openapi.json"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "gen:openapi": "tsc -p tsconfig.build.json && node scripts/emit-openapi.mjs",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@kindgi/agents": "workspace:*",
+    "@kindgi/audit-events": "workspace:*",
+    "@kindgi/compliance": "workspace:*",
+    "@kindgi/authz": "workspace:*",
+    "@kindgi/blob-binding": "workspace:*",
+    "@kindgi/capabilities": "workspace:*",
+    "@kindgi/crypto": "workspace:*",
+    "@kindgi/flow": "workspace:*",
+    "@kindgi/guardrails": "workspace:*",
+    "@kindgi/memory": "workspace:*",
+    "@kindgi/platform": "workspace:*",
+    "@kindgi/provenance": "workspace:*",
+    "@kindgi/runtime": "workspace:*",
+    "@kindgi/policy-contract": "workspace:*",
+    "@kindgi/schema": "workspace:*",
+    "@kindgi/tools": "workspace:*",
+    "@kindgi/types": "workspace:*",
+    "@scalar/hono-api-reference": "^0.12.2",
+    "drizzle-orm": "^0.36.4",
+    "hono": "^4.6.14"
+  },
+  "devDependencies": {
+    "@kindgi/audit-events-inmemory": "workspace:*",
+    "@kindgi/specs": "workspace:*",
+    "@kindgi/testing": "workspace:*",
+    "@types/aws4": "^1.11.6",
+    "@types/node": "^22.10.5",
+    "aws4": "^1.13.2",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

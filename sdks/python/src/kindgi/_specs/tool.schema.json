@@ -1,0 +1,297 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kindgi.com/schemas/v1/tool.schema.json",
+  "$comment": "schema-version: 1.1.0",
+  "title": "Tool",
+  "description": "A tool definition. Authored once; the runtime picks transport (native in-process for tools built into the runtime, MCP over the wire for cross-process / cross-org / third-party tools). Every tool declares its typed I/O, its context needs (typed DI), and its side-effects — enabling policy enforcement and parallel scheduling by the kernel.",
+  "type": "object",
+  "required": ["id", "description", "version", "input", "output"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique tool identifier. Convention: '<pack>.<tool>' (e.g. 'acme.verify-citation') or a bare id for tools built into Kindgi."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human- and LLM-readable description of what this tool does. Load-bearing: this is what the LLM sees when deciding to call the tool."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "input": {
+      "type": "object",
+      "description": "JSON Schema for the tool input. MUST validate under Draft 2020-12."
+    },
+    "output": {
+      "type": "object",
+      "description": "JSON Schema for the tool output. MUST validate under Draft 2020-12."
+    },
+    "needs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Need"
+      },
+      "description": "Typed context requirements — named slots (e.g. `tenant`, `run`, `blob`, `memory:facts`) the runtime injects via `ToolContext`. Declarative: not checked when a flow is loaded. `needsSpec` is the typed, discriminated form."
+    },
+    "effects": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Effect"
+      },
+      "description": "Declared side-effects. Enables policy enforcement (can this tool run in this tenant?), safe parallelization (are two calls conflicting?), and causal provenance."
+    },
+    "transport": {
+      "type": "string",
+      "enum": ["auto", "native", "mcp"],
+      "default": "auto",
+      "description": "Transport hint. 'auto' (default) lets the runtime pick native when possible, MCP otherwise. 'native' requires in-process execution. 'mcp' requires MCP execution. Deployment-time concern; authoring is unchanged."
+    },
+    "mcpEndpoint": {
+      "type": "string",
+      "description": "If transport = 'mcp' (or resolved to MCP by 'auto'), the MCP endpoint URI. Format: 'mcp+stdio://<command>', 'mcp+http://<url>', 'mcp+sse://<url>'."
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Free-form annotations (author, docs URL, tags). Not interpreted by the kernel."
+    },
+    "sandbox": {
+      "type": "string",
+      "enum": ["none", "context-isolated", "strict"],
+      "description": "Isolation posture the runtime enforces around the handler. Optional additive field."
+    },
+    "mutating": {
+      "type": "boolean",
+      "description": "Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use."
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Sandbox-enforced resource caps at dispatch. Optional additive field.",
+      "properties": {
+        "memMB": { "type": "integer", "minimum": 1 },
+        "cpuMs": { "type": "integer", "minimum": 1 }
+      },
+      "required": ["memMB", "cpuMs"]
+    },
+    "network": {
+      "type": "object",
+      "description": "Network egress policy. Optional additive field. Discriminated on `kind`.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "kind": { "type": "string", "enum": ["none", "unrestricted"] } },
+          "required": ["kind"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "type": "string", "const": "allowlist" },
+            "hosts": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+          },
+          "required": ["kind", "hosts"]
+        }
+      ]
+    },
+    "needsSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Typed discriminated needs (env / secrets / config / capabilities / bindings). Optional additive field.",
+      "properties": {
+        "env": { "type": "object", "additionalProperties": { "type": "object" } },
+        "secrets": { "type": "object", "additionalProperties": { "type": "object" } },
+        "config": { "type": "object", "additionalProperties": { "type": "object" } },
+        "capabilities": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "bindings": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "codeArtifactRef": {
+      "description": "Handler-artifact pointer. Discriminated on `kind`: `oci` is the deploy-pipeline shape (image + module path + artifactVersion); `filesystem` is the local-development shape — absolute host path at the pack's on-disk handler file. Production servers SHOULD reject `filesystem`.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "oci" },
+            "imageRef": { "type": "string", "minLength": 1 },
+            "modulePath": { "type": "string", "minLength": 1 },
+            "artifactVersion": { "type": "string", "minLength": 1 }
+          },
+          "required": ["kind", "imageRef", "modulePath", "artifactVersion"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "filesystem" },
+            "modulePath": { "type": "string", "minLength": 1 }
+          },
+          "required": ["kind", "modulePath"]
+        }
+      ]
+    },
+    "spec": {
+      "description": "Declarative handler spec. Discriminated on `kind`; the framework's synthesizer registry maps kind → runtime handler. Mutually exclusive with an imperative handler at author time.",
+      "oneOf": [{ "$ref": "#/$defs/HttpToolSpec" }]
+    }
+  },
+  "$defs": {
+    "Need": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The named context slot (e.g. 'tenant', 'db', 'run', 'provenance', 'memory:facts', 'blob')."
+        },
+        "optional": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "Effect": {
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "reads",
+            "writes",
+            "deletes",
+            "network",
+            "spawns-run",
+            "emits-event",
+            "external-side-effect",
+            "sensitive-data-egress"
+          ]
+        },
+        "resource": {
+          "type": "string",
+          "description": "Resource identifier (e.g. 'memory:facts', 'blob:*', 'external:api.example.com'). Used by the policy engine to authorize the effect."
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "ToolSecretRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["envName", "name"],
+      "properties": {
+        "envName": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 }
+      }
+    },
+    "HttpHeaderSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "value"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "value": { "type": "string" }
+      }
+    },
+    "HttpAuthSpec": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "secretRef"],
+          "properties": {
+            "kind": { "const": "bearer" },
+            "secretRef": { "$ref": "#/$defs/ToolSecretRef" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "headerName", "secretRef"],
+          "properties": {
+            "kind": { "const": "header" },
+            "headerName": { "type": "string", "minLength": 1 },
+            "secretRef": { "$ref": "#/$defs/ToolSecretRef" }
+          }
+        }
+      ]
+    },
+    "HttpRequestBodySpec": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": { "kind": { "const": "json-input" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": { "kind": { "const": "input-passthrough" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "template"],
+          "properties": {
+            "kind": { "const": "text" },
+            "template": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "HttpToolSpec": {
+      "type": "object",
+      "description": "Declarative HTTP-invocation spec. Attached to `ToolManifest.spec` under the discriminant `kind: 'http'`. The runtime `Tool.handler` is synthesized by the 'http' spec synthesizer to perform URL-template substitution, secret-ref resolution via `ToolContext.resolveSecret`, and the outbound fetch. All fields serialize cleanly to JSON.",
+      "additionalProperties": false,
+      "required": ["kind", "method", "urlTemplate"],
+      "properties": {
+        "kind": { "const": "http" },
+        "method": {
+          "type": "string",
+          "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"]
+        },
+        "urlTemplate": {
+          "type": "string",
+          "minLength": 1,
+          "description": "URL template with `{param}` placeholders substituted from the tool's input at invoke time."
+        },
+        "headers": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/HttpHeaderSpec" }
+        },
+        "authorization": { "$ref": "#/$defs/HttpAuthSpec" },
+        "requestBody": { "$ref": "#/$defs/HttpRequestBodySpec" },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Wall-clock timeout in ms. Default 30000."
+        },
+        "parseJson": {
+          "type": "boolean",
+          "description": "When true (default), the response body is parsed as JSON before returning to the invoker."
+        },
+        "successStatus": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["min", "max"],
+          "properties": {
+            "min": { "type": "integer", "minimum": 100, "maximum": 599 },
+            "max": { "type": "integer", "minimum": 100, "maximum": 599 }
+          }
+        }
+      }
+    }
+  }
+}

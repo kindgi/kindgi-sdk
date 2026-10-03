@@ -1,0 +1,15 @@
+{
+  "v": 2,
+  "kind": "check-invoke",
+  "check": { "id": "acme.ledger.checks.response-not-empty" },
+  "config": { "minLength": 1 },
+  "trace": {
+    "runId": "run-1",
+    "tenantId": "t-1",
+    "output": "Recorded.",
+    "toolCalls": [],
+    "toolResults": [],
+    "modelCalls": [],
+    "mode": "runtime"
+  }
+}

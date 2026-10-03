@@ -1,0 +1,228 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kindgi.com/schemas/v1/pack-protocol.schema.json",
+  "$comment": "schema-version: 2.2.0",
+  "title": "Pack protocol",
+  "description": "Pack protocol v2 — the messages a runtime exchanges with a pack service to run pack code (tool handlers and guardrail checks). One request, one response. Transport (HTTP): `POST /v1/invoke` takes a request and answers 200 with a response; `GET /v1/info` (token) answers `info`; `GET /healthz` (no token) answers 200 while the process is up; `GET /readyz` (no token) answers 200 once every module the index names has loaded and the service isn't draining. Headers: `kindgi-pack-token` (required on `/v1/invoke` and `/v1/info`; `Authorization` is deliberately not used, since platforms like Cloud Run put their own identity token there), `kindgi-timeout-ms` (relative deadline; default 120000), `kindgi-run-id`, `kindgi-request-id`, `kindgi-protocol`; the answer to an invoke carries `kindgi-duration-ms` and `kindgi-artifact-version`. Every outcome of running pack code is a response message with status 200 — a validation failure, a throw, an unknown tool, `deadline-exceeded`, `cancelled` (the caller closed the connection). Non-2xx statuses are transport-level only: 401 (bad token), 404, 405, 413 (body over 10 MiB), 415 (not `application/json`), 503 with `Retry-After` (not ready, draining, or at the concurrency cap — the call provably did not run), 500 (the service itself failed). Process contract: a pack service reads `--index`, `--module-root` and `--host` arguments, `KINDGI_PACK_SERVICE_TOKEN`, `PORT` (`0` picks a free port) and `KINDGI_PACK_SERVICE_MAX_CONCURRENCY`; it removes `KINDGI_PACK_SERVICE_TOKEN` from its process environment before it loads pack code, which never sees it; it loads every module before listening and exits 1 with a `{\"kind\":\"boot-failed\",\"problems\":[…]}` JSON line on stderr when one fails; once listening it writes `{\"kind\":\"listening\",\"port\":N,…}` on stderr; SIGTERM drains in-flight calls (up to 8 s; `/readyz` and new invokes answer 503 meanwhile) and exits 0.",
+  "oneOf": [
+    { "$ref": "#/$defs/request" },
+    { "$ref": "#/$defs/response" },
+    { "$ref": "#/$defs/info" }
+  ],
+  "$defs": {
+    "version": {
+      "const": 2,
+      "description": "Protocol version of every message."
+    },
+    "request": {
+      "oneOf": [{ "$ref": "#/$defs/toolInvoke" }, { "$ref": "#/$defs/checkInvoke" }]
+    },
+    "response": {
+      "oneOf": [
+        { "$ref": "#/$defs/toolResult" },
+        { "$ref": "#/$defs/checkResult" },
+        { "$ref": "#/$defs/error" }
+      ]
+    },
+    "callContext": {
+      "type": "object",
+      "required": ["tenantId", "runId"],
+      "additionalProperties": false,
+      "description": "Per-call context a handler receives. Serializable only: a pack service adds its own cancellation (an abort signal, a cancellation token) on top.",
+      "properties": {
+        "tenantId": { "type": "string", "description": "Tenant the call runs for." },
+        "runId": { "type": "string", "description": "The kernel run the call belongs to." },
+        "requestId": {
+          "type": "string",
+          "description": "The individual call — e.g. the model's tool-call id."
+        },
+        "env": {
+          "type": "object",
+          "description": "Resolved environment values for the call (open)."
+        },
+        "secrets": { "type": "object", "description": "Resolved secrets for the call (open)." },
+        "config": { "type": "object", "description": "Resolved configuration for the call (open)." }
+      }
+    },
+    "toolInvoke": {
+      "type": "object",
+      "required": ["v", "kind", "tool", "input", "ctx"],
+      "additionalProperties": false,
+      "description": "Run a tool handler. The pack service validates `input` against the indexed input schema, runs the handler, validates its return value against the indexed output schema.",
+      "properties": {
+        "v": { "$ref": "#/$defs/version" },
+        "kind": { "const": "invoke" },
+        "tool": {
+          "type": "object",
+          "required": ["id"],
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Tool id, resolved from the pack service's own index."
+            },
+            "version": {
+              "type": "string",
+              "description": "When set, the pack service refuses a different indexed version (`tool-version-mismatch`)."
+            }
+          }
+        },
+        "input": { "description": "The tool's input (any JSON)." },
+        "ctx": { "$ref": "#/$defs/callContext" }
+      }
+    },
+    "checkInvoke": {
+      "type": "object",
+      "required": ["v", "kind", "check", "config", "trace"],
+      "additionalProperties": false,
+      "description": "Run a guardrail check: `evaluate(config, trace)`.",
+      "properties": {
+        "v": { "$ref": "#/$defs/version" },
+        "kind": { "const": "check-invoke" },
+        "check": {
+          "type": "object",
+          "required": ["id"],
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Check id (the indexed guardrail's `checkId`, else its `id`)."
+            }
+          }
+        },
+        "config": { "type": "object", "description": "The guardrail's config (open)." },
+        "trace": {
+          "description": "The run trace the check evaluates (`RunTrace` in `@kindgi/guardrails`)."
+        }
+      }
+    },
+    "toolResult": {
+      "type": "object",
+      "required": ["v", "kind", "output"],
+      "additionalProperties": false,
+      "properties": {
+        "v": { "$ref": "#/$defs/version" },
+        "kind": { "const": "result" },
+        "output": {
+          "description": "The handler's return value, valid against the tool's output schema."
+        }
+      }
+    },
+    "checkResult": {
+      "type": "object",
+      "required": ["v", "kind", "result"],
+      "additionalProperties": false,
+      "properties": {
+        "v": { "$ref": "#/$defs/version" },
+        "kind": { "const": "check-result" },
+        "result": {
+          "type": "object",
+          "required": ["passed"],
+          "description": "`CheckResult` — open beyond the listed fields.",
+          "properties": {
+            "passed": { "type": "boolean" },
+            "reason": { "type": "string" },
+            "judgeResponse": { "type": "string" },
+            "attributes": { "type": "object" }
+          }
+        }
+      }
+    },
+    "errorCode": {
+      "enum": [
+        "input-validation-failed",
+        "output-validation-failed",
+        "handler-import-failed",
+        "handler-shape-invalid",
+        "handler-throw",
+        "check-shape-invalid",
+        "malformed-message",
+        "unknown-protocol-version",
+        "unexpected-message-kind",
+        "tool-not-in-pack",
+        "check-not-in-pack",
+        "tool-version-mismatch",
+        "deadline-exceeded",
+        "cancelled"
+      ],
+      "description": "Why running pack code didn't produce a result."
+    },
+    "issue": {
+      "type": "object",
+      "required": ["instancePath", "message"],
+      "description": "One validation issue, Ajv-shaped. `keyword` names the failing JSON Schema keyword; it is absent when the failure came from a model's own validation (a Zod refinement, a pydantic validator) rather than a schema keyword. Open: an implementation may add fields.",
+      "properties": {
+        "instancePath": {
+          "type": "string",
+          "description": "JSON Pointer to the failing value (`\"\"` for the root, `/items/0/name`)."
+        },
+        "schemaPath": {
+          "type": "string",
+          "description": "URI fragment of the failing schema keyword (`#/properties/name/type`)."
+        },
+        "keyword": {
+          "type": "string",
+          "description": "The failing keyword (`type`, `required`, `additionalProperties`, …)."
+        },
+        "params": {
+          "type": "object",
+          "description": "Keyword parameters, as Ajv reports them: `required` → `{ missingProperty }`, `additionalProperties` → `{ additionalProperty }`, `type` → `{ type }`, `enum` → `{ allowedValues }`, limits → `{ limit }`, `pattern` → `{ pattern }`, `format` → `{ format }`."
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable message (`must have required property 'name'`)."
+        }
+      }
+    },
+    "error": {
+      "type": "object",
+      "required": ["v", "kind", "code", "message"],
+      "additionalProperties": false,
+      "properties": {
+        "v": { "$ref": "#/$defs/version" },
+        "kind": { "const": "error" },
+        "code": { "$ref": "#/$defs/errorCode" },
+        "message": { "type": "string" },
+        "toolId": { "type": "string", "description": "Present when the error is about a tool." },
+        "checkId": { "type": "string", "description": "Present when the error is about a check." },
+        "cause": {
+          "description": "The serialized throw for `handler-throw` / `handler-import-failed` (`{ name, message, stack }` for an error object)."
+        },
+        "issues": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/issue" },
+          "description": "Present for `input-validation-failed` / `output-validation-failed`."
+        }
+      }
+    },
+    "info": {
+      "type": "object",
+      "required": ["protocol", "packId", "packVersion", "artifactVersion", "tools", "checks"],
+      "additionalProperties": false,
+      "description": "The answer to `GET /v1/info`.",
+      "properties": {
+        "protocol": { "$ref": "#/$defs/version" },
+        "packId": { "type": "string" },
+        "packVersion": { "type": "string" },
+        "artifactVersion": { "type": "string" },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id"],
+            "additionalProperties": false,
+            "properties": { "id": { "type": "string" }, "version": { "type": "string" } }
+          }
+        },
+        "checks": { "type": "array", "items": { "type": "string" } },
+        "missingEnv": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "The index's required env names this process lacks (unset or empty), sorted. Empty when none is missing. Under the `strict` env check the service isn't ready while any is listed."
+        }
+      }
+    }
+  }
+}

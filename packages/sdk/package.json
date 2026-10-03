@@ -1,0 +1,78 @@
+{
+  "name": "@kindgi/sdk",
+  "version": "0.1.0-preview.7",
+  "description": "@kindgi/sdk — the authoring SDK for Kindgi™. Facade over the individual @kindgi/* packages + @kindgi/client. Unifies pack authoring (defineTool / defineCheck / defineAgent / defineFlow) and client callsites (createClient) behind three sub-paths: /define, /client, /types. Re-export facade; zero behavior.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
+    "directory": "packages/sdk"
+  },
+  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/sdk#readme",
+  "bugs": {
+    "url": "https://github.com/kindgi/kindgi-sdk/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    "./define": {
+      "types": "./dist/define.d.ts",
+      "import": "./dist/define.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "import": "./dist/client.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js"
+    },
+    "./webhooks": {
+      "types": "./dist/webhooks.d.ts",
+      "import": "./dist/webhooks.js"
+    },
+    "./build": {
+      "types": "./dist/build.d.ts",
+      "import": "./dist/build.js"
+    },
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": ["dist", "src", "skills", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "docs": "typedoc",
+    "clean": "rm -rf dist docs *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@kindgi/agents": "workspace:*",
+    "@kindgi/client": "workspace:*",
+    "@kindgi/crypto": "workspace:*",
+    "@kindgi/flow": "workspace:*",
+    "@kindgi/guardrails": "workspace:*",
+    "@kindgi/handler-runtime": "workspace:*",
+    "@kindgi/schema": "workspace:*",
+    "@kindgi/tools": "workspace:*",
+    "@kindgi/types": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "typedoc": "^0.28.20",
+    "typedoc-plugin-markdown": "^4.13.1",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://kindgi.com/schemas/v1/type-manifest.schema.json",
+  "package": "@kindgi/audit-events-inmemory",
+  "version": "0.0.0",
+  "description": "Reference in-memory AuditEventBinding adapter for dev + tests.",
+  "exports": {
+    "createInMemoryAuditEventBinding": {
+      "kind": "function",
+      "signature": "() => AuditEventBinding",
+      "description": "Fresh, isolated in-memory AuditEventBinding. Idempotent append, (timestamp, id)-ordered cursor-paginated query, per-kind purge."
+    }
+  }
+}

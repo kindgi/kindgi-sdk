@@ -1,0 +1,517 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kindgi.com/schemas/v1/flow.schema.json",
+  "$comment": "schema-version: 1.9.0",
+  "title": "Flow",
+  "description": "A durable, versioned task flow. Nodes are tools, agents, sub-flows, loops, or fanouts; edges are directed with optional deterministic `when` predicates expressed in a serializable DSL. Runs pin to a specific version so mid-flight jobs survive deploys. LLM-routed edges are intentionally NOT expressible via `when` (they would need capability selection). Schema-version 1.9.0 removes the top-level `triggers` array, which no code read: a flow does not declare how its runs start — schedules, event triggers and webhooks are registered through their own APIs and name the flow they start. Schema-version 1.8.0 adds declarative data flow between nodes: an optional `inputMapping` on leaf (tool / agent) nodes — the same `Mapping` shape a subgraph node uses, resolved when the node dispatches — so a node can combine the run input, state and the outputs of any earlier nodes; an optional flow-level `output` (`mapping` plus an optional `schema`) that declares the run's output; and `maxParallelism`, previously accepted by the TypeScript type only. A mapped path that does not resolve omits its key. A conditional branch that rejoins no longer stalls: a node whose every incoming edge is not taken, or comes from such a skipped node, is itself skipped. Additive over 1.7.0. Schema-version 1.7.0 promotes the `subgraph` node kind from a reserved leaf placeholder to a first-class kernel primitive — a subgraph node references another registered flow by exact `(flowId, version)`, maps parent state into the sub-run's input via a declarative `inputMapping`, validates the sub-run's terminal output against a per-node `outputSchema` (typed escape contract), and merges the sub-run's outcome into the parent node's output per a declared `convergence` (`success-only` fails the parent node on any child failure; `settle-all` — the default — always emits a `{ status, output? | error? }` envelope). Sub-runs are full kernel runs (independent journal, replay, lease semantics, cancel), so the primitive inherits durability without re-invention. Parent-run cancellation cascades to any in-flight child sub-run; a fixed depth limit (default 10, kernel-configurable) prevents runaway recursion. Cross-tenant sub-flow invocation is rejected — the resolver only sees the parent's `tenantId`. Complementary to the loop + fanout primitives: `loop.foreach` = same body × N iterations, `fanout` = different bodies in parallel, `subgraph` = another flow inlined as a node. Additive over 1.6.0. Schema-version 1.6.0 introduces the `fanout` node kind — a first-class kernel primitive for running N DIFFERENT node bodies in parallel with declared convergence semantics (all-succeed / any-succeed / settle-all). Complementary to the loop primitive: `foreach` runs N iterations of the SAME body, `fanout` runs N DIFFERENT bodies concurrently. Each branch declares its own required `outputSchema`; the fan-in shape at the downstream consumer is determined by the convergence mode. Additive over 1.5.0. Schema-version 1.5.0 adds per-edge `policy.priority` — an integer scheduling hint (-100..100, default 0) that orders the ready set: higher priority dispatches first, ties broken by ascending lexical node id (deterministic + replay-safe). Applies only when the destination has EXACTLY ONE incoming edge; fan-in nodes inherit the default. With 1.5.0 the `EdgePolicy` series is complete: retry / timeoutMs / concurrencyKey / priority are the honored fields. There is no `suspend` field — declarative suspension uses `ctx.waitForToken` at handler level. Schema-version 1.4.0 adds per-edge `policy.concurrencyKey` — a printable-ASCII coordination handle (max 256 chars) that serializes dispatch across every node sharing the same key within a tenant. Enforced by the kernel with a lease; suspending handlers release, resumed handlers re-acquire. Schema-version 1.3.0 adds per-edge `policy.retry` — declarative retry (maxAttempts, delayMs, backoff shape, maxDelayMs) applied to a destination node's handler when it has exactly one incoming edge. 1.3.0 also adds (additively) optional `ForeachLoopNode.concurrency` — a bounded worker-pool count (1 ≤ N ≤ min(maxIterations, 32); default 1) for parallel iteration dispatch. `outputs[]` stays sorted by iteration index (canonical order); journal reflects wall-clock settle order. Not applicable to `WhileLoopNode`. Schema-version 1.2.0 introduced the `loop` node kind — a first-class kernel primitive for iterative execution (agent turn loops, retrieval refinement, batch ingest, retry loops). Loops come in two variants: `while` (condition-driven, with optional `evaluationTiming` for do-while vs while semantics) and `foreach` (array-driven, iterating over a resolved operand). Every loop declares a required `outputSchema` — the typed contract for what escapes the loop. State inside the loop is always loop-internal. Body is a sub-DAG; iterations are journaled individually. Version 1.1.0 replaced the 1.0.0 string-typed `when` with the structural Expr DSL and added the $start / $end sentinel endpoints.",
+  "type": "object",
+  "required": ["id", "version", "nodes", "edges"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional pointer to this meta-schema for editor IntelliSense. Not interpreted by the loader."
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique flow identifier within a tenant. Convention: kebab-case, namespaced by pack (e.g. 'acme.contract-review')."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+      "description": "Semver version. Runs pin to a specific version; flow edits produce a new version."
+    },
+    "name": {
+      "type": "string",
+      "description": "Human-readable name displayed in UIs."
+    },
+    "description": {
+      "type": "string",
+      "description": "What this flow does, in one paragraph. Used by AI codegen and self-serve users."
+    },
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/Node" }
+    },
+    "edges": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Edge" }
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Free-form annotations. Not interpreted by the kernel.",
+      "additionalProperties": true
+    },
+    "maxParallelism": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Flow-level default for how many nodes the kernel dispatches concurrently. Per-invocation `options.maxParallelism` wins; absent → the kernel default."
+    },
+    "output": { "$ref": "#/$defs/FlowOutput" }
+  },
+  "$defs": {
+    "Node": {
+      "description": "A flow node. Either a leaf (tool / agent), a loop node (contains a body sub-flow and an exit condition), a fanout node (runs N different bodies in parallel with declared convergence), or a subgraph node (invokes another registered flow as a full kernel sub-run with its own journal). Discriminated by `kind`.",
+      "oneOf": [
+        { "$ref": "#/$defs/LeafNode" },
+        { "$ref": "#/$defs/LoopNode" },
+        { "$ref": "#/$defs/FanoutNode" },
+        { "$ref": "#/$defs/SubflowNode" }
+      ]
+    },
+    "LeafNode": {
+      "type": "object",
+      "required": ["id", "kind", "ref"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Node identifier, unique across the entire flow (including loop bodies at any nesting level). May not equal a sentinel ($start, $end, $loop-start, $loop-end)."
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["tool", "agent"],
+          "description": "What this node executes: a tool or an agent. Since schema-version 1.7.0, invoking another flow is its own node kind (`SubflowNode`)."
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Reference to the concrete tool/agent implementation. Interpretation depends on kind and is opaque to the flow loader."
+        },
+        "config": {
+          "type": "object",
+          "description": "Node-specific configuration. Interpreted by the referenced implementation.",
+          "additionalProperties": true
+        },
+        "inputMapping": {
+          "$ref": "#/$defs/Mapping",
+          "description": "What this node's handler receives (schema-version 1.8.0+): each key resolved when the node dispatches. Absent → the output of the node's single upstream node, or the run input for a `$start` edge."
+        }
+      }
+    },
+    "SubflowNode": {
+      "type": "object",
+      "required": ["id", "kind", "flowRef", "inputMapping", "outputSchema", "convergence"],
+      "additionalProperties": false,
+      "description": "A first-class sub-flow invocation primitive (schema-version 1.7.0+). Dispatches a full kernel run of another registered flow as a single outer-node step. Complementary to the loop + fanout primitives: `foreach` runs N iterations of the SAME body, `fanout` runs N DIFFERENT bodies concurrently, `subgraph` runs a whole other flow inline as a node — with its own independent journal, replay semantics, and lease/cancel machinery inherited from the kernel run substrate. Convergence (`success-only` / `settle-all`, default `settle-all`) decides whether a child-run failure fails the parent node or is projected into a `{ status, output? | error? }` envelope. Cross-tenant invocation is rejected (the resolver only sees the parent's tenantId). A kernel-enforced max depth (default 10; configurable via `RunOptions.maxSubflowDepth`) prevents runaway recursion.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Node identifier, unique across the entire flow. May not equal a sentinel."
+        },
+        "kind": { "type": "string", "const": "subgraph" },
+        "flowRef": {
+          "type": "object",
+          "required": ["flowId", "version"],
+          "additionalProperties": false,
+          "description": "Reference to another registered flow. Both fields are required; `version` must be an EXACT semver (no ranges) so deterministic replay resolves the same child flow forever.",
+          "properties": {
+            "flowId": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Registered flow id. Resolved against the PARENT run's tenantId — cross-tenant lookup is rejected."
+            },
+            "version": {
+              "type": "string",
+              "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+              "description": "Exact semver — no ranges. Deterministic replay requires exact resolution."
+            }
+          }
+        },
+        "inputMapping": {
+          "$ref": "#/$defs/Mapping",
+          "description": "Declarative mapping from the parent's run environment to the sub-run's input. Each entry maps a top-level key of the sub-flow's `runInput` to an Operand (`{ path }` into `runInput` / `state` / `nodeOutputs.<id>`, or a `{ literal }`). The sub-run's input is the object produced by resolving every mapping. Loader statically verifies every value is a valid Operand; runtime resolution follows the same rules as edge predicates."
+        },
+        "outputSchema": {
+          "$ref": "#/$defs/OutputSchema",
+          "description": "REQUIRED. JSON Schema (draft 2020-12) describing the shape the SUB-RUN's terminal output must satisfy — the typed escape contract. Decoupled from the sub-flow's own internal shape: parents declare what they can consume. Loader validates well-formedness at load time via `InvalidSubflowNodeError`; kernel validates the sub-run's output at settle time."
+        },
+        "convergence": {
+          "type": "string",
+          "enum": ["success-only", "settle-all"],
+          "description": "How the sub-run's outcome is projected to the parent node. `success-only`: child failure fails the parent node (parent gets no output; journal records `subgraph.failed`). `settle-all` (default): parent node's output is `{ status: 'succeeded' | 'failed', output? | error? }` regardless of sub-run outcome — the sub-run's failure is data, not a fault, at the parent boundary. Closed enum, extensible additively."
+        }
+      }
+    },
+    "LoopNode": {
+      "description": "A first-class iteration primitive (schema-version 1.2.0+). Two variants: `while` (condition-driven) and `foreach` (array-driven). Every loop declares an `outputSchema` — the typed contract for what escapes the loop. State inside the loop is always loop-internal (no stateScope knob). Every iteration produces distinct journal entries via `iteration.started` / `iteration.completed`; body-node journal entries carry a `loopContext` field attributing them to the enclosing iteration. Iterations run one at a time unless a foreach loop sets `concurrency` (schema-version 1.3.0+).",
+      "oneOf": [{ "$ref": "#/$defs/WhileLoopNode" }, { "$ref": "#/$defs/ForeachLoopNode" }]
+    },
+    "WhileLoopNode": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "loopKind",
+        "body",
+        "exitCondition",
+        "maxIterations",
+        "outputSchema"
+      ],
+      "additionalProperties": false,
+      "description": "Condition-driven loop. Runs body until `exitCondition` is true (or `maxIterations` hits). `evaluationTiming` controls do-while vs while semantics.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Node identifier, unique across the entire flow. May not equal a sentinel."
+        },
+        "kind": { "type": "string", "const": "loop" },
+        "loopKind": { "type": "string", "const": "while" },
+        "body": { "$ref": "#/$defs/LoopBody" },
+        "exitCondition": {
+          "$ref": "#/$defs/Expr",
+          "description": "Declarative predicate evaluated per iteration. When true → exit the loop. Operand paths may reference `state`, `iterationIndex`, `iterationOutput`, and `nodeOutputs.<bodyNodeId>`."
+        },
+        "evaluationTiming": {
+          "type": "string",
+          "enum": ["before", "after"],
+          "default": "after",
+          "description": "When the exit condition is evaluated. `after` (default; do-while): body runs first, then condition checked. Loop runs at least once. `before` (while): condition checked first, against previous iteration's output (null on iter 0). Body may run zero times."
+        },
+        "maxIterations": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "description": "Hard cap on iteration count. The loop exits with stopReason='max-iterations' if `exitCondition` never becomes true within this many iterations. Required — no unbounded loops."
+        },
+        "outputSchema": {
+          "$ref": "#/$defs/OutputSchema",
+          "description": "REQUIRED. JSON Schema (draft 2020-12) describing the shape every iteration's `$loop-end` output must satisfy. Also constrains `finalOutput` and elements of `outputs[]`. Loader validates well-formedness at load time."
+        },
+        "collectAllIterations": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, the loop node's output includes an `outputs` array with every iteration's `$loop-end` output. When false (default), only the last iteration's output is exposed."
+        }
+      }
+    },
+    "ForeachLoopNode": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "loopKind",
+        "body",
+        "iterateOver",
+        "maxIterations",
+        "outputSchema"
+      ],
+      "additionalProperties": false,
+      "description": "Array-driven loop. Runs body once per element of `iterateOver` (up to `maxIterations`). No exit condition — iteration is bounded by array length. `iterateOver` is resolved once at loop-enter time; the array is pinned for the duration.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Node identifier, unique across the entire flow. May not equal a sentinel."
+        },
+        "kind": { "type": "string", "const": "loop" },
+        "loopKind": { "type": "string", "const": "foreach" },
+        "body": { "$ref": "#/$defs/LoopBody" },
+        "iterateOver": {
+          "$ref": "#/$defs/Operand",
+          "description": "Operand that must resolve to an array at loop-enter time. Typical shape: { path: 'runInput.items' } or { path: 'nodeOutputs.list.records' }. Each iteration receives one element as its `$loop-start` input."
+        },
+        "maxIterations": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "description": "Hard cap on iterations even when the array is bounded. Loop exits with stopReason='max-iterations' if the array is longer than the cap; otherwise stopReason='array-exhausted' when the array is consumed."
+        },
+        "outputSchema": {
+          "$ref": "#/$defs/OutputSchema",
+          "description": "REQUIRED. JSON Schema (draft 2020-12) describing the shape every iteration's `$loop-end` output must satisfy."
+        },
+        "collectAllIterations": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, the loop node's output includes an `outputs` array with every iteration's `$loop-end` output."
+        },
+        "concurrency": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32,
+          "description": "Optional. Parallel-worker count for iteration dispatch (schema-version 1.3.0+ additive). Default 1 (strictly sequential). When N > 1, the kernel spins up N workers that pull iteration indices from a shared counter in array order. `outputs[]` remains sorted by iteration index (not settle order); journal iteration.* entries reflect wall-clock settle order and consumers sort by iteration for canonical projection. Handler failure in one iteration cancels all in-flight siblings cleanly. Bounded 1 ≤ concurrency ≤ min(maxIterations, 32); the loader rejects out-of-band values via LoopConcurrencyError. Not applicable to WhileLoopNode (each iteration depends on the previous)."
+        }
+      }
+    },
+    "Mapping": {
+      "type": "object",
+      "propertyNames": { "minLength": 1 },
+      "additionalProperties": { "$ref": "#/$defs/Operand" },
+      "description": "A declarative object: each key maps to an Operand — a `{ literal }`, or a `{ path }` rooted at `runInput`, `state` or `nodeOutputs.<nodeId>`. Resolved against the run environment; a path that does not resolve omits its key."
+    },
+    "FlowOutput": {
+      "type": "object",
+      "required": ["mapping"],
+      "additionalProperties": false,
+      "description": "The run's declared output (schema-version 1.8.0+), resolved when the run completes. Absent → the output of the node feeding the run's `$end` edge.",
+      "properties": {
+        "mapping": { "$ref": "#/$defs/Mapping" },
+        "schema": {
+          "$ref": "#/$defs/OutputSchema",
+          "description": "Optional JSON Schema (draft 2020-12) the resolved output must satisfy; a violation fails the run."
+        }
+      }
+    },
+    "OutputSchema": {
+      "description": "A JSON Schema (draft 2020-12) describing a loop's iteration output shape. Stored opaquely at the flow layer; the loader validates well-formedness against the draft-2020-12 meta-schema and rejects malformed schemas via LoopOutputSchemaError. The kernel validates iteration outputs against this schema at each iteration boundary.",
+      "type": "object"
+    },
+    "LoopBody": {
+      "type": "object",
+      "required": ["nodes", "edges"],
+      "additionalProperties": false,
+      "description": "The sub-flow a loop iterates. Same structure as the outer flow but uses `$loop-start` / `$loop-end` sentinels for entry/exit. Must be a DAG (own cycle check). Node ids must be globally unique across the entire flow including any nesting.",
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/Node" }
+        },
+        "edges": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/LoopEdge" }
+        }
+      }
+    },
+    "FanoutNode": {
+      "type": "object",
+      "required": ["id", "kind", "branches", "convergence"],
+      "additionalProperties": false,
+      "description": "A first-class fanout primitive (schema-version 1.6.0+). Runs N DIFFERENT handler bodies in parallel from a single dispatch and converges by a declared mode. Complementary to `foreach` (N iterations of the SAME body): `fanout` invokes N distinct handlers concurrently. Convergence modes: `all-succeed` fails on first branch failure (siblings cancel), emits an object mapping every branchId to its output when every branch succeeds; `any-succeed` emits the first branch to succeed (siblings cancel), fails if every branch fails; `settle-all` waits for every branch to reach terminal state, emits per-branch outcomes with `{ status, output? | error? }`. Every branch declares its own required `outputSchema` — the typed escape contract per branch. Journal entries per branch (`fanout.dispatched` / `fanout.branch-completed` / `fanout.branch-failed`) plus a converged / cancelled-siblings summary make fanout state fully replayable. Fan-in shape depends on `convergence` and is decidable at flow-load time.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Node identifier, unique across the entire flow. May not equal a sentinel."
+        },
+        "kind": { "type": "string", "const": "fanout" },
+        "branches": {
+          "type": "array",
+          "minItems": 2,
+          "description": "The set of concurrent branches. Must be at least 2 (a 1-branch fanout is just a leaf node). `branchId` must be unique within the fanout. `handler` is looked up in the kernel's HandlerRegistry keyed by that string (same lookup mechanism as leaf nodes). `outputSchema` is REQUIRED per branch — the typed escape contract.",
+          "items": { "$ref": "#/$defs/FanoutBranch" }
+        },
+        "concurrency": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Optional. Bounded worker-pool count for branch dispatch. Default: `branches.length` (all branches run in parallel). Loader rejects `concurrency > branches.length`. Under `concurrency < branches.length` branches dispatch in declaration order (deterministic + replay-safe)."
+        },
+        "convergence": {
+          "type": "string",
+          "enum": ["all-succeed", "any-succeed", "settle-all"],
+          "description": "Convergence mode. `all-succeed`: fanout fails on first branch failure, cancels in-flight siblings; on full success, output is `{ [branchId]: output }`. `any-succeed`: fanout succeeds on first branch success, cancels in-flight siblings; output is `{ winnerBranchId, output }`; fails only if every branch fails. `settle-all`: fanout waits for every branch to reach terminal state (no sibling cancellation on failure); output is `{ [branchId]: { status: 'succeeded' | 'failed', output? | error? } }`."
+        }
+      }
+    },
+    "FanoutBranch": {
+      "type": "object",
+      "required": ["branchId", "handler", "outputSchema"],
+      "additionalProperties": false,
+      "description": "One branch of a `fanout` node. `branchId` is a stable identifier used in the fan-in output object (`all-succeed` / `settle-all`) and in the journal; must be unique within a single fanout. `handler` names a NodeHandler in the kernel's HandlerRegistry — same lookup mechanism as leaf-node handlers. `outputSchema` is the required typed contract for this branch's output; the kernel validates each branch's output against its declared schema at settle time.",
+      "properties": {
+        "branchId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable identifier, unique within the enclosing fanout node."
+        },
+        "handler": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Handler reference — looked up in the kernel's HandlerRegistry by this string, same as a leaf node's `ref`. Distinct branches may reuse the same handler ref (handler is stateless from the kernel's POV)."
+        },
+        "outputSchema": {
+          "$ref": "#/$defs/OutputSchema",
+          "description": "REQUIRED per branch. JSON Schema (draft 2020-12) describing the shape this branch's handler output must satisfy. Loader validates well-formedness at load time."
+        }
+      }
+    },
+    "Edge": {
+      "type": "object",
+      "required": ["id", "from", "to"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Edge identifier, unique within this flow."
+        },
+        "from": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Source node id, or the sentinel '$start' for the flow entry."
+        },
+        "to": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Destination node id, or the sentinel '$end' for the flow exit."
+        },
+        "when": {
+          "$ref": "#/$defs/Expr",
+          "description": "Optional predicate. When absent, the edge fires unconditionally as soon as its `from` node completes. When present, evaluated at edge-dispatch time against the current run environment (runInput, nodeOutputs.<id>, state)."
+        },
+        "policy": {
+          "$ref": "#/$defs/EdgePolicy",
+          "description": "Optional per-edge runtime policy. `retry`, `timeoutMs`, `concurrencyKey`, and `priority` are the complete honored surface. There is no `suspend` field — declarative suspension uses `ctx.waitForToken` at handler level."
+        }
+      }
+    },
+    "EdgePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Per-edge runtime policy. Every field is optional. `retry`, `timeoutMs`, `concurrencyKey`, and `priority` are the complete set of honored fields. `additionalProperties: false` — unknown keys are rejected at load time. There is no `suspend` field — declarative suspension uses `ctx.waitForToken` at handler level.",
+      "properties": {
+        "retry": { "$ref": "#/$defs/RetryPolicy" },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600000,
+          "description": "Per-edge handler-invocation timeout in milliseconds. When set on the sole incoming edge of a destination node, the kernel aborts the handler's `ctx.abortSignal` after `timeoutMs` and journals `step.failed` with `payload.reason: 'timeout'`, `limitMs`, and `elapsedMs`. Fan-in nodes (2+ incoming) ignore the timeout — same rule as retry. Bounded 1..3_600_000 (1 hour cap; longer work belongs behind `ctx.waitForToken` or a foreach with `concurrency`). Interacts with retry: a timed-out attempt counts as one failed attempt. Interacts with cancel: first-fired abort wins in the journal."
+        },
+        "concurrencyKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[\\x20-\\x7E]+$",
+          "description": "Per-key kernel semaphore. When set on the sole incoming edge of a destination node, the kernel serializes dispatch across every node (across every run, across every flow, within a single tenant) that shares the same key: at most one such node runs at a time. Unable-to-acquire journals `step.concurrency-deferred`; release — when the holding node completes, fails or is cancelled — unblocks a waiter on the next tick. Constraint: 1..256 printable ASCII (0x20..0x7E). Fan-in nodes (2+ incoming) ignore the key — same rule as retry + timeoutMs. Suspending handler (waitForToken) releases the lease; resumed handler re-acquires. Retry attempts re-acquire fresh on each retry."
+        },
+        "priority": {
+          "type": "integer",
+          "minimum": -100,
+          "maximum": 100,
+          "description": "Declarative scheduler priority. When the ready set has more than one node, higher-priority nodes dispatch first; ties are broken by ascending lexical node id (deterministic + replay-safe). Applied to the destination node when it has EXACTLY ONE incoming edge — fan-in nodes (2+ incoming) inherit the default (0). Same fan-in rule as retry / timeoutMs / concurrencyKey. Integer, -100..100. Default 0. Integer-only avoids IEEE-754 comparison ambiguity in a sort key that must round-trip identically across every replay. Orders WHICH nodes dispatch first, not HOW MANY dispatch at once — maxParallelism still caps the concurrent count. Interacts with concurrencyKey: within a single tick, priority-ordered dispatch means the higher-priority node attempts and wins the lease first; the lower-priority sibling journals step.concurrency-deferred. Priority does not order nodes already waiting on the same concurrencyKey across runs or processes. No JournalKind emitted — priority is a scheduling hint, not a durable state transition."
+        }
+      }
+    },
+    "RetryPolicy": {
+      "type": "object",
+      "required": ["maxAttempts"],
+      "additionalProperties": false,
+      "description": "Retry policy for the destination node's handler when a handler failure occurs. Applied only when the destination has exactly one incoming edge — fan-in nodes ignore retry, since there is no rule for whose policy would win.",
+      "properties": {
+        "maxAttempts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "description": "Total handler attempts, including the first. 1 = no retry (equivalent to omitting the policy). Values above 10 are a design smell and rejected — retry-heavy control flow belongs in a supervising flow, not on an edge."
+        },
+        "delayMs": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Base delay between retry attempts, in milliseconds. Default 0. Combined with `backoff` to produce the actual per-retry delay."
+        },
+        "backoff": {
+          "type": "string",
+          "enum": ["fixed", "linear", "exponential"],
+          "default": "fixed",
+          "description": "Backoff shape. `fixed`: `delayMs` every retry. `linear`: `delayMs * attempt`. `exponential`: `delayMs * 2^(attempt-1)`, capped at `maxDelayMs`. `exponential` REQUIRES `maxDelayMs` so the delay never grows unbounded."
+        },
+        "maxDelayMs": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Ceiling on the computed per-retry delay. Applies to `linear` and `exponential` backoff. Required when `backoff = 'exponential'`. Defaults to 60000ms when `linear` is chosen without an explicit value."
+        }
+      }
+    },
+    "LoopEdge": {
+      "type": "object",
+      "required": ["id", "from", "to"],
+      "additionalProperties": false,
+      "description": "An edge inside a loop body. Same shape as outer Edge but the sentinels for source/destination are `$loop-start` / `$loop-end` rather than `$start` / `$end`.",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "from": { "type": "string", "minLength": 1 },
+        "to": { "type": "string", "minLength": 1 },
+        "when": { "$ref": "#/$defs/Expr" }
+      }
+    },
+    "Expr": {
+      "description": "A predicate expression. Closed operator set, JSON-serializable. Evaluated to a boolean.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "left", "right"],
+          "properties": {
+            "op": { "enum": ["eq", "ne", "lt", "lte", "gt", "gte"] },
+            "left": { "$ref": "#/$defs/Operand" },
+            "right": { "$ref": "#/$defs/Operand" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "value", "set"],
+          "properties": {
+            "op": { "enum": ["in", "notIn"] },
+            "value": { "$ref": "#/$defs/Operand" },
+            "set": { "$ref": "#/$defs/Operand" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "value"],
+          "properties": {
+            "op": { "enum": ["exists", "notExists", "truthy", "falsy"] },
+            "value": { "$ref": "#/$defs/Operand" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "children"],
+          "properties": {
+            "op": { "enum": ["and", "or"] },
+            "children": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/Expr" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "child"],
+          "properties": {
+            "op": { "const": "not" },
+            "child": { "$ref": "#/$defs/Expr" }
+          }
+        }
+      ]
+    },
+    "Operand": {
+      "description": "One side of a comparison. Either a literal JSON value or a dot-path reference into the run environment. Paths rooted at `iterationIndex` / `iterationOutput` are only meaningful inside a loop node's `exitCondition`; outside that context, the path does not resolve (it counts as missing).",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["literal"],
+          "properties": {
+            "literal": {
+              "description": "A concrete JSON-serializable value. May be null, boolean, number, string, array, or object."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path"],
+          "properties": {
+            "path": {
+              "type": "string",
+              "pattern": "^(runInput|state|nodeOutputs\\.[A-Za-z0-9_.-]+|iterationIndex|iterationOutput)(\\.[A-Za-z0-9_-]+)*$",
+              "description": "Dot-path rooted at 'runInput', 'state', 'nodeOutputs.<nodeId>', 'iterationIndex' (loop exit context only), or 'iterationOutput' (loop exit context only)."
+            }
+          }
+        }
+      ]
+    }
+  }
+}

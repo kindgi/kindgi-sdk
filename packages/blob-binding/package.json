@@ -1,0 +1,45 @@
+{
+  "name": "@kindgi/blob-binding",
+  "version": "0.1.0-preview.7",
+  "description": "Kindgi™ blob storage binding contract. Types only: the BlobStorageBinding interface that storage implementations provide and @kindgi/api consumes — blobId-addressed put / get / head / list / delete, S3-compatible putByKey / getByKey / headByKey / deleteByKey / listByPrefix, and multipart initiate / upload-part / complete / abort / list-parts — its input and result shapes (BlobPutInput, MultipartInitiateInput, BlobFilter, BlobMeta, BlobRead, BlobListPage, BlobDeleteOutcome, S3ListPage, MultipartListPartsPage), and the BlobError union. No runtime code.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
+    "directory": "packages/blob-binding"
+  },
+  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/blob-binding#readme",
+  "bugs": {
+    "url": "https://github.com/kindgi/kindgi-sdk/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "src", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@kindgi/platform": "workspace:*",
+    "@kindgi/types": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

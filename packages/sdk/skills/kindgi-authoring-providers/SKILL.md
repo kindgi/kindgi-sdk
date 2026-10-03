@@ -1,0 +1,701 @@
+---
+name: kindgi-authoring-providers
+description: >
+  Wire an LLM model provider so a Kindgi pack's agents
+  can actually call a real model. Covers four paths — hosted via
+  Anthropic native adapter, Gemini on Vertex AI (Google Application
+  Default Credentials, no API key), hosted via the OpenAI-compat adapter
+  (works with OpenAI + Groq + Together + Fireworks + OpenRouter +
+  Ollama + vLLM + any other OpenAI-compatible endpoint), and local
+  via the in-process ONNX adapter — plus the credential flow (in
+  `kindgi dev` the key lives in the project's env files — `.env`, then
+  `.env.local` — added by hand or with `kindgi secrets set`'s no-echo
+  prompt; the Kindgi runtime reads it through the dotenv secret binding
+  at agent-turn time). One provider row exposes one
+  connection with one or more models under `metadata.models[]`; the
+  router picks the (provider, model) tuple per invocation. Load this
+  when the user asks to "register a provider", "use Claude / GPT /
+  Groq / Llama / Gemini", "wire Anthropic", "use Vertex", "set up an API key for the agent",
+  or when an agent has been authored but the pack has no provider
+  registered yet. Authoring agents themselves is covered by
+  kindgi-authoring-agents; getting-started is covered by
+  kindgi-getting-started.
+type: core
+library: "@kindgi/sdk"
+version: "0.9.0"
+sdk_version: "0.0.0"
+pack_languages: [node, python]
+sources:
+  - packages/adapters/model-anthropic/src/provider.ts
+  - packages/adapters/model-gemini/src/provider.ts
+  - packages/adapters/model-openai-compat/src/provider.ts
+  - packages/adapters/model-in-process/src/provider.ts
+  - packages/api/src/routes/providers.ts
+  - packages/secrets-dotenv/src/index.ts
+---
+
+# Wiring a model provider for a Kindgi pack
+
+> **Running `kindgi`:** in a Node project the CLI is a devDependency
+> (`@kindgi/cli`), not a global command. Run it through the project's
+> package manager — `pnpm exec kindgi …`, `npx --no kindgi …` (npm),
+> `yarn kindgi …` or `bun run kindgi …`. A Python pack (`[tool.kindgi]` in
+> `pyproject.toml`) has no Node project: run the `kindgi` on `PATH`.
+> Commands below are written `kindgi …` for brevity.
+
+An **agent** is a versioned declaration; it needs a **provider** to run.
+The provider is what turns the agent's messages into an LLM call.
+`kindgi dev` ships with a stub `dev-echo` provider that only echoes
+canned strings — fine for verifying the harness, useless for a real
+agent turn. It is a **fallback** provider: it answers only when no other
+registered provider fits the agent, so registering a real one takes over
+with nothing else to change. This skill covers wiring a real one.
+
+## Mental model
+
+```
+Project .env / .env.local    dotenv SecretBinding       runtime ProviderRegistry
+─────────────────────────    ─────────────────────       ────────────────────────
+ANTHROPIC_API_KEY=sk-...  →  resolve('local',            hydrated per tenant on first
+                                'ANTHROPIC_API_KEY')     access; each row =
+                                                          { metadata, adapter_id,
+                                                            secret_ref?,
+                                                            adapter_config? }
+                                     │                          │
+                                     ▼                          ▼
+                             adapter factory ──── resolves apiKey lazily via closure
+                                     │
+                                     ▼
+                             ModelProvider ────── router picks a (provider, model)
+                                                   tuple when an agent's
+                                                   capabilities.needs matches
+```
+
+Three moving parts:
+1. **API key on disk** — in `kindgi dev` (environment `local`) the dotenv
+   secret binding reads the project's own env files: `.env`, then
+   `.env.local` on top (change the list with `dev.envFiles` in
+   `kindgi.config.ts`, or `envFiles` under `[tool.kindgi.dev]` in a Python
+   pack's `pyproject.toml`). A key already in the app's `.env` just works.
+   `kindgi secrets set` (interactive, no-echo) writes `.env.local`. For
+   non-sensitive values (log levels, region names, feature flags),
+   `kindgi env set NAME VALUE --env=local` writes the same file with a
+   positional value — never route real secrets through it. `KINDGI_*`
+   names configure Kindgi itself and are never resolvable as secrets.
+2. **Provider registration** — `kindgi providers register --spec=@provider.json` (`POST /v1/providers`)
+3. **Agent's `capabilities.needs`** — matched at the (provider, model) tuple level at turn time
+
+**Registration body:** `{ metadata, adapter_id, secret_ref?, adapter_config? }`.
+`secret_ref` points at the credential; `adapter_config` holds the adapter's
+non-secret connection settings (a cloud project, a base URL) as flat string,
+number or boolean values. Both are stored with the provider and handed to the
+runtime; `kindgi providers list` / `get` show only `metadata`. Never put a
+credential in `adapter_config`.
+
+**Shape rule:** `ProviderMetadata.id` names the CONNECTION (e.g. `anthropic`,
+`groq`, `local-onnx`); per-model fields (`name`, `contextWindow`, `cost`,
+`features`) live inside `metadata.models[]`. One row can expose many models
+under the same API key.
+
+**Fallbacks:** `"fallback": true` in `metadata` makes a provider a
+fallback — the router considers it only when no other provider satisfies
+the agent's capability, and the turn's result then carries a
+`fallback-provider` warning. `dev-echo` is one; a cheap local model can be
+yours.
+
+## Path A — Hosted, native Anthropic
+
+Best fidelity to Anthropic's API (prompt caching, latest models, tool
+use, structured output). Requires an `ANTHROPIC_API_KEY`.
+
+**Step 1 — set the key:**
+```sh
+kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
+# Prompts interactively (echo disabled). Paste the key, press enter.
+```
+Writes to `.env.local` at the pack root via the dotenv secret binding —
+or add `ANTHROPIC_API_KEY=…` to `.env` / `.env.local` yourself; `kindgi
+dev` reads both. If the pack lives inside an app whose `.env` already
+has the key, there is nothing to do. Keep env files gitignored. For pipelines/CI, pipe the value with
+`echo -n "$KEY" | kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant --from-stdin`,
+or read from a mode-0600 file with `--from-file <path>`. Never pass a
+credential on argv.
+
+**Step 2 — register it, from the preset:**
+```sh
+kindgi providers register --preset=anthropic                          # Opus 5.5, Sonnet 5.5, Haiku 4.5
+kindgi providers register --preset=anthropic --models=claude-haiku-4-5  # just one
+```
+The preset carries the models, context windows and current prices
+(`kindgi providers presets` lists the presets and when their prices were
+checked). In a pack it refuses until the key is in the pack's env files —
+step 1. That's all for Anthropic; go to step 4. The rest of this path is
+the same registration by hand, for a spec of your own.
+
+**Step 2 (by hand) — write `provider.json`** at the pack root. One connection,
+three models — matches how the Anthropic SDK actually works (the API
+key is per-vendor; the model is per-call):
+```json
+{
+  "metadata": {
+    "id": "anthropic",
+    "region": "us-east-1",
+    "models": [
+      {
+        "name": "claude-opus-5-5",
+        "contextWindow": 1000000,
+        "features": ["tool-use", "structured-output"],
+        "cost": {
+          "promptUsdPer1kTokens": 0.004,
+          "completionUsdPer1kTokens": 0.02
+        },
+        "description": "Most capable Opus — long-running agentic and knowledge work."
+      },
+      {
+        "name": "claude-sonnet-5-5",
+        "contextWindow": 1000000,
+        "features": ["tool-use", "structured-output"],
+        "cost": {
+          "promptUsdPer1kTokens": 0.002,
+          "completionUsdPer1kTokens": 0.01
+        },
+        "description": "Balanced performance/cost."
+      },
+      {
+        "name": "claude-haiku-4-5",
+        "contextWindow": 200000,
+        "features": ["tool-use"],
+        "cost": {
+          "promptUsdPer1kTokens": 0.001,
+          "completionUsdPer1kTokens": 0.005
+        },
+        "description": "Fastest and cheapest — routing, classification, simple calls."
+      }
+    ],
+    "description": "Anthropic Claude via native adapter."
+  },
+  "adapter_id": "@kindgi/adapter-model-anthropic",
+  "secret_ref": { "envName": "local", "name": "ANTHROPIC_API_KEY" }
+}
+```
+
+> ⚠ **Units gotcha:** the field is `promptUsdPer1kTokens` (per THOUSAND
+> tokens), but every vendor pricing page (Anthropic, OpenAI, Groq)
+> advertises rates PER MILLION. Divide by 1000 before you paste. Sonnet
+> 5.5 is "$2 / MTok input" → `0.002`, "$10 / MTok output" → `0.01`. A
+> misplaced factor makes real cost look 1000× real; a $0.15 budget
+> blows in the first turn.
+
+**Step 3 — register:**
+```sh
+kindgi providers register --spec=@provider.json
+```
+Returns `{providerId: "anthropic"}` on success. Idempotent in the sense
+that re-registering the same id returns `provider-already-registered`;
+unregister first if the config actually changed.
+
+**Step 4 — verify:**
+```sh
+kindgi providers list
+```
+
+**Step 5 — run:** any agent whose `capabilities: [{needs: [{feature:
+'tool-use'}]}]` is now routed to a (`anthropic`, `<one of the models>`)
+tuple. The router picks by score; prefer a provider with
+`preferredProvider` and pin a model with a `models: { allow: [...] }`
+capability requirement (see "How the router picks…" below).
+
+Nothing to switch off: `dev-echo` is a fallback, so the new provider
+answers every agent it satisfies. A turn that still lands on dev-echo
+carries a `fallback-provider` warning — see mistake 9.
+
+## Path B — Hosted via OpenAI-compat
+
+Works with **any** OpenAI-compatible endpoint. Same adapter, different
+`baseURL`:
+
+| Provider | baseURL |
+|---|---|
+| OpenAI | `https://api.openai.com/v1` |
+| Groq | `https://api.groq.com/openai/v1` |
+| Together | `https://api.together.xyz/v1` |
+| Fireworks | `https://api.fireworks.ai/inference/v1` |
+| OpenRouter | `https://openrouter.ai/api/v1` |
+| DeepSeek | `https://api.deepseek.com/v1` |
+| LiteLLM proxy | `http://localhost:4000/v1` |
+
+> ⚠️ **Not runnable yet.** The runtime doesn't register the OpenAI-compat
+> adapter, so a provider row naming it fails at turn time
+> (`adapter-factory-missing`). The shape below is what it takes once it does.
+
+The connection carries the `baseURL` (in `adapter_config`);
+each endpoint is a separate provider row because each has its own API
+key + region. Within one row, list every model that endpoint exposes.
+
+**Step 1 — set the key:**
+```sh
+kindgi secrets set GROQ_API_KEY --env=local --scope=tenant
+# Interactive prompt; paste and enter.
+```
+
+**Step 2 — `provider.json`** (Groq, exposing two Llama variants):
+```json
+{
+  "metadata": {
+    "id": "groq",
+    "region": "us-central-1",
+    "models": [
+      {
+        "name": "llama-3.3-70b-versatile",
+        "contextWindow": 128000,
+        "features": ["tool-use"],
+        "cost": {
+          "promptUsdPer1kTokens": 0.00059,
+          "completionUsdPer1kTokens": 0.00079
+        }
+      },
+      {
+        "name": "llama-3.1-8b-instant",
+        "contextWindow": 128000,
+        "features": ["tool-use"],
+        "cost": {
+          "promptUsdPer1kTokens": 0.00005,
+          "completionUsdPer1kTokens": 0.00008
+        },
+        "description": "Fast + cheap tier — routing, classification."
+      }
+    ],
+    "description": "Groq-hosted Llama via OpenAI-compat."
+  },
+  "adapter_id": "@kindgi/adapter-model-openai-compat",
+  "secret_ref": { "envName": "local", "name": "GROQ_API_KEY" },
+  "adapter_config": { "baseURL": "https://api.groq.com/openai/v1" }
+}
+```
+
+**Steps 3–5** same as Path A.
+
+## Path C — Local via in-process ONNX
+
+> ⚠️ **Dev-only.** The in-process ONNX adapter writes weights to
+> `~/.cache/huggingface/hub/` — a per-machine cache with no production
+> recipe (no volume-mount recipe, no image-bake pattern, no offline
+> mode, no SHA pinning). Good for local dev, smoke tests, and CI
+> runners that keep the same disk between runs. **Do not ship packs
+> that rely on this adapter to production.** Use hosted providers
+> (Path A) or Ollama (Path B) instead.
+
+No API key. No network. Bundled with the framework — the adapter ships
+`smollm2-360m` by default (~273 MB weights, cached at
+`~/.cache/huggingface/hub/models--HuggingFaceTB--SmolLM2-360M-Instruct/`
+after `kindgi adapters prepare`).
+
+**Not for reasoning-heavy agents.** SmolLM 360M is fine for smoke
+tests, canary agents, dev/CI. Real work needs a hosted model or a
+larger local model via Ollama (Path B).
+
+**`provider.json`** (single-model):
+```json
+{
+  "metadata": {
+    "id": "local-onnx",
+    "region": "in-process",
+    "models": [
+      {
+        "name": "smollm2-360m",
+        "contextWindow": 2048,
+        "features": ["tool-use"],
+        "cost": {
+          "promptUsdPer1kTokens": 0,
+          "completionUsdPer1kTokens": 0
+        }
+      }
+    ],
+    "description": "Local ONNX smollm2-360m — dev + smoke tests."
+  },
+  "adapter_id": "@kindgi/adapter-model-in-process"
+}
+```
+
+Multi-model variant — the in-process adapter loads each pipeline lazily,
+so listing several models keeps memory low until they're actually
+invoked:
+
+```json
+{
+  "metadata": {
+    "id": "local-onnx",
+    "region": "in-process",
+    "models": [
+      { "name": "smollm2-135m", "contextWindow": 2048, "features": [],
+        "cost": { "promptUsdPer1kTokens": 0, "completionUsdPer1kTokens": 0 } },
+      { "name": "smollm2-360m", "contextWindow": 2048, "features": ["tool-use"],
+        "cost": { "promptUsdPer1kTokens": 0, "completionUsdPer1kTokens": 0 } },
+      { "name": "qwen3-0.6b", "contextWindow": 32768, "features": ["tool-use", "long-context"],
+        "cost": { "promptUsdPer1kTokens": 0, "completionUsdPer1kTokens": 0 } }
+    ]
+  },
+  "adapter_id": "@kindgi/adapter-model-in-process"
+}
+```
+
+No `secret_ref` needed. Register + **prepare** + run:
+```sh
+kindgi providers register --spec=@provider.json
+kindgi adapters prepare @kindgi/adapter-model-in-process --model=smollm2-360m
+kindgi runs start --agent=<agent-id> --input='{...}'
+```
+
+**Always `prepare` before `runs start`.** It downloads the ONNX weights
+(~273 MB for smollm2-360m, ~30s on a typical connection) and streams
+per-file progress. Skipping it works — the first model call downloads
+lazily — but that stalls a request path on a multi-hundred-MB
+fetch with no observability, which is bad in dev and unacceptable in
+production. Skip only for scripted teardown where the model is already
+cached (`~/.cache/huggingface/hub/models--HuggingFaceTB--SmolLM2-360M-Instruct/`).
+
+`prepare` is idempotent: subsequent invocations are cache hits and
+return almost instantly, so put it in every `kindgi dev` boot script.
+
+Multi-model providers: prepare each model separately.
+```sh
+kindgi adapters prepare @kindgi/adapter-model-in-process --model=smollm2-135m
+kindgi adapters prepare @kindgi/adapter-model-in-process --model=smollm2-360m
+kindgi adapters prepare @kindgi/adapter-model-in-process --model=qwen3-0.6b
+```
+
+## Local via Ollama (via Path B)
+
+For bigger local models — Ollama runs them, we point at the OpenAI-compat
+endpoint it exposes:
+
+```json
+{
+  "metadata": {
+    "id": "ollama",
+    "region": "local",
+    "models": [
+      {
+        "name": "llama3",
+        "contextWindow": 8192,
+        "features": ["tool-use"],
+        "cost": {
+          "promptUsdPer1kTokens": 0,
+          "completionUsdPer1kTokens": 0
+        }
+      }
+    ],
+    "description": "Local Ollama Llama 3 8B."
+  },
+  "adapter_id": "@kindgi/adapter-model-openai-compat",
+  "secret_ref": { "envName": "local", "name": "OLLAMA_API_KEY" },
+  "adapter_config": { "baseURL": "http://localhost:11434/v1" }
+}
+```
+
+Ollama doesn't check the API key but the adapter requires the `secret_ref`
+field to instantiate — set it to any placeholder. Since this value is
+demonstrably non-sensitive (Ollama ignores it), `env set` is fine here:
+```sh
+kindgi env set OLLAMA_API_KEY unused --env=local
+```
+The reverse — routing a real credential through `env set` — puts the
+plaintext value in your shell history and briefly in `ps` output. Use
+`kindgi secrets set` for anything that's actually a secret.
+
+Assumes Ollama is installed + the model is pulled (`ollama pull llama3`).
+See ollama.com for install / hardware requirements — Llama 3 8B needs
+~8GB RAM, Llama 3 70B needs ~48GB VRAM or ~140GB RAM.
+
+## Path D — Gemini on Vertex AI
+
+Gemini through Google Cloud's Vertex AI. No API key: the adapter uses
+**Google Application Default Credentials** — your `gcloud` login on a
+laptop, the attached service account on Cloud Run (and other Google Cloud
+runtimes). The same registration works in both.
+
+**Step 1 — credentials:**
+```sh
+gcloud auth application-default login     # once per laptop
+```
+The account (locally) or the service account (deployed) needs the
+**Vertex AI User** role (`roles/aiplatform.user`) in the project. Running
+outside Google Cloud: put a service-account key (its JSON) in a secret
+(`kindgi secrets set GEMINI_SA_KEY --env=local --scope=tenant`) and add
+`"secret_ref": { "envName": "local", "name": "GEMINI_SA_KEY" }`.
+
+**Step 2 — `provider.json`:**
+```json
+{
+  "metadata": {
+    "id": "gemini",
+    "region": "global",
+    "models": [
+      {
+        "name": "gemini-2.5-pro",
+        "contextWindow": 1048576,
+        "features": ["tool-use"],
+        "maxOutputTokens": 8192,
+        "cost": {
+          "promptUsdPer1kTokens": 0.00125,
+          "completionUsdPer1kTokens": 0.01,
+          "longContext": {
+            "thresholdTokens": 200000,
+            "promptUsdPer1kTokens": 0.0025,
+            "completionUsdPer1kTokens": 0.015
+          }
+        }
+      },
+      {
+        "name": "gemini-2.5-flash",
+        "contextWindow": 1048576,
+        "features": ["tool-use"],
+        "cost": { "promptUsdPer1kTokens": 0.0003, "completionUsdPer1kTokens": 0.0025 }
+      }
+    ]
+  },
+  "adapter_id": "@kindgi/adapter-model-gemini",
+  "adapter_config": { "project": "<your-gcp-project-id>" }
+}
+```
+- `adapter_config.project` is required: the Google Cloud project Vertex
+  bills and authorises against.
+- `metadata.region` is the Vertex location: `global`, or a region such as
+  `us-central1` or `northamerica-northeast1` when data must stay in one
+  place. `unspecified` means `global`. Different locations are different
+  provider rows.
+- Rates are per 1K tokens, from Google's published pricing; check them
+  before relying on budgets. Thinking tokens bill as output.
+  `longContext` switches the whole call to the higher rates past the
+  threshold; `cachedPromptMultiplier` (default 0.25) prices cached
+  prompt tokens.
+
+**Step 3 — register and check:**
+```sh
+kindgi providers register --spec=@provider.json
+kindgi providers list
+```
+Or skip step 2: `kindgi providers register --preset=gemini --project=<your-gcp-project-id>`
+registers both models above.
+Then pin it from an agent with `preferredProvider: 'gemini'` (and a model
+with `preferredModel`; in Python, `preferred_provider="gemini"` and
+`preferred_model=…`), or let the router pick by capability.
+
+## How the router picks between multiple providers + models
+
+When an agent turn fires, the router expands each registered provider
+into one entry per model (`metadata.models[]`), filters the resulting
+(provider, model) tuples against the agent's `capabilities.needs` (and
+tenant policy), then sorts survivors in this order:
+
+1. **Preferred provider / model.** Tuples matching the agent's
+   `preferredProvider` (and `preferredModel`, when the `Agent` object
+   carries one) are promoted to the front.
+     - Both set → promote the exact tuple.
+     - Only `preferredModel` set → promote any provider exposing that model.
+     - Only `preferredProvider` set → promote every model of that provider.
+   `defineAgent` accepts `preferredProvider` but not `preferredModel`
+   (`DefineAgentSpec` has no such field), so agents built with it can
+   only express a provider preference here. A Python `Agent` takes
+   both (`preferred_provider=`, `preferred_model=`).
+2. **`capability.prefer[]` weights.** If the agent's capability
+   declares `prefer: [{feature: 'thinking', weight: 3}, ...]`, tuples
+   with matching model features (or provider attributes) get higher
+   scores. Sorted by summed score, descending.
+3. **Deterministic lexical tiebreak.** When scores tie, tuples sort by
+   `(providerId, modelName)` alphabetically — replay-safe and stable.
+
+**Practical rule:** preferences are soft — they rank, they don't
+exclude. To guarantee which model runs, make it a hard requirement in
+the capability: `{ models: { allow: ['claude-sonnet-5-5'] } }` (and
+`{ providers: { allow: ['anthropic'] } }` to pin the connection). If no
+registered tuple satisfies it, the turn fails with
+`capability-routing-failed` instead of silently using another model.
+
+**A/B testing a specific agent across models within one Anthropic
+registration:**
+
+```ts
+// agents/weather-agent-sonnet/index.ts
+defineAgent({
+  id: 'my-pack.weather-agent-sonnet',
+  // …same name, instructions, tools, retrieval and guardrails as the opus variant
+  capabilities: [
+    { needs: [{ feature: 'tool-use' }, { models: { allow: ['claude-sonnet-5-5'] } }] },
+  ],
+  preferredProvider: 'anthropic',
+});
+
+// agents/weather-agent-opus/index.ts
+defineAgent({
+  id: 'my-pack.weather-agent-opus',
+  // …
+  capabilities: [
+    { needs: [{ feature: 'tool-use' }, { models: { allow: ['claude-opus-5-5'] } }] },
+  ],
+  preferredProvider: 'anthropic',
+});
+```
+
+The same pair in a Python pack (`kindgi.Agent`; module-level, one file each):
+
+```python
+# agents/weather_agent_sonnet.py
+weather_agent_sonnet = Agent(
+    id="my-pack.weather-agent-sonnet",
+    # …same version, name, instructions, tools and guardrails as the opus variant
+    capabilities=[
+        {"needs": [{"feature": "tool-use"}, {"models": {"allow": ["claude-sonnet-5-5"]}}]},
+    ],
+    preferred_provider="anthropic",
+)
+
+# agents/weather_agent_opus.py
+weather_agent_opus = Agent(
+    id="my-pack.weather-agent-opus",
+    # …
+    capabilities=[
+        {"needs": [{"feature": "tool-use"}, {"models": {"allow": ["claude-opus-5-5"]}}]},
+    ],
+    preferred_provider="anthropic",
+)
+```
+
+Both agents share the tool + instructions; only the pinned model
+differs. One Anthropic provider registration + one API key covers
+both. Register the provider once, then invoke each agent to compare
+outputs on the same inputs.
+
+**A/B testing across vendors:**
+
+```ts
+defineAgent({
+  id: 'my-pack.weather-agent-groq',
+  // …
+  capabilities: [
+    { needs: [{ feature: 'tool-use' }, { models: { allow: ['llama-3.3-70b-versatile'] } }] },
+  ],
+  preferredProvider: 'groq',
+});
+
+defineAgent({
+  id: 'my-pack.weather-agent-anthropic',
+  // …
+  capabilities: [
+    { needs: [{ feature: 'tool-use' }, { models: { allow: ['claude-sonnet-5-5'] } }] },
+  ],
+  preferredProvider: 'anthropic',
+});
+```
+
+## Common mistakes
+
+0. **`adapter_id` uses the short name.** The `adapter_id` field must
+   be the FULL npm package name of the adapter — `"@kindgi/adapter-model-anthropic"`,
+   NOT `"anthropic"`. Adapters are registered with the runtime under
+   their full package names, and a short name matches none of them, so
+   the registration fails. Confirm valid ids with `kindgi adapters list`.
+
+1. **`envName` mismatch between the setter (`kindgi secrets set` or `env set`) and `provider.json`.**
+   Both writers use `--env=<name>` (default `local`): `local` is the
+   project's env files (`.env`, `.env.local`), any other name is
+   `.env.<envName>`. If your `provider.json` has
+   `"secret_ref": {"envName": "production", ...}`, the SecretBinding
+   refuses to cross-resolve — you get `secret-not-found` at agent-turn
+   time. Match them.
+
+2. **Missing `features` on the model.** Agent declares
+   `capabilities: [{needs: [{feature: 'tool-use'}]}]`; at least one
+   model inside `metadata.models[]` must list `"features":
+   ["tool-use"]` or the router filters every tuple out. If `kindgi
+   runs start` returns "no provider satisfies capability", check the
+   per-model `features` list — not a provider-level field anymore.
+
+3. **Empty `models[]`.** Registration rejects with `empty-models`. Every
+   provider row must expose at least one model. Duplicate `name` within
+   the same array is also rejected (`duplicate-model-name`).
+
+4. **Setting `secret_ref` for the in-process adapter.** `in-process`
+   ignores `secret_ref` — no key needed. Leaving it in is harmless but
+   noisy.
+
+5. **Registering the same provider id twice with different config.**
+   Returns `409 provider-already-registered`. Unregister first:
+   ```sh
+   kindgi providers unregister <provider-id>
+   ```
+   Then re-register.
+
+6. **Key not found by the runtime.** `kindgi dev` reads the env files
+   at the PACK ROOT (the directory with `kindgi.config.ts`, or a Python
+   pack's `pyproject.toml` with `[tool.kindgi]`) — `.env` and
+   `.env.local`, or whatever `dev.envFiles` lists; the boot log prints
+   which files it found. A `KINDGI_`-prefixed name is Kindgi runtime
+   config and never resolves as a secret. Outside `kindgi dev`, the
+   runtime resolves secrets through the deployment's `SecretBinding`
+   (a KMS- or database-backed store, for example).
+
+7. **Forgetting to restart `kindgi dev` after registering a provider.**
+   You don't need to — provider registrations go to the running runtime
+   over HTTP (`POST /v1/providers`), which invalidates the tenant's
+   cached provider set. The next `kindgi runs start` sees the new
+   provider.
+
+8. **Compound `preferredProvider` strings.** `preferredProvider` is a
+   provider (connection) id such as `'anthropic'`; the model is a
+   separate choice. A value like `'anthropic-claude-sonnet-5-5'`
+   (vendor + model baked together) matches no provider id, so the hint
+   does nothing. Pin the model with a `models: { allow: [...] }`
+   requirement instead.
+
+9. **Replies still come from dev-echo** (`Tool responded: …`; the turn's
+   result has a `fallback-provider` warning). dev-echo is a fallback: it
+   answers only when no registered provider satisfies the agent. So your
+   provider doesn't — check its models' `features` against the agent's
+   `capabilities.needs` (mistake 2), a `models` / `providers` allow-list
+   that names nothing registered, and the tenant's policy. `kindgi
+   providers list` shows what is registered.
+
+## Verifying end-to-end
+
+```sh
+# 0. Run the runtime (in its own terminal)
+kindgi dev
+
+# 1. Set the key (interactive, no-echo prompt)
+kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
+
+# 2. Register the provider (one row, all models)
+kindgi providers register --preset=anthropic   # or --spec=@provider.json
+
+# 3. Confirm it's there (list shows nested models per provider)
+kindgi providers list
+
+# 4. Run an agent that needs `tool-use`
+kindgi runs start \
+  --agent=my-pack.some-agent \
+  --input='{"userMessage": "test"}'
+```
+
+If the run completes with `status: "completed"`, the whole chain works
+end-to-end. If it fails with `secret-not-found`, check point (1). If it
+fails with "no provider satisfies capability", check point (2). If it
+completes with dev-echo's canned reply, see mistake 9.
+
+## References
+
+- `packages/adapters/model-anthropic/src/provider.ts` — Anthropic adapter
+- `packages/adapters/model-openai-compat/src/provider.ts` — Universal adapter, full list of tested endpoints in header comment
+- `packages/adapters/model-in-process/src/provider.ts` — Local ONNX adapter
+- `packages/api/src/routes/providers.ts` — `POST /v1/providers` route
+- `packages/secrets-dotenv/src/index.ts` — Dev-mode secret binding
+
+## When the framework itself is the problem
+
+If you diagnose that the bug lives in Kindgi/`@kindgi/sdk` itself
+(silent registration failure masking a real error, an unknown adapter
+reported as the wrong error, adapter regression, router picking
+the wrong provider or wrong model) — not in your pack's provider spec —
+load the `kindgi-framework-feedback` skill and file a structured report
+with `kindgi feedback write`. That diagnostic is high-signal input the
+maintainers can act on; don't let it disappear into the transcript.

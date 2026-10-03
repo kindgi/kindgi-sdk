@@ -1,0 +1,88 @@
+{
+  "$schema": "https://kindgi.com/schemas/v1/flow.schema.json",
+  "id": "example.with-loop",
+  "version": "1.0.0",
+  "name": "Example: batch-per-item + iterative refine",
+  "description": "A canonical example of the loop primitive: outer flow does one setup step, then hands to a foreach loop over a batch of items; each iteration of the foreach body runs a while loop that iteratively refines a candidate answer until the model returns finishReason='stop' or maxIterations hits. Every loop declares a typed outputSchema — the escape contract for what crosses back to the outer flow.",
+  "nodes": [
+    {
+      "id": "setup",
+      "kind": "tool",
+      "ref": "prepare-batch"
+    },
+    {
+      "id": "batch-loop",
+      "kind": "loop",
+      "loopKind": "foreach",
+      "iterateOver": { "path": "nodeOutputs.setup.items" },
+      "maxIterations": 100,
+      "body": {
+        "nodes": [
+          {
+            "id": "refine-loop",
+            "kind": "loop",
+            "loopKind": "while",
+            "evaluationTiming": "after",
+            "maxIterations": 8,
+            "exitCondition": {
+              "op": "or",
+              "children": [
+                {
+                  "op": "eq",
+                  "left": { "path": "iterationOutput.finishReason" },
+                  "right": { "literal": "stop" }
+                },
+                {
+                  "op": "eq",
+                  "left": { "path": "iterationOutput.finishReason" },
+                  "right": { "literal": "length" }
+                }
+              ]
+            },
+            "body": {
+              "nodes": [
+                { "id": "model-call", "kind": "agent", "ref": "refiner" },
+                { "id": "dispatch-tools", "kind": "tool", "ref": "dispatch" }
+              ],
+              "edges": [
+                { "id": "rl-e1", "from": "$loop-start", "to": "model-call" },
+                { "id": "rl-e2", "from": "model-call", "to": "dispatch-tools" },
+                { "id": "rl-e3", "from": "dispatch-tools", "to": "$loop-end" }
+              ]
+            },
+            "outputSchema": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["finishReason", "answer"],
+              "properties": {
+                "finishReason": {
+                  "type": "string",
+                  "enum": ["stop", "length", "tool-calls"]
+                },
+                "answer": { "type": "string" }
+              }
+            }
+          }
+        ],
+        "edges": [
+          { "id": "bl-e1", "from": "$loop-start", "to": "refine-loop" },
+          { "id": "bl-e2", "from": "refine-loop", "to": "$loop-end" }
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["itemAnswer"],
+        "properties": {
+          "itemAnswer": { "type": "string" }
+        }
+      },
+      "collectAllIterations": true
+    }
+  ],
+  "edges": [
+    { "id": "oe1", "from": "$start", "to": "setup" },
+    { "id": "oe2", "from": "setup", "to": "batch-loop" },
+    { "id": "oe3", "from": "batch-loop", "to": "$end" }
+  ]
+}

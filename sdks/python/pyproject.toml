@@ -1,0 +1,94 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (C) 2026 Kindgi Inc.
+
+[project]
+name = "kindgi"
+version = "0.1.0"
+description = "Python SDK for Kindgi™ — write a pack's tools and guardrail checks in Python, run them in a Kindgi pack service, and call the Kindgi API."
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.11"
+authors = [{ name = "Kindgi Inc." }]
+keywords = ["kindgi", "agents", "ai", "tools", "workflows"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Typing :: Typed",
+]
+dependencies = [
+  "httpx>=0.27,<1",
+  "jsonschema>=4.18,<5",
+  "pydantic>=2.10,<3",
+  "uvicorn>=0.27,<1",
+]
+
+[project.urls]
+Homepage = "https://github.com/kindgi/kindgi-sdk/tree/main/sdks/python#readme"
+Repository = "https://github.com/kindgi/kindgi-sdk"
+Issues = "https://github.com/kindgi/kindgi-sdk/issues"
+
+[dependency-groups]
+dev = [
+  "datamodel-code-generator>=0.26",
+  "pyright>=1.1.380",
+  "pytest>=8",
+  "ruff>=0.6",
+  # The reference Standard Webhooks library: tests/test_webhooks.py checks
+  # kindgi.webhooks against it, both ways.
+  "standardwebhooks>=1.0",
+]
+
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+# The uv versions this package is developed with — CI installs one from this
+# line (setup-uv's version-file). The same range as the Python packs
+# `kindgi init` scaffolds: the uv in Kindgi's pack image (0.12.15) reads the
+# uv.lock they write. Move it with that image.
+[tool.uv]
+required-version = ">=0.12.15,<0.13"
+
+# Core metadata 2.3, not hatchling's newest (2.5): the package goes into
+# existing apps, and Poetry 1.8 refuses metadata it doesn't know ("Unknown
+# metadata version"). 2.3 has no License-Expression, so the license is the
+# classic table; the LICENSE file still ships.
+[tool.hatch.build.targets.wheel]
+core-metadata-version = "2.3"
+packages = ["src/kindgi"]
+
+[tool.hatch.build.targets.sdist]
+core-metadata-version = "2.3"
+include = ["src/kindgi", "README.md", "LICENSE", "CHANGELOG.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+extend-exclude = ["src/kindgi/client/_models.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests spell out wire payloads on one line, and test Unicode ordering on purpose.
+"tests/**" = ["E501", "RUF001"]
+# Generated (scripts/gen_client.py): docstrings carry the API's descriptions as written.
+"src/kindgi/client/_resources.py" = ["E501"]
+
+[tool.pyright]
+include = ["src"]
+venvPath = "."
+venv = ".venv"
+exclude = ["src/kindgi/client/_models.py"]
+pythonVersion = "3.11"
+typeCheckingMode = "strict"
+reportPrivateUsage = false

@@ -1,0 +1,74 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Kindgi Inc.
+
+import type { Principal, ReviewerRole } from '@kindgi/authz';
+import type { ApiTokenId, RunId, SessionId, TenantId, UserId } from '@kindgi/types';
+
+/**
+ * Hono environment shape — variables the middleware chain populates
+ * and route handlers consume via `c.get(...)`.
+ */
+export interface AppEnv {
+  Variables: {
+    requestId: string;
+    /** Set by `bearerAuthMiddleware` on authenticated routes. */
+    tenantId: TenantId;
+    /**
+     * Set by `bearerAuthMiddleware` when the token's `TokenResolution`
+     * carried a `reviewerRole`. Approvals routes gate visibility +
+     * decisions on this: `standard < senior < admin`. Absent for
+     * tokens that were never provisioned with a reviewer role.
+     */
+    reviewerRole?: ReviewerRole;
+    /**
+     * Set by `bearerAuthMiddleware` when the token resolution carries
+     * a `userId`. Approvals routes hand it to `ReviewerBinding` to
+     * translate `UserId → ReviewerId` before calling `submitReview`.
+     */
+    userId?: UserId;
+    /**
+     * Set by `bearerAuthMiddleware` when the caller authenticated with a
+     * durable API key: the key's id. The principal is the key's service
+     * account.
+     */
+    tokenId?: ApiTokenId;
+    /**
+     * Set by `bearerAuthMiddleware` when the caller presented a
+     * framework-issued OAuth session token (`kgi_sk_*`).
+     * `/v1/identity/whoami` + `/v1/auth/logout` read this to introspect /
+     * revoke without a second lookup. Absent for static bearer tokens.
+     */
+    sessionId?: SessionId;
+    /** Identity-provider id behind a session token. Absent for bearer. */
+    providerId?: string;
+    /** Set by `sigv4Middleware` on `/s3/*`: the bucket the credential may access. */
+    bucket?: string;
+    /** Set by `sigv4Middleware` on `/s3/*`: the access key that signed the request. */
+    s3AccessKeyId?: string;
+    /** OAuth scopes granted to a session token. Absent for bearer. */
+    scopes?: readonly string[];
+    /**
+     * Framework capabilities granted to the bearer. Route handlers
+     * call `hasCapability(c, '<name>')` to gate
+     * writes / reveals; missing capability → 403 `permission-denied`.
+     * Absent = no capabilities granted.
+     */
+    capabilities?: readonly string[];
+    /**
+     * Composite authz Principal built by `principalMiddleware` from
+     * the token resolution. Present on every route mounted BELOW that
+     * middleware (i.e. all `/v1/*` routes). Consumed by the
+     * `authorize()` middleware factory and any route handler that
+     * needs to make conditional authz checks.
+     */
+    principal?: Principal;
+    /**
+     * Set when the request authenticated with a public run token
+     * (`kgi_pt_…`): such a request may only read the runs in
+     * `publicRunIds` and their descendants, on the progress routes.
+     */
+    tokenKind?: 'public-run';
+    /** The runs a public run token names. */
+    publicRunIds?: readonly RunId[];
+  };
+}

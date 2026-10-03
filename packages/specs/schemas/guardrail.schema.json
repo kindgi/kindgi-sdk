@@ -1,0 +1,261 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kindgi.com/schemas/v1/guardrail.schema.json",
+  "$comment": "schema-version: 1.1.0",
+  "title": "Guardrail",
+  "description": "An assertion about agent behavior. Enforced at runtime (halt / retry / escalate / log-only / compensate per guardrail) AND in CI (blocks builds). Same definition, two enforcement paths — no drift between what tests check and what prod enforces. Zero-LLM checks are default (fast, deterministic); LLM-judge scorers are an opt-in class with explicit cost declaration. Schema-version 1.1.0 matches the `Guardrail` type: `check` is required, a `retry` action needs `maxAttempts`, `kind` and `on-violation` accept any non-empty string (the built-ins are listed as `examples`), and `sandbox` / `limits` / `network` / `needsSpec` are allowed.",
+  "type": "object",
+  "required": ["id", "kind", "check", "action"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique guardrail identifier."
+    },
+    "name": {
+      "type": "string",
+      "description": "Human-readable name."
+    },
+    "description": {
+      "type": "string",
+      "description": "What this guardrail guarantees, and what happens if violated."
+    },
+    "kind": {
+      "type": "string",
+      "minLength": 1,
+      "examples": ["zero-llm", "llm-judge", "external"],
+      "description": "How the guardrail is checked. Open string: the engine dispatches it to the execution strategy registered for that kind, and `defineGuardrail` requires a registered check of the same kind. Built-in kinds: 'zero-llm' = pure function over run trace (default, fast, deterministic). 'llm-judge' = uses a model to score (opt-in, costs money). 'external' = evaluated outside the engine by a caller-registered strategy (the built-in 'external' strategy returns an error). Adapters can register strategies for their own kinds."
+    },
+    "check": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Id of the check in the CheckRegistry. For zero-llm: a built-in check ('must-cite', 'never-call-tool', 'max-tool-calls', 'output-matches', 'tool-order', 'required-substring', 'forbidden-substring') or a custom check id. For llm-judge: the id of a registered check of kind 'llm-judge' (the judge is configured by config and judgeCapabilities). For external and adapter kinds: an id the kind's strategy understands. Required since schema-version 1.1.0 (`defineGuardrail` already failed without a registered check)."
+    },
+    "config": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Check-specific configuration. Interpreted by the check implementation."
+    },
+    "action": {
+      "$ref": "#/$defs/Action"
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["info", "warn", "error", "critical"],
+      "default": "error"
+    },
+    "scope": {
+      "$ref": "#/$defs/Scope",
+      "description": "When this guardrail applies: 'always' (every run), 'ci-only' (blocks CI, not runtime), 'runtime-only' (runtime enforcement, not CI), or a per-agent/per-flow selector."
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "For llm-judge guardrails: cost budget per invocation. Declarative — not enforced by the runtime.",
+      "properties": {
+        "maxCostUsd": {
+          "type": "number",
+          "minimum": 0
+        },
+        "maxLatencyMs": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "sandbox": {
+      "type": "string",
+      "enum": ["none", "context-isolated", "strict"],
+      "description": "Isolation posture the runtime enforces around the check's handler. Same values as a tool's `sandbox`. Added in schema-version 1.1.0."
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Sandbox-enforced resource caps while the check runs. Same shape as a tool's `limits`. Added in schema-version 1.1.0.",
+      "properties": {
+        "memMB": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "cpuMs": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": ["memMB", "cpuMs"]
+    },
+    "network": {
+      "type": "object",
+      "description": "Network egress policy the sandbox honors while the check runs. Discriminated on `kind`; same shape as a tool's `network`. Added in schema-version 1.1.0.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": ["none", "unrestricted"]
+            }
+          },
+          "required": ["kind"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "allowlist"
+            },
+            "hosts": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": ["kind", "hosts"]
+        }
+      ]
+    },
+    "needsSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Typed discriminated needs of the check (env / secrets / config / capabilities / bindings). Same shape as a tool's `needsSpec`. Added in schema-version 1.1.0.",
+      "properties": {
+        "env": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object"
+          }
+        },
+        "secrets": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object"
+          }
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object"
+          }
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "bindings": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "codeArtifactRef": {
+      "description": "Handler-artifact pointer for the guardrail's check implementation. Discriminated on `kind`: `oci` is the deploy-pipeline shape (image + module path + artifactVersion); `filesystem` is the local-development shape — absolute host path at the check module. Production servers SHOULD reject `filesystem`.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "oci" },
+            "imageRef": { "type": "string", "minLength": 1 },
+            "modulePath": { "type": "string", "minLength": 1 },
+            "artifactVersion": { "type": "string", "minLength": 1 }
+          },
+          "required": ["kind", "imageRef", "modulePath", "artifactVersion"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "filesystem" },
+            "modulePath": { "type": "string", "minLength": 1 }
+          },
+          "required": ["kind", "modulePath"]
+        }
+      ]
+    },
+    "judgeCapabilities": {
+      "type": "object",
+      "description": "For llm-judge guardrails: capability declaration for the judge model. Routed through `@kindgi/capabilities` over the providers bound for evaluation; when the caller passes a tenant policy (an agent turn passes its own), the judge is routed under it. BYO judges supported.",
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "Action": {
+      "type": "object",
+      "required": ["on-violation"],
+      "additionalProperties": false,
+      "properties": {
+        "on-violation": {
+          "type": "string",
+          "minLength": 1,
+          "examples": ["halt", "retry", "escalate", "log-only", "compensate"],
+          "description": "What happens when the guardrail fires. Open string: any non-empty name is accepted here, and an action handler registered under that name applies it; when the caller evaluates with an action-handler registry, a name with no handler fails with `unknown-action`. Built-in actions: 'halt' = fail the run. 'retry' = re-execute the step (needs `retry.maxAttempts`). 'escalate' = route to HITL review. 'log-only' = record but don't block. 'compensate' = invoke a compensation action."
+        },
+        "retry": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "For on-violation = 'retry'.",
+          "required": ["maxAttempts"],
+          "properties": {
+            "maxAttempts": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10
+            }
+          }
+        },
+        "escalateTo": {
+          "type": "string",
+          "description": "For on-violation = 'escalate': reviewer role or queue id."
+        },
+        "compensateWith": {
+          "type": "string",
+          "description": "For on-violation = 'compensate': tool id to invoke as compensation."
+        }
+      }
+    },
+    "Scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "when": {
+          "type": "string",
+          "enum": ["always", "ci-only", "runtime-only"],
+          "default": "always"
+        },
+        "agents": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Agent ids this guardrail applies to. Empty = all agents."
+        },
+        "flows": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Flow ids this guardrail applies to. Empty = all flows."
+        },
+        "tenants": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Tenant ids this guardrail applies to. Empty = all tenants."
+        }
+      }
+    }
+  }
+}

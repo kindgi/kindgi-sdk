@@ -1,0 +1,56 @@
+# kindgi dev — bundled composition for auto-started local services.
+# Started by `kindgi dev` with `docker compose -p kindgi-dev` (see `startServicesReal`)
+# when docker-compose is detected AND no KINDGI_DATABASE_URL is set.
+#
+# Every container is namespaced under kindgi-dev-* so nothing collides with
+# other local docker-compose stacks. Only Postgres:
+# OpenFGA and MinIO were started and never wired (authz is off in dev), so
+# they're not started until dev wires them. The Kindgi runtime itself runs
+# as its own container, one per pack (`runtime-container.ts`).
+#
+# ## State persistence (2026-09-25)
+#
+# A named volume carries the Postgres data across `kindgi dev` restarts —
+# providers a user registers via `kindgi providers register` survive
+# reboots. `kindgi dev --reset` (which runs `docker compose down -v`)
+# removes it for a true clean slate.
+#
+# Trade-off: migrations no longer re-run from scratch on every boot
+# (drizzle is idempotent — only new migrations apply), so migration-path
+# regressions are caught less continuously. Mitigation: run `kindgi dev
+# --reset` before pushing schema changes, and CI runs against a fresh DB.
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: kindgi-dev_postgres
+    environment:
+      POSTGRES_USER: kindgi
+      POSTGRES_PASSWORD: kindgi_dev_only
+      POSTGRES_DB: kindgi
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=200"
+      - "-c"
+      - "shared_buffers=256MB"
+      - "-c"
+      - "wal_level=logical"
+    volumes:
+      - kindgi-dev-postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kindgi -d kindgi"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+networks:
+  default:
+    name: kindgi-dev
+
+volumes:
+  kindgi-dev-postgres-data:
+    name: kindgi-dev_postgres-data

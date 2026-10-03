@@ -1,0 +1,283 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kindgi.com/schemas/v1/memory.schema.json",
+  "$comment": "schema-version: 1.3.0",
+  "title": "Memory — Log + Facts",
+  "description": "Two memory primitives: LogEntry (append-only event stream — turns, tool calls, tool results, agent internal messages) and Fact (typed, versioned records with declared retrieval hints). Views like message history, working memory, and semantic recall are queries over these two. Everything is tenant-scoped; scope is explicit and pluggable (tenant / user / org / project / thread / session). Log entries form a tamper-evident hash chain per (tenantId, runId) so any modification cascades — see LogEntry.prevHash / entryHash.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/LogEntry"
+    },
+    {
+      "$ref": "#/$defs/Fact"
+    }
+  ],
+  "$defs": {
+    "Scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tenantId"],
+      "description": "Every memory item is scoped. Reads and writes must present a scope; the policy engine denies out-of-scope operations at the boundary.",
+      "properties": {
+        "tenantId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "userId": {
+          "type": "string"
+        },
+        "orgId": {
+          "type": "string"
+        },
+        "projectId": {
+          "type": "string",
+          "description": "Project scope — whatever unit of work a pack organizes its memory around; the memory layer stays neutral about what it represents."
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      }
+    },
+    "LogEntry": {
+      "type": "object",
+      "title": "LogEntry",
+      "description": "One event in the append-only log for a run/thread/session. Immutable once written. Ordered by (sequence, timestamp). Every entry commits to a hash of the previous entry in the same (tenantId, runId) — tamper with any past entry and every subsequent entry's prevHash breaks.",
+      "required": [
+        "id",
+        "kind",
+        "scope",
+        "timestamp",
+        "sequence",
+        "runId",
+        "prevHash",
+        "entryHash"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "user-message",
+            "agent-message",
+            "system-message",
+            "tool-call",
+            "tool-result",
+            "internal-thought",
+            "retrieval",
+            "artifact-produced",
+            "event-emitted",
+            "event-received",
+            "guardrail-triggered",
+            "wait-suspended",
+            "wait-resumed"
+          ]
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "runId": {
+          "type": "string",
+          "description": "Kernel run that produced this entry."
+        },
+        "actor": {
+          "type": "string",
+          "description": "Who produced this entry (user id, agent id, tool id, or 'system')."
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Monotonic sequence within (tenantId, runId). Enables deterministic replay ordering. Together with prevHash defines the tamper-evident chain within a run."
+        },
+        "payload": {
+          "description": "Kind-specific payload. Consumers must tolerate unknown fields."
+        },
+        "contentHash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "Optional SHA-256 of the payload alone (independent of the chain), useful for content-addressed dedup."
+        },
+        "prevHash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "SHA-256 of the previous LogEntry in the same (tenantId, runId) chain. The first entry (sequence=0) uses the zero-hash 'sha256:0000000000000000000000000000000000000000000000000000000000000000'. Added in schema-version 1.2.0."
+        },
+        "entryHash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "SHA-256 of this entry's canonical serialization (id + kind + scope + runId + actor + timestamp + sequence + payload + prevHash). Used as the prevHash of the next entry in the chain. Added in schema-version 1.2.0."
+        },
+        "causedByLogId": {
+          "type": "string",
+          "description": "Optional link to the log entry that caused this one. Feeds the provenance DAG directly."
+        }
+      }
+    },
+    "Fact": {
+      "type": "object",
+      "title": "Fact",
+      "description": "A typed, versioned record. Facts are the durable, retrievable memory. Two flavors are expressible via the same primitive: (A) immutable outputs the runtime wrote from an agent run — versioned by supersession, no freshness semantics; (B) cached views of external state — carry an optional `source` block describing where the ground truth lives and how to refresh. Views (working memory, semantic recall, cross-history search) are queries over facts. Retrieval strategy (which indexes populate for a given `type`) is declared by pack authors via a policy registry, not per-instance — see `RetrievalPolicyRegistry` in @kindgi/memory. Schema-version 1.3.0 removed the per-instance `retrieve` hint that used to live on this record.",
+      "required": ["id", "type", "scope", "version", "createdAt"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Fact type identifier. Vertical packs define their own; a few general-purpose names are conventional ('working-memory', 'user-profile', 'summary', 'entity-index')."
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Monotonic version within (scope, id). New writes increment; old versions are retained until retention policy expires them."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "content": {
+          "description": "The fact payload — inline JSON. Optional since schema-version 1.1.0: if `contentRef` is set, the payload lives in blob storage and `content` may hold a summary or fingerprint for cheap retrieval-scoring. Rule of thumb: keep `content` ≤ ~64 KB inline; larger goes to blob."
+        },
+        "contentRef": {
+          "type": "string",
+          "description": "Optional (schema-version 1.1.0+): reference to a blob holding the actual bytes when they're too large to store inline. Format: 'blob://<provider>/<bucket>/<key>'. Consumers fetch it through the blob storage binding (`BlobStorageBinding.get()` in `@kindgi/blob-binding`)."
+        },
+        "contentHash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Optional (schema-version 1.1.0+): payload size in bytes. Populated by the writer; enables cheap size-based retrieval decisions without fetching the payload."
+        },
+        "embeddingModel": {
+          "type": "string",
+          "description": "For facts whose type-policy includes semantic indexing: the model used to embed. Enables re-indexing when the model changes."
+        },
+        "retention": {
+          "$ref": "#/$defs/Retention"
+        },
+        "source": {
+          "$ref": "#/$defs/Source",
+          "description": "Optional (schema-version 1.1.0+): present iff this fact is a cached view of external state (Kind B) rather than immutable runtime output (Kind A). Carries freshness metadata and a refresh strategy so readers can distinguish live-cached facts from historical facts."
+        },
+        "causedByLogId": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "Log entries that caused this fact write, in temporal order. Every fact traces back to at least one causal event. Multi-source facts (consolidation, extraction over many messages, cross-fact synthesis) list all source log ids; single-source facts list one. Widened from string → string[] in schema-version 1.2.0."
+        },
+        "supersedes": {
+          "type": "string",
+          "description": "The previous fact id/version this one supersedes."
+        }
+      }
+    },
+    "Source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "freshness", "refresh"],
+      "description": "External source of a Kind-B (cached-view) fact. Added in schema-version 1.1.0. Absent for Kind-A (immutable historical) facts.",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["http-api", "blob", "mcp-tool", "external-db", "user-input"],
+          "description": "Where the source of truth lives. Opaque to the memory layer; the `refresh.handler` knows how to fetch from it."
+        },
+        "uri": {
+          "type": "string",
+          "description": "Optional locator interpreted per `kind` (URL, blob ref, MCP tool id + args, JDBC URI, etc.). May be absent when the handler resolves the source internally."
+        },
+        "freshness": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "How to tell if the cached fact is still current.",
+          "properties": {
+            "ttlSeconds": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Fact is considered stale after this many seconds past `lastVerifiedAt`."
+            },
+            "lastVerifiedAt": {
+              "type": "string",
+              "format": "date-time",
+              "description": "When the source was last confirmed to still match the cached value. Updated by refresh handlers."
+            },
+            "etag": {
+              "type": "string",
+              "description": "HTTP-style validator, if the source supports one. Refresh handlers use conditional GET semantics."
+            },
+            "sourceVersion": {
+              "type": "string",
+              "description": "Explicit source-side version identifier (e.g., document revision id, DB row transaction id). Present when the source is versioned."
+            }
+          }
+        },
+        "refresh": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["strategy"],
+          "description": "How the cached fact gets refreshed.",
+          "properties": {
+            "strategy": {
+              "type": "string",
+              "enum": ["on-read", "background", "manual"],
+              "description": "'on-read' = reader triggers a refresh check before returning stale results. 'background' = a scheduled kernel run walks stale facts and refreshes. 'manual' = only refresh when explicitly invoked."
+            },
+            "handler": {
+              "type": "string",
+              "description": "Tool id, agent id, or flow id that performs the refresh. Invoked by the kernel per the chosen strategy."
+            },
+            "priority": {
+              "type": "integer",
+              "description": "Higher = refresh first when a background sweep dispatches many at once."
+            }
+          }
+        }
+      }
+    },
+    "Retention": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Fact-level retention override. Tenant policy sets defaults.",
+      "properties": {
+        "keepUntil": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "keepDays": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "legalHold": {
+          "type": "boolean",
+          "description": "If true, retention rules cannot delete this fact. Requires explicit release via admin action."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,22 @@
+"""The pack's tools and guardrail, called directly — `uv run pytest`."""
+
+from kindgi import RunTrace
+from tools.echo import EchoInput, echo
+from tools.greet import GreetInput, greet
+
+from guardrails.response_not_empty import Config, response_not_empty
+
+
+def test_echo_round_trips_the_message() -> None:
+    out = echo(EchoInput(message="hello"))
+    assert out.echo == "hello"
+    assert out.character_count == 5
+
+
+def test_greet_uses_the_default_greeting() -> None:
+    assert greet(GreetInput(name="Ada")).message == "Hello, Ada!"
+
+
+def test_an_empty_answer_fails_the_guardrail() -> None:
+    trace = RunTrace(run_id="r", tenant_id="t", output="  ")
+    assert not response_not_empty(Config(), trace).passed

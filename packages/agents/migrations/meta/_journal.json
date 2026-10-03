@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1789708941765,
+      "tag": "0000_sparkling_talkback",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790270079710,
+      "tag": "0001_tired_warhawk",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790813765675,
+      "tag": "0002_violet_ezekiel",
+      "breakpoints": true
+    }
+  ]
+}

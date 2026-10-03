@@ -1,0 +1,79 @@
+---
+/*
+ * The version menu. Each release line's docs are served under `/vX.Y/`,
+ * the newest also at the root, and `main` under `/next/`;
+ * `/versions.json` at the site root lists them (scripts/build-versions.mjs
+ * writes it). Switching keeps the reader on the same page when the other
+ * version has it, else opens that version's home. Hidden when there's no
+ * `/versions.json` (a single local build).
+ */
+---
+
+<label class="kindgi-version" hidden>
+  <span class="sr-only">Version</span>
+  <select aria-label="Documentation version"></select>
+</label>
+
+<script>
+  interface Version {
+    readonly version: string;
+    readonly path: string;
+  }
+  interface Versions {
+    readonly latest: string;
+    readonly versions: readonly Version[];
+  }
+
+  /** The version a path belongs to: the longest matching prefix, else the root's. */
+  function currentVersion(versions: readonly Version[], path: string): Version | undefined {
+    const prefixed = versions
+      .filter((v) => v.path !== '/' && path.startsWith(v.path))
+      .sort((a, b) => b.path.length - a.path.length);
+    return prefixed[0] ?? versions.find((v) => v.path === '/');
+  }
+
+  function label(v: Version, latest: string): string {
+    if (v.version === 'next') return 'next (unreleased)';
+    return v.version === latest ? `v${v.version} (latest)` : `v${v.version}`;
+  }
+
+  async function setUp(root: HTMLElement): Promise<void> {
+    const response = await fetch('/versions.json').catch(() => undefined);
+    if (!response?.ok) return;
+    const { latest, versions } = (await response.json()) as Versions;
+    const current = currentVersion(versions, location.pathname);
+    if (current === undefined) return;
+    const select = root.querySelector('select');
+    if (select === null) return;
+    // The root serves the latest line too; list each version once.
+    for (const v of versions.filter((v) => v.path !== '/' || v.version !== latest)) {
+      const option = new Option(label(v, latest), v.path, false, v.version === current.version);
+      select.add(option);
+    }
+    const rest = location.pathname.slice(current.path.length);
+    select.addEventListener('change', async () => {
+      const target = `${select.value}${rest}`;
+      const exists = await fetch(target, { method: 'HEAD' })
+        .then((r) => r.ok)
+        .catch(() => false);
+      location.assign(exists ? target : select.value);
+    });
+    root.hidden = false;
+  }
+
+  for (const root of document.querySelectorAll<HTMLElement>('.kindgi-version')) {
+    void setUp(root);
+  }
+</script>
+
+<style>
+  .kindgi-version select {
+    background: transparent;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.25rem;
+    color: var(--sl-color-gray-1);
+    font: inherit;
+    font-size: var(--sl-text-sm);
+    padding: 0.2rem 0.4rem;
+  }
+</style>

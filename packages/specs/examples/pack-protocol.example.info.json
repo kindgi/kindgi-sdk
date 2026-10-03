@@ -1,0 +1,8 @@
+{
+  "protocol": 2,
+  "packId": "acme.ledger",
+  "packVersion": "1.0.0",
+  "artifactVersion": "20261001.1",
+  "tools": [{ "id": "acme.ledger.record-expense", "version": "1.0.0" }],
+  "checks": ["acme.ledger.checks.response-not-empty"]
+}

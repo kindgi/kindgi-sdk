@@ -1,0 +1,12 @@
+{
+  "v": 2,
+  "kind": "invoke",
+  "tool": { "id": "acme.ledger.record-expense", "version": "1.0.0" },
+  "input": { "vendor": "Acme Office Supply", "amountCents": 12999 },
+  "ctx": {
+    "tenantId": "t-1",
+    "runId": "run-1",
+    "requestId": "toolu_01",
+    "env": { "LEDGER_DB": "postgres://ledger" }
+  }
+}

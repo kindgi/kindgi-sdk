@@ -1,0 +1,44 @@
+// Kindgi pack config — scaffolded by `kindgi init --template=minimal`.
+
+const config = {
+  pack: {
+    id: '{{PACK_ID}}',
+    version: '{{PACK_VERSION}}',
+    description: 'A minimal Kindgi pack.',
+  },
+  discovery: {
+    tools: 'tools/**/*.ts',
+    guardrails: 'guardrails/**/*.ts',
+    agents: 'agents/**/*.ts',
+    flows: 'flows/**/*.ts',
+  },
+  // ---------------------------------------------------------------
+  // Environments — one entry per deploy target (staging / production
+  // / preview / custom). Each names the build server endpoint, the
+  // signing key path (Ed25519 PEM, never leaves the developer's
+  // machine), the target registry (build server pushes here on your
+  // behalf), and the tenantId the Kindgi runtime scopes the
+  // deployment to. Consumed by `kindgi build` + `kindgi deploy`.
+  //
+  // Fill these in when you're ready to push a build off the laptop.
+  // Local `kindgi dev` does NOT read this block.
+  // ---------------------------------------------------------------
+  environments: {
+    staging: {
+      endpoint: 'https://api.staging.example.com',
+      build: 'http://localhost:8787', // your Kindgi build server
+      registry: 'ghcr.io/your-org',
+      signingKey: '~/.kindgi/keys/staging.pem',
+      tenantId: 'tenant-your-org-staging',
+    },
+    production: {
+      endpoint: 'https://api.example.com',
+      build: 'https://build.example.com',
+      registry: 'ghcr.io/your-org',
+      signingKey: '~/.kindgi/keys/production.pem',
+      tenantId: 'tenant-your-org-production',
+    },
+  },
+} as const;
+
+export default config;

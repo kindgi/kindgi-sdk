@@ -1,0 +1,409 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Kindgi Inc.
+
+import type { RunStatus } from '@kindgi/runtime';
+import type { AgentId, FlowId, RunId, TenantId, Timestamp } from '@kindgi/types';
+
+import { KindgiApiError, notYetWired } from '../errors.js';
+import type { RunProgress } from '../generated/api.js';
+import { type RunProgressEvent, followRun } from '../run-follow.js';
+import type { Transport } from '../transport.js';
+import type { DryRunResult, RunEvent } from '../types.js';
+
+/**
+ * Runs resource — the single execution primitive.
+ *
+ * Background jobs, webhook processors, scheduled tasks and agent
+ * invocations all execute as flow runs; there is no separate queue
+ * subsystem. Streaming is pull-model (`AsyncIterable` over SSE), not
+ * callback-based.
+ *
+ * The SDK collapses "agent run" and "flow run" onto one resource
+ * because they are one runtime primitive. `start` accepts either an
+ * `AgentId` (the server runs the agent as a flow) or a `FlowId`
+ * (the server runs the flow directly).
+ */
+export interface RunsClient {
+  /**
+   * Start a run. Server returns the full `Run` row so callers observe
+   * `status` + `flowId` + `flowVersion` in one round-trip: by default
+   * once the run completes, fails or suspends (201, with `output`);
+   * with `options.wait: false` as soon as it exists (202) — poll
+   * `get(runId)` until it finishes.
+   *
+   * `idempotencyKey` makes retries safe: two calls with the same key
+   * within the server's retention window return the same `Run`.
+   *
+   * When the deployment issues public run tokens, the result also
+   * carries `publicAccessToken`: hand it to a browser, which follows the
+   * run with `subscribeToRun`.
+   *
+   * @wire `POST /v1/runs` — see
+   *   `@kindgi/api/openapi.json#/paths/~1v1~1runs/post`. Idempotency
+   *   keys are accepted on all POSTs.
+   */
+  start(input: StartRunInput): Promise<StartedRun>;
+
+  /**
+   * @unwired No `POST /v1/runs/dry-run` route. To preview a run, use
+   *   `runs.start({ ..., options: { dryRun: true } })`, which returns a
+   *   `Run` marked `dryRun: true`. The `DryRunResult` shape (planned
+   *   nodes, tool calls, cost estimate) has no API route.
+   */
+  dryRun(input: StartRunInput): Promise<DryRunResult>;
+
+  /**
+   * Subscribe to the run's event stream as an async iterable.
+   *
+   * @wire `GET /v1/runs/{runId}/stream` — see
+   *   `@kindgi/api/openapi.json#/paths/~1v1~1runs~1{runId}~1stream/get`.
+   *   Server emits SSE frames (`text/event-stream`), one wire `RunEvent`
+   *   per frame with the SSE `id:` line set to `<runId>:<sequence>` for
+   *   `Last-Event-Id` resume.
+   *
+   * Reconnect is transparent — network drops trigger exponential
+   * backoff (500 ms → 30 s cap; up to 10 attempts by default) with
+   * `Last-Event-Id` set to the last-observed frame so the server
+   * resumes from the next sequence. When the server ends the stream
+   * before the run finished (its time limit), the iterable reconnects
+   * the same way; it completes after the run's terminal event
+   * (`run.completed`, `run.failed`, `run.cancelled`). Consumers pass
+   * `AbortSignal` for caller-side cancellation; the iterable completes
+   * cleanly on abort.
+   *
+   * @param runId — the run to subscribe to.
+   * @param options — optional `signal` for cancellation + backoff overrides.
+   */
+  stream(
+    runId: RunId,
+    options?: {
+      readonly signal?: AbortSignal;
+      readonly initialBackoffMs?: number;
+      readonly maxBackoffMs?: number;
+    },
+  ): AsyncIterable<RunEvent>;
+
+  /**
+   * The run's progress: status and timing, without its input, output or
+   * failure message.
+   *
+   * @wire `GET /v1/runs/{runId}/progress`
+   */
+  progress(runId: RunId): Promise<RunProgress>;
+
+  /**
+   * The run's events without their payloads, through to the terminal one
+   * (reconnecting like `stream`). For browsers, see `subscribeToRun`,
+   * which takes a public run token.
+   *
+   * @wire `GET /v1/runs/{runId}/progress/stream`
+   */
+  streamProgress(
+    runId: RunId,
+    options?: {
+      readonly signal?: AbortSignal;
+      readonly initialBackoffMs?: number;
+      readonly maxBackoffMs?: number;
+    },
+  ): AsyncIterable<RunProgressEvent>;
+
+  /**
+   * Snapshot the current run status.
+   *
+   * @wire `GET /v1/runs/{runId}` — see
+   *   `@kindgi/api/openapi.json#/paths/~1v1~1runs~1{runId}/get`.
+   */
+  get(runId: RunId): Promise<Run>;
+
+  /**
+   * Resume a suspended run at a waitpoint. Used to complete HITL
+   * approvals, external callbacks, or event-triggered inbox waits.
+   *
+   * @wire `POST /v1/runs/{runId}/resume` — see
+   *   `@kindgi/api/openapi.json#/paths/~1v1~1runs~1{runId}~1resume/post`.
+   *
+   * Returns the updated run row, so callers see the transition from
+   * `suspended` back to `running` (or onward) without a follow-up
+   * `get`.
+   */
+  resume(input: ResumeRunInput): Promise<Run>;
+
+  /**
+   * Request cancellation. The runtime journals `run.cancelled`;
+   * in-flight handlers observe their abort signal.
+   *
+   * @wire `POST /v1/runs/{runId}/cancel` — see
+   *   `@kindgi/api/openapi.json#/paths/~1v1~1runs~1{runId}~1cancel/post`.
+   *
+   * Returns the updated run row.
+   */
+  cancel(runId: RunId, options?: { readonly idempotencyKey?: string }): Promise<Run>;
+
+  /**
+   * Cursor-paginated list of runs for the tenant.
+   *
+   * @wire `GET /v1/runs` — see
+   *   `@kindgi/api/openapi.json#/paths/~1v1~1runs/get`.
+   */
+  list(filter?: ListRunsFilter): Promise<RunPage>;
+
+  /**
+   * Read the durable journal for a run. Journal entries are the
+   * source-of-truth history for replay + audit.
+   *
+   * @wire `GET /v1/runs/:runId/journal`
+   */
+  journal(runId: RunId, filter?: RunJournalFilter): Promise<RunJournalPage>;
+}
+
+export interface RunJournalFilter {
+  readonly limit?: number;
+  readonly cursor?: string;
+  /** Only entries with sequence >= this value. */
+  readonly since?: number;
+}
+
+export interface RunJournalPage {
+  readonly data: readonly unknown[];
+  readonly hasMore: boolean;
+  readonly nextCursor?: string;
+}
+
+export interface ListRunsFilter {
+  readonly limit?: number;
+  readonly cursor?: string;
+  /** Only the child runs of this run. */
+  readonly parentRunId?: RunId;
+  /** Only runs that are not a child of another run. */
+  readonly topLevel?: boolean;
+  /** Include each run's `output` (omitted from lists by default). */
+  readonly includeOutput?: boolean;
+}
+
+export interface RunPage {
+  readonly data: readonly Run[];
+  readonly hasMore: boolean;
+  readonly nextCursor?: string;
+}
+
+/**
+ * Discriminated on the identifier kind so the API layer knows whether
+ * to run an agent or a flow. The SDK layer takes ids, as plain strings
+ * (`'acme.triage-ticket'`) or branded ones; the API layer resolves them.
+ */
+export type StartRunInput =
+  | {
+      readonly agent: AgentId | string;
+      readonly agentVersion?: string;
+      /** Project the run belongs to. Omit to use the tenant's default project. */
+      readonly projectId?: string;
+      readonly input: unknown;
+      readonly options?: StartRunOptions;
+      readonly idempotencyKey?: string;
+    }
+  | {
+      readonly flow: FlowId | string;
+      readonly flowVersion?: string;
+      /** Project the run belongs to. Optional; when omitted, the API's run handler chooses. */
+      readonly projectId?: string;
+      readonly input: unknown;
+      readonly options?: StartRunOptions;
+      readonly idempotencyKey?: string;
+    };
+
+export interface StartRunOptions {
+  /** Run with side-effects mocked; the row is marked `dryRun: true`. */
+  readonly dryRun?: boolean;
+  /**
+   * `false` → the server answers as soon as the run exists and finishes
+   * it in the background; poll `get(runId)`. Default: wait for the run
+   * to complete, fail or suspend.
+   */
+  readonly wait?: boolean;
+}
+
+export interface ResumeRunInput {
+  readonly runId: RunId;
+  readonly waitpointId: string;
+  readonly value?: unknown;
+  readonly idempotencyKey?: string;
+}
+
+/**
+ * Wire shape — matches `@kindgi/api/openapi.json#Run`. Runs are
+ * flow-native on the wire: an agent run executes as a flow on the
+ * server, and the row reports that flow's `flowId` / `flowVersion`
+ * rather than the `agentId`.
+ */
+export interface Run {
+  readonly id: RunId;
+  readonly tenantId: TenantId;
+  readonly projectId?: string;
+  readonly flowId: string;
+  readonly flowVersion: string;
+  readonly status: RunStatus;
+  readonly dryRun: boolean;
+  readonly createdAt: Timestamp;
+  readonly updatedAt: Timestamp;
+  readonly completedAt?: Timestamp;
+  readonly failureMessage?: string;
+  /** The run's output once it completed. Lists carry it only with `includeOutput`. */
+  readonly output?: unknown;
+  /** Set on a child run: the run that started it. */
+  readonly parentRunId?: RunId;
+  /** Set on a child run: the node in the parent run that started it. */
+  readonly parentNodeId?: string;
+}
+
+/**
+ * What `runs.start` returns: the run, plus a public run token when the
+ * deployment issues them. Only the start response carries the token;
+ * `get` and `list` never do.
+ */
+export interface StartedRun extends Run {
+  /**
+   * A short-lived, read-only token for this run and its descendants:
+   * progress only (`GET /v1/runs/{runId}/progress` and its stream), for
+   * a browser. Absent when the deployment issues no public run tokens.
+   */
+  readonly publicAccessToken?: string;
+  /** When `publicAccessToken` stops working. */
+  readonly publicAccessTokenExpiresAt?: Timestamp;
+}
+
+export function makeRunsClient(transport: Transport): RunsClient {
+  return {
+    async start(input) {
+      const body: Record<string, unknown> =
+        'agent' in input
+          ? {
+              agent: input.agent as unknown as string,
+              ...(input.agentVersion !== undefined && { agentVersion: input.agentVersion }),
+              ...(input.projectId !== undefined && { projectId: input.projectId }),
+              input: input.input,
+              ...(input.options !== undefined && { options: input.options }),
+            }
+          : {
+              flow: input.flow as unknown as string,
+              ...(input.flowVersion !== undefined && { flowVersion: input.flowVersion }),
+              ...(input.projectId !== undefined && { projectId: input.projectId }),
+              input: input.input,
+              ...(input.options !== undefined && { options: input.options }),
+            };
+      return transport.request<StartedRun>({
+        method: 'POST',
+        path: '/v1/runs',
+        body,
+        ...(input.idempotencyKey !== undefined && {
+          idempotencyKey: input.idempotencyKey,
+        }),
+      });
+    },
+
+    async dryRun(_input) {
+      throw new KindgiApiError(
+        notYetWired(
+          'runs.dryRun',
+          'no dedicated dry-run route on the API — use runs.start({ ..., options: { dryRun: true } }); the design-drafted DryRunResult (planned nodes / cost estimate) is a distinct preview primitive that has no wire route yet',
+        ),
+      );
+    },
+
+    async progress(runId) {
+      return transport.request<RunProgress>({
+        method: 'GET',
+        path: `/v1/runs/${encodeURIComponent(runId as unknown as string)}/progress`,
+      });
+    },
+
+    streamProgress(runId, options) {
+      return followRun<RunProgressEvent>({
+        url: `${transport.apiUrl}/v1/runs/${encodeURIComponent(runId as unknown as string)}/progress/stream`,
+        headers: () => transport.authHeaders(),
+        fetchImpl: transport.fetchImpl,
+        ...(options?.signal !== undefined && { signal: options.signal }),
+        ...(options?.initialBackoffMs !== undefined && {
+          initialBackoffMs: options.initialBackoffMs,
+        }),
+        ...(options?.maxBackoffMs !== undefined && {
+          maxBackoffMs: options.maxBackoffMs,
+        }),
+      });
+    },
+
+    stream(runId, options) {
+      return followRun<RunEvent>({
+        url: `${transport.apiUrl}/v1/runs/${encodeURIComponent(runId as unknown as string)}/stream`,
+        headers: () => transport.authHeaders(),
+        fetchImpl: transport.fetchImpl,
+        ...(options?.signal !== undefined && { signal: options.signal }),
+        ...(options?.initialBackoffMs !== undefined && {
+          initialBackoffMs: options.initialBackoffMs,
+        }),
+        ...(options?.maxBackoffMs !== undefined && {
+          maxBackoffMs: options.maxBackoffMs,
+        }),
+      });
+    },
+
+    async get(runId) {
+      return transport.request<Run>({
+        method: 'GET',
+        path: `/v1/runs/${encodeURIComponent(runId as unknown as string)}`,
+      });
+    },
+
+    async resume(input) {
+      return transport.request<Run>({
+        method: 'POST',
+        path: `/v1/runs/${encodeURIComponent(input.runId as unknown as string)}/resume`,
+        body: {
+          waitpointId: input.waitpointId,
+          ...(input.value !== undefined && { value: input.value }),
+        },
+        ...(input.idempotencyKey !== undefined && {
+          idempotencyKey: input.idempotencyKey,
+        }),
+      });
+    },
+
+    async cancel(runId, options) {
+      return transport.request<Run>({
+        method: 'POST',
+        path: `/v1/runs/${encodeURIComponent(runId as unknown as string)}/cancel`,
+        body: {},
+        ...(options?.idempotencyKey !== undefined && {
+          idempotencyKey: options.idempotencyKey,
+        }),
+      });
+    },
+
+    async list(filter) {
+      return transport.request<RunPage>({
+        method: 'GET',
+        path: '/v1/runs',
+        query: {
+          ...(filter?.limit !== undefined && { limit: filter.limit }),
+          ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
+          ...(filter?.parentRunId !== undefined && {
+            parentRunId: filter.parentRunId as unknown as string,
+          }),
+          ...(filter?.topLevel !== undefined && { topLevel: String(filter.topLevel) }),
+          ...(filter?.includeOutput === true && { include: 'output' }),
+        },
+      });
+    },
+
+    async journal(runId, filter) {
+      return transport.request<RunJournalPage>({
+        method: 'GET',
+        path: `/v1/runs/${encodeURIComponent(runId as unknown as string)}/journal`,
+        query: {
+          ...(filter?.limit !== undefined && { limit: filter.limit }),
+          ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
+          ...(filter?.since !== undefined && { since: filter.since }),
+        },
+      });
+    },
+  };
+}

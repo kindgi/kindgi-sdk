@@ -1,0 +1,1 @@
+# @kindgi/adapter-model-gemini

@@ -1,0 +1,56 @@
+# {{PACK_NAME}}
+
+A sample Kindgi pack in Python — scaffolded by `kindgi init --template=python`.
+
+Two tools (`echo`, `greet`), one guardrail (`response-not-empty`), one agent
+that uses both tools and the guardrail, and one flow that runs the echo tool.
+
+## Layout
+
+```
+{{PACK_NAME}}/
+├── pyproject.toml                     # [tool.kindgi] — the pack's id and version
+├── tools/echo.py                      # @tool — pydantic in, pydantic out
+├── tools/greet.py                     # @tool
+├── guardrails/response_not_empty.py   # @guardrail — a zero-LLM check over the run
+├── agents/echo_agent.py               # Agent(...) — data
+├── flows/echo_flow.py                 # Flow(...) — data
+└── tests/test_tools.py                # the tools and the check, called directly
+```
+
+## Run
+
+```sh
+uv sync          # .venv with kindgi and the dev tools
+uv run pytest
+kindgi dev       # boots Kindgi locally and runs this pack's code, reloading on save
+```
+
+`kindgi dev` uses the pack's `.venv/bin/python` (or `dev.python` in
+`[tool.kindgi]`). Then, from another terminal:
+
+```sh
+kindgi runs start --agent={{PACK_ID}}.echo-agent --input='{"userMessage":"hi"}'
+```
+
+## Use a real model
+
+`kindgi dev` gives a new pack `dev-echo`, a fallback provider that calls the
+first tool and replies "Tool responded: …" — it answers only while no other
+provider fits. To use Claude, with `kindgi dev` running, from another terminal:
+
+```sh
+kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant   # no-echo prompt; writes .env.local
+kindgi providers register --preset=anthropic                      # Opus 5.5, Sonnet 5.5, Haiku 4.5
+```
+
+Claude takes over from dev-echo on the next turn; nothing to restart.
+`--models=claude-haiku-4-5` registers one model only; `kindgi providers
+presets` lists the presets (Gemini on Vertex AI too). Picking a model per
+agent, and other providers: `.claude/skills/kindgi-authoring-providers/SKILL.md`.
+
+## Build
+
+`kindgi build --env=<name>` makes the pack's image: dependencies from `uv.lock`
+(run `uv lock` first), the index built in the image, the pack service as its
+entrypoint.

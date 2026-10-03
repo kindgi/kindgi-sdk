@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kindgi.com/schemas/v1/policy.schema.json",
+  "$comment": "schema-version: 1.0.0",
+  "title": "Tenant policy",
+  "description": "Kernel-level access control for a tenant. Enforced at every boundary — agent construction, tool invocation, memory read/write, blob access, model routing, event subscription. Applications cannot bypass; they inherit. The decision engine is pluggable (e.g. OpenFGA, Zanzibar-style) — this schema is transport-neutral.",
+  "type": "object",
+  "required": ["id", "tenantId", "version", "rules"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tenantId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semver — policy edits produce a new version. Decisions are traceable back to the version in force at the time."
+    },
+    "description": {
+      "type": "string"
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Rule"
+      }
+    },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Fail-closed defaults. If no rule matches a decision request, these apply.",
+      "properties": {
+        "onNoMatch": {
+          "type": "string",
+          "enum": ["deny", "allow"],
+          "default": "deny"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "Rule": {
+      "type": "object",
+      "required": ["id", "effect", "principal", "resource", "action"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "effect": {
+          "type": "string",
+          "enum": ["allow", "deny"]
+        },
+        "principal": {
+          "$ref": "#/$defs/PrincipalSelector"
+        },
+        "resource": {
+          "$ref": "#/$defs/ResourceSelector"
+        },
+        "action": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "description": "Action verb (e.g. 'read', 'write', 'invoke', 'subscribe', 'delete', 'approve', 'route', 'sign')."
+          }
+        },
+        "condition": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Optional structured condition (e.g. time window, IP allowlist, attribute match). Engine-specific evaluation."
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    },
+    "PrincipalSelector": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Who this rule applies to. At least one selector field required.",
+      "minProperties": 1,
+      "properties": {
+        "userIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "groups": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "agentIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "toolIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "packIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "any": {
+          "type": "boolean",
+          "description": "If true, applies to any principal (used for public/anonymous rules — rare)."
+        }
+      }
+    },
+    "ResourceSelector": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What this rule governs.",
+      "minProperties": 1,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "memory-fact",
+            "memory-log",
+            "blob",
+            "run",
+            "flow",
+            "agent",
+            "tool",
+            "model",
+            "event-subscription",
+            "provenance",
+            "approval-queue",
+            "pack-config",
+            "tenant-config",
+            "secret",
+            "audit-log"
+          ]
+        },
+        "ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Specific resource ids. If absent, applies to all resources of the kind."
+        },
+        "scope": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Scope match (project, thread, session, org). Fields interpreted per resource kind."
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Match resources bearing all these tags."
+        }
+      }
+    }
+  }
+}

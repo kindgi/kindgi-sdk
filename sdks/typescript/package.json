@@ -1,0 +1,72 @@
+{
+  "name": "@kindgi/client",
+  "version": "0.1.0-preview.7",
+  "description": "TypeScript client SDK for Kindgi™ — the sovereign AI OS. Preview: wire-generated from openapi.json via typed-openapi, ergonomic hand-authored resource clients (Transport, KindgiApiError, SSE with Last-Event-Id resume).",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
+    "directory": "sdks/typescript"
+  },
+  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/sdks/typescript#readme",
+  "bugs": {
+    "url": "https://github.com/kindgi/kindgi-sdk/issues"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist/index.js",
+    "dist/index.cjs",
+    "dist/index.d.ts",
+    "dist/index.d.cts",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "gen": "node scripts/gen-client.mjs",
+    "build": "pnpm gen && tsup && node scripts/build-dts.mjs",
+    "prepack": "pnpm build",
+    "typecheck": "pnpm gen && tsc --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist src/generated *.tsbuildinfo"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@kindgi/agents": "workspace:*",
+    "@kindgi/api": "workspace:*",
+    "@kindgi/flow": "workspace:*",
+    "@kindgi/platform": "workspace:*",
+    "@kindgi/runtime": "workspace:*",
+    "@kindgi/types": "workspace:*",
+    "@types/node": "^22.10.5",
+    "dts-bundle-generator": "^9.5.1",
+    "tsup": "^8.5.1",
+    "typed-openapi": "^4.1.0",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

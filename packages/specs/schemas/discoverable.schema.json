@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kindgi.com/schemas/v1/discoverable.schema.json",
+  "$comment": "schema-version: 1.1.0",
+  "title": "Discoverable entity",
+  "description": "Marks an entity (chat, conversation, document, artifact, memo, playbook, tool) as searchable via the cross-history retrieval API. The framework handles embedding via a configured provider; retrieval is always policy-scoped (owner / team / project / org / tenant). Deletion cascades to embeddings + retrieval caches.",
+  "type": "object",
+  "required": ["entityId", "entityKind", "scope"],
+  "additionalProperties": false,
+  "properties": {
+    "entityId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "ID of the entity being made discoverable."
+    },
+    "entityKind": {
+      "type": "string",
+      "enum": [
+        "chat",
+        "conversation",
+        "document",
+        "artifact",
+        "memo",
+        "playbook",
+        "tool",
+        "agent",
+        "flow",
+        "note"
+      ]
+    },
+    "scope": {
+      "$ref": "#/$defs/DiscoverabilityScope"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Tags to filter retrieval by (e.g. 'customer:acme', 'topic:billing')."
+    },
+    "title": {
+      "type": "string",
+      "description": "Human-readable title used in search UIs."
+    },
+    "summary": {
+      "type": "string",
+      "description": "Optional pre-computed summary used as a second-tier retrieval index (embed summaries + link to full content)."
+    },
+    "content": {
+      "description": "Content to index. May be inline string or a blob reference. If absent, the retrieval layer derives content from the entity by kind."
+    },
+    "contentRef": {
+      "type": "string",
+      "description": "Optional blob reference for large content. Format: 'blob://<provider>/<bucket>/<key>'."
+    },
+    "embeddingConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "type": "string",
+          "description": "Embedding model id, as a registered embedding provider reports it (`describe().model`). Router picks based on tenant policy if absent."
+        },
+        "chunker": {
+          "type": "string",
+          "enum": ["turn-aware", "sliding-window", "recursive", "semantic"],
+          "description": "Chunking strategy. 'turn-aware' is the correct default for chats and conversations (context-preserving); documents use 'recursive' or 'sliding-window'."
+        },
+        "chunkSize": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "chunkOverlap": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "retention": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "keepUntil": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "keepDays": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "legalHold": {
+          "type": "boolean"
+        }
+      }
+    },
+    "declaredAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "$defs": {
+    "DiscoverabilityScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tenantId", "visibility"],
+      "properties": {
+        "tenantId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "visibility": {
+          "type": "string",
+          "enum": ["owner-only", "team", "project", "org", "public"],
+          "description": "Who can retrieve this entity via search. 'owner-only' = declaring user only. 'team' = members of a specified team (added in schema-version 1.1.0). 'project' = anyone with policy access to the project. 'org' = anyone in the org with the appropriate role. 'public' = anyone in the tenant. Policy engine enforces at retrieval time regardless of this hint."
+        },
+        "userId": {
+          "type": "string",
+          "description": "Required if visibility = 'owner-only'."
+        },
+        "teamId": {
+          "type": "string",
+          "description": "Required if visibility = 'team'. Added in schema-version 1.1.0."
+        },
+        "projectId": {
+          "type": "string",
+          "description": "Required if visibility = 'project'."
+        },
+        "orgId": {
+          "type": "string",
+          "description": "Required if visibility = 'org'."
+        },
+        "allowedRoles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Additional role gate applied on top of visibility (e.g. 'admin-only', 'compliance-only')."
+        }
+      }
+    }
+  }
+}

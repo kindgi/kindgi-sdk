@@ -1,0 +1,60 @@
+// {{PACK_ID}}.fetch-httpbin — declarative tool example (spec form).
+//
+// Uses `defineTool({spec: {kind: 'http', ...}})` — no imperative
+// handler code. The runtime synthesizes the fetch call from the
+// spec at register time. Handler receives validated input; URL
+// template placeholders substitute from that input.
+//
+// This tool hits httpbin.org (a free HTTP debugging service) so
+// it works without any secret configuration. For a real API with
+// authentication, add:
+//
+//     authorization: {
+//       kind: 'bearer',
+//       secretRef: { envName: 'local', name: 'MY_TOKEN' },
+//     },
+//
+// The runtime resolves the secret on every call from its secrets
+// store, in the env the ref names — under `kindgi dev`, env `local`
+// is your `.env` / `.env.local`. A secret it can't find fails the
+// call with `secret-unavailable`, naming it.
+
+import { defineTool } from '@kindgi/sdk/define';
+import type { ToolId } from '@kindgi/sdk/types';
+import { z } from 'zod';
+
+const FetchInput = z.object({
+  path: z.string().regex(/^[a-z0-9\-\/]+$/, 'lowercase path segments only'),
+});
+
+const FetchOutput = z
+  .object({
+    url: z.string(),
+    origin: z.string().optional(),
+    headers: z.record(z.string(), z.string()).optional(),
+    args: z.record(z.string(), z.string()).optional(),
+  })
+  .passthrough();
+
+const defined = defineTool({
+  id: '{{PACK_ID}}.fetch-httpbin' as ToolId,
+  description:
+    'Fetch a path from httpbin.org (an HTTP request debugging service). Useful for testing the framework declarative-tool primitive end-to-end without needing real API credentials.',
+  version: '{{PACK_VERSION}}',
+  input: FetchInput,
+  output: FetchOutput,
+  effects: [{ kind: 'reads', resource: 'external:httpbin.org' }],
+  spec: {
+    kind: 'http',
+    method: 'GET',
+    urlTemplate: 'https://httpbin.org/{path}',
+    headers: [{ name: 'Accept', value: 'application/json' }],
+    timeoutMs: 10_000,
+  },
+});
+
+if (defined.kind === 'err') {
+  throw new Error(`{{PACK_ID}}.fetch-httpbin failed to compile: ${defined.error.message}`);
+}
+
+export default defined.value;

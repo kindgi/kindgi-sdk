@@ -1,0 +1,69 @@
+# {{PACK_NAME}}
+
+A Kindgi pack — scaffolded by `kindgi init --template=minimal`.
+
+Empty by design: the four discovery folders exist but ship no primitives.
+Author your first via `defineTool` / `defineAgent` / `defineCheck` /
+`defineFlow` from `@kindgi/sdk` — hover the exports for JSDoc.
+
+## Layout
+
+```
+{{PACK_NAME}}/
+├── kindgi.config.ts    # pack id + version + discovery patterns
+├── package.json           # depends on @kindgi/sdk + zod
+├── tsconfig.json
+├── .claude/skills/        # SDK skills — Claude Code auto-loads per task
+├── tools/                 # place `<name>/index.ts` per tool
+├── agents/                # place `<name>/index.ts` per agent
+├── guardrails/            # place `<name>/index.ts` per check
+└── flows/                # place `<name>/index.ts` per flow
+```
+
+## AI coding assistants
+
+`.claude/skills/` is auto-populated at `kindgi init` with per-primitive
+guides: `kindgi-authoring-tools`, `kindgi-authoring-agents`,
+`kindgi-authoring-guardrails`, `kindgi-getting-started` — plus
+`kindgi-authoring-providers` (a real model), `kindgi-authoring-mcp-servers`
+and `kindgi-framework-feedback`. Claude Code
+loads them on-demand based on what you're editing — no configuration
+needed. Read them directly if you want the mental model without an
+assistant in the loop.
+
+## Run
+
+```sh
+pnpm install
+pnpm typecheck              # verify the pack compiles
+kindgi dev                  # runs the Kindgi runtime (Docker) + hot-reloads this pack
+```
+
+The api-server ships with a built-in `demo.echo-agent` you can hit to
+verify boot before authoring anything:
+
+```sh
+kindgi runs start --agent=demo.echo-agent --input='{"userMessage":"hi"}'
+```
+
+## Use a real model
+
+`kindgi dev` gives a new pack `dev-echo`, a fallback provider that calls the
+first tool and replies "Tool responded: …" — it answers only while no other
+provider fits. To use Claude, with `kindgi dev` running, from another terminal:
+
+```sh
+kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant   # no-echo prompt; writes .env.local
+kindgi providers register --preset=anthropic                      # Opus 5.5, Sonnet 5.5, Haiku 4.5
+```
+
+Claude takes over from dev-echo on the next turn; nothing to restart.
+`--models=claude-haiku-4-5` registers one model only; `kindgi providers
+presets` lists the presets (Gemini on Vertex AI too). Picking a model per
+agent, and other providers: `.claude/skills/kindgi-authoring-providers/SKILL.md`.
+
+## Note on `@kindgi/sdk` versioning
+
+This template pins `@kindgi/sdk: "workspace:*"` because the SDK is not
+yet published to npm. Until it is, add the pack to a pnpm workspace that
+contains the Kindgi packages (`pnpm-workspace.yaml`).

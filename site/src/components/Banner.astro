@@ -1,0 +1,61 @@
+---
+/*
+ * Starlight's page banner, plus a notice on docs that aren't the latest
+ * release's: an older line ("you're reading v0.1") or `main` ("unreleased").
+ * Filled in from `/versions.json`; nothing shows without it.
+ */
+import Default from '@astrojs/starlight/components/Banner.astro';
+---
+
+<Default />
+<div class="kindgi-version-notice" role="note" hidden></div>
+
+<script>
+  interface Version {
+    readonly version: string;
+    readonly path: string;
+  }
+
+  async function notice(element: HTMLElement): Promise<void> {
+    const response = await fetch('/versions.json').catch(() => undefined);
+    if (!response?.ok) return;
+    const { latest, versions } = (await response.json()) as {
+      latest: string;
+      versions: readonly Version[];
+    };
+    const path = location.pathname;
+    const current = versions
+      .filter((v) => v.path !== '/' && path.startsWith(v.path))
+      .sort((a, b) => b.path.length - a.path.length)[0];
+    if (current === undefined || current.version === latest) return;
+    const rest = path.slice(current.path.length);
+    const link = document.createElement('a');
+    link.href = `/${rest}`;
+    link.textContent = `Go to the latest (v${latest})`;
+    element.append(
+      current.version === 'next'
+        ? `These docs describe unreleased changes on main. `
+        : `You're reading the docs for v${current.version}. `,
+      link,
+    );
+    element.hidden = false;
+  }
+
+  for (const element of document.querySelectorAll<HTMLElement>('.kindgi-version-notice')) {
+    void notice(element);
+  }
+</script>
+
+<style>
+  .kindgi-version-notice {
+    background-color: var(--sl-color-accent-low);
+    color: var(--sl-color-white);
+    padding: 0.5rem var(--sl-content-pad-x, 1rem);
+    text-align: center;
+    font-size: var(--sl-text-sm);
+  }
+  .kindgi-version-notice a {
+    color: var(--sl-color-accent-high);
+    font-weight: 600;
+  }
+</style>

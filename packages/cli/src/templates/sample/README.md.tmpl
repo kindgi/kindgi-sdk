@@ -1,0 +1,85 @@
+# {{PACK_NAME}}
+
+A sample Kindgi pack — scaffolded by `kindgi init --template=sample`.
+
+Two tools (`echo`, `greet`), one guardrail (`response-not-empty`), one
+agent that uses both tools + the guardrail, and one flow that stitches
+the two tools into a workflow. It is compile-time-valid and ready to
+run with `kindgi dev`.
+
+## Layout
+
+```
+{{PACK_NAME}}/
+├── kindgi.config.ts                       # pack id + version + discovery patterns
+├── package.json                              # depends on @kindgi/sdk + zod
+├── tsconfig.json
+├── tools/
+│   ├── echo/index.ts                         # defineTool — Zod-authored echo
+│   └── greet/index.ts                        # defineTool — Zod-authored greeting
+├── guardrails/
+│   └── response-not-empty/index.ts           # defineCheck — response has content
+├── agents/
+│   └── echo-agent/index.ts                   # defineAgent — uses both tools + guardrail
+└── flows/
+    └── echo-flow/index.ts                    # Flow — greet tool → echo agent step → declared output
+```
+
+## Run
+
+```sh
+pnpm install
+pnpm typecheck                                # verify the pack compiles
+kindgi dev                                 # runs the Kindgi runtime (Docker) + hot-reloads this pack
+```
+
+`kindgi dev` bundles every primitive under the four folders above,
+runs their code in a local pack service, starts the Kindgi runtime as a
+Docker container (with a local Postgres), registers this pack, and
+re-registers on every file save.
+
+## Use a real model
+
+`kindgi dev` gives a new pack `dev-echo`, a fallback provider that calls the
+first tool and replies "Tool responded: …" — it answers only while no other
+provider fits. To use Claude, with `kindgi dev` running, from another terminal:
+
+```sh
+kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant   # no-echo prompt; writes .env.local
+kindgi providers register --preset=anthropic                      # Opus 5.5, Sonnet 5.5, Haiku 4.5
+```
+
+Claude takes over from dev-echo on the next turn; nothing to restart.
+`--models=claude-haiku-4-5` registers one model only; `kindgi providers
+presets` lists the presets (Gemini on Vertex AI too). Picking a model per
+agent, and other providers: `.claude/skills/kindgi-authoring-providers/SKILL.md`.
+
+## The four primitives (one file each)
+
+| Kind | File | What it shows |
+|---|---|---|
+| Tool | `tools/echo/index.ts` | `defineTool` with Zod input/output; no `needs`; `effects: []`. |
+| Tool | `tools/greet/index.ts` | Second Zod-authored tool — takes a name, returns a greeting. |
+| Tool | `tools/fetch-httpbin/index.ts` | `defineTool({spec: {kind: 'http'}})` — declarative HTTP call, no imperative handler code. Hits httpbin.org so it works without credentials. |
+| Guardrail | `guardrails/response-not-empty/index.ts` | `defineCheck` — zero-LLM check that a response payload is non-empty. |
+| Agent | `agents/echo-agent/index.ts` | `defineAgent` — pulls in the local tools + the guardrail; uses `capabilities` for model routing. |
+| Flow | `flows/echo-flow/index.ts` | `defineFlow` — a tool step fed from the run input, an agent step, a declared `output`. Run: `kindgi runs start --flow={{PACK_ID}}.echo-flow --input='{"name":"Ada"}'`. |
+
+## Extend
+
+Add more primitives following the same folder convention. `defineTool` +
+`defineCheck` + `defineAgent` all come from `@kindgi/sdk/define`:
+
+```ts
+import { defineTool, defineCheck, defineAgent, defineFlow } from '@kindgi/sdk/define';
+import { z } from 'zod';
+```
+
+Every `define*` export ships with JSDoc — hover it in your editor for
+field-level docs.
+
+## Note on `@kindgi/sdk` versioning
+
+This template pins `@kindgi/sdk: "workspace:*"` because the SDK is not
+yet published to npm. Until it is, add the pack to a pnpm workspace that
+contains the Kindgi packages (`pnpm-workspace.yaml`).

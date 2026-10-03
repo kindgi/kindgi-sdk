@@ -1,0 +1,981 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Kindgi Inc.
+
+import { Hono } from 'hono';
+
+import type { AgentId } from '@kindgi/agents';
+import type { KernelRunRecord, ListRunsInput, RunBinding } from '@kindgi/runtime';
+import type { FlowId, OrgId, ProjectId, RunId, Semver, TenantId } from '@kindgi/types';
+
+import { ref } from '@kindgi/authz';
+
+import { type WireErrorBody, statusFor, toWireError } from '../errors.js';
+import type { EventBusBinding, EventPayload, Subscription } from '../event-bus-binding.js';
+import type {
+  RunHandlerBinding,
+  RunHandlerFailure,
+  RunHandlerOutcome,
+} from '../handler-binding.js';
+import type { Authorizer } from '../middleware/authorize.js';
+import type { MintPublicRunTokenResult } from '../public-run-token.js';
+import type { AppEnv } from '../types.js';
+import type { DecodedCursor } from './pagination.js';
+import { clampLimit, decodeCursor } from './pagination.js';
+import { type ParseScopeParamsOutcome, parseScopeParams } from './scope-params.js';
+import {
+  formatSseFrame,
+  isTerminalWireKind,
+  parseLastEventId,
+  projectJournalEntry,
+  toRunProgressEvent,
+} from './sse.js';
+
+const KERNEL_RUN_CHANNEL_PREFIX = 'kernel:run:';
+
+/** Options for `runsRouter`. */
+export interface RunsRouterOptions {
+  /**
+   * Optional push-based event bus. When present, `GET /:runId/stream`
+   * subscribes on `kernel:run:<runId>` and delivers events
+   * push-mode. When absent, the route polls the run's journal every
+   * 200 ms — wire shape identical either way.
+   */
+  readonly eventBus?: EventBusBinding;
+  /**
+   * Issue public run tokens: `POST /` adds a `publicAccessToken` for the
+   * new run, for its progress routes.
+   */
+  readonly publicRunTokens?: {
+    readonly mint: (tenantId: TenantId, runIds: readonly RunId[]) => MintPublicRunTokenResult;
+  };
+}
+
+/** How far up the parent chain a public token's grant reaches. */
+const MAX_RUN_ANCESTRY = 16;
+
+/**
+ * Runs resource routes (per `docs/API-ROUTE-CONVENTIONS.md` §7).
+ *
+ * Routes: `POST /` (start), `GET /:runId`, `GET /` (list),
+ * `POST /:runId/cancel`, `POST /:runId/resume`, `GET /:runId/stream`
+ * (SSE), `GET /:runId/journal`.
+ */
+export function runsRouter(
+  binding: RunHandlerBinding,
+  runBinding: RunBinding,
+  options: RunsRouterOptions = {},
+  authorizer?: Authorizer,
+): Hono<AppEnv> {
+  const r = new Hono<AppEnv>();
+  const eventBus = options.eventBus;
+
+  // Authorization — a run inherits its permissions from its project.
+  // Each check resolves the run's project (by run id) and asks the
+  // authorizer about that project:
+  //
+  // POST /              — no route-level check; `execute` on the agent
+  //                       or flow is up to the run handler binding.
+  // GET /:runId         — read on the run's project
+  // POST /:runId/cancel — write on the run's project
+  // POST /:runId/resume — execute on the run's project
+  // GET /:runId/journal — read on the run's project
+  // GET /:runId/stream  — read on the run's project
+  // GET /               — list; tenant-scoped, the scope filter narrows
+  //                       further (rows are not filtered per permission)
+  if (authorizer !== undefined) {
+    const projectFromRun = async (c: import('hono').Context<AppEnv>) => {
+      const tenantId = c.get('tenantId') as TenantId;
+      const runId = c.req.param('runId') ?? '';
+      if (runId.length === 0) return ref('tenant', tenantId as unknown as string);
+      const row = await runBinding.getRun(tenantId, runId as RunId);
+      if (row === null) {
+        // Fall back to tenant so the underlying handler surfaces
+        // 404 rather than the middleware masking it as 403.
+        return ref('tenant', tenantId as unknown as string);
+      }
+      return ref('project', row.projectId as unknown as string);
+    };
+    r.use('/:runId', async (c, next) => {
+      if (c.req.method !== 'GET') return next();
+      const mw = authorizer.authorize('read', projectFromRun);
+      return mw(c, next);
+    });
+    r.use('/:runId/journal', async (c, next) => {
+      const mw = authorizer.authorize('read', projectFromRun);
+      return mw(c, next);
+    });
+    r.use('/:runId/stream', async (c, next) => {
+      const mw = authorizer.authorize('read', projectFromRun);
+      return mw(c, next);
+    });
+    // Progress: `read` for API tokens. A public run token has no
+    // principal; the handlers check that its grant covers the run.
+    const progressAuth = async (c: import('hono').Context<AppEnv>, next: import('hono').Next) => {
+      if (c.get('tokenKind') === 'public-run') return next();
+      const mw = authorizer.authorize('read', projectFromRun);
+      return mw(c, next);
+    };
+    r.use('/:runId/progress', progressAuth);
+    r.use('/:runId/progress/stream', progressAuth);
+    r.use('/:runId/cancel', async (c, next) => {
+      const mw = authorizer.authorize('write', projectFromRun);
+      return mw(c, next);
+    });
+    r.use('/:runId/resume', async (c, next) => {
+      const mw = authorizer.authorize('execute', projectFromRun);
+      return mw(c, next);
+    });
+  }
+
+  // ---------- POST / (start a run — agent | flow) ----------
+  r.post('/', async (c) => {
+    const requestId = c.get('requestId');
+    const tenantId = c.get('tenantId') as TenantId;
+
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError({ code: 'bad-input', message: 'Request body must be valid JSON' }, requestId),
+      );
+    }
+    const parsed = parseStartRunBody(body);
+    if (parsed.kind === 'err') {
+      c.status(statusFor(parsed.error.code) as never);
+      return c.json(toWireError(parsed.error, requestId));
+    }
+
+    const invocation = await invokeFromBody(binding, tenantId, parsed.value);
+
+    if (invocation.kind === 'err') {
+      c.status(statusFor(invocation.error.code) as never);
+      return c.json(runFailureToWire(invocation.error, requestId));
+    }
+
+    const runId = invocation.runId;
+    const loaded = await runBinding.getRun(tenantId, runId);
+    if (loaded === null) {
+      c.status(statusFor('journal-error') as never);
+      return c.json(
+        toWireError(
+          { code: 'journal-error', message: `Run ${runId} started but row not readable` },
+          requestId,
+        ),
+      );
+    }
+    // `wait: false` → the binding handed the run id back before the
+    // run finished: 202, and the caller polls `GET /v1/runs/:runId`.
+    c.status(parsed.value.wait === false ? 202 : 201);
+    const minted = options.publicRunTokens?.mint(tenantId, [runId]);
+    return c.json({
+      ...serializeRun(loaded, { output: true }),
+      ...(minted?.kind === 'ok' && {
+        publicAccessToken: minted.token,
+        publicAccessTokenExpiresAt: minted.expiresAt.toISOString(),
+      }),
+    });
+  });
+
+  // ---------- GET /:runId ----------
+  r.get('/:runId', async (c) => {
+    const requestId = c.get('requestId');
+    const runId = c.req.param('runId') as RunId;
+
+    const loaded = await runBinding.getRun(c.get('tenantId') as TenantId, runId);
+    if (loaded === null) {
+      c.status(statusFor('run-not-found') as never);
+      return c.json(
+        toWireError({ code: 'run-not-found', message: `No run with id ${runId}` }, requestId),
+      );
+    }
+    return c.json(serializeRun(loaded, { output: true }));
+  });
+
+  // ---------- GET /:runId/progress ----------
+  r.get('/:runId/progress', async (c) => {
+    const requestId = c.get('requestId');
+    const runId = c.req.param('runId') as RunId;
+    const loaded = await readableRun(runBinding, c, runId);
+    if (loaded === null) {
+      c.status(statusFor('run-not-found') as never);
+      return c.json(
+        toWireError({ code: 'run-not-found', message: `No run with id ${runId}` }, requestId),
+      );
+    }
+    return c.json(serializeRunProgress(loaded));
+  });
+
+  // ---------- GET / (list, cursor-paginated) ----------
+  //
+  // Content-scoped list; scope filter threaded via `parseScopeParams`.
+  // Every run belongs to exactly one project; `scope.kind === 'project'`
+  // narrows to that project, `scope.kind === 'org'` to the org's
+  // projects, and tenant / undefined behave as documented in
+  // scope-params.ts.
+  r.get('/', async (c) => {
+    const requestId = c.get('requestId');
+    const tenantId = c.get('tenantId') as TenantId;
+    const limit = clampLimit(c.req.query('limit'));
+
+    let cursorFilter: DecodedCursor | null = null;
+    const rawCursor = c.req.query('cursor');
+    if (rawCursor !== undefined && rawCursor.length > 0) {
+      const decoded = decodeCursor(rawCursor);
+      if (decoded === null) {
+        c.status(statusFor('bad-input') as never);
+        return c.json(
+          toWireError({ code: 'bad-input', message: '`cursor` is malformed' }, requestId),
+        );
+      }
+      cursorFilter = decoded;
+    }
+
+    const scopeParsed = parseScopeParams(c.req.query(), { tenantId });
+    if (scopeParsed.kind === 'err') {
+      c.status(statusFor('scope-invalid') as never);
+      return c.json(
+        toWireError({ code: 'scope-invalid', message: scopeParsed.message }, requestId),
+      );
+    }
+    const listFilter = parseRunListFilter(c.req.query());
+    if (listFilter.kind === 'err') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(toWireError({ code: 'bad-input', message: listFilter.message }, requestId));
+    }
+    const includeOutput = listFilter.value.includeOutput;
+
+    const page = await runBinding.listRuns(
+      listRunsInput({
+        tenantId,
+        scope: scopeParsed.scope,
+        limit,
+        cursor: cursorFilter,
+        filter: listFilter.value,
+      }),
+    );
+    return c.json({
+      data: page.data.map((row) => serializeRun(row, { output: includeOutput })),
+      hasMore: page.nextCursor !== undefined,
+      ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
+    });
+  });
+
+  // ---------- POST /:runId/cancel ----------
+  r.post('/:runId/cancel', async (c) => {
+    const requestId = c.get('requestId');
+    const tenantId = c.get('tenantId') as TenantId;
+    const runId = c.req.param('runId') as RunId;
+
+    const cancelled = await runBinding.cancelRun(tenantId, runId, eventBus);
+    if (cancelled.kind === 'err') {
+      const err = cancelled.error;
+      c.status(statusFor(err.code) as never);
+      return c.json(toWireError(err as never, requestId));
+    }
+
+    // Re-read to return the updated row.
+    const reloaded = await runBinding.getRun(tenantId, runId);
+    if (reloaded === null) {
+      c.status(statusFor('journal-error') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'journal-error',
+            message: 'Cancelled OK but failed to reload run row',
+          },
+          requestId,
+        ),
+      );
+    }
+    return c.json(serializeRun(reloaded, { output: true }));
+  });
+
+  // ---------- POST /:runId/resume ----------
+  r.post('/:runId/resume', async (c) => {
+    const requestId = c.get('requestId');
+    const tenantId = c.get('tenantId') as TenantId;
+    const runId = c.req.param('runId') as RunId;
+
+    let body: unknown = {};
+    const hasBody =
+      (c.req.header('content-type') ?? '').includes('json') ||
+      (c.req.header('content-length') !== undefined && c.req.header('content-length') !== '0');
+    if (hasBody) {
+      try {
+        const text = await c.req.text();
+        body = text.length > 0 ? JSON.parse(text) : {};
+      } catch {
+        c.status(statusFor('bad-input') as never);
+        return c.json(
+          toWireError({ code: 'bad-input', message: 'Request body must be valid JSON' }, requestId),
+        );
+      }
+    }
+    const parsed = parseResumeBody(body);
+    if (parsed.kind === 'err') {
+      c.status(statusFor(parsed.error.code) as never);
+      return c.json(toWireError(parsed.error, requestId));
+    }
+
+    // Resume completes a waitpoint (`completeToken`) and then drives the
+    // run on. Resuming without a `waitpointId` is not supported.
+    if (parsed.value.waitpointId === undefined) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'bad-input',
+            message:
+              'Programmatic resume without `waitpointId` is not supported yet — supply a waitpoint id to complete a wait token.',
+          },
+          requestId,
+        ),
+      );
+    }
+
+    const completed = await runBinding.completeToken(
+      tenantId,
+      runId,
+      parsed.value.waitpointId,
+      parsed.value.value,
+      eventBus,
+    );
+    if (completed.kind === 'err') {
+      const err = completed.error;
+      c.status(statusFor(err.code) as never);
+      return c.json(toWireError(err as never, requestId));
+    }
+
+    // Drive the run on in the same request, as approvals do. Soft on
+    // failure: the token completion is already durable, so the run is
+    // resumable later; the response shows the status it reached.
+    await binding.resumeRun({ tenantId, runId }).catch(() => undefined);
+
+    const reloaded = await runBinding.getRun(tenantId, runId);
+    if (reloaded === null) {
+      c.status(statusFor('run-not-found') as never);
+      return c.json(
+        toWireError({ code: 'run-not-found', message: `No run with id ${runId}` }, requestId),
+      );
+    }
+    return c.json(serializeRun(reloaded, { output: true }));
+  });
+
+  // ---------- GET /:runId/stream and /:runId/progress/stream (SSE) ----------
+  // One stream, two views: every event in full, or progress only (no
+  // payloads), which a public run token may follow.
+  const streamRun = async (c: import('hono').Context<AppEnv>, view: 'full' | 'progress') => {
+    const requestId = c.get('requestId');
+    const tenantId = c.get('tenantId') as TenantId;
+    const runId = c.req.param('runId') as RunId;
+    const since = parseLastEventId(c.req.header('last-event-id'));
+
+    // Verify the run belongs to this tenant before opening the stream —
+    // otherwise a cross-tenant probe learns run existence via the stream
+    // hanging vs 404-ing.
+    const run = await readableRun(runBinding, c, runId);
+    if (run === null) {
+      c.status(statusFor('run-not-found') as never);
+      return c.json(
+        toWireError({ code: 'run-not-found', message: `No run with id ${runId}` }, requestId),
+      );
+    }
+
+    const encoder = new TextEncoder();
+    let lastEmittedSeq = since ?? -1;
+    const POLL_MS = 200;
+    const MAX_WAIT_MS = 5 * 60_000;
+
+    const body = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        const startedAt = Date.now();
+        let closed = false;
+        const close = (): void => {
+          if (closed) return;
+          closed = true;
+          try {
+            controller.close();
+          } catch {
+            /* already closed */
+          }
+        };
+
+        // Shared projection helper: emit one journal-entry-shaped
+        // record to the stream. Returns true iff the entry was a
+        // terminal wire kind so the caller can close.
+        const emitEntry = (entry: {
+          sequence: number;
+          kind: string;
+          nodeId?: string;
+          payload?: unknown;
+          timestamp: string;
+        }): boolean => {
+          if (entry.sequence <= lastEmittedSeq) return false;
+          const projected = projectJournalEntry(
+            {
+              sequence: entry.sequence,
+              kind: entry.kind as never,
+              ...(entry.nodeId !== undefined && { nodeId: entry.nodeId as never }),
+              ...(entry.payload !== undefined && { payload: entry.payload }),
+              timestamp: entry.timestamp as never,
+            },
+            runId,
+            tenantId,
+          );
+          lastEmittedSeq = entry.sequence;
+          if (projected === null) return false;
+          controller.enqueue(
+            encoder.encode(
+              formatSseFrame({
+                id: projected.event.eventId,
+                event: projected.wireKind,
+                data: view === 'progress' ? toRunProgressEvent(projected.event) : projected.event,
+              }),
+            ),
+          );
+          return isTerminalWireKind(projected.wireKind);
+        };
+
+        // Push-mode: prefer the event bus when wired. The bus delivers
+        // journal entries as `doc` payloads; we backfill via journal
+        // reads from `since` first so `Last-Event-Id` resumes work
+        // whether we're on the push or poll path.
+        if (eventBus !== undefined) {
+          const abortCtrl = new AbortController();
+          let subscription: Subscription | null = null;
+          let fallBackToPoll = false;
+          try {
+            // Backfill: read persisted journal up to now first, so a
+            // reconnect with `Last-Event-Id` doesn't miss events that
+            // landed while the client was disconnected. Then subscribe
+            // for the tail push-side.
+            const backfill = await runBinding.readJournal(tenantId, runId);
+            if (backfill.kind === 'err') {
+              controller.enqueue(
+                encoder.encode(
+                  formatSseFrame({
+                    id: `${runId}:error`,
+                    event: 'error',
+                    data: {
+                      code: 'journal-error',
+                      message: backfill.error.message,
+                      requestId,
+                    },
+                  }),
+                ),
+              );
+              close();
+              return;
+            }
+            let sawTerminal = false;
+            for (const entry of backfill.value) {
+              if (
+                emitEntry({
+                  sequence: entry.sequence,
+                  kind: entry.kind,
+                  ...(entry.nodeId !== undefined && { nodeId: entry.nodeId as string }),
+                  ...(entry.payload !== undefined && { payload: entry.payload }),
+                  timestamp: entry.timestamp as string,
+                })
+              ) {
+                sawTerminal = true;
+              }
+            }
+            if (sawTerminal) {
+              close();
+              return;
+            }
+            const subOutcome = await eventBus.subscribe(
+              tenantId,
+              `${KERNEL_RUN_CHANNEL_PREFIX}${runId}`,
+              (payload: EventPayload) => {
+                const doc = payload.doc as
+                  | {
+                      sequence?: unknown;
+                      kind?: unknown;
+                      nodeId?: unknown;
+                      payload?: unknown;
+                      timestamp?: unknown;
+                    }
+                  | null
+                  | undefined;
+                if (doc === null || doc === undefined) return;
+                if (typeof doc.sequence !== 'number' || typeof doc.kind !== 'string') return;
+                if (typeof doc.timestamp !== 'string') return;
+                const wasTerminal = emitEntry({
+                  sequence: doc.sequence,
+                  kind: doc.kind,
+                  ...(typeof doc.nodeId === 'string' && { nodeId: doc.nodeId }),
+                  ...('payload' in doc && doc.payload !== undefined && { payload: doc.payload }),
+                  timestamp: doc.timestamp,
+                });
+                if (wasTerminal) {
+                  abortCtrl.abort();
+                  close();
+                }
+              },
+              abortCtrl.signal,
+              { sinceSeq: lastEmittedSeq < 0 ? 0 : lastEmittedSeq },
+            );
+            if (subOutcome.kind === 'err') {
+              // Subscription setup failed. Not fatal: leave the stream
+              // open and continue with the poll path below.
+              fallBackToPoll = true;
+            } else {
+              subscription = subOutcome.value;
+              // Wait until close or max-wait window elapses. We rely
+              // on the subscription callback to write frames.
+              await new Promise<void>((resolve) => {
+                const timer = setTimeout(() => resolve(), MAX_WAIT_MS);
+                const onDone = (): void => {
+                  clearTimeout(timer);
+                  resolve();
+                };
+                abortCtrl.signal.addEventListener('abort', onDone, { once: true });
+              });
+              return;
+            }
+          } finally {
+            abortCtrl.abort();
+            if (subscription !== null) {
+              try {
+                await subscription.unsubscribe();
+              } catch {
+                /* cleanup best-effort */
+              }
+            }
+            if (!fallBackToPoll) close();
+          }
+        }
+
+        // Poll mode: no event bus wired, or subscribing failed. Poll the
+        // journal every 200 ms until a terminal entry or the max-wait
+        // window elapses.
+        const pollEmit = async (): Promise<{ terminal: boolean }> => {
+          const journal = await runBinding.readJournal(tenantId, runId);
+          if (journal.kind === 'err') {
+            const frame = formatSseFrame({
+              id: `${runId}:error`,
+              event: 'error',
+              data: {
+                code: 'journal-error',
+                message: journal.error.message,
+                requestId,
+              },
+            });
+            controller.enqueue(encoder.encode(frame));
+            return { terminal: true };
+          }
+          let sawTerminal = false;
+          for (const entry of journal.value) {
+            if (
+              emitEntry({
+                sequence: entry.sequence,
+                kind: entry.kind,
+                ...(entry.nodeId !== undefined && { nodeId: entry.nodeId as string }),
+                ...(entry.payload !== undefined && { payload: entry.payload }),
+                timestamp: entry.timestamp as string,
+              })
+            ) {
+              sawTerminal = true;
+            }
+          }
+          return { terminal: sawTerminal };
+        };
+        try {
+          const first = await pollEmit();
+          if (first.terminal) {
+            close();
+            return;
+          }
+          while (Date.now() - startedAt < MAX_WAIT_MS) {
+            await new Promise((r) => setTimeout(r, POLL_MS));
+            const step = await pollEmit();
+            if (step.terminal) break;
+          }
+        } finally {
+          close();
+        }
+      },
+    });
+
+    return new Response(body, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+        'X-Request-Id': requestId,
+      },
+    });
+  };
+  r.get('/:runId/stream', (c) => streamRun(c, 'full'));
+  r.get('/:runId/progress/stream', (c) => streamRun(c, 'progress'));
+
+  // ---------- GET /:runId/journal ----------
+  r.get('/:runId/journal', async (c) => {
+    const requestId = c.get('requestId');
+    const tenantId = c.get('tenantId') as TenantId;
+    const runId = c.req.param('runId') as RunId;
+    const sinceRaw = c.req.query('since');
+    const since = sinceRaw !== undefined ? Number.parseInt(sinceRaw, 10) : undefined;
+
+    const journal = await runBinding.readJournal(tenantId, runId);
+    if (journal.kind === 'err') {
+      const err = journal.error;
+      c.status(statusFor(err.code) as never);
+      return c.json(toWireError(err as never, requestId));
+    }
+
+    const filtered =
+      since !== undefined && Number.isFinite(since)
+        ? journal.value.filter((e) => e.sequence > since)
+        : journal.value;
+    return c.json({
+      data: filtered,
+      hasMore: false,
+    });
+  });
+
+  return r;
+}
+
+/**
+ * Wire body for a binding failure. `RunHandlerFailure.details` become
+ * the wire error's `details` (not nested under `details.details`);
+ * any other field a binding attaches rides along, and `code` /
+ * `message` always come from the failure itself.
+ */
+function runFailureToWire(failure: RunHandlerFailure, requestId: string): WireErrorBody {
+  const { details, ...rest } = failure as RunHandlerFailure & Readonly<Record<string, unknown>>;
+  return toWireError({ ...details, ...rest }, requestId);
+}
+
+/** Hand a parsed start body to the binding: an agent turn or a flow run. */
+function invokeFromBody(
+  binding: RunHandlerBinding,
+  tenantId: TenantId,
+  body: ParsedStartRunBody,
+): Promise<RunHandlerOutcome> {
+  const common = {
+    tenantId,
+    ...(body.projectId !== undefined && { projectId: body.projectId }),
+    input: body.input,
+    ...(body.dryRun !== undefined && { dryRun: body.dryRun }),
+    ...(body.wait !== undefined && { wait: body.wait }),
+  };
+  return body.kind === 'agent'
+    ? binding.invokeAgent({
+        ...common,
+        agentId: body.agentId,
+        ...(body.agentVersion !== undefined && { agentVersion: body.agentVersion }),
+      })
+    : binding.invokeFlow({
+        ...common,
+        flowId: body.flowId,
+        ...(body.flowVersion !== undefined && { flowVersion: body.flowVersion }),
+      });
+}
+
+/**
+ * Wire row for a run. `output` is the run's output once it completed;
+ * single-run responses carry it, lists only with `?include=output`
+ * (outputs can be large). Child runs carry their parent's run + node.
+ */
+function serializeRun(
+  row: KernelRunRecord,
+  opts: { readonly output: boolean },
+): Record<string, unknown> {
+  return {
+    id: row.runId as unknown as string,
+    tenantId: row.tenantId as unknown as string,
+    projectId: row.projectId as unknown as string,
+    flowId: row.flowId,
+    flowVersion: row.flowVersion,
+    status: row.status,
+    dryRun: row.dryRun,
+    createdAt: row.createdAt as unknown as string,
+    updatedAt: row.updatedAt as unknown as string,
+    completedAt: row.completedAt ?? undefined,
+    failureMessage: row.failureMessage ?? undefined,
+    ...(opts.output && row.output !== undefined && { output: row.output }),
+    ...(row.parentRunId != null && { parentRunId: row.parentRunId as unknown as string }),
+    ...(row.parentNodeId != null && { parentNodeId: row.parentNodeId as unknown as string }),
+  };
+}
+
+/** A run's progress: status and timing, no data. */
+function serializeRunProgress(row: KernelRunRecord): Record<string, unknown> {
+  return {
+    id: row.runId as unknown as string,
+    flowId: row.flowId,
+    flowVersion: row.flowVersion,
+    status: row.status,
+    createdAt: row.createdAt as unknown as string,
+    updatedAt: row.updatedAt as unknown as string,
+    ...(row.completedAt != null && { completedAt: row.completedAt as unknown as string }),
+    ...(row.parentRunId != null && { parentRunId: row.parentRunId as unknown as string }),
+  };
+}
+
+/**
+ * The run when the caller may read it: any run of the tenant for an API
+ * token; for a public run token, a run the token names or a descendant
+ * of one. `null` otherwise, which the routes answer as 404 so a token
+ * learns nothing about other runs.
+ */
+async function readableRun(
+  runBinding: RunBinding,
+  c: import('hono').Context<AppEnv>,
+  runId: RunId,
+): Promise<KernelRunRecord | null> {
+  const tenantId = c.get('tenantId') as TenantId;
+  const row = await runBinding.getRun(tenantId, runId);
+  if (row === null || c.get('tokenKind') !== 'public-run') return row;
+  const granted = c.get('publicRunIds') ?? [];
+  let current: KernelRunRecord | null = row;
+  for (let depth = 0; current !== null && depth < MAX_RUN_ANCESTRY; depth += 1) {
+    if (granted.includes(current.runId)) return row;
+    if (current.parentRunId == null) return null;
+    current = await runBinding.getRun(tenantId, current.parentRunId);
+  }
+  return null;
+}
+
+/** The binding query for `GET /v1/runs`: scope, page, and the parent filters. */
+function listRunsInput(input: {
+  readonly tenantId: TenantId;
+  readonly scope: Extract<ParseScopeParamsOutcome, { kind: 'ok' }>['scope'];
+  readonly limit: number;
+  readonly cursor: DecodedCursor | null;
+  readonly filter: RunListFilter;
+}): ListRunsInput {
+  const { tenantId, scope, limit, cursor, filter } = input;
+  return {
+    tenantId,
+    ...(scope?.kind === 'project' && {
+      scope: { kind: 'project' as const, projectId: scope.projectId as ProjectId },
+    }),
+    ...(scope?.kind === 'org' && {
+      scope: { kind: 'org' as const, orgId: scope.orgId as unknown as OrgId },
+    }),
+    limit,
+    ...(cursor !== null && {
+      cursor: { createdAt: cursor.createdAt as never, id: cursor.id as RunId },
+    }),
+    ...(filter.parentRunId !== undefined && { parent: { runId: filter.parentRunId } }),
+    ...(filter.topLevelOnly && { topLevelOnly: true }),
+  };
+}
+
+/** Waitpoint ids the runtime reserves for a parent waiting on a child run. */
+const RESERVED_WAITPOINT_PREFIX = 'child:';
+
+interface RunListFilter {
+  readonly parentRunId?: RunId;
+  readonly topLevelOnly: boolean;
+  readonly includeOutput: boolean;
+}
+
+/** `?parentRunId=` (children of a run), `?topLevel=true`, `?include=output`. */
+function parseRunListFilter(
+  query: Readonly<Record<string, string>>,
+): { kind: 'ok'; value: RunListFilter } | { kind: 'err'; message: string } {
+  const { parentRunId, topLevel, include } = query;
+  if (topLevel !== undefined && topLevel !== 'true' && topLevel !== 'false') {
+    return { kind: 'err', message: '`topLevel` must be `true` or `false`' };
+  }
+  const topLevelOnly = topLevel === 'true';
+  if (parentRunId !== undefined && parentRunId.length === 0) {
+    return { kind: 'err', message: '`parentRunId` must be a run id' };
+  }
+  if (parentRunId !== undefined && topLevelOnly) {
+    return { kind: 'err', message: '`parentRunId` and `topLevel=true` cannot be combined' };
+  }
+  const includes = include === undefined ? [] : include.split(',').map((i) => i.trim());
+  const unknown = includes.filter((i) => i !== 'output');
+  if (unknown.length > 0) {
+    return { kind: 'err', message: `Unknown \`include\` value(s): ${unknown.join(', ')}` };
+  }
+  return {
+    kind: 'ok',
+    value: {
+      ...(parentRunId !== undefined && { parentRunId: parentRunId as RunId }),
+      topLevelOnly,
+      includeOutput: includes.includes('output'),
+    },
+  };
+}
+
+function parseResumeBody(
+  body: unknown,
+):
+  | { kind: 'ok'; value: { waitpointId?: string; value?: unknown } }
+  | { kind: 'err'; error: { code: string; message: string } } {
+  if (body === null || typeof body !== 'object') {
+    return { kind: 'err', error: { code: 'bad-input', message: 'Request body must be an object' } };
+  }
+  const b = body as Record<string, unknown>;
+  const waitpointId = b.waitpointId;
+  if (waitpointId !== undefined && (typeof waitpointId !== 'string' || waitpointId.length === 0)) {
+    return {
+      kind: 'err',
+      error: {
+        code: 'bad-input',
+        message: '`waitpointId` must be a non-empty string when supplied',
+      },
+    };
+  }
+  if (typeof waitpointId === 'string' && waitpointId.startsWith(RESERVED_WAITPOINT_PREFIX)) {
+    return {
+      kind: 'err',
+      error: {
+        code: 'bad-input',
+        message: `Waitpoint ids starting with "${RESERVED_WAITPOINT_PREFIX}" belong to the runtime (a parent waiting on a child run) and cannot be completed by a caller.`,
+      },
+    };
+  }
+  return {
+    kind: 'ok',
+    value: {
+      ...(waitpointId !== undefined && { waitpointId: waitpointId as string }),
+      ...('value' in b && { value: b.value }),
+    },
+  };
+}
+
+/** `options` of a start body: `dryRun?`, `wait?` (booleans). */
+function parseStartOptions(
+  raw: unknown,
+):
+  | { kind: 'ok'; value: { readonly dryRun?: boolean; readonly wait?: boolean } }
+  | { kind: 'err'; error: { code: string; message: string } } {
+  const options = (raw ?? {}) as Record<string, unknown>;
+  if (typeof options !== 'object' || options === null) {
+    return {
+      kind: 'err',
+      error: { code: 'bad-input', message: '`options` must be an object when supplied' },
+    };
+  }
+  for (const key of ['dryRun', 'wait'] as const) {
+    if (options[key] !== undefined && typeof options[key] !== 'boolean') {
+      return {
+        kind: 'err',
+        error: { code: 'bad-input', message: `\`options.${key}\` must be a boolean` },
+      };
+    }
+  }
+  const { dryRun, wait } = options as { dryRun?: boolean; wait?: boolean };
+  return {
+    kind: 'ok',
+    value: { ...(dryRun !== undefined && { dryRun }), ...(wait !== undefined && { wait }) },
+  };
+}
+
+type ParsedStartRunBody =
+  | {
+      readonly kind: 'agent';
+      readonly agentId: AgentId;
+      readonly agentVersion?: Semver;
+      readonly projectId?: ProjectId;
+      readonly input: unknown;
+      readonly dryRun?: boolean;
+      readonly wait?: boolean;
+    }
+  | {
+      readonly kind: 'flow';
+      readonly flowId: FlowId;
+      readonly flowVersion?: Semver;
+      readonly projectId?: ProjectId;
+      readonly input: unknown;
+      readonly dryRun?: boolean;
+      readonly wait?: boolean;
+    };
+
+function parseStartRunBody(
+  body: unknown,
+):
+  | { kind: 'ok'; value: ParsedStartRunBody }
+  | { kind: 'err'; error: { code: string; message: string } } {
+  if (body === null || typeof body !== 'object') {
+    return { kind: 'err', error: { code: 'bad-input', message: 'Request body must be an object' } };
+  }
+  const b = body as Record<string, unknown>;
+  const hasAgent = typeof b.agent === 'string' && b.agent.length > 0;
+  const hasGraph = typeof b.flow === 'string' && b.flow.length > 0;
+  if (hasAgent && hasGraph) {
+    return {
+      kind: 'err',
+      error: { code: 'bad-input', message: 'Provide exactly one of `agent` or `flow`, not both' },
+    };
+  }
+  if (!hasAgent && !hasGraph) {
+    return {
+      kind: 'err',
+      error: { code: 'bad-input', message: 'Request body must include `agent` or `flow`' },
+    };
+  }
+  if (!('input' in b)) {
+    return { kind: 'err', error: { code: 'bad-input', message: '`input` is required' } };
+  }
+
+  const options = parseStartOptions(b.options);
+  if (options.kind === 'err') return options;
+  const { dryRun, wait } = options.value;
+  if (hasAgent) {
+    const agentVersion = b.agentVersion;
+    if (agentVersion !== undefined && typeof agentVersion !== 'string') {
+      return {
+        kind: 'err',
+        error: { code: 'bad-input', message: '`agentVersion` must be a string when supplied' },
+      };
+    }
+    const agentProjectIdRaw = b.projectId;
+    if (agentProjectIdRaw !== undefined && typeof agentProjectIdRaw !== 'string') {
+      return {
+        kind: 'err',
+        error: { code: 'bad-input', message: '`projectId` must be a string when supplied' },
+      };
+    }
+    return {
+      kind: 'ok',
+      value: {
+        kind: 'agent',
+        agentId: b.agent as AgentId,
+        ...(agentVersion !== undefined && { agentVersion: agentVersion as Semver }),
+        ...(agentProjectIdRaw !== undefined && { projectId: agentProjectIdRaw as ProjectId }),
+        input: b.input,
+        ...(dryRun !== undefined && { dryRun }),
+        ...(wait !== undefined && { wait }),
+      },
+    };
+  }
+  const flowVersion = b.flowVersion;
+  if (flowVersion !== undefined && typeof flowVersion !== 'string') {
+    return {
+      kind: 'err',
+      error: { code: 'bad-input', message: '`flowVersion` must be a string when supplied' },
+    };
+  }
+  const projectId = b.projectId;
+  if (projectId !== undefined && typeof projectId !== 'string') {
+    return {
+      kind: 'err',
+      error: { code: 'bad-input', message: '`projectId` must be a string when supplied' },
+    };
+  }
+  return {
+    kind: 'ok',
+    value: {
+      kind: 'flow',
+      flowId: b.flow as FlowId,
+      ...(flowVersion !== undefined && { flowVersion: flowVersion as Semver }),
+      ...(projectId !== undefined && { projectId: projectId as ProjectId }),
+      input: b.input,
+      ...(dryRun !== undefined && { dryRun }),
+      ...(wait !== undefined && { wait }),
+    },
+  };
+}

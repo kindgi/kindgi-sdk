@@ -1,0 +1,34 @@
+// {{PACK_ID}}.echo-agent — pulls in both tools + the response-not-empty
+// guardrail. The agent shape is pure metadata; every field is either a
+// primitive or a reference to a registered substrate object.
+
+import { defineAgent } from '@kindgi/sdk/define';
+import type { AgentId, GuardrailId, Semver } from '@kindgi/sdk/types';
+
+const defined = defineAgent({
+  id: '{{PACK_ID}}.echo-agent' as AgentId,
+  version: '{{PACK_VERSION}}' as Semver,
+  name: 'Echo Agent',
+  description:
+    'Uses the pack\'s echo + greet tools; the response-not-empty guardrail guards the output.',
+  instructions:
+    'For each user message: if the user sends a name, invoke `{{PACK_ID}}.greet` with it. Otherwise invoke `{{PACK_ID}}.echo` with the message text. Quote the tool result verbatim in your reply.',
+  capabilities: [{ needs: [{ feature: 'tool-use' as const }] }],
+  tools: [
+    { id: '{{PACK_ID}}.echo', version: '{{PACK_VERSION}}' },
+    { id: '{{PACK_ID}}.greet', version: '{{PACK_VERSION}}' },
+  ],
+  retrieval: [],
+  guardrails: ['{{PACK_ID}}.response-not-empty' as GuardrailId],
+  parameters: [],
+  conversationPolicy: { historyLimit: 10 },
+  budget: { maxSteps: 4, maxCostUsd: 0.1, maxWallMs: 15_000 },
+});
+
+if (defined.kind === 'err') {
+  throw new Error(
+    `{{PACK_ID}}.echo-agent failed to compile: ${defined.error.message}`,
+  );
+}
+
+export default defined.value;

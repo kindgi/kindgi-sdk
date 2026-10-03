@@ -1,0 +1,31 @@
+// {{PACK_ID}}.echo — smoke test verifying the tool compiles + the
+// handler returns the expected shape. Scaffolded by `kindgi init`
+// so `kindgi test` has something to run out of the box.
+
+import { describe, expect, test } from 'vitest';
+
+import type { ToolContext } from '@kindgi/sdk/define';
+import type { TenantId } from '@kindgi/sdk/types';
+
+import echo from './index.js';
+
+function makeCtx(): ToolContext {
+  return {
+    tenantId: '00000000-0000-0000-0000-000000000001' as TenantId,
+    abortSignal: new AbortController().signal,
+  };
+}
+
+describe('{{PACK_ID}}.echo', () => {
+  test('compiles with the expected id', () => {
+    expect(echo.id).toBe('{{PACK_ID}}.echo');
+  });
+
+  test('handler round-trips the message + count', async () => {
+    if (echo.handler === undefined) throw new Error('handler missing');
+    const out = await echo.handler({ message: 'hello' }, makeCtx());
+    expect(out.echo).toBe('hello');
+    expect(out.characterCount).toBe(5);
+    expect(typeof out.echoedAt).toBe('string');
+  });
+});

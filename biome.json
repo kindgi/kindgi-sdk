@@ -1,0 +1,163 @@
+{
+  "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "ignore": [
+      "**/dist/**",
+      "**/build/**",
+      "**/coverage/**",
+      "**/node_modules/**",
+      "**/.turbo/**",
+      "**/*.min.js",
+      "**/generated/**",
+      "**/routeTree.gen.ts",
+      "packages/api/openapi.json",
+      "pnpm-lock.yaml",
+      "**/.astro/**",
+      "**/*.astro"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100,
+    "lineEnding": "lf"
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "trailingCommas": "all",
+      "semicolons": "always",
+      "arrowParentheses": "always",
+      "bracketSpacing": true,
+      "bracketSameLine": false
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "correctness": {
+        "noUnusedVariables": "error",
+        "noUnusedImports": "error",
+        "noUnusedFunctionParameters": "error"
+      },
+      "style": {
+        "noDefaultExport": "error",
+        "useConst": "error",
+        "useTemplate": "error",
+        "useNamingConvention": "off",
+        "noNonNullAssertion": "off"
+      },
+      "suspicious": {
+        "noExplicitAny": "error",
+        "noConsoleLog": "warn",
+        "noEmptyBlockStatements": "error"
+      },
+      "complexity": {
+        "noUselessConstructor": "error",
+        "noExcessiveCognitiveComplexity": {
+          "level": "warn",
+          "options": {
+            "maxAllowedComplexity": 15
+          }
+        }
+      },
+      "nursery": {
+        "useSortedClasses": "off"
+      }
+    }
+  },
+  "json": {
+    "formatter": {
+      "enabled": true,
+      "indentStyle": "space",
+      "indentWidth": 2
+    },
+    "parser": {
+      "allowComments": false,
+      "allowTrailingCommas": false
+    }
+  },
+  "overrides": [
+    {
+      "include": ["scripts/*.mjs", "scripts/*.js", "site/scripts/*.mjs"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsoleLog": "off"
+          }
+        }
+      }
+    },
+    {
+      "include": [
+        "**/vitest.config.ts",
+        "**/vite.config.ts",
+        "**/tsup.config.ts",
+        "**/drizzle.config.ts",
+        "**/playwright.config.ts",
+        "**/postcss.config.js",
+        "**/postcss.config.ts",
+        "**/postcss.config.mjs",
+        "**/tailwind.config.js",
+        "**/tailwind.config.ts",
+        "**/tailwind.config.mjs",
+        "**/kindgi.config.ts",
+        "**/astro.config.mjs"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noDefaultExport": "off"
+          }
+        }
+      }
+    },
+    {
+      "include": ["packages/pack-conformance/fixtures/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noDefaultExport": "off"
+          },
+          "suspicious": {
+            "noConsoleLog": "off"
+          }
+        }
+      }
+    },
+    {
+      "include": ["**/tests/**", "**/*.test.ts", "**/*.test.tsx", "**/e2e/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noNonNullAssertion": "off"
+          },
+          "suspicious": {
+            "noExplicitAny": "off",
+            "noEmptyBlockStatements": "off"
+          }
+        }
+      }
+    },
+    {
+      "include": ["**/tests/global-setup.ts", "**/tests/global-*.ts"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsoleLog": "off"
+          },
+          "style": {
+            "noUnusedTemplateLiteral": "off"
+          }
+        }
+      }
+    }
+  ]
+}

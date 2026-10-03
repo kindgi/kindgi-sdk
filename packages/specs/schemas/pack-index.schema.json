@@ -1,0 +1,277 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kindgi.com/schemas/v1/pack-index.schema.json",
+  "$comment": "schema-version: 1.4.0",
+  "title": "Pack index",
+  "description": "The `index.json` a pack build emits: the pack's tools, guardrails, agents and flows as data, plus where each tool handler and guardrail check lives. A runtime registers the pack's primitives from it, and a pack service loads the modules it names and resolves every call by id. Any indexer (the TypeScript `kindgi-index`, the Python `python -m kindgi.pack index`) emits this shape. Determinism: every list is sorted by `id` (code-unit order), keys are sorted at every level, the file is UTF-8 JSON indented by two spaces with a trailing newline, and integral numbers carry no fraction, so the same source indexes to the same bytes. Consumers refuse an envelope `v` they don't recognize.",
+  "type": "object",
+  "required": [
+    "v",
+    "packId",
+    "packVersion",
+    "artifactVersion",
+    "publishedAt",
+    "tools",
+    "guardrails",
+    "agents",
+    "flows"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1,
+      "description": "Envelope version. Additive fields on an existing entry shape don't bump it."
+    },
+    "packId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The pack's id (`pack.id` in the pack config)."
+    },
+    "packVersion": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The pack's version (`pack.version` in the pack config)."
+    },
+    "artifactVersion": {
+      "type": "string",
+      "minLength": 1,
+      "description": "This build of the pack. A pack build pins it; a local indexer defaults to `YYYYMMDD.N` (UTC date, N counting up from the previous index of the same day)."
+    },
+    "publishedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the index was built — ISO 8601 UTC with milliseconds (`2026-09-20T14:32:07.104Z`). A pack build pins it for reproducible output."
+    },
+    "tools": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/tool" },
+      "description": "Tools with handler code, sorted by `id`."
+    },
+    "guardrails": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/guardrail" },
+      "description": "Guardrails whose check is pack code, sorted by `id`."
+    },
+    "agents": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/agent" },
+      "description": "Agents, sorted by `id`."
+    },
+    "flows": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/flow" },
+      "description": "Flows, sorted by `id`."
+    },
+    "env": {
+      "type": "object",
+      "required": ["required", "optional"],
+      "additionalProperties": false,
+      "description": "The process environment the pack's code reads (`env` in `kindgi.config`; `[tool.kindgi.env]` in `pyproject.toml`). Absent when the pack declares none. A deployment injects exactly these names. With a `required` name unset or empty, the pack service isn't ready (unless its env check is `warn`); `/readyz` and `/v1/info` name it. Not `needsSpec.env`: that is per-call context.",
+      "properties": {
+        "required": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/envName" },
+          "uniqueItems": true,
+          "description": "Names the pack service needs, set and non-empty, to be ready. Sorted."
+        },
+        "optional": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/envName" },
+          "uniqueItems": true,
+          "description": "Names the pack reads when present. Sorted. Never also in `required`."
+        }
+      }
+    }
+  },
+  "$defs": {
+    "envName": {
+      "type": "string",
+      "pattern": "^(?!KINDGI_)[A-Za-z_][A-Za-z0-9_]*$",
+      "description": "A process environment variable name. `KINDGI_*` names configure Kindgi and are never a pack's."
+    },
+    "modulePath": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The source file the primitive was declared in, relative to the pack root: forward slashes, no leading `./` (`tools/echo/index.ts`, `tools/ledger.py`). A pack service resolves it against its module root; a build may point it at a bundle instead. Several entries may share one module (a Python module can declare several tools)."
+    },
+    "jsonSchema": {
+      "type": "object",
+      "description": "A JSON Schema (Draft 2020-12) in wire form. Open: any JSON Schema keyword is allowed, so this node carries no `additionalProperties` restriction."
+    },
+    "openObject": {
+      "type": "object",
+      "description": "An object whose shape is defined by the primitive's own schema (`tool.schema.json`, `guardrail.schema.json`, `agent.schema.json`, `flow.schema.json`); the index carries it as declared."
+    },
+    "tool": {
+      "type": "object",
+      "required": ["id", "input", "output", "modulePath"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Tool id — what a pack service resolves an `invoke` by."
+        },
+        "description": {
+          "type": "string",
+          "description": "What the tool does — the model reads it."
+        },
+        "version": {
+          "type": "string",
+          "description": "The tool's version. A caller that names a version gets `tool-version-mismatch` when it differs."
+        },
+        "input": {
+          "$ref": "#/$defs/jsonSchema",
+          "description": "JSON Schema the input must satisfy; the pack service validates before running the handler."
+        },
+        "output": {
+          "$ref": "#/$defs/jsonSchema",
+          "description": "JSON Schema the handler's return value must satisfy; the pack service validates it."
+        },
+        "effects": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/openObject" },
+          "description": "Declared side effects (`tool.schema.json` `effects`)."
+        },
+        "needs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/openObject" },
+          "description": "Declared needs (`tool.schema.json` `needs`)."
+        },
+        "needsSpec": {
+          "$ref": "#/$defs/openObject",
+          "description": "Typed needs (`tool.schema.json` `needsSpec`)."
+        },
+        "sandbox": {
+          "type": "string",
+          "description": "Isolation posture (`tool.schema.json` `sandbox`)."
+        },
+        "limits": {
+          "$ref": "#/$defs/openObject",
+          "description": "Resource limits (`tool.schema.json` `limits`)."
+        },
+        "network": {
+          "$ref": "#/$defs/openObject",
+          "description": "Network policy (`tool.schema.json` `network`)."
+        },
+        "mutating": {
+          "type": "boolean",
+          "description": "Whether the tool may change something (`tool.schema.json` `mutating`). `false` makes it read-only: it runs in a dry run, and per-tool approval gates don't ask before it by default. Absent means it may."
+        },
+        "spec": {
+          "$ref": "#/$defs/openObject",
+          "description": "A declarative tool's spec (`tool.schema.json` `spec`, e.g. `kind: 'http'`). A runtime runs a tool that has one itself, resolving its `secretRef`s, rather than calling the pack service."
+        },
+        "modulePath": { "$ref": "#/$defs/modulePath" }
+      }
+    },
+    "guardrail": {
+      "type": "object",
+      "required": ["id", "kind", "action", "checkModulePath"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "description": "Guardrail id." },
+        "name": { "type": "string", "description": "Human-readable name." },
+        "kind": {
+          "type": "string",
+          "minLength": 1,
+          "description": "How the guardrail is checked (`guardrail.schema.json` `kind`)."
+        },
+        "action": {
+          "$ref": "#/$defs/openObject",
+          "description": "What a violation does (`guardrail.schema.json` `action`, with `on-violation`)."
+        },
+        "severity": {
+          "type": "string",
+          "description": "Severity (`guardrail.schema.json` `severity`)."
+        },
+        "scope": {
+          "$ref": "#/$defs/openObject",
+          "description": "When the guardrail applies (`guardrail.schema.json` `scope`)."
+        },
+        "checkModulePath": { "$ref": "#/$defs/modulePath" },
+        "checkId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The check's id — what a pack service resolves a `check-invoke` by. Absent: the guardrail's `id`."
+        },
+        "configSchema": {
+          "$ref": "#/$defs/jsonSchema",
+          "description": "JSON Schema of the check's config."
+        },
+        "config": {
+          "$ref": "#/$defs/openObject",
+          "description": "What the check is configured with (`guardrail.schema.json` `config`)."
+        },
+        "sandbox": { "type": "string", "description": "Isolation posture." },
+        "limits": { "$ref": "#/$defs/openObject", "description": "Resource limits." },
+        "network": { "$ref": "#/$defs/openObject", "description": "Network policy." }
+      }
+    },
+    "agent": {
+      "type": "object",
+      "required": ["id", "version", "name", "instructions", "capabilities", "tools", "modulePath"],
+      "additionalProperties": false,
+      "description": "An agent as declared (`agent.schema.json`); the runtime validates it in full when it registers the pack.",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "name": { "type": "string" },
+        "instructions": { "type": "string" },
+        "capabilities": { "type": "array" },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "version"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "version": { "type": "string", "description": "Semver range." }
+            }
+          }
+        },
+        "retrieval": { "type": "array" },
+        "guardrails": { "type": "array", "items": { "type": "string" } },
+        "budget": { "$ref": "#/$defs/openObject" },
+        "parameters": { "type": "array" },
+        "preferredProvider": { "type": "string" },
+        "preferredModel": { "type": "string" },
+        "description": { "type": "string" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "conversationPolicy": { "$ref": "#/$defs/openObject" },
+        "output": {
+          "$ref": "#/$defs/openObject",
+          "description": "Typed output (`{ schema, name?, maxRepairs? }`), its schema already JSON Schema."
+        },
+        "toolErrors": {
+          "$ref": "#/$defs/openObject",
+          "description": "How the agent's turns retry failed tool calls (`{ maxRetries?, retryOn? }`, `agent.schema.json` `toolErrors`)."
+        },
+        "modulePath": { "$ref": "#/$defs/modulePath" }
+      }
+    },
+    "flow": {
+      "type": "object",
+      "required": ["id", "version", "nodes", "edges", "kernelPayloadVersion", "modulePath"],
+      "additionalProperties": false,
+      "description": "A flow as declared (`flow.schema.json`), plus the kernel payload version.",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "nodes": { "type": "array" },
+        "edges": { "type": "array" },
+        "maxParallelism": { "type": "integer", "minimum": 1 },
+        "metadata": { "$ref": "#/$defs/openObject" },
+        "output": { "$ref": "#/$defs/openObject" },
+        "kernelPayloadVersion": {
+          "const": 1,
+          "description": "Version of the flow payload inside the index, independent of the envelope `v`."
+        },
+        "modulePath": { "$ref": "#/$defs/modulePath" }
+      }
+    }
+  }
+}

@@ -1,0 +1,17 @@
+"""{{PACK_ID}}.echo-flow — runs the pack's echo tool, then ends."""
+
+from kindgi import Flow
+
+from ..tools.echo import echo
+
+echo_flow = Flow(
+    id="{{PACK_ID}}.echo-flow",
+    version="{{PACK_VERSION}}",
+    name="Echo Flow",
+    description="Runs the pack's echo tool and terminates.",
+    nodes=[{"id": "echo", "kind": "tool", "ref": echo}],
+    edges=[
+        {"id": "e-start", "from": "$start", "to": "echo"},
+        {"id": "e-end", "from": "echo", "to": "$end"},
+    ],
+)

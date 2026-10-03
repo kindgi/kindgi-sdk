@@ -1,0 +1,145 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    # `ready_for_review` fires when a draft is marked ready; the job-level
+    # `if:` below skips runs while a PR is still a draft.
+    types: [opened, synchronize, reopened, ready_for_review]
+  # Pull requests and pushes run only "Lint + border + specs". The build,
+  # tests and the Python jobs run on the developer's machine:
+  # `pnpm run ci:local` posts the `local-ci` status on the pushed commit
+  # (scripts/local-ci.mjs). This manual run (`gh workflow run ci.yml --ref
+  # <branch>`) does them on GitHub, for when a local run isn't possible.
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "22"
+  # pnpm's version comes from package.json `packageManager`; do not set a
+  # `version:` on pnpm/action-setup (conflicts → ERR_PNPM_BAD_PM_VERSION).
+
+jobs:
+  checks:
+    name: Lint + border + specs
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Biome
+        run: pnpm run lint
+      - name: Border check (self-contained packages)
+        run: pnpm run check:border
+      - name: License headers
+        run: pnpm run check:headers
+
+      - name: References (docs exist in this repository; no internal process notes)
+        run: pnpm run check:refs
+
+      - name: README package table
+        run: pnpm run check:readme
+
+      - name: Validate JSON Schemas (@kindgi/specs)
+        run: pnpm run spec:validate
+
+  # Independent of `checks` (no `needs:`) so a lint failure never hides
+  # test results. Require both jobs in the main-branch ruleset.
+  build-test:
+    name: Build + typecheck + test + publish checks
+    runs-on: ubuntu-latest
+    # Manual only (see `on:`); on pull requests `local-ci` stands in for it.
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # @kindgi/pack-conformance runs its suite against the Python SDK's
+      # pack service too (sdks/python/.venv); without it that target skips.
+      # The default cache-dependency-glob (`**/pyproject.toml`, `**/uv.lock`, …)
+      # walks node_modules from the repo root: 11+ minutes on this job. The
+      # SDK's lock is the only file the uv cache depends on.
+      - uses: astral-sh/setup-uv@v6
+        with:
+          # The uv version: `[tool.uv] required-version` there.
+          version-file: sdks/python/pyproject.toml
+          python-version: "3.13"
+          cache-dependency-glob: sdks/python/uv.lock
+      - name: Python SDK environment (for the pack conformance suite)
+        run: uv sync --project sdks/python --frozen
+      - name: Build (prod-dependency topological order)
+        run: pnpm run build
+      - name: Typecheck
+        run: pnpm run typecheck:all
+      - name: Test
+        run: pnpm run test:all
+      # The lower bounds in sdks/python/pyproject.toml are what an app's own
+      # resolver may pick (an app may pin uvicorn 0.27), so the Python pack
+      # service must pass conformance at them too, not only at the lock.
+      - name: Pack conformance — the Python SDK at its dependency floors
+        run: |
+          uv venv /tmp/kindgi-floors
+          uv pip install --python /tmp/kindgi-floors --resolution lowest-direct -e sdks/python
+          KINDGI_CONFORMANCE_PYTHON=/tmp/kindgi-floors/bin/python pnpm --filter @kindgi/pack-conformance exec vitest run tests/python.test.ts tests/python-supervisor.test.ts
+      - name: Publish-readiness (publint + attw on publishable packages)
+        run: pnpm run check:publish
+
+  python:
+    name: Python SDK (${{ matrix.python }})
+    runs-on: ubuntu-latest
+    # Manual only (see `on:`); on pull requests `local-ci` stands in for it.
+    if: github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.13"]
+    defaults:
+      run:
+        working-directory: sdks/python
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version-file: sdks/python/pyproject.toml
+          python-version: ${{ matrix.python }}
+          cache-dependency-glob: sdks/python/uv.lock
+      - run: uv sync --frozen
+      - name: Ruff
+        run: uv run ruff check src tests scripts && uv run ruff format --check src tests scripts
+      - name: Pyright (strict)
+        run: uv run pyright
+      - name: Pytest
+        run: uv run pytest
+      # At the lowest versions the dependencies allow (the client generator,
+      # a dev tool, needs newer ones: its check runs at the lock).
+      - name: Pytest at the dependency floors
+        if: matrix.python == '3.11'
+        run: |
+          uv venv /tmp/kindgi-floors
+          uv pip install --python /tmp/kindgi-floors --resolution lowest-direct -e . "pytest>=8"
+          /tmp/kindgi-floors/bin/python -m pytest -p no:cacheprovider -k "not in_step_with_openapi"
+      - name: Generated client in step with openapi.json
+        run: uv run python scripts/gen_client.py --check
+      - name: Build the distribution (not published)
+        run: uv build
+      # Installers older than the metadata refuse the package (Poetry 1.8
+      # reads up to 2.3) — see [tool.hatch.build.targets.wheel].
+      - name: The wheel's core metadata is 2.3
+        run: |
+          unzip -p dist/*.whl '*.dist-info/METADATA' | grep -qx 'Metadata-Version: 2.3'

@@ -1,0 +1,47 @@
+{
+  "name": "anthropic",
+  "description": "Claude on the Anthropic API (key: ANTHROPIC_API_KEY).",
+  "adapterId": "@kindgi/adapter-model-anthropic",
+  "secret": "ANTHROPIC_API_KEY",
+  "pricesCheckedAt": "2026-10-01",
+  "metadata": {
+    "id": "anthropic",
+    "region": "unspecified",
+    "description": "Claude on the Anthropic API",
+    "models": [
+      {
+        "name": "claude-opus-5-5",
+        "contextWindow": 1000000,
+        "maxOutputTokens": 16000,
+        "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
+        "cost": {
+          "promptUsdPer1kTokens": 0.004,
+          "completionUsdPer1kTokens": 0.02
+        },
+        "description": "Most capable Opus \u2014 long-running agentic and knowledge work."
+      },
+      {
+        "name": "claude-sonnet-5-5",
+        "contextWindow": 1000000,
+        "maxOutputTokens": 16000,
+        "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
+        "cost": {
+          "promptUsdPer1kTokens": 0.002,
+          "completionUsdPer1kTokens": 0.01
+        },
+        "description": "Balanced performance and cost."
+      },
+      {
+        "name": "claude-haiku-4-5",
+        "contextWindow": 200000,
+        "maxOutputTokens": 8192,
+        "features": ["tool-use", "parallel-tool-use"],
+        "cost": {
+          "promptUsdPer1kTokens": 0.001,
+          "completionUsdPer1kTokens": 0.005
+        },
+        "description": "Fastest and cheapest \u2014 routing, classification, simple calls."
+      }
+    ]
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kindgi.com/schemas/v1/event.schema.json",
+  "$comment": "schema-version: 1.0.0",
+  "title": "Event",
+  "description": "The causal glue between runs. Emitted by kernel, memory, tools, agents, supervisor, HITL. Consumed by subscriptions to trigger new runs or resume in-flight waits. Every event has an ID for idempotent delivery; every subscription is policy-scoped. Delivery is at-least-once with idempotent handlers.",
+  "type": "object",
+  "required": ["id", "type", "tenantId", "timestamp"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique event ID. Enables dedup on the consumer side (at-least-once delivery)."
+    },
+    "type": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Dotted event type (e.g. 'run.started', 'run.completed', 'guardrail.violated', 'fact.written', 'entity.deleted', 'tool.invoked', 'fix.proposed', 'approval.requested'). Convention: '<subject>.<past-tense-verb>'."
+    },
+    "tenantId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Tenant that owns this event. Cross-tenant delivery is denied by policy."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "actor": {
+      "type": "string",
+      "description": "Who emitted this event (agent id, tool id, subsystem name, user id)."
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The primary object the event is about.",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "description": "Object kind (e.g. 'run', 'agent', 'fact', 'entity', 'tool', 'guardrail')."
+        },
+        "id": {
+          "type": "string"
+        }
+      }
+    },
+    "causedBy": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Zero or more IDs (event IDs or provenance node IDs) that caused this event. Extends the causal DAG across the reactive boundary — an agent that runs because of an event has provenance edges back through the event to its emitter."
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Optional additional scoping (project, thread, session). Interpreted by subscriptions."
+    },
+    "payload": {
+      "description": "Event-type-specific payload. Consumers must tolerate unknown fields for forward compatibility."
+    },
+    "attributes": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Non-structural annotations useful for filter predicates (e.g. severity, kind hints, feature flags)."
+    }
+  }
+}

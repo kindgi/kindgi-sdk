@@ -1,0 +1,147 @@
+name: Release
+
+# Two paths, both gated:
+#
+# 1. push to main → Changesets opens / updates the "Version Packages" PR.
+#    Nothing is published. Merging that PR bumps every @kindgi/* package
+#    to the next shared version (fixed group) and writes CHANGELOGs.
+#    The PR is opened with a short-lived token from the org's release
+#    GitHub App (repo variable RELEASE_APP_CLIENT_ID, secret
+#    RELEASE_APP_PRIVATE_KEY), not GITHUB_TOKEN: events caused by
+#    GITHUB_TOKEN start no workflow runs, so the required CI checks would
+#    never report on the PR. Changesets pushes through the GitHub API, so
+#    its commits are signed and attributed to the App.
+# 2. workflow_dispatch → publish. Runs in the `npm-publish` environment
+#    (required reviewer), authenticates to npm with trusted publishing
+#    (OIDC — no tokens), and publishes every non-private package whose
+#    current version is not yet on npm, with provenance. `dry-run: true`
+#    (the default) builds, checks, and packs without publishing.
+#
+# npm trusted publisher settings per package: repository kindgi/kindgi-sdk,
+# workflow `release.yml`, environment `npm-publish`.
+#
+# The same dispatch also publishes the Python SDK (`kindgi`, sdks/python) to
+# PyPI, in the `pypi-publish` environment (required reviewer), with PyPI's
+# trusted publishing (OIDC — no tokens) and attestations. A version PyPI
+# already has is skipped, so an npm-only release leaves PyPI as it is.
+# PyPI trusted publisher: project `kindgi`, owner `kindgi`, repository
+# `kindgi-sdk`, workflow `release.yml`, environment `pypi-publish`.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: "Build, check, and pack only; do not publish"
+        type: boolean
+        default: true
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  version-pr:
+    name: Version Packages PR
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    # Writes go through the App token below; the job token only reads.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/create-github-app-token@v3
+        id: app-token
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: changesets/action@v2
+        with:
+          version-script: pnpm run version-packages
+          commit-message: "chore: version packages"
+          pr-title: "chore: version packages"
+          github-token: ${{ steps.app-token.outputs.token }}
+
+  publish:
+    name: Publish to npm
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: write # push release tags
+      id-token: write # npm trusted publishing (OIDC) + provenance
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: pnpm
+          registry-url: "https://registry.npmjs.org"
+      # Trusted publishing needs npm >= 11.5.1 (pnpm hands the tarball to npm).
+      - run: npm install -g npm@^11.5.1
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - name: Publish-readiness (publint + attw)
+        run: pnpm run check:publish
+      - name: Publish (dry-run)
+        if: ${{ inputs.dry-run }}
+        run: pnpm -r publish --dry-run --no-git-checks
+      - name: Publish
+        if: ${{ !inputs.dry-run }}
+        run: pnpm -r publish --no-git-checks
+      - name: Tag released versions
+        if: ${{ !inputs.dry-run }}
+        run: |
+          pnpm changeset tag
+          git push --tags
+
+  publish-pypi:
+    name: Publish to PyPI
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: pypi-publish
+    permissions:
+      contents: read
+      id-token: write # PyPI trusted publishing (OIDC) + attestations
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version-file: sdks/python/pyproject.toml
+          python-version: "3.13"
+          cache-dependency-glob: sdks/python/uv.lock
+      - name: Build the sdist and wheel
+        working-directory: sdks/python
+        run: uv build
+      # Installers older than the metadata refuse the package (Poetry 1.8
+      # reads up to 2.3); the same check as CI's.
+      - name: The wheel's core metadata is 2.3
+        working-directory: sdks/python
+        run: |
+          unzip -p dist/*.whl '*.dist-info/METADATA' | grep -qx 'Metadata-Version: 2.3'
+      - name: The distribution's metadata renders on PyPI
+        working-directory: sdks/python
+        run: uvx twine check --strict dist/*
+      - name: Publish
+        if: ${{ !inputs.dry-run }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: sdks/python/dist
+          skip-existing: true

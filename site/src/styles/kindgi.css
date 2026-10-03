@@ -1,0 +1,61 @@
+/* Kindgi's palette on Starlight's tokens: the kindgi.com website's void
+   base and amber accent (dark), with a warm light variant for reading.
+   Fonts: IBM Plex Sans for text and headings, IBM Plex Mono for code. */
+
+:root {
+  --sl-font: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --sl-font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* Dark: kindgi.com's own colors. */
+:root,
+::backdrop {
+  --sl-color-accent-low: #42341b;
+  --sl-color-accent: #e7a94a;
+  --sl-color-accent-high: #f7c56a;
+  --sl-color-white: #e8e6e0;
+  --sl-color-gray-1: #d6d3cb;
+  --sl-color-gray-2: #b5b2aa;
+  --sl-color-gray-3: #8a877f;
+  --sl-color-gray-4: #5c5a54;
+  --sl-color-gray-5: #2e2d2a;
+  --sl-color-gray-6: #1a1a1e;
+  --sl-color-black: #0a0a0b;
+}
+
+/* Light: the same accent, darkened for contrast on a warm paper base. */
+:root[data-theme="light"],
+[data-theme="light"] ::backdrop {
+  --sl-color-accent-low: #f6e6c8;
+  --sl-color-accent: #8a5a12;
+  --sl-color-accent-high: #3d2806;
+  --sl-color-white: #131316;
+  --sl-color-gray-1: #26252a;
+  --sl-color-gray-2: #3c3b40;
+  --sl-color-gray-3: #5c5a54;
+  --sl-color-gray-4: #8a877f;
+  --sl-color-gray-5: #c9c6be;
+  --sl-color-gray-6: #ece9e2;
+  --sl-color-gray-7: #f6f4ef;
+  --sl-color-black: #fdfcf9;
+}
+
+/* Headings: the website's tight display tracking. */
+.sl-markdown-content :is(h1, h2, h3) {
+  letter-spacing: -0.015em;
+}
+
+/* Code: tabular figures, as on the website. */
+code,
+pre {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Code in a heading (a command, a variable name): the heading's own size,
+   no chip. */
+.sl-markdown-content :is(h1, h2, h3, h4) code {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 0.92em;
+}

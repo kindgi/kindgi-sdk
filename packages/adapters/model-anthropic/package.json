@@ -1,0 +1,47 @@
+{
+  "name": "@kindgi/adapter-model-anthropic",
+  "version": "0.1.0-preview.7",
+  "description": "Anthropic ModelProvider for @kindgi/capabilities. Wraps @anthropic-ai/sdk with the framework's provider-neutral interface: message-trail ↔ Messages API translation, prompt-caching-aware cost accounting, and lazy API-key resolution so per-tenant registries can close over a SecretStore scope. Non-streaming, tool-use enabled. Wire per-tenant in the provider registry (see @kindgi/capabilities).",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
+    "directory": "packages/adapters/model-anthropic"
+  },
+  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/adapters/model-anthropic#readme",
+  "bugs": {
+    "url": "https://github.com/kindgi/kindgi-sdk/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "src", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@kindgi/capabilities": "workspace:*",
+    "@anthropic-ai/sdk": "^0.68.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}

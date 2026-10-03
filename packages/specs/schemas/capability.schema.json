@@ -1,0 +1,250 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kindgi.com/schemas/v1/capability.schema.json",
+  "$comment": "schema-version: 1.1.0",
+  "title": "Capability declaration",
+  "description": "An agent's model requirements as declarative constraints. The model router matches capabilities against registered providers, respecting per-tenant policy. `defineCapability` validates a declaration against this schema; a declaration that no registered provider satisfies fails at routing time with `capability-unsatisfiable`.",
+  "type": "object",
+  "required": ["needs"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "type": "string",
+      "minLength": 1,
+      "default": "llm-inference",
+      "examples": ["llm-inference", "embedding", "gpu-compute", "sandbox-exec", "browser-session"],
+      "description": "Resource kind this capability requests. Open string: `examples` lists the well-known kinds, and adapters can declare their own. Absent means `llm-inference`. The router only considers providers whose `capabilityKind` equals it (a provider that declares none counts as `llm-inference`). Added in schema-version 1.1.0."
+    },
+    "needs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/Requirement"
+      }
+    },
+    "prefer": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Preference"
+      },
+      "description": "Soft preferences: the router picks the highest-scoring model that also satisfies all 'needs'."
+    },
+    "budget": {
+      "$ref": "#/$defs/Budget",
+      "description": "Per-invocation budget. Declarative: carried with the declaration but not enforced by the runtime (per-turn spend is capped by the agent's `budget.maxCostUsd`)."
+    }
+  },
+  "$defs": {
+    "Requirement": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/FeatureRequirement"
+        },
+        {
+          "$ref": "#/$defs/ContextRequirement"
+        },
+        {
+          "$ref": "#/$defs/CostRequirement"
+        },
+        {
+          "$ref": "#/$defs/RegionRequirement"
+        },
+        {
+          "$ref": "#/$defs/LatencyRequirement"
+        },
+        {
+          "$ref": "#/$defs/ProviderRequirement"
+        },
+        {
+          "$ref": "#/$defs/ModelRequirement"
+        }
+      ]
+    },
+    "FeatureRequirement": {
+      "type": "object",
+      "required": ["feature"],
+      "additionalProperties": false,
+      "properties": {
+        "feature": {
+          "type": "string",
+          "enum": [
+            "structured-output",
+            "vision",
+            "audio-input",
+            "audio-output",
+            "tool-use",
+            "parallel-tool-use",
+            "thinking",
+            "long-context",
+            "code-execution",
+            "web-search",
+            "file-search",
+            "streaming",
+            "batch"
+          ]
+        }
+      }
+    },
+    "ContextRequirement": {
+      "type": "object",
+      "required": ["contextWindow"],
+      "additionalProperties": false,
+      "properties": {
+        "contextWindow": {
+          "type": "object",
+          "required": ["op", "value"],
+          "additionalProperties": false,
+          "properties": {
+            "op": {
+              "type": "string",
+              "enum": [">=", ">", "=", "<=", "<"]
+            },
+            "value": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      }
+    },
+    "CostRequirement": {
+      "type": "object",
+      "required": ["costPerCall"],
+      "additionalProperties": false,
+      "properties": {
+        "costPerCall": {
+          "type": "object",
+          "required": ["op", "usd"],
+          "additionalProperties": false,
+          "properties": {
+            "op": {
+              "type": "string",
+              "enum": [">=", ">", "=", "<=", "<"]
+            },
+            "usd": {
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "RegionRequirement": {
+      "type": "object",
+      "required": ["region"],
+      "additionalProperties": false,
+      "properties": {
+        "region": {
+          "type": "string",
+          "description": "Geographic region constraint (e.g. 'eu-only', 'us-only', 'us-gov'). Enforced by the router against each provider's declared region; a tenant policy's `regionAllow` can constrain it further."
+        }
+      }
+    },
+    "LatencyRequirement": {
+      "type": "object",
+      "required": ["p95LatencyMs"],
+      "additionalProperties": false,
+      "properties": {
+        "p95LatencyMs": {
+          "type": "object",
+          "required": ["op", "value"],
+          "additionalProperties": false,
+          "properties": {
+            "op": {
+              "type": "string",
+              "enum": ["<=", "<"]
+            },
+            "value": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "ProviderRequirement": {
+      "type": "object",
+      "required": ["providers"],
+      "additionalProperties": false,
+      "description": "Hard constraint on allowed providers (allowlist) or disallowed providers (denylist). Tenant policy can narrow the set further.",
+      "properties": {
+        "providers": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "allow": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "deny": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "ModelRequirement": {
+      "type": "object",
+      "required": ["models"],
+      "additionalProperties": false,
+      "description": "Hard constraint on allowed models (allowlist) or disallowed models (denylist), matched against each provider's model names (`ModelInfo.name`). Can be combined with a providers requirement. Tenant policy can narrow the set further. Added in schema-version 1.1.0.",
+      "properties": {
+        "models": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "allow": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "deny": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "Preference": {
+      "type": "object",
+      "required": ["feature", "weight"],
+      "additionalProperties": false,
+      "properties": {
+        "feature": {
+          "type": "string",
+          "description": "A capability feature or a soft attribute (e.g. 'lower-cost', 'lower-latency', 'higher-accuracy')."
+        },
+        "weight": {
+          "type": "number"
+        }
+      }
+    },
+    "Budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxCostUsd": {
+          "type": "number",
+          "minimum": 0
+        },
+        "maxTokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxDurationMs": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

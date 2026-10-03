@@ -1,0 +1,42 @@
+[project]
+name = "{{PACK_NAME}}"
+version = "{{PACK_VERSION}}"
+description = "A Kindgi pack — scaffolded by `kindgi init --template=python`."
+requires-python = ">=3.11"
+dependencies = [{{KINDGI_REQUIREMENT}}]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+# The uv versions this pack works with: `kindgi build` installs it with the
+# uv in Kindgi's image, which reads the uv.lock they write.
+[tool.uv]
+required-version = "{{UV_REQUIRED_VERSION}}"
+{{KINDGI_PYTHON_SOURCE}}
+# The pack: what `kindgi dev`, `kindgi build` and `python -m kindgi.pack` read.
+[tool.kindgi.pack]
+id = "{{PACK_ID}}"
+version = "{{PACK_VERSION}}"
+description = "A sample Kindgi pack in Python — two tools, one guardrail, one agent, one flow."
+
+# Optional — the defaults are shown.
+# [tool.kindgi.discovery]
+# tools = "tools/**/*.py"
+# guardrails = "guardrails/**/*.py"
+# agents = "agents/**/*.py"
+# flows = "flows/**/*.py"
+
+# [tool.kindgi.dev]
+# python = ["uv", "run", "python"]   # default: .venv/bin/python, else python3
+# envFiles = [".env", ".env.local"]
+
+# One block per deploy target; `kindgi build --env=<name>` reads it.
+# [tool.kindgi.environments.staging]
+# endpoint = "https://api.staging.example.com"
+# build = "http://localhost:4001"
+# tenantId = "tenant-your-org-staging"
+# signingKey = "~/.kindgi/keys/staging.pem"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kindgi.com/schemas/v1/compliance-evidence.schema.json",
+  "$comment": "schema-version: 1.1.0",
+  "title": "Compliance evidence bundle",
+  "description": "One evidence record emitted by the Kindgi runtime for compliance / audit consumption. Derived from provenance DAG + policy decisions + audit log. Consumed by a ComplianceProvider, whose adapters forward evidence to a compliance platform or a SIEM. The optional Ed25519 `signature` provides tamper detection.",
+  "type": "object",
+  "required": ["id", "tenantId", "kind", "timestamp", "payload"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique evidence record ID."
+    },
+    "tenantId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "projectId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Content-scope anchor: the project the underlying audit event belongs to. Absent for tenant-level events (e.g. authz decisions, tenant-level admin actions)."
+    },
+    "kind": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The compliance-relevant event class. Open set: evidence is a classifier lens over the audit stream, and a deployment can mark any audit-event kind exportable. `examples` lists the built-in kinds; consumers must tolerate kinds they do not know.",
+      "examples": [
+        "access-event",
+        "policy-decision",
+        "config-change",
+        "secret-rotation",
+        "incident-event",
+        "guardrail-violation",
+        "eval-run",
+        "approval-completed",
+        "data-retention-action",
+        "authn-event",
+        "authz-decision",
+        "model-invocation",
+        "pack-install",
+        "pack-upgrade",
+        "pack-uninstall",
+        "run-outcome",
+        "env-resolved",
+        "env-set",
+        "env-deleted",
+        "secret-resolved",
+        "secret-set",
+        "secret-rotated",
+        "secret-rotation-started",
+        "secret-rotation-failed",
+        "secret-revoked",
+        "secret-hard-revoked",
+        "hitl-decision"
+      ]
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Who performed the action.",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["user", "agent", "system", "admin", "external"]
+        },
+        "id": {
+          "type": "string"
+        },
+        "ipAddress": {
+          "type": "string"
+        },
+        "userAgent": {
+          "type": "string"
+        }
+      }
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What the action was performed on.",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        }
+      }
+    },
+    "outcome": {
+      "type": "string",
+      "enum": ["allowed", "denied", "succeeded", "failed", "escalated"],
+      "description": "Result of the action, for kinds where this is meaningful."
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Kind-specific evidence detail. For policy-decision: the rule that matched, the request context. For config-change: before/after diff. For secret-rotation: which secret, when. Etc."
+    },
+    "provenanceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional back-reference to the provenance DAG that produced this evidence.",
+      "properties": {
+        "runId": {
+          "type": "string"
+        },
+        "nodeId": {
+          "type": "string"
+        }
+      }
+    },
+    "signature": {
+      "type": "object",
+      "required": ["algorithm", "keyId", "value", "signedAt"],
+      "additionalProperties": false,
+      "properties": {
+        "algorithm": {
+          "type": "string",
+          "enum": ["ed25519"]
+        },
+        "keyId": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+        },
+        "signedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}

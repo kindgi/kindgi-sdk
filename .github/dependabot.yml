@@ -1,0 +1,28 @@
+version: 2
+# Version updates are PAUSED (open-pull-requests-limit: 0) until the
+# private runtime repository consumes this one through its sibling
+# workspace: until then the public packages also live in the runtime's
+# monorepo, and shared dependencies (drizzle, hono, TypeScript, Biome,
+# Vitest) must move in lockstep across both. Security updates are not
+# affected by this limit and keep arriving.
+#
+# On re-enable: ignore @types/node majors (it tracks the minimum
+# supported Node, engines >=22), keep 0.x packages out of the
+# minor/patch group (a 0.x minor can break), and group the toolchain.
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    groups:
+      npm-minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    groups:
+      github-actions:
+        patterns: ["*"]

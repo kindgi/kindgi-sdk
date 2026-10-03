@@ -1,0 +1,40 @@
+{
+  "$schema": "https://kindgi.com/schemas/v1/type-manifest.schema.json",
+  "package": "@kindgi/testing",
+  "version": "0.0.0",
+  "description": "Test helpers: typed, fail-loud stub bindings for createApp and any binding interface.",
+  "exports": {
+    "createStubAppBindings": {
+      "kind": "function",
+      "signature": "() => StubAppBindings",
+      "description": "Every required createApp binding except resolveToken / runHandler, as stubs."
+    },
+    "createStubKernelBinding": {
+      "kind": "function",
+      "signature": "() => KernelBinding",
+      "description": "Stub KernelBinding; sub-bindings stubbed, optional eventBus absent."
+    },
+    "createStubBinding": {
+      "kind": "function",
+      "signature": "<T extends object>(name: string, methods: StubMethods<T>) => T",
+      "description": "Stub any binding interface; every method throws StubBindingError."
+    },
+    "StubBindingError": {
+      "kind": "class",
+      "fields": {
+        "binding": "string",
+        "method": "string"
+      }
+    },
+    "StubAppBindings": {
+      "kind": "type",
+      "form": "alias",
+      "definition": "Pick<CreateAppInput, 'conversationBinding' | 'runSnapshotBinding' | 'kernelBinding' | 'tenantHierarchyBinding' | 'memoryBinding' | 'provenanceBinding'>"
+    },
+    "StubMethods": {
+      "kind": "type",
+      "form": "alias",
+      "definition": "{ readonly [K in keyof T]-?: true }"
+    }
+  }
+}

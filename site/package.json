@@ -1,0 +1,29 @@
+{
+  "name": "kindgi-docs",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Kindgi's documentation site (docs.kindgi.com), built with Astro Starlight.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/generate-reference.mjs && astro dev",
+    "site:build": "node scripts/generate-reference.mjs && KINDGI_DOCS_BASE=/v0.0/ astro build && node scripts/check-links.mjs dist /v0.0/ && astro build",
+    "preview": "astro preview"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5"
+  },
+  "dependencies": {
+    "@astrojs/markdown-satteri": "^0.4.2",
+    "@astrojs/starlight": "^0.42.5",
+    "@kindgi/cli": "workspace:*",
+    "@kindgi/env-schema": "workspace:*",
+    "@kindgi/specs": "workspace:*",
+    "astro": "^7.2.10",
+    "sharp": "^0.34.0",
+    "starlight-openapi": "^0.26.3",
+    "starlight-typedoc": "^0.23.1",
+    "typedoc": "^0.28.20",
+    "typedoc-plugin-markdown": "^4.13.1"
+  }
+}

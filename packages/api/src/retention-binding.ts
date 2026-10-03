@@ -1,0 +1,78 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Kindgi Inc.
+
+import type { RetentionDomain } from '@kindgi/policy-contract';
+import type { TenantId } from '@kindgi/types';
+
+/**
+ * Caller-plugged surface for the retention pipeline — the API routes
+ * (`/v1/retention/scheduled`, `/v1/retention/sweep`,
+ * `/v1/retention/sweep/:domain`) call this binding; the Kindgi runtime
+ * provides an implementation backed by its retention executor.
+ *
+ * Wire shape is deliberately kept minimal — the deep types (candidates,
+ * per-domain entries, missing-adapter marker) live in the runtime. The
+ * api package keeps a leaner projection here so the route body is easy
+ * to reason about.
+ */
+export interface RetentionBinding {
+  /**
+   * Enumerate tombstoned rows across every domain with an adapter
+   * registered. `pastGraceOnly = false` returns both in-grace and
+   * past-grace candidates — the "Scheduled for deletion" view uses
+   * that. `true` returns only rows the sweeper would purge right now.
+   */
+  scheduled(input: RetentionScheduledInput): Promise<RetentionScheduledPage>;
+
+  /**
+   * Trigger a sweep across every domain (or `domain` if provided).
+   * Idempotent — a second call after a successful sweep returns
+   * `purged: 0` per domain.
+   */
+  sweep(input: RetentionSweepInput): Promise<RetentionSweepResult>;
+}
+
+export interface RetentionScheduledInput {
+  readonly tenantId: TenantId;
+  readonly domain?: RetentionDomain;
+  readonly limit: number;
+  readonly pastGraceOnly?: boolean;
+  readonly now?: Date;
+}
+
+export interface RetentionScheduledItem {
+  readonly domain: RetentionDomain;
+  readonly id: string;
+  readonly unregisteredAt: string;
+  readonly purgeAt: string;
+  readonly pastGrace: boolean;
+  readonly policyId: string;
+  readonly policyVersion: string;
+  readonly graceSeconds: number;
+}
+
+export interface RetentionScheduledPage {
+  readonly data: readonly RetentionScheduledItem[];
+  /** Domains a retention policy exists for but no adapter is wired in this deployment. */
+  readonly domainsMissingAdapter: readonly RetentionDomain[];
+  /** Domains that have an adapter but no matching policy — tombstones sit forever. */
+  readonly unpolicedDomains: readonly RetentionDomain[];
+}
+
+export interface RetentionSweepInput {
+  readonly tenantId: TenantId;
+  readonly domain?: RetentionDomain;
+  readonly maxPerDomain?: number;
+  readonly now?: Date;
+}
+
+export interface RetentionSweepResult {
+  readonly perDomain: readonly {
+    readonly domain: RetentionDomain;
+    readonly purged: number;
+    readonly remaining: number;
+    readonly policyId?: string;
+    readonly missingAdapter?: true;
+  }[];
+  readonly totalPurged: number;
+}

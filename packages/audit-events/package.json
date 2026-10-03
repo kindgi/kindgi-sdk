@@ -1,0 +1,46 @@
+{
+  "name": "@kindgi/audit-events",
+  "version": "0.1.0-preview.7",
+  "description": "Kindgi™ audit events contract. Types only: AuditEvent (the audit record — id, tenantId, projectId, kind, timestamp, actor, outcome, run / agent / flow / correlation ids, versioned payload), AuditEventFilter and AuditEventPage, AuditEventBinding (the caller-plugged append / query / purge interface) with its input and result shapes, and the AuditEventError union. No runtime code. A reference in-memory binding is @kindgi/audit-events-inmemory; durable bindings are provided by the Kindgi runtime.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
+    "directory": "packages/audit-events"
+  },
+  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/audit-events#readme",
+  "bugs": {
+    "url": "https://github.com/kindgi/kindgi-sdk/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "src", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --typecheck --typecheck.only --passWithNoTests",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@kindgi/types": "workspace:*"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}

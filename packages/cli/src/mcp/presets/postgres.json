@@ -1,0 +1,15 @@
+{
+  "kind": "postgres",
+  "description": "PostgreSQL via crystaldba/postgres-mcp (Docker) — active fork with index tuning, EXPLAIN plans, health checks, and safe SQL execution. Defaults to read-only mode.",
+  "runtime": "docker",
+  "package": "crystaldba/postgres-mcp",
+  "envMap": [{ "child": "DATABASE_URI", "from": "$SECRET" }],
+  "defaultArgs": ["--access-mode=restricted"],
+  "hostRemap": "docker-desktop",
+  "audit": {
+    "urlLeakInErrors": "pending",
+    "reviewedAt": null,
+    "version": null,
+    "notes": "First audit pending — verify error paths don't echo DATABASE_URI."
+  }
+}

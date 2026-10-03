@@ -1,0 +1,46 @@
+{
+  "name": "@kindgi/authz",
+  "version": "0.1.0-preview.7",
+  "description": "Kindgi™ authorization shape. The public vocabulary and interfaces of Kindgi's authorization stack: Action verbs (read/write/execute/…), ObjectType enum (agent/flow/tool/…), ResourceRef, Principal (who is calling, with delegation and downscoping), the AuthzCheckBinding decision-point interface and its Decision (allow/deny + reason), FGA tuple builders and the TupleEnqueueHook outbox contract, the 403 DenyPayload shape, and reviewer roles. Types and pure functions — no runtime state. The FGA store, the check implementation and the tuple worker are supplied by the deployment.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
+    "directory": "packages/authz"
+  },
+  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/authz#readme",
+  "bugs": {
+    "url": "https://github.com/kindgi/kindgi-sdk/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "src", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --typecheck --typecheck.only --passWithNoTests",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@kindgi/types": "workspace:*"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}

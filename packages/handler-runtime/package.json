@@ -1,0 +1,86 @@
+{
+  "name": "@kindgi/handler-runtime",
+  "version": "0.1.0-preview.7",
+  "description": "Runtime-side primitives for running a Kindgi pack's own code. Ships the pack service (`pack-service`, process entry `pack-service-main`) — a long-lived HTTP server that runs a pack's tool handlers and guardrail checks over pack protocol v2 (`protocol`), validating each tool call's input and output against the tool's JSON Schemas, with a local supervisor for development; and the build-time pack indexer (`kindgi-index`, process entry `kindgi-index-main`), which writes the pack's `index.json`.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
+    "directory": "packages/handler-runtime"
+  },
+  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/handler-runtime#readme",
+  "bugs": {
+    "url": "https://github.com/kindgi/kindgi-sdk/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./protocol": {
+      "types": "./dist/protocol.d.ts",
+      "import": "./dist/protocol.js"
+    },
+    "./pack-service": {
+      "types": "./dist/pack-service/index.d.ts",
+      "import": "./dist/pack-service/index.js"
+    },
+    "./pack-service-main": {
+      "types": "./dist/pack-service/main.d.ts",
+      "import": "./dist/pack-service/main.js"
+    },
+    "./kindgi-index": {
+      "types": "./dist/kindgi-index.d.ts",
+      "import": "./dist/kindgi-index.js"
+    },
+    "./kindgi-index-main": {
+      "types": "./dist/kindgi-index-main.d.ts",
+      "import": "./dist/kindgi-index-main.js"
+    },
+    "./build-extensions": {
+      "types": "./dist/build-extensions.d.ts",
+      "import": "./dist/build-extensions.js"
+    }
+  },
+  "files": ["dist", "src", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@kindgi/flow": "workspace:*",
+    "@kindgi/sandbox": "workspace:*",
+    "@kindgi/schema": "workspace:*",
+    "@kindgi/types": "workspace:*",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "smol-toml": "^1.9.0"
+  },
+  "peerDependencies": {
+    "zod": "^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "zod": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@kindgi/specs": "workspace:*",
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8",
+    "zod": "^4.6.5"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

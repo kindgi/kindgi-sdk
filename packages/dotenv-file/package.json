@@ -1,0 +1,46 @@
+{
+  "name": "@kindgi/dotenv-file",
+  "version": "0.1.0-preview.7",
+  "description": "Dotenv files the way applications read them (dotenv grammar, verified against the version Next.js bundles), expanded (${VAR}), layered (.env < .env.local) and edited losslessly. Used by @kindgi/secrets-dotenv. Zero runtime dependencies.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
+    "directory": "packages/dotenv-file"
+  },
+  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/dotenv-file#readme",
+  "bugs": {
+    "url": "https://github.com/kindgi/kindgi-sdk/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "src", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "dotenv": "16.3.1",
+    "dotenv-expand-10": "npm:dotenv-expand@10.0.0",
+    "dotenv-expand-12": "npm:dotenv-expand@12.0.3",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

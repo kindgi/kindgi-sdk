@@ -1,0 +1,37 @@
+// {{PACK_ID}}.echo — echoes the caller-provided message back with a UTC
+// timestamp. Zod-authored — the wire form is JSON Schema, converted at
+// author time by `defineTool`.
+
+import { defineTool } from '@kindgi/sdk/define';
+import type { ToolId } from '@kindgi/sdk/types';
+import { z } from 'zod';
+
+const EchoInput = z.object({
+  message: z.string().min(1).max(500),
+});
+
+const EchoOutput = z.object({
+  echo: z.string(),
+  echoedAt: z.string(),
+  characterCount: z.number().int().nonnegative(),
+});
+
+const defined = defineTool({
+  id: '{{PACK_ID}}.echo' as ToolId,
+  description: 'Echoes the caller-provided message with a UTC timestamp + character count.',
+  version: '{{PACK_VERSION}}',
+  input: EchoInput,
+  output: EchoOutput,
+  effects: [],
+  handler: async (input) => ({
+    echo: input.message,
+    echoedAt: new Date().toISOString(),
+    characterCount: input.message.length,
+  }),
+});
+
+if (defined.kind === 'err') {
+  throw new Error(`{{PACK_ID}}.echo failed to compile: ${defined.error.message}`);
+}
+
+export default defined.value;
