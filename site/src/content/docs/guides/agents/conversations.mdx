@@ -1,0 +1,284 @@
+---
+title: Hold a conversation
+description: Continue a conversation with an agent turn by turn, limit the history its model sees, read the history, and close the conversation.
+sidebar:
+  order: 5
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Every turn belongs to a conversation. A run without a `conversationId` opens a
+new one, and its result carries the id. Pass the id with the next message, and
+the agent's model sees what was said before.
+
+## Continue a conversation
+
+The scripts on this page read the API's URL and token from `KINDGI_API_URL`
+and `KINDGI_API_TOKEN`. With `kindgi dev`, they're the URL and token it prints
+(also in the pack's `.kindgirc.json`).
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// scripts/chat.ts
+import { createClient } from '@kindgi/sdk/client';
+import type { ThreadId } from '@kindgi/sdk/types';
+
+const kindgi = createClient({
+  apiUrl: process.env.KINDGI_API_URL!,
+  auth: { kind: 'apiToken', token: process.env.KINDGI_API_TOKEN! },
+});
+
+type Turn = { conversationId: ThreadId; turnNumber: number; response: { content: string } };
+
+const first = await kindgi.runs.start({
+  agent: 'acme.order-desk',
+  input: { userMessage: 'Hi, I am Ada. My order is A-1002.' },
+});
+const { conversationId } = first.output as Turn;
+
+const second = await kindgi.runs.start({
+  agent: 'acme.order-desk',
+  input: { userMessage: 'Has it shipped yet?', conversationId },
+});
+const turn = second.output as Turn;
+console.log(turn.turnNumber, turn.response.content);
+
+const history = await kindgi.conversations.messages(conversationId);
+for (const m of history.items) console.log(m.sequence, m.role, JSON.stringify(m.content));
+```
+
+```sh
+node scripts/chat.ts
+```
+
+```text
+2 No, your order A-1002 hasn't shipped yet—it's still in processing status. You'll receive an update once it's on its way.
+0 user "Hi, I am Ada. My order is A-1002."
+1 agent {"text":"","toolCalls":[{"id":"toolu_01LLRAWoi55mYXt2ztfW1Ap8","name":"acme.lookup-order","arguments":{"orderId":"A-1002"}}]}
+2 tool {"eta":null,"status":"processing","orderId":"A-1002"}
+3 agent "Hi Ada! Your order A-1002 is currently being processed. We don't have an estimated delivery date yet, but we'll update you once it ships."
+4 user "Has it shipped yet?"
+5 agent "No, your order A-1002 hasn't shipped yet—it's still in processing status. You'll receive an update once it's on its way."
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# scripts/chat.py
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()  # KINDGI_API_URL and KINDGI_API_TOKEN from the environment
+
+first = kindgi.runs.start(
+    agent="acme.order-desk",
+    input={"userMessage": "Hi, I am Ada. My order is A-1002."},
+)
+conversation_id = first.output["conversationId"]
+
+second = kindgi.runs.start(
+    agent="acme.order-desk",
+    input={"userMessage": "Has it shipped yet?", "conversationId": conversation_id},
+)
+print(second.output["turnNumber"], second.output["response"]["content"])
+
+history = kindgi.conversations.messages(conversation_id)
+for m in history.data:
+    print(m.sequence, m.role, m.content)
+```
+
+```sh
+uv run python scripts/chat.py
+```
+
+```text
+2 No, your order A-1002 hasn't shipped yet—it's still being processed. You'll be notified once it ships with a delivery date.
+0 user Hi, I am Ada. My order is A-1002.
+1 agent {'text': '', 'toolCalls': [{'id': 'toolu_01XKoyp8kWq9o8vVfoJdwmx3', 'name': 'acme.lookup-order', 'arguments': {'orderId': 'A-1002'}}]}
+2 tool {'eta': None, 'status': 'processing', 'orderId': 'A-1002'}
+3 agent Hi Ada! Your order A-1002 is currently being processed. Unfortunately, we don't have an expected delivery date available yet—we'll update you once it ships.
+4 user Has it shipped yet?
+5 agent No, your order A-1002 hasn't shipped yet—it's still being processed. You'll be notified once it ships with a delivery date.
+```
+
+</TabItem>
+</Tabs>
+
+The second message names no order, and the agent answers about A-1002: its
+model saw the first turn, including the tool call and its result. The history
+is every message in order: the user's, the agent's (a tool call or an answer)
+and each tool result. From the command line, pass the same field:
+`--input='{"userMessage":"Has it shipped yet?","conversationId":"<id>"}'`.
+
+## Limit what the model sees
+
+A long conversation makes every turn's prompt longer. `historyLimit` caps how
+many earlier messages a turn loads:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// in agents/order-desk/index.ts
+  conversationPolicy: { historyLimit: 20 },
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# in agents/order_desk.py
+    conversation_policy={"historyLimit": 20},
+```
+
+</TabItem>
+</Tabs>
+
+The turn loads the last 20 messages before the new one; older ones stay in the
+conversation but aren't sent. Without `historyLimit`, every turn loads the whole
+history. To see what a turn sent, read its journal
+(`kindgi runs journal <run-id>`): the `build-initial-messages` step's output
+has the messages.
+
+## Open, list and close conversations
+
+A conversation can also be opened before its first turn, with a title and the
+person it's with. Closing one ends it: a turn on a closed conversation is
+refused.
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// scripts/close.ts
+import { KindgiApiError, createClient } from '@kindgi/sdk/client';
+import type { AgentId } from '@kindgi/sdk/types';
+
+const kindgi = createClient({
+  apiUrl: process.env.KINDGI_API_URL!,
+  auth: { kind: 'apiToken', token: process.env.KINDGI_API_TOKEN! },
+});
+
+const conversation = await kindgi.conversations.open({
+  agentId: 'acme.order-desk' as AgentId,
+  agentVersion: '0.1.0',
+  title: 'Order A-1002',
+  participantId: 'customer-4411',
+});
+console.log(conversation.id, conversation.status, conversation.turnCount);
+
+await kindgi.runs.start({
+  agent: 'acme.order-desk',
+  input: { userMessage: 'Where is order A-1002?', conversationId: conversation.id },
+});
+
+const closed = await kindgi.conversations.close(conversation.id);
+console.log(closed.status, closed.turnCount);
+
+try {
+  await kindgi.runs.start({
+    agent: 'acme.order-desk',
+    input: { userMessage: 'One more thing…', conversationId: conversation.id },
+  });
+} catch (err) {
+  if (!(err instanceof KindgiApiError) || err.error.code !== 'conflict') throw err;
+  console.log(err.error.reason, err.message);
+}
+
+const list = await kindgi.conversations.list({ agent: 'acme.order-desk' as AgentId, status: 'closed' });
+console.log(list.items.map((c) => c.id));
+```
+
+```text
+88356874-400d-4bcd-9708-63ab51f88dd3 open 0
+closed 1
+conversation-closed Conversation "88356874-400d-4bcd-9708-63ab51f88dd3" is closed
+[
+  '88356874-400d-4bcd-9708-63ab51f88dd3',
+  …
+]
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# scripts/close.py
+from kindgi.client import ConflictError, Kindgi
+
+kindgi = Kindgi()
+
+conversation = kindgi.conversations.open(
+    agent_id="acme.order-desk",
+    agent_version="0.1.0",
+    title="Order A-1002",
+    participant_id="customer-4411",
+)
+print(conversation.id, conversation.status, conversation.turn_count)
+
+kindgi.runs.start(
+    agent="acme.order-desk",
+    input={"userMessage": "Where is order A-1002?", "conversationId": str(conversation.id)},
+)
+
+closed = kindgi.conversations.close(str(conversation.id))
+print(closed.status, closed.turn_count)
+
+try:
+    kindgi.runs.start(
+        agent="acme.order-desk",
+        input={"userMessage": "One more thing…", "conversationId": str(conversation.id)},
+    )
+except ConflictError as err:
+    print(err.server_code, err.message)
+
+page = kindgi.conversations.list(agent_id="acme.order-desk", status="closed")
+print([str(c.id) for c in page.data])
+```
+
+```text
+b3135493-47bd-4f78-90ac-fe0ff3e21e8d open 0
+closed 1
+conversation-closed Conversation "b3135493-47bd-4f78-90ac-fe0ff3e21e8d" is closed
+['b3135493-47bd-4f78-90ac-fe0ff3e21e8d', …]
+```
+
+</TabItem>
+</Tabs>
+
+- `open` pins the agent and its version (below); `title` defaults to
+  `Untitled conversation`. A conversation that a turn opens takes the agent's
+  name as its title.
+- `participantId` is kept on the conversation. A first turn can set it too,
+  with `participantId` in its input.
+- `close` is safe to repeat: closing a closed conversation returns it as it is.
+- `list` filters by agent and by `status` (`open` or `closed`), newest first;
+  `get` fetches one conversation.
+
+Over HTTP, these are `POST /v1/conversations`, `GET /v1/conversations`,
+`GET /v1/conversations/{id}`, `POST /v1/conversations/{id}/close` and
+`GET /v1/conversations/{id}/messages`.
+
+## A conversation keeps its agent version
+
+A conversation is pinned to the agent version it was opened with. After you
+change the agent's `version`, the next turn of an open conversation is
+refused:
+
+```text
+Error [server]: Conversation opened with acme.order-desk@0.1.0; invoked with acme.order-desk@0.2.0
+```
+
+(Its `serverCode` is `agent-version-mismatch`.) With `kindgi dev`, only the
+current version of an agent is registered, so start a new conversation. Bump
+the version when a change would break conversations under way, not on every
+edit.
+
+## Approvals in a conversation
+
+A conversation can make a person approve each turn once it runs long, or
+before a tool runs: see
+[Ask before a long conversation continues](../../approvals/ask-after-n-turns/)
+and [Ask before a tool runs](../../approvals/ask-before-a-tool-runs/).

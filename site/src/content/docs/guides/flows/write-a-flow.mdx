@@ -1,0 +1,394 @@
+---
+title: Write a flow
+description: Define a flow of tool and agent steps, run it, and change it while kindgi dev runs.
+sidebar:
+  order: 1
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+This page builds `acme.process-order`: look an order up, have an agent write
+a thank-you note, then confirm the order with that note. Two tools, one
+agent, one flow.
+
+## The tools
+
+`acme.get-order` only reads, so it says `mutating: false`.
+`acme.confirm-order` changes something, so it doesn't:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// tools/get-order/index.ts
+import { defineTool } from '@kindgi/sdk/define';
+import type { ToolId } from '@kindgi/sdk/types';
+import { z } from 'zod';
+
+const Order = z.object({
+  orderId: z.string(),
+  customer: z.string(),
+  total: z.number(),
+  items: z.array(z.object({ sku: z.string(), quantity: z.number().int() })),
+});
+
+const ORDERS: Record<string, z.infer<typeof Order>> = {
+  'A-100': { orderId: 'A-100', customer: 'ada@example.com', total: 42.5, items: [{ sku: 'mug', quantity: 2 }] },
+  'A-200': {
+    orderId: 'A-200',
+    customer: 'grace@example.com',
+    total: 1250,
+    items: [
+      { sku: 'desk', quantity: 1 },
+      { sku: 'lamp', quantity: 2 },
+    ],
+  },
+};
+
+const defined = defineTool({
+  id: 'acme.get-order' as ToolId,
+  description: 'Looks up an order by id.',
+  version: '0.1.0',
+  input: z.object({ orderId: z.string().min(1) }),
+  output: Order,
+  effects: [],
+  mutating: false, // only reads
+  handler: async ({ orderId }) => {
+    const order = ORDERS[orderId];
+    if (order === undefined) throw new Error(`No order ${orderId}`);
+    return order;
+  },
+});
+
+if (defined.kind === 'err') throw new Error(defined.error.message);
+
+export default defined.value;
+```
+
+```ts
+// tools/confirm-order/index.ts
+import { defineTool } from '@kindgi/sdk/define';
+import type { ToolId } from '@kindgi/sdk/types';
+import { z } from 'zod';
+
+const defined = defineTool({
+  id: 'acme.confirm-order' as ToolId,
+  description: 'Confirms an order and emails the customer.',
+  version: '0.1.0',
+  input: z.object({ orderId: z.string(), note: z.string().optional() }),
+  output: z.object({
+    orderId: z.string(),
+    status: z.literal('confirmed'),
+    note: z.string().optional(),
+  }),
+  effects: [],
+  // no `mutating: false`: it changes something
+  handler: async ({ orderId, note }) => ({ orderId, status: 'confirmed' as const, note }),
+});
+
+if (defined.kind === 'err') throw new Error(defined.error.message);
+
+export default defined.value;
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# tools/get_order.py
+from pydantic import BaseModel, Field
+
+from kindgi import tool
+
+
+class OrderQuery(BaseModel):
+    order_id: str = Field(alias="orderId", min_length=1)
+
+
+class Item(BaseModel):
+    sku: str
+    quantity: int
+
+
+class Order(BaseModel):
+    order_id: str = Field(alias="orderId")
+    customer: str
+    total: float
+    items: list[Item]
+
+
+ORDERS = {
+    "A-100": {"customer": "ada@example.com", "total": 42.5, "items": [{"sku": "mug", "quantity": 2}]},
+    "A-200": {
+        "customer": "grace@example.com",
+        "total": 1250,
+        "items": [{"sku": "desk", "quantity": 1}, {"sku": "lamp", "quantity": 2}],
+    },
+}
+
+
+@tool(id="acme.get-order", mutating=False)  # only reads
+def get_order(input: OrderQuery) -> Order:
+    """Looks up an order by id."""
+    order = ORDERS.get(input.order_id)
+    if order is None:
+        raise ValueError(f"No order {input.order_id}")
+    return Order(orderId=input.order_id, **order)
+```
+
+```python
+# tools/confirm_order.py
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+from kindgi import tool
+
+
+class ConfirmInput(BaseModel):
+    order_id: str = Field(alias="orderId")
+    note: str | None = None
+
+
+class Confirmed(BaseModel):
+    order_id: str = Field(alias="orderId")
+    status: Literal["confirmed"] = "confirmed"
+    note: str | None = None
+
+
+@tool(id="acme.confirm-order")  # no mutating=False: it changes something
+def confirm_order(input: ConfirmInput) -> Confirmed:
+    """Confirms an order and emails the customer."""
+    return Confirmed(orderId=input.order_id, note=input.note)
+```
+
+</TabItem>
+</Tabs>
+
+## The agent
+
+The agent has no tools: it reads the order's customer and total from its
+input and answers with one sentence.
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// agents/note-writer/index.ts
+import { defineAgent } from '@kindgi/sdk/define';
+import type { AgentId, Semver } from '@kindgi/sdk/types';
+
+const defined = defineAgent({
+  id: 'acme.note-writer' as AgentId,
+  version: '0.1.0' as Semver,
+  name: 'Note writer',
+  description: 'Writes a one-sentence thank-you note for an order.',
+  instructions:
+    'Write a one-sentence thank-you note to {{ input.customer }} for their order of {{ input.total }} USD. Answer with the note only.',
+  capabilities: [{ needs: [{ feature: 'tool-use' as const }] }],
+  tools: [],
+  retrieval: [],
+  guardrails: [],
+  parameters: [],
+  budget: { maxSteps: 2, maxCostUsd: 0.05, maxWallMs: 30_000 },
+});
+
+if (defined.kind === 'err') throw new Error(defined.error.message);
+
+export default defined.value;
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# agents/note_writer.py
+from kindgi import Agent
+
+note_writer = Agent(
+    id="acme.note-writer",
+    version="0.1.0",
+    name="Note writer",
+    description="Writes a one-sentence thank-you note for an order.",
+    instructions=(
+        "Write a one-sentence thank-you note to {{ input.customer }} for their order of "
+        "{{ input.total }} USD. Answer with the note only."
+    ),
+    capabilities=[{"needs": [{"feature": "tool-use"}]}],
+    budget={"maxSteps": 2, "maxCostUsd": 0.05, "maxWallMs": 30_000},
+)
+```
+
+</TabItem>
+</Tabs>
+
+## The flow
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// flows/process-order/index.ts
+import { defineFlow } from '@kindgi/sdk/define';
+
+const defined = defineFlow({
+  id: 'acme.process-order',
+  version: '0.1.0',
+  name: 'Process an order',
+  description: 'Looks up an order, writes a thank-you note, and confirms the order with it.',
+  nodes: [
+    {
+      id: 'order',
+      kind: 'tool',
+      ref: 'acme.get-order',
+      inputMapping: { orderId: { path: 'runInput.orderId' } },
+    },
+    {
+      id: 'note',
+      kind: 'agent',
+      ref: 'acme.note-writer',
+      inputMapping: {
+        customer: { path: 'nodeOutputs.order.customer' },
+        total: { path: 'nodeOutputs.order.total' },
+      },
+    },
+    {
+      id: 'confirm',
+      kind: 'tool',
+      ref: 'acme.confirm-order',
+      inputMapping: {
+        orderId: { path: 'runInput.orderId' },
+        note: { path: 'nodeOutputs.note.text' },
+      },
+    },
+  ],
+  edges: [
+    { id: 'e1', from: '$start', to: 'order' },
+    { id: 'e2', from: 'order', to: 'note' },
+    { id: 'e3', from: 'note', to: 'confirm' },
+    { id: 'e4', from: 'confirm', to: '$end' },
+  ],
+});
+
+if (defined.kind === 'err') throw new Error(defined.error.message);
+
+export default defined.value;
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# flows/process_order.py
+from kindgi import Flow
+
+process_order = Flow(
+    id="acme.process-order",
+    version="0.1.0",
+    name="Process an order",
+    description="Looks up an order, writes a thank-you note, and confirms the order with it.",
+    nodes=[
+        {
+            "id": "order",
+            "kind": "tool",
+            "ref": "acme.get-order",
+            "inputMapping": {"orderId": {"path": "runInput.orderId"}},
+        },
+        {
+            "id": "note",
+            "kind": "agent",
+            "ref": "acme.note-writer",
+            "inputMapping": {
+                "customer": {"path": "nodeOutputs.order.customer"},
+                "total": {"path": "nodeOutputs.order.total"},
+            },
+        },
+        {
+            "id": "confirm",
+            "kind": "tool",
+            "ref": "acme.confirm-order",
+            "inputMapping": {
+                "orderId": {"path": "runInput.orderId"},
+                "note": {"path": "nodeOutputs.note.text"},
+            },
+        },
+    ],
+    edges=[
+        {"id": "e1", "from": "$start", "to": "order"},
+        {"id": "e2", "from": "order", "to": "note"},
+        {"id": "e3", "from": "note", "to": "confirm"},
+        {"id": "e4", "from": "confirm", "to": "$end"},
+    ],
+)
+```
+
+</TabItem>
+</Tabs>
+
+- **`nodes`** are the steps. Each has an `id` (unique in the flow), a `kind`
+  and a `ref`: the id of the tool or agent it runs. In Python, `ref` can also
+  be the `Tool` or `Agent` object you import.
+- **`edges`** connect them. `$start` and `$end` are where the run enters and
+  leaves; an edge without a condition fires when its source step completes.
+- **`inputMapping`** builds each step's input from the run's input
+  (`runInput.…`) and earlier steps' outputs (`nodeOutputs.<step>.…`). See
+  [Pass data between steps](../pass-data-between-steps/).
+
+The shape is checked when the file loads: ids, edges between steps that
+exist, `$start` and `$end`, no cycles. That the tools and the agent exist is
+checked when a run starts: a run of a flow that names a tool your tenant
+doesn't have is refused before anything runs.
+
+## Run it
+
+With `kindgi dev` running in the pack, start a run from a second terminal:
+
+```sh
+kindgi runs start --flow=acme.process-order --input='{"orderId":"A-100"}'
+```
+
+```json
+{
+  "id": "f35d0699-00d8-4e85-944c-e0c9da3ce8e5",
+  …
+  "flowId": "acme.process-order",
+  "flowVersion": "0.1.0",
+  "status": "completed",
+  "dryRun": false,
+  …
+  "output": {
+    "note": "Thank you for your order of $42.50, ada@example.com!",
+    "status": "confirmed",
+    "orderId": "A-100"
+  },
+  …
+}
+```
+
+The command waits for the run to finish. The flow declares no `output`, so
+the run returns the output of the step that reached `$end`: here,
+`acme.confirm-order`'s.
+
+## The agent step
+
+An agent step runs one turn of the agent, as a run of its own (a child of the
+flow's run). The agent gets the step's input twice: as structured input, which
+`{{ input.customer }}` in its instructions reads, and as its user message (the
+input as JSON). [Give an agent its input](../../agents/give-an-agent-input/)
+has the details.
+
+The step's output has the answer as `text`, and as `output` when the agent
+declares a typed answer, plus the turn's `runId`. Without a model provider,
+`dev-echo` answers, and the note is the agent's input echoed back.
+
+## Change it
+
+Save a file and `kindgi dev` loads the new version; the next run uses it, with
+no restart. A run already in flight keeps the version it started on. Change
+`version` when what callers send or get back changes, not on every save.
+
+## Next
+
+- [Pass data between steps](../pass-data-between-steps/)
+- [Branch a flow](../branch-a-flow/)
+- [Start a run from your app](../../runs/start-a-run/)

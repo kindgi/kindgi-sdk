@@ -1,0 +1,381 @@
+---
+title: Wait for an approval
+description: Stop a flow until a person approves what an agent step is about to do, then continue on their decision.
+sidebar:
+  order: 8
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+A flow waits for a person through an agent step: when the agent asks for a
+tool that needs approval, its turn stops, and the flow stops with it. A
+reviewer decides, and the flow continues from where it stopped.
+
+`acme.escalate-order` has an agent put an order on hold (every hold waits for
+a person), then emails the customer if the hold went through. It uses
+`acme.hold-order` from [Pass data between steps](../pass-data-between-steps/)
+and `acme.email-customer` from [Join branches](../join-branches/).
+
+## The agent
+
+The agent gates `acme.hold-order` with `always_ask`, and returns a typed
+answer the flow can branch on:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// agents/order-holder/index.ts
+import { defineAgent } from '@kindgi/sdk/define';
+import type { AgentId, Semver } from '@kindgi/sdk/types';
+
+const defined = defineAgent({
+  id: 'acme.order-holder' as AgentId,
+  version: '0.1.0' as Semver,
+  name: 'Order holder',
+  description: 'Puts an order on hold, after a person approves.',
+  instructions:
+    'Put order {{ input.orderId }} on hold with the acme.hold-order tool, reason "{{ input.reason }}". ' +
+    'Set held to true if the tool ran, false if the call was rejected, and say why in summary.',
+  capabilities: [{ needs: [{ feature: 'tool-use' as const }] }],
+  tools: [{ id: 'acme.hold-order', version: '0.1.0' }],
+  retrieval: [],
+  guardrails: [],
+  parameters: [],
+  conversationPolicy: {
+    hitl: { tools: { overrides: { 'acme.hold-order': 'always_ask' } } },
+  },
+  output: {
+    schema: {
+      type: 'object',
+      properties: { held: { type: 'boolean' }, summary: { type: 'string' } },
+      required: ['held', 'summary'],
+    },
+  },
+  budget: { maxSteps: 4, maxCostUsd: 0.05, maxWallMs: 60_000 },
+});
+
+if (defined.kind === 'err') throw new Error(defined.error.message);
+
+export default defined.value;
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# tools/hold_order.py
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+from kindgi import tool
+
+
+class HoldInput(BaseModel):
+    order_id: str = Field(alias="orderId")
+    reason: str
+
+
+class Held(BaseModel):
+    order_id: str = Field(alias="orderId")
+    status: Literal["held"] = "held"
+
+
+@tool(id="acme.hold-order")  # no mutating=False: it writes, so a dry run stops before it
+def hold_order(input: HoldInput) -> Held:
+    """Puts an order on hold for a person to review."""
+    return Held(orderId=input.order_id)
+```
+
+```python
+# agents/order_holder.py
+from pydantic import BaseModel
+
+from kindgi import Agent
+
+from ..tools.hold_order import hold_order
+
+
+class HoldResult(BaseModel):
+    held: bool
+    summary: str
+
+
+order_holder = Agent(
+    id="acme.order-holder",
+    version="0.1.0",
+    name="Order holder",
+    description="Puts an order on hold, after a person approves.",
+    instructions=(
+        'Put order {{ input.orderId }} on hold with the acme.hold-order tool, reason "{{ input.reason }}". '
+        "Set held to true if the tool ran, false if the call was rejected, and say why in summary."
+    ),
+    capabilities=[{"needs": [{"feature": "tool-use"}]}],
+    tools=[hold_order],
+    conversation_policy={"hitl": {"tools": {"overrides": {"acme.hold-order": "always_ask"}}}},
+    output=HoldResult,
+    budget={"maxSteps": 4, "maxCostUsd": 0.05, "maxWallMs": 60_000},
+)
+```
+
+</TabItem>
+</Tabs>
+
+[Ask before a tool runs](../../approvals/ask-before-a-tool-runs/) covers the
+gates (`always_ask`, `never_ask`, and the default for tools that aren't
+read-only).
+
+## The flow
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// flows/escalate-order/index.ts
+import { defineFlow } from '@kindgi/sdk/define';
+
+const isHeld = {
+  op: 'eq',
+  left: { path: 'nodeOutputs.hold.output.held' },
+  right: { literal: true },
+} as const;
+
+const defined = defineFlow({
+  id: 'acme.escalate-order',
+  version: '0.1.0',
+  name: 'Escalate an order',
+  description: 'Has an agent put an order on hold, once a person approves, then tells the customer.',
+  nodes: [
+    {
+      id: 'order',
+      kind: 'tool',
+      ref: 'acme.get-order',
+      inputMapping: { orderId: { path: 'runInput.orderId' } },
+    },
+    {
+      id: 'hold',
+      kind: 'agent',
+      ref: 'acme.order-holder',
+      inputMapping: {
+        orderId: { path: 'runInput.orderId' },
+        reason: { path: 'runInput.reason' },
+      },
+    },
+    {
+      id: 'email',
+      kind: 'tool',
+      ref: 'acme.email-customer',
+      inputMapping: {
+        customer: { path: 'nodeOutputs.order.customer' },
+        status: { literal: 'held' },
+      },
+    },
+  ],
+  edges: [
+    { id: 'e1', from: '$start', to: 'order' },
+    { id: 'e2', from: 'order', to: 'hold' },
+    { id: 'e3', from: 'hold', to: 'email', when: isHeld },
+    { id: 'e4', from: 'hold', to: '$end', when: { op: 'not', child: isHeld } },
+    { id: 'e5', from: 'email', to: '$end' },
+  ],
+  output: {
+    mapping: {
+      held: { path: 'nodeOutputs.hold.output.held' },
+      summary: { path: 'nodeOutputs.hold.output.summary' },
+      notified: { path: 'nodeOutputs.email.to' },
+    },
+  },
+});
+
+if (defined.kind === 'err') throw new Error(defined.error.message);
+
+export default defined.value;
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# flows/escalate_order.py
+from kindgi import Flow
+
+IS_HELD = {
+    "op": "eq",
+    "left": {"path": "nodeOutputs.hold.output.held"},
+    "right": {"literal": True},
+}
+
+escalate_order = Flow(
+    id="acme.escalate-order",
+    version="0.1.0",
+    name="Escalate an order",
+    description="Has an agent put an order on hold, once a person approves, then tells the customer.",
+    nodes=[
+        {
+            "id": "order",
+            "kind": "tool",
+            "ref": "acme.get-order",
+            "inputMapping": {"orderId": {"path": "runInput.orderId"}},
+        },
+        {
+            "id": "hold",
+            "kind": "agent",
+            "ref": "acme.order-holder",
+            "inputMapping": {
+                "orderId": {"path": "runInput.orderId"},
+                "reason": {"path": "runInput.reason"},
+            },
+        },
+        {
+            "id": "email",
+            "kind": "tool",
+            "ref": "acme.email-customer",
+            "inputMapping": {
+                "customer": {"path": "nodeOutputs.order.customer"},
+                "status": {"literal": "held"},
+            },
+        },
+    ],
+    edges=[
+        {"id": "e1", "from": "$start", "to": "order"},
+        {"id": "e2", "from": "order", "to": "hold"},
+        {"id": "e3", "from": "hold", "to": "email", "when": IS_HELD},
+        {"id": "e4", "from": "hold", "to": "$end", "when": {"op": "not", "child": IS_HELD}},
+        {"id": "e5", "from": "email", "to": "$end"},
+    ],
+    output={
+        "mapping": {
+            "held": {"path": "nodeOutputs.hold.output.held"},
+            "summary": {"path": "nodeOutputs.hold.output.summary"},
+            "notified": {"path": "nodeOutputs.email.to"},
+        }
+    },
+)
+```
+
+</TabItem>
+</Tabs>
+
+Nothing in the flow says "wait": the step waits because the agent's tool call
+does. After the decision, `e3` or `e4` reads the agent's answer,
+`nodeOutputs.hold.output.held`.
+
+## Run it
+
+Only reviewers can decide approvals. Register yourself once:
+
+```sh
+kindgi reviewers register --spec='{"role":"standard"}'
+```
+
+Then start the flow:
+
+```sh
+kindgi runs start --flow=acme.escalate-order --input='{"orderId":"A-200","reason":"Address looks wrong"}'
+```
+
+```json
+{
+  "id": "7111dde4-bdd3-40a1-a6e8-2a550d0ad318",
+  …
+  "flowId": "acme.escalate-order",
+  "flowVersion": "0.1.0",
+  "status": "suspended",
+  …
+}
+```
+
+The run is `suspended`, and the command returns as soon as it waits. Nothing
+keeps running while it waits: the journal records where the run stopped, and
+the decision picks it up from there.
+
+```json
+{"sequence": 5, "kind": "step.started", "nodeId": "hold", "payload": {"input": {"reason": "Address looks wrong", "orderId": "A-200"}}, …}
+{"sequence": 6, "kind": "wait.suspended", "nodeId": "hold", "payload": {"nodeId": "hold", "tokenId": "child:5722bdd7-9c8c-4e57-a74c-ff5d1d3c46e2:25"}, …}
+```
+
+## Decide
+
+```sh
+kindgi approvals list --status=pending
+```
+
+```json
+{
+  "items": [
+    {
+      "id": "0eaa2820-0afe-4147-a017-fc8a4d1657cc",
+      …
+      "subjectKind": "tool-call:pending",
+      "subjectRef": {
+        …
+        "toolId": "acme.hold-order",
+        "agentId": "acme.order-holder",
+        …
+        "arguments": {
+          "reason": "Address looks wrong",
+          "orderId": "A-200"
+        },
+        …
+      },
+      "requiredRole": "standard",
+      "status": "pending",
+      …
+      "provenanceRef": {
+        "runId": "5722bdd7-9c8c-4e57-a74c-ff5d1d3c46e2"
+      },
+      …
+    }
+  ]
+}
+```
+
+`provenanceRef.runId` is the agent's turn, the step's own run; its
+`parentRunId` is the flow's run. Approve it:
+
+```sh
+kindgi approvals complete 0eaa2820-0afe-4147-a017-fc8a4d1657cc --decision=approve --rationale="Checked with the customer"
+```
+
+The decision resumes the agent's turn and then the flow, within the same
+call. By the time the command returns, the flow has finished:
+
+```sh
+kindgi runs get 7111dde4-bdd3-40a1-a6e8-2a550d0ad318
+```
+
+```json
+{
+  …
+  "status": "completed",
+  …
+  "output": {
+    "held": true,
+    "summary": "Order A-200 has been successfully placed on hold with the reason 'Address looks wrong'. The hold was accepted and processed.",
+    "notified": "grace@example.com"
+  }
+}
+```
+
+## When the reviewer rejects
+
+A rejection doesn't fail the step. The tool doesn't run, the agent gets the
+rejection (with the rationale) as the tool's result, and answers. Here it
+answers `held: false`, so `e4` ends the run without the email:
+
+```json
+{
+  "held": false,
+  "summary": "The hold request was rejected. The system determined that order A-100 is not a duplicate order, so the hold could not be placed with the reason 'Duplicate order.'"
+}
+```
+
+That's why the agent returns a typed answer: the flow decides what comes next
+from a field, not from the wording of a sentence.
+
+## Stop waiting
+
+`kindgi runs cancel <run-id>` on the flow's run cancels it and the agent's
+turn. It doesn't close the approval: withdraw it as well, as
+[Decide an approval](../../approvals/decide-an-approval/) shows.

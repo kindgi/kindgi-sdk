@@ -1,0 +1,204 @@
+---
+title: Set an agent's budget
+description: Cap the model calls, the spend and the time of each agent turn, and handle a turn that runs out.
+sidebar:
+  order: 6
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+A budget caps each turn of an agent: how many model calls it makes, what they
+cost, and how long it takes. A turn that runs out fails, and the run says which
+limit it hit.
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// in agents/order-desk/index.ts
+  budget: { maxSteps: 6, maxCostUsd: 0.05, maxWallMs: 60_000 },
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# in agents/order_desk.py
+    budget={"maxSteps": 6, "maxCostUsd": 0.05, "maxWallMs": 60_000},
+```
+
+</TabItem>
+</Tabs>
+
+| Field | Caps | Default |
+| --- | --- | --- |
+| `maxSteps` | Model calls in the turn. | 8 |
+| `maxCostUsd` | The turn's model spend, in US dollars. | none |
+| `maxWallMs` | The turn's time, in milliseconds. | 120000 |
+
+A **step** is one model call. The tool calls the model asks for run between
+steps, so a turn that looks an order up and then answers takes two. Repairing
+a [typed answer](../typed-answer/#when-the-answer-doesnt-fit) takes a step too.
+
+Cost is what the models' registered prices make of the tokens each call used
+(see [Models](../../models/)); a model registered with a price of zero never
+uses the cost budget.
+
+## When a turn runs out
+
+Each limit fails the turn with its own error. These are from
+`kindgi runs start … --verbose` on `acme.order-desk`, with one limit set low at
+a time.
+
+**Steps.** After a model call that asks for more tool calls, with no steps
+left:
+
+```text
+Error [server]: Agent turn steps budget exceeded (limit 1, observed 1)
+{
+  "code": "server",
+  "serverCode": "budget-exceeded",
+  "message": "Agent turn steps budget exceeded (limit 1, observed 1)",
+  "fields": {
+    "kind": "steps",
+    "limit": 1,
+    "observed": 1,
+    "runId": "32e87e56-e221-489c-be0e-74885038520d"
+  }
+}
+```
+
+**Cost.** Checked after each model call, against the turn's total so far:
+
+```text
+Error [server]: Agent turn cost budget exceeded (limit 0.0005, observed 0.000982)
+{
+  "code": "server",
+  "serverCode": "budget-exceeded",
+  "message": "Agent turn cost budget exceeded (limit 0.0005, observed 0.000982)",
+  "fields": {
+    "kind": "cost",
+    "limit": 0.0005,
+    "observed": 0.000982,
+    "runId": "c24f58c5-f883-4b82-8091-a48b053e53b7"
+  }
+}
+```
+
+**Time.** A timer that starts with the turn; when it fires, the model call in
+flight is cancelled:
+
+```text
+Error [server]: Agent turn aborted: Request was aborted.
+{
+  "code": "server",
+  "serverCode": "agent-turn-aborted",
+  "message": "Agent turn aborted: Request was aborted.",
+  "fields": {
+    "reason": "timeout",
+    "runId": "2950dd5b-c706-48bd-837f-5329b19c29d4"
+  }
+}
+```
+
+The run is `failed`, and `kindgi runs journal <run-id>` shows how far it got.
+
+:::caution[The last step has happened]
+The limits are checked after a model call and its tool calls. So when steps or
+cost run out, the call that crossed the limit was made and paid for
+(`observed 0.000982` against a limit of `0.0005` above), and the tools it asked
+for have run. Set `maxCostUsd` with one call's worth of room.
+:::
+
+Leave room for real models: one call to a hosted model takes a second or more,
+and a model on your own machine can take ten. A turn with a tool call makes two
+calls.
+
+## Handle it in your app
+
+The failed turn comes back as an error, with the limit in its fields:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// scripts/budget.ts
+import { KindgiApiError, createClient } from '@kindgi/sdk/client';
+
+const kindgi = createClient({
+  apiUrl: process.env.KINDGI_API_URL!,
+  auth: { kind: 'apiToken', token: process.env.KINDGI_API_TOKEN! },
+});
+
+try {
+  await kindgi.runs.start({
+    agent: 'acme.order-desk',
+    input: { userMessage: 'Where is my order A-1001?' },
+  });
+} catch (err) {
+  if (!(err instanceof KindgiApiError)) throw err;
+  const e = err.error;
+  if (e.code === 'server' && e.serverCode === 'budget-exceeded') {
+    console.log(e.fields?.kind, e.fields?.limit, e.fields?.observed, e.fields?.runId);
+  } else {
+    throw err;
+  }
+}
+```
+
+```text
+steps 1 1 2cc56724-92e7-42e8-aefd-14ad5c294d1f
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# scripts/budget.py
+from kindgi.client import Kindgi, KindgiApiError
+
+kindgi = Kindgi()
+try:
+    kindgi.runs.start(agent="acme.order-desk", input={"userMessage": "Where is my order A-1001?"})
+except KindgiApiError as err:
+    if err.server_code == "budget-exceeded":
+        print(err.details["kind"], err.details["limit"], err.details["observed"], err.details["runId"])
+    else:
+        raise
+```
+
+```text
+steps 1 1 3deffc12-053e-43e3-b735-9a415d95645f
+```
+
+</TabItem>
+</Tabs>
+
+A turn that runs out of time has `serverCode` `agent-turn-aborted` instead,
+with `reason` `timeout`.
+
+## In a flow
+
+An agent step whose turn runs out fails, and the flow run fails with it. The
+run carries the reason:
+
+```sh
+kindgi runs start --flow=acme.notify-customer --input='{"orderId":"A-1001"}'
+```
+
+```json
+{
+  …
+  "flowId": "acme.notify-customer",
+  …
+  "status": "failed",
+  …
+  "failureMessage": "budget-exceeded: Agent turn cost budget exceeded (limit 0.00001, observed 0.00031)",
+  "output": {},
+  …
+}
+```
+
+Here the step's agent, `acme.order-update` from
+[Give an agent its input](../give-an-agent-input/#in-a-flow-step), had
+`budget: { maxCostUsd: 0.00001 }`.

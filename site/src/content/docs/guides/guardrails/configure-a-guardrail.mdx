@@ -1,0 +1,137 @@
+---
+title: Configure a guardrail
+description: Give a guardrail's check its settings with config, describe them with a schema, and change them without touching the check.
+sidebar:
+  order: 2
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+A check's settings (a limit, a list of words, a tool's id) don't belong in
+its code. The guardrail declares them as `config`, and the check runs with
+them. The [answer-length guardrail](../write-a-guardrail/) has one setting,
+`maxChars`:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// in guardrails/answer-length/index.ts
+export const check = defineCheck({
+  id: 'my-pack.checks.answer-length',
+  kind: 'zero-llm',
+  configSchema: z.object({ maxChars: z.number().int().positive().optional() }),
+  evaluate: async (config, trace) => {
+    const max = config.maxChars ?? 500;
+    // …
+  },
+});
+
+export default {
+  id: 'my-pack.answer-length',
+  // …
+  check,
+  config: { maxChars: 60 },
+  // …
+};
+```
+
+`configSchema` describes the settings; `config` in the declaration gives
+their values. The check's `evaluate` gets those values, typed from the
+schema.
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# in guardrails/answer_length.py
+class Config(BaseModel):
+    max_chars: int = Field(500, alias="maxChars", gt=0)
+
+
+@guardrail(
+    id="my-pack.answer-length",
+    # …
+    config={"maxChars": 60},
+)
+def answer_length(config: Config, trace: RunTrace) -> CheckResult:
+    ...
+```
+
+The type of the check's first parameter describes the settings; `config=`
+gives their values, keyed by their wire names, the aliases: `maxChars`, not
+`max_chars`.
+
+</TabItem>
+</Tabs>
+
+## Change a setting
+
+Edit the value and save; the next turn uses it. With `maxChars: 100`, the
+`dev-echo` answer from [Write a guardrail](../write-a-guardrail/#run-it)
+passes:
+
+```sh
+kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
+```
+
+```json
+  "status": "completed",
+  …
+    "violations": [],
+```
+
+The registered guardrail shows the values it runs with:
+
+```sh
+kindgi guardrails get my-pack.answer-length
+```
+
+```json
+  "config": {
+    "maxChars": 100
+  },
+```
+
+## What the check receives
+
+The two SDKs differ here.
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+`evaluate` gets `config` exactly as the declaration gives it:
+
+- **Defaults aren't filled in.** A guardrail without `config` runs its check
+  with `{}`, and a Zod `.default()` doesn't apply. Make settings optional in
+  the schema and fall back in the check, as `config.maxChars ?? 500` does.
+- **Values aren't checked against `configSchema`** in 0.1.0. With
+  `config: { maxChars: -5 }`, every answer fails:
+  `The answer is 86 characters; the limit is -5.` Check a value in
+  `evaluate` if a wrong one would do harm.
+
+</TabItem>
+<TabItem label="Python">
+
+The check gets `config` parsed into its type:
+
+- **Defaults are filled in.** A guardrail without `config=` runs with the
+  type's defaults; here, a limit of 500. Give every field a default: a
+  required field with no value fails every turn the guardrail checks,
+  whatever its action
+  (`input-validation-failed: Check "my-pack.req-cfg" config failed validation`).
+- **Values are checked where they're declared.** A value that doesn't fit is
+  a `DefinitionError`, and `python -m kindgi.pack index` (and `kindgi dev`)
+  reports the file:
+
+  ```text
+  Guardrail "my-pack.answer-length": config does not fit its type: 1 validation error for Config
+  maxChars
+    Input should be greater than 0 [type=greater_than, input_value=-5, input_type=int]
+  ```
+
+- **A key that isn't a wire name is ignored.** `config={"max_chars": 60}`
+  isn't an error: the field keeps its default.
+
+</TabItem>
+</Tabs>

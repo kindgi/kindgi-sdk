@@ -1,0 +1,287 @@
+---
+title: Pass data between steps
+description: Build each step's input from the run's input, earlier steps' outputs and fixed values, and declare what the run returns.
+sidebar:
+  order: 2
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Each step's `inputMapping` says where every key of its input comes from. The
+flow's `output` says what the run returns. This page uses one more tool,
+`acme.hold-order`, which puts an order on hold:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// tools/hold-order/index.ts
+import { defineTool } from '@kindgi/sdk/define';
+import type { ToolId } from '@kindgi/sdk/types';
+import { z } from 'zod';
+
+const defined = defineTool({
+  id: 'acme.hold-order' as ToolId,
+  description: 'Puts an order on hold for a person to review.',
+  version: '0.1.0',
+  input: z.object({ orderId: z.string(), reason: z.string() }),
+  output: z.object({ orderId: z.string(), status: z.literal('held') }),
+  effects: [],
+  // no `mutating: false`: it writes, so a dry run stops before it
+  handler: async ({ orderId }) => ({ orderId, status: 'held' as const }),
+});
+
+if (defined.kind === 'err') throw new Error(defined.error.message);
+
+export default defined.value;
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# tools/hold_order.py
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+from kindgi import tool
+
+
+class HoldInput(BaseModel):
+    order_id: str = Field(alias="orderId")
+    reason: str
+
+
+class Held(BaseModel):
+    order_id: str = Field(alias="orderId")
+    status: Literal["held"] = "held"
+
+
+@tool(id="acme.hold-order")  # no mutating=False: it writes, so a dry run stops before it
+def hold_order(input: HoldInput) -> Held:
+    """Puts an order on hold for a person to review."""
+    return Held(orderId=input.order_id)
+```
+
+</TabItem>
+</Tabs>
+
+## Map a step's input
+
+`acme.hold-for-stock` looks an order up, then holds it with a fixed reason:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// flows/hold-for-stock/index.ts
+import { defineFlow } from '@kindgi/sdk/define';
+
+const defined = defineFlow({
+  id: 'acme.hold-for-stock',
+  version: '0.1.0',
+  name: 'Hold an order for stock',
+  description: 'Looks up an order and puts it on hold.',
+  nodes: [
+    {
+      id: 'order',
+      kind: 'tool',
+      ref: 'acme.get-order',
+      inputMapping: { orderId: { path: 'runInput.orderId' } },
+    },
+    {
+      id: 'hold',
+      kind: 'tool',
+      ref: 'acme.hold-order',
+      inputMapping: {
+        orderId: { path: 'nodeOutputs.order.orderId' },
+        reason: { literal: 'Waiting for stock' },
+      },
+    },
+  ],
+  edges: [
+    { id: 'e1', from: '$start', to: 'order' },
+    { id: 'e2', from: 'order', to: 'hold' },
+    { id: 'e3', from: 'hold', to: '$end' },
+  ],
+  output: {
+    mapping: {
+      orderId: { path: 'runInput.orderId' },
+      customer: { path: 'nodeOutputs.order.customer' },
+      status: { path: 'nodeOutputs.hold.status' },
+    },
+    schema: {
+      type: 'object',
+      properties: {
+        orderId: { type: 'string' },
+        customer: { type: 'string' },
+        status: { type: 'string' },
+      },
+      required: ['orderId', 'customer', 'status'],
+    },
+  },
+});
+
+if (defined.kind === 'err') throw new Error(defined.error.message);
+
+export default defined.value;
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# flows/hold_for_stock.py
+from kindgi import Flow
+
+hold_for_stock = Flow(
+    id="acme.hold-for-stock",
+    version="0.1.0",
+    name="Hold an order for stock",
+    description="Looks up an order and puts it on hold.",
+    nodes=[
+        {
+            "id": "order",
+            "kind": "tool",
+            "ref": "acme.get-order",
+            "inputMapping": {"orderId": {"path": "runInput.orderId"}},
+        },
+        {
+            "id": "hold",
+            "kind": "tool",
+            "ref": "acme.hold-order",
+            "inputMapping": {
+                "orderId": {"path": "nodeOutputs.order.orderId"},
+                "reason": {"literal": "Waiting for stock"},
+            },
+        },
+    ],
+    edges=[
+        {"id": "e1", "from": "$start", "to": "order"},
+        {"id": "e2", "from": "order", "to": "hold"},
+        {"id": "e3", "from": "hold", "to": "$end"},
+    ],
+    output={
+        "mapping": {
+            "orderId": {"path": "runInput.orderId"},
+            "customer": {"path": "nodeOutputs.order.customer"},
+            "status": {"path": "nodeOutputs.hold.status"},
+        },
+        "schema": {
+            "type": "object",
+            "properties": {
+                "orderId": {"type": "string"},
+                "customer": {"type": "string"},
+                "status": {"type": "string"},
+            },
+            "required": ["orderId", "customer", "status"],
+        },
+    },
+)
+```
+
+</TabItem>
+</Tabs>
+
+Each key of `inputMapping` is a key of the tool's input, and its value is one
+of:
+
+- **`{ path: 'runInput.…' }`**: from the input the run was started with.
+- **`{ path: 'nodeOutputs.<step>.…' }`**: from the output of an earlier step,
+  by the step's `id`.
+- **`{ literal: … }`**: a fixed value, any JSON.
+
+Paths are dot-separated field names: `nodeOutputs.order.customer` is the
+`customer` field of the `order` step's output.
+
+In Python, the keys are the tool input's names as they travel: a field's
+alias when it has one (`orderId` for `order_id: str = Field(alias="orderId")`),
+else its name.
+
+```sh
+kindgi runs start --flow=acme.hold-for-stock --input='{"orderId":"A-200"}'
+```
+
+```json
+{
+  …
+  "flowId": "acme.hold-for-stock",
+  "status": "completed",
+  …
+  "output": {
+    "status": "held",
+    "orderId": "A-200",
+    "customer": "grace@example.com"
+  },
+  …
+}
+```
+
+The journal shows the input each step got, after mapping:
+
+```sh
+kindgi runs journal <run-id>
+```
+
+```json
+    {
+      "sequence": 5,
+      "kind": "step.started",
+      "nodeId": "hold",
+      "payload": {
+        "input": {
+          "reason": "Waiting for stock",
+          "orderId": "A-200"
+        }
+      },
+      …
+    },
+```
+
+## Without a mapping
+
+A step without `inputMapping` gets the output of the step before it (the
+run's input, after `$start`). The tool's input schema takes the fields it
+declares and drops the rest, so a step that needs exactly what the previous
+step returns doesn't need a mapping. A step with several incoming edges needs
+one.
+
+## When a path doesn't resolve
+
+A path that doesn't resolve leaves its key out of the input, rather than
+setting it to `null`. If the tool requires that key, the step fails. Mapping
+`reason` from `nodeOutputs.order.reason`, which `acme.get-order` doesn't
+return, fails the run with:
+
+```text
+input-validation-failed: Input for tool "acme.hold-order" failed validation
+```
+
+A key that may be missing (because it comes from a branch that may not run)
+belongs in the tool's input as optional: `.optional()` in zod, a default in
+pydantic. [Join branches](../join-branches/) has an example.
+
+## An agent step's answer
+
+An agent step's output has the answer as text, and as fields when the agent
+declares a [typed answer](../../agents/typed-answer/):
+
+- `nodeOutputs.<step>.text`: the answer as text.
+- `nodeOutputs.<step>.output.<field>`: a field of the typed answer. Note the
+  `.output`: `nodeOutputs.<step>.<field>` doesn't resolve.
+
+## Declare the run's output
+
+`output.mapping` is resolved when the run finishes, from the same roots as
+`inputMapping`. With a `schema`, the result is checked against it, and a run
+whose output doesn't match fails. If `customer` were mapped from a path that
+doesn't resolve, the run above would fail with:
+
+```text
+output-schema-violation: the run's output does not match the flow's output schema: [{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"customer"},"message":"must have required property 'customer'"}]
+```
+
+Without `output`, the run returns the output of the step that reached `$end`.
+Declare `output` when callers rely on the shape: it stays the same when you
+add or reorder steps.

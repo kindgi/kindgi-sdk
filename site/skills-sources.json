@@ -1,0 +1,135 @@
+{
+  "$comment": "Each skill kindgi init installs is a view of these site pages (paths under site/src/content/docs, without the extension). samples: checked = its file samples are typechecked/indexed by check-samples; fragments = they're teaching excerpts, checked once the skill is revised (before/after); none = no file samples.",
+  "skills": {
+    "kindgi-authoring-agents": {
+      "pages": [
+        "guides/agents/budgets",
+        "guides/agents/choose-a-model",
+        "guides/agents/conversations",
+        "guides/agents/give-an-agent-input",
+        "guides/agents/index",
+        "guides/agents/typed-answer",
+        "guides/agents/write-an-agent"
+      ],
+      "samples": "checked"
+    },
+    "kindgi-authoring-flows": {
+      "pages": [
+        "guides/flows/branch-a-flow",
+        "guides/flows/dry-run-a-flow",
+        "guides/flows/index",
+        "guides/flows/join-branches",
+        "guides/flows/loop",
+        "guides/flows/pass-data-between-steps",
+        "guides/flows/retry-a-step",
+        "guides/flows/run-steps-in-parallel",
+        "guides/flows/wait-for-an-approval",
+        "guides/flows/write-a-flow"
+      ],
+      "samples": "checked"
+    },
+    "kindgi-authoring-guardrails": {
+      "pages": [
+        "guides/guardrails/configure-a-guardrail",
+        "guides/guardrails/halt-or-record",
+        "guides/guardrails/index",
+        "guides/guardrails/write-a-guardrail"
+      ],
+      "samples": "fragments"
+    },
+    "kindgi-authoring-mcp-servers": {
+      "pages": ["start/coding-agents"],
+      "samples": "none"
+    },
+    "kindgi-authoring-providers": {
+      "pages": [
+        "guides/models/anthropic",
+        "guides/models/gemini-on-vertex-ai",
+        "guides/models/index",
+        "guides/models/openai-compatible",
+        "guides/models/serve-your-own-model"
+      ],
+      "samples": "fragments"
+    },
+    "kindgi-authoring-tools": {
+      "pages": [
+        "guides/tools/give-a-tool-a-secret",
+        "guides/tools/http-tools",
+        "guides/tools/index",
+        "guides/tools/mcp-servers",
+        "guides/tools/read-only-tools",
+        "guides/tools/write-a-tool"
+      ],
+      "samples": "fragments"
+    },
+    "kindgi-framework-feedback": {
+      "pages": ["start/coding-agents"],
+      "samples": "none"
+    },
+    "kindgi-getting-started": {
+      "pages": [
+        "start/install",
+        "start/quickstart-typescript",
+        "start/existing-app",
+        "tutorials/support-desk-typescript"
+      ],
+      "samples": "none"
+    },
+    "kindgi-python-authoring-agents": {
+      "pages": [
+        "guides/agents/budgets",
+        "guides/agents/choose-a-model",
+        "guides/agents/conversations",
+        "guides/agents/give-an-agent-input",
+        "guides/agents/index",
+        "guides/agents/typed-answer",
+        "guides/agents/write-an-agent"
+      ],
+      "samples": "fragments"
+    },
+    "kindgi-python-authoring-flows": {
+      "pages": [
+        "guides/flows/branch-a-flow",
+        "guides/flows/dry-run-a-flow",
+        "guides/flows/index",
+        "guides/flows/join-branches",
+        "guides/flows/loop",
+        "guides/flows/pass-data-between-steps",
+        "guides/flows/retry-a-step",
+        "guides/flows/run-steps-in-parallel",
+        "guides/flows/wait-for-an-approval",
+        "guides/flows/write-a-flow"
+      ],
+      "samples": "fragments"
+    },
+    "kindgi-python-authoring-guardrails": {
+      "pages": [
+        "guides/guardrails/configure-a-guardrail",
+        "guides/guardrails/halt-or-record",
+        "guides/guardrails/index",
+        "guides/guardrails/write-a-guardrail"
+      ],
+      "samples": "checked"
+    },
+    "kindgi-python-authoring-tools": {
+      "pages": [
+        "guides/tools/give-a-tool-a-secret",
+        "guides/tools/http-tools",
+        "guides/tools/index",
+        "guides/tools/mcp-servers",
+        "guides/tools/read-only-tools",
+        "guides/tools/write-a-tool"
+      ],
+      "samples": "fragments"
+    },
+    "kindgi-python-getting-started": {
+      "pages": [
+        "start/install",
+        "start/quickstart-python",
+        "start/existing-app",
+        "tutorials/support-desk-python"
+      ],
+      "samples": "fragments"
+    }
+  }
+}

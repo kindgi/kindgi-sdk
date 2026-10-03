@@ -18,7 +18,7 @@ Then log in to its registry once, with `docker login quay.io`
 
 ## 1. Create the pack
 
-```sh
+```sh tutorial=run
 npx @kindgi/cli init my-pack --template=sample
 cd my-pack
 pnpm install
@@ -54,7 +54,7 @@ examples.)
 
 ## 2. Run it
 
-```sh
+```sh tutorial=background ready="Kindgi is up"
 pnpm exec kindgi dev
 ```
 
@@ -68,11 +68,11 @@ themselves. Leave it running.
 
 In a second terminal, in `my-pack`:
 
-```sh
+```sh tutorial=run
 pnpm exec kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
 ```
 
-```text
+```text tutorial=expect
   "status": "completed",
 …
 ⚠ Answered by "dev-echo", a fallback provider: no other registered provider satisfies agent "my-pack.echo-agent".
@@ -93,11 +93,11 @@ of your own.
 
 ## 4. Run the flow
 
-```sh
+```sh tutorial=run
 pnpm exec kindgi runs start --flow=my-pack.echo-flow --input='{"name":"Ada"}'
 ```
 
-```text
+```text tutorial=expect
   "status": "completed",
 …
     "greeting": "Hello, Ada!"
@@ -174,6 +174,10 @@ from a short spec file.
 
 ## Next
 
+- [Build a support desk](../../tutorials/support-desk-typescript/): tools
+  over your own code, a typed answer, a flow that acts on it.
+- [Guides](../../guides/): one task at a time: tools, agents, models, flows,
+  runs, webhooks, approvals, secrets.
 - [Add Kindgi to an existing app](../existing-app/): your app's own code
   as tools, and your app starting runs.
 - [Concepts](../../concepts/): packs, runs and the journal, security.

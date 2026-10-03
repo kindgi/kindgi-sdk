@@ -1,0 +1,56 @@
+---
+/*
+ * "Edit page" and "Report a problem", under every page.
+ *
+ * Edit goes to the page's source on main (Starlight's `editLink`): a
+ * hand-written page's file under `site/`, or the `editUrl` a generated page
+ * names (the contributing pages name their repository file). Generated
+ * reference pages have no source to edit, so they get only the report link.
+ */
+import { Icon } from '@astrojs/starlight/components';
+
+const REPOSITORY = 'https://github.com/kindgi/kindgi-sdk';
+const GENERATED = 'src/content/docs/reference/';
+
+const route = Astro.locals.starlightRoute;
+const named = route.entry.data.editUrl;
+const generated = route.entry.filePath?.startsWith(GENERATED) ?? true;
+const editUrl =
+  typeof named === 'string' ? named : named === false || generated ? undefined : route.editUrl?.href;
+
+const page = new URL(Astro.url.pathname, 'https://docs.kindgi.com').href;
+const issue = new URL(`${REPOSITORY}/issues/new`);
+issue.searchParams.set('title', `Docs: ${route.entry.data.title}`);
+issue.searchParams.set('body', `Page: ${page}\n\nWhat's wrong or missing:\n`);
+---
+
+<div class="kindgi-page-links sl-flex print:hidden">
+  {
+    editUrl && (
+      <a href={editUrl} class="sl-flex">
+        <Icon name="pencil" size="1.2em" />
+        {Astro.locals.t('page.editLink')}
+      </a>
+    )
+  }
+  <a href={issue.href} class="sl-flex">
+    <Icon name="comment-alt" size="1.2em" />
+    Report a problem with this page
+  </a>
+</div>
+
+<style>
+  .kindgi-page-links {
+    gap: 0.5rem 1.5rem;
+    flex-wrap: wrap;
+  }
+  a {
+    gap: 0.5rem;
+    align-items: center;
+    text-decoration: none;
+    color: var(--sl-color-gray-3);
+  }
+  a:hover {
+    color: var(--sl-color-white);
+  }
+</style>

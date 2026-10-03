@@ -1,0 +1,164 @@
+---
+title: Get a webhook when a run finishes
+description: Store a signing secret, register a webhook endpoint that refers to it by name, and receive a signed run.finished request when a run ends.
+sidebar:
+  order: 1
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Kindgi signs each request with a secret that your receiver knows too. The
+secret lives with your other secrets, and the endpoint refers to it by name:
+Kindgi never stores it with the endpoint.
+
+## 1. Store a signing secret
+
+A signing secret is `whsec_` and the base64 of at least 24 random bytes.
+Generate one:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+import { generateWebhookSecret } from '@kindgi/sdk/webhooks';
+
+console.log(generateWebhookSecret());
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+from kindgi import webhooks
+
+print(webhooks.generate_secret())
+```
+
+</TabItem>
+</Tabs>
+
+Store it as a secret, under a name (the CLI asks for the value and doesn't
+echo it):
+
+```sh
+kindgi secrets set ACME_WEBHOOK_SECRET --env=local --scope=tenant
+```
+
+```text
+  Set ACME_WEBHOOK_SECRET at tenant in local.
+```
+
+In development, the `local` environment is the pack's env files: this writes
+`.env.local`, and a line in `.env` works too. In a deployment, store it in
+that deployment's secrets store, under its environment's name (see
+[`kindgi secrets`](../../../reference/cli/secrets/)). Your receiver needs the
+same value, from its own configuration.
+
+## 2. Register the endpoint
+
+There's no CLI command for webhook endpoints; register one from your app (or
+any HTTP client) with the client:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+const endpoint = await kindgi.webhookEndpoints.create({
+  url: 'http://localhost:8787/hooks/kindgi',
+  events: ['run.finished'],
+  secretRef: { envName: 'local', name: 'ACME_WEBHOOK_SECRET' },
+  filter: { flowIds: ['acme.review-order'] }, // optional
+});
+console.log(endpoint.endpointId, endpoint.url);
+```
+
+```text
+5c1d2267-4dc8-4bd6-81e8-940e620405ea http://localhost:8787/hooks/kindgi
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+endpoint = kindgi.webhook_endpoints.create(
+    url="http://localhost:8788/hooks/kindgi",
+    events=["run.finished"],
+    secret_ref={"envName": "local", "name": "ACME_WEBHOOK_SECRET"},
+    filter={"flowIds": ["acme.review-order"]},  # optional
+)
+print(endpoint.endpoint_id, endpoint.url)
+```
+
+```text
+07fec45a-f938-4694-8ac3-f72f38a938a4 http://localhost:8788/hooks/kindgi
+```
+
+</TabItem>
+</Tabs>
+
+- **`url`** is your receiver. Use https in production; plain http is for
+  development. In `kindgi dev`, `localhost` reaches your machine, not the
+  runtime's container.
+- **`events`**: `run.finished`.
+- **`secretRef`** names the secret: the environment it's in (`local` in
+  development) and its name. Kindgi checks that it exists and is strong
+  enough, and keeps only the name:
+
+  ```json
+  {"error":{"code":"webhook-secret-not-found","message":"No secret \"NOPE_SECRET\" in \"local\": store it first, then register the endpoint",…}}
+  ```
+
+- **`filter`** narrows which runs reach the endpoint: `flowIds` (any version
+  of these flows), `projectId`, and `includeDryRuns` (dry runs are left out
+  unless it's `true`). Without a filter, every run you start does.
+
+Only runs your app or the CLI started send `run.finished`; the runs inside
+them (an agent step's turn) don't.
+
+## 3. What your endpoint receives
+
+When a run of `acme.review-order` ends, your URL gets a `POST`:
+
+```text
+POST /hooks/kindgi
+content-type: application/json
+user-agent: Kindgi-Webhooks/1
+webhook-id: d7bc2805-587c-4830-a36f-fddeb0b7a423
+webhook-timestamp: 1791058584
+webhook-signature: v1,bj8Mj6s7ln2Gd1sDRQi8+Wax2SOFHovsdMIwvNhDrgw=
+```
+
+```json
+{
+  "id": "d7bc2805-587c-4830-a36f-fddeb0b7a423",
+  "type": "run.finished",
+  "createdAt": "2026-10-03T20:16:24.554Z",
+  "data": {
+    "run": {
+      "id": "c24869c1-9243-4531-920b-d657e05eac0b",
+      "projectId": "bc654965-c4fb-4667-85f1-33e46f4a4f0c",
+      "flowId": "acme.check-order-stock",
+      "flowVersion": "0.1.0",
+      "status": "completed",
+      "dryRun": false,
+      "failureMessage": null,
+      "createdAt": "2026-10-03T20:16:24.465Z",
+      "completedAt": "2026-10-03T20:16:24.554Z"
+    }
+  }
+}
+```
+
+- `status` is `completed`, `failed` or `cancelled`; `failureMessage` says why
+  when it failed.
+- The event carries the run's identity and outcome, never its input or
+  output. Fetch the run (`runs.get`) for its output.
+- `webhook-id` is the event's id, the same on every retry.
+
+## Delivery
+
+Answer with a 2xx status. Any other answer, or none, is retried with backoff
+(a minute later, then five minutes, then longer). A delivery is **at least
+once**: the same event can arrive twice, so deduplicate on `webhook-id`.
+[Verify a webhook](../verify-a-webhook/) has receivers that check the
+signature and do that.

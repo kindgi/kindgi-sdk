@@ -8,4 +8,4 @@ sidebar:
 
 The ideas behind Kindgi: how it fits your app, packs and their primitives,
 runs and the journal, the security model, and licensing. Read these to
-understand a behavior.
+understand a behavior; read [Guides](../guides/) to get something done.

@@ -1,0 +1,218 @@
+---
+title: Decide an approval
+description: Register reviewers, find what's waiting, and approve, reject, escalate or withdraw it from the CLI or your app.
+sidebar:
+  order: 2
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+A run that waits for a person (a [gated tool call](../ask-before-a-tool-runs/)
+or a [long conversation](../ask-after-n-turns/)) creates an **approval**. A
+**reviewer** decides it, and the run moves on.
+
+## Reviewers and roles
+
+Only reviewers see approvals. Until you register, every approvals command is
+refused:
+
+```sh
+kindgi approvals list
+```
+
+```text
+Error [auth]: This token was not provisioned with a reviewer role; approvals surface is reviewer-only.
+```
+
+Register yourself, the user your API token belongs to, with a role:
+
+```sh
+kindgi reviewers register --spec='{"role":"standard","displayName":"Ada Lovelace"}'
+```
+
+```json
+{
+  "id": "b4bc07d5-1640-4c4c-9cbe-710aa6ca7d36",
+  "tenantId": "3a9fb26d-9782-4bdb-a4f9-3c97d2644b72",
+  "userId": "b9b6a8af-84ee-4514-a609-a76230750869",
+  "role": "standard",
+  "displayName": "Ada Lovelace",
+  "createdAt": "2026-10-03T19:55:32.200Z"
+}
+```
+
+The roles rank `standard`, `senior`, `admin`. Each approval has a
+`requiredRole`, and a reviewer sees and decides the approvals that need their
+role or a lower one. An approval that needs a higher role doesn't show up in
+the list, and fetching or deciding it answers `not-found`.
+
+Registering again changes the role. `kindgi reviewers list` shows the
+reviewers; `kindgi reviewers unregister <reviewer-id>` removes one (their
+past decisions stay).
+
+## Find what's waiting
+
+```sh
+kindgi approvals list --status=pending
+kindgi approvals get <approval-id>
+```
+
+Without `--status`, the list includes decided approvals too. In each
+approval:
+
+- **`subjectKind`** is what waits: `tool-call:pending` is a tool call (the
+  `subjectRef` has the `toolId` and the `arguments`);
+  `agent-turn:session-hitl-gate` is a conversation that reached its turn limit
+  (the `subjectRef` has the `conversationId` and the `turnCount`).
+- **`requiredRole`** is the lowest role that may decide it.
+- **`provenanceRef.runId`** is the run that waits.
+
+## Decide
+
+```sh
+kindgi approvals complete <approval-id> --decision=approve --rationale="Confirmed with the on-call engineer"
+```
+
+`--rationale` is optional and is kept with the decision. The four decisions:
+
+| Decision | The approval | The run |
+| --- | --- | --- |
+| `approve` | `approved` | Continues: the tool runs, or the turn runs. |
+| `reject` | `rejected` | A tool call: the tool doesn't run, and the agent gets the rejection as the tool's result. A turn: the run fails with `hitl-rejected`. |
+| `escalate` | `escalated`, and a new approval for the next role up | Keeps waiting for the new approval. |
+| `withdraw` | `withdrawn` | Keeps waiting; cancel it with `kindgi runs cancel <run-id>`. |
+
+An approve or reject resumes the run within the same call, so the run has
+moved on by the time the command returns. A decided approval can't be decided
+again.
+
+### Escalate
+
+A `standard` reviewer who wants a second opinion escalates:
+
+```sh
+kindgi approvals complete 2134897a-d176-4ca8-b000-8bc00d79ad04 --decision=escalate --rationale="Needs sign-off from the incident lead"
+```
+
+```json
+{
+  "kind": "escalated",
+  "approval": {
+    "id": "2134897a-d176-4ca8-b000-8bc00d79ad04",
+    …
+    "requiredRole": "standard",
+    "status": "escalated",
+    …
+  },
+  …
+  "nextApproval": {
+    "id": "a65cd23c-1bdb-47d8-9b3a-aaec36475a4f",
+    …
+    "requiredRole": "senior",
+    "status": "pending",
+    …
+  },
+  "waitpointResolved": false
+}
+```
+
+The new approval needs a `senior` reviewer, so the `standard` reviewer no
+longer sees it. A `senior` (or `admin`) reviewer approves or rejects
+`a65cd23c-…`, and the run continues.
+
+### Withdraw
+
+Withdraw closes an approval without deciding what it asked. The run keeps
+waiting, so cancel it:
+
+```sh
+kindgi approvals complete <approval-id> --decision=withdraw
+kindgi runs cancel <run-id>
+```
+
+Cancelling a run doesn't close its approval either: withdraw the approval of
+a run you cancelled, so it leaves the pending list.
+
+:::note
+Approvals don't expire in this release. Each has an `expiresAt`, but a pending
+approval stays pending, and its run keeps waiting, until a reviewer decides it.
+:::
+
+## From your app
+
+A reviewer usually decides in your app, not in a terminal. The client lists
+the pending approvals and records the decision; the reviewer is the user the
+API token belongs to.
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// review.ts
+import { createClient } from '@kindgi/sdk/client';
+
+const kindgi = createClient({
+  apiUrl: process.env.KINDGI_API_URL!,
+  auth: { kind: 'apiToken', token: process.env.KINDGI_API_TOKEN! },
+});
+
+const pending = await kindgi.approvals.list({ status: 'pending' });
+for (const approval of pending.items) {
+  console.log(approval.id, approval.title, approval.subjectRef);
+}
+
+const first = pending.items[0];
+if (first) {
+  const result = await kindgi.approvals.decide(first.id, {
+    decision: 'approve',
+    rationale: 'Checked the dashboard',
+  });
+  console.log(result.approval.status, result.waitpointResolved);
+}
+```
+
+```text
+46f0f9ad-f22d-4a93-8337-25b7c32a7473 HITL review: acme-ops.post-update {
+  callId: 'dev-echo-call-1',
+  toolId: 'acme-ops.post-update',
+  agentId: 'acme-ops.status-agent',
+  …
+  arguments: { message: 'Checkout is slow for some customers.' },
+  …
+}
+approved true
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# review.py
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()  # KINDGI_API_URL and KINDGI_API_TOKEN from the environment
+
+pending = kindgi.approvals.list(status="pending")
+for approval in pending.data:
+    print(approval.id, approval.title, approval.subject_ref)
+
+if pending.data:
+    result = kindgi.approvals.complete(
+        pending.data[0].id, decision="approve", rationale="Checked the dashboard"
+    )
+    print(result.approval.status, result.waitpoint_resolved)
+```
+
+```text
+0afd1543-fe4e-45ca-af34-2effc1095bab HITL review: acme-ops.post-update {'callId': 'dev-echo-call-1', 'toolId': 'acme-ops.post-update', 'agentId': 'acme-ops.status-agent', …, 'arguments': {'message': 'Search is back.'}, …}
+approved True
+```
+
+</TabItem>
+</Tabs>
+
+## Reference
+
+- [`kindgi approvals`](../../../reference/cli/approvals/) and
+  [`kindgi reviewers`](../../../reference/cli/reviewers/)
+- [Approvals in the HTTP API](../../../reference/api/operations/tags/approvals/)

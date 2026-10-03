@@ -4,6 +4,7 @@
 import { satteri } from '@astrojs/markdown-satteri';
 import starlight from '@astrojs/starlight';
 import { defineConfig } from 'astro/config';
+import starlightLlmsTxt from 'starlight-llms-txt';
 import starlightOpenAPI, { createOpenAPISidebarGroup } from 'starlight-openapi';
 import { createStarlightTypeDocPlugin } from 'starlight-typedoc';
 
@@ -14,6 +15,20 @@ const base = process.env.KINDGI_DOCS_BASE ?? '/';
 // Only the latest release's docs (served at the root) are indexed: an older
 // line or `/next/` would compete with them in search results.
 const indexed = base === '/';
+
+// The guides, one collapsible group per area, in reading order.
+const guideAreas = [
+  ['Tools', 'tools'],
+  ['Agents', 'agents'],
+  ['Models', 'models'],
+  ['Flows', 'flows'],
+  ['Runs', 'runs'],
+  ['Webhooks', 'webhooks'],
+  ['Guardrails', 'guardrails'],
+  ['Approvals', 'approvals'],
+  ['Secrets and env', 'secrets'],
+  ['Cost and provenance', 'observability'],
+];
 
 // The HTTP API reference: every route and schema, from the API's own spec.
 const httpApi = createOpenAPISidebarGroup();
@@ -46,8 +61,47 @@ export default defineConfig({
         // The version menu and the "not the latest" notice.
         ThemeSelect: './src/components/ThemeSelect.astro',
         Banner: './src/components/Banner.astro',
+        // "Edit page" (hand-written pages) and "Report a problem" (every page).
+        EditLink: './src/components/EditLink.astro',
       },
       plugins: [
+        // `llms.txt`, `llms-full.txt` and `llms-small.txt` for AI tools, per
+        // version (each build writes its own under its base).
+        starlightLlmsTxt({
+          projectName: 'Kindgi',
+          details: [
+            'Kindgi runs AI agents and flows beside your application. You define tools (your own',
+            'TypeScript or Python code), agents and flows in a pack; the Kindgi runtime runs them',
+            'durably, calls your code over HTTP, and records every step in a journal. The SDKs',
+            '(`@kindgi/sdk` on npm, `kindgi` on PyPI) and the CLI (`@kindgi/cli`) are Apache-2.0.',
+            'TypeScript projects run the CLI as `pnpm exec kindgi`; Python projects as',
+            '`npx --yes @kindgi/cli@<minor>`.',
+          ].join('\n'),
+          customSets: [
+            {
+              label: 'Start',
+              paths: ['start/**'],
+              description: 'install, quickstarts, existing apps',
+            },
+            {
+              label: 'Tutorials',
+              paths: ['tutorials/**'],
+              description: 'build something, step by step',
+            },
+            { label: 'Guides', paths: ['guides/**'], description: 'how to do one thing' },
+            { label: 'Concepts', paths: ['concepts/**'] },
+            { label: 'Deploy', paths: ['deploy/**'] },
+            { label: 'CLI reference', paths: ['reference/cli/**'] },
+            { label: 'Python SDK reference', paths: ['reference/python/**'] },
+          ],
+          promote: ['start/**', 'concepts/**', 'guides/**'],
+          demote: ['reference/**', 'contributing/**'],
+          // The small file is for short contexts: the TypeScript reference
+          // (typedoc, many pages) stays in the full one.
+          exclude: ['reference/typescript/**', 'reference/packages/**', 'contributing/**'],
+          // Heading anchors ("Section titled …") are page chrome, not content.
+          customSelectors: { all: ['.sl-anchor-link'] },
+        }),
         starlightOpenAPI([
           {
             base: 'reference/api',
@@ -100,6 +154,18 @@ export default defineConfig({
       ],
       sidebar: [
         { label: 'Start', items: [{ autogenerate: { directory: 'start' } }] },
+        { label: 'Tutorials', items: [{ autogenerate: { directory: 'tutorials' } }] },
+        {
+          label: 'Guides',
+          items: [
+            { label: 'Overview', link: '/guides/' },
+            ...guideAreas.map(([label, directory]) => ({
+              label,
+              collapsed: true,
+              items: [{ autogenerate: { directory: `guides/${directory}` } }],
+            })),
+          ],
+        },
         { label: 'Concepts', items: [{ autogenerate: { directory: 'concepts' } }] },
         { label: 'Deploy', items: [{ autogenerate: { directory: 'deploy' } }] },
         {

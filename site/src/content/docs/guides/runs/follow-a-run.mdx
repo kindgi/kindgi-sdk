@@ -1,0 +1,119 @@
+---
+title: Follow a run's events
+description: Get each step of a run as it starts and ends, from your app or the CLI, through to the run's end.
+sidebar:
+  order: 3
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+A run's events are its journal as it's written: the run starting, each step
+starting and ending, waits, and the run's end. Follow them to show progress,
+or to react when the run ends without polling.
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+const run = await kindgi.runs.start({
+  flow: 'acme.reserve-order',
+  input: { orderId: 'A-400' },
+  options: { wait: false },
+});
+
+for await (const event of kindgi.runs.stream(run.id)) {
+  console.log(event.sequence, event.kind, event.nodeId ?? '');
+}
+// The loop ends after run.completed, run.failed or run.cancelled.
+```
+
+```text
+0 run.started 
+2 run.step-started reserve
+3 run.step-retry-scheduled reserve
+4 run.step-retry-scheduled reserve
+5 run.step-completed reserve
+7 run.completed 
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+run = kindgi.runs.start(
+    flow="acme.reserve-order", input={"orderId": "A-400"}, options={"wait": False}
+)
+
+for event in kindgi.runs.stream(run.id):
+    print(event.sequence, event.kind, event.node_id or "")
+```
+
+```text
+0 run.started 
+2 run.step-started reserve
+3 run.step-retry-scheduled reserve
+4 run.step-retry-scheduled reserve
+5 run.step-completed reserve
+7 run.completed 
+```
+
+</TabItem>
+</Tabs>
+
+The stream starts from the run's first event, whenever you open it, so you
+don't miss what happened before. It ends after `run.completed`, `run.failed` or
+`run.cancelled`; the last event's `payload.output` is the run's output.
+
+## The events
+
+Each event has the run's id, a `kind`, a `sequence` (its place in the
+journal), a `timestamp`, the step's `nodeId` for step events, and a `payload`:
+
+| `kind` | When | `payload` |
+| --- | --- | --- |
+| `run.started` | The run started. | `input` |
+| `run.step-started` | A step started. | `input` |
+| `run.step-completed` | A step ended. | `output` |
+| `run.step-failed` | A step failed. | `message` |
+| `run.step-retry-scheduled` | A step failed and will be [retried](../../flows/retry-a-step/). | `attempt`, `nextDelayMs`, `previousError` |
+| `run.iteration-started`, `run.iteration-completed` | A pass of a [loop](../../flows/loop/). | `iteration`, … |
+| `run.wait-suspended`, `run.wait-resumed` | The run stopped to wait, and went on ([approvals](../../flows/wait-for-an-approval/)). | |
+| `run.completed` | The run completed. | `output` |
+| `run.failed` | The run failed. | `message` |
+| `run.cancelled` | The run was cancelled. | |
+
+Edge decisions are in the [journal](../read-the-journal/), not in the stream.
+
+## Reconnecting
+
+The server ends a stream after 5 minutes; a run that waits longer needs a new
+one. Each event's id is `<run id>:<sequence>`, and a new stream opened with
+the last id you saw (the `Last-Event-Id` header) starts after it.
+
+- In TypeScript, `runs.stream` does this for you: it reconnects after a
+  dropped connection or the server's limit, and ends only with the run.
+- In Python, `runs.stream` ends when the server closes the stream. Open it
+  again with `last_event_id=f"{run.id}:{event.sequence}"` to go on.
+
+## From the CLI
+
+```sh
+kindgi runs stream <run-id>
+```
+
+It prints one event per line, as JSON:
+
+```text
+{"eventId":"28795fe7-a357-4d67-8740-1bda88f3b85c:0","runId":"28795fe7-a357-4d67-8740-1bda88f3b85c",…,"kind":"run.started","sequence":0,"payload":{"input":{"orderId":"A-300"}}}
+{"eventId":"28795fe7-a357-4d67-8740-1bda88f3b85c:2",…,"kind":"run.step-started","sequence":2,"nodeId":"reserve","payload":{"input":{"orderId":"A-300"}}}
+…
+{"eventId":"28795fe7-a357-4d67-8740-1bda88f3b85c:7",…,"kind":"run.completed","sequence":7,"payload":{"output":{"attempt":3,"orderId":"A-300","reserved":true}}}
+```
+
+:::note
+In this release, `kindgi runs stream` prints the events when the run ends,
+all at once. To watch them arrive, use the client.
+:::
+
+To show a run's progress in a browser, without giving the page your API
+token, see [Follow a run from the browser](../follow-from-the-browser/).

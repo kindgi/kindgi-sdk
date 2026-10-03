@@ -1,0 +1,317 @@
+---
+title: Use an MCP server's tools
+description: Register an MCP server with the runtime, and call its tools from agents and flows like your own.
+sidebar:
+  order: 5
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+An MCP server you run, or one a vendor runs, can give your agents its tools.
+Register its endpoint with the runtime: Kindgi lists the server's tools and
+registers each one as a tool of your tenant, named
+`<endpoint id>.<tool name>`. Agents and flow steps then call it like a tool
+of your pack.
+
+:::note
+`kindgi mcp` is a different thing: it adds MCP servers to your coding
+agent's `.mcp.json`. The runtime's MCP endpoints are registered through the
+API, as below.
+:::
+
+## A server to try
+
+An MCP server that speaks Streamable HTTP works (with one limit in 0.1.0,
+under [Good to know](#good-to-know)). This one, written with the Python MCP
+SDK (1.x), has two tools:
+
+```python
+# server.py: an MCP server with two tools, over Streamable HTTP.
+from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP("inventory", host="127.0.0.1", port=8791)
+
+STOCK = {"SKU-1": 12, "SKU-2": 0}
+
+
+@mcp.tool()
+def stock_level(sku: str) -> dict:
+    """Returns how many units of a SKU are in stock."""
+    return {"sku": sku, "units": STOCK.get(sku, 0)}
+
+
+@mcp.tool()
+def reserve(sku: str, units: int) -> dict:
+    """Reserves units of a SKU for an order."""
+    return {"sku": sku, "reserved": units}
+
+
+if __name__ == "__main__":
+    mcp.run(transport="streamable-http")
+```
+
+```sh
+uv init --bare --no-workspace
+uv add 'mcp<2'
+uv run python server.py
+```
+
+It serves at `http://localhost:8791/mcp`. Under `kindgi dev` the runtime
+reaches your machine's `localhost`.
+
+## Register the endpoint
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+import { createClient } from '@kindgi/sdk/client';
+import type { TenantId } from '@kindgi/sdk/types';
+
+const kindgi = createClient({
+  apiUrl: process.env.KINDGI_API_URL ?? 'http://127.0.0.1:4000',
+  auth: { kind: 'apiToken', token: process.env.KINDGI_API_TOKEN ?? '' },
+});
+
+await kindgi.mcp.endpoints.register({
+  endpointId: 'inventory',
+  name: 'Inventory',
+  transport: 'streamable-http',
+  config: { transport: 'streamable-http', url: 'http://localhost:8791/mcp' },
+  scope: { kind: 'tenant', tenantId: process.env.KINDGI_TENANT_ID as TenantId },
+});
+
+const page = await kindgi.mcp.endpoints.list();
+console.log(page.items.map((e) => `${e.endpointId} (${e.transport})`));
+```
+
+```text
+[ 'inventory (streamable-http)' ]
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+from kindgi.client import Kindgi
+
+client = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN
+
+client.mcp.endpoints.register(
+    {
+        "endpointId": "inventory",
+        "name": "Inventory",
+        "transport": "streamable-http",
+        "config": {"transport": "streamable-http", "url": "http://localhost:8791/mcp"},
+        "scopeKind": "tenant",
+    }
+)
+
+for endpoint in client.mcp.endpoints.list().data:
+    print(endpoint.endpoint_id, endpoint.transport)
+```
+
+```text
+inventory streamable-http
+```
+
+</TabItem>
+</Tabs>
+
+Or with `curl` (`kindgi dev` prints the API's URL and token):
+
+```sh
+curl -X POST "$KINDGI_API_URL/v1/mcp/endpoints" \
+  -H "authorization: Bearer $KINDGI_API_TOKEN" -H 'content-type: application/json' \
+  -d '{"endpointId":"inventory","name":"Inventory","transport":"streamable-http",
+       "config":{"transport":"streamable-http","url":"http://localhost:8791/mcp"},
+       "scopeKind":"tenant"}'
+```
+
+```json
+{"endpointId":"inventory"}
+```
+
+The runtime connects, lists the server's tools and registers them. The
+`kindgi dev` terminal says how it went:
+
+```text
+    [runtime] [mcp-bridge] MCP endpoint "inventory" synced — 2 published, 0 reinstated, 0 unchanged, 0 retired
+```
+
+The tools are now your tenant's:
+
+```sh
+kindgi tools get inventory.stock_level
+```
+
+```json
+{
+  "id": "inventory.stock_level",
+  "description": "Returns how many units of a SKU are in stock.",
+  "version": "1.0.0",
+  "input": {
+    "type": "object",
+    "title": "stock_levelArguments",
+    "required": [
+      "sku"
+    ],
+    "properties": {
+      "sku": {
+        "type": "string",
+        "title": "Sku"
+      }
+    }
+  },
+  "output": {
+    "type": "object",
+    "additionalProperties": true
+  },
+  "transport": "mcp",
+  …
+}
+```
+
+Kindgi registers MCP tools as version `1.0.0`. A tool's input schema is
+the one the server gives; its output schema takes whatever the server
+returns.
+
+## Call its tools
+
+An agent lists an MCP tool by id, with a version range:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// in agents/order-desk/index.ts
+tools: [
+  { id: 'my-pack.lookup-order' as ToolId, version: '^0.1.0' },
+  { id: 'inventory.stock_level' as ToolId, version: '^1.0.0' },
+],
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# in agents/order_desk.py
+tools=[lookup_order, {"id": "inventory.stock_level", "version": "^1.0.0"}],
+```
+
+</TabItem>
+</Tabs>
+
+With a model that calls tools (here Llama 3.1 on Ollama, see
+[Models](../../models/)):
+
+```sh
+kindgi runs start --agent=my-pack.order-desk --input='{"userMessage":"How many units of SKU-2 are in stock?"}'
+```
+
+```json
+"appended": [
+  { "role": "user", "content": "How many units of SKU-2 are in stock?", … },
+  {
+    "role": "agent",
+    "content": {
+      "text": "",
+      "toolCalls": [{ "id": "call_v7vwbcgs", "name": "inventory.stock_level", "arguments": { "sku": "SKU-2" } }]
+    },
+    …
+  },
+  {
+    "role": "tool",
+    "content": { "sku": "SKU-2", "units": 0 },
+    "toolCall": { "toolId": "inventory.stock_level", "invocationId": "call_v7vwbcgs" },
+    …
+  },
+  {
+    "role": "agent",
+    "content": "There are 0 units of SKU-2 in stock.",
+    …
+  }
+],
+```
+
+A flow step names it in `ref`, like any tool:
+`{ id: 'stock', kind: 'tool', ref: 'inventory.stock_level', inputMapping: { sku: { path: 'runInput.sku' } } }`.
+
+## Send a credential
+
+Add `secretRef` to the registration. Kindgi resolves the secret in the
+tenant's secrets when it connects, and sends it as
+`Authorization: Bearer <value>`:
+
+```json
+"secretRef": { "envName": "local", "name": "INVENTORY_TOKEN" }
+```
+
+Under `kindgi dev`, `local` is the pack's env files. If the secret isn't
+there when the endpoint is registered, no tools are registered, and the
+`kindgi dev` terminal says why:
+
+```text
+    [runtime] [mcp-bridge] WARN MCP endpoint "warehouse" sync failed: mcp-auth-unresolved: MCP endpoint "warehouse": its secretRef local/INVENTORY_TOKEN did not resolve: No secret "INVENTORY_TOKEN" for env "local" in .env, .env.local at /pack
+```
+
+Store the secret (`kindgi secrets set INVENTORY_TOKEN --env=local --scope=tenant`),
+then register the endpoint again, as below.
+
+## When the server changes
+
+The runtime lists an endpoint's tools when the endpoint is registered and
+each time the runtime starts. It doesn't watch the server. To pick up new or
+changed tools, unregister the endpoint and register it again, or restart
+the runtime:
+
+```sh
+curl -X POST "$KINDGI_API_URL/v1/mcp/endpoints/inventory/unregister" \
+  -H "authorization: Bearer $KINDGI_API_TOKEN"
+```
+
+```json
+{"endpointId":"inventory","unregistered":true}
+```
+
+Unregistering retires the endpoint's tools. Registering it again brings them
+back.
+
+If the server is down when a tool is called, the call fails and the next one
+reconnects:
+
+```json
+  "failureMessage": "handler-error: Tool \"inventory.stock_level\" handler threw: mcp-call-failed: MCP endpoint \"inventory\" tool \"stock_level\": tools/call \"stock_level\" failed: fetch failed (the next call reconnects)",
+```
+
+## Transports
+
+- **`streamable-http`**: `{ transport: 'streamable-http', url, headers? }`.
+  Use it wherever you can. `headers` are sent as given, and the API returns
+  them as given: put a credential in `secretRef`, not here.
+- **`http-sse`**: the older HTTP and Server-Sent Events transport,
+  `{ transport: 'http-sse', url, sseUrl?, headers? }`, with `url` the
+  server's SSE endpoint (`http://localhost:8793/sse` for the Python SDK).
+- **`stdio`**: `{ transport: 'stdio', command, args?, env? }`. The runtime
+  runs the command in its own container, as its own user, under
+  `kindgi dev` too. A deployment refuses it (`KINDGI_TENANT_HOST_ACCESS`
+  is `deployed` outside development):
+
+  ```json
+  {"error":{"code":"host-access-denied","message":"MCP endpoint \"files\" uses the stdio transport, which runs a command on the server's host; KINDGI_TENANT_HOST_ACCESS=deployed refuses that. Run the MCP server over HTTP (streamable-http) instead.", …}}
+  ```
+
+  See [Security](../../../concepts/security/#what-a-tenant-cant-make-the-server-do).
+
+## Good to know
+
+- An MCP tool always counts as one that changes things: it doesn't run in a
+  [dry run](../read-only-tools/#dry-runs), and an approval gate asks before
+  it.
+- Kindgi skips a tool whose input schema it can't compile, and the runtime's
+  log names the tool. In 0.1.0 that includes every tool whose schema declares
+  JSON Schema draft-07 (`"$schema": "http://json-schema.org/draft-07/schema#"`),
+  which servers built with the TypeScript MCP SDK do.
+- An endpoint is registered at a scope: `tenant`, as here, or a project
+  (`"scopeKind": "project", "scopeId": "<project id>"`). See the
+  [API reference](../../../reference/api/operations/tags/mcp/).

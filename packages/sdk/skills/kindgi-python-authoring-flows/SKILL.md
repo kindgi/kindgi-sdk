@@ -16,7 +16,7 @@ description: >
   kindgi-python-authoring-agents.
 type: core
 library: "kindgi (Python)"
-version: "0.1.0"
+version: "0.1.1"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -200,9 +200,11 @@ the condition is true. Conditions are dicts:
 | `and` `or` | `{"op", "children": [...]}` |
 | `not` | `{"op", "child"}` |
 
-Each operand is `{"literal": …}` or `{"path": …}`. A comparison whose
-path doesn't resolve is **false**, `ne` included. So to branch on "not
-billing", write `not` around the `eq` (as above), not `ne`. A condition
+Each operand is `{"literal": …}` or `{"path": …}`. When a path doesn't
+resolve, `eq`, `lt`, `lte`, `gt` and `gte` are false and `ne` is true. So
+for the "otherwise" branch, write `not` around the condition (as above),
+rather than a second comparison: it covers exactly what the first edge
+doesn't. A condition
 used twice is easiest as a module-level constant (`IS_BILLING`).
 
 **Joining branches.** A node with several incoming edges runs once every
@@ -227,7 +229,7 @@ A node with several incoming edges ignores them.
 Its keys are the tool's input **as it travels**: a pydantic field's name,
 or its alias if it has one (a `customer_id` field is the key
 `customer_id`; with `alias="customerId"`, it's `customerId`). Paths are
-dot-separated, with no array indexing, rooted at:
+dot-separated (a number segment indexes an array: `items.0.sku`), rooted at:
 - `runInput.…`: the input the run was started with;
 - `nodeOutputs.<nodeId>.…`: a step's output. For an agent step, add
   `.output.<field>` to read its typed answer;
@@ -289,9 +291,10 @@ the output), not on every save.
 1. **Building a flow without asking what goes in and comes out.** The
    pack's `echo_flow` proves the runtime works. It isn't a template for
    the user's flow.
-2. **`ne` on a path that may be missing, to mean "otherwise".** A missing
-   path makes every comparison false, so neither branch fires and
-   everything after is skipped. Use `not` around the positive condition.
+2. **A second comparison for "otherwise".** On a path that may be
+   missing, `eq` is false and `ne` is true, and `lt`/`gt` are both false,
+   so a hand-written opposite can miss a case or overlap. Use `not` around
+   the positive condition: it covers exactly what the first edge doesn't.
 3. **Reading an agent step's answer at `nodeOutputs.<step>.<field>`.**
    The typed answer is under `.output`: `nodeOutputs.<step>.output.<field>`.
    An agent without `output=` has only `text`.

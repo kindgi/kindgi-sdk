@@ -1,0 +1,221 @@
+---
+title: Join branches
+description: Bring the branches of a flow back together in a step that runs after whichever of them ran.
+sidebar:
+  order: 4
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+A step with several incoming edges waits until each of them is decided, then
+runs once if at least one fired. `acme.handle-order` holds a large order, then
+emails the customer either way. It adds one tool, `acme.email-customer`:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// tools/email-customer/index.ts
+import { defineTool } from '@kindgi/sdk/define';
+import type { ToolId } from '@kindgi/sdk/types';
+import { z } from 'zod';
+
+const defined = defineTool({
+  id: 'acme.email-customer' as ToolId,
+  description: 'Emails the customer about their order.',
+  version: '0.1.0',
+  input: z.object({
+    customer: z.string(),
+    status: z.string().optional(), // absent when the order wasn't held
+  }),
+  output: z.object({ to: z.string(), message: z.string() }),
+  effects: [],
+  handler: async ({ customer, status }) => ({
+    to: customer,
+    message: status === 'held' ? 'Your order is being reviewed.' : 'Your order is on its way.',
+  }),
+});
+
+if (defined.kind === 'err') throw new Error(defined.error.message);
+
+export default defined.value;
+```
+
+```ts
+// flows/handle-order/index.ts
+import { defineFlow } from '@kindgi/sdk/define';
+
+const isLarge = {
+  op: 'gt',
+  left: { path: 'nodeOutputs.order.total' },
+  right: { literal: 1000 },
+} as const;
+
+const defined = defineFlow({
+  id: 'acme.handle-order',
+  version: '0.1.0',
+  name: 'Handle an order',
+  description: 'Holds a large order, then tells the customer either way.',
+  nodes: [
+    {
+      id: 'order',
+      kind: 'tool',
+      ref: 'acme.get-order',
+      inputMapping: { orderId: { path: 'runInput.orderId' } },
+    },
+    {
+      id: 'hold',
+      kind: 'tool',
+      ref: 'acme.hold-order',
+      inputMapping: {
+        orderId: { path: 'runInput.orderId' },
+        reason: { literal: 'Over 1000 USD' },
+      },
+    },
+    {
+      id: 'email',
+      kind: 'tool',
+      ref: 'acme.email-customer',
+      inputMapping: {
+        customer: { path: 'nodeOutputs.order.customer' },
+        status: { path: 'nodeOutputs.hold.status' }, // absent when hold didn't run
+      },
+    },
+  ],
+  edges: [
+    { id: 'e1', from: '$start', to: 'order' },
+    { id: 'e2', from: 'order', to: 'hold', when: isLarge },
+    { id: 'e3', from: 'order', to: 'email', when: { op: 'not', child: isLarge } },
+    { id: 'e4', from: 'hold', to: 'email' },
+    { id: 'e5', from: 'email', to: '$end' },
+  ],
+});
+
+if (defined.kind === 'err') throw new Error(defined.error.message);
+
+export default defined.value;
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# tools/email_customer.py
+from pydantic import BaseModel
+
+from kindgi import tool
+
+
+class EmailInput(BaseModel):
+    customer: str
+    status: str | None = None  # absent when the order wasn't held
+
+
+class Emailed(BaseModel):
+    to: str
+    message: str
+
+
+@tool(id="acme.email-customer")
+def email_customer(input: EmailInput) -> Emailed:
+    """Emails the customer about their order."""
+    message = (
+        "Your order is being reviewed." if input.status == "held" else "Your order is on its way."
+    )
+    return Emailed(to=input.customer, message=message)
+```
+
+```python
+# flows/handle_order.py
+from kindgi import Flow
+
+IS_LARGE = {
+    "op": "gt",
+    "left": {"path": "nodeOutputs.order.total"},
+    "right": {"literal": 1000},
+}
+
+handle_order = Flow(
+    id="acme.handle-order",
+    version="0.1.0",
+    name="Handle an order",
+    description="Holds a large order, then tells the customer either way.",
+    nodes=[
+        {
+            "id": "order",
+            "kind": "tool",
+            "ref": "acme.get-order",
+            "inputMapping": {"orderId": {"path": "runInput.orderId"}},
+        },
+        {
+            "id": "hold",
+            "kind": "tool",
+            "ref": "acme.hold-order",
+            "inputMapping": {
+                "orderId": {"path": "runInput.orderId"},
+                "reason": {"literal": "Over 1000 USD"},
+            },
+        },
+        {
+            "id": "email",
+            "kind": "tool",
+            "ref": "acme.email-customer",
+            "inputMapping": {
+                "customer": {"path": "nodeOutputs.order.customer"},
+                "status": {"path": "nodeOutputs.hold.status"},  # absent when hold didn't run
+            },
+        },
+    ],
+    edges=[
+        {"id": "e1", "from": "$start", "to": "order"},
+        {"id": "e2", "from": "order", "to": "hold", "when": IS_LARGE},
+        {"id": "e3", "from": "order", "to": "email", "when": {"op": "not", "child": IS_LARGE}},
+        {"id": "e4", "from": "hold", "to": "email"},
+        {"id": "e5", "from": "email", "to": "$end"},
+    ],
+)
+```
+
+</TabItem>
+</Tabs>
+
+`email` has two incoming edges: `e4` from `hold`, and `e3` straight from
+`order` when the order isn't large. Whichever path the run takes, `email`
+runs once, at the end of it.
+
+```sh
+kindgi runs start --flow=acme.handle-order --input='{"orderId":"A-100"}'
+kindgi runs start --flow=acme.handle-order --input='{"orderId":"A-200"}'
+```
+
+The two runs return:
+
+```json
+{ "to": "ada@example.com", "message": "Your order is on its way." }
+{ "to": "grace@example.com", "message": "Your order is being reviewed." }
+```
+
+## The input of a joining step
+
+`email` maps `status` from `nodeOutputs.hold.status`. For `A-100`, `hold`
+didn't run, so the path doesn't resolve and the key is left out:
+
+```json
+{"sequence": 4, "kind": "edge.evaluated", "payload": {"edgeId": "e2", "decision": false}, …}
+{"sequence": 5, "kind": "edge.evaluated", "payload": {"edgeId": "e3", "decision": true}, …}
+{"sequence": 6, "kind": "step.started", "nodeId": "email", "payload": {"input": {"customer": "ada@example.com"}}, …}
+```
+
+That's why `status` is optional in `acme.email-customer`'s input. A required
+key fed by a branch that may not run fails the step whenever that branch
+doesn't run.
+
+Give a joining step an `inputMapping`. Without one, a step gets the output of
+the step before it, and a joining step has several: its input is empty.
+
+## Branches that both run
+
+Edges without conditions fire together, so two steps after the same step run
+at the same time, and a step that joins them runs once, after both. To run
+several tools on the same input and collect their outputs as one, a
+[fanout step](../run-steps-in-parallel/) is shorter.

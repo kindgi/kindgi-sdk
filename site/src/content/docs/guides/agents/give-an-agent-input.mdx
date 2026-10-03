@@ -1,0 +1,412 @@
+---
+title: Give an agent its input
+description: What a turn's input is, how parameters fill an agent's instructions, what an agent gets as a flow step, and what a turn returns.
+sidebar:
+  order: 2
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+An agent runs one turn at a time. Run directly, a turn's input is the user's
+message and a few optional fields. Run as a step of a flow, the agent gets the
+step's input instead.
+
+## A direct run
+
+```sh
+kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}'
+```
+
+The input has these fields:
+
+| Field | |
+| --- | --- |
+| `userMessage` | The turn's message. Required. |
+| `conversationId` | Continue a conversation: see [Hold a conversation](../conversations/). Without it, the turn opens a new one. |
+| `participantId` | Who the conversation is with, kept on the conversation the turn opens. |
+| `parameters` | Values for the agent's parameters (below): strings, numbers or booleans. |
+
+Without a `userMessage`, the run is refused:
+
+```text
+Error [invalid-request]: An agent run expects input { userMessage: string, conversationId?: string, participantId?: string, parameters?: { [name]: string | number | boolean } }.
+```
+
+From your app, the same input goes in `runs.start`. This runs the
+`acme.reply-drafter` agent from the next section:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// scripts/drafter.ts
+import { createClient } from '@kindgi/sdk/client';
+
+const kindgi = createClient({
+  apiUrl: process.env.KINDGI_API_URL!,
+  auth: { kind: 'apiToken', token: process.env.KINDGI_API_TOKEN! },
+});
+
+const run = await kindgi.runs.start({
+  agent: 'acme.reply-drafter',
+  input: {
+    userMessage: 'My parcel is a week late.',
+    parameters: { tone: 'formal', signature: 'Sam at Acme' },
+  },
+});
+const turn = run.output as { response: { content: string } };
+console.log(turn.response.content);
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# scripts/drafter.py
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()
+run = kindgi.runs.start(
+    agent="acme.reply-drafter",
+    input={
+        "userMessage": "My parcel is a week late.",
+        "parameters": {"tone": "formal", "signature": "Sam at Acme"},
+    },
+)
+print(run.output["response"]["content"])
+```
+
+</TabItem>
+</Tabs>
+
+A run waits for the turn to end. To get the run back as soon as it exists, add
+`--no-wait` (`options: { wait: false }` in the clients): it comes back
+`pending`, and `kindgi runs get <run-id>` shows it `completed`, with its
+`output`, once the turn ends.
+
+## Parameters
+
+Parameters are your own variables in the agent's instructions. Declare each
+one; the caller supplies the values.
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// agents/reply-drafter/index.ts
+import { defineAgent } from '@kindgi/sdk/define';
+
+const defined = defineAgent({
+  id: 'acme.reply-drafter',
+  version: '0.1.0',
+  name: 'Reply drafter',
+  instructions: [
+    'You draft short replies to Acme customers, in a {{ tone }} tone.',
+    'Sign every reply as {{ signature }}.',
+  ].join('\n'),
+  parameters: [
+    { name: 'tone', type: 'string', description: 'friendly, formal, …' },
+    { name: 'signature', type: 'string', default: 'The Acme team' },
+  ],
+  capabilities: [{ needs: [] }],
+  tools: [],
+  retrieval: [],
+  guardrails: [],
+});
+
+if (defined.kind === 'err') throw new Error(defined.error.message);
+
+export default defined.value;
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# agents/reply_drafter.py
+from kindgi import Agent
+
+reply_drafter = Agent(
+    id="acme.reply-drafter",
+    version="0.1.0",
+    name="Reply drafter",
+    instructions="\n".join([
+        "You draft short replies to Acme customers, in a {{ tone }} tone.",
+        "Sign every reply as {{ signature }}.",
+    ]),
+    parameters=[
+        {"name": "tone", "type": "string", "description": "friendly, formal, …"},
+        {"name": "signature", "type": "string", "default": "The Acme team"},
+    ],
+    capabilities=[{"needs": []}],
+)
+```
+
+</TabItem>
+</Tabs>
+
+A parameter is `string`, `number`, `boolean` or `date`. Give it a `default`
+to make it optional: here `tone` is required, and `signature` falls back to its
+default. (`required: false` without a default isn't enough: the instructions
+still name the variable, and rendering fails without a value.)
+
+```sh
+kindgi runs start --agent=acme.reply-drafter --input='{"userMessage":"My parcel is a week late.","parameters":{"tone":"friendly"}}'
+```
+
+```json
+{
+  …
+  "status": "completed",
+  …
+  "output": {
+    …
+    "response": {
+      "role": "agent",
+      "content": "Hi there!\n\nI'm sorry to hear your parcel is running late – we know how frustrating that can be! … Thanks for your patience!\n\nThe Acme team",
+      …
+    },
+    …
+  }
+}
+```
+
+The journal shows what the model was told (`kindgi runs journal <run-id>`, the
+`render-prompt` step):
+
+```text
+You draft short replies to Acme customers, in a friendly tone.
+Sign every reply as The Acme team.
+```
+
+A required parameter with no value fails the turn before the model is called:
+
+```text
+Error [server]: Prompt render failed: Required parameter missing: tone
+```
+
+## In a flow step
+
+A flow runs an agent as a step: one turn, as a child run of the flow's run.
+The step's `inputMapping` builds the agent's input, and `config.parameters`
+fills its parameters. This flow looks an order up with `acme.lookup-order`
+(from [Write an agent](../write-an-agent/#the-tool-it-calls)), then has an
+agent write the customer an update:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// flows/notify-customer/index.ts
+import { defineFlow } from '@kindgi/sdk/define';
+
+const defined = defineFlow({
+  id: 'acme.notify-customer',
+  version: '0.1.0',
+  name: 'Notify a customer',
+  nodes: [
+    {
+      id: 'lookup',
+      kind: 'tool',
+      ref: 'acme.lookup-order',
+      inputMapping: { orderId: { path: 'runInput.orderId' } },
+    },
+    {
+      id: 'update',
+      kind: 'agent',
+      ref: 'acme.order-update',
+      inputMapping: { order: { path: 'nodeOutputs.lookup' } },
+      config: { parameters: { tone: 'friendly' } },
+    },
+  ],
+  edges: [
+    { id: 'e-start', from: '$start', to: 'lookup' },
+    { id: 'e-update', from: 'lookup', to: 'update' },
+    { id: 'e-end', from: 'update', to: '$end' },
+  ],
+  output: { mapping: { update: { path: 'nodeOutputs.update.text' } } },
+});
+
+if (defined.kind === 'err') throw new Error(defined.error.message);
+
+export default defined.value;
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# flows/notify_customer.py
+from kindgi import Flow
+
+from ..agents.order_update import order_update
+
+notify_customer = Flow(
+    id="acme.notify-customer",
+    version="0.1.0",
+    name="Notify a customer",
+    nodes=[
+        {
+            "id": "lookup",
+            "kind": "tool",
+            "ref": "acme.lookup-order",
+            "inputMapping": {"orderId": {"path": "runInput.orderId"}},
+        },
+        {
+            "id": "update",
+            "kind": "agent",
+            "ref": order_update,
+            "inputMapping": {"order": {"path": "nodeOutputs.lookup"}},
+            "config": {"parameters": {"tone": "friendly"}},
+        },
+    ],
+    edges=[
+        {"id": "e-start", "from": "$start", "to": "lookup"},
+        {"id": "e-update", "from": "lookup", "to": "update"},
+        {"id": "e-end", "from": "update", "to": "$end"},
+    ],
+    output={"mapping": {"update": {"path": "nodeOutputs.update.text"}}},
+)
+```
+
+</TabItem>
+</Tabs>
+
+The agent gets the step's input two ways:
+
+- as **`{{ input }}`** in its instructions, so it can use the fields;
+- as its **user message**: the input as JSON.
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// agents/order-update/index.ts
+import { defineAgent } from '@kindgi/sdk/define';
+
+const defined = defineAgent({
+  id: 'acme.order-update',
+  version: '0.1.0',
+  name: 'Order update',
+  instructions: [
+    'Write a two-sentence update for the customer about order {{ input.order.orderId }}.',
+    'Its status is {{ input.order.status }}{% if input.order.eta %}, expected on {{ input.order.eta }}{% endif %}.',
+    'Use a {{ tone }} tone.',
+  ].join('\n'),
+  parameters: [{ name: 'tone', type: 'string' }],
+  capabilities: [{ needs: [] }],
+  tools: [],
+  retrieval: [],
+  guardrails: [],
+});
+
+if (defined.kind === 'err') throw new Error(defined.error.message);
+
+export default defined.value;
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# agents/order_update.py
+from kindgi import Agent
+
+order_update = Agent(
+    id="acme.order-update",
+    version="0.1.0",
+    name="Order update",
+    instructions="\n".join([
+        "Write a two-sentence update for the customer about order {{ input.order.orderId }}.",
+        "Its status is {{ input.order.status }}"
+        "{% if input.order.eta %}, expected on {{ input.order.eta }}{% endif %}.",
+        "Use a {{ tone }} tone.",
+    ]),
+    parameters=[{"name": "tone", "type": "string"}],
+    capabilities=[{"needs": []}],
+)
+```
+
+</TabItem>
+</Tabs>
+
+```sh
+kindgi runs start --flow=acme.notify-customer --input='{"orderId":"A-1001"}'
+```
+
+```json
+{
+  …
+  "flowId": "acme.notify-customer",
+  …
+  "status": "completed",
+  …
+  "output": {
+    "update": "Great news! Your order A-1001 is on its way and should arrive by October 6th, 2026. Thanks for your patience, and we can't wait for you to receive it!"
+  }
+}
+```
+
+In the agent's turn, the instructions rendered as:
+
+```text
+Write a two-sentence update for the customer about order A-1001.
+Its status is shipped, expected on 2026-10-06.
+Use a friendly tone.
+```
+
+and its user message was the step's input:
+
+```json
+{
+  "order": {
+    "orderId": "A-1001",
+    "status": "shipped",
+    "eta": "2026-10-06"
+  }
+}
+```
+
+The step's output, which later steps and the flow's `output` read as
+`nodeOutputs.update.<field>`:
+
+```json
+{
+  "text": "Great news! Your order A-1001 is on its way …",
+  "runId": "c2cd458f-3364-4c0d-aefc-e6a7765f96d2",
+  "usage": { "steps": 1, "durationMs": 1212, "promptTokens": 90, "totalCostUsd": 0.00031999999999999997, "completionTokens": 46 },
+  "violations": [],
+  "conversationId": "1cf8b177-7f18-4513-b3fe-178f8aea6738"
+}
+```
+
+`text` is the answer. An agent with a typed answer also has `output`: see
+[Give an agent a typed answer](../typed-answer/#in-a-flow).
+
+:::caution[`input` exists only in a flow step]
+A direct run has no `{{ input }}`, so an agent whose instructions read it fails
+when run directly:
+
+```text
+Error [server]: Prompt render failed: Template references an unresolved variable: input
+```
+:::
+
+## What a turn returns
+
+A turn's result is the run's `output`:
+
+| Field | |
+| --- | --- |
+| `response.content` | The answer, as text. |
+| `output` | The typed answer, for an agent with an `output` schema. |
+| `conversationId`, `turnNumber` | The conversation and the turn's number in it. |
+| `usage` | `steps` (model calls), `promptTokens`, `completionTokens`, `totalCostUsd`, `durationMs`. |
+| `provider` | The provider `id` and `model` that answered. |
+| `appended` | The messages the turn added to the conversation: the user message, tool calls and their results, the answer. |
+| `warnings` | For example `fallback-provider`, when `dev-echo` answered. |
+| `violations` | Guardrail results. |
+| `provenance` | The turn's provenance record: see [Trace an answer and its cost](../../observability/trace-an-answer/). |
+
+In the TypeScript client, `run.output` is `unknown`: cast it to the fields you
+read. In the Python client, it's a dict.

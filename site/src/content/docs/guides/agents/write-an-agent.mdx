@@ -1,0 +1,305 @@
+---
+title: Write an agent
+description: Define an agent in a pack, with its instructions, the tools it may call, the guardrails on its answer and what its model must support.
+sidebar:
+  order: 1
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+An agent is a file under `agents/`. This one answers customers' questions
+about their orders. It looks orders up with a tool, and the sample pack's
+`acme.response-not-empty` guardrail checks its answer.
+
+## The tool it calls
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// tools/lookup-order/index.ts
+import { defineTool } from '@kindgi/sdk/define';
+import type { ToolId } from '@kindgi/sdk/types';
+import { z } from 'zod';
+
+const ORDERS: Record<string, { status: string; eta: string | null }> = {
+  'A-1001': { status: 'shipped', eta: '2026-10-06' },
+  'A-1002': { status: 'processing', eta: null },
+};
+
+const defined = defineTool({
+  id: 'acme.lookup-order' as ToolId,
+  description: 'Looks up an order by its id (like A-1001): its status and expected delivery date.',
+  version: '0.1.0',
+  input: z.object({ orderId: z.string() }),
+  output: z.object({ orderId: z.string(), status: z.string(), eta: z.string().nullable() }),
+  effects: [],
+  mutating: false,
+  handler: async ({ orderId }) => {
+    const order = ORDERS[orderId];
+    return order === undefined
+      ? { orderId, status: 'not-found', eta: null }
+      : { orderId, ...order };
+  },
+});
+
+if (defined.kind === 'err') throw new Error(defined.error.message);
+
+export default defined.value;
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# tools/lookup_order.py
+from pydantic import BaseModel, Field
+
+from kindgi import tool
+
+ORDERS = {
+    "A-1001": {"status": "shipped", "eta": "2026-10-06"},
+    "A-1002": {"status": "processing", "eta": None},
+}
+
+
+class OrderQuery(BaseModel):
+    order_id: str = Field(alias="orderId")
+
+
+class Order(BaseModel):
+    order_id: str = Field(alias="orderId")
+    status: str
+    eta: str | None
+
+
+@tool(id="acme.lookup-order", mutating=False)
+def lookup_order(input: OrderQuery) -> Order:
+    """Looks up an order by its id (like A-1001): its status and expected delivery date."""
+    order = ORDERS.get(input.order_id, {"status": "not-found", "eta": None})
+    return Order(orderId=input.order_id, **order)
+```
+
+</TabItem>
+</Tabs>
+
+The model sees the tool's id, its description and its input schema. The
+description is what it reads to decide when to call the tool, so say what the
+tool does and what its input looks like.
+
+## The agent
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// agents/order-desk/index.ts
+import { defineAgent } from '@kindgi/sdk/define';
+
+const defined = defineAgent({
+  id: 'acme.order-desk',
+  version: '0.1.0',
+  name: 'Order desk',
+  description: "Answers customers' questions about their orders.",
+  instructions: [
+    'You answer customer questions about Acme orders. Today is {{ today }}.',
+    'Look an order up with acme.lookup-order before you say anything about it.',
+    'If the customer gives no order id, ask for it. Never guess a status or a date.',
+    'Answer in two sentences at most.',
+  ].join('\n'),
+  capabilities: [{ needs: [{ feature: 'tool-use' }] }],
+  tools: [{ id: 'acme.lookup-order', version: '^0.1.0' }],
+  retrieval: [],
+  guardrails: ['acme.response-not-empty'],
+  budget: { maxSteps: 6, maxCostUsd: 0.05, maxWallMs: 60_000 },
+});
+
+if (defined.kind === 'err') throw new Error(defined.error.message);
+
+export default defined.value;
+```
+
+`defineAgent` checks the definition where it's written and returns an error
+for an invalid one (an empty `capabilities`, a version that isn't semver);
+`defined.error.issues` lists the problems. Throwing makes `kindgi dev` report
+the file.
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# agents/order_desk.py
+from kindgi import Agent
+
+from ..guardrails.response_not_empty import response_not_empty
+from ..tools.lookup_order import lookup_order
+
+order_desk = Agent(
+    id="acme.order-desk",
+    version="0.1.0",
+    name="Order desk",
+    description="Answers customers' questions about their orders.",
+    instructions="\n".join([
+        "You answer customer questions about Acme orders. Today is {{ today }}.",
+        "Look an order up with acme.lookup-order before you say anything about it.",
+        "If the customer gives no order id, ask for it. Never guess a status or a date.",
+        "Answer in two sentences at most.",
+    ]),
+    capabilities=[{"needs": [{"feature": "tool-use"}]}],
+    tools=[lookup_order],
+    guardrails=[response_not_empty],
+    budget={"maxSteps": 6, "maxCostUsd": 0.05, "maxWallMs": 60_000},
+)
+```
+
+Assign the agent at module level: an agent built inside a function isn't
+found. The keys inside the dicts (`maxSteps`, `feature`) keep the API's
+camelCase; only the keyword arguments are snake_case.
+
+</TabItem>
+</Tabs>
+
+- **`id`** is `<pack>.<name>`; **`version`** is an exact semver.
+- **`instructions`** is what the model is told at the start of every turn: a
+  template, below.
+- **`capabilities`** says what the model must support. `tool-use` is the one
+  an agent that calls tools needs. Kindgi picks the model when the turn starts:
+  see [Choose the model an agent uses](../choose-a-model/).
+- **`tools`** are the tools the model may call (below). An agent with
+  `tools: []` only talks.
+- **`guardrails`** check the agent's final answer, once per turn, before it's
+  stored. A guardrail whose action is `halt` fails the turn, and the answer is
+  never written to the conversation.
+- **`budget`** caps each turn: see [Set an agent's budget](../budgets/).
+
+In TypeScript, `tools`, `retrieval` and `guardrails` are required; pass `[]`
+for none.
+
+## Run it
+
+```sh
+kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}'
+```
+
+```json
+{
+  "id": "0ae4c417-c373-4523-962e-75c296c188fe",
+  …
+  "status": "completed",
+  …
+  "output": {
+    …
+    "usage": { "steps": 2, "durationMs": 2291, "promptTokens": 1449, "totalCostUsd": 0.001889, "completionTokens": 88 },
+    "appended": [
+      { "role": "user", "content": "Where is my order A-1001?", "sequence": 0, … },
+      { "role": "agent", "actor": "acme.order-desk",
+        "content": { "text": "", "toolCalls": [{ "id": "toolu_01XP…", "name": "acme.lookup-order", "arguments": { "orderId": "A-1001" } }] },
+        "sequence": 1, … },
+      { "role": "tool", "content": { "eta": "2026-10-06", "status": "shipped", "orderId": "A-1001" }, "sequence": 2, … },
+      { "role": "agent", "actor": "acme.order-desk",
+        "content": "Your order A-1001 has been shipped and is expected to arrive on October 6, 2026.", "sequence": 3, … }
+    ],
+    "provider": { "id": "anthropic", "model": "claude-haiku-4-5" },
+    "response": { "role": "agent", "content": "Your order A-1001 has been shipped and is expected to arrive on October 6, 2026.", … },
+    …
+    "turnNumber": 1,
+    "violations": [],
+    "conversationId": "49cd02f6-6cc7-40e5-b5ff-6d3bf1f4fb0f"
+  }
+}
+```
+
+The turn took two steps: the model asked for `acme.lookup-order`, the tool
+ran, and the model answered with its result. `response.content` is the
+answer; `appended` is everything the turn added to its conversation. The rest
+of the result is on [Give an agent its input](../give-an-agent-input/#what-a-turn-returns).
+
+Edit the file and save: `kindgi dev` reloads it, and the next run uses it.
+
+## Instructions are a template
+
+`{{ today }}` above is filled in when the turn starts. The template language
+is Liquid, so tags such as `{% if %}` work too. These variables are always
+there:
+
+| Variable | Example |
+| --- | --- |
+| `today` | `2026-10-03` |
+| `now` | `2026-10-03T20:24:43.576Z` |
+| `agent.id`, `agent.name`, `agent.version` | `acme.order-desk`, `Order desk`, `0.1.0` |
+| `conversation.id`, `conversation.turn` | `da5ea34a-…`, `1` |
+
+Your own variables are the agent's `parameters`, and an agent that runs as a
+flow step can read the step's input as `{{ input.* }}`: both are on
+[Give an agent its input](../give-an-agent-input/).
+
+Rendering is strict. A variable that is neither built in nor declared fails
+the turn before the model is called:
+
+```text
+Error [server]: Prompt render failed: Template references an unresolved variable: customer
+```
+
+The rendered instructions are in the run's journal
+(`kindgi runs journal <run-id>`), as the output of its `render-prompt` step.
+
+## Tools and their versions
+
+In TypeScript, each tool is an `{ id, version }` reference, and `version` is
+a semver range: `'^0.1.0'` takes the highest registered version from `0.1.0`
+up to, not including, `0.2.0`. In Python, pass the tool itself to pin it to
+its version, or the same `{"id": …, "version": …}` reference for a range.
+
+The range is resolved when the turn starts. When no registered version is in
+it, the turn fails:
+
+```text
+Error [server]: Tool "acme.lookup-order" has no version satisfying "^0.2.0" (available: 0.1.0)
+```
+
+A tool given as a plain string is refused before anything runs: TypeScript
+reports `Type 'string' is not assignable to type 'ToolRef'`, and the Python
+index reports the file:
+
+```sh
+uv run python -m kindgi.pack index --pack-dir .
+```
+
+```json
+{
+  …
+  "fileErrors": [
+    {
+      "code": "manifest-validation-failed",
+      "message": "agents/order_desk.py: agent 'acme.order-desk': each tool is a Tool or an {id, version} ref, got 'acme.lookup-order'",
+      "filePath": "agents/order_desk.py"
+    }
+  ]
+}
+```
+
+## Guardrails
+
+A guardrail the agent names must be registered: `kindgi dev` registers the
+pack's own. An unknown id fails the turn before the model is called:
+
+```text
+Error [invalid-request]: Agent "acme.order-desk" references guardrails not in the registry: acme.no-refunds
+```
+
+In Python, passing the guardrail object you import (as above) keeps the id
+right.
+
+## When a file doesn't load
+
+`kindgi dev` keeps serving the rest of the pack and names the file:
+
+```text
+⚠ loaded 12 of 12 in 1406ms — 4 tools, 1 guardrails, 5 agents, 2 flows
+  ✗ indexer: agents/order-desk/index.ts [file-import-failed] Failed to import agents/order-desk/index.ts: Error: Agent "acme.order-desk" is invalid (1 issue)
+```
+
+In a Python pack, `uv run python -m kindgi.pack index --pack-dir .` reports
+a file that fails to load without the runtime: a bare-string tool (above), or
+a version that isn't an exact semver (`version must be an exact semver, got
+'0.1'`).

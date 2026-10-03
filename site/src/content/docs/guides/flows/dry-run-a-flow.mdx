@@ -1,0 +1,106 @@
+---
+title: Dry-run a flow
+description: Run a flow's read-only steps to check its wiring, and stop before the first step that would change something.
+sidebar:
+  order: 9
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+A dry run runs a flow for real up to the first step that could change
+something, and stops there. Use it to check a flow's wiring (mappings,
+conditions, the data each step gets) against real data, without the writes.
+
+```sh
+kindgi runs start --flow=acme.handle-order --input='{"orderId":"A-100"}' --dry-run
+```
+
+```json
+{
+  "id": "404da259-4a63-4e6d-a0af-15ad7d60dd8c",
+  …
+  "flowId": "acme.handle-order",
+  "flowVersion": "0.1.0",
+  "status": "failed",
+  "dryRun": true,
+  …
+  "failureMessage": "dry-run-effectful-tool: tool \"acme.email-customer\" is not declared read-only (mutating: false), so it does not run in a dry run",
+  …
+}
+```
+
+`acme.get-order` ran, the branch was decided, and the run stopped at
+`acme.email-customer`, before calling it. The journal shows how far it got and
+the input the next step would have had:
+
+```json
+{"sequence": 3, "kind": "step.completed", "nodeId": "order", "payload": {"output": {"items": [{"sku": "mug", "quantity": 2}], "total": 42.5, "orderId": "A-100", "customer": "ada@example.com"}}, …}
+{"sequence": 4, "kind": "edge.evaluated", "payload": {"edgeId": "e2", "decision": false}, …}
+{"sequence": 5, "kind": "edge.evaluated", "payload": {"edgeId": "e3", "decision": true}, …}
+{"sequence": 6, "kind": "step.started", "nodeId": "email", "payload": {"input": {"customer": "ada@example.com"}}, …}
+{"sequence": 7, "kind": "step.failed", "nodeId": "email", "payload": {"message": "dry-run-effectful-tool: tool \"acme.email-customer\" is not declared read-only (mutating: false), so it does not run in a dry run"}, …}
+```
+
+A flow whose steps all only read completes, with its output:
+
+```sh
+kindgi runs start --flow=acme.check-order-stock --input='{"orderId":"A-200"}' --dry-run
+```
+
+```json
+{
+  …
+  "status": "completed",
+  "dryRun": true,
+  …
+  "output": {
+    "items": [
+      …
+    ]
+  },
+  …
+}
+```
+
+## What runs
+
+- **A tool step** runs if the tool is declared read-only (`mutating: false`)
+  and its `effects` declare no `writes`, `deletes`, `spawns-run`,
+  `emits-event` or `external-side-effect`. A tool that leaves `mutating` out
+  counts as one that changes something. The first other tool stops the run
+  with `dry-run-effectful-tool`; everything before it really ran.
+- **An agent step** runs its turn without calling the model: its answer is
+  `[dry-run: model call skipped]`, and it costs nothing. The steps after it get
+  that text, so the dry run shows the wiring, not the agent's judgment.
+
+So a dry run is only as safe as the tools' declarations. Declare
+`mutating: false` on every tool that only reads, and never on one that writes.
+
+## From your app
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+const run = await kindgi.runs.start({
+  flow: 'acme.check-order-stock',
+  input: { orderId: 'A-200' },
+  options: { dryRun: true },
+});
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+run = kindgi.runs.start(
+    flow="acme.check-order-stock", input={"orderId": "A-200"}, options={"dryRun": True}
+)
+```
+
+</TabItem>
+</Tabs>
+
+A dry run is a run like the others, marked `dryRun: true`, with a journal.
+[Webhook endpoints](../../webhooks/receive-run-finished/) leave dry runs out
+unless their filter says `includeDryRuns: true`.
