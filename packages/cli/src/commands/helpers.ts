@@ -7,25 +7,54 @@ import { KindgiApiError } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
 import { formatThrown } from '../errors.js';
-import { type Rendered, renderJson } from '../output.js';
+import { type Column, type Rendered, renderJson, renderTable } from '../output.js';
 import type { CommandResult } from './types.js';
+
+/**
+ * How a list command's page renders under `--table`: its rows and the
+ * columns to show. A command without one prints JSON under `--table`.
+ */
+export interface TableSpec<Page, Row> {
+  readonly rows: (page: Page) => readonly Row[];
+  readonly columns: readonly Column<Row>[];
+}
 
 /**
  * Wrap an SDK call so any thrown value maps to a `CommandResult`. Any
  * `KindgiApiError` — including the preview `not-implemented-in-preview`
- * stub — is rendered via `formatThrown`.
+ * stub — is rendered via `formatThrown`. With `table`, `--table` renders
+ * the page as a table.
  */
-export async function runSdk<T>(
+export async function runSdk<T, Row = never>(
   ctx: CommandContext,
   commandLabel: string,
   fn: () => Promise<T>,
+  table?: TableSpec<T, Row>,
 ): Promise<CommandResult> {
   try {
     const value = await fn();
+    if (table !== undefined && ctx.globals.format === 'table') {
+      return { kind: 'ok', rendered: renderPageTable(value, table) };
+    }
     return { kind: 'ok', rendered: renderJson(value, ctx.globals.format) };
   } catch (err) {
     return commandResultFromThrown(err, ctx, commandLabel);
   }
+}
+
+/** A page as a table; the next page's `--cursor`, which the table has no room for, on stderr. */
+function renderPageTable<T, Row>(page: T, table: TableSpec<T, Row>): Rendered {
+  const rendered = renderTable(table.rows(page), table.columns);
+  const next = (page as { readonly nextCursor?: unknown }).nextCursor;
+  return typeof next === 'string' && next !== ''
+    ? { ...rendered, stderr: `Next page: --cursor=${next}\n` }
+    : rendered;
+}
+
+/** `text` cut to `max` characters, ending in `…` when cut — for a table cell. */
+export function truncateCell(text: string, max: number): string {
+  const oneLine = text.replace(/\s+/g, ' ').trim();
+  return oneLine.length > max ? `${oneLine.slice(0, max - 1)}…` : oneLine;
 }
 
 /**

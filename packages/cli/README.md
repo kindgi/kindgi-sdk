@@ -72,7 +72,13 @@ Three modes:
   a `kindgi.config.ts`, starter primitives, tests and a README.
 - **`kindgi init`** in a directory with a `package.json` adds Kindgi to that
   app: a `kindgi.config.ts`, a `kindgi/` folder for the pack's primitives,
-  the skills under `.claude/skills/`, and `.gitignore` entries. It creates
+  the skills under `.claude/skills/`, and `.gitignore` entries. It adds
+  `@kindgi/sdk`, `zod` (`^4.0.0`, unless the app has its own: one older than
+  zod 4 is kept, with a warning) and `@kindgi/cli` to `package.json`. In a
+  pnpm app it allows esbuild's install script (`allowBuilds.esbuild: true`)
+  in the `pnpm-workspace.yaml` pnpm reads, creating it if needed and keeping
+  the rest of the file; pnpm 11+ won't install `@kindgi/cli` without it. An
+  explicit `esbuild: false` is left alone, with a warning. It creates
   no env files: `kindgi dev` reads the app's own `.env` / `.env.local`.
   `--new-repo` scaffolds a separate pack inside the app instead.
 - **`kindgi init`** in a directory with a `pyproject.toml` and no
@@ -279,8 +285,8 @@ request field; dots nest).
 ```
 
 Progress and the runtime's own log lines (`[runtime] …`, `[pack] …`) go to
-stderr; a JSON summary goes to stdout, so `kindgi dev --no-watch --raw | jq`
-works.
+stderr. With `--json` or `--raw`, a JSON summary goes to stdout when it
+exits, so `kindgi dev --no-watch --raw | jq` works.
 
 ### Watching
 
@@ -291,7 +297,8 @@ directory is watched, never the whole app. The dev index lives at
 `.kindgi/dev/index.json`.
 
 - An empty pack is not an error: the output says where to add the first
-  primitive.
+  primitive. Its pack service starts with the first primitive; until then
+  the runtime may warn once that the pack service isn't answering.
 - A file that fails to index or build (a bad schema, a missing default
   export, a syntax error) is reported with its path and the error, and the
   previous code keeps serving until you fix it and save.
@@ -322,8 +329,10 @@ data. `kindgi dev` runs it the same way, with the pack's own interpreter:
 ### Stopping
 
 Ctrl+C (or SIGTERM) stops the watchers, the pack service and the runtime
-container. The bundled Postgres keeps running for the next `kindgi dev`.
-The exit code is `0` after a clean stop and `1` if startup failed.
+container, on one line: `Stopping kindgi dev... stopped.` A second Ctrl+C
+forces the exit. The bundled Postgres keeps running for the next
+`kindgi dev`. The exit code is `0` after a clean stop and `1` if startup
+failed.
 
 ## `kindgi test`
 
@@ -684,7 +693,7 @@ with `kindgi auth whoami`.
 |---|---|
 | `--json` | Pretty JSON on stdout (the default), for `jq`. |
 | `--raw` | One-line JSON. |
-| `--table` | A table for list responses (JSON where a list has no columns). |
+| `--table` | A table for list responses (`runs list`, `tools list`, `providers list`; JSON where a list has no columns). |
 | `--quiet` | Nothing on stdout; the exit code only. |
 | `--url=<url>`, `--token=<token>` | The API and its token (see above). |
 | `--verbose`, `-v` | Full errors: stack traces and the API's error bodies. |
