@@ -24,10 +24,10 @@ cd my-pack
 pnpm install
 ```
 
-:::caution[Kindgi 0.1.0: add a `.gitignore`]
-`init` from npm doesn't write the pack's `.gitignore` yet, so git would track
-`.env` (where your model key goes) and `.kindgirc.json` (the dev token).
-Before your first commit:
+:::note[On Kindgi 0.1.0 (fixed in 0.1.1)]
+`init` from npm writes no `.gitignore`, so git would track `.env` (where
+your model key goes) and `.kindgirc.json` (the dev token). Before your first
+commit:
 
 ```sh
 printf '%s\n' node_modules/ dist/ .kindgi/ .kindgirc.json '*.tsbuildinfo' .env .env.local >> .gitignore

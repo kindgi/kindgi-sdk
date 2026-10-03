@@ -18,25 +18,14 @@ npx @kindgi/cli init
 pnpm install          # or the app's own package manager
 ```
 
-:::caution[pnpm 11 or later]
-With Kindgi 0.1, the first `pnpm install` stops with
-`ERR_PNPM_IGNORED_BUILDS` for `esbuild`, which the CLI uses to build your
-pack. pnpm adds a placeholder for it to `pnpm-workspace.yaml`: set it to
-`true`, then run `pnpm install` again.
-
-```yaml
-# pnpm-workspace.yaml
-allowBuilds:
-  esbuild: true
-```
+:::note[On Kindgi 0.1.0 (fixed in 0.1.1)]
+- In a pnpm 11+ app, the first `pnpm install` stops with
+  `ERR_PNPM_IGNORED_BUILDS` for `esbuild`. In `pnpm-workspace.yaml`, set
+  `esbuild: true` under `allowBuilds:` (replacing pnpm's placeholder), then
+  install again.
+- `init` doesn't add Zod, which tools and agents use for their schemas:
+  `pnpm add zod`.
 :::
-
-Tools and agents describe their input and output with Zod. If your app
-doesn't use it yet, add it:
-
-```sh
-pnpm add zod
-```
 
 `init` adds:
 
@@ -48,7 +37,9 @@ pnpm add zod
   `"type": "module"`, it also gets a one-line `package.json` that makes
   them ES modules;
 - `@kindgi/sdk` (a dependency) and `@kindgi/cli` (a devDependency) in your
-  `package.json`, at the CLI's own version;
+  `package.json`, at the CLI's own version, and, from 0.1.1, `zod`;
+- from 0.1.1, in a pnpm app, `allowBuilds: { esbuild: true }` in
+  `pnpm-workspace.yaml`, so pnpm runs the build step the CLI needs;
 - the skills for your coding agent under `.claude/skills/`, and
   `.gitignore` entries (`.kindgi/`, `.kindgirc.json`, `.env.local`).
 

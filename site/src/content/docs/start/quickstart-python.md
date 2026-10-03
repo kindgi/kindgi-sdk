@@ -25,10 +25,10 @@ uv sync          # a .venv with the kindgi package
 uv run pytest    # the template's tests: the tools and the check, called directly
 ```
 
-:::caution[Kindgi 0.1.0: add a `.gitignore`]
-`init` from npm doesn't write the pack's `.gitignore` yet, so git would track
-`.env` files (where model keys go) and `.kindgirc.json` (the dev token).
-Before your first commit:
+:::note[On Kindgi 0.1.0 (fixed in 0.1.1)]
+`init` from npm writes no `.gitignore`, so git would track `.env` files
+(where model keys go) and `.kindgirc.json` (the dev token). Before your first
+commit:
 
 ```sh
 printf '%s\n' .venv/ __pycache__/ .kindgi/ .kindgirc.json .env '.env.*' >> .gitignore

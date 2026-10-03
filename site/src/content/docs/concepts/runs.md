@@ -37,12 +37,12 @@ Your app chooses how to start a run:
 
 ## Durable
 
-A run's state is the journal, not a process's memory. A run that waits (for
-a person's approval, or for a value your app sends later) is parked at a
-**waitpoint** and resumes when it's completed:
+A run's state is the journal, not a process's memory. A run that waits for
+a person's approval is parked at a **waitpoint**, and continues when a
+reviewer decides the approval:
 
 ```sh
-kindgi runs resume <run-id> --waitpoint=<id> --value='{"approved": true}'
+kindgi approvals complete <approval-id> --decision=approve
 ```
 
 Retries are safe: a start with the same **idempotency key** returns the run

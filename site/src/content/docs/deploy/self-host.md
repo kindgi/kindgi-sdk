@@ -112,6 +112,7 @@ Your tools' code runs in the pack's own container. The runtime calls it with a t
 
 ```sh
 echo "KINDGI_PACK_SERVICE_TOKEN=$(openssl rand -base64 32)" > pack.env
+chmod 600 pack.env
 
 docker run -d --name kindgi-pack --network kindgi --env-file pack.env \
   registry.localhost:5050/acme-pack@sha256:<the digest kindgi build printed>
@@ -143,6 +144,9 @@ KINDGI_PACK_SERVICE_TOKEN=<the same token as in pack.env>
 KINDGI_IMAGE_REGISTRY_INSECURE_HOSTS=registry.localhost:5050
 KINDGI_LICENSE_KEY=<your license key>
 ```
+
+It holds the API token and the license key, so keep it to yourself:
+`chmod 600 kindgi.env`.
 
 Every setting is in the [environment variable reference](../../reference/env-vars/). Two are worth knowing now:
 
