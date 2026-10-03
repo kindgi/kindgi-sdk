@@ -14,7 +14,7 @@ description: >
   primitive.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.2"
+version: "0.3.3"
 sdk_version: "0.0.0"
 pack_languages: [node]
 ---
@@ -95,22 +95,28 @@ needs on first run), indexes the pack, registers every primitive, and
 re-registers on every save. The banner prints the API URL, the seeded
 bearer token, and (if the console is bundled) the `/console/` URL.
 
-The local runtime includes a built-in `demo.echo-agent` you can hit to
-verify the harness before authoring anything.
+Until a model provider is registered, agents answer with `dev-echo`, a
+stand-in that calls the agent's first tool with `{"message": <userMessage>}`
+and replies with what the tool returned. It checks the wiring only: it can't
+fill in any other tool input or produce a typed `output` (that turn fails
+with `output-schema-violation`). Register a provider
+(`kindgi-authoring-providers`) before building a real agent.
 
 ## First run
 
 From a second terminal, with `cd my-pack`:
 
 ```bash
-pnpm exec kindgi runs start --agent=demo.echo-agent --input='{"userMessage":"hi"}'
+pnpm exec kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
 ```
+
+`my-pack.echo-agent` is the agent the `sample` template ships (`<pack-id>.echo-agent`);
+a `minimal` pack has no agent until you write one.
 
 The CLI reads `.kindgirc.json` (auto-written by `kindgi dev`) for the
 API URL + token, so second-terminal commands work without flags.
 
-Once you author your own agent, replace `demo.echo-agent` with your
-own id.
+Once you author your own agent, run it by its own id.
 
 ## Layout
 

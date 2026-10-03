@@ -104,7 +104,9 @@ can:
 - a model provider's API key, an MCP endpoint's credentials and a webhook
   endpoint's signing secret are each a `secretRef`, a name resolved in the
   tenant's own secrets when it's needed;
-- a tool receives only the secrets it declares.
+- a tool's code receives the secrets it declares, through its context
+  (`ctx.secrets`). In development only, the pack's process also sees the
+  values in your env files, since `kindgi dev` reads them for it.
 
 The values live where your other secrets live: `.env` files in development,
 and in production Postgres, envelope-encrypted with a key held in your

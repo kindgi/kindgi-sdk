@@ -44,6 +44,7 @@ function typeOf(schema) {
   if (schema.const !== undefined) return `\`${JSON.stringify(schema.const)}\``;
   if (schema.enum) return schema.enum.map((v) => `\`${JSON.stringify(v)}\``).join(' \\| ');
   for (const key of ['oneOf', 'anyOf']) {
+    if (schema[key]?.some((branch) => branch.properties)) return 'one of the objects below';
     if (schema[key]) return schema[key].map(typeOf).join(' or ');
   }
   if (schema.allOf) return schema.allOf.map(typeOf).join(' and ');
@@ -78,16 +79,40 @@ function fields(schema, indent = '') {
     lines.push(`${indent}- \`${name}\` (${marks})${description}`);
     const nested = nestedObject(field);
     if (nested) lines.push(...fields(nested, `${indent}  `));
+    for (const branch of variants(field) ?? []) {
+      lines.push(`${indent}  - ${branch.properties ? 'an object' : typeOf(branch)}`);
+      if (branch.properties) lines.push(...fields(branch, `${indent}    `));
+    }
   }
   return lines;
+}
+
+/** A `oneOf` / `anyOf` with object branches: each branch gets its fields. */
+function variants(schema) {
+  for (const key of ['oneOf', 'anyOf']) {
+    if (schema[key]?.some((branch) => branch.properties)) return schema[key];
+  }
+  return undefined;
 }
 
 function section(schema, heading) {
   const lines = [];
   if (heading) lines.push(heading, '');
   if (schema.description) lines.push(prose(schema.description), '');
+  const branches = variants(schema);
   if (schema.properties) {
     lines.push(...fields(schema), '');
+  } else if (branches) {
+    lines.push('One of:', '');
+    for (const branch of branches) {
+      if (!branch.properties) {
+        lines.push(`- ${typeOf(branch)}`);
+        continue;
+      }
+      const description = branch.description ? `: ${prose(branch.description)}` : '';
+      lines.push(`- an object${description}`, ...fields(branch, '  '));
+    }
+    lines.push('');
   } else {
     lines.push(`Type: ${typeOf(schema)}`, '');
   }

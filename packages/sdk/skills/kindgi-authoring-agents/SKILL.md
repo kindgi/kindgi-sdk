@@ -12,7 +12,7 @@ description: >
   kindgi-authoring-guardrails.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.1"
+version: "0.4.2"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -237,8 +237,7 @@ concerns, not author-time.
 
 - Type surface: `hover any @kindgi/sdk/define export` in your editor
   for full JSDoc.
-- Companion docs: `pnpm --filter @kindgi/sdk exec typedoc` regenerates
-  markdown API docs at `packages/sdk/docs/`.
+- API reference: https://docs.kindgi.com/v0.1/reference/typescript/sdk/kindgi/sdk/define/ (every `define*` spec, field by field).
 - Common patterns: the `sample` template's `agents/echo-agent`
   demonstrates the smallest tool-calling shape.
 

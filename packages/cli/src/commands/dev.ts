@@ -62,7 +62,14 @@ import { type PackCode, resolvePackCode } from '../dev/pack-code.js';
 import { devPackEnv, devPackEnvFiles } from '../dev/pack-env.js';
 import { createPackRefresher, describePackEvent } from '../dev/pack-service.js';
 import { type RegistrationReport, registerFromIndex } from '../dev/register.js';
-import type { DevRunners, IndexResult, PackBuild, RunningApiServer } from '../dev/runners.js';
+import type {
+  DevRunners,
+  IndexResult,
+  PackBuild,
+  PackBuilder,
+  RunningApiServer,
+  WatchHandle,
+} from '../dev/runners.js';
 import { DEFAULT_RUNTIME_IMAGE } from '../dev/runtime-image.js';
 import { describeEnvDiagnostics, loadLocalEnvSettings } from '../env/project-env.js';
 import { renderJson } from '../output.js';
@@ -125,7 +132,7 @@ export const devCommand: LeafCommand = {
     path: {
       type: 'string',
       description:
-        'The pack root, with a `kindgi.config.ts` or a `pyproject.toml` with `[tool.kindgi]`. Default: the current directory.',
+        'The pack root, with a `kindgi.config.ts` (or `.mts`) or a `pyproject.toml` with `[tool.kindgi]`. Default: the current directory.',
     },
     // --reset: a fresh start for this pack only — a new tenant and token
     // (it removes .kindgirc.json). The shared services and their data,
@@ -168,7 +175,27 @@ export const DEFAULT_WATCH_DEBOUNCE_MS = 200;
  * so nothing to intercept.
  */
 function emitProgress(msg: string): void {
-  process.stderr.write(`  ${msg}\n`);
+  process.stderr.write(`${stoppingLineOpen ? '\n' : ''}  ${msg}\n`);
+  stoppingLineOpen = false;
+}
+
+/**
+ * Shutdown is one line: "Stopping kindgi dev..." the moment the signal
+ * arrives, finished with "stopped." once the runtime and the pack service
+ * are down. A progress line in between (a save still being loaded) starts
+ * on its own line.
+ */
+let stoppingLineOpen = false;
+
+function beginStoppingLine(): void {
+  process.stderr.write('  Stopping kindgi dev...');
+  stoppingLineOpen = true;
+}
+
+function endStoppingLine(stopped: boolean): void {
+  if (stoppingLineOpen) process.stderr.write(stopped ? ' stopped.\n' : '\n');
+  else if (stopped) process.stderr.write('  kindgi dev stopped.\n');
+  stoppingLineOpen = false;
 }
 
 /**
@@ -407,7 +434,6 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   // that index, and calls that pack service, from its first request.
   emitProgress('Bundling + indexing the pack...');
   const bootIndex = await refresher.refresh();
-
   emitProgress(
     args.runtimeUrl !== undefined
       ? `Using the Kindgi runtime at ${args.runtimeUrl}...`
@@ -466,18 +492,7 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
           packDir: args.packDir,
         })
       : emptyReport();
-  if (bootIndex.kind === 'ok') {
-    const c = bootIndex.counts;
-    emitProgress(
-      `✓ loaded: ${c.tools} tools, ${c.guardrails} guardrails, ${c.agents} agents, ${c.flows} flows`,
-    );
-    for (const e of bootIndex.fileErrors) {
-      emitProgress(`  ⚠ indexer: ${e.filePath ?? '?'} [${e.code}] ${e.message}`);
-    }
-    for (const f of bootReport.failed) {
-      emitProgress(`  ⚠ ${f.kind}: ${f.id} — ${f.message ?? 'unknown reason'}`);
-    }
-  }
+  emitBootIndex(bootIndex, bootReport, discoveryRoots(projectEnv.discoveryPatterns));
 
   // Hints run the project's own kindgi through its package manager — or,
   // for a Python pack (no npm project), the kindgi on PATH.
@@ -492,7 +507,6 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
     token: server.token,
     providers,
     registerProviderCommand,
-    watching: args.watch,
     packDir: args.packDir,
     bootIndex,
     bootReport,
@@ -545,11 +559,9 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   }
 
   // Emit the "you're up, here's what to do next" block live to stderr
-  // so watch-mode users see it immediately instead of after Ctrl-C.
-  // (The returned command result also includes bannerLines; in watch
-  // mode that flushes on shutdown, in --no-watch it flushes on exit.
-  // Duplication in --no-watch is a small cost for watch-mode
-  // responsiveness.)
+  // so watch-mode users see it immediately. (With --no-watch, the returned
+  // command result also carries bannerLines, flushed on exit; watch mode
+  // ends with its one shutdown line, never the boot banner again.)
   emitProgress('');
   emitProgress('════════════════════════════════════════');
   emitProgress('  ✓ Kindgi is up');
@@ -676,17 +688,16 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   // Watch mode: wait for the caller's abort signal (SIGINT/SIGTERM in
   // production; injected AbortController.signal in tests). Non-watch
   // mode: return immediately after boot registration.
-  if (args.watch) {
-    await waitForAbort(ctx.stopSignal);
-    emitProgress('Shutting down...');
-    for (const handle of watchHandles) await handle.close();
-  }
-  // Nothing starts a refresh any more; drain the ones in flight.
-  await builder.dispose();
-  await Promise.allSettled(inFlightTicks);
-  await refresher.idle();
-  await server.shutdown();
-  await pack.close();
+  if (args.watch) await waitForAbort(ctx.stopSignal);
+  await stopDev({
+    watch: args.watch,
+    watchHandles,
+    builder,
+    inFlightTicks,
+    refresher,
+    server,
+    pack,
+  });
   // `.kindgirc.json` is intentionally NOT deleted on exit — the
   // persisted token survives so re-boots and second-terminal
   // sessions keep working with the same bearer. `kindgi dev --reset`
@@ -695,6 +706,9 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   // The bundled services keep running: other `kindgi dev` sessions on
   // this machine share them (see `StartedServicesHandle`).
 
+  // The JSON summary is for scripts that ask for it (`--json`, `--raw`):
+  // the boot, and in watch mode the last save's outcome — where the pack
+  // stood when kindgi dev stopped.
   const summary = {
     apiUrl: server.baseUrl,
     tenantId: server.tenantId,
@@ -711,10 +725,10 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
     }),
   };
 
-  const rendered = renderJson(summary, ctx.globals.format);
+  const stdout = ctx.globals.formatRequested ? renderJson(summary, ctx.globals.format).stdout : '';
   return {
     kind: 'ok',
-    rendered: { stdout: rendered.stdout, stderr: `${bannerLines.join('\n')}\n` },
+    rendered: { stdout, stderr: args.watch ? '' : `${bannerLines.join('\n')}\n` },
   };
 }
 
@@ -987,6 +1001,64 @@ async function readPersistedRc(kindgircPath: string): Promise<{
   }
 }
 
+/** What the boot loaded, live: the counts and failures, no primitives yet, or the indexer's error. */
+function emitBootIndex(
+  bootIndex: IndexResult,
+  bootReport: RegistrationReport,
+  roots: readonly string[],
+): void {
+  if (bootIndex.kind !== 'ok') {
+    // Dev stays up either way; the section says so.
+    for (const line of renderIndexSection({ bootIndex, bootReport, discoveryRoots: roots })) {
+      emitProgress(line.replace(/^ {2}/, ''));
+    }
+    return;
+  }
+  const c = bootIndex.counts;
+  emitProgress(
+    `✓ loaded: ${c.tools} tools, ${c.guardrails} guardrails, ${c.agents} agents, ${c.flows} flows`,
+  );
+  for (const e of bootIndex.fileErrors) {
+    emitProgress(`  ⚠ indexer: ${e.filePath ?? '?'} [${e.code}] ${e.message}`);
+  }
+  for (const f of bootReport.failed) {
+    emitProgress(`  ⚠ ${f.kind}: ${f.id} — ${f.message ?? 'unknown reason'}`);
+  }
+}
+
+/**
+ * Stop everything `kindgi dev` started: the watchers, then the refreshes
+ * in flight (drained, so none registers against a server shutting down),
+ * the runtime and the pack service. In watch mode, on the one shutdown
+ * line.
+ */
+async function stopDev(parts: {
+  readonly watch: boolean;
+  readonly watchHandles: readonly WatchHandle[];
+  readonly builder: PackBuilder;
+  readonly inFlightTicks: ReadonlySet<Promise<void>>;
+  readonly refresher: { idle(): Promise<void> };
+  readonly server: RunningApiServer;
+  readonly pack: { close(): Promise<void> };
+}): Promise<void> {
+  let stopped = false;
+  try {
+    if (parts.watch) {
+      beginStoppingLine();
+      for (const handle of parts.watchHandles) await handle.close();
+    }
+    // Nothing starts a refresh any more; drain the ones in flight.
+    await parts.builder.dispose();
+    await Promise.allSettled(parts.inFlightTicks);
+    await parts.refresher.idle();
+    await parts.server.shutdown();
+    await parts.pack.close();
+    stopped = true;
+  } finally {
+    if (parts.watch) endStoppingLine(stopped);
+  }
+}
+
 /**
  * Emit a short human-readable line per watch tick so the user sees
  * that a save re-indexed + reloaded the pack. Primitives come from
@@ -1138,7 +1210,6 @@ interface DevBannerInputs {
   readonly providers?: readonly BannerProvider[] | undefined;
   /** How to register a real model, in this pack's `kindgi`. */
   readonly registerProviderCommand: string;
-  readonly watching: boolean;
   readonly packDir: string;
   readonly bootIndex: IndexResult;
   readonly bootReport: RegistrationReport;
@@ -1183,7 +1254,7 @@ function describeProviders(
   return `${named} — canned replies; for a real model: ${registerProviderCommand}`;
 }
 
-/** The banner printed to stderr on boot. */
+/** The banner `kindgi dev --no-watch` prints to stderr when it exits. */
 export function renderDevBanner(inputs: DevBannerInputs): readonly string[] {
   const lines: string[] = [];
   lines.push('');
@@ -1210,21 +1281,14 @@ export function renderDevBanner(inputs: DevBannerInputs): readonly string[] {
   lines.push('');
   lines.push(...renderIndexSection(inputs));
   lines.push('');
-  if (inputs.watching) {
-    const roots = (inputs.discoveryRoots ?? []).map((r) => (r === '' ? '**' : `${r}/**`));
-    lines.push(`  Watching ${roots.join(', ')} under ${inputs.packDir}`);
-    lines.push(
-      `  Ready. Call the API at ${inputs.baseUrl} with Authorization: Bearer <token above>.`,
-    );
-    lines.push('  Ctrl+C to stop.');
-  } else {
-    lines.push('  --no-watch: single boot + register cycle complete.');
-  }
+  lines.push('  --no-watch: single boot + register cycle complete.');
   return lines;
 }
 
 /** The "what got indexed" part of the banner: counts + failures, an empty pack, or the indexer error. */
-function renderIndexSection(inputs: DevBannerInputs): string[] {
+function renderIndexSection(
+  inputs: Pick<DevBannerInputs, 'bootIndex' | 'bootReport' | 'discoveryRoots'>,
+): string[] {
   const index = inputs.bootIndex;
   if (index.kind === 'ok') {
     const c = index.counts;
@@ -1253,10 +1317,24 @@ function renderIndexSection(inputs: DevBannerInputs): string[] {
   ];
 }
 
+/** The refresh found no primitive files: an empty pack, which is not an error. */
+function isEmptyPack(outcome: IndexResult): boolean {
+  return outcome.kind === 'err' && outcome.code === 'discovery-empty';
+}
+
 function summariseOutcome(
   outcome: IndexResult,
   report: RegistrationReport,
 ): Record<string, unknown> {
+  if (isEmptyPack(outcome)) {
+    return {
+      ok: true,
+      empty: true,
+      counts: { tools: 0, guardrails: 0, agents: 0, flows: 0 },
+      registered: 0,
+      failed: [],
+    };
+  }
   if (outcome.kind === 'err') {
     return {
       ok: false,

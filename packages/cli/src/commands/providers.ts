@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { RegisterProviderInput } from '@kindgi/client';
+import type { Provider, ProviderPage, RegisterProviderInput } from '@kindgi/client';
 import { type KindgiConfig, packLanguage } from '@kindgi/handler-runtime';
 import { LOCAL_ENV_NAME, displayEnvPath, packValues, readPackEnv } from '@kindgi/secrets-dotenv';
 
@@ -15,6 +15,7 @@ import {
   presetRegistration,
 } from '../providers/preset-loader.js';
 import {
+  type TableSpec,
   readJsonInput,
   requiredPositional,
   runSdk,
@@ -22,6 +23,17 @@ import {
   stringFlag,
 } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
+
+/** `providers list --table`. */
+const PROVIDERS_TABLE: TableSpec<ProviderPage, Provider> = {
+  rows: (page) => page.data,
+  columns: [
+    { header: 'ID', get: (provider) => provider.id },
+    { header: 'REGION', get: (provider) => provider.region },
+    { header: 'MODELS', get: (provider) => provider.models.map((m) => m.name).join(', ') },
+    { header: 'FALLBACK', get: (provider) => (provider.fallback === true ? 'yes' : '') },
+  ],
+};
 
 const list: LeafCommand = {
   kind: 'leaf',
@@ -43,20 +55,25 @@ const list: LeafCommand = {
     },
   },
   run: (ctx) =>
-    runSdk(ctx, 'providers list', async () => {
-      const feature = stringFlag(ctx, 'feature');
-      const cursor = stringFlag(ctx, 'cursor');
-      const limitStr = stringFlag(ctx, 'limit');
-      const limit = limitStr !== undefined ? Number.parseInt(limitStr, 10) : undefined;
-      if (limit !== undefined && Number.isNaN(limit)) {
-        throw new Error(`--limit must be an integer, got "${limitStr}"`);
-      }
-      return await ctx.client().providers.list({
-        ...(feature !== undefined && { feature }),
-        ...(cursor !== undefined && { cursor }),
-        ...(limit !== undefined && { limit }),
-      });
-    }),
+    runSdk(
+      ctx,
+      'providers list',
+      async () => {
+        const feature = stringFlag(ctx, 'feature');
+        const cursor = stringFlag(ctx, 'cursor');
+        const limitStr = stringFlag(ctx, 'limit');
+        const limit = limitStr !== undefined ? Number.parseInt(limitStr, 10) : undefined;
+        if (limit !== undefined && Number.isNaN(limit)) {
+          throw new Error(`--limit must be an integer, got "${limitStr}"`);
+        }
+        return await ctx.client().providers.list({
+          ...(feature !== undefined && { feature }),
+          ...(cursor !== undefined && { cursor }),
+          ...(limit !== undefined && { limit }),
+        });
+      },
+      PROVIDERS_TABLE,
+    ),
 };
 
 const get: LeafCommand = {

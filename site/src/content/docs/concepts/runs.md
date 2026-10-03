@@ -37,12 +37,12 @@ Your app chooses how to start a run:
 
 ## Durable
 
-A run's state is the journal, not a process's memory. A run that waits (for
-a person's approval, or for a value your app sends later) is parked at a
-**waitpoint** and resumes when it's completed:
+A run's state is the journal, not a process's memory. A run that waits for
+a person's approval is parked at a **waitpoint**, and continues when a
+reviewer decides the approval:
 
 ```sh
-kindgi runs resume <run-id> --waitpoint=<id> --value='{"approved": true}'
+kindgi approvals complete <approval-id> --decision=approve
 ```
 
 Retries are safe: a start with the same **idempotency key** returns the run
@@ -58,5 +58,5 @@ its model call. Use it to check a flow's wiring before it touches real data.
 
 Because every step is recorded, every answer can be traced to where it came
 from: the agent's turn, the model call, the tool results it used. The
-console shows a run as that graph, with the cost of each model call; the
-API exports it.
+console shows a run as that graph, with the cost of each model call, and
+`GET /v1/provenance/{runId}` returns it.

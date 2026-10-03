@@ -14,7 +14,7 @@ description: >
   kindgi-python-authoring-tools.
 type: core
 library: "kindgi (Python)"
-version: "0.1.0"
+version: "0.1.1"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -106,7 +106,9 @@ def no_fabricated_quotes(config: Config, trace: RunTrace) -> CheckResult:
   In an agent turn a failed `halt` guardrail fails the turn
   (`guardrail-violation`) and the answer is not stored; any other action
   reports the failure in the turn result's `violations` and the turn
-  completes.
+  completes. In 0.1 the runtime acts only on `halt`: `retry`, `escalate`
+  and `compensate` are recorded on the violation, with no second attempt,
+  escalation or compensating call.
 - **`severity`** — `"info"`, `"warn"`, `"error"` (default), `"critical"`.
   Independent of the action: dashboards group by severity, execution
   follows the action.
@@ -147,8 +149,9 @@ brief_writer = Agent(..., guardrails=[no_fabricated_quotes])
 ```
 
 The `Guardrail` object (or its id). `kindgi dev` registers the pack's
-guardrails; an agent naming an id with no registered guardrail fails
-its turn (`unresolved-guardrail`).
+guardrails; an agent naming an id with no registered guardrail fails the
+turn before the model is called (`Error [invalid-request]: Agent "…"
+references guardrails not in the registry: <id>`).
 
 ## Common mistakes
 
@@ -158,8 +161,8 @@ its turn (`unresolved-guardrail`).
 2. **Snake_case keys in `config=`.** It is keyed like the wire — the
    model's aliases (`{"minLookups": 2}`), not the field names.
 3. **Both `on_violation=` and `action=`, or neither** — `DefinitionError`.
-4. **Expecting retries from `halt`.** `halt` stops the turn; use
-   `action={"on-violation": "retry", …}` for another attempt.
+4. **Expecting another attempt.** `halt` stops the turn, and in 0.1
+   `retry` doesn't run the turn again: it's only recorded.
 5. **Calling a model from the check.** Not available; keep checks pure.
 6. **Raising for a broken rule.** Return `CheckResult(passed=False,
    reason=…)`; an exception is an evaluation error, not a violation.

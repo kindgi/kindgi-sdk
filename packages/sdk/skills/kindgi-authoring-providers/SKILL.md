@@ -22,7 +22,7 @@ description: >
   kindgi-getting-started.
 type: core
 library: "@kindgi/sdk"
-version: "0.9.1"
+version: "0.9.2"
 sdk_version: "0.0.0"
 pack_languages: [node, python]
 sources:
@@ -492,15 +492,12 @@ into one entry per model (`metadata.models[]`), filters the resulting
 tenant policy), then sorts survivors in this order:
 
 1. **Preferred provider / model.** Tuples matching the agent's
-   `preferredProvider` (and `preferredModel`, when the `Agent` object
-   carries one) are promoted to the front.
+   `preferredProvider` and `preferredModel` are promoted to the front.
      - Both set → promote the exact tuple.
      - Only `preferredModel` set → promote any provider exposing that model.
      - Only `preferredProvider` set → promote every model of that provider.
-   `defineAgent` accepts `preferredProvider` but not `preferredModel`
-   (`DefineAgentSpec` has no such field), so agents built with it can
-   only express a provider preference here. A Python `Agent` takes
-   both (`preferred_provider=`, `preferred_model=`).
+   `defineAgent` takes both (`preferredProvider`, `preferredModel`), and
+   so does a Python `Agent` (`preferred_provider=`, `preferred_model=`).
 2. **`capability.prefer[]` weights.** If the agent's capability
    declares `prefer: [{feature: 'thinking', weight: 3}, ...]`, tuples
    with matching model features (or provider attributes) get higher
@@ -597,7 +594,11 @@ defineAgent({
    be the FULL npm package name of the adapter — `"@kindgi/adapter-model-anthropic"`,
    NOT `"anthropic"`. Adapters are registered with the runtime under
    their full package names, and a short name matches none of them, so
-   the registration fails. Confirm valid ids with `kindgi adapters list`.
+   the registration fails. The model adapters are
+   `@kindgi/adapter-model-anthropic`, `@kindgi/adapter-model-gemini`,
+   `@kindgi/adapter-model-openai-compat` and
+   `@kindgi/adapter-model-in-process`; `kindgi providers presets` shows
+   the id each preset uses.
 
 1. **`envName` mismatch between the setter (`kindgi secrets set` or `env set`) and `provider.json`.**
    Both writers use `--env=<name>` (default `local`): `local` is the

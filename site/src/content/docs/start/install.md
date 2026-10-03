@@ -20,6 +20,14 @@ runs for you.
 
 :::note[Private preview]
 The runtime image is in private preview: request access at contact@kindgi.com.
+With the pull credentials you receive, log in to its registry once:
+
+```sh
+docker login quay.io
+```
+
+The first `kindgi dev` then pulls the image (about 700 MB; `amd64` and
+`arm64`).
 :::
 
 ## A TypeScript project
