@@ -4,7 +4,8 @@
 /**
  * Template files, as `kindgi init` writes them. Files ending in `.tmpl`
  * are rendered (suffix stripped, placeholders replaced); others are
- * copied as they are.
+ * copied as they are. A few dotfiles are stored without their dot (see
+ * {@link templateTarget}).
  */
 
 import { readdir } from 'node:fs/promises';
@@ -40,6 +41,22 @@ export async function collectTemplateFiles(root: string): Promise<string[]> {
   }
   await walk(root, '');
   return out;
+}
+
+/**
+ * Dotfiles a template stores under another name. npm renames a package's
+ * `.gitignore` to `.npmignore` when it installs it, so a template's own
+ * `.gitignore` would never reach a pack scaffolded by `npx @kindgi/cli`.
+ */
+const STORED_AS: Readonly<Record<string, string>> = { gitignore: '.gitignore' };
+
+/** A template file's path (relative to its template) as written into the pack. */
+export function templateTarget(rel: string): string {
+  const path = rel.endsWith('.tmpl') ? rel.slice(0, -'.tmpl'.length) : rel;
+  const slash = path.lastIndexOf('/');
+  const name = path.slice(slash + 1);
+  const stored = STORED_AS[name];
+  return stored === undefined ? path : `${path.slice(0, slash + 1)}${stored}`;
 }
 
 export function substitute(raw: string, subs: Substitutions): string {

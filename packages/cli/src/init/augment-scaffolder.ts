@@ -59,7 +59,12 @@ import { type KindgiDependencySpecs, resolveKindgiDependencySpecs } from './depe
 import { patchGitignore, patchPrettierignore } from './gitignore-patcher.js';
 import { type WantedDependency, patchPackageJson } from './package-json-patcher.js';
 import { ESBUILD, patchPnpmWorkspace, pnpmWorkspaceFileFor } from './pnpm-workspace-patcher.js';
-import { type Substitutions, collectTemplateFiles, substitute } from './template-files.js';
+import {
+  type Substitutions,
+  collectTemplateFiles,
+  substitute,
+  templateTarget,
+} from './template-files.js';
 
 const DEFAULT_PACK_ID_FALLBACK = 'kindgi-pack';
 const DEFAULT_PACK_VERSION_FALLBACK = '0.1.0';
@@ -454,8 +459,7 @@ async function writeSamplePrimitives(args: {
     const files = await collectTemplateFiles(join(args.sampleDir, kind));
     for (const rel of files.sort()) {
       if (/\.test\.ts(\.tmpl)?$/.test(rel)) continue;
-      const targetRel = rel.endsWith('.tmpl') ? rel.slice(0, -'.tmpl'.length) : rel;
-      const dest = join(args.targetDir, 'kindgi', kind, targetRel);
+      const dest = join(args.targetDir, 'kindgi', kind, templateTarget(rel));
       if (!args.force && (await args.io.fileExists(dest))) {
         skipped.push(dest);
         continue;
