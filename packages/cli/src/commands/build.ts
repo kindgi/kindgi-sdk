@@ -39,7 +39,7 @@ import { checkAptPackages } from '../build/apt.js';
 import { PACK_SERVICE_COMMAND } from '../build/containerfile.js';
 import { collectIncludeFiles, readBundleConfig } from '../build/context-files.js';
 import { buildEnvelope, canonicaliseSignatureBody, sha256Hex } from '../build/envelope.js';
-import { type HostInstall, resolveHostInstall } from '../build/host-install.js';
+import { type HostInstall, type SkippedScript, resolveHostInstall } from '../build/host-install.js';
 import { readImageConfig } from '../build/image-config.js';
 import { checkIntegrity } from '../build/integrity.js';
 import { nodeBaseImageFor } from '../build/node-image.js';
@@ -769,7 +769,28 @@ async function prepareNodeContext(
       `    ✓ ${install.secrets.map((s) => s.file).join(', ')}: read by the install as a build secret, never in the image`,
     );
   }
+  for (const line of skippedScriptLines(install.skippedScripts)) lines(line);
   return { kind: 'ok', contextDir, counts: localIndex.counts, install };
+}
+
+/**
+ * What the image leaves out of the app's own install scripts, and what
+ * to do when one of them is something the image needs: `patch-package`
+ * (pnpm's own patches are applied by the install).
+ */
+export function skippedScriptLines(skipped: readonly SkippedScript[]): string[] {
+  if (skipped.length === 0) return [];
+  const where = (s: SkippedScript): string =>
+    s.manifest === 'package.json' ? s.name : `${s.manifest} ${s.name}`;
+  const lines = [
+    `    ✓ The app's own install scripts don't run in the image: ${skipped.map((s) => `${where(s)} (\`${s.command}\`)`).join(', ')}`,
+  ];
+  for (const s of skipped.filter((s) => /\bpatch-package\b/.test(s.command))) {
+    lines.push(
+      `    ⚠ ${where(s)} runs patch-package, so its patches aren't applied in the image. Apply them with a build step: defineBuildExtension({ name: 'patch-package', contextFiles: [<each file in patches/>], postInstall: [{ bin: 'patch-package' }] }) in image.extensions (@kindgi/sdk/build). With pnpm, pnpm patch applies them in the install itself.`,
+    );
+  }
+  return lines;
 }
 
 /** A Node pack's context, tarred for the build service. */
