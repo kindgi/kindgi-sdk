@@ -1,6 +1,9 @@
-/* Kindgi's palette on Starlight's tokens: the kindgi.com website's void
-   base and amber accent (dark), with a warm light variant for reading.
-   Fonts: IBM Plex Sans for text and headings, IBM Plex Mono for code. */
+/* Kindgi's palette on Starlight's tokens.
+   Dark: the kindgi.com website's void base and amber accent.
+   Light: Attelus's cool legal paper: a cool ink scale, a honey accent,
+   white cards and code, chrome set apart by color rather than borders,
+   IBM Plex Serif headings, 6px corners and soft card shadows.
+   Fonts: IBM Plex Sans for text, IBM Plex Mono for code. */
 
 :root {
   --sl-font: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
@@ -23,21 +26,88 @@
   --sl-color-black: #0a0a0b;
 }
 
-/* Light: the same accent, darkened for contrast on a warm paper base. */
+/* Light: Attelus's cool paper. Ink scale: 25 #f8f9fb (page), 50 #f3f5f8,
+   100 #ecf0f4, 200 #e2e6ec (soft rule), 300 #cfd4dc, 500 #6c727f,
+   600 #4a4f5a, 700 #33363e, 800 #1a1c22 (text), 900 #0d1015. Every text
+   color here meets WCAG AA on the surface it sits on. */
 :root[data-theme="light"],
 [data-theme="light"] ::backdrop {
-  --sl-color-accent-low: #f6e6c8;
-  --sl-color-accent: #8a5a12;
-  --sl-color-accent-high: #3d2806;
-  --sl-color-white: #131316;
-  --sl-color-gray-1: #26252a;
-  --sl-color-gray-2: #3c3b40;
-  --sl-color-gray-3: #5c5a54;
-  --sl-color-gray-4: #8a877f;
-  --sl-color-gray-5: #c9c6be;
-  --sl-color-gray-6: #ece9e2;
-  --sl-color-gray-7: #f6f4ef;
-  --sl-color-black: #fdfcf9;
+  --sl-color-accent-low: #f2ead4;
+  --sl-color-accent: #8f6a12;
+  --sl-color-accent-high: #5e450b;
+  --sl-color-white: #0d1015;
+  --sl-color-gray-1: #1a1c22;
+  --sl-color-gray-2: #33363e;
+  --sl-color-gray-3: #4a4f5a;
+  --sl-color-gray-4: #6c727f;
+  --sl-color-gray-5: #cfd4dc;
+  --sl-color-gray-6: #e2e6ec;
+  --sl-color-gray-7: #f3f5f8;
+  --sl-color-black: #f8f9fb;
+
+  --sl-color-text: #1a1c22;
+  --sl-color-bg-nav: #fcfdfe;
+  --sl-color-bg-sidebar: #fcfdfe;
+  --sl-color-bg-inline-code: #ecf0f4;
+  --sl-color-hairline: #e2e6ec;
+  --sl-color-hairline-light: #e2e6ec;
+  /* The header and the sidebar stand apart by color, with no border. */
+  --sl-color-hairline-shade: transparent;
+
+  --sl-shadow-sm: 0 1px 3px rgba(13, 16, 21, 0.06), 0 4px 12px rgba(13, 16, 21, 0.04);
+
+  /* Asides take Attelus's chips: reference blue, ok green, honey, danger. */
+  --sl-color-blue-low: #e6ecf4;
+  --sl-color-blue: #1e4a8a;
+  --sl-color-blue-high: #1e4a8a;
+  --sl-color-purple-low: #e6f0e8;
+  --sl-color-purple: #2e6a3a;
+  --sl-color-purple-high: #2e6a3a;
+  --sl-color-orange-low: #f2ead4;
+  --sl-color-orange: #8f6a12;
+  --sl-color-orange-high: #5e450b;
+  --sl-color-red-low: #ffdad6;
+  --sl-color-red: #ba1a1a;
+  --sl-color-red-high: #ba1a1a;
+
+  --kindgi-radius: 6px;
+  --kindgi-shadow-card: 0 1px 3px rgba(13, 16, 21, 0.06), 0 4px 12px rgba(13, 16, 21, 0.04);
+}
+
+/* Light: headings in IBM Plex Serif. */
+:root[data-theme="light"] :is(.sl-markdown-content :is(h1, h2, h3), h1#_top, .site-title) {
+  font-family: "IBM Plex Serif", "Iowan Old Style", Georgia, serif;
+  font-weight: 600;
+}
+
+/* Light: white cards and code, 6px corners, soft shadows. */
+:root[data-theme="light"] .sl-link-card,
+:root[data-theme="light"] .card {
+  background-color: #ffffff;
+  border-color: #e2e6ec;
+  border-radius: var(--kindgi-radius);
+  box-shadow: var(--kindgi-shadow-card);
+}
+:root[data-theme="light"] .starlight-aside {
+  border-radius: var(--kindgi-radius);
+  box-shadow: var(--kindgi-shadow-card);
+}
+:root[data-theme="light"] .expressive-code {
+  --ec-codeBg: #ffffff;
+  --ec-frm-edBg: #ffffff;
+  --ec-frm-edActTabBg: #ffffff;
+  --ec-frm-trmBg: #ffffff;
+  --ec-frm-edTabBarBg: #f3f5f8;
+  --ec-frm-trmTtbBg: #f3f5f8;
+  --ec-brdCol: #e2e6ec;
+  --ec-brdRad: var(--kindgi-radius);
+}
+:root[data-theme="light"] .expressive-code .frame {
+  border-radius: var(--kindgi-radius);
+  box-shadow: var(--kindgi-shadow-card);
+}
+:root[data-theme="light"] .sl-markdown-content :not(pre) > code {
+  border-radius: 4px;
 }
 
 /* Headings: the website's tight display tracking. */
