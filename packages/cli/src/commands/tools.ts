@@ -1,10 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { ToolId } from '@kindgi/types';
+import type { Tool } from '@kindgi/client';
+import type { Page, ToolId } from '@kindgi/types';
 
-import { requiredPositional, runSdk, stringFlag, throwUnwired } from './helpers.js';
+import {
+  type TableSpec,
+  requiredPositional,
+  runSdk,
+  stringFlag,
+  throwUnwired,
+  truncateCell,
+} from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
+
+/** `tools list --table`. */
+const TOOLS_TABLE: TableSpec<Page<Tool>, Tool> = {
+  rows: (page) => page.items,
+  columns: [
+    { header: 'ID', get: (tool) => String(tool.id) },
+    { header: 'VERSION', get: (tool) => tool.version ?? '' },
+    { header: 'DESCRIPTION', get: (tool) => truncateCell(tool.description, 60) },
+  ],
+};
 
 const list: LeafCommand = {
   kind: 'leaf',
@@ -23,20 +41,25 @@ const list: LeafCommand = {
     },
   },
   run: (ctx) =>
-    runSdk(ctx, 'tools list', async () => {
-      const name = stringFlag(ctx, 'name');
-      const cursor = stringFlag(ctx, 'cursor');
-      const limitStr = stringFlag(ctx, 'limit');
-      const limit = limitStr !== undefined ? Number.parseInt(limitStr, 10) : undefined;
-      if (limit !== undefined && Number.isNaN(limit)) {
-        throw new Error(`--limit must be an integer, got "${limitStr}"`);
-      }
-      return await ctx.client().tools.list({
-        ...(name !== undefined && { name }),
-        ...(cursor !== undefined && { cursor: cursor as never }),
-        ...(limit !== undefined && { limit }),
-      });
-    }),
+    runSdk(
+      ctx,
+      'tools list',
+      async () => {
+        const name = stringFlag(ctx, 'name');
+        const cursor = stringFlag(ctx, 'cursor');
+        const limitStr = stringFlag(ctx, 'limit');
+        const limit = limitStr !== undefined ? Number.parseInt(limitStr, 10) : undefined;
+        if (limit !== undefined && Number.isNaN(limit)) {
+          throw new Error(`--limit must be an integer, got "${limitStr}"`);
+        }
+        return await ctx.client().tools.list({
+          ...(name !== undefined && { name }),
+          ...(cursor !== undefined && { cursor: cursor as never }),
+          ...(limit !== undefined && { limit }),
+        });
+      },
+      TOOLS_TABLE,
+    ),
 };
 
 const get: LeafCommand = {

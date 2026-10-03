@@ -21,15 +21,19 @@
  *     customizations survive
  *   - `package.json`: `@kindgi/sdk` (dependency) + `@kindgi/cli`
  *     (devDependency), specs from `resolveKindgiDependencySpecs` — the
- *     project runs its own pinned `kindgi`
+ *     project runs its own pinned `kindgi` — and `zod` (dependency, the
+ *     fresh templates' range), which every primitive's schemas use. An
+ *     app's own `zod` is kept; one before zod 4 is reported.
  *   - `.gitignore`: Kindgi's local-state patterns
+ *   - in a pnpm app, `pnpm-workspace.yaml` (the workspace root's, or a new
+ *     one): `allowBuilds.esbuild: true`, without which pnpm 11+ refuses to
+ *     install `@kindgi/cli` (`pnpm-workspace-patcher.ts`)
  *
  * What augment mode does NOT write:
  *   - env files — `kindgi dev` reads the project's own `.env` /
  *     `.env.local`; nothing needs creating
- *   - `pnpm-workspace.yaml`, `tsconfig.json`, `vitest.config.ts`,
- *     `.nvmrc`, `AGENTS.md`, `README.md` — the surrounding repo owns
- *     these; we don't touch them
+ *   - `tsconfig.json`, `vitest.config.ts`, `.nvmrc`, `AGENTS.md`,
+ *     `README.md` — the surrounding repo owns these; we don't touch them
  *
  * @related packages/cli/src/init/mode-detect.ts (the branch)
  * @related packages/cli/src/commands/init.ts (the caller)
@@ -39,6 +43,7 @@ import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 import { KINDGI_CONFIG_FILENAMES } from '@kindgi/handler-runtime';
+import semver from 'semver';
 
 import { PACK_ID_REGEX } from '../commands/init.js';
 import { syncSkills } from '../commands/skills.js';
@@ -53,6 +58,7 @@ import {
 import { type KindgiDependencySpecs, resolveKindgiDependencySpecs } from './dependency-specs.js';
 import { patchGitignore, patchPrettierignore } from './gitignore-patcher.js';
 import { type WantedDependency, patchPackageJson } from './package-json-patcher.js';
+import { ESBUILD, patchPnpmWorkspace, pnpmWorkspaceFileFor } from './pnpm-workspace-patcher.js';
 import { type Substitutions, collectTemplateFiles, substitute } from './template-files.js';
 
 const DEFAULT_PACK_ID_FALLBACK = 'kindgi-pack';
@@ -207,6 +213,8 @@ interface AugmentSummary {
   readonly dependencies: KindgiDependencySpecs;
   readonly created: readonly string[];
   readonly skipped: readonly string[];
+  /** What init left for the user to decide (an app's older Zod, a denied build). */
+  readonly warnings: readonly string[];
   readonly nextSteps: readonly string[];
 }
 
@@ -283,14 +291,16 @@ export async function runInitAugment(inputs: RunInitAugmentInputs): Promise<Comm
     targetDir: inputs.targetDir,
     pkgJsonPath,
     specs: deps.specs,
-    // The sample tools' schemas are Zod. An app with Zod keeps its own.
-    ...(sample && { extraDependencies: [SAMPLE_ZOD_DEPENDENCY] }),
+    packageManager: deps.packageManager,
+    // Every primitive's schemas are Zod. An app with Zod keeps its own.
+    extraDependencies: [ZOD_DEPENDENCY],
   });
   if (patchResult.kind === 'err') {
     return { kind: 'error', stderr: patchResult.stderr, exitCode: 1 };
   }
   created.push(...patchResult.created);
   skipped.push(...patchResult.skipped);
+  const warnings = [...zodWarnings(pkgJson), ...patchResult.warnings];
 
   const nextSteps = augmentNextSteps(deps.packageManager, sample ? packId : undefined);
 
@@ -303,6 +313,7 @@ export async function runInitAugment(inputs: RunInitAugmentInputs): Promise<Comm
     dependencies: deps.specs,
     created,
     skipped,
+    warnings,
     nextSteps,
   };
 
@@ -317,6 +328,7 @@ export async function runInitAugment(inputs: RunInitAugmentInputs): Promise<Comm
         `  Kindgi added to ${inputs.targetDir} (augment mode).`,
         `  Pack id: ${packId}    Version: ${packVersion}`,
         `  Wrote ${created.length} file${created.length === 1 ? '' : 's'}; skipped ${skipped.length}.`,
+        ...warnings.map((warning) => `  ⚠ ${warning}`),
         '',
         '  Next steps:',
         ...nextSteps.map((step) => `    ${step}`),
@@ -393,7 +405,36 @@ export function augmentNextSteps(pm: PackageManager, samplePackId?: string): rea
 /** The sample's primitive folders, as augment mode lays them out under `kindgi/`. */
 const SAMPLE_PRIMITIVE_DIRS = ['agents', 'flows', 'guardrails', 'tools'] as const;
 
-const SAMPLE_ZOD_DEPENDENCY = { name: 'zod', spec: '^4.0.0', section: 'dependencies' } as const;
+/** Zod, at the fresh templates' range (their `package.json.tmpl`). */
+export const ZOD_DEPENDENCY = { name: 'zod', spec: '^4.0.0', section: 'dependencies' } as const;
+
+const DEPENDENCY_SECTIONS = [
+  'dependencies',
+  'devDependencies',
+  'peerDependencies',
+  'optionalDependencies',
+] as const;
+
+/**
+ * The app's own Zod is kept; one whose range excludes zod 4 is reported,
+ * since Kindgi's schemas, examples and skills are zod 4. A spec that isn't
+ * a semver range (`catalog:`, `workspace:*`, a tag) is taken on trust.
+ */
+export function zodWarnings(pkg: Readonly<Record<string, unknown>>): readonly string[] {
+  for (const section of DEPENDENCY_SECTIONS) {
+    const deps = pkg[section];
+    if (deps === null || typeof deps !== 'object') continue;
+    const spec = (deps as Record<string, unknown>)[ZOD_DEPENDENCY.name];
+    if (typeof spec !== 'string') continue;
+    if (semver.validRange(spec) === null || semver.intersects(spec, ZOD_DEPENDENCY.spec)) {
+      return [];
+    }
+    return [
+      `zod: the app has zod ${spec} (${section}), left as is. Kindgi's tools, examples and skills use zod 4 — upgrade to zod ${ZOD_DEPENDENCY.spec} before writing Kindgi primitives.`,
+    ];
+  }
+  return [];
+}
 
 /**
  * Copy the sample pack's primitives into `kindgi/<kind>/`, rendered as a
@@ -562,22 +603,26 @@ type PatchesResult =
       readonly kind: 'ok';
       readonly created: readonly string[];
       readonly skipped: readonly string[];
+      readonly warnings: readonly string[];
     }
   | { readonly kind: 'err'; readonly stderr: string };
 
 /**
- * Apply the two file patchers (package.json + .gitignore) and turn
- * their outcomes into (created, skipped) rows for the summary.
- * Extracted so `runInitAugment` stays under the complexity ceiling.
+ * Apply the file patchers (package.json, .gitignore, .prettierignore and,
+ * for pnpm, pnpm-workspace.yaml) and turn their outcomes into (created,
+ * skipped) rows and warnings for the summary. Extracted so
+ * `runInitAugment` stays under the complexity ceiling.
  */
 async function applyAugmentPatches(args: {
   readonly targetDir: string;
   readonly pkgJsonPath: string;
   readonly specs: KindgiDependencySpecs;
+  readonly packageManager: PackageManager;
   readonly extraDependencies?: readonly WantedDependency[];
 }): Promise<PatchesResult> {
   const created: string[] = [];
   const skipped: string[] = [];
+  const warnings: string[] = [];
 
   const patchPkg = await patchPackageJson(args.pkgJsonPath, args.specs, args.extraDependencies);
   if (patchPkg.kind === 'error') {
@@ -616,5 +661,51 @@ async function applyAugmentPatches(args: {
     created.push(`${prettierignorePath} (patched: +${patchPrettier.appended.join(', +')})`);
   }
 
-  return { kind: 'ok', created, skipped };
+  if (args.packageManager === 'pnpm') {
+    const workspace = await allowEsbuildInPnpm(args.targetDir);
+    if (workspace.kind === 'err') return workspace;
+    created.push(...workspace.created);
+    skipped.push(...workspace.skipped);
+    warnings.push(...workspace.warnings);
+  }
+
+  return { kind: 'ok', created, skipped, warnings };
+}
+
+/** `allowBuilds.esbuild: true` in the `pnpm-workspace.yaml` pnpm reads for the app. */
+async function allowEsbuildInPnpm(targetDir: string): Promise<PatchesResult> {
+  const path = await pnpmWorkspaceFileFor(targetDir);
+  const setting = `allowBuilds.${ESBUILD}`;
+  const result = await patchPnpmWorkspace(path);
+  const rows = { created: [] as string[], skipped: [] as string[], warnings: [] as string[] };
+  switch (result.kind) {
+    case 'error':
+      return { kind: 'err', stderr: `Failed to patch ${path}: ${result.message}\n` };
+    case 'created':
+      rows.created.push(`${path} (created: ${setting}: true)`);
+      break;
+    case 'patched':
+      rows.created.push(
+        result.change === 'placeholder'
+          ? `${path} (patched: ${setting} set to true, replacing pnpm's placeholder)`
+          : `${path} (patched: +${setting}: true)`,
+      );
+      break;
+    case 'already-allowed':
+      rows.skipped.push(`${path} (${setting} already true)`);
+      break;
+    case 'declined':
+      rows.skipped.push(`${path} (${setting} is false, left as is)`);
+      rows.warnings.push(
+        `pnpm: ${path} sets ${setting} to false, so pnpm skips esbuild's install script, left as is. Kindgi bundles the pack with esbuild: if \`kindgi dev\` fails to bundle the pack, set it to true.`,
+      );
+      break;
+    case 'refused':
+      rows.skipped.push(`${path} (not edited: ${result.reason})`);
+      rows.warnings.push(
+        `pnpm: couldn't add ${setting}: true to ${path} (${result.reason}). Add it by hand — without it, pnpm 11+ stops \`pnpm install\` with ERR_PNPM_IGNORED_BUILDS.`,
+      );
+      break;
+  }
+  return { kind: 'ok', ...rows };
 }
