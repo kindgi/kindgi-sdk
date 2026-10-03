@@ -335,7 +335,7 @@ async function runInitPython(
     `cd ${displayPath}`,
     'uv sync  # .venv with kindgi',
     'uv run pytest',
-    'kindgi dev  # boots Kindgi locally + runs this pack with its .venv, reloading on save',
+    `${binDisplay('path', 'kindgi', ['dev'])}  # boots Kindgi locally + runs this pack with its .venv, reloading on save`,
   ];
   const stderr = [
     `✓ Python pack scaffolded at ${args.targetDir}/`,

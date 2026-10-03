@@ -109,7 +109,9 @@ describe('kindgi providers register --preset', () => {
     const out = await runCli(inputs(['providers', 'register', '--preset=anthropic']));
     expect(out.exitCode).not.toBe(0);
     expect(out.stderr).toContain('ANTHROPIC_API_KEY (the anthropic key) is not in .env');
-    expect(out.stderr).toContain('kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant');
+    expect(out.stderr).toMatch(
+      /npx --yes @kindgi\/cli@\d+\.\d+ secrets set ANTHROPIC_API_KEY --env=local --scope=tenant/,
+    );
     expect(registered).toHaveLength(0);
   });
 

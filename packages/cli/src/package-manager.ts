@@ -14,6 +14,8 @@ import { dirname, join } from 'node:path';
 
 import type { PackLanguage } from '@kindgi/handler-runtime';
 
+import { CLI_VERSION } from './version-info.js';
+
 export type PackageManager = 'pnpm' | 'npm' | 'yarn' | 'bun';
 
 /**
@@ -107,6 +109,12 @@ export async function detectBinRunner(
  * refuses to download when the bin is missing. `path` runs the bin on
  * `PATH` (a Python pack's globally installed CLI).
  */
+/** `@kindgi/cli@<major.minor>` of the running CLI (`@kindgi/cli` when unknown). */
+const PUBLISHED_CLI = (() => {
+  const minor = /^(\d+)\.(\d+)\./.exec(CLI_VERSION)?.slice(1, 3).join('.');
+  return minor === undefined ? '@kindgi/cli' : `@kindgi/cli@${minor}`;
+})();
+
 export function binCommand(
   runner: BinRunner,
   bin: string,
@@ -122,7 +130,13 @@ export function binCommand(
     case 'bun':
       return { command: 'bun', args: ['run', bin, ...args] };
     case 'path':
-      return { command: bin, args: [...args] };
+      // No npm project to install the CLI into (a Python pack): the published
+      // CLI through npx, within this CLI's minor (as Python packs pin
+      // `kindgi>=0.1,<0.2`). `--yes`, so no install prompt stalls a person
+      // or a coding agent.
+      return bin === 'kindgi'
+        ? { command: 'npx', args: ['--yes', PUBLISHED_CLI, ...args] }
+        : { command: bin, args: [...args] };
   }
 }
 

@@ -35,6 +35,7 @@ import { PACK_ID_REGEX } from '../commands/init.js';
 import { syncSkills } from '../commands/skills.js';
 import type { CommandResult } from '../commands/types.js';
 import { renderJson } from '../output.js';
+import { binDisplay } from '../package-manager.js';
 import {
   type KindgiPythonSource,
   kindgiRequirementFor,
@@ -84,7 +85,7 @@ export async function runInitPythonAugment(
   const info = read.info;
   if (info.isPack) {
     return fail(
-      `${pyprojectPath} already has a [tool.kindgi] table — this app is a Kindgi pack. Run \`kindgi dev\` here.`,
+      `${pyprojectPath} already has a [tool.kindgi] table — this app is a Kindgi pack. Run \`${binDisplay('path', 'kindgi', ['dev'])}\` here.`,
     );
   }
   const packId = resolvePackId(info, inputs.packIdOverride);
@@ -351,10 +352,10 @@ export function pythonAugmentNextSteps(
       }`;
   return [
     install,
-    'Boot the dev server: kindgi dev',
+    `Boot the dev server: ${binDisplay('path', 'kindgi', ['dev'])}`,
     'Write tools, guardrails and agents under kindgi/ — see .claude/skills/kindgi-python-getting-started/SKILL.md',
     'Secrets: kindgi dev reads your .env and .env.local; tools read them from os.environ',
-    'Model provider: agents answer with the dev-echo fallback until you register one — e.g. kindgi providers register --preset=anthropic (ANTHROPIC_API_KEY in .env)',
+    `Model provider: agents answer with the dev-echo fallback until you register one — e.g. ${binDisplay('path', 'kindgi', ['providers', 'register', '--preset=anthropic'])} (ANTHROPIC_API_KEY in .env)`,
   ];
 }
 
