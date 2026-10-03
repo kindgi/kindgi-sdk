@@ -106,11 +106,17 @@ jobs:
       - name: Publish
         if: ${{ !inputs.dry-run }}
         run: pnpm -r publish --no-git-checks
+      # `changeset git-tag` makes annotated tags, which need a committer
+      # identity; without one every `git tag` fails while changesets still
+      # reports the tags as created. The check reads them back from origin.
       - name: Tag released versions
         if: ${{ !inputs.dry-run }}
         run: |
-          pnpm changeset tag
-          git push --tags
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          pnpm changeset git-tag
+          git push origin --tags
+          node scripts/check-release-tags.mjs
 
   publish-pypi:
     name: Publish to PyPI
