@@ -40,9 +40,27 @@ _CODE = re.compile(r"(```.*?```|`[^`\n]*`)", re.S)
 
 
 def prose(text: str | None) -> str:
-    """Docstring text as markdown: `<` and `>` escaped outside code."""
+    """Docstring text as markdown: `<` and `>` escaped outside code.
+
+    Code is a fenced block, an inline span, or an indented block (a
+    paragraph whose every line is indented four spaces), where an entity
+    would show literally.
+    """
     if not text:
         return ""
+    paragraphs = re.split(r"(\n[ \t]*\n)", text)
+    return "".join(
+        paragraph if i % 2 or _indented(paragraph) else _escape(paragraph)
+        for i, paragraph in enumerate(paragraphs)
+    )
+
+
+def _indented(paragraph: str) -> bool:
+    lines = [line for line in paragraph.split("\n") if line.strip()]
+    return bool(lines) and all(line.startswith("    ") for line in lines)
+
+
+def _escape(text: str) -> str:
     parts = _CODE.split(text)
     return "".join(
         part if i % 2 else part.replace("<", "&lt;").replace(">", "&gt;")
@@ -68,11 +86,18 @@ def signature(
         return f"{name}(...)"
     params = []
     star_done = False
-    for param in sig.parameters.values():
-        if skip_self and param.name in ("self", "cls"):
-            continue
-        if param.kind is inspect.Parameter.POSITIONAL_ONLY:
-            continue
+    shown = [
+        param
+        for param in sig.parameters.values()
+        if not (skip_self and param.name in ("self", "cls"))
+    ]
+    last_positional_only = max(
+        (i for i, param in enumerate(shown) if param.kind is inspect.Parameter.POSITIONAL_ONLY),
+        default=-1,
+    )
+    for i, param in enumerate(shown):
+        if i == last_positional_only + 1 and last_positional_only >= 0:
+            params.append("/")
         if param.kind is inspect.Parameter.KEYWORD_ONLY and not star_done:
             params.append("*")
             star_done = True
@@ -86,6 +111,8 @@ def signature(
         if param.default is not inspect.Parameter.empty:
             text += f" = {param.default!r}"
         params.append(text)
+    if last_positional_only == len(shown) - 1 and last_positional_only >= 0:
+        params.append("/")
     result = annotation(sig.return_annotation) if returns else ""
     one_line = f"{name}({', '.join(params)})" + (f" -> {result}" if result else "")
     if len(one_line) <= 88:

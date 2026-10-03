@@ -7,9 +7,13 @@
  */
 import { describeCommands, describeGlobalFlags } from '@kindgi/cli';
 
-/** Markdown-safe inline text (descriptions are plain prose with backticks). */
+/** Markdown-safe inline text: `<`/`>` escaped outside code spans, where an
+ * entity would show literally. */
 function text(value) {
-  return value.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return value
+    .split(/(`[^`\n]*`)/)
+    .map((part, i) => (i % 2 ? part : part.replace(/</g, '&lt;').replace(/>/g, '&gt;')))
+    .join('');
 }
 
 function flagLine(flag) {

@@ -94,14 +94,12 @@ export default defineConfig({
           tag: 'link',
           attrs: {
             rel: 'stylesheet',
-            href: 'https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap',
+            href: 'https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600&display=swap',
           },
         },
       ],
       sidebar: [
         { label: 'Start', items: [{ autogenerate: { directory: 'start' } }] },
-        { label: 'Tutorials', items: [{ autogenerate: { directory: 'tutorials' } }] },
-        { label: 'Guides', items: [{ autogenerate: { directory: 'guides' } }] },
         { label: 'Concepts', items: [{ autogenerate: { directory: 'concepts' } }] },
         { label: 'Deploy', items: [{ autogenerate: { directory: 'deploy' } }] },
         {

@@ -1,6 +1,6 @@
 ---
 title: Add Kindgi to an existing app
-description: Kindgi inside the app you already have — a Next.js or Node app, or a Python app — so your tools are your app's own code.
+description: Kindgi inside the app you already have (a Next.js or Node app, or a Python app), so your tools are your app's own code.
 sidebar:
   order: 5
 ---
@@ -18,20 +18,140 @@ npx @kindgi/cli init
 pnpm install          # or the app's own package manager
 ```
 
+:::note[On Kindgi 0.1.0 (fixed in 0.1.1)]
+- In a pnpm 11+ app, the first `pnpm install` stops with
+  `ERR_PNPM_IGNORED_BUILDS` for `esbuild`. In `pnpm-workspace.yaml`, set
+  `esbuild: true` under `allowBuilds:` (replacing pnpm's placeholder), then
+  install again.
+- `init` doesn't add Zod, which tools and agents use for their schemas:
+  `pnpm add zod`.
+:::
+
 `init` adds:
 
-- `kindgi.config.ts`: the pack's id (from the app's name), version, and where
-  its primitives live;
-- a `kindgi/` folder for them: `kindgi/tools/`, `kindgi/agents/`,
-  `kindgi/guardrails/`, `kindgi/flows/`;
+- the pack's config: its id (from the app's name), version, and where its
+  primitives live. It's `kindgi.config.ts` in an app whose `package.json`
+  says `"type": "module"`, and `kindgi.config.mts` in any other;
+- a `kindgi/` folder for the primitives: `kindgi/tools/`, `kindgi/agents/`,
+  `kindgi/guardrails/`, `kindgi/flows/`. In an app that isn't
+  `"type": "module"`, it also gets a one-line `package.json` that makes
+  them ES modules;
 - `@kindgi/sdk` (a dependency) and `@kindgi/cli` (a devDependency) in your
-  `package.json`, at the CLI's own version;
+  `package.json`, at the CLI's own version, and, from 0.1.1, `zod`;
+- from 0.1.1, in a pnpm app, `allowBuilds: { esbuild: true }` in
+  `pnpm-workspace.yaml`, so pnpm runs the build step the CLI needs;
 - the skills for your coding agent under `.claude/skills/`, and
-  `.gitignore` entries.
+  `.gitignore` entries (`.kindgi/`, `.kindgirc.json`, `.env.local`).
 
 It creates no env files: `kindgi dev` reads your app's own `.env` and
-`.env.local`. To keep the pack separate from the app instead, pass
-`--new-repo`.
+`.env.local`. If your app lints with ESLint, leave out what Kindgi builds:
+add `".kindgi/**"` to the `globalIgnores` in `eslint.config.mjs`. To keep
+the pack separate from the app instead, pass `--new-repo`.
+
+### Your code as a tool
+
+A tool imports your app's modules like any other file in it, path aliases
+(`@/…`) included:
+
+```ts
+// kindgi/tools/get-request/index.ts
+import { defineTool } from '@kindgi/sdk/define';
+import type { ToolId } from '@kindgi/sdk/types';
+import { z } from 'zod';
+
+import { findRequest } from '@/lib/requests'; // your app's own code
+
+const defined = defineTool({
+  id: 'acme-support.get-request' as ToolId,
+  description: 'Looks up a support request by its id (REQ-1234).',
+  version: '0.1.0',
+  input: z.object({ id: z.string() }),
+  output: z.object({
+    found: z.boolean(),
+    subject: z.string().optional(),
+    body: z.string().optional(),
+  }),
+  effects: [],
+  mutating: false,
+  handler: async ({ id }) => {
+    const request = findRequest(id);
+    return request
+      ? { found: true, subject: request.subject, body: request.body }
+      : { found: false };
+  },
+});
+
+if (defined.kind === 'err') throw new Error(defined.error.message);
+export default defined.value;
+```
+
+Ids start with the pack's id (`acme-support`, from the app's name).
+`mutating: false` says the tool only reads, so a dry run may call it.
+
+### An agent that uses it
+
+```ts
+// kindgi/agents/triage/index.ts
+import { defineAgent } from '@kindgi/sdk/define';
+import type { AgentId, Semver } from '@kindgi/sdk/types';
+import { z } from 'zod';
+
+const defined = defineAgent({
+  id: 'acme-support.triage' as AgentId,
+  version: '0.1.0' as Semver,
+  name: 'Triage',
+  description: 'Reads a support request and sets its priority.',
+  instructions:
+    'The user names a support request id. Look it up with `acme-support.get-request`, ' +
+    'then answer with its priority and a one-sentence summary.',
+  capabilities: [{ needs: [{ feature: 'tool-use' as const }] }],
+  tools: [{ id: 'acme-support.get-request', version: '^0.1.0' }],
+  retrieval: [],
+  guardrails: [],
+  output: {
+    schema: z.object({
+      priority: z.enum(['low', 'normal', 'urgent']),
+      summary: z.string(),
+    }),
+  },
+  budget: { maxSteps: 4, maxCostUsd: 0.05, maxWallMs: 60_000 },
+});
+
+if (defined.kind === 'err') throw new Error(defined.error.message);
+export default defined.value;
+```
+
+`output` makes the answer typed: the model has to answer with JSON that
+fits the schema, and your app gets it as an object.
+
+### Run it
+
+```sh
+pnpm exec kindgi dev
+```
+
+`kindgi dev` builds the pack from `kindgi/`, runs its tools in a process
+started from your app's root, and reloads on every save.
+
+Until you register a model, agents answer with `dev-echo`, which only checks
+the wiring: it calls the agent's first tool with `{"message": …}` and can't
+produce a typed answer, so this agent fails with `output-schema-violation`.
+Register a model first:
+
+```sh
+echo 'ANTHROPIC_API_KEY=sk-ant-…' >> .env.local
+pnpm exec kindgi providers register --preset=anthropic
+pnpm exec kindgi runs start --agent=acme-support.triage --input='{"userMessage":"Triage REQ-1002"}'
+```
+
+```text
+  "status": "completed",
+…
+    "output": {
+      "summary": "User unable to log in due to expired password with non-functional password reset email delivery.",
+      "priority": "urgent"
+    },
+```
 
 ## A Python app
 
@@ -91,27 +211,121 @@ Inside `kindgi/`, import the pack's own modules relatively. Don't add an
 
 ## Starting runs from your app
 
-Your app calls Kindgi over HTTP, through the SDK's client:
+Your app calls Kindgi over HTTP, through the SDK's client.
+
+### Connect your app to the runtime
+
+`kindgi dev` prints the API's URL and a token (`API` and `Token` in its
+banner) and writes them to `.kindgirc.json`. Give them to your app as
+`KINDGI_API_URL` and `KINDGI_API_TOKEN`; in a Next.js app, in `.env.local`:
+
+```sh
+# .env.local
+KINDGI_API_URL=http://127.0.0.1:4000
+KINDGI_API_TOKEN=kgi_bt_…
+```
+
+The token stays the same when you restart `kindgi dev`. `kindgi dev --reset`
+starts over with a new tenant and a new token: copy the new token after it.
+In production they're your deployment's URL and API token.
+
+### Run an agent and read its answer
 
 ```ts
-// TypeScript
+// src/lib/kindgi.ts
 import { createClient } from '@kindgi/sdk/client';
 
-const kindgi = createClient({
+export const kindgi = createClient({
   apiUrl: process.env.KINDGI_API_URL!,
   auth: { kind: 'apiToken', token: process.env.KINDGI_API_TOKEN! },
 });
-const run = await kindgi.runs.start({ flow: 'acme.handle-message', input: { email, message } });
 ```
+
+```ts
+// src/app/api/requests/[id]/triage/route.ts
+import { KindgiApiError } from '@kindgi/sdk/client';
+
+import { kindgi } from '@/lib/kindgi';
+
+type Triage = { priority: 'low' | 'normal' | 'urgent'; summary: string };
+
+export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  try {
+    const run = await kindgi.runs.start({
+      agent: 'acme-support.triage',
+      input: { userMessage: `Triage ${id}` },
+    });
+    const { output } = run.output as { output: Triage }; // the agent's typed answer
+    return Response.json(output);
+  } catch (error) {
+    if (error instanceof KindgiApiError) {
+      const code = error.error.code === 'server' ? error.error.serverCode : error.error.code;
+      return Response.json({ error: code, message: error.error.message }, { status: 502 });
+    }
+    throw error;
+  }
+}
+```
+
+- An agent's input is `{ userMessage }`. `runs.start` waits for the answer.
+- `run.output.output` is the typed answer of an agent with an `output`;
+  `run.output.response.content` is the answer as text. A flow's
+  `run.output` is the flow's own output.
+- When the turn fails, or the API refuses the call, `runs.start` throws a
+  `KindgiApiError`. `error.error.code` says what kind of failure it is
+  (`not-found`, `auth`, `network`, …); for a failure on the server
+  (`server`), `error.error.serverCode` is the server's own code, such as
+  `output-schema-violation`.
+
+In Python:
 
 ```python
-# Python
-from kindgi.client import Kindgi
+from kindgi.client import Kindgi, KindgiApiError
 
 kindgi = Kindgi()  # KINDGI_API_URL and KINDGI_API_TOKEN from the environment
-run = kindgi.runs.start(flow="acme.handle-message", input={"email": email, "message": message})
+try:
+    run = kindgi.runs.start(agent="acme-support.triage", input={"userMessage": "Triage REQ-1002"})
+    triage = run.output["output"]
+except KindgiApiError as error:
+    print(error.code, error.server_code, error.message)
 ```
 
-A run can also start in the background (`options: { wait: false }`) and tell
-your app when it's done through a signed webhook. See the
-[guides](../../guides/).
+### Follow a run as it runs
+
+Start the run with `wait: false` and the call returns as soon as the run
+exists. Its events then arrive as they happen, through to its last one:
+
+```ts
+// src/app/api/requests/[id]/triage/stream/route.ts
+import { kindgi } from '@/lib/kindgi';
+
+export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const run = await kindgi.runs.start({
+    agent: 'acme-support.triage',
+    input: { userMessage: `Triage ${id}` },
+    options: { wait: false }, // returns as soon as the run exists
+  });
+
+  const encoder = new TextEncoder();
+  const body = new ReadableStream({
+    async start(controller) {
+      for await (const event of kindgi.runs.stream(run.id)) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+      }
+      controller.close();
+    },
+  });
+  return new Response(body, { headers: { 'content-type': 'text/event-stream' } });
+}
+```
+
+Each event has a `kind` (`run.started`, `run.step-started`,
+`run.step-completed`, …, `run.completed`) and a `payload`; the
+`run.completed` event's `payload.output` is the run's output. In Python,
+`kindgi.runs.stream(run.id)` is an iterator of the same events.
+
+A browser can also follow a run directly, with a short-lived read-only
+token, without your API token: see
+[Security](../../concepts/security/#following-a-run-from-a-browser).

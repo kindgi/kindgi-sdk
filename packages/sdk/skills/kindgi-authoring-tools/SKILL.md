@@ -12,7 +12,7 @@ description: >
   authoring agents is covered by kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.1"
+version: "0.4.2"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -108,7 +108,7 @@ A handler must return a Promise; one with nothing to `await` can return `Promise
 The handler gets the **parsed** input, typed `z.infer` of `input` (Zod's output type):
 
 - **Defaults.** A `.default()` field is optional to the caller, the model included. The tool's advertised schema doesn't list it as required, and the handler always gets a value.
-- **Transforms and refinements.** `.transform()` results and `.refine()` checks apply before the handler runs. A failed refinement comes back as `input-validation-failed`, with the field's path.
+- **Transforms and refinements.** `.transform()` results and `.refine()` checks apply before the handler runs. A failed refinement comes back as `input-validation-failed`.
 - **Extra keys.** A plain `z.object` accepts them and strips them. Use `z.strictObject` to reject them.
 - **JSON-Schema-authored tools** get each property's `default` filled in the same way.
 
@@ -273,8 +273,7 @@ run start via `semver.maxSatisfying`. No implicit `:latest`.
 - Type surface: `hover any @kindgi/sdk/define export` in your editor
   for full JSDoc — every field on `DefineToolSpec` / `ToolManifest`
   documents purpose, when to set it, and gotchas.
-- Companion docs: `pnpm --filter @kindgi/sdk exec typedoc` regenerates
-  markdown API docs at `packages/sdk/docs/`.
+- API reference: https://docs.kindgi.com/v0.1/reference/typescript/sdk/kindgi/sdk/define/ (every `define*` spec, field by field).
 - Common patterns: check the `sample` template (`kindgi init
   --template=sample`) for working examples of both authoring modes.
 
