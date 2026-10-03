@@ -103,6 +103,7 @@ export default defineConfig({
         { label: 'Tutorials', items: [{ autogenerate: { directory: 'tutorials' } }] },
         { label: 'Guides', items: [{ autogenerate: { directory: 'guides' } }] },
         { label: 'Concepts', items: [{ autogenerate: { directory: 'concepts' } }] },
+        { label: 'Deploy', items: [{ autogenerate: { directory: 'deploy' } }] },
         {
           label: 'Reference',
           items: [
