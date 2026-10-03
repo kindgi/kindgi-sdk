@@ -91,7 +91,7 @@ export async function ensureRuntimeImage(
   if (pulled.code === 0) return { kind: 'ok' };
   const detail = lastLines(pulled.stderr);
   const auth = /unauthorized|denied|authentication required/i.test(pulled.stderr)
-    ? `\n  The image is private: log in with the pull credentials you were given (docker login ${image.split('/')[0]}), then run kindgi dev again.`
+    ? `\n  The runtime image is in private preview: request access at contact@kindgi.com, log in with the pull credentials you receive (docker login ${image.split('/')[0]}), then run kindgi dev again.`
     : '';
   return { kind: 'error', message: `Couldn't pull ${image}: ${detail}${auth}` };
 }
