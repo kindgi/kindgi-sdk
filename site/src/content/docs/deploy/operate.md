@@ -235,11 +235,7 @@ Rotate under a new key id. A key id stays bound to its public key, and a revoked
 
    ```sh
    pnpm exec kindgi key create acme-selfhost-2 --env selfhost
-   PUB="$(pnpm exec kindgi key export acme-selfhost-2 --format=raw-hex | xxd -r -p | base64)"
-
-   curl -s -X POST http://localhost:4000/v1/signing-keys \
-     -H "authorization: Bearer $KINDGI_API_TOKEN" -H 'content-type: application/json' \
-     -d "{\"keyId\":\"acme-selfhost-2\",\"publicKey\":\"$PUB\"}"
+   pnpm exec kindgi key trust acme-selfhost-2 --url http://localhost:4000 --token "$KINDGI_API_TOKEN"
    ```
 
 2. Sign your next release with it. In the `selfhost` block of `kindgi.config.ts`:
@@ -269,14 +265,16 @@ Rotate under a new key id. A key id stays bound to its public key, and a revoked
 3. Revoke the old key:
 
    ```sh
-   curl -s -X POST http://localhost:4000/v1/signing-keys/acme-selfhost/revoke \
-     -H "authorization: Bearer $KINDGI_API_TOKEN" -H 'content-type: application/json' \
-     -d '{"reason":"rotated to acme-selfhost-2"}'
+   pnpm exec kindgi key revoke acme-selfhost --reason "rotated to acme-selfhost-2" \
+     --url http://localhost:4000 --token "$KINDGI_API_TOKEN"
    ```
 
    ```text
-   {"keyId":"acme-selfhost","revoked":true}
+     ✓ Revoked acme-selfhost
    ```
+
+   A revoked id can't be trusted again: `kindgi key trust` says so, and how to
+   trust another key.
 
 From then on, the runtime refuses a deploy signed by the old key. Here, an envelope it signed earlier:
 

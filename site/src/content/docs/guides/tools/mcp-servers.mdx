@@ -169,8 +169,11 @@ kindgi tools get inventory.stock_level
 ```
 
 Kindgi registers MCP tools as version `1.0.0`. A tool's input schema is
-the one the server gives; its output schema takes whatever the server
-returns.
+the one the server gives. Its answer is the server's structured content,
+checked against the tool's `outputSchema`, when the server declares one;
+otherwise the answer's text, parsed as JSON when the text is JSON (servers
+built with the TypeScript MCP SDK often declare none: their `echo` tool
+answers `"Echo: hi"`).
 
 ## Call its tools
 

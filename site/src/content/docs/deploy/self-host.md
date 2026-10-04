@@ -69,6 +69,10 @@ If your app's code needs a generate step in the image (Prisma's client, for
 example), set that up first:
 [What the pack's image needs](../../start/existing-app/#what-the-packs-image-needs).
 
+In a Python pack, run each `pnpm exec kindgi` on this page as
+`npx --yes @kindgi/cli@0.1`, and lock its dependencies first (`uv lock`, or
+`poetry lock`): the image installs them from the lockfile.
+
 Pick a tenant id. The runtime serves this tenant, and the pack's signature names it:
 
 ```sh
@@ -95,6 +99,17 @@ environments: {
 },
 ```
 
+In a Python pack, the same keys go in `pyproject.toml`:
+
+```toml
+[tool.kindgi.environments.selfhost]
+endpoint = "http://localhost:4000"
+registry = "registry.localhost:5050"
+tenantId = "<your tenant id>"
+signingKey = "~/.kindgi/keys/acme-selfhost.pem"
+signerKeyId = "acme-selfhost"
+```
+
 Build the image with your own Docker, push it, and sign it:
 
 ```sh
@@ -106,6 +121,12 @@ pnpm exec kindgi build --local --push --env selfhost
     ✓ /app/index.json in the image matches the local index byte for byte
     ✓ Ed25519 signature over (imageDigest, artifactVersion, indexHash, tenantId, publishedAt)
   Deploy envelope written to …/acme-pack/.kindgi/build/deploy-envelope.json
+```
+
+A Python pack's build also says where its dependencies come from:
+
+```text
+    ✓ 22 pack file(s) in the image (the pack root, minus caches, virtualenvs and secrets); dependencies from uv.lock
 ```
 
 The image is for `linux/amd64` by default. On Apple silicon it runs under emulation; `--platform` picks another.
@@ -205,16 +226,18 @@ A key within 30 days of expiry adds the warning under the license line, as this 
 
 ## 7. Trust your key and deploy
 
-The runtime deploys only images signed by a key its tenant trusts. Trust yours with its 32 raw bytes, base64:
+The runtime deploys only images signed by a key its tenant trusts. Trust yours:
 
 ```sh
 export KINDGI_API_TOKEN=<the token from kindgi.env>
-PUB="$(pnpm exec kindgi key export acme-selfhost --format=raw-hex | xxd -r -p | base64)"
-
-curl -s -X POST http://localhost:4000/v1/signing-keys \
-  -H "authorization: Bearer $KINDGI_API_TOKEN" -H 'content-type: application/json' \
-  -d "{\"keyId\":\"acme-selfhost\",\"publicKey\":\"$PUB\"}"
+pnpm exec kindgi key trust acme-selfhost --url http://localhost:4000 --token "$KINDGI_API_TOKEN"
 ```
+
+```text
+  ✓ Trusted acme-selfhost (sha256:7bfbd97be075d796eb24f80d)
+```
+
+The fingerprint is the one `kindgi key create` printed.
 
 Then deploy:
 
