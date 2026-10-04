@@ -307,23 +307,20 @@ async function deterministicTar(contextDir: string, outputPath: string): Promise
 }
 
 /** A Python pack's build context: the listed pack files plus the Containerfile. */
-export async function tarContextReal(opts: {
+export async function writePythonContextReal(opts: {
   readonly packDir: string;
   readonly files: readonly string[];
   readonly containerfilePath: string;
-  readonly outputPath: string;
-}): Promise<TarPackResult> {
-  const { cp } = await import('node:fs/promises');
-  const contextDir = join(join(opts.outputPath, '..'), '.tar-context');
-  await rm(contextDir, { recursive: true, force: true });
-  await mkdir(contextDir, { recursive: true });
+  readonly contextDir: string;
+}): Promise<void> {
+  await rm(opts.contextDir, { recursive: true, force: true });
+  await mkdir(opts.contextDir, { recursive: true });
   for (const rel of opts.files) {
-    const dest = join(contextDir, rel);
+    const dest = join(opts.contextDir, rel);
     await mkdir(dirname(dest), { recursive: true });
     await cp(join(opts.packDir, rel), dest);
   }
-  await cp(opts.containerfilePath, join(contextDir, 'Containerfile'));
-  return deterministicTar(contextDir, opts.outputPath);
+  await cp(opts.containerfilePath, join(opts.contextDir, 'Containerfile'));
 }
 
 /** The Python pack's steps of `kindgi build`. */
@@ -353,7 +350,7 @@ export const PYTHON_BUILD_RUNNERS: PythonBuildRunners = {
       'utf8',
     );
   },
-  tarContext: tarContextReal,
+  writeContext: writePythonContextReal,
 };
 
 // ---------------------------------------------------------------------
