@@ -209,7 +209,8 @@ export interface SignResult {
 /**
  * The steps that differ for a Python pack (`[tool.kindgi]` in
  * `pyproject.toml`): no bundle — its own indexer with the pack's
- * interpreter, its own Containerfile, the pack root as the context.
+ * interpreter, its own Containerfile, the pack root as the context. The
+ * context is tarred (`tarPack`) or built (`dockerBuild`) as a Node pack's.
  */
 export interface PythonBuildRunners {
   readonly runLocalIndexer: (
@@ -227,13 +228,13 @@ export interface PythonBuildRunners {
       readonly systemPackages: readonly string[];
     },
   ) => Promise<void>;
-  /** Tars `files` (pack-relative) and the Containerfile, deterministically. */
-  readonly tarContext: (opts: {
+  /** Writes the build context: `files` (pack-relative) and the Containerfile. */
+  readonly writeContext: (opts: {
     readonly packDir: string;
     readonly files: readonly string[];
     readonly containerfilePath: string;
-    readonly outputPath: string;
-  }) => Promise<TarPackResult>;
+    readonly contextDir: string;
+  }) => Promise<void>;
 }
 
 /**
