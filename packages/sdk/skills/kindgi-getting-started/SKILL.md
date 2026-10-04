@@ -14,7 +14,7 @@ description: >
   primitive.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.3"
+version: "0.3.4"
 sdk_version: "0.0.0"
 pack_languages: [node]
 ---
@@ -70,7 +70,9 @@ pnpm install          # or the app's own package manager
 
 This adds `kindgi.config.ts` and a `kindgi/` folder beside the app's code,
 and never creates env files: `kindgi dev` reads the app's own `.env` /
-`.env.local`.
+`.env.local`. A package a tool imports must be in the app's `dependencies`,
+not `devDependencies`: the deployed pack installs production dependencies
+only (see `kindgi-authoring-tools`).
 
 Either way, `init` adds `@kindgi/sdk` and `@kindgi/cli` to the project's
 `package.json`, so the project runs the `kindgi` it pins — never a global
