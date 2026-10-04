@@ -33,7 +33,7 @@ the [`kindgi` Python SDK](../../sdks/python).
 | [`kindgi deploy`](#kindgi-deploy) | Send the signed envelope to `POST /v1/deployments`. |
 | [`kindgi env`](#kindgi-env) | Per-environment values, kept in env files next to the pack. |
 | [`kindgi secrets`](#kindgi-secrets) | Per-environment secrets, through the API. |
-| [`kindgi key`](#kindgi-key) | Local Ed25519 signing keys under `~/.kindgi/keys/`. |
+| [`kindgi key`](#kindgi-key) | Ed25519 signing keys: local pairs under `~/.kindgi/keys/`, and the runtime's trust list. |
 | [`kindgi skills`](#kindgi-skills) | Refresh the Claude Code skills in `.claude/skills/`. |
 | [`kindgi mcp`](#kindgi-mcp) | MCP servers for your coding agent, in `.mcp.json`. |
 | [`kindgi feedback`](#kindgi-feedback) | Note framework friction in the pack's `FEEDBACK.md`. |
@@ -600,6 +600,8 @@ writes to the pack's `.env.local`.
 kindgi key create <keyId> [--env <name>] [--home <dir>]
 kindgi key export <keyId> [--format=pem|base64|raw-hex] [--home <dir>]
 kindgi key list [--home <dir>]
+kindgi key trust <keyId> [--label <text>] [--home <dir>]
+kindgi key revoke <keyId> [--reason <text>]
 ```
 
 Ed25519 signing keys for `kindgi build`, as files under `~/.kindgi/keys/`
@@ -610,6 +612,13 @@ Ed25519 signing keys for `kindgi build`, as files under `~/.kindgi/keys/`
   `kindgi.config.ts`.
 - **`export`** prints the public key only, never the private one.
 - **`list`** shows each key pair's id, fingerprint and paths.
+- **`trust`** adds a local key's public key to the runtime's trust list
+  (`--url`, `--token`), so the runtime accepts deploys it signs. A key id
+  stays bound to its key: to rotate, create a key under a new id and trust
+  that.
+- **`revoke`** removes a key from the trust list. The runtime refuses new
+  deploys it signs; deployments it signed keep running, and the key stays
+  listed for audit. A revoked id can't be trusted again.
 
 ## `kindgi skills`
 
