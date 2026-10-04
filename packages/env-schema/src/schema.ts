@@ -105,6 +105,7 @@ export const ENV_GROUPS = {
   core: 'Core server config',
   secrets: 'Secrets backend selection',
   gcp: 'GCP vendor config (postgres + gcp KMS)',
+  'local-key': 'Local key (postgres + libsodium: a key this runtime holds, single-node)',
   'pack-service': 'Pack service (runs the pack code: tools and guardrail checks)',
   'image-registry': "Image registry (where deployments' images are read from)",
   dev: 'Development (`kindgi dev`; each needs `KINDGI_DEV=true`)',
@@ -125,6 +126,9 @@ const appliesToDotenvBackend = (t: EnvTarget): boolean =>
 
 const appliesToPostgresGcp = (t: EnvTarget): boolean =>
   appliesToPostgresBackend(t) && t.secretsBackendKms === 'gcp';
+
+const appliesToPostgresLocalKey = (t: EnvTarget): boolean =>
+  appliesToPostgresBackend(t) && t.secretsBackendKms === 'libsodium';
 
 const appliesToPackService = (t: EnvTarget): boolean => t.component === 'pack-service';
 
@@ -324,7 +328,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_SECRETS_BACKEND_KMS',
     description:
-      'Which KMS vendor wraps DEKs (postgres backend only). Currently supported: `gcp`. Reserved: `aws`, `libsodium`.',
+      'Which KMS wraps DEKs (postgres backend only): `gcp` (Google Cloud KMS), or `libsodium`, a key this runtime holds (see `KINDGI_SECRETS_LOCAL_KEY_PATH`). Reserved: `aws`.',
     example: 'gcp',
     required: true,
     appliesTo: appliesToPostgresBackend,
@@ -382,6 +386,36 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     required: true,
     appliesTo: appliesToPostgresGcp,
     group: 'gcp',
+  },
+
+  // ---- local key (libsodium) --------------------------------------
+  {
+    name: 'KINDGI_SECRETS_LOCAL_KEY_PATH',
+    description:
+      "Absolute path to the local key: a file of 32 random bytes (`openssl rand 32`, mode 0600), for `KINDGI_SECRETS_BACKEND_KMS=libsodium`. It wraps every secret's data key, and it's held on this host, next to the database: back it up apart from the database, since a lost key loses every secret. Replicas mount the same file. Starting with a different key than the secrets were stored under is refused. This or `KINDGI_SECRETS_LOCAL_KEY`, not both.",
+    example: '/etc/kindgi/secrets-local.key',
+    required: false,
+    appliesTo: appliesToPostgresLocalKey,
+    group: 'local-key',
+  },
+  {
+    name: 'KINDGI_SECRETS_LOCAL_KEY',
+    description:
+      'The local key itself, base64 (32 bytes; `openssl rand -base64 32`): for platforms that give secrets as environment variables. This or `KINDGI_SECRETS_LOCAL_KEY_PATH`, not both.',
+    example: '',
+    required: false,
+    appliesTo: appliesToPostgresLocalKey,
+    group: 'local-key',
+  },
+  {
+    name: 'KINDGI_SECRETS_LOCAL_KEY_ACK',
+    description:
+      "Exactly `single-node`: the operator's acknowledgement that the secrets' key is held on this host, next to the database, not in a cloud KMS. Not FIPS 140-3; for regulated workloads, use a cloud KMS. Required with `KINDGI_SECRETS_BACKEND_KMS=libsodium`.",
+    example: 'single-node',
+    required: true,
+    appliesTo: appliesToPostgresLocalKey,
+    group: 'local-key',
+    allowedValues: ['single-node'],
   },
 
   // ---- pack service -----------------------------------------------
