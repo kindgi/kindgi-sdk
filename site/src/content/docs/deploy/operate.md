@@ -2,7 +2,7 @@
 title: Operate a self-hosted runtime
 description: Check, back up, restore and upgrade a self-hosted Kindgi runtime, and rotate its tokens and keys.
 sidebar:
-  order: 2
+  order: 3
 ---
 
 This page continues [Self-host Kindgi](../self-host/): the same containers (`kindgi-server`, `kindgi-db`, `kindgi-pack`), the same `kindgi.env` and `pack.env`, and the same pack. Commands that take your API token read it from `$KINDGI_API_TOKEN`.

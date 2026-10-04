@@ -288,4 +288,5 @@ upgrades, and rotating its tokens and keys.
 
 ## On Google Cloud Run
 
-Coming soon.
+[Deploy on Google Cloud Run](../cloud-run/) runs the same pieces as Cloud Run
+services, with Cloud SQL, Artifact Registry and Cloud KMS.
