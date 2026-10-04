@@ -35,6 +35,13 @@ import { createPackServiceSupervisor } from '@kindgi/handler-runtime/pack-servic
 import { createDevPackBuilder } from './bundler.js';
 import { type PackCode, checkPackPython } from './pack-code.js';
 import { devBundleMapPath, devIndexPath } from './paths.js';
+import {
+  type DockerRunner,
+  type PostgresContainerSpec,
+  hostPortOf,
+  postgresSpecFromCompose,
+  startPostgresContainer,
+} from './postgres-container.js';
 import { createPythonPackBuilder } from './python-builder.js';
 import type {
   DevPackService,
@@ -50,9 +57,11 @@ import type {
   WatchHandle,
 } from './runners.js';
 import {
+  type DockerOutcome,
   IMAGE_API_PORT,
   type RuntimeNetwork,
   detectRuntimeNetwork,
+  docker,
   ensureRuntimeImage,
   startRuntimeContainer,
 } from './runtime-container.js';
@@ -696,32 +705,24 @@ function bundledComposeFilePath(): string {
 /**
  * Detect whether `docker compose` is invokable. Returns `undefined`
  * when available; a human-readable reason otherwise. Used to decide
- * between the auto-start path and the "manual KINDGI_DATABASE_URL required"
- * error.
+ * between `docker compose` and plain `docker` for the bundled services.
  */
-async function detectDockerCompose(): Promise<string | undefined> {
-  return new Promise((resolvePromise) => {
-    let done = false;
-    const finish = (reason: string | undefined): void => {
-      if (done) return;
-      done = true;
-      resolvePromise(reason);
-    };
-    try {
-      const child = spawn('docker', ['compose', 'version'], {
-        stdio: 'ignore',
-      });
-      child.once('error', (err) => {
-        finish(`docker CLI not available: ${err.message}`);
-      });
-      child.once('exit', (code) => {
-        if (code === 0) finish(undefined);
-        else finish(`\`docker compose version\` exited with code ${code}`);
-      });
-    } catch (err) {
-      finish(`spawn failed: ${(err as Error).message}`);
-    }
-  });
+async function detectDockerCompose(run: DockerRunner): Promise<string | undefined> {
+  const version = await run(['compose', 'version']);
+  if (version.code === 0) return undefined;
+  if (version.code === null) return `docker CLI not available: ${version.stderr}`;
+  return `\`docker compose version\` exited with code ${version.code}`;
+}
+
+/**
+ * Whether plain `docker` works: the CLI is installed and the engine
+ * answers. Returns `undefined` when it does; why not otherwise.
+ */
+async function detectDocker(run: DockerRunner): Promise<string | undefined> {
+  const version = await run(['version', '--format', '{{.Server.Version}}']);
+  if (version.code === 0) return undefined;
+  const detail = version.stderr.trim().split('\n').at(-1) ?? '';
+  return `Docker isn't available${detail === '' ? '' : `: ${detail}`}`;
 }
 
 /** The compose project every `kindgi dev` shares; its named volumes hold the dev data. */
@@ -730,47 +731,19 @@ const COMPOSE_PROJECT = 'kindgi-dev';
 /** The services `up --wait` waits on: Postgres only (OpenFGA and MinIO aren't wired in dev). */
 const LONG_RUNNING_SERVICES = ['postgres'] as const;
 
-interface ComposeOutcome {
-  /** The exit code; `null` when `docker` couldn't be spawned. */
-  readonly code: number | null;
-  readonly stdout: string;
-  readonly stderr: string;
-}
-
 /** Run `docker compose` against the bundled compose file, in the `kindgi-dev` project. */
-function compose(args: readonly string[]): Promise<ComposeOutcome> {
-  return new Promise((resolvePromise) => {
-    const child = spawn(
-      'docker',
-      ['compose', '-f', bundledComposeFilePath(), '-p', COMPOSE_PROJECT, ...args],
-      { stdio: ['ignore', 'pipe', 'pipe'] },
-    );
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (chunk: Buffer) => {
-      stdout += chunk.toString();
-    });
-    child.stderr.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
-    child.once('error', (err) => resolvePromise({ code: null, stdout, stderr: err.message }));
-    child.once('close', (code) => resolvePromise({ code, stdout, stderr }));
-  });
+function compose(run: DockerRunner, args: readonly string[]): Promise<DockerOutcome> {
+  return run(['compose', '-f', bundledComposeFilePath(), '-p', COMPOSE_PROJECT, ...args]);
 }
 
-function composeFailure(step: string, outcome: ComposeOutcome): string {
+function composeFailure(step: string, outcome: DockerOutcome): string {
   const detail = outcome.stderr.trim().split('\n').slice(-5).join('\n');
   return `\`docker compose ${step}\` failed (exit ${outcome.code ?? 'spawn error'})${detail === '' ? '' : `: ${detail}`}`;
 }
 
-/**
- * The host port in `docker compose port` output (`0.0.0.0:51741`, or
- * `[::]:51741`); `undefined` when there is none.
- */
-export function hostPortOf(portOutput: string): number | undefined {
-  const line = portOutput.trim().split('\n')[0] ?? '';
-  const port = Number(line.slice(line.lastIndexOf(':') + 1));
-  return Number.isInteger(port) && port > 0 ? port : undefined;
+/** The bundled Postgres's URL, on this machine, at its published host port. */
+function bundledDatabaseUrl(port: number): string {
+  return `postgres://kindgi:kindgi_dev_only@127.0.0.1:${port}/kindgi?sslmode=disable`;
 }
 
 /**
@@ -779,6 +752,11 @@ export function hostPortOf(portOutput: string): number | undefined {
  *
  *   1. `up -d --wait` Postgres, which waits for its healthcheck;
  *   2. read its published port back.
+ *
+ * Without compose (a Docker engine without the plugin), the same
+ * Postgres starts with plain `docker` (`postgres-container.ts`): the
+ * same names, so the data is shared whichever way it was started.
+ * `unavailable` only when docker itself doesn't work.
  *
  * Not testcontainers: its reaper (Ryuk) is handed the compose project
  * and, when the process exits, deletes everything labelled with it —
@@ -790,17 +768,20 @@ export function hostPortOf(portOutput: string): number | undefined {
  * Containers left running by a killed `kindgi dev` are picked up by the
  * next boot.
  */
-export async function startServicesReal(options: {
-  readonly recreate: boolean;
-}): Promise<StartServicesResult> {
-  const reason = await detectDockerCompose();
+export async function startServicesReal(
+  options: { readonly recreate: boolean },
+  run: DockerRunner = docker,
+): Promise<StartServicesResult> {
+  const reason = await detectDockerCompose(run);
   if (reason !== undefined) {
-    return { kind: 'unavailable', reason };
+    const noDocker = await detectDocker(run);
+    if (noDocker !== undefined) return { kind: 'unavailable', reason: noDocker };
+    return startPostgresWithDocker(options, run);
   }
 
   // An existing container is reused as it is unless asked: recreating it
   // (a changed definition) drops every other kindgi dev's connection.
-  const up = await compose([
+  const up = await compose(run, [
     'up',
     '-d',
     '--wait',
@@ -808,19 +789,57 @@ export async function startServicesReal(options: {
     ...LONG_RUNNING_SERVICES,
   ]);
   if (up.code !== 0) return { kind: 'error', message: composeFailure('up', up) };
-  const published = await compose(['port', 'postgres', '5432']);
+  const published = await compose(run, ['port', 'postgres', '5432']);
   const port = published.code === 0 ? hostPortOf(published.stdout) : undefined;
   if (port === undefined) {
     return { kind: 'error', message: composeFailure('port postgres 5432', published) };
   }
-  const databaseUrl = `postgres://kindgi:kindgi_dev_only@127.0.0.1:${port}/kindgi?sslmode=disable`;
 
   const handle: StartedServicesHandle = {
-    databaseUrl,
+    databaseUrl: bundledDatabaseUrl(port),
     services: ['postgres'],
+    startedWith: 'docker compose',
   };
 
   return { kind: 'ok', handle };
+}
+
+/**
+ * The bundled Postgres with plain `docker`, as the compose file defines
+ * it. An existing container is reused as it is, so `--recreate-services`
+ * (a compose feature) can't apply: the developer is told how to recreate
+ * it by hand.
+ */
+async function startPostgresWithDocker(
+  options: { readonly recreate: boolean },
+  run: DockerRunner,
+): Promise<StartServicesResult> {
+  let spec: PostgresContainerSpec;
+  try {
+    spec = postgresSpecFromCompose(
+      await readFile(bundledComposeFilePath(), 'utf8'),
+      COMPOSE_PROJECT,
+    );
+  } catch (err) {
+    return { kind: 'error', message: (err as Error).message };
+  }
+  const started = await startPostgresContainer(spec, run);
+  if (started.kind === 'error') return started;
+  const notes =
+    options.recreate && started.container !== 'created'
+      ? [
+          `--recreate-services needs docker compose: the existing ${spec.name} is reused as it is. To recreate it, remove it (docker rm -f ${spec.name}; its data stays in the ${spec.volume.name} volume) and run kindgi dev again.`,
+        ]
+      : [];
+  return {
+    kind: 'ok',
+    handle: {
+      databaseUrl: bundledDatabaseUrl(started.port),
+      services: ['postgres'],
+      startedWith: 'docker',
+      ...(notes.length > 0 && { notes }),
+    },
+  };
 }
 
 /** Default wiring used by the `kindgi dev` command in production. */

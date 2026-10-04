@@ -50,7 +50,10 @@ events as they happen, and receives signed webhooks when they finish.
 
 `kindgi init` installs skills for Claude Code into the project, so your
 coding agent writes tools, agents, flows and guardrails the way Kindgi
-expects, without you learning a new API first.
+expects, without you learning a new API first. The skills also tell it
+which commands to run: `kindgi dev` to start Kindgi, `kindgi runs start` to
+try what it wrote, and the run's journal when something fails.
+[How it knows Kindgi](../coding-agents/).
 
 ## Where it runs
 

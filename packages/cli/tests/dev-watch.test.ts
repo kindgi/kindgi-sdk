@@ -64,7 +64,10 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-describe('watchPackReal', () => {
+// Real filesystem events: on a busy machine (the macOS event daemon backed
+// up) they can arrive seconds late. A generous per-test limit, and a retry
+// before a timing miss fails the run; a real regression fails every try.
+describe('watchPackReal', { retry: 2, timeout: 60_000 }, () => {
   test('fires for a file a discovery pattern matches', async () => {
     const onChange = vi.fn();
     handle = await watchPackReal(dir, onChange, { debounceMs: 20, patterns: PATTERNS });

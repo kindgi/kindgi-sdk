@@ -1,5 +1,12 @@
 # @kindgi/handler
 
+## 0.1.1
+
+### Patch Changes
+
+- @kindgi/authz@0.1.1
+  - @kindgi/types@0.1.1
+
 ## 0.1.0
 
 ### Patch Changes

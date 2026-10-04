@@ -17,3 +17,11 @@ Begin here.
 4. [Add Kindgi to an existing app](existing-app/): your app's own code as
    tools.
 5. [Your coding agent](coding-agents/): the skills that teach it Kindgi.
+
+:::tip[Working with a coding agent?]
+Once `kindgi init` has run, your coding agent has Kindgi's skills. You can
+follow these pages yourself, or ask the agent for what you want: it writes
+the tools, agents and flows, runs them with `kindgi dev` and
+`kindgi runs start`, and asks you only for the pack's id and your model's
+key. [How it knows Kindgi](coding-agents/).
+:::
