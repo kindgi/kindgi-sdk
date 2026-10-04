@@ -39,6 +39,9 @@ import type {
 } from '../src/dev/runners.js';
 import { type RunCliInputs, runCli } from '../src/main.js';
 
+/** vi.waitFor's own default (1 s) is too short on a loaded machine; a passing wait returns as soon as it holds. */
+const WAIT = { timeout: 15_000 } as const;
+
 let cwd: string;
 let home: string;
 let packDir: string;
@@ -934,7 +937,7 @@ describe('kindgi dev — watch flow', () => {
 
     // Wait for boot to reach the watch stage (condition-based, not a fixed
     // sleep — boot time varies with machine load).
-    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2));
+    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
 
     // One boot-time index run.
     expect(fixtures.captureIndexerCalls.length).toBeGreaterThanOrEqual(1);
@@ -943,7 +946,10 @@ describe('kindgi dev — watch flow', () => {
 
     // Fire a change — background re-index should happen.
     fixtures.triggerChange();
-    await vi.waitFor(() => expect(fixtures.captureIndexerCalls.length).toBeGreaterThanOrEqual(2));
+    await vi.waitFor(
+      () => expect(fixtures.captureIndexerCalls.length).toBeGreaterThanOrEqual(2),
+      WAIT,
+    );
 
     // Abort → command completes gracefully.
     controller.abort();
@@ -970,9 +976,12 @@ describe('kindgi dev — watch flow', () => {
       ...baseInputs(fixtures, { stopSignal: controller.signal }),
       argv: ['dev', '--json', `--path=${packDir}`],
     });
-    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2));
+    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
     fixtures.triggerChange();
-    await vi.waitFor(() => expect(fixtures.captureIndexerCalls.length).toBeGreaterThanOrEqual(2));
+    await vi.waitFor(
+      () => expect(fixtures.captureIndexerCalls.length).toBeGreaterThanOrEqual(2),
+      WAIT,
+    );
     controller.abort();
     const out = await promise;
     expect(out.exitCode).toBe(0);
@@ -1014,9 +1023,9 @@ describe('kindgi dev — watch flow', () => {
       ...baseInputs(fixtures, { stopSignal: controller.signal, devRunners }),
       argv: ['dev', '--json', `--path=${packDir}`],
     });
-    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2));
+    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
     fixtures.triggerChange();
-    await vi.waitFor(() => expect(releaseTick).toBeDefined());
+    await vi.waitFor(() => expect(releaseTick).toBeDefined(), WAIT);
 
     controller.abort();
     // Shutdown must wait for the tick: give it a chance to (wrongly) proceed.
@@ -1046,7 +1055,7 @@ describe('kindgi dev — watch flow', () => {
         ...baseInputs(fixtures, { stopSignal: controller.signal }),
         argv: ['dev', `--path=${packDir}`],
       });
-      await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2));
+      await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
       writes.length = 0;
       controller.abort();
       out = await promise;
@@ -1082,9 +1091,9 @@ describe('kindgi dev — watch flow', () => {
         ...baseInputs(fixtures, { stopSignal: controller.signal, devRunners }),
         argv: ['dev', `--path=${packDir}`],
       });
-      await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2));
+      await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
       fixtures.triggerChange();
-      await vi.waitFor(() => expect(releaseTick).toBeDefined());
+      await vi.waitFor(() => expect(releaseTick).toBeDefined(), WAIT);
       writes.length = 0;
       controller.abort();
       await new Promise((r) => setTimeout(r, 20));
