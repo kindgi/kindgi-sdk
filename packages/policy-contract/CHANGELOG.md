@@ -1,5 +1,11 @@
 # @kindgi/policy-contract
 
+## 0.1.1
+
+### Patch Changes
+
+- @kindgi/types@0.1.1
+
 ## 0.1.0
 
 ### Minor Changes

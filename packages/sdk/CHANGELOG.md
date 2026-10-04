@@ -1,5 +1,30 @@
 # @kindgi/sdk
 
+## 0.1.1
+
+### Patch Changes
+
+- 0fe5626: **`createClient()` from `@kindgi/sdk/client` finds the runtime by itself.** Every option is optional now:
+  - `apiUrl` and `auth` come from `KINDGI_API_URL` and `KINDGI_API_TOKEN`;
+  - in development, when those aren't set, from the running `kindgi dev` (the nearest `.kindgirc.json`), with a one-time warning to put them in your env file (`.env` / `.env.local`);
+  - a token that doesn't match the running `kindgi dev`'s for the same URL (after `kindgi dev --reset`) is warned about once.
+  
+  Production (`NODE_ENV` or `KINDGI_ENV` = `production`) never reads `.kindgirc.json`, and a missing setting there is an error that says what to set. Explicit options win, field by field. `@kindgi/client`'s `createClient` stays the explicit client underneath (and the one for browsers).
+- 5ef3129: The flow skills describe conditions on a missing value as they behave (`ne` is true, the other comparisons false) and say a number segment in a path indexes an array.
+- d28e1fd: **`@kindgi/sdk` declares zod v4 as an optional peer dependency** (`zod: ^4.0.0`), as its tool, agent, guardrail, schema and handler-runtime packages already do. Schemas can be JSON Schema or zod v4, so zod stays optional; an app that has zod 3 is now flagged by its package manager at install. An app whose own code imports zod (every example does) still lists `zod` in its own dependencies, which `kindgi init` adds.
+- ca66617: Skills: `kindgi-getting-started` no longer points at a `demo.echo-agent` that `kindgi dev` doesn't register; it runs the sample template's `<pack-id>.echo-agent` and says what `dev-echo` can and can't do. The authoring skills link this release line's API reference (docs.kindgi.com/v0.1/…) instead of a contributor-only typedoc command; `check:refs` keeps skills' docs links on the current minor. The guardrail skills say that only `halt` acts in 0.1 (`retry`, `escalate` and `compensate` are recorded), give the real error for an unregistered guardrail, and say a pack's guardrail `config` isn't validated; the tools skill no longer promises a field path in `input-validation-failed`. `kindgi-authoring-providers` 0.9.2: `defineAgent` takes `preferredModel` too, and the adapter ids are listed (there is no `kindgi adapters list`).
+- bbe0bc9: The tool-authoring skills (TypeScript and Python) say that a package a tool imports at runtime must be in the app's dependencies, not dev dependencies: the deployed pack installs production dependencies only. The getting-started skills point to it from their existing-app sections.
+- Updated dependencies [319a134]
+  - @kindgi/handler-runtime@0.1.1
+  - @kindgi/client@0.1.1
+  - @kindgi/agents@0.1.1
+  - @kindgi/crypto@0.1.1
+  - @kindgi/flow@0.1.1
+  - @kindgi/guardrails@0.1.1
+  - @kindgi/schema@0.1.1
+  - @kindgi/tools@0.1.1
+  - @kindgi/types@0.1.1
+
 ## 0.1.0
 
 ### Minor Changes
