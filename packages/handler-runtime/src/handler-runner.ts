@@ -141,7 +141,7 @@ const MAX_COMPILED_VALIDATORS = 512;
  * schema is a new key, so a hot reload takes effect. A validator is
  * shared by concurrent calls safely: validation is synchronous.
  */
-function compileSchema(
+export function compileSchema(
   schema: Readonly<Record<string, unknown>>,
   side: 'input' | 'output',
 ): ValidateFunction {
