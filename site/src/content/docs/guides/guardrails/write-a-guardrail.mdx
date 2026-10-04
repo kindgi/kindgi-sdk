@@ -1,0 +1,254 @@
+---
+title: Write a guardrail
+description: Write a check over an agent's turn, declare it as a guardrail, and put it on an agent.
+sidebar:
+  order: 1
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+This guardrail keeps an agent's answers short: it fails a turn whose answer
+is longer than a limit.
+
+## The guardrail
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// guardrails/answer-length/index.ts
+import { defineCheck } from '@kindgi/sdk/define';
+import { z } from 'zod';
+
+export const check = defineCheck({
+  id: 'my-pack.checks.answer-length',
+  kind: 'zero-llm',
+  configSchema: z.object({ maxChars: z.number().int().positive().optional() }),
+  evaluate: async (config, trace) => {
+    const max = config.maxChars ?? 500;
+    const length = trace.output?.length ?? 0;
+    if (length > max) {
+      return { passed: false, reason: `The answer is ${length} characters; the limit is ${max}.` };
+    }
+    return { passed: true };
+  },
+});
+
+export default {
+  id: 'my-pack.answer-length',
+  name: 'Answer is short',
+  kind: 'zero-llm',
+  check,
+  config: { maxChars: 60 },
+  action: { 'on-violation': 'halt' },
+  severity: 'error',
+};
+```
+
+The file has two parts:
+
+- **The check**, from `defineCheck`, exported as `check`. Its `evaluate`
+  gets the guardrail's config and the turn's trace, and returns
+  `{ passed, reason? }`.
+- **The declaration**, the default export: the guardrail's id, the check it
+  runs, the check's `config`, and the `action` on a failure.
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# guardrails/answer_length.py
+from pydantic import BaseModel, Field
+
+from kindgi import CheckResult, RunTrace, guardrail
+
+
+class Config(BaseModel):
+    max_chars: int = Field(500, alias="maxChars", gt=0)
+
+
+@guardrail(
+    id="my-pack.answer-length",
+    name="Answer is short",
+    on_violation="halt",
+    severity="error",
+    config={"maxChars": 60},
+)
+def answer_length(config: Config, trace: RunTrace) -> CheckResult:
+    length = len(trace.output or "")
+    if length > config.max_chars:
+        return CheckResult(
+            passed=False,
+            reason=f"The answer is {length} characters; the limit is {config.max_chars}.",
+        )
+    return CheckResult(passed=True)
+```
+
+`@guardrail` declares both parts: the function is the check, `(config, trace)`,
+`def` or `async def`; the decorator's arguments are the declaration. The
+first parameter's type is the config's schema.
+
+</TabItem>
+</Tabs>
+
+- **The id** is `<pack-id>.<name>`. Name the rule as what should hold:
+  `answer-length`, `response-not-empty`.
+- **`kind: 'zero-llm'`**: the check is your code, a function of the trace. It
+  can't call a model.
+- **The reason** is what the violation reports. Say what was wrong.
+- **The trace** has the turn's final answer (`output`), its tool calls
+  (`toolCalls` / `tool_calls`, each with the tool's name and arguments),
+  their results, its model calls, the user's input and its cost. See
+  `RunTrace` in the [Python reference](../../../reference/python/authoring/#runtrace).
+
+## Put it on an agent
+
+An agent lists its guardrails:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// in agents/echo-agent/index.ts
+guardrails: ['my-pack.response-not-empty' as GuardrailId, 'my-pack.answer-length' as GuardrailId],
+```
+
+The agent names the guardrail's id, not the check's.
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# in agents/echo_agent.py
+from ..guardrails.answer_length import answer_length
+from ..guardrails.response_not_empty import response_not_empty
+
+# …
+    guardrails=[response_not_empty, answer_length],
+```
+
+</TabItem>
+</Tabs>
+
+Save. `kindgi dev` registers the guardrail with the rest of the pack. An
+agent that names a guardrail that isn't registered doesn't run:
+
+```text
+Error [invalid-request]: Agent "my-pack.gated" references guardrails not in the registry: my-pack.no-such-guardrail
+```
+
+## Run it
+
+`dev-echo` answers with the tool's result, which is longer than 60
+characters, so the turn stops:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```sh
+pnpm exec kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
+```
+
+```text
+Error [guardrail-violation]: Turn blocked by guardrail 'my-pack.answer-length': The answer is 86 characters; the limit is 60.
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+npx --yes @kindgi/cli@0.1 runs start --agent=my-pack.echo-agent --input='{"userMessage":"Ada"}'
+```
+
+```text
+Error [guardrail-violation]: Turn blocked by guardrail 'my-pack.answer-length': The answer is 95 characters; the limit is 60.
+```
+
+</TabItem>
+</Tabs>
+
+The command exits with status 1. The run's status is `failed`, and it has
+no answer.
+[Stop a turn or record a violation](../halt-or-record/) shows what the run
+records, and how to let the turn finish instead.
+
+A check that throws fails the turn whatever its action, with the exception's
+message (`handler-throw: Check "…" evaluate() threw: …`). Return
+`passed: false` for a rule that isn't met; throw only when the check itself
+can't run.
+
+## Test the check
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// guardrails/answer-length/index.test.ts
+import type { RunId, TenantId } from '@kindgi/sdk/types';
+import { expect, test } from 'vitest';
+
+import { check } from './index.js';
+
+const trace = (output: string) => ({
+  runId: 'run-1' as RunId,
+  tenantId: 'test-tenant' as TenantId,
+  output,
+  toolCalls: [],
+  toolResults: [],
+  modelCalls: [],
+  mode: 'runtime' as const,
+});
+
+test('passes a short answer', async () => {
+  expect(await check.evaluate({ maxChars: 60 }, trace('Shipped.'), {})).toEqual({ passed: true });
+});
+
+test('fails a long answer, with a reason', async () => {
+  const result = await check.evaluate({ maxChars: 5 }, trace('Shipped yesterday.'), {});
+  expect(result.passed).toBe(false);
+  expect(result.reason).toBe('The answer is 18 characters; the limit is 5.');
+});
+```
+
+```sh
+pnpm exec kindgi test
+```
+
+```text
+ ✓ guardrails/answer-length/index.test.ts (2 tests) 2ms
+…
+      Tests  7 passed (7)
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# tests/test_answer_length.py
+from kindgi import RunTrace
+from guardrails.answer_length import Config, answer_length
+
+
+def test_a_short_answer_passes():
+    trace = RunTrace(run_id="r", tenant_id="t", output="Shipped.")
+    assert answer_length(Config(maxChars=60), trace).passed
+
+
+def test_a_long_answer_fails_with_a_reason():
+    trace = RunTrace(run_id="r", tenant_id="t", output="Shipped yesterday.")
+    result = answer_length(Config(maxChars=5), trace)
+    assert not result.passed
+    assert result.reason == "The answer is 18 characters; the limit is 5."
+```
+
+```sh
+uv run pytest
+```
+
+```text
+........                                                                 [100%]
+8 passed in 0.19s
+```
+
+</TabItem>
+</Tabs>

@@ -1,0 +1,233 @@
+---
+title: Choose the model an agent uses
+description: Say what an agent's model must support, prefer or require a provider or model, and see which one answered.
+sidebar:
+  order: 4
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+An agent doesn't name a model. Its `capabilities` say what the model must
+support, and when a turn starts, Kindgi picks one from the providers registered
+for your tenant ([Models](../../models/) shows how to register them). You can
+prefer a provider or a model, or require one.
+
+## What the model must support
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// in agents/order-desk/index.ts
+  capabilities: [{ needs: [{ feature: 'tool-use' }] }],
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# in agents/order_desk.py
+    capabilities=[{"needs": [{"feature": "tool-use"}]}],
+```
+
+</TabItem>
+</Tabs>
+
+Each entry in `needs` is a hard requirement. A model qualifies only if it meets
+all of them:
+
+- **`{ feature: … }`**: a feature the model lists in its registration:
+  `tool-use`, `parallel-tool-use`, `structured-output`, `long-context`,
+  `thinking`, `vision` and others. An agent that calls tools needs `tool-use`.
+- **`{ contextWindow: { op: '>=', value: 500000 } }`**: a context window.
+- **`{ region: 'on-prem' }`**: a provider registered with this `region`.
+- **`{ models: { allow: […] } }`**, **`{ providers: { allow: […] } }`**: only
+  these models or providers (`deny` excludes instead).
+
+`needs: []` takes any model. Only the first entry of `capabilities` picks the
+turn's model.
+
+## How Kindgi picks
+
+1. It keeps every registered model that meets all the needs.
+2. A **fallback** provider, such as `dev-echo`, is considered only when no other
+   model qualifies.
+3. It ranks what's left: the agent's preferred provider and model first, then
+   the weights in its capability's `prefer`, then alphabetically by provider id
+   and model name.
+
+The last step decides more often than you might expect. With the whole
+Anthropic preset registered, a `tool-use` agent with no preference gets
+`claude-haiku-4-5` (first alphabetically), and an agent that needs
+`structured-output` gets `claude-opus-5-5`, the most expensive. Prefer or
+require the model you mean.
+
+## Prefer a provider or a model
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// in agents/order-desk/index.ts
+  capabilities: [{ needs: [{ feature: 'tool-use' }] }],
+  preferredProvider: 'anthropic',
+  preferredModel: 'claude-sonnet-5-5',
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# in agents/order_desk.py
+    capabilities=[{"needs": [{"feature": "tool-use"}]}],
+    preferred_provider="anthropic",
+    preferred_model="claude-sonnet-5-5",
+```
+
+</TabItem>
+</Tabs>
+
+A dry run shows the pick without calling the model:
+
+```sh
+kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}' --dry-run
+```
+
+```json
+{
+  …
+  "status": "completed",
+  "dryRun": true,
+  …
+  "output": {
+    …
+    "provider": { "id": "anthropic", "model": "claude-sonnet-5-5" },
+    …
+  }
+}
+```
+
+- Both set: that model of that provider is ranked first.
+- Only `preferredModel`: that model is ranked first, from whichever provider
+  serves it.
+- Only `preferredProvider`: its models are ranked first.
+
+`preferredProvider` is a provider id (`anthropic`) and `preferredModel` a model
+name (`claude-sonnet-5-5`); a combined `anthropic/claude-sonnet-5-5` matches
+nothing. A preference never excludes: if the provider isn't registered, or its
+models don't meet the needs, the turn takes the next model in line.
+
+## Require a model
+
+To make sure a turn runs on one model, put it in the needs:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// in agents/order-desk/index.ts
+  capabilities: [{ needs: [{ feature: 'tool-use' }, { models: { allow: ['claude-sonnet-5-5'] } }] }],
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# in agents/order_desk.py
+    capabilities=[{"needs": [{"feature": "tool-use"}, {"models": {"allow": ["claude-sonnet-5-5"]}}]}],
+```
+
+</TabItem>
+</Tabs>
+
+When no registered model qualifies, the turn fails instead of falling back to
+another one:
+
+```text
+Error [server]: No registered provider satisfies the capability declaration
+```
+
+The run's journal says why, model by model, in the failed `setup` step
+(`kindgi runs journal <run-id>`, with the `runId` that `--verbose` prints).
+For `models: { allow: ['gpt-5'] }`:
+
+```json
+{
+  "code": "capability-unsatisfiable",
+  "message": "No registered provider satisfies the capability declaration",
+  "reasons": [
+    {
+      "requirement": "models{allow:[gpt-5]deny:[]}",
+      "satisfyingProviders": [],
+      "rejectingProviders": [
+        { "id": "anthropic/claude-opus-5-5", "reason": { "code": "model-not-in-allowlist", "message": "model not on allow list", … } },
+        …
+        { "id": "ollama/llama3.1", "reason": { "code": "model-not-in-allowlist", "message": "model not on allow list", … } }
+      ]
+    }
+  ]
+}
+```
+
+## Rank with weights
+
+`prefer` adds a weight for each match, against a model's features or a
+provider's `attributes`, and ranks the higher total first. A weight can be
+negative. With a local model registered with `"attributes": ["local"]` (see
+[Connect an OpenAI-compatible endpoint](../../models/openai-compatible/)):
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// in agents/order-desk/index.ts
+  capabilities: [{ needs: [{ feature: 'tool-use' }], prefer: [{ feature: 'local', weight: 1 }] }],
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# in agents/order_desk.py
+    capabilities=[{"needs": [{"feature": "tool-use"}], "prefer": [{"feature": "local", "weight": 1}]}],
+```
+
+</TabItem>
+</Tabs>
+
+the dry run picks `{ "id": "ollama", "model": "llama3.1" }` over the Anthropic
+models.
+
+## `dev-echo`, the fallback
+
+`kindgi dev` gives your tenant `dev-echo`, a stand-in that needs no key. It
+calls the agent's first tool with `{"message": <the user message>}` and answers
+`Tool responded: <the result>`; an agent with no tools gets its user message
+back. It's a fallback: once a registered model qualifies, it never answers.
+
+When it does answer, the turn says so, in its result and on the CLI's stderr:
+
+```json
+"warnings": [
+  {
+    "code": "fallback-provider",
+    "message": "Answered by \"dev-echo\", a fallback provider: no other registered provider satisfies agent \"acme.echo-agent\"."
+  }
+]
+```
+
+```text
+⚠ Answered by "dev-echo", a fallback provider: no other registered provider satisfies agent "acme.echo-agent".
+```
+
+If you registered a model and still see this, the agent's needs don't match it:
+compare its `capabilities` with the models' `features`
+(`kindgi providers list`). `dev-echo` has only `tool-use`, so an agent that
+needs anything else fails with no model registered.
+
+## See which model answered
+
+The turn's result names it in `output.provider`
+(`{ "id": "anthropic", "model": "claude-haiku-4-5" }`), and each model call in
+the turn's provenance record names its model and cost: see
+[Trace an answer and its cost](../../observability/trace-an-answer/).

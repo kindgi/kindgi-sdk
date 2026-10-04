@@ -110,6 +110,7 @@ const steps = [
   ['border', 'pnpm', ['run', 'check:border']],
   ['headers', 'pnpm', ['run', 'check:headers']],
   ['references', 'pnpm', ['run', 'check:refs']],
+  ['docs ship with the change', 'pnpm', ['run', 'check:docs-ship']],
   ['README package table', 'pnpm', ['run', 'check:readme']],
   ['JSON Schemas', 'pnpm', ['run', 'spec:validate']],
   // "Build + typecheck + test + publish checks"
@@ -128,6 +129,11 @@ const steps = [
   ['publish readiness', 'pnpm', ['run', 'check:publish']],
   // The documentation site (docs.kindgi.com) builds, with its search index.
   ['docs site', 'pnpm', ['run', 'docs:build']],
+  // Every sample that is a whole file compiles (TypeScript) or indexes (Python).
+  ['docs samples', 'pnpm', ['run', 'docs:samples']],
+  // Every tutorial step that needs no model runs as written, against this
+  // checkout's CLI and the runtime image it pins (needs Docker).
+  ['docs tutorials', 'pnpm', ['run', 'docs:tutorials']],
   // "Python SDK (3.11)" and "(3.13)"
   ...pythonJob('3.11'),
   [

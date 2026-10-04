@@ -1,0 +1,148 @@
+---
+title: Test and replay deliveries
+description: Send a test event to your endpoint, see each delivery and how your endpoint answered, and send a failed one again.
+sidebar:
+  order: 3
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+## Send a test event
+
+`sendTest` (`send_test`) queues a signed `webhook.test` event for an endpoint,
+to check the receiver end to end:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+const queued = await kindgi.webhookEndpoints.sendTest(endpointId);
+console.log(queued.deliveryId, queued.event.type, queued.status);
+
+// A few seconds later
+await new Promise((resolve) => setTimeout(resolve, 5000));
+const { data } = await kindgi.webhookEndpoints.listDeliveries(endpointId, { limit: 1 });
+console.log(data[0]?.status, data[0]?.attempts, data[0]?.lastResponseStatus);
+```
+
+```text
+a0e05ab7-6cff-440b-b291-d03c0f4443c0 webhook.test pending
+delivered 1 204
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+import time
+
+queued = kindgi.webhook_endpoints.send_test(endpoint_id)
+print(queued.delivery_id, queued.event.type, queued.status)
+
+time.sleep(5)  # a few seconds later
+delivery = kindgi.webhook_endpoints.list_deliveries(endpoint_id, limit=1).data[0]
+print(delivery.status, delivery.attempts, delivery.last_response_status)
+```
+
+```text
+3b75488b-7dd0-4bfe-8abe-83a76b9e1bf2 webhook.test pending
+delivered 1 204
+```
+
+</TabItem>
+</Tabs>
+
+The test event is signed like any other:
+
+```json
+{
+  "id": "c1214e78-694f-401d-8b92-e374f0846a88",
+  "type": "webhook.test",
+  "createdAt": "2026-10-03T20:16:35.159Z",
+  "data": {
+    "endpointId": "9c0b9504-c5a6-439f-a5f9-e755f1c5e6e9"
+  }
+}
+```
+
+## See the deliveries
+
+Each event sent to an endpoint is a **delivery**. `listDeliveries`
+(`list_deliveries`) shows them, newest first, with how the endpoint answered:
+
+```json
+{
+  "deliveryId": "6ca19f2b-0c57-481e-a768-ef06283898c0",
+  "endpointId": "9c0b9504-c5a6-439f-a5f9-e755f1c5e6e9",
+  "event": { "id": "f2b45827-da3c-4f4e-95ff-9422f0de0e13", "type": "run.finished", … },
+  "status": "delivered",
+  "attempts": 1,
+  "nextAttemptAt": null,
+  "lastAttemptAt": "2026-10-03T20:15:32.194Z",
+  "lastResponseStatus": 204,
+  "lastError": null,
+  "createdAt": "2026-10-03T20:15:32.095Z",
+  "deliveredAt": "2026-10-03T20:15:32.194Z"
+}
+```
+
+- **`status`**: `pending` (waiting for its next attempt), `delivered` (the
+  endpoint answered 2xx) or `failed` (every attempt failed).
+- **`lastResponseStatus`** and **`lastError`** say what went wrong:
+  `connection-refused` when nothing listened at the URL, for example.
+- **`nextAttemptAt`** is when a pending delivery is tried again.
+
+Pass `status: 'failed'` (`status="failed"`) to list only the ones that gave up.
+
+## Fix and send again
+
+When an endpoint's URL is wrong, its deliveries stay `pending`: the first
+attempt's `lastError` is `connection-refused` when nothing listens there, and
+`nextAttemptAt` is a minute later. Fix the URL and send the delivery again,
+now:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// Point the endpoint at the right URL
+await kindgi.webhookEndpoints.update(endpointId, { url: 'http://localhost:8787/hooks/kindgi' });
+
+// Send a delivery again now, instead of at its next attempt
+const again = await kindgi.webhookEndpoints.redeliver(endpointId, deliveryId);
+console.log(again.status);
+```
+
+```text
+pending
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# Point the endpoint at the right URL
+kindgi.webhook_endpoints.update(endpoint_id, url="http://localhost:8788/hooks/kindgi")
+
+# Send a delivery again now, instead of at its next attempt
+again = kindgi.webhook_endpoints.redeliver(endpoint_id, delivery_id)
+print(again.status)
+```
+
+```text
+pending
+```
+
+</TabItem>
+</Tabs>
+
+A few seconds later, the delivery is `delivered`. `update` also changes an
+endpoint's `events`, `filter`, `secretRef` and `description`.
+
+## Stop receiving events
+
+`unregister` stops the endpoint. Its deliveries that were still pending fail,
+and it no longer appears in `list`.
+
+The [webhook endpoints reference](../../../reference/python/resources/webhook-endpoints/)
+lists every operation.

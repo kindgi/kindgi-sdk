@@ -1,0 +1,146 @@
+---
+title: Stop a turn or record a violation
+description: Choose what a failed guardrail does to an agent's turn, how severe it is, and which agents it covers.
+sidebar:
+  order: 3
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+A guardrail's action decides what a failed check does to the turn:
+
+- **`halt`** stops it. The turn fails with `guardrail-violation`, and the run
+  has no answer.
+- **`log-only`** lets it finish. The answer goes out, and the failure is
+  recorded on the turn as a violation.
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// in guardrails/answer-length/index.ts
+action: { 'on-violation': 'log-only' },
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# in guardrails/answer_length.py
+@guardrail(
+    id="my-pack.answer-length",
+    name="Answer is short",
+    on_violation="log-only",
+    severity="error",
+    config={"maxChars": 60},
+)
+```
+
+</TabItem>
+</Tabs>
+
+## A halted turn
+
+With `halt`, the command fails with the check's reason:
+
+```sh
+kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
+```
+
+```text
+Error [guardrail-violation]: Turn blocked by guardrail 'my-pack.answer-length': The answer is 86 characters; the limit is 60.
+```
+
+The run is `failed`, and its `failureMessage` carries the violation:
+
+```sh
+kindgi runs get <run-id>
+```
+
+```json
+{
+  "id": "5202d750-e510-483f-991a-db34c6cba950",
+  …
+  "flowId": "agent.turn",
+  "status": "failed",
+  …
+  "failureMessage": "{\"__agent_turn_failure__\":true,\"error\":{\"code\":\"guardrail-violation\",\"message\":\"Turn blocked by guardrail 'my-pack.answer-length': The answer is 86 characters; the limit is 60.\",\"violations\":[{\"guardrailId\":\"my-pack.answer-length\",\"result\":{\"passed\":false,\"reason\":\"The answer is 86 characters; the limit is 60.\"},\"action\":\"halt\",\"severity\":\"error\",\"at\":\"2026-10-03T20:10:37.910Z\"}],\"evaluationErrors\":[]}}"
+}
+```
+
+Use `halt` for a rule whose failure makes the answer unusable or unsafe to
+show.
+
+## A recorded violation
+
+With `log-only`, the turn completes, and its output lists the violation:
+
+```json
+  "status": "completed",
+  …
+  "output": {
+    …
+    "response": {
+      "role": "agent",
+      "actor": "my-pack.echo-agent",
+      "content": "Tool responded: {\"echo\":\"hi\",\"echoedAt\":\"2026-10-03T20:10:57.767Z\",\"characterCount\":2}",
+      …
+    },
+    …
+    "violations": [
+      {
+        "at": "2026-10-03T20:10:57.958Z",
+        "action": "log-only",
+        "result": {
+          "passed": false,
+          "reason": "The answer is 86 characters; the limit is 60."
+        },
+        "severity": "error",
+        "guardrailId": "my-pack.answer-length"
+      }
+    ],
+```
+
+Use `log-only` while you find out how often a new rule fails, or for a rule
+your app acts on itself: read `violations` from the turn's result.
+
+:::note[Other actions]
+The guardrail schema also accepts `retry`, `escalate` and `compensate`. In
+0.1.0 a turn records them as violations, like `log-only`, and doesn't act on
+them: there's no second attempt, escalation or compensating tool call.
+:::
+
+## Severity
+
+`severity` is `info`, `warn`, `error` or `critical`. It's recorded with each
+violation, and doesn't change what the action does: a `log-only` guardrail
+can be `critical`.
+
+## Which agents it covers
+
+A guardrail checks the turns of every agent that lists it. `scope` narrows
+that:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// in guardrails/answer-length/index.ts
+scope: { when: 'always', agents: ['my-pack.echo-agent'] },
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# in guardrails/answer_length.py
+scope={"when": "always", "agents": ["my-pack.echo-agent"]},
+```
+
+</TabItem>
+</Tabs>
+
+- `agents` lists the agents the guardrail applies to. An agent that lists
+  the guardrail but isn't in its scope isn't checked.
+- `when` is `always`, `runtime-only` or `ci-only`. A `ci-only` guardrail
+  doesn't run in an agent's turn.

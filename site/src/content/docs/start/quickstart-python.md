@@ -18,7 +18,7 @@ Then log in to its registry once, with `docker login quay.io`
 
 ## 1. Create the pack
 
-```sh
+```sh tutorial=run
 npx --yes @kindgi/cli@0.1 init my-pack --template=python
 cd my-pack
 uv sync          # a .venv with the kindgi package
@@ -51,7 +51,7 @@ my-pack/
 
 ## 2. Run it
 
-```sh
+```sh tutorial=background ready="Kindgi is up"
 npx --yes @kindgi/cli@0.1 dev
 ```
 
@@ -65,9 +65,17 @@ Leave it running.
 
 In a second terminal, in `my-pack`:
 
-```sh
+```sh tutorial=run
 npx --yes @kindgi/cli@0.1 runs start --agent=my-pack.echo-agent --input='{"userMessage":"Ada"}'
 npx --yes @kindgi/cli@0.1 runs start --flow=my-pack.echo-flow --input='{"message":"Ada"}'
+```
+
+```text tutorial=expect
+  "status": "completed",
+…
+⚠ Answered by "dev-echo", a fallback provider: no other registered provider satisfies agent "my-pack.echo-agent".
+…
+    "echo": "Ada",
 ```
 
 Without a model, the agent's answer comes from `dev-echo`, a stand-in that
@@ -166,5 +174,7 @@ preset too; any OpenAI-compatible endpoint registers from a short spec file.
 
 - [Add Kindgi to an existing Python app](../existing-app/#a-python-app):
   your app's own modules as tools.
+- [Build a support desk](../../tutorials/support-desk-python/) in Python.
+- [Guides](../../guides/): one task at a time.
 - [Concepts](../../concepts/): packs, runs and the journal, security.
 - [The Python SDK reference](../../reference/python/).

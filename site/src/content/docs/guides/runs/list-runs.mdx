@@ -1,0 +1,131 @@
+---
+title: List runs
+description: List the newest runs page by page, only the ones your app started, or the agent turns inside one run.
+sidebar:
+  order: 7
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+```sh
+kindgi runs list --limit=2
+```
+
+```json
+{
+  "data": [
+    {
+      "id": "657512f8-97b5-41bb-a0cc-396bffe158f6",
+      …
+      "flowId": "acme.reserve-order",
+      "flowVersion": "0.1.0",
+      "status": "cancelled",
+      …
+    },
+    {
+      "id": "365d7fd0-7801-43e5-a3c5-66f9479cf02d",
+      …
+    }
+  ],
+  "hasMore": true,
+  "nextCursor": "eyJjcmVhdGVkQXQiOiIyMDI2LTEwLTAzVDIwOjE0OjE2Ljc0NFoiLCJpZCI6IjM2NWQ3ZmQwLTc4MDEtNDNlNS1hM2M1LTY2Zjk0NzljZjAyZCJ9"
+}
+```
+
+Runs come newest first, 25 to a page by default (`--limit`, at most 100).
+`--cursor=<nextCursor>` gets the next page. The list leaves out each run's
+`output`; `kindgi runs get <run-id>` has it.
+
+The CLI lists every run, including the agent turns inside flows (each one a
+run of `agent.turn`, with a `parentRunId`). The client can filter.
+
+## From your app
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// The newest runs your app started, without the agent turns inside them
+const page = await kindgi.runs.list({ topLevel: true, limit: 3 });
+for (const run of page.data) console.log(run.id, run.flowId, run.status);
+
+// The next page
+if (page.nextCursor !== undefined) {
+  const next = await kindgi.runs.list({ topLevel: true, limit: 3, cursor: page.nextCursor });
+  console.log(next.data.length, next.hasMore);
+}
+```
+
+```text
+f703bffb-367c-4abb-a699-006575b7c21a acme.reserve-order cancelled
+54e3258d-3cd3-444a-8175-c965ef6cf682 acme.reserve-order completed
+42b7c0c8-3c47-4962-9b08-3319ff887ada acme.review-order completed
+3 true
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+from kindgi.client import paginate
+
+# The newest runs your app started, without the agent turns inside them
+page = kindgi.runs.list(top_level=True, limit=3)
+for run in page.data:
+    print(run.id, run.flow_id, run.status)
+
+# Every one of them, page after page
+print(sum(1 for _ in paginate(kindgi.runs.list, top_level=True)))
+```
+
+```text
+969888a4-a1a8-43fc-8e83-63529ad580c2 acme.reserve-order cancelled
+197046c4-e220-4b6d-abcb-1703d6c6efd5 acme.reserve-order completed
+edaf7625-0585-40c3-805c-0c098f6846b8 acme.review-order failed
+81
+```
+
+</TabItem>
+</Tabs>
+
+- **`topLevel: true`** (`top_level=True`) leaves out runs started inside
+  other runs, such as agent turns: the runs your app and the CLI started.
+- **`includeOutput: true`** (`include="output"`) adds each run's `output`.
+- In Python, `paginate` follows `next_cursor` for you.
+
+## The runs inside a run
+
+`parentRunId` (`parent_run_id`) lists the runs a run started: for a flow, its
+agent steps' turns, each with the step it belongs to.
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+const run = await kindgi.runs.start({ flow: 'acme.process-order', input: { orderId: 'A-100' } });
+const children = await kindgi.runs.list({ parentRunId: run.id });
+for (const child of children.data) console.log(child.id, child.flowId, child.parentNodeId);
+```
+
+```text
+eb59636f-aaae-4cd2-84ec-66cbcbf55f83 agent.turn note
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+run = kindgi.runs.start(flow="acme.process-order", input={"orderId": "A-100"})
+children = kindgi.runs.list(parent_run_id=run.id)
+for child in children.data:
+    print(child.id, child.flow_id, child.parent_node_id)
+```
+
+```text
+13237b2f-6cdd-4592-a94d-f5e751258790 agent.turn note
+```
+
+</TabItem>
+</Tabs>
+
+[Read a run's journal](../read-the-journal/) to see what a turn did.

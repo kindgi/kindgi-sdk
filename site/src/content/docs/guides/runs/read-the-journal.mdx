@@ -1,0 +1,134 @@
+---
+title: Read a run's journal
+description: Read every step a run took, with its input and output, the branches it followed, and the agent turns inside it.
+sidebar:
+  order: 5
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+The journal is the ordered record of a run: every step that started,
+completed or failed, with its input and output, and every edge the run
+evaluated. It's written before the run moves on, so it's also how the run
+continues after a wait.
+
+```sh
+kindgi runs journal <run-id>
+```
+
+For a run of `acme.review-order` with order `A-200`:
+
+```json
+{
+  "data": [
+    {
+      "sequence": 0,
+      "kind": "run.started",
+      "payload": { "input": { "orderId": "A-200" } },
+      "timestamp": "2026-10-03T20:45:08.120Z"
+    },
+    { "sequence": 1, "kind": "edge.evaluated", "payload": { "edgeId": "e1", "decision": true }, … },
+    { "sequence": 2, "kind": "step.started", "nodeId": "order", "payload": { "input": { "orderId": "A-200" } }, … },
+    {
+      "sequence": 3,
+      "kind": "step.completed",
+      "nodeId": "order",
+      "payload": {
+        "output": {
+          "items": [{ "sku": "desk", "quantity": 1 }, { "sku": "lamp", "quantity": 2 }],
+          "total": 1250,
+          "orderId": "A-200",
+          "customer": "grace@example.com"
+        }
+      },
+      …
+    },
+    { "sequence": 4, "kind": "edge.evaluated", "payload": { "edgeId": "e2", "decision": true }, … },
+    { "sequence": 5, "kind": "edge.evaluated", "payload": { "edgeId": "e3", "decision": false }, … },
+    { "sequence": 6, "kind": "step.started", "nodeId": "hold", "payload": { "input": { "reason": "Over 1000 USD", "orderId": "A-200" } }, … },
+    { "sequence": 7, "kind": "step.completed", "nodeId": "hold", "payload": { "output": { "status": "held", "orderId": "A-200" } }, … },
+    { "sequence": 8, "kind": "edge.evaluated", "payload": { "edgeId": "e4", "decision": true }, … },
+    { "sequence": 9, "kind": "run.completed", "payload": { "output": { "status": "held", "orderId": "A-200" } }, … }
+  ],
+  "hasMore": false
+}
+```
+
+Read it top to bottom: the input, the order looked up, the branch taken
+(`e2` fired, `e3` didn't, so `confirm` never ran), the hold, the result.
+
+`--since=<sequence>` returns only the entries after that one, to read what's
+new since you last looked.
+
+## The entries
+
+| `kind` | |
+| --- | --- |
+| `run.started`, `run.completed`, `run.failed`, `run.cancelled` | The run's start (with its input) and end (with its output, or why it failed). |
+| `step.started`, `step.completed`, `step.failed` | A step, with the input it got after mapping, its output, or its error. |
+| `edge.evaluated` | An edge and its `decision`. |
+| `step.retry-scheduled` | A failed attempt that will be retried. |
+| `iteration.started`, `iteration.completed` | A pass of a loop; the body's steps carry a `loopContext`. |
+| `fanout.dispatched`, `fanout.branch-completed`, `fanout.converged`, … | The branches of a fanout step. |
+| `wait.suspended`, `wait.resumed` | The run stopped to wait, and went on. |
+
+## Agent turns
+
+An agent step runs the agent's turn as a run of its own. Its id is in the
+step's output (`runId`), and the turn's run has the flow's run as its
+`parentRunId`:
+
+```sh
+kindgi runs journal <the turn's run id>
+```
+
+The turn's journal has the model calls (the messages sent, the answer, the
+tokens and the cost of each) and the tool calls. That's where to look when an
+agent step answered something you didn't expect.
+[List runs](../list-runs/) shows how to find the turns of a run.
+
+## From your app
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+type JournalEntry = { sequence: number; kind: string; nodeId?: string; payload?: unknown };
+
+const { data } = await kindgi.runs.journal(runId);
+for (const entry of data as JournalEntry[]) {
+  console.log(entry.sequence, entry.kind, entry.nodeId ?? '');
+}
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+for entry in kindgi.runs.journal(run_id).data:
+    print(entry.sequence, entry.kind, entry.node_id or "")
+```
+
+</TabItem>
+</Tabs>
+
+For a run of `acme.escalate-order` that waited for an approval:
+
+```text
+0 run.started 
+1 edge.evaluated 
+2 step.started order
+3 step.completed order
+4 edge.evaluated 
+5 step.started hold
+6 wait.suspended hold
+7 wait.resumed hold
+8 step.started hold
+9 step.completed hold
+10 edge.evaluated 
+11 edge.evaluated 
+12 step.started email
+13 step.completed email
+14 edge.evaluated 
+15 run.completed 
+```

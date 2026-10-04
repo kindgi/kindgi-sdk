@@ -17,6 +17,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { cliPages } from './reference/cli.mjs';
+import { contributingPages } from './reference/contributing.mjs';
 import { envVarsPage } from './reference/env-vars.mjs';
 import { OPENAPI_FOR_DOCS, writeOpenApiForDocs } from './reference/openapi.mjs';
 import { packagePages } from './reference/packages.mjs';
@@ -37,7 +38,11 @@ const file = (slug) => join(docs, `${slug}.md`);
 for (const dir of GENERATED_DIRS) rmSync(join(docs, dir), { recursive: true, force: true });
 for (const slug of GENERATED_PAGES) rmSync(file(slug), { force: true });
 
-const pages = [...cliPages(), envVarsPage(), ...schemaPages(), ...packagePages()];
+const contributing = contributingPages();
+// The contributing pages are slugs next to the hand-written overview.
+for (const page of contributing) rmSync(file(page.slug), { force: true });
+
+const pages = [...cliPages(), envVarsPage(), ...schemaPages(), ...packagePages(), ...contributing];
 for (const page of pages) {
   const path = file(page.slug);
   mkdirSync(dirname(path), { recursive: true });

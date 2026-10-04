@@ -1,0 +1,122 @@
+---
+title: Mark a tool read-only
+description: Declare which tools only read, so they run in a dry run and pass approval gates without asking.
+sidebar:
+  order: 4
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+A tool declares whether it changes anything outside Kindgi. One that only
+reads (a lookup, a search, a calculation) says so:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// in tools/lookup-order/index.ts
+const defined = defineTool({
+  id: 'my-pack.lookup-order' as ToolId,
+  // …
+  effects: [],
+  mutating: false,
+  // …
+});
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# in tools/lookup_order.py
+@tool(id="my-pack.lookup-order", mutating=False)
+def lookup_order(ref: OrderRef, ctx: ToolContext) -> Order:
+    ...
+```
+
+</TabItem>
+</Tabs>
+
+Leaving `mutating` out is the same as `mutating: true`. That's the safe
+default: a tool counts as one that changes things until it says otherwise.
+It decides two things.
+
+## Dry runs
+
+`--dry-run` runs a flow without changing anything. A tool step runs only if
+the tool is read-only:
+
+```sh
+kindgi runs start --flow=my-pack.check-order --input='{"orderId":"ord_1001"}' --dry-run
+```
+
+```json
+  "status": "completed",
+  "dryRun": true,
+  …
+  "output": {
+    "status": "shipped",
+    "orderId": "ord_1001",
+    "totalCents": 4200
+  },
+```
+
+The first tool that isn't stops the run, before the tool is called:
+
+```sh
+kindgi runs start --flow=my-pack.note-order --input='{"orderId":"ord_1001","text":"Customer called"}' --dry-run
+```
+
+```json
+  "status": "failed",
+  "dryRun": true,
+  "failureMessage": "dry-run-effectful-tool: tool \"my-pack.add-order-note\" is not declared read-only (mutating: false), so it does not run in a dry run",
+```
+
+An agent step in a dry run skips its model call, so the agent calls no
+tools. The sample's `echo-flow` greets with a read-only tool, then hands the
+greeting to its agent:
+
+```sh
+kindgi runs start --flow=my-pack.echo-flow --input='{"name":"Ada"}' --dry-run
+```
+
+```json
+  "status": "completed",
+  "dryRun": true,
+  …
+  "output": {
+    "reply": "[dry-run: model call skipped]",
+    "greeting": "Hello, Ada!"
+  },
+```
+
+Use a dry run to check a flow's wiring before it touches real data.
+
+## Effects
+
+`effects` lists what a tool touches, for review and policy:
+`{ kind: 'writes', resource: 'external:orders' }`. The kinds are `reads`,
+`writes`, `deletes`, `network`, `spawns-run`, `emits-event`,
+`external-side-effect` and `sensitive-data-egress`.
+
+A tool with a `writes`, `deletes`, `spawns-run`, `emits-event` or
+`external-side-effect` effect doesn't run in a dry run even when it says
+`mutating: false`. Keep the two consistent: a tool that only reads declares
+`mutating: false` and, at most, `reads` effects.
+
+## Approval gates
+
+An agent can make a person approve tool calls
+([Ask before a tool runs](../../approvals/ask-before-a-tool-runs/)). With its
+gates on and no rule for a tool, a read-only tool runs without asking, and
+any other tool waits for approval on its first use.
+
+## Getting it right
+
+- Declare `mutating: false` on every tool that only reads. Otherwise a dry
+  run stops at it, and an approval gate asks before it.
+- Never declare it on a tool that writes, sends or deletes. A dry run would
+  then run it for real.
+- A tool from an [MCP server](../mcp-servers/) always counts as one that
+  changes things: it doesn't run in a dry run.

@@ -1,0 +1,318 @@
+---
+title: Give an agent a typed answer
+description: Have an agent answer with JSON that matches a schema, read its fields in your app and in a flow, and see what happens when an answer doesn't fit.
+sidebar:
+  order: 3
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+An agent's answer is text unless you give it an `output` schema. With one, the
+final answer must be JSON that matches the schema; Kindgi checks it before the
+turn completes, and your code reads the fields.
+
+## Declare the answer
+
+This agent triages support tickets:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// agents/ticket-triage/index.ts
+import { defineAgent } from '@kindgi/sdk/define';
+import { z } from 'zod';
+
+export const Triage = z.object({
+  category: z.enum(['billing', 'shipping', 'returns', 'other']),
+  priority: z.enum(['low', 'normal', 'urgent']),
+  summary: z.string(),
+});
+
+const defined = defineAgent({
+  id: 'acme.ticket-triage',
+  version: '0.1.0',
+  name: 'Ticket triage',
+  instructions: [
+    'You triage support tickets for Acme. Reply with only a JSON object:',
+    '{"category": "billing" | "shipping" | "returns" | "other",',
+    ' "priority": "low" | "normal" | "urgent",',
+    ' "summary": "<one sentence>"}',
+  ].join('\n'),
+  capabilities: [{ needs: [] }],
+  tools: [],
+  retrieval: [],
+  guardrails: [],
+  output: { schema: Triage, name: 'triage' },
+});
+
+if (defined.kind === 'err') throw new Error(defined.error.message);
+
+export default defined.value;
+```
+
+`schema` takes a Zod schema or a JSON Schema object.
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# agents/ticket_triage.py
+from typing import Literal
+
+from pydantic import BaseModel
+
+from kindgi import Agent
+
+
+class Triage(BaseModel):
+    category: Literal["billing", "shipping", "returns", "other"]
+    priority: Literal["low", "normal", "urgent"]
+    summary: str
+
+
+ticket_triage = Agent(
+    id="acme.ticket-triage",
+    version="0.1.0",
+    name="Ticket triage",
+    instructions="\n".join([
+        "You triage support tickets for Acme. Reply with only a JSON object:",
+        '{"category": "billing" | "shipping" | "returns" | "other",',
+        ' "priority": "low" | "normal" | "urgent",',
+        ' "summary": "<one sentence>"}',
+    ]),
+    capabilities=[{"needs": []}],
+    output={"schema": Triage, "name": "triage"},
+)
+```
+
+`output=Triage` alone works too; the full form also takes `name` and
+`maxRepairs`.
+
+</TabItem>
+</Tabs>
+
+- **`schema`** is what the answer must match.
+- **`name`** names the answer in what the model is told when it gets it wrong,
+  and in errors (default `output`).
+- **`maxRepairs`** is how many times a wrong answer goes back to the model
+  (default 1): see [below](#when-the-answer-doesnt-fit).
+
+Describe the JSON in the instructions too, as above. The model isn't sent the
+schema with its first call, so an agent that doesn't describe the shape spends
+an extra model call on a repair. `capabilities: [{ needs: [] }]` lets any
+registered model answer: this agent calls no tools.
+
+## Run it
+
+```sh
+kindgi runs start --agent=acme.ticket-triage --input='{"userMessage":"I was charged twice for order A-1001 and I need the money back today."}'
+```
+
+```json
+{
+  …
+  "status": "completed",
+  …
+  "output": {
+    …
+    "usage": { "steps": 1, "durationMs": 2448, "promptTokens": 88, "totalCostUsd": 0.000343, "completionTokens": 51 },
+    "output": {
+      "summary": "Customer was double-charged for order A-1001 and requests immediate refund.",
+      "category": "billing",
+      "priority": "urgent"
+    },
+    …
+    "response": {
+      "role": "agent",
+      "actor": "acme.ticket-triage",
+      "content": "```json\n{\n  \"category\": \"billing\",\n  \"priority\": \"urgent\",\n  \"summary\": \"Customer was double-charged for order A-1001 and requests immediate refund.\"\n}\n```",
+      …
+    },
+    …
+  }
+}
+```
+
+The run's `output.output` is the parsed answer; `output.response.content` is
+the text the model wrote. A JSON answer in a fenced `json` code block, as here,
+is accepted.
+
+## Read it in your app
+
+Parse the fields with the same schema:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+import { Triage } from './agents/ticket-triage/index.js';
+
+const run = await kindgi.runs.start({
+  agent: 'acme.ticket-triage',
+  input: { userMessage: 'I was charged twice for order A-1001 and I need the money back today.' },
+});
+const triage = Triage.parse((run.output as { output: unknown }).output);
+console.log(triage.category, triage.priority); // billing urgent
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+from agents.ticket_triage import Triage
+
+run = kindgi.runs.start(
+    agent="acme.ticket-triage",
+    input={"userMessage": "I was charged twice for order A-1001 and I need the money back today."},
+)
+triage = Triage.model_validate(run.output["output"])
+print(triage.category, triage.priority)  # billing urgent
+```
+
+</TabItem>
+</Tabs>
+
+## When the answer doesn't fit
+
+An answer that isn't JSON, or doesn't match the schema, goes back to the model
+with a message that lists what's wrong and gives the schema:
+
+```text
+[kindgi:output-repair]
+Your answer must be the triage as JSON matching this JSON Schema, and nothing else:
+{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"category":{"enum":["billing","shipping","returns","other"],"type":"string"},…},"required":["category","priority","summary"],"type":"object"}
+It did not fit:
+- the answer is not valid JSON (Unexpected token 'I', "I understa"... is not valid JSON)
+Reply again with only the corrected triage JSON.
+```
+
+That's from a version of the agent whose instructions didn't describe the JSON:
+its first answer was prose, the repair worked, and the turn took two steps
+instead of one. Each repair is a model call: it counts as a step against the
+agent's [budget](../budgets/), and it costs.
+
+When the repairs run out (`maxRepairs`, default 1), the turn fails with
+`output-schema-violation`. With `maxRepairs: 0`, an answer whose `priority` is
+`"high"` fails at once:
+
+```text
+Error [server]: The agent's answer does not match its triage schema after 0 repairs: /priority must be equal to one of the allowed values
+{
+  "code": "server",
+  "serverCode": "output-schema-violation",
+  "message": "The agent's answer does not match its triage schema after 0 repairs: /priority must be equal to one of the allowed values",
+  "fields": {
+    "errors": [
+      "/priority must be equal to one of the allowed values"
+    ],
+    "attempts": 1,
+    "runId": "08152bc1-e4b8-423f-a16b-0ffe1aea8485"
+  }
+}
+```
+
+(That's `kindgi runs start … --verbose`.) A Zod object refuses fields it
+doesn't name (`"additionalProperties": false` above); the schema of the
+pydantic model doesn't.
+
+## In a flow
+
+A flow reads a typed answer at `nodeOutputs.<step>.output.<field>`:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// flows/triage-ticket/index.ts
+import { defineFlow } from '@kindgi/sdk/define';
+
+const defined = defineFlow({
+  id: 'acme.triage-ticket',
+  version: '0.1.0',
+  name: 'Triage a ticket',
+  nodes: [
+    {
+      id: 'triage',
+      kind: 'agent',
+      ref: 'acme.ticket-triage',
+      inputMapping: { ticket: { path: 'runInput.ticket' } },
+    },
+  ],
+  edges: [
+    { id: 'e-start', from: '$start', to: 'triage' },
+    { id: 'e-end', from: 'triage', to: '$end' },
+  ],
+  output: {
+    mapping: {
+      category: { path: 'nodeOutputs.triage.output.category' },
+      priority: { path: 'nodeOutputs.triage.output.priority' },
+    },
+  },
+});
+
+if (defined.kind === 'err') throw new Error(defined.error.message);
+
+export default defined.value;
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# flows/triage_ticket.py
+from kindgi import Flow
+
+from ..agents.ticket_triage import ticket_triage
+
+triage_ticket = Flow(
+    id="acme.triage-ticket",
+    version="0.1.0",
+    name="Triage a ticket",
+    nodes=[
+        {
+            "id": "triage",
+            "kind": "agent",
+            "ref": ticket_triage,
+            "inputMapping": {"ticket": {"path": "runInput.ticket"}},
+        },
+    ],
+    edges=[
+        {"id": "e-start", "from": "$start", "to": "triage"},
+        {"id": "e-end", "from": "triage", "to": "$end"},
+    ],
+    output={
+        "mapping": {
+            "category": {"path": "nodeOutputs.triage.output.category"},
+            "priority": {"path": "nodeOutputs.triage.output.priority"},
+        },
+    },
+)
+```
+
+</TabItem>
+</Tabs>
+
+```sh
+kindgi runs start --flow=acme.triage-ticket --input='{"ticket":"I was charged twice for order A-1001 and I need the money back today."}'
+```
+
+```json
+{
+  …
+  "flowId": "acme.triage-ticket",
+  …
+  "status": "completed",
+  …
+  "output": {
+    "category": "billing",
+    "priority": "urgent"
+  }
+}
+```
+
+
+## Dry runs
+
+A dry run (`--dry-run`) skips the model call, and with it the check: the turn
+completes with no `output`, and its answer is `[dry-run: model call skipped]`.

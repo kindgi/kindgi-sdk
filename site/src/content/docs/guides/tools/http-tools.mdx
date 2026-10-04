@@ -1,0 +1,290 @@
+---
+title: Call an HTTP API without code
+description: Declare a tool that is one HTTP request, with its URL filled from the input and its credential resolved by Kindgi.
+sidebar:
+  order: 2
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+A tool that is a single HTTP request needs no handler. You declare the
+request; Kindgi makes it on every call, fills the URL from the tool's input
+and adds the credential. The examples call httpbin.org, which echoes requests
+back, so they run without an account.
+
+## Declare the request
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// tools/add-order-note/index.ts
+import { defineTool } from '@kindgi/sdk/define';
+import type { ToolId } from '@kindgi/sdk/types';
+import { z } from 'zod';
+
+const defined = defineTool({
+  id: 'my-pack.add-order-note' as ToolId,
+  description: 'Adds a note to an order.',
+  version: '0.1.0',
+  input: z.object({
+    orderId: z.string(),
+    text: z.string().min(1),
+  }),
+  // The API answers with more fields than these: a loose object keeps them.
+  output: z.looseObject({
+    method: z.string(),
+    url: z.string(),
+  }),
+  effects: [{ kind: 'writes', resource: 'external:orders' }],
+  spec: {
+    kind: 'http',
+    method: 'POST',
+    urlTemplate: 'https://httpbin.org/anything/orders/{orderId}/notes',
+    headers: [{ name: 'Accept', value: 'application/json' }],
+    timeoutMs: 10_000,
+  },
+});
+
+if (defined.kind === 'err') {
+  throw new Error(`my-pack.add-order-note failed to compile: ${defined.error.message}`);
+}
+
+export default defined.value;
+```
+
+`spec` takes the place of `handler`; a tool has one or the other.
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# tools/orders_api.py
+from pydantic import BaseModel, Field
+
+from kindgi import http_tool
+
+
+class Note(BaseModel):
+    order_id: str = Field(alias="orderId")
+    text: str = Field(min_length=1)
+
+
+class Echoed(BaseModel):
+    method: str
+    url: str
+
+
+add_order_note = http_tool(
+    id="my-pack.add-order-note",
+    description="Adds a note to an order.",
+    input=Note,
+    output=Echoed,
+    method="POST",
+    url_template="https://httpbin.org/anything/orders/{orderId}/notes",
+    headers={"Accept": "application/json"},
+    effects=[{"kind": "writes", "resource": "external:orders"}],
+    timeout_ms=10_000,
+)
+```
+
+`http_tool` declares the tool at module level, like `@tool`, with no function.
+
+</TabItem>
+</Tabs>
+
+- **The URL.** Each `{name}` in the URL template is filled from the input
+  field with that name (its wire name), URL-encoded. Every placeholder must be
+  an input field.
+- **The body.** A `POST`, `PUT`, `PATCH` or `DELETE` sends the input fields
+  the URL didn't use, as JSON: here `{"text": …}`. A `GET` sends no body.
+  For another shape, set the request body: `input-passthrough` (the whole
+  input) or `text` with a template (sent as `text/plain`).
+- **The answer.** The response's JSON is the tool's output, checked against
+  the output schema. A Zod `z.object` rejects fields it doesn't list, and
+  most APIs return more than you need, so use `z.looseObject` (TypeScript).
+  A pydantic model allows extra fields as it is.
+- **Failures.** A status outside 200 to 299 fails the call (change the range
+  with `successStatus` / `success_status`), as does a response slower than
+  the timeout (30 seconds by default). Kindgi doesn't retry.
+
+The tool writes, so it doesn't say `mutating: false`. See
+[Mark a tool read-only](../read-only-tools/).
+
+## Run it
+
+From `my-pack.note-order`, a one-step flow that calls the tool, built like
+the one in [Write a tool](../write-a-tool/#try-it-from-a-flow):
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```sh
+pnpm exec kindgi runs start --flow=my-pack.note-order --input='{"orderId":"ord_1001","text":"Customer called"}'
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+npx --yes @kindgi/cli@0.1 runs start --flow=my-pack.note-order --input='{"orderId":"ord_1001","text":"Customer called"}'
+```
+
+</TabItem>
+</Tabs>
+
+```json
+  "flowId": "my-pack.note-order",
+  "flowVersion": "0.1.0",
+  "status": "completed",
+  …
+  "output": {
+    "url": "https://httpbin.org/anything/orders/ord_1001/notes",
+    "args": {},
+    "data": "{\"text\":\"Customer called\"}",
+    "form": {},
+    "json": {
+      "text": "Customer called"
+    },
+    "files": {},
+    "method": "POST",
+    …
+    "headers": {
+      "Host": "httpbin.org",
+      "Accept": "application/json",
+      "User-Agent": "node",
+      "Content-Type": "application/json",
+      …
+    }
+  },
+```
+
+A request that fails fails the call, and the run's `failureMessage` says
+why: `got status 404 NOT FOUND`, or `timed out after 1000ms`.
+
+## Send a credential
+
+`authorization` names a secret; Kindgi resolves it on every call and sends it
+as a header. Your code never holds the value.
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// tools/check-token/index.ts
+import { defineTool } from '@kindgi/sdk/define';
+import type { ToolId } from '@kindgi/sdk/types';
+import { z } from 'zod';
+
+const defined = defineTool({
+  id: 'my-pack.check-token' as ToolId,
+  description: 'Checks that the API accepts our token.',
+  version: '0.1.0',
+  input: z.object({}),
+  output: z.looseObject({ authenticated: z.boolean() }),
+  effects: [],
+  mutating: false,
+  spec: {
+    kind: 'http',
+    method: 'GET',
+    urlTemplate: 'https://httpbin.org/bearer',
+    authorization: {
+      kind: 'bearer',
+      secretRef: { envName: 'local', name: 'HTTPBIN_TOKEN' },
+    },
+  },
+});
+
+if (defined.kind === 'err') throw new Error(defined.error.message);
+export default defined.value;
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# in tools/orders_api.py
+class NoInput(BaseModel):
+    pass
+
+
+class TokenCheck(BaseModel):
+    authenticated: bool
+
+
+check_token = http_tool(
+    id="my-pack.check-token",
+    description="Checks that the API accepts our token.",
+    input=NoInput,
+    output=TokenCheck,
+    method="GET",
+    url_template="https://httpbin.org/bearer",
+    authorization={"kind": "bearer", "secretRef": {"envName": "local", "name": "HTTPBIN_TOKEN"}},
+    mutating=False,
+)
+```
+
+</TabItem>
+</Tabs>
+
+- `bearer` sends `Authorization: Bearer <value>`. For an API that wants the
+  key in its own header, use
+  `{ kind: 'header', headerName: 'X-Api-Key', secretRef: … }`.
+- `secretRef` names the secret and the environment it lives in. Under
+  `kindgi dev`, `local` is the pack's `.env` and `.env.local`; any other name
+  is that environment's file, `.env.<name>`.
+
+Until the secret exists, the call fails and names it:
+
+```json
+  "status": "failed",
+  "failureMessage": "handler-error: Tool \"my-pack.check-token\" handler threw: secret-unavailable: tool \"my-pack.check-token\" needs secret \"HTTPBIN_TOKEN\" in env \"local\": No secret \"HTTPBIN_TOKEN\" for env \"local\" in .env, .env.local at /pack",
+```
+
+Store it (here from stdin; without `--from-stdin` the command prompts for it
+without echoing), then run `my-pack.try-token`, a one-step flow that calls
+the tool:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```sh
+printf 'demo-token-123' | pnpm exec kindgi secrets set HTTPBIN_TOKEN --env=local --scope=tenant --from-stdin
+pnpm exec kindgi runs start --flow=my-pack.try-token --input='{}'
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+printf 'demo-token-123' | npx --yes @kindgi/cli@0.1 secrets set HTTPBIN_TOKEN --env=local --scope=tenant --from-stdin
+npx --yes @kindgi/cli@0.1 runs start --flow=my-pack.try-token --input='{}'
+```
+
+</TabItem>
+</Tabs>
+
+```json
+  "status": "completed",
+  …
+  "output": {
+    "token": "demo-token-123",
+    "authenticated": true
+  },
+```
+
+The next call picks the secret up; nothing restarts. (httpbin echoes the
+token back; a real API doesn't.) [Store a secret](../../secrets/store-a-secret/)
+covers `kindgi secrets`.
+
+## When to write a handler instead
+
+An HTTP tool is one request and its JSON answer. Paging, retries, several
+calls, or reshaping the answer belong in a [code tool](../write-a-tool/).
+
+In Python, calling an HTTP tool's object raises: Kindgi makes the request,
+not Python. Try it through `kindgi dev` instead of a unit test:
+
+```text
+RuntimeError: Tool "my-pack.add-order-note" is an HTTP tool: the Kindgi runtime makes its request, not Python. Call it through Kindgi (an agent, a flow, `kindgi dev`).
+```

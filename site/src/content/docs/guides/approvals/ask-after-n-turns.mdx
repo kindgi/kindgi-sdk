@@ -1,0 +1,129 @@
+---
+title: Ask before a long conversation continues
+description: Make every turn past a set number in a conversation wait for a person's approval.
+sidebar:
+  order: 3
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Some conversations should get a person's attention once they run long: a
+support chat that hasn't been resolved in a few turns, say. `hitl.afterTurns`
+lets the first turns of a conversation run, then makes each turn after them
+wait for a reviewer before it starts.
+
+## Set the limit
+
+In the sample pack's agent:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// in agents/echo-agent/index.ts
+  conversationPolicy: { historyLimit: 10, hitl: { afterTurns: 2 } },
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# in agents/echo_agent.py
+    conversation_policy={"historyLimit": 10, "hitl": {"afterTurns": 2}},
+```
+
+</TabItem>
+</Tabs>
+
+Two turns run as usual. From the third on, each turn of the same conversation
+waits for an approval before it runs.
+
+## Try it
+
+Start a conversation, then continue it with the `conversationId` the first
+turn returns (in its `output`):
+
+```sh
+kindgi runs start --agent=acme-ops.echo-agent --input='{"userMessage":"My order is late."}'
+kindgi runs start --agent=acme-ops.echo-agent --input='{"userMessage":"It was due Monday.","conversationId":"<conversation-id>"}'
+kindgi runs start --agent=acme-ops.echo-agent --input='{"userMessage":"Can you refund it?","conversationId":"<conversation-id>"}'
+```
+
+The first two runs complete. The third is `suspended`:
+
+```json
+{
+  "id": "0c424165-fc78-4563-965f-5ca9ba0ec4a9",
+  …
+  "status": "suspended",
+  …
+}
+```
+
+Its approval says why:
+
+```sh
+kindgi approvals list --status=pending
+```
+
+```json
+{
+  "items": [
+    {
+      "id": "ff98fdd3-5d1d-4245-bdab-2ab9971f3962",
+      …
+      "subjectKind": "agent-turn:session-hitl-gate",
+      "subjectRef": {
+        "agentId": "acme-ops.echo-agent",
+        "threshold": 2,
+        "turnCount": 2,
+        "agentVersion": "0.1.0",
+        "conversationId": "5d72d0da-188f-4ea0-b923-766be818891e"
+      },
+      "requiredRole": "standard",
+      "status": "pending",
+      "title": "HITL review required for Echo Agent",
+      "description": "Conversation reached HITL threshold: 2 turns >= 2",
+      "provenanceRef": {
+        "runId": "0c424165-fc78-4563-965f-5ca9ba0ec4a9"
+      },
+      …
+    }
+  ]
+}
+```
+
+The turn hasn't run yet: the model hasn't been called.
+
+## Approve or reject
+
+```sh
+kindgi approvals complete <approval-id> --decision=approve
+```
+
+Approve, and the turn runs; it's the conversation's third
+(`"turnNumber": 3` in the run's output). The next turn asks again: every turn
+past the limit needs its own approval.
+
+Reject, and the run fails without calling the model:
+
+```sh
+kindgi approvals complete ff98fdd3-5d1d-4245-bdab-2ab9971f3962 --decision=reject --rationale="Hand this one to a person"
+kindgi runs get 0c424165-fc78-4563-965f-5ca9ba0ec4a9
+```
+
+```json
+{
+  "id": "0c424165-fc78-4563-965f-5ca9ba0ec4a9",
+  …
+  "status": "failed",
+  …
+  "failureMessage": "{\"__agent_turn_failure__\":true,\"error\":{\"code\":\"hitl-rejected\",\"message\":\"Reviewer rejected the session-HITL gate: Hand this one to a person\",\"rationale\":\"Hand this one to a person\"}}"
+}
+```
+
+A rejected turn doesn't count: the conversation still has two turns, and the
+next message asks again.
+
+You need to be a reviewer to see and decide these: see
+[Decide an approval](../decide-an-approval/).

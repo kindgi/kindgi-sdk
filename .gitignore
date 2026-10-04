@@ -72,5 +72,7 @@ site/src/content/docs/reference/schemas/
 site/src/content/docs/reference/packages/
 site/src/content/docs/reference/typescript/
 site/src/content/docs/reference/python/
+site/src/content/docs/contributing/*
+!site/src/content/docs/contributing/index.md
 site/generated/
 site/dist-versions/

@@ -17,5 +17,7 @@ The runtime image is in private preview: request access at contact@kindgi.com.
 
 - **[Self-host with Docker](self-host/):** the runtime and your pack
   service as containers, with your own Postgres.
+- **[Operate it](operate/):** health and logs, backups and restores,
+  upgrades, and rotating its tokens and keys.
 - **Google Cloud Run:** coming soon.
 - **Kindgi Cloud:** we run it for you. In private preview.

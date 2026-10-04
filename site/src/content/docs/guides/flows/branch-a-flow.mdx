@@ -1,0 +1,200 @@
+---
+title: Branch a flow
+description: Put a condition on an edge so a step runs only when it holds, and write the "otherwise" branch.
+sidebar:
+  order: 3
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+An edge with a `when` condition fires only when the condition holds. Two edges
+out of one step, with opposite conditions, make an if/else. `acme.review-order`
+holds an order over 1000 USD and confirms the rest, with the tools from
+[Write a flow](../write-a-flow/) and
+[Pass data between steps](../pass-data-between-steps/):
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// flows/review-order/index.ts
+import { defineFlow } from '@kindgi/sdk/define';
+
+const isLarge = {
+  op: 'gt',
+  left: { path: 'nodeOutputs.order.total' },
+  right: { literal: 1000 },
+} as const;
+
+const defined = defineFlow({
+  id: 'acme.review-order',
+  version: '0.1.0',
+  name: 'Review an order',
+  description: 'Holds a large order for review and confirms the rest.',
+  nodes: [
+    {
+      id: 'order',
+      kind: 'tool',
+      ref: 'acme.get-order',
+      inputMapping: { orderId: { path: 'runInput.orderId' } },
+    },
+    {
+      id: 'hold',
+      kind: 'tool',
+      ref: 'acme.hold-order',
+      inputMapping: {
+        orderId: { path: 'runInput.orderId' },
+        reason: { literal: 'Over 1000 USD' },
+      },
+    },
+    {
+      id: 'confirm',
+      kind: 'tool',
+      ref: 'acme.confirm-order',
+      inputMapping: { orderId: { path: 'runInput.orderId' } },
+    },
+  ],
+  edges: [
+    { id: 'e1', from: '$start', to: 'order' },
+    { id: 'e2', from: 'order', to: 'hold', when: isLarge },
+    { id: 'e3', from: 'order', to: 'confirm', when: { op: 'not', child: isLarge } },
+    { id: 'e4', from: 'hold', to: '$end' },
+    { id: 'e5', from: 'confirm', to: '$end' },
+  ],
+});
+
+if (defined.kind === 'err') throw new Error(defined.error.message);
+
+export default defined.value;
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# flows/review_order.py
+from kindgi import Flow
+
+IS_LARGE = {
+    "op": "gt",
+    "left": {"path": "nodeOutputs.order.total"},
+    "right": {"literal": 1000},
+}
+
+review_order = Flow(
+    id="acme.review-order",
+    version="0.1.0",
+    name="Review an order",
+    description="Holds a large order for review and confirms the rest.",
+    nodes=[
+        {
+            "id": "order",
+            "kind": "tool",
+            "ref": "acme.get-order",
+            "inputMapping": {"orderId": {"path": "runInput.orderId"}},
+        },
+        {
+            "id": "hold",
+            "kind": "tool",
+            "ref": "acme.hold-order",
+            "inputMapping": {
+                "orderId": {"path": "runInput.orderId"},
+                "reason": {"literal": "Over 1000 USD"},
+            },
+        },
+        {
+            "id": "confirm",
+            "kind": "tool",
+            "ref": "acme.confirm-order",
+            "inputMapping": {"orderId": {"path": "runInput.orderId"}},
+        },
+    ],
+    edges=[
+        {"id": "e1", "from": "$start", "to": "order"},
+        {"id": "e2", "from": "order", "to": "hold", "when": IS_LARGE},
+        {"id": "e3", "from": "order", "to": "confirm", "when": {"op": "not", "child": IS_LARGE}},
+        {"id": "e4", "from": "hold", "to": "$end"},
+        {"id": "e5", "from": "confirm", "to": "$end"},
+    ],
+)
+```
+
+</TabItem>
+</Tabs>
+
+`e2` fires when the order's total is over 1000; `e3` when it isn't. The
+condition is defined once and wrapped in `not` for the other branch.
+
+```sh
+kindgi runs start --flow=acme.review-order --input='{"orderId":"A-200"}'
+```
+
+```json
+{
+  …
+  "flowId": "acme.review-order",
+  "status": "completed",
+  …
+  "output": {
+    "status": "held",
+    "orderId": "A-200"
+  },
+  …
+}
+```
+
+`A-200`'s total is 1250, so the order is held. With `A-100` (42.50), `e3`
+fires and the order is confirmed.
+
+## What the journal records
+
+Every edge the run evaluates is in the journal with its decision. A step whose
+edge didn't fire is skipped and has no entries:
+
+```sh
+kindgi runs journal <run-id>
+```
+
+```json
+{"sequence": 4, "kind": "edge.evaluated", "payload": {"edgeId": "e2", "decision": true}, …}
+{"sequence": 5, "kind": "edge.evaluated", "payload": {"edgeId": "e3", "decision": false}, …}
+{"sequence": 6, "kind": "step.started", "nodeId": "hold", "payload": {"input": {"reason": "Over 1000 USD", "orderId": "A-200"}}, …}
+```
+
+(One entry per line here; the command prints them as one JSON document.)
+
+## Conditions
+
+A condition is JSON. Each operand is a `{ path }` (the same roots as
+`inputMapping`) or a `{ literal }`:
+
+| Operator | Shape | True when |
+| --- | --- | --- |
+| `eq` `ne` `lt` `lte` `gt` `gte` | `{ op, left, right }` | the comparison holds (`lt`… compare two numbers or two strings) |
+| `in` `notIn` | `{ op, value, set }` | `value` is (isn't) an element of the array `set` |
+| `exists` `notExists` | `{ op, value }` | the path resolves (doesn't) |
+| `truthy` `falsy` | `{ op, value }` | the value is truthy (falsy; a missing path is falsy) |
+| `and` `or` | `{ op, children: [...] }` | all (any) of the children hold |
+| `not` | `{ op, child }` | the child doesn't hold |
+
+:::caution[A missing value]
+When a path doesn't resolve, `eq`, `lt`, `lte`, `gt` and `gte` are false and
+`ne` is true. So for the "otherwise" branch, write `not` around the
+condition, as above, rather than a second comparison: it covers exactly what
+the first edge doesn't.
+:::
+
+## Branch on an agent's answer
+
+To branch on what an agent decided, give the agent a
+[typed answer](../../agents/typed-answer/) and compare one of its fields:
+`{ path: 'nodeOutputs.<step>.output.<field>' }`.
+[Wait for an approval](../wait-for-an-approval/) branches on
+`nodeOutputs.hold.output.held`, a boolean the agent returns.
+
+## When no branch fires
+
+A step none of whose incoming edges fired is skipped, and so is every step
+only it leads to. If no edge reaches `$end`, the run still completes, with no
+output. Cover every case with your conditions, or bring the branches back
+together: [Join branches](../join-branches/).

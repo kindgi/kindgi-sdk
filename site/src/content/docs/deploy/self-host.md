@@ -272,6 +272,11 @@ docker volume rm kindgi-db
 docker network rm kindgi
 ```
 
+## Next
+
+[Operate a self-hosted runtime](../operate/): health and logs, backups,
+upgrades, and rotating its tokens and keys.
+
 ## On Google Cloud Run
 
 Coming soon.

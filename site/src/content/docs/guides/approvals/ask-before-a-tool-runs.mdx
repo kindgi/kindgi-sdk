@@ -1,0 +1,319 @@
+---
+title: Ask before a tool runs
+description: Make an agent wait for a person's approval before it calls a tool that changes something.
+sidebar:
+  order: 1
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+An agent turns on approval gates in its `conversationPolicy`. When the model
+asks for a gated tool, the run stops before the tool is called and waits for a
+reviewer. Approve, and the tool runs; reject, and it doesn't.
+
+## Gate a tool
+
+`acme-ops.post-update` posts to a public status page. It changes something
+outside your app, so it doesn't say `mutating: false`:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// tools/post-update/index.ts
+import { defineTool } from '@kindgi/sdk/define';
+import type { ToolId } from '@kindgi/sdk/types';
+import { z } from 'zod';
+
+const defined = defineTool({
+  id: 'acme-ops.post-update' as ToolId,
+  description: 'Posts a message to the public status page.',
+  version: '0.1.0',
+  input: z.object({ message: z.string().min(1).max(500) }),
+  output: z.object({ posted: z.boolean(), postedAt: z.string() }),
+  effects: [{ kind: 'external-side-effect', resource: 'external:status-page' }],
+  handler: async () => ({ posted: true, postedAt: new Date().toISOString() }),
+});
+
+if (defined.kind === 'err') throw new Error(defined.error.message);
+export default defined.value;
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# tools/post_update.py
+from datetime import UTC, datetime
+
+from pydantic import BaseModel, Field
+
+from kindgi import tool
+
+
+class Update(BaseModel):
+    message: str = Field(min_length=1, max_length=500)
+
+
+class Posted(BaseModel):
+    posted: bool
+    posted_at: str = Field(alias="postedAt")
+
+
+@tool(id="acme-ops.post-update", effects=[{"kind": "external-side-effect", "resource": "external:status-page"}])
+def post_update(input: Update) -> Posted:
+    """Posts a message to the public status page."""
+    return Posted(posted=True, postedAt=datetime.now(UTC).isoformat())
+```
+
+</TabItem>
+</Tabs>
+
+This agent posts status updates with it, and every post waits for a person:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// agents/status-agent/index.ts
+import { defineAgent } from '@kindgi/sdk/define';
+import type { AgentId, Semver } from '@kindgi/sdk/types';
+
+const defined = defineAgent({
+  id: 'acme-ops.status-agent' as AgentId,
+  version: '0.1.0' as Semver,
+  name: 'Status Agent',
+  description: 'Posts status updates.',
+  instructions: 'Post the update the user gives you with acme-ops.post-update.',
+  capabilities: [{ needs: [{ feature: 'tool-use' as const }] }],
+  tools: [
+    { id: 'acme-ops.post-update', version: '0.1.0' },
+    { id: 'acme-ops.greet', version: '0.1.0' },
+  ],
+  retrieval: [],
+  guardrails: [],
+  parameters: [],
+  conversationPolicy: {
+    hitl: {
+      tools: {
+        overrides: { 'acme-ops.post-update': 'always_ask' },
+      },
+    },
+  },
+});
+
+if (defined.kind === 'err') throw new Error(defined.error.message);
+export default defined.value;
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# agents/status_agent.py
+from kindgi import Agent
+
+from ..tools.greet import greet
+from ..tools.post_update import post_update
+
+status_agent = Agent(
+    id="acme-ops.status-agent",
+    version="0.1.0",
+    name="Status Agent",
+    description="Posts status updates.",
+    instructions="Post the update the user gives you with acme-ops.post-update.",
+    capabilities=[{"needs": [{"feature": "tool-use"}]}],
+    tools=[post_update, greet],
+    conversation_policy={
+        "hitl": {
+            "tools": {
+                "overrides": {"acme-ops.post-update": "always_ask"},
+            },
+        },
+    },
+)
+```
+
+</TabItem>
+</Tabs>
+
+`hitl.tools` turns tool gates on for this agent. Each tool then gets a gate:
+
+- **`always_ask`**: every call waits for a decision.
+- **`never_ask`**: calls run without asking.
+- **No override:** a tool declared read-only (`mutating: false`) runs without
+  asking; any other tool asks. So `hitl: { tools: {} }` asks before every tool
+  that can change something, and here `acme-ops.greet`, which is read-only,
+  never asks.
+
+An agent without `hitl.tools` has no tool gates, unless your tenant has
+[approval rules](../approval-rules-for-every-agent/).
+
+## Become a reviewer
+
+Approvals are decided by **reviewers**. Register yourself once (the user your
+API token belongs to):
+
+```sh
+kindgi reviewers register --spec='{"role":"standard","displayName":"Ada Lovelace"}'
+```
+
+[Decide an approval](../decide-an-approval/) covers reviewers and their roles.
+
+## Run it
+
+```sh
+kindgi runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkout is back to normal."}'
+```
+
+```json
+{
+  "id": "0c01376f-1566-4a0d-ba6f-95f4efff4758",
+  …
+  "flowId": "agent.turn",
+  "flowVersion": "1.1.0",
+  "status": "suspended",
+  …
+}
+```
+
+The run is `suspended`: the model asked for `acme-ops.post-update`, and the
+call waits. `kindgi runs start` returns as soon as the run waits; it doesn't
+block until someone decides.
+
+## See what it waits for
+
+```sh
+kindgi approvals list --status=pending
+```
+
+```json
+{
+  "items": [
+    {
+      "id": "416c22ba-73f9-45b7-999d-c1d5938758f7",
+      …
+      "subjectKind": "tool-call:pending",
+      "subjectRef": {
+        …
+        "toolId": "acme-ops.post-update",
+        "agentId": "acme-ops.status-agent",
+        …
+        "arguments": {
+          "message": "Checkout is back to normal."
+        },
+        …
+      },
+      "requiredRole": "standard",
+      "status": "pending",
+      "title": "HITL review: acme-ops.post-update",
+      …
+      "provenanceRef": {
+        "runId": "0c01376f-1566-4a0d-ba6f-95f4efff4758"
+      },
+      …
+    }
+  ]
+}
+```
+
+The approval names the tool and the exact arguments the model chose, and
+`provenanceRef.runId` is the run that waits.
+
+## Approve it
+
+```sh
+kindgi approvals complete 416c22ba-73f9-45b7-999d-c1d5938758f7 --decision=approve --rationale="Confirmed with the on-call engineer"
+```
+
+```json
+{
+  "kind": "terminal",
+  "approval": {
+    "id": "416c22ba-73f9-45b7-999d-c1d5938758f7",
+    …
+    "status": "approved",
+    …
+  },
+  "decision": {
+    …
+    "decision": "approve",
+    "rationale": "Confirmed with the on-call engineer",
+    "reviewerRoleAtDecision": "standard",
+    …
+  },
+  "waitpointResolved": true
+}
+```
+
+The run continues in the same call: the tool runs and the agent finishes its
+turn.
+
+```sh
+kindgi runs get 0c01376f-1566-4a0d-ba6f-95f4efff4758
+```
+
+```json
+{
+  "id": "0c01376f-1566-4a0d-ba6f-95f4efff4758",
+  …
+  "status": "completed",
+  …
+      {
+        "role": "tool",
+        "content": {
+          "posted": true,
+          "postedAt": "2026-10-03T20:05:54.473Z"
+        },
+        …
+```
+
+## Reject it
+
+With `--decision=reject`, the tool doesn't run. The agent gets the rejection
+as the tool's result, with your rationale, and finishes its turn (a real model
+can tell the user why nothing was posted):
+
+```sh
+kindgi approvals complete <approval-id> --decision=reject --rationale="Not confirmed yet"
+```
+
+```json
+      {
+        "role": "tool",
+        "content": {
+          "status": "rejected",
+          "rationale": "Not confirmed yet"
+        },
+        …
+```
+
+The run completes; it doesn't fail.
+
+## In a flow
+
+When the agent is a step of a flow, the flow waits with it: the flow run is
+`suspended` too, and its journal shows the step waiting:
+
+```sh
+kindgi runs journal <flow-run-id>
+```
+
+```json
+  {
+    "sequence": 6,
+    "kind": "wait.suspended",
+    "nodeId": "respond",
+    …
+  }
+```
+
+The approval's `provenanceRef.runId` is the agent step's own run, not the flow
+run. Once the approval is decided, the agent's turn finishes and the flow
+continues from that step.
+
+## Next
+
+- [Decide an approval](../decide-an-approval/): escalate, withdraw, roles, and
+  deciding from your app.
+- [CLI reference: `kindgi approvals`](../../../reference/cli/approvals/).

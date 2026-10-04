@@ -1,0 +1,89 @@
+---
+title: Cancel a run
+description: Stop a run that is running or waiting, along with the agent turns inside it.
+sidebar:
+  order: 6
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+```sh
+kindgi runs cancel <run-id>
+```
+
+```json
+{
+  "ok": true,
+  "runId": "265627c7-1ac7-4d18-a926-6da9fcc18577"
+}
+```
+
+The run's status becomes `cancelled`, and the journal ends with
+`run.cancelled`:
+
+```json
+{"sequence": 6, "kind": "wait.suspended", "nodeId": "hold", "payload": {"nodeId": "hold", "tokenId": "child:d8c2c7dc-7ceb-4e4b-8986-ee75e7c9bcc2:25"}, …}
+{"sequence": 7, "kind": "run.cancelled", "payload": {}, …}
+```
+
+That run was waiting for an approval. A run can be cancelled while it runs
+too: no further step starts, and the run ends `cancelled`. Cancelling a
+flow's run cancels the agent turns inside it.
+
+A run that already ended can't be cancelled:
+
+```text
+Error [conflict]: Cannot cancel run: already cancelled
+```
+
+## From your app
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+const run = await kindgi.runs.start({
+  flow: 'acme.reserve-order',
+  input: { orderId: 'A-500' },
+  options: { wait: false },
+});
+const cancelled = await kindgi.runs.cancel(run.id);
+console.log(cancelled.status);
+```
+
+```text
+cancelled
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+run = kindgi.runs.start(
+    flow="acme.reserve-order", input={"orderId": "A-500"}, options={"wait": False}
+)
+cancelled = kindgi.runs.cancel(run.id)
+print(cancelled.status)
+```
+
+```text
+cancelled
+```
+
+</TabItem>
+</Tabs>
+
+`cancel` returns the run. It answers with a conflict error when the run had
+already ended.
+
+## Approvals of a cancelled run
+
+Cancelling a run doesn't close the approval it was waiting for: it stays in
+the pending list. Withdraw it:
+
+```sh
+kindgi approvals complete <approval-id> --decision=withdraw
+```
+
+[Decide an approval](../../approvals/decide-an-approval/) has more on
+approvals.

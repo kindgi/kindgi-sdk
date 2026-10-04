@@ -1,0 +1,237 @@
+---
+title: Start a run
+description: Start a flow or an agent from the CLI or your app, and wait for its result or let it finish in the background.
+sidebar:
+  order: 1
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+## From the CLI
+
+```sh
+kindgi runs start --flow=acme.review-order --input='{"orderId":"A-200"}'
+kindgi runs start --flow=acme.review-order --input=@order.json
+```
+
+`--input` is the run's input as JSON, or `@` and a file to read it from. The
+command waits for the run to finish and prints it. With `--no-wait`, it
+prints the run as soon as it exists:
+
+```sh
+kindgi runs start --flow=acme.reserve-order --input='{"orderId":"A-300"}' --no-wait
+```
+
+```json
+{
+  "id": "1b1f6486-3faf-4ab7-8506-c09f50f989bc",
+  …
+  "flowId": "acme.reserve-order",
+  "flowVersion": "0.1.0",
+  "status": "pending",
+  "dryRun": false,
+  …
+}
+```
+
+`kindgi runs get <run-id>` shows it again, with its output once it's done.
+
+## From your app
+
+Create a client with the API's URL and a token. In development, `kindgi dev`
+prints both, and writes them to `.kindgirc.json` in the pack (`apiUrl`,
+`token`).
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+import { createClient } from '@kindgi/sdk/client';
+
+const kindgi = createClient({
+  apiUrl: process.env.KINDGI_API_URL!,
+  auth: { kind: 'apiToken', token: process.env.KINDGI_API_TOKEN! },
+});
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()  # KINDGI_API_URL and KINDGI_API_TOKEN from the environment
+```
+
+</TabItem>
+</Tabs>
+
+### Wait for the result
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+const run = await kindgi.runs.start({
+  flow: 'acme.review-order',
+  input: { orderId: 'A-200' },
+});
+console.log(run.status, run.output);
+```
+
+```text
+completed { status: 'held', orderId: 'A-200' }
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+run = kindgi.runs.start(flow="acme.review-order", input={"orderId": "A-200"})
+print(run.status, run.output)
+```
+
+```text
+completed {'status': 'held', 'orderId': 'A-200'}
+```
+
+</TabItem>
+</Tabs>
+
+`start` returns when the run completes, fails or waits for something (a
+person's approval, for example: `status` is then `suspended`). Use it when the
+run is short and the caller needs the answer.
+
+### Start it in the background
+
+With `wait: false`, `start` returns as soon as the run exists, with `status`
+`pending`, and the run finishes on the server:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+let run = await kindgi.runs.start({
+  flow: 'acme.reserve-order',
+  input: { orderId: 'A-300' },
+  options: { wait: false },
+});
+console.log(run.id, run.status);
+
+while (run.status === 'pending' || run.status === 'running') {
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+  run = await kindgi.runs.get(run.id);
+}
+console.log(run.status, run.output);
+```
+
+```text
+dbcf7457-0d25-49b9-9112-b03c9b44e9e8 pending
+completed { attempt: 3, orderId: 'A-300', reserved: true }
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+import time
+
+run = kindgi.runs.start(
+    flow="acme.reserve-order", input={"orderId": "A-300"}, options={"wait": False}
+)
+print(run.id, run.status)
+
+while run.status in ("pending", "running"):
+    time.sleep(1)
+    run = kindgi.runs.get(run.id)
+print(run.status, run.output)
+```
+
+```text
+0ed299be-e04d-47bb-84b8-2ff9a4286822 pending
+completed {'attempt': 3, 'orderId': 'A-300', 'reserved': True}
+```
+
+</TabItem>
+</Tabs>
+
+Polling works, but there are better ways to learn that a run ended:
+[follow its events](../follow-a-run/), or have Kindgi
+[send your app a webhook](../../webhooks/) when it finishes.
+
+Agent runs take `options: { wait: false }` too: the turn then runs in the
+background. Start an agent with `agent` instead of `flow`, and its input
+(`{ "userMessage": "…" }`, see
+[Give an agent its input](../../agents/give-an-agent-input/)).
+
+## What you get back
+
+| Field | |
+| --- | --- |
+| `id` | The run's id: for `get`, `cancel`, the journal and the event stream. |
+| `status` | `pending`, `running`, `suspended`, `completed`, `failed` or `cancelled`. |
+| `output` | What the run returned, once it completed. |
+| `failureMessage` | Why it failed. |
+| `flowId`, `flowVersion` | The flow and the version the run is pinned to. An agent's turn reports `agent.turn`. |
+| `dryRun` | Whether it was a [dry run](../../flows/dry-run-a-flow/). |
+| `publicAccessToken` | A read-only token for this run, for a browser, when the deployment issues them ([details](../follow-from-the-browser/)). Only `start` returns it. |
+
+The client references have every field and option:
+[TypeScript](../../../reference/typescript/sdk/kindgi/sdk/client/),
+[Python](../../../reference/python/resources/runs/), and the
+[CLI](../../../reference/cli/runs/).
+
+## When it fails
+
+A run that fails is still a run: `start` returns it, with `status: "failed"`
+and `failureMessage`. A request the API refuses (a flow that doesn't exist,
+a malformed input) raises an error instead, and no run exists:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+import { KindgiApiError } from '@kindgi/sdk/client';
+
+const run = await kindgi.runs.start({ flow: 'acme.review-order', input: { orderId: 'Z-9' } });
+if (run.status === 'failed') console.log(run.failureMessage);
+
+try {
+  await kindgi.runs.start({ flow: 'acme.no-such-flow', input: {} });
+} catch (err) {
+  if (err instanceof KindgiApiError) console.log(err.error.code, err.message);
+}
+```
+
+```text
+handler-error: Tool "acme.get-order" handler threw: handler-throw: Handler for tool "acme.get-order" threw: Error: No order Z-9
+not-found No flow "acme.no-such-flow" is registered in this tenant.
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+from kindgi.client import NotFoundError
+
+run = kindgi.runs.start(flow="acme.review-order", input={"orderId": "Z-9"})
+if run.status == "failed":
+    print(run.failure_message)
+
+try:
+    kindgi.runs.start(flow="acme.no-such-flow", input={})
+except NotFoundError as err:
+    print(err)
+```
+
+```text
+handler-error: Tool "acme.get-order" handler threw: handler-throw: Handler for tool "acme.get-order" threw: ValueError: No order Z-9
+No flow "acme.no-such-flow" is registered in this tenant.
+```
+
+</TabItem>
+</Tabs>
+
+A request that times out on your side may have started the run anyway.
+[Retry a start safely](../retry-a-start-safely/) shows how to retry without
+starting it twice.

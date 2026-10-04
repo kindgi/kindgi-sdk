@@ -1,0 +1,410 @@
+---
+title: Write a tool
+description: Write a tool in TypeScript or Python, try it from a flow, test it, and give it to an agent.
+sidebar:
+  order: 1
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+A tool is a function with a typed input and a typed output. This one looks an
+order up by its id. The orders live in a map here; in your app, the handler
+calls your own code.
+
+## The tool
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// tools/lookup-order/index.ts
+import { defineTool } from '@kindgi/sdk/define';
+import type { ToolId } from '@kindgi/sdk/types';
+import { z } from 'zod';
+
+// Stands in for your app's database.
+const ORDERS = new Map([
+  ['ord_1001', { status: 'shipped', totalCents: 4200 }],
+  ['ord_1002', { status: 'pending', totalCents: 1250 }],
+]);
+
+const defined = defineTool({
+  id: 'my-pack.lookup-order' as ToolId,
+  description: 'Looks up an order by id. Returns its status and total in cents.',
+  version: '0.1.0',
+  input: z.object({
+    orderId: z.string().regex(/^ord_\d+$/),
+  }),
+  output: z.object({
+    orderId: z.string(),
+    status: z.enum(['pending', 'shipped', 'delivered']),
+    totalCents: z.number().int(),
+  }),
+  effects: [],
+  mutating: false,
+  handler: async ({ orderId }, ctx) => {
+    const order = ORDERS.get(orderId);
+    if (order === undefined) throw new Error(`No order ${orderId}`);
+    console.log(`lookup-order ${orderId} for tenant ${ctx.tenantId}`);
+    return { orderId, status: order.status as 'pending' | 'shipped', totalCents: order.totalCents };
+  },
+});
+
+if (defined.kind === 'err') {
+  throw new Error(`my-pack.lookup-order failed to compile: ${defined.error.message}`);
+}
+
+export default defined.value;
+```
+
+- `input` and `output` are Zod schemas (or JSON Schema). The handler gets the
+  parsed input, with defaults and transforms applied.
+- `defineTool` returns a result instead of throwing. Unwrap it when the file
+  loads, so a bad definition fails at once rather than on the first call.
+- `ctx` carries `tenantId`, `runId`, `requestId` and an `abortSignal` that
+  fires when the call is cancelled.
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# tools/lookup_order.py
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+from kindgi import ToolContext, tool
+
+# Stands in for your app's database.
+ORDERS = {
+    "ord_1001": {"status": "shipped", "totalCents": 4200},
+    "ord_1002": {"status": "pending", "totalCents": 1250},
+}
+
+
+class OrderRef(BaseModel):
+    order_id: str = Field(alias="orderId", pattern=r"^ord_\d+$")
+
+
+class Order(BaseModel):
+    order_id: str = Field(alias="orderId")
+    status: Literal["pending", "shipped", "delivered"]
+    total_cents: int = Field(alias="totalCents")
+
+
+@tool(id="my-pack.lookup-order", mutating=False)
+def lookup_order(ref: OrderRef, ctx: ToolContext) -> Order:
+    """Looks up an order by id. Returns its status and total in cents."""
+    order = ORDERS.get(ref.order_id)
+    if order is None:
+        raise LookupError(f"No order {ref.order_id}")
+    print(f"lookup-order {ref.order_id} for tenant {ctx.tenant_id}")
+    return Order(orderId=ref.order_id, **order)
+```
+
+- The first parameter's annotation is the input, the return annotation the
+  output: pydantic models here (a `TypedDict` or a dataclass works too).
+  Field aliases are the names on the wire.
+- The docstring is the description. The version is the pack's, unless you
+  pass `version=`.
+- `ctx` carries `tenant_id`, `run_id`, `request_id` and `cancellation`. A
+  `def` handler runs in a worker thread, so blocking calls are fine; an
+  `async def` handler runs on the event loop.
+
+</TabItem>
+</Tabs>
+
+In both languages:
+
+- The id is `<pack-id>.<tool-name>`, in kebab case.
+- The description is what a model reads to decide when to call the tool. Say
+  what it does and what it returns.
+- `mutating: false` declares that the tool only reads. See
+  [Mark a tool read-only](../read-only-tools/).
+- What the handler logs shows in the `kindgi dev` terminal, prefixed `[pack]`.
+
+Save the file. `kindgi dev` indexes it and registers the tool; the next call
+runs the new code.
+
+## Try it from a flow
+
+A flow step can call any tool, which makes a one-step flow the quickest way
+to run one:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// flows/check-order/index.ts
+import { defineFlow } from '@kindgi/sdk/define';
+
+const defined = defineFlow({
+  id: 'my-pack.check-order',
+  version: '0.1.0',
+  name: 'Check order',
+  description: 'Looks up one order.',
+  nodes: [
+    {
+      id: 'lookup',
+      kind: 'tool',
+      ref: 'my-pack.lookup-order',
+      inputMapping: { orderId: { path: 'runInput.orderId' } },
+    },
+  ],
+  edges: [
+    { id: 'e-start', from: '$start', to: 'lookup' },
+    { id: 'e-end', from: 'lookup', to: '$end' },
+  ],
+});
+
+if (defined.kind === 'err') {
+  throw new Error(`my-pack.check-order failed to compile: ${defined.error.message}`);
+}
+
+export default defined.value;
+```
+
+```sh
+pnpm exec kindgi runs start --flow=my-pack.check-order --input='{"orderId":"ord_1001"}'
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# flows/check_order.py
+from kindgi import Flow
+
+from ..tools.lookup_order import lookup_order
+
+check_order = Flow(
+    id="my-pack.check-order",
+    version="0.1.0",
+    name="Check order",
+    description="Looks up one order.",
+    nodes=[
+        {
+            "id": "lookup",
+            "kind": "tool",
+            "ref": lookup_order,
+            "inputMapping": {"orderId": {"path": "runInput.orderId"}},
+        }
+    ],
+    edges=[
+        {"id": "e-start", "from": "$start", "to": "lookup"},
+        {"id": "e-end", "from": "lookup", "to": "$end"},
+    ],
+)
+```
+
+```sh
+npx --yes @kindgi/cli@0.1 runs start --flow=my-pack.check-order --input='{"orderId":"ord_1001"}'
+```
+
+</TabItem>
+</Tabs>
+
+```json
+{
+  "id": "1a9707b6-ae88-47b5-a457-eef7dea2d1fc",
+  …
+  "flowId": "my-pack.check-order",
+  "flowVersion": "0.1.0",
+  "status": "completed",
+  "dryRun": false,
+  …
+  "output": {
+    "status": "shipped",
+    "orderId": "ord_1001",
+    "totalCents": 4200
+  },
+  …
+}
+```
+
+A flow without a declared `output` returns its last step's output. The
+`kindgi dev` terminal shows the handler's log line:
+
+```text
+    [pack] lookup-order ord_1001 for tenant bb22c936-5111-429a-bfce-09650af85492
+```
+
+## When a call fails
+
+Kindgi checks the input before your handler runs. An order id that doesn't
+match the pattern never reaches it:
+
+```sh
+kindgi runs start --flow=my-pack.check-order --input='{"orderId":"9999"}'
+```
+
+```json
+  "status": "failed",
+  "failureMessage": "input-validation-failed: Input for tool \"my-pack.lookup-order\" failed validation",
+```
+
+An exception in the handler fails the call with its message:
+
+```sh
+kindgi runs start --flow=my-pack.check-order --input='{"orderId":"ord_9999"}'
+```
+
+```json
+  "status": "failed",
+  "failureMessage": "handler-error: Tool \"my-pack.lookup-order\" handler threw: handler-throw: Handler for tool \"my-pack.lookup-order\" threw: Error: No order ord_9999",
+```
+
+What the handler returns is checked against the output schema too; a return
+value that doesn't fit fails with `output-validation-failed`.
+
+## Test it
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+`invokeTool` calls a tool the way the runtime does: input checked, handler
+called, output checked. It returns a result rather than throwing:
+
+```ts
+// tools/lookup-order/index.test.ts
+import { invokeTool } from '@kindgi/sdk/define';
+import type { TenantId } from '@kindgi/sdk/types';
+import { expect, test } from 'vitest';
+
+import lookupOrder from './index.js';
+
+const ctx = {
+  tenantId: 'test-tenant' as TenantId,
+  abortSignal: new AbortController().signal,
+};
+
+test('finds a shipped order', async () => {
+  const result = await invokeTool(lookupOrder, { orderId: 'ord_1001' }, ctx);
+  expect(result).toEqual({
+    kind: 'ok',
+    value: { orderId: 'ord_1001', status: 'shipped', totalCents: 4200 },
+  });
+});
+
+test('rejects a malformed id before the handler runs', async () => {
+  const result = await invokeTool(lookupOrder, { orderId: '1001' }, ctx);
+  expect(result.kind === 'err' && result.error.code).toBe('input-validation-failed');
+});
+```
+
+```sh
+pnpm exec kindgi test
+```
+
+```text
+ ✓ tools/lookup-order/index.test.ts (2 tests) 16ms
+…
+      Tests  4 passed (4)
+```
+
+</TabItem>
+<TabItem label="Python">
+
+A tool is still a function: call it with its input model and a test context.
+
+```python
+# tests/test_lookup_order.py
+import pytest
+
+from kindgi import ToolContext
+from tools.lookup_order import OrderRef, lookup_order
+
+
+def test_finds_a_shipped_order():
+    order = lookup_order(OrderRef(orderId="ord_1001"), ToolContext.for_test())
+    assert order.status == "shipped"
+    assert order.total_cents == 4200
+
+
+def test_an_unknown_order_raises():
+    with pytest.raises(LookupError):
+        lookup_order(OrderRef(orderId="ord_9999"), ToolContext.for_test())
+```
+
+```sh
+uv run pytest
+```
+
+```text
+.....                                                                    [100%]
+5 passed in 0.10s
+```
+
+Test files aren't indexed: they never become tools.
+
+</TabItem>
+</Tabs>
+
+## Give it to an agent
+
+An agent lists the tools it may call:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// in agents/order-desk/index.ts
+tools: [{ id: 'my-pack.lookup-order' as ToolId, version: '^0.1.0' }],
+```
+
+The version is a range: a turn uses the highest registered version that
+matches it.
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# in agents/order_desk.py
+tools=[lookup_order],
+```
+
+The `Tool` object pins its version. A ref with a range works too:
+`{"id": "my-pack.lookup-order", "version": "^0.1.0"}`.
+
+</TabItem>
+</Tabs>
+
+With a model that can call tools ([Models](../../models/)),
+the agent's turn shows the call and its result. Here `my-pack.order-desk`, an
+agent with this tool, answers with Llama 3.1 on Ollama
+([registered as an OpenAI-compatible endpoint](../../models/openai-compatible/)):
+
+```sh
+kindgi runs start --agent=my-pack.order-desk --input='{"userMessage":"What is the status of order ord_1002?"}'
+```
+
+```json
+"appended": [
+  { "role": "user", "content": "What is the status of order ord_1002?", … },
+  {
+    "role": "agent",
+    "content": {
+      "text": "",
+      "toolCalls": [{ "id": "call_wzydfzdg", "name": "my-pack.lookup-order", "arguments": { "orderId": "ord_1002" } }]
+    },
+    …
+  },
+  {
+    "role": "tool",
+    "content": { "status": "pending", "orderId": "ord_1002", "totalCents": 1250 },
+    …
+  },
+  {
+    "role": "agent",
+    "content": "The status of order ord_1002 is pending, with a total amount of 12.50 dollars in cents.",
+    …
+  }
+],
+```
+
+`dev-echo`, the stand-in a new pack answers with, always calls an agent's
+first tool with `{"message": …}`, so try a tool with any other input from a
+flow, as above.
+
+[Write an agent](../../agents/write-an-agent/) covers the rest of the agent
+file.

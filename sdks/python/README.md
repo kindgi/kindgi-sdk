@@ -294,7 +294,7 @@ A pack's tools can use it to call back into Kindgi (memory, events, other runs).
 ## Receiving webhooks
 
 Kindgi signs the webhooks it sends (`run.finished`, `webhook.test`; see
-[run events](../../docs/RUN-EVENTS.md)) in the
+[webhooks](https://docs.kindgi.com/v0.1/guides/webhooks/verify-a-webhook/)) in the
 [Standard Webhooks](https://www.standardwebhooks.com) format. Verify the
 **raw** body, before parsing it, with the secret the endpoint's `secretRef`
 names:

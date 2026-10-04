@@ -1,0 +1,104 @@
+---
+title: Retry a start safely
+description: Send an idempotency key with a start, so a retried request returns the run the first one started instead of starting another.
+sidebar:
+  order: 2
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+A request to start a run can time out after the run started. Retry it with
+the same **idempotency key**, and Kindgi returns the run the first request
+started instead of starting a second one.
+
+```sh
+kindgi runs start --flow=acme.review-order --input='{"orderId":"A-100"}' --idempotency-key=order-A-100-review
+```
+
+Run it twice: both print the same run, with the same `id` and `createdAt`.
+
+From your app, pass `idempotencyKey` (`idempotency_key` in Python):
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+import { KindgiApiError } from '@kindgi/sdk/client';
+
+const start = () =>
+  kindgi.runs.start({
+    flow: 'acme.review-order',
+    input: { orderId: 'A-200' },
+    idempotencyKey: 'review-A-200',
+  });
+
+const first = await start();
+const retry = await start(); // a retry after a timeout, say
+console.log(first.id === retry.id, retry.status);
+
+try {
+  await kindgi.runs.start({
+    flow: 'acme.review-order',
+    input: { orderId: 'A-100' }, // a different request, same key
+    idempotencyKey: 'review-A-200',
+  });
+} catch (err) {
+  if (err instanceof KindgiApiError) console.log(err.error.code, err.message);
+}
+```
+
+```text
+true completed
+conflict Idempotency-Key was reused with a different request body. Use a fresh key or the original body.
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+from kindgi.client import ConflictError
+
+
+def start():
+    return kindgi.runs.start(
+        flow="acme.review-order", input={"orderId": "A-200"}, idempotency_key="review-A-200"
+    )
+
+
+first = start()
+retry = start()  # a retry after a timeout, say
+print(first.id == retry.id, retry.status)
+
+try:
+    kindgi.runs.start(
+        flow="acme.review-order",
+        input={"orderId": "A-100"},  # a different request, same key
+        idempotency_key="review-A-200",
+    )
+except ConflictError as err:
+    print(err)
+```
+
+```text
+True completed
+Idempotency-Key was reused with a different request body. Use a fresh key or the original body.
+```
+
+</TabItem>
+</Tabs>
+
+## How it works
+
+- A request with a key Kindgi has seen gets the first request's response
+  again: the same run, as it was returned then. Call `get` for its current
+  state.
+- The key must come with the same request. The same key with a different
+  body (another input, other options) is refused with a conflict, and nothing
+  starts.
+- Keys are kept for 24 hours, per tenant.
+
+Pick a key that names the work, not the attempt: `review-A-200` for "review
+order A-200", the same on every retry. A new key per attempt defeats it.
+
+Other requests that change something (`cancel`, registering a webhook
+endpoint, …) take an idempotency key too.

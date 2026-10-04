@@ -328,4 +328,6 @@ Each event has a `kind` (`run.started`, `run.step-started`,
 
 A browser can also follow a run directly, with a short-lived read-only
 token, without your API token: see
-[Security](../../concepts/security/#following-a-run-from-a-browser).
+[Follow a run from the browser](../../guides/runs/follow-from-the-browser/).
+To be told when a run ends instead, have Kindgi send your app a signed
+webhook: see [Get a webhook when a run finishes](../../guides/webhooks/receive-run-finished/).

@@ -1,0 +1,467 @@
+---
+title: Repeat steps in a loop
+description: Run steps once for each element of a list, several at a time, or again and again until a condition holds.
+sidebar:
+  order: 5
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+A `loop` step runs a small flow of its own, its **body**, several times:
+
+- **`foreach`**: once for each element of a list, one or several at a time.
+- **`while`**: again and again, until a condition on the last pass holds.
+
+## For each element of a list
+
+`acme.check-order-stock` checks every item of an order with a new tool,
+`acme.check-stock`, two items at a time:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// tools/check-stock/index.ts
+import { defineTool } from '@kindgi/sdk/define';
+import type { ToolId } from '@kindgi/sdk/types';
+import { z } from 'zod';
+
+const STOCK: Record<string, number> = { mug: 10, desk: 0, lamp: 5 };
+
+const defined = defineTool({
+  id: 'acme.check-stock' as ToolId,
+  description: 'Checks whether a quantity of one item is in stock.',
+  version: '0.1.0',
+  input: z.object({ sku: z.string(), quantity: z.number().int().positive() }),
+  output: z.object({ sku: z.string(), inStock: z.boolean() }),
+  effects: [],
+  mutating: false,
+  handler: async ({ sku, quantity }) => ({ sku, inStock: (STOCK[sku] ?? 0) >= quantity }),
+});
+
+if (defined.kind === 'err') throw new Error(defined.error.message);
+
+export default defined.value;
+```
+
+```ts
+// flows/check-order-stock/index.ts
+import { defineFlow } from '@kindgi/sdk/define';
+
+const defined = defineFlow({
+  id: 'acme.check-order-stock',
+  version: '0.1.0',
+  name: 'Check stock for an order',
+  description: 'Checks every item of an order, two at a time.',
+  nodes: [
+    {
+      id: 'order',
+      kind: 'tool',
+      ref: 'acme.get-order',
+      inputMapping: { orderId: { path: 'runInput.orderId' } },
+    },
+    {
+      id: 'each-item',
+      kind: 'loop',
+      loopKind: 'foreach',
+      iterateOver: { path: 'nodeOutputs.order.items' },
+      concurrency: 2,
+      maxIterations: 100,
+      collectAllIterations: true,
+      outputSchema: {
+        type: 'object',
+        properties: { sku: { type: 'string' }, inStock: { type: 'boolean' } },
+        required: ['sku', 'inStock'],
+      },
+      body: {
+        nodes: [{ id: 'check', kind: 'tool', ref: 'acme.check-stock' }],
+        edges: [
+          { id: 'b1', from: '$loop-start', to: 'check' },
+          { id: 'b2', from: 'check', to: '$loop-end' },
+        ],
+      },
+    },
+  ],
+  edges: [
+    { id: 'e1', from: '$start', to: 'order' },
+    { id: 'e2', from: 'order', to: 'each-item' },
+    { id: 'e3', from: 'each-item', to: '$end' },
+  ],
+  output: {
+    mapping: { items: { path: 'nodeOutputs.each-item.outputs' } },
+  },
+});
+
+if (defined.kind === 'err') throw new Error(defined.error.message);
+
+export default defined.value;
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# tools/check_stock.py
+from pydantic import BaseModel, Field
+
+from kindgi import tool
+
+STOCK = {"mug": 10, "desk": 0, "lamp": 5}
+
+
+class StockInput(BaseModel):
+    sku: str
+    quantity: int = Field(gt=0)
+
+
+class Stock(BaseModel):
+    sku: str
+    in_stock: bool = Field(alias="inStock")
+
+
+@tool(id="acme.check-stock", mutating=False)
+def check_stock(input: StockInput) -> Stock:
+    """Checks whether a quantity of one item is in stock."""
+    return Stock(sku=input.sku, inStock=STOCK.get(input.sku, 0) >= input.quantity)
+```
+
+```python
+# flows/check_order_stock.py
+from kindgi import Flow
+
+check_order_stock = Flow(
+    id="acme.check-order-stock",
+    version="0.1.0",
+    name="Check stock for an order",
+    description="Checks every item of an order, two at a time.",
+    nodes=[
+        {
+            "id": "order",
+            "kind": "tool",
+            "ref": "acme.get-order",
+            "inputMapping": {"orderId": {"path": "runInput.orderId"}},
+        },
+        {
+            "id": "each-item",
+            "kind": "loop",
+            "loopKind": "foreach",
+            "iterateOver": {"path": "nodeOutputs.order.items"},
+            "concurrency": 2,
+            "maxIterations": 100,
+            "collectAllIterations": True,
+            "outputSchema": {
+                "type": "object",
+                "properties": {"sku": {"type": "string"}, "inStock": {"type": "boolean"}},
+                "required": ["sku", "inStock"],
+            },
+            "body": {
+                "nodes": [{"id": "check", "kind": "tool", "ref": "acme.check-stock"}],
+                "edges": [
+                    {"id": "b1", "from": "$loop-start", "to": "check"},
+                    {"id": "b2", "from": "check", "to": "$loop-end"},
+                ],
+            },
+        },
+    ],
+    edges=[
+        {"id": "e1", "from": "$start", "to": "order"},
+        {"id": "e2", "from": "order", "to": "each-item"},
+        {"id": "e3", "from": "each-item", "to": "$end"},
+    ],
+    output={"mapping": {"items": {"path": "nodeOutputs.each-item.outputs"}}},
+)
+```
+
+</TabItem>
+</Tabs>
+
+- **`iterateOver`** is the list: a `{ path }` that must resolve to an array
+  when the loop starts.
+- **`body`** has its own steps and edges, from `$loop-start` to `$loop-end`.
+  Each pass gets one element as its input: here `{ "sku": "desk", "quantity": 1 }`,
+  which is `acme.check-stock`'s input as it is.
+- **`concurrency`** runs that many passes at a time (1 by default, at most 32).
+- **`maxIterations`** caps the passes, and **`outputSchema`** is what each pass
+  must return. Both are required.
+
+```sh
+kindgi runs start --flow=acme.check-order-stock --input='{"orderId":"A-200"}'
+```
+
+```json
+{
+  …
+  "status": "completed",
+  …
+  "output": {
+    "items": [
+      {
+        "sku": "desk",
+        "inStock": false
+      },
+      {
+        "sku": "lamp",
+        "inStock": true
+      }
+    ]
+  },
+  …
+}
+```
+
+The loop step's own output, in the journal:
+
+```json
+{"sequence": 18, "kind": "step.completed", "nodeId": "each-item", "payload": {"output": {"outputs": [{"sku": "desk", "inStock": false}, {"sku": "lamp", "inStock": true}], "iterations": 2, "stopReason": "array-exhausted", "finalOutput": {"sku": "lamp", "inStock": true}}}, …}
+```
+
+- `finalOutput` is the last pass's output.
+- `outputs` has every pass's output, in the list's order, even when passes
+  finish out of order. It's there only with `collectAllIterations: true`.
+- `iterations` is how many passes ran; `stopReason` is why the loop stopped:
+  `array-exhausted`, `exit-condition` (a `while` loop) or `max-iterations`.
+
+Each pass is in the journal as `iteration.started` and `iteration.completed`,
+and the body's steps carry the pass they belong to.
+
+:::caution[Inside the body]
+In a body step's `inputMapping`, `runInput` is the pass's input (the element),
+and `nodeOutputs` has only the body's own steps. A path to a step outside the
+loop, or to the run's input, doesn't resolve. Put what every pass needs into
+the list's elements.
+:::
+
+## Until a condition holds
+
+`acme.list-all-orders` reads every page of a paginated list with a new tool,
+`acme.list-orders`:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// tools/list-orders/index.ts
+import { defineTool } from '@kindgi/sdk/define';
+import type { ToolId } from '@kindgi/sdk/types';
+import { z } from 'zod';
+
+const PAGES: Record<string, { orders: string[]; nextCursor?: string }> = {
+  first: { orders: ['A-100', 'A-101'], nextCursor: 'p2' },
+  p2: { orders: ['A-102', 'A-103'], nextCursor: 'p3' },
+  p3: { orders: ['A-200'] },
+};
+
+const defined = defineTool({
+  id: 'acme.list-orders' as ToolId,
+  description: 'Lists open orders, one page at a time.',
+  version: '0.1.0',
+  input: z.object({ cursor: z.string().optional() }),
+  output: z.object({ orders: z.array(z.string()), nextCursor: z.string().optional() }),
+  effects: [],
+  mutating: false,
+  handler: async ({ cursor }) => {
+    const page = PAGES[cursor ?? 'first'];
+    if (page === undefined) throw new Error(`Unknown cursor ${cursor}`);
+    return page;
+  },
+});
+
+if (defined.kind === 'err') throw new Error(defined.error.message);
+
+export default defined.value;
+```
+
+```ts
+// flows/list-all-orders/index.ts
+import { defineFlow } from '@kindgi/sdk/define';
+
+const defined = defineFlow({
+  id: 'acme.list-all-orders',
+  version: '0.1.0',
+  name: 'List all open orders',
+  description: 'Reads every page of open orders.',
+  nodes: [
+    {
+      id: 'pages',
+      kind: 'loop',
+      loopKind: 'while',
+      // stop when the last page read has no next cursor
+      exitCondition: { op: 'falsy', value: { path: 'iterationOutput.nextCursor' } },
+      maxIterations: 20,
+      collectAllIterations: true,
+      outputSchema: {
+        type: 'object',
+        properties: {
+          orders: { type: 'array', items: { type: 'string' } },
+          nextCursor: { type: ['string', 'null'] },
+        },
+        required: ['orders'],
+      },
+      body: {
+        nodes: [
+          {
+            id: 'page',
+            kind: 'tool',
+            ref: 'acme.list-orders',
+            // runInput here is the previous page (the run input on the first pass)
+            inputMapping: { cursor: { path: 'runInput.nextCursor' } },
+          },
+        ],
+        edges: [
+          { id: 'b1', from: '$loop-start', to: 'page' },
+          { id: 'b2', from: 'page', to: '$loop-end' },
+        ],
+      },
+    },
+  ],
+  edges: [
+    { id: 'e1', from: '$start', to: 'pages' },
+    { id: 'e2', from: 'pages', to: '$end' },
+  ],
+  output: {
+    mapping: { pages: { path: 'nodeOutputs.pages.outputs' } },
+  },
+});
+
+if (defined.kind === 'err') throw new Error(defined.error.message);
+
+export default defined.value;
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# tools/list_orders.py
+from pydantic import BaseModel, Field
+
+from kindgi import tool
+
+PAGES = {
+    "first": {"orders": ["A-100", "A-101"], "nextCursor": "p2"},
+    "p2": {"orders": ["A-102", "A-103"], "nextCursor": "p3"},
+    "p3": {"orders": ["A-200"]},
+}
+
+
+class ListInput(BaseModel):
+    cursor: str | None = None
+
+
+class Page(BaseModel):
+    orders: list[str]
+    next_cursor: str | None = Field(None, alias="nextCursor")
+
+
+@tool(id="acme.list-orders", mutating=False)
+def list_orders(input: ListInput) -> Page:
+    """Lists open orders, one page at a time."""
+    page = PAGES.get(input.cursor or "first")
+    if page is None:
+        raise ValueError(f"Unknown cursor {input.cursor}")
+    return Page(**page)
+```
+
+```python
+# flows/list_all_orders.py
+from kindgi import Flow
+
+list_all_orders = Flow(
+    id="acme.list-all-orders",
+    version="0.1.0",
+    name="List all open orders",
+    description="Reads every page of open orders.",
+    nodes=[
+        {
+            "id": "pages",
+            "kind": "loop",
+            "loopKind": "while",
+            # stop when the last page read has no next cursor
+            "exitCondition": {"op": "falsy", "value": {"path": "iterationOutput.nextCursor"}},
+            "maxIterations": 20,
+            "collectAllIterations": True,
+            "outputSchema": {
+                "type": "object",
+                "properties": {
+                    "orders": {"type": "array", "items": {"type": "string"}},
+                    "nextCursor": {"type": ["string", "null"]},
+                },
+                "required": ["orders"],
+            },
+            "body": {
+                "nodes": [
+                    {
+                        "id": "page",
+                        "kind": "tool",
+                        "ref": "acme.list-orders",
+                        # runInput here is the previous page (the run input on the first pass)
+                        "inputMapping": {"cursor": {"path": "runInput.nextCursor"}},
+                    }
+                ],
+                "edges": [
+                    {"id": "b1", "from": "$loop-start", "to": "page"},
+                    {"id": "b2", "from": "page", "to": "$loop-end"},
+                ],
+            },
+        },
+    ],
+    edges=[
+        {"id": "e1", "from": "$start", "to": "pages"},
+        {"id": "e2", "from": "pages", "to": "$end"},
+    ],
+    output={"mapping": {"pages": {"path": "nodeOutputs.pages.outputs"}}},
+)
+```
+
+</TabItem>
+</Tabs>
+
+- The first pass gets the loop step's input: the output of the step before
+  it, here the run's input. Each later pass gets the **previous pass's
+  output**, so `runInput.nextCursor` in the body is the cursor the last page
+  returned.
+- **`exitCondition`** is checked after each pass, against
+  `iterationOutput` (that pass's output) and `iterationIndex` (from 0). The
+  loop stops when it holds, or after `maxIterations` passes.
+
+```sh
+kindgi runs start --flow=acme.list-all-orders --input='{}'
+```
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```json
+{
+  "pages": [
+    { "orders": ["A-100", "A-101"], "nextCursor": "p2" },
+    { "orders": ["A-102", "A-103"], "nextCursor": "p3" },
+    { "orders": ["A-200"] }
+  ]
+}
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```json
+{
+  "pages": [
+    { "orders": ["A-100", "A-101"], "nextCursor": "p2" },
+    { "orders": ["A-102", "A-103"], "nextCursor": "p3" },
+    { "orders": ["A-200"], "nextCursor": null }
+  ]
+}
+```
+
+A pydantic field that is `None` is `null` in the output, so the schema allows
+`null` and the condition is `falsy` (true for a missing value and for `null`).
+
+</TabItem>
+</Tabs>
+
+That's the run's `output`, from `nodeOutputs.pages.outputs`.
+
+A loop that reaches `maxIterations` stops with `stopReason: "max-iterations"`
+and completes; check `stopReason` if running out of passes is an error for
+you.

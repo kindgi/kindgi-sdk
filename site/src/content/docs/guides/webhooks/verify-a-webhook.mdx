@@ -1,0 +1,219 @@
+---
+title: Verify a webhook
+description: Check a webhook's signature against the raw body in TypeScript or Python, reject anything else, and handle each event once.
+sidebar:
+  order: 2
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Anyone can send your URL a request. Before you act on one, check that Kindgi
+signed it with your secret, against the **raw** body, before you parse it.
+
+## A receiver
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+`verifyWebhook` from `@kindgi/sdk/webhooks` (server only: it uses
+`node:crypto`). This receiver uses Node's `http` module; with a framework, pass
+the request's headers and its unparsed body the same way.
+
+```ts
+import { createServer } from 'node:http';
+import { verifyWebhook } from '@kindgi/sdk/webhooks';
+
+const secret = process.env.ACME_WEBHOOK_SECRET!;
+const handled = new Set<string>(); // use your database in production
+
+createServer(async (req, res) => {
+  if (req.method !== 'POST' || req.url !== '/hooks/kindgi') {
+    res.writeHead(404).end();
+    return;
+  }
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(chunk as Buffer);
+  const body = Buffer.concat(chunks).toString('utf8'); // the raw body, unparsed
+
+  const result = verifyWebhook({ secret, headers: req.headers, body });
+  if (result.kind !== 'ok') {
+    console.log('rejected:', result.reason);
+    res.writeHead(401).end();
+    return;
+  }
+  if (handled.has(result.id)) {
+    res.writeHead(204).end(); // a retry of an event you already handled
+    return;
+  }
+  handled.add(result.id);
+
+  const event = JSON.parse(body);
+  if (event.type === 'run.finished') {
+    const { id, flowId, status } = event.data.run;
+    console.log('run finished:', id, flowId, status);
+  } else {
+    console.log('event:', event.type);
+  }
+  res.writeHead(204).end();
+}).listen(8787, () => console.log('listening on http://localhost:8787/hooks/kindgi'));
+```
+
+</TabItem>
+<TabItem label="Python">
+
+`kindgi.webhooks.verify`. This receiver uses FastAPI; any framework works the
+same way: pass the headers and the body's bytes.
+
+```python
+import os
+
+from fastapi import FastAPI, Request, Response
+
+from kindgi import webhooks
+
+app = FastAPI()
+secret = os.environ["ACME_WEBHOOK_SECRET"]
+handled: set[str] = set()  # use your database in production
+
+
+@app.post("/hooks/kindgi")
+async def kindgi_webhook(request: Request) -> Response:
+    body = await request.body()  # the raw bytes, unparsed
+    try:
+        delivery = webhooks.verify(secret, request.headers, body)
+    except webhooks.WebhookVerificationError as err:
+        print("rejected:", err.reason)
+        return Response(status_code=401)
+    if delivery.id in handled:
+        return Response(status_code=204)  # a retry of an event you already handled
+    handled.add(delivery.id)
+
+    event = webhooks.parse_event(body)
+    if event.type == "run.finished":
+        run = event.data.run
+        print("run finished:", run.id, run.flow_id, run.status)
+    else:
+        print("event:", event.type)
+    return Response(status_code=204)
+```
+
+Run it with `ACME_WEBHOOK_SECRET` set: `uvicorn receiver:app --port 8788`.
+
+</TabItem>
+</Tabs>
+
+With the endpoint registered ([Get a webhook when a run finishes](../receive-run-finished/)),
+a run of `acme.review-order` prints:
+
+```text
+listening on http://localhost:8787/hooks/kindgi
+run finished: 9fefc7cf-3249-4ba2-a50e-2795f16c7c67 acme.review-order completed
+```
+
+## What verification checks
+
+- **The signature.** `webhook-signature` must hold an HMAC-SHA256 of
+  `<webhook-id>.<webhook-timestamp>.<body>` made with your secret. The
+  comparison is constant-time.
+- **The time.** `webhook-timestamp` must be within 5 minutes of your clock,
+  so an old request can't be replayed later.
+- **The headers.** A request without the three `webhook-*` headers fails.
+
+A failure says which check failed (`result.reason` in TypeScript,
+`err.reason` in Python): `missing-headers`, `invalid-timestamp`,
+`timestamp-out-of-tolerance`, `invalid-secret` or `no-matching-signature`.
+Answer 401 and do nothing else.
+
+Verify the body exactly as it arrived. Parsing it and serializing it again
+changes the bytes (spacing, key order), and the signature no longer matches.
+
+## Handle each event once
+
+Deliveries are at least once: a retry after a timeout can bring an event you
+already handled. The verified result has the event's id (`result.id`,
+`delivery.id`), the same on every retry. Record the ids you've handled (in
+your database, not in memory as in the examples) and answer 2xx to a repeat
+without acting again.
+
+## Test the receiver without Kindgi
+
+Sign a request yourself with the same secret, and with a wrong one:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+import { generateWebhookSecret, webhookHeaders } from '@kindgi/sdk/webhooks';
+
+const body = JSON.stringify({
+  id: 'evt-test-1',
+  type: 'webhook.test',
+  createdAt: new Date().toISOString(),
+  data: { endpointId: 'local' },
+});
+
+for (const secret of [process.env.ACME_WEBHOOK_SECRET!, generateWebhookSecret()]) {
+  const headers = webhookHeaders({
+    secret,
+    id: 'evt-test-1',
+    timestamp: Math.floor(Date.now() / 1000),
+    body,
+  });
+  if (headers.kind === 'err') throw new Error(headers.error.message);
+  const res = await fetch('http://localhost:8787/hooks/kindgi', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...headers.value },
+    body,
+  });
+  console.log(res.status);
+}
+```
+
+```text
+204
+401
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+import json
+import os
+import time
+
+import httpx
+
+from kindgi import webhooks
+
+body = json.dumps(
+    {"id": "evt-test-1", "type": "webhook.test", "createdAt": "2026-10-03T12:00:00.000Z",
+     "data": {"endpointId": "local"}}
+)
+
+for secret in [os.environ["ACME_WEBHOOK_SECRET"], webhooks.generate_secret()]:
+    headers = webhooks.signed_headers(secret, id="evt-test-1", timestamp=int(time.time()), body=body)
+    res = httpx.post(
+        "http://localhost:8788/hooks/kindgi",
+        headers={"content-type": "application/json", **headers},
+        content=body,
+    )
+    print(res.status_code)
+```
+
+```text
+204
+401
+```
+
+</TabItem>
+</Tabs>
+
+The receiver accepts the first and logs `rejected: no-matching-signature` for
+the second. To test with Kindgi itself, send a `webhook.test` event:
+[Test and replay deliveries](../test-and-replay/).
+
+## Other languages
+
+The format is [Standard Webhooks](https://www.standardwebhooks.com): its
+libraries verify Kindgi's requests with the same secret.

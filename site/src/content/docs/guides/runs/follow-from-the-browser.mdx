@@ -1,0 +1,143 @@
+---
+title: Follow a run from the browser
+description: Let a web page show a run's progress with a short-lived, read-only token, without your API token.
+sidebar:
+  order: 4
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Your backend starts the run and hands the page two things: the run's id and
+a **public run token**. The page follows the run's progress with them, straight
+from Kindgi. The token can do nothing else, and it expires.
+
+## 1. Allow your site's origin
+
+The browser calls Kindgi from your site's origin, so Kindgi must allow it.
+List the origins in `KINDGI_CORS_ORIGINS`, comma-separated: in development,
+in the pack's `.env`, then restart `kindgi dev`:
+
+```sh
+echo 'KINDGI_CORS_ORIGINS=http://localhost:5173' >> .env
+```
+
+`kindgi dev` shows it:
+
+```text
+    Origins    http://localhost:5173 (browsers may follow runs with public run tokens)
+```
+
+In a deployment, set it in the runtime's environment
+([`KINDGI_CORS_ORIGINS`](../../../reference/env-vars/#kindgi_cors_origins)).
+
+## 2. Hand the page a token
+
+When the deployment issues public run tokens, every start returns
+`publicAccessToken`, a token for the run it started (15 minutes by default).
+`kindgi dev` issues them; a deployment does when it has a signing key
+([`KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH`](../../../reference/env-vars/#kindgi_public_token_signing_key_path)).
+Your backend passes the token on with the run's id, and mints a fresh one when
+the page asks:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// When the user starts a reservation
+const run = await kindgi.runs.start({
+  flow: 'acme.reserve-order',
+  input: { orderId },
+  options: { wait: false },
+});
+return { runId: run.id, token: run.publicAccessToken };
+```
+
+```ts
+// When the page asks for a fresh token (check first that the user may see this run)
+const { token } = await kindgi.tokens.createPublic({ runIds: [runId] });
+return token;
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# When the user starts a reservation
+run = kindgi.runs.start(
+    flow="acme.reserve-order", input={"orderId": order_id}, options={"wait": False}
+)
+return {"runId": str(run.id), "token": run.public_access_token}
+```
+
+```python
+# When the page asks for a fresh token (check first that the user may see this run)
+return kindgi.tokens.mint_public(run_ids=[run_id]).token
+```
+
+</TabItem>
+</Tabs>
+
+A minted token can name up to 50 runs, and live from a second to a day
+(`expiresInSeconds`, `expires_in_seconds`).
+
+## 3. Follow the run in the page
+
+The page uses `subscribeToRun` from `@kindgi/sdk/client`, which runs in the
+browser:
+
+```ts
+import { subscribeToRun } from '@kindgi/sdk/client';
+
+const { runId, token } = await fetch('/api/reservations', { method: 'POST' }).then((r) => r.json());
+
+for await (const event of subscribeToRun({
+  apiUrl: 'http://127.0.0.1:4313', // your Kindgi API
+  runId,
+  accessToken: token,
+  refreshAccessToken: () => fetch(`/api/run-token?runId=${runId}`).then((r) => r.text()),
+})) {
+  showProgress(event.kind, event.nodeId); // run.step-started reserve, …
+}
+// The loop ends after run.completed, run.failed or run.cancelled.
+```
+
+In a page served from `http://localhost:5173`, `showProgress` (your page's
+code) gets, for a run of `acme.reserve-order`:
+
+```text
+run.started
+run.step-started reserve
+run.step-retry-scheduled reserve
+run.step-retry-scheduled reserve
+run.step-completed reserve
+run.completed
+```
+
+`subscribeToRun` reconnects by itself when the server ends the stream, and
+calls `refreshAccessToken` when the token expires.
+
+## What the token can do
+
+- **Only follow progress.** The token works on two routes,
+  `GET /v1/runs/{runId}/progress` and `GET /v1/runs/{runId}/progress/stream`,
+  for the runs it names and the runs inside them (an agent step's turn, for
+  example). Any other call is refused:
+
+  ```text
+  {"error":{"code":"permission-denied","message":"A public run token can only follow the runs it names: GET /v1/runs/{runId}/progress and GET /v1/runs/{runId}/progress/stream","requestId":"req-19ffb614-4c27-438b-95dd-5ace0de7125b"}}
+  ```
+
+- **No data.** Progress events have the kind, the step and the time, but no
+  inputs, outputs or errors:
+
+  ```text
+  id: f7bb2e8c-6895-4ae4-a377-065be3a6a952:2
+  event: run.step-started
+  data: {"eventId":"f7bb2e8c-6895-4ae4-a377-065be3a6a952:2","runId":"f7bb2e8c-6895-4ae4-a377-065be3a6a952","timestamp":"2026-10-03T20:13:13.452Z","kind":"run.step-started","sequence":2,"nodeId":"reserve"}
+  ```
+
+  Show the result from your backend, which reads the run with your API token.
+
+- **No revoking one by one.** Keep lifetimes short. In development, tokens are
+  signed with a key `kindgi dev` makes when it starts, so they stop working
+  when it restarts.

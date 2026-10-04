@@ -1,0 +1,212 @@
+---
+title: Trace an answer and its cost
+description: See which model calls and tool calls produced an agent's answer, and what each model call cost.
+sidebar:
+  order: 1
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Every agent turn leaves a **provenance record**: a graph of the turn, from the
+user's message through each model call and tool call to the answer. It names
+the model of each call, its tokens and its cost, and the version of each tool.
+Use it to answer "where did this answer come from?" and "what did it cost?".
+
+## Read a turn's record
+
+Fetch it by the run's id. With `kindgi dev`, `$KINDGI_API_URL` and
+`$KINDGI_API_TOKEN` are the URL and token it prints (they're also in the pack's
+`.kindgirc.json`).
+
+```sh
+curl "$KINDGI_API_URL/v1/provenance/3622fc4e-a54d-4df8-a84f-14a957eed7db" \
+  -H "Authorization: Bearer $KINDGI_API_TOKEN"
+```
+
+```json
+{
+  "id": "5a31107b-d942-4741-a96d-2ea5a2eb34c3",
+  "runId": "3622fc4e-a54d-4df8-a84f-14a957eed7db",
+  …
+  "dag": {
+    "nodes": [
+      { "id": "input:0", "kind": "input", "timestamp": "2026-10-03T19:55:06.872Z" },
+      { "id": "model-call:1", "kind": "model-call", "timestamp": "2026-10-03T19:55:07.001Z",
+        "modelVersion": "dev-echo/dev-echo-v1",
+        "attributes": { "step": 1, "costUsd": 0, "finishReason": "tool-use", "promptTokens": 20, "completionTokens": 6 } },
+      { "id": "tool-call:dev-echo-call-1", "kind": "tool-call", "timestamp": "2026-10-03T19:55:07.131Z",
+        "attributes": { "toolId": "acme-ops.echo", "toolVersion": "0.1.0", "invocationId": "dev-echo-call-1", "toolVersionRange": "0.1.0" } },
+      { "id": "tool-result:dev-echo-call-1", "kind": "tool-result", "timestamp": "2026-10-03T19:55:07.131Z" },
+      { "id": "model-call:2", "kind": "model-call", "timestamp": "2026-10-03T19:55:07.168Z",
+        "modelVersion": "dev-echo/dev-echo-v1",
+        "attributes": { "step": 2, "costUsd": 0, "finishReason": "stop", "promptTokens": 30, "completionTokens": 12 } },
+      { "id": "model-output:2", "kind": "model-output", "timestamp": "2026-10-03T19:55:07.229Z", "modelVersion": "dev-echo/dev-echo-v1" }
+    ],
+    "edges": [
+      { "from": "model-call:1", "to": "input:0", "kind": "caused-by" },
+      { "from": "tool-call:dev-echo-call-1", "to": "model-call:1", "kind": "invoked" },
+      { "from": "tool-result:dev-echo-call-1", "to": "tool-call:dev-echo-call-1", "kind": "produced" },
+      { "from": "model-call:2", "to": "input:0", "kind": "caused-by" },
+      { "from": "model-output:2", "to": "model-call:2", "kind": "produced" }
+    ]
+  }
+}
+```
+
+Read it from the answer backwards: the answer (`model-output:2`) was
+produced by the second model call, which answered the user's message
+(`input:0`); the first model call invoked `acme-ops.echo` 0.1.0, which
+produced a result.
+
+| Node | What it is |
+| --- | --- |
+| `input` | The message the turn answered. |
+| `model-call` | One call to a model: `modelVersion` is `provider/model`; `attributes` has the tokens, the cost in USD and why the model stopped. |
+| `tool-call`, `tool-result` | A tool the model called, with the exact tool version that ran, and what it returned. |
+| `model-output` | The answer. |
+
+Edges point from an effect to its cause: `caused-by`, `invoked`, `produced`.
+
+`kindgi runs get <run-id>` shows the same graph, under `output.provenance`.
+
+## From your app
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// trace.ts
+import { createClient } from '@kindgi/sdk/client';
+import type { RunId } from '@kindgi/sdk/types';
+
+const kindgi = createClient({
+  apiUrl: process.env.KINDGI_API_URL!,
+  auth: { kind: 'apiToken', token: process.env.KINDGI_API_TOKEN! },
+});
+
+const record = await kindgi.provenance.get(process.argv[2] as RunId);
+for (const node of record.dag.nodes) {
+  console.log(node.kind, node.modelVersion ?? '', node.attributes ?? '');
+}
+```
+
+```text
+input
+model-call dev-echo/dev-echo-v1 {
+  step: 1,
+  costUsd: 0,
+  finishReason: 'tool-use',
+  promptTokens: 20,
+  completionTokens: 6
+}
+tool-call  {
+  toolId: 'acme-ops.echo',
+  toolVersion: '0.1.0',
+  invocationId: 'dev-echo-call-1',
+  toolVersionRange: '0.1.0'
+}
+…
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# trace.py
+import sys
+
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()
+
+record = kindgi.provenance.get(sys.argv[1])
+for node in record.dag.nodes:
+    print(node.kind, node.model_version or "", node.attributes or "")
+```
+
+```text
+input
+model-call dev-echo/dev-echo-v1 {'step': 1, 'costUsd': 0, 'finishReason': 'tool-use', 'promptTokens': 20, 'completionTokens': 6}
+tool-call  {'toolId': 'acme-ops.echo', 'toolVersion': '0.1.0', 'invocationId': 'dev-echo-call-1', 'toolVersionRange': '0.1.0'}
+tool-result
+model-call dev-echo/dev-echo-v1 {'step': 2, 'costUsd': 0, 'finishReason': 'stop', 'promptTokens': 30, 'completionTokens': 12}
+model-output dev-echo/dev-echo-v1
+```
+
+</TabItem>
+</Tabs>
+
+## What a turn cost
+
+Each `model-call` node's `costUsd` is its tokens times the prices its provider
+was registered with (see [Connect a model](../../models/)).
+`dev-echo` is free, so its calls cost `0`. With a provider registered at
+`promptUsdPer1kTokens: 0.001` and `completionUsdPer1kTokens: 0.002`, a call
+with 258 prompt tokens and 53 completion tokens:
+
+```json
+{ "id": "model-call:1", "kind": "model-call", "timestamp": "2026-10-03T20:02:55.367Z",
+  "modelVersion": "ollama/llama3.1",
+  "attributes": { "step": 1, "costUsd": 0.00036400000000000007, "finishReason": "stop", "promptTokens": 258, "completionTokens": 53 } }
+```
+
+The whole turn's total is in the run's output, under `usage`:
+
+```sh
+kindgi runs get <run-id>
+```
+
+```json
+    "usage": {
+      "steps": 1,
+      "durationMs": 2249,
+      "promptTokens": 258,
+      "totalCostUsd": 0.00036400000000000007,
+      "completionTokens": 53
+    },
+```
+
+## A flow's answers
+
+A flow run has no record of its own:
+
+```json
+{"error":{"code":"provenance-not-found","message":"No provenance record for run \"41027166-71ec-4bd6-b516-cc47c0787da4\"","details":{"runId":"41027166-71ec-4bd6-b516-cc47c0787da4"},"requestId":"req-997f000a-22f6-470a-b52b-acdd21d6e228"}}
+```
+
+Each agent step is a run of its own, with its own record. The step's output
+in the flow's journal has that run's id:
+
+```sh
+kindgi runs journal <flow-run-id>
+```
+
+```json
+  {
+    "sequence": 9,
+    "kind": "step.completed",
+    "nodeId": "respond",
+    "payload": {
+      "output": {
+        "text": "Tool responded: …",
+        "runId": "4bdae2f9-ff67-48a3-9549-49028d290cc1",
+        …
+```
+
+Fetch the record for `4bdae2f9-…`.
+
+## Find records
+
+`GET /v1/provenance` lists records, newest first, without their graphs.
+Filter by `runId` or by `createdAfter`:
+
+```sh
+curl "$KINDGI_API_URL/v1/provenance?createdAfter=2026-10-03T20:08:00Z&limit=3" \
+  -H "Authorization: Bearer $KINDGI_API_TOKEN"
+```
+
+```json
+{"data":[{"id":"8771ea27-dc53-4c55-a799-dc78136182b0","runId":"98d49ad7-fb24-4d0f-a9e0-b5d1743a4392","tenantId":"3a9fb26d-9782-4bdb-a4f9-3c97d2644b72","version":"1.0.0","createdAt":"2026-10-03T20:10:08.430Z","signed":false},…]}
+```
+
+See [Provenance in the HTTP API](../../../reference/api/operations/tags/provenance/).
