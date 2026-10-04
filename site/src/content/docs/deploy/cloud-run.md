@@ -6,9 +6,9 @@ sidebar:
 ---
 
 <!-- DRAFT: written from the verification run on runtime 0.1.1. Before this is
-published: the module merged at deploy/gcp-cloud-run/ and its first-apply
-targets from its README, Gemini from the deployed runtime (not run yet), and
-`kindgi key trust` (0.1.2). -->
+published: the module merged at deploy/gcp-cloud-run/ (#49), and
+`kindgi key trust`'s output (0.1.2). Gemini from a deployed runtime isn't on
+this page: it hasn't been run on one. -->
 
 Kindgi's Terraform module runs the runtime and your pack's service as two Cloud
 Run services in one Google Cloud project, with everything around them. Built
@@ -37,6 +37,11 @@ The runtime image is in private preview: request access at contact@kindgi.com
   wraps the secrets the runtime stores (model API keys, webhook secrets).
 - **A VPC** with Direct VPC egress and Cloud NAT, which carries the runtime's
   calls to your pack's service and out to model APIs and webhooks.
+
+If your organization forbids public access to Cloud Run (the
+`iam.allowedPolicyMemberDomains` policy refuses `allUsers`), set
+`server_invoker_iam_disabled = true` and `server_public = false`: the
+runtime's API token still guards every call.
 
 Who calls whom: your app calls the runtime (its API token); the runtime calls
 your pack's service (an ID token), Cloud SQL, and model APIs; `kindgi deploy`
@@ -73,9 +78,20 @@ Serverless VPC Access connector.
 
 ```sh
 cp example.tfvars prod.tfvars   # project_id, region, kindgi_env, the seed ids, …
-terraform init -backend-config="bucket=<your state bucket>"
-terraform apply -var-file=prod.tfvars -target=…   # the module README's list
+terraform init -backend-config=bucket=<state bucket> -backend-config=prefix=<this deployment>
+terraform apply -var-file=prod.tfvars \
+  -target=google_project_service.apis \
+  -target=google_compute_router_nat.nat \
+  -target=google_artifact_registry_repository_iam_member.server_reads_images \
+  -target=google_kms_crypto_key_iam_member.server_wraps \
+  -target=google_sql_database.kindgi \
+  -target=google_secret_manager_secret_iam_member.server_reads \
+  -target=google_secret_manager_secret_iam_member.pack_reads_token \
+  -target=google_project_iam_member.server_sql_client
 ```
+
+Give each deployment its own state `prefix`, never shared with your app's own
+infrastructure.
 
 The plan creates 34 resources. Cloud SQL is the long one, about six minutes.
 
@@ -122,13 +138,14 @@ Make each value here and pipe it straight into Secret Manager: it's never on
 disk or in Terraform's state, and Kindgi generates none of them.
 
 ```sh
-N=kindgi
+N=kindgi   # name_prefix
 CONN=$(terraform output -raw sql_connection_name)
 
-# Kindgi's database user: a built-in user, not an IAM one.
+# Kindgi's database user: a built-in user, not an IAM one. The instance is
+# named after name_prefix ($N); the database is database_name (kindgi).
 DBPW=$(openssl rand -hex 24)
-gcloud sql users create $N --instance=$N --password="$DBPW"
-printf 'postgres://%s:%s@/%s?host=/cloudsql/%s' "$N" "$DBPW" "$N" "$CONN" \
+gcloud sql users create kindgi --instance=$N --password="$DBPW"
+printf 'postgres://kindgi:%s@/kindgi?host=/cloudsql/%s' "$DBPW" "$CONN" \
   | gcloud secrets versions add $N-database-url --data-file=-
 unset DBPW
 
@@ -229,22 +246,9 @@ service in about 5.
 | | `roles/artifactregistry.reader` | the repository |
 | | `roles/cloudsql.client` | the project, conditioned on Kindgi's instance |
 | | `roles/secretmanager.secretAccessor` | each of its secrets |
-| | `roles/aiplatform.user` (with `vertex_ai = true`) | the project: Gemini on Vertex AI |
+| | `roles/aiplatform.user`, only with `vertex_ai = true` | the project |
 | The pack's service account | `roles/secretmanager.secretAccessor` | the pack token and your pack's secrets |
 | | what your tools need | your own resources |
-
-## Gemini from the deployed runtime
-
-<!-- TODO: verify on a deployed runtime before publishing (not in the
-verification run): the register output, the error without the role, a turn. -->
-
-With `vertex_ai = true`, the runtime's service account gets
-`roles/aiplatform.user`, and the `gemini` preset uses it: the runtime's own
-credentials, no key file.
-
-```sh
-pnpm exec kindgi providers register --preset=gemini --project=<project> --url … --token …
-```
 
 ## Operate it
 
@@ -260,11 +264,13 @@ pnpm exec kindgi providers register --preset=gemini --project=<project> --url �
 
 ## Tear it down
 
-The KMS key ring and key outlive `terraform destroy`: Google Cloud never
-deletes them. Take them out of Terraform's state, destroy the rest, then
-schedule the key's versions for destruction:
+Cloud SQL is protected from deletion: set `database_deletion_protection =
+false` and apply first. The KMS key ring and key outlive `terraform destroy`:
+Google Cloud never deletes them. Take them out of Terraform's state, destroy
+the rest, then schedule the key's versions for destruction:
 
 ```sh
+terraform apply -var-file=prod.tfvars -var=database_deletion_protection=false
 terraform state rm google_kms_crypto_key.secrets google_kms_key_ring.kindgi
 terraform destroy -var-file=prod.tfvars
 gcloud kms keys versions destroy 1 --key=… --keyring=… --location=…
