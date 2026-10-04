@@ -24,12 +24,20 @@
  * port another runtime holds. Steps that need a real model or a cloud
  * account stay unmarked: they're release checks, run by hand.
  *
+ * The run brings its own Postgres: a throwaway pgvector container on a free
+ * loopback port, removed at the end (on a failure and on Ctrl+C too), and
+ * each page gets a fresh database in it through `KINDGI_DATABASE_URL`. Every
+ * `kindgi dev` on the machine shares one bundled database, and this
+ * checkout's runtime, newer than a released CLI's, would migrate it under the
+ * apps pinned to that release.
+ *
  * Needs the workspace built (`pnpm run build`), Docker with the pinned
  * runtime image available, and uv for Python pages.
  *
  * Usage: node site/scripts/run-tutorials.mjs [<page under site/src/content/docs> …]
  */
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import {
   chmodSync,
   existsSync,
@@ -50,6 +58,8 @@ const repo = resolve(site, '..');
 const docs = join(site, 'src', 'content', 'docs');
 const cli = join(repo, 'packages', 'cli', 'dist', 'cli.js');
 const READY_TIMEOUT_MS = 10 * 60_000;
+/** The image `kindgi dev`'s bundled Postgres runs (`docker-compose.dev.yml`). */
+const POSTGRES_IMAGE = 'pgvector/pgvector:pg16';
 const FILE = /^(?:\/\/|#)\s*(\S+\.\w+)\s*$/;
 
 function pages(dir = docs) {
@@ -197,9 +207,80 @@ function removeOurContainers(work) {
   }
 }
 
-async function runPage(page) {
+/** Start the run's own Postgres and wait until it takes connections. */
+async function startPostgres() {
+  const name = `kindgi-tutorials-postgres-${process.pid}-${randomBytes(3).toString('hex')}`;
+  const password = randomBytes(16).toString('hex');
+  const started = spawnSync(
+    'docker',
+    [
+      'run',
+      '--detach',
+      '--name',
+      name,
+      '--env',
+      'POSTGRES_USER=kindgi',
+      // The value comes from this process's environment, never the command line.
+      '--env',
+      'POSTGRES_PASSWORD',
+      '--publish',
+      '127.0.0.1::5432',
+      POSTGRES_IMAGE,
+    ],
+    { encoding: 'utf8', env: { ...process.env, POSTGRES_PASSWORD: password } },
+  );
+  if (started.status !== 0) throw new Error(`couldn't start Postgres:\n${started.stderr}`);
+  const postgres = { name, password, port: undefined };
+  const deadline = Date.now() + 2 * 60_000;
+  // Over TCP: the image's first-start setup runs a server on the socket only.
+  while (
+    spawnSync('docker', ['exec', name, 'pg_isready', '-h', '127.0.0.1', '-U', 'kindgi']).status !==
+    0
+  ) {
+    if (Date.now() > deadline) {
+      removePostgres(postgres);
+      throw new Error(`Postgres (${name}) didn't start in time`);
+    }
+    await new Promise((done) => setTimeout(done, 500));
+  }
+  const published = spawnSync('docker', ['port', name, '5432/tcp'], { encoding: 'utf8' }).stdout;
+  postgres.port = published.match(/127\.0\.0\.1:(\d+)/)?.[1];
+  if (postgres.port === undefined) {
+    removePostgres(postgres);
+    throw new Error(`Postgres (${name}) has no port on 127.0.0.1: ${published}`);
+  }
+  return postgres;
+}
+
+/** A fresh database for one page, as the URL `kindgi dev` takes. */
+function createDatabase(postgres, database) {
+  const created = spawnSync(
+    'docker',
+    ['exec', postgres.name, 'createdb', '-U', 'kindgi', database],
+    {
+      encoding: 'utf8',
+    },
+  );
+  if (created.status !== 0)
+    throw new Error(`couldn't create database ${database}:\n${created.stderr}`);
+  return `postgres://kindgi:${postgres.password}@127.0.0.1:${postgres.port}/${database}`;
+}
+
+function removePostgres(postgres) {
+  spawnSync('docker', ['rm', '--force', '--volumes', postgres.name]);
+}
+
+/** What's running now, so Ctrl+C can stop it: background steps and their pages' directories. */
+const live = { children: new Set(), works: new Set() };
+
+async function runPage(page, databaseUrl) {
   const work = mkdtempSync(join(tmpdir(), 'kindgi-tutorial-'));
-  const env = { ...process.env, PATH: `${shimDir(work)}:${process.env.PATH}` };
+  live.works.add(work);
+  const env = {
+    ...process.env,
+    PATH: `${shimDir(work)}:${process.env.PATH}`,
+    KINDGI_DATABASE_URL: databaseUrl,
+  };
   const state = join(work, '.state');
   writeFileSync(join(work, '.env-state'), '');
   let cwd = work;
@@ -250,6 +331,7 @@ async function runPage(page) {
           stdio: ['ignore', 'pipe', 'pipe'],
         });
         background.push(child);
+        live.children.add(child);
         let output = '';
         await new Promise((ready, fail) => {
           const timer = setTimeout(
@@ -280,8 +362,12 @@ async function runPage(page) {
   } catch (error) {
     return { ok: false, error: error.message, log };
   } finally {
-    for (const child of background) await stop(child);
+    for (const child of background) {
+      await stop(child);
+      live.children.delete(child);
+    }
     removeOurContainers(work);
+    live.works.delete(work);
     // A process the page started (the pack service, a compile) can still be
     // writing as it exits: retry, and never fail a page on its cleanup.
     try {
@@ -300,18 +386,38 @@ const selected = process.argv.slice(2).map((page) => resolve(docs, page));
 const targets = (selected.length > 0 ? selected : pages()).filter(
   (page) => steps(readFileSync(page, 'utf8')).length > 0,
 );
-let failed = 0;
-for (const page of targets) {
-  const name = relative(docs, page);
-  const started = Date.now();
-  const result = await runPage(page);
-  const seconds = Math.round((Date.now() - started) / 1000);
-  if (result.ok) {
-    console.log(`run-tutorials: ✓ ${name} (${seconds}s)`);
-  } else {
-    failed += 1;
-    console.error(`run-tutorials: ✗ ${name} (${seconds}s)\n${result.error}\n`);
-  }
+if (targets.length === 0) {
+  console.log('run-tutorials: no page has tutorial steps.');
+  process.exit(0);
 }
-if (targets.length === 0) console.log('run-tutorials: no page has tutorial steps.');
+const postgres = await startPostgres();
+// Ctrl+C or a kill: stop what the current page started, then the Postgres.
+for (const signalName of ['SIGINT', 'SIGTERM']) {
+  process.once(signalName, () => {
+    for (const child of live.children) signal(child.pid, 'SIGKILL');
+    for (const work of live.works) {
+      removeOurContainers(work);
+      rmSync(work, { recursive: true, force: true });
+    }
+    removePostgres(postgres);
+    process.exit(130);
+  });
+}
+let failed = 0;
+try {
+  for (const [index, page] of targets.entries()) {
+    const name = relative(docs, page);
+    const started = Date.now();
+    const result = await runPage(page, createDatabase(postgres, `tutorial_${index + 1}`));
+    const seconds = Math.round((Date.now() - started) / 1000);
+    if (result.ok) {
+      console.log(`run-tutorials: ✓ ${name} (${seconds}s)`);
+    } else {
+      failed += 1;
+      console.error(`run-tutorials: ✗ ${name} (${seconds}s)\n${result.error}\n`);
+    }
+  }
+} finally {
+  removePostgres(postgres);
+}
 process.exit(failed > 0 ? 1 : 0);
