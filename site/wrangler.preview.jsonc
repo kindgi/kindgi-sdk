@@ -1,0 +1,21 @@
+// docs-preview.kindgi.com: the private preview of unreleased docs
+// (`pnpm run docs:preview`, from the repo root, builds it into dist-preview).
+//
+// It must never be reachable without a login. Before the first deploy,
+// put the hostname behind Cloudflare Access (Zero Trust > Access >
+// Applications: a self-hosted application for docs-preview.kindgi.com, with
+// a policy that allows only your team). Then deploy from this directory:
+// `pnpm dlx wrangler deploy --config wrangler.preview.jsonc`.
+// `workers_dev` stays off, so there is no public *.workers.dev address.
+{
+  "$schema": "https://unpkg.com/wrangler/config-schema.json",
+  "name": "kindgi-docs-preview",
+  "compatibility_date": "2026-10-03",
+  "assets": {
+    "directory": "./dist-preview",
+    "not_found_handling": "404-page"
+  },
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "docs-preview.kindgi.com", "custom_domain": true }]
+}

@@ -17,7 +17,7 @@ docker rm kindgi-server
 docker run -d --name kindgi-server --network kindgi \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.0
+  quay.io/kindgi/runtime:0.1.1
 ```
 
 On a stop, the runtime stops taking requests and gives the runs it's executing up to 7 seconds to finish, then exits with code 0. `--time 30` gives it that time before Docker kills it.
@@ -309,7 +309,7 @@ docker run -d --name kindgi-server --network kindgi \
   --add-host registry.localhost:host-gateway \
   -v "$PWD/public-token-signing.pem:/etc/kindgi/public-token-signing.pem:ro" \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.0
+  quay.io/kindgi/runtime:0.1.1
 ```
 
 The file must have mode 0600, and the runtime's user in the container (uid 10001) must be able to read it. The log says:

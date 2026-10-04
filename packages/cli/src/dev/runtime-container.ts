@@ -23,6 +23,7 @@ import {
   RUNTIME_PACK_DIR,
   RUNTIME_PUBLIC_TOKEN_KEY,
 } from './runtime-env.js';
+import { isRegistryAuthFailure, registryLoginCommand } from './runtime-registry.js';
 
 export type RuntimeNetwork = 'alias' | 'host-network';
 
@@ -36,20 +37,45 @@ export interface DockerOutcome {
   readonly stderr: string;
 }
 
+export interface DockerRunOptions {
+  /**
+   * Written to the command's stdin, which is then closed. A secret (a
+   * registry token) goes here, never in the arguments or the environment.
+   */
+  readonly stdin?: string;
+}
+
+/** Runs one `docker` command to completion: `docker` below, or a fake in tests. */
+export type DockerRunner = (
+  args: readonly string[],
+  options?: DockerRunOptions,
+) => Promise<DockerOutcome>;
+
 /** Run one `docker` command to completion. */
-export function docker(args: readonly string[]): Promise<DockerOutcome> {
+export function docker(
+  args: readonly string[],
+  options: DockerRunOptions = {},
+): Promise<DockerOutcome> {
   return new Promise((resolve) => {
-    const child = spawn('docker', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn('docker', args, {
+      stdio: [options.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+    });
     let stdout = '';
     let stderr = '';
-    child.stdout.on('data', (chunk: Buffer) => {
+    child.stdout?.on('data', (chunk: Buffer) => {
       stdout += chunk.toString();
     });
-    child.stderr.on('data', (chunk: Buffer) => {
+    child.stderr?.on('data', (chunk: Buffer) => {
       stderr += chunk.toString();
     });
     child.once('error', (err) => resolve({ code: null, stdout, stderr: err.message }));
     child.once('close', (code) => resolve({ code, stdout, stderr }));
+    if (options.stdin !== undefined) {
+      // `docker` may exit without reading it (a bad flag, or no `docker`
+      // at all): the write's EPIPE is reported by the exit, not thrown.
+      child.stdin?.on('error', () => undefined);
+      child.stdin?.end(options.stdin);
+    }
   });
 }
 
@@ -75,7 +101,7 @@ export function runtimeContainerName(packDir: string): string {
 
 /**
  * Make sure the image is here, pulling it if not. A private image needs
- * `docker login` first; the error says so.
+ * a registry login first (`kindgi auth registry`); the error says so.
  */
 export async function ensureRuntimeImage(
   image: string,
@@ -90,8 +116,8 @@ export async function ensureRuntimeImage(
   const pulled = await docker(['pull', image]);
   if (pulled.code === 0) return { kind: 'ok' };
   const detail = lastLines(pulled.stderr);
-  const auth = /unauthorized|denied|authentication required/i.test(pulled.stderr)
-    ? `\n  The runtime image is in private preview: request access at contact@kindgi.com, log in with the pull credentials you receive (docker login ${image.split('/')[0]}), then run kindgi dev again.`
+  const auth = isRegistryAuthFailure(pulled.stderr)
+    ? `\n  The runtime image is in private preview: request access at contact@kindgi.com, log in with the pull credentials you receive (${registryLoginCommand(image)}), then run kindgi dev again.`
     : '';
   return { kind: 'error', message: `Couldn't pull ${image}: ${detail}${auth}` };
 }

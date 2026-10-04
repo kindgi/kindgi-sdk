@@ -118,12 +118,13 @@ endpoint's secret, so your app can check that they came from your runtime.
 
 ## Before you deploy
 
-:::caution[Postgres]
-In this release, the runtime's database user must be a **Postgres
-superuser**: the runtime uses it to set up the restricted role that requests
-run as. Managed Postgres services that don't grant one (Cloud SQL,
-Amazon RDS, AlloyDB) aren't supported yet. Self-managed Postgres, and the
-Postgres `kindgi dev` starts for you, work as they are.
+:::note[Postgres]
+The runtime's database user needs `CREATEROLE` and must own the runtime's
+database: the runtime uses it to set up the restricted role that requests run
+as. It needn't be a superuser, so managed Postgres services such as Cloud SQL,
+Amazon RDS and AlloyDB work. Create the `vector` extension once
+([Self-host](../../deploy/self-host/)). With Kindgi 0.1.0, it had to be a
+superuser.
 :::
 
 - **Development mode is for development.** `KINDGI_DEV=true` turns on
