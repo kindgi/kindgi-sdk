@@ -7,11 +7,11 @@ on:
     # `ready_for_review` fires when a draft is marked ready; the job-level
     # `if:` below skips runs while a PR is still a draft.
     types: [opened, synchronize, reopened, ready_for_review]
-  # Pull requests and pushes run only "Lint + border + specs". The build,
-  # tests and the Python jobs run on the developer's machine:
-  # `pnpm run ci:local` posts the `local-ci` status on the pushed commit
-  # (scripts/local-ci.mjs). This manual run (`gh workflow run ci.yml --ref
-  # <branch>`) does them on GitHub, for when a local run isn't possible.
+  # Every job runs on pull requests (not drafts), on pushes to main, and on a
+  # manual run (`gh workflow run ci.yml --ref <branch>`). One step stays on
+  # the developer's machine: the docs tutorials, which run `kindgi dev` with
+  # the private runtime image (`pnpm run docs:tutorials`, or all of CI with
+  # `pnpm run ci:local`, before a release).
   workflow_dispatch:
 
 concurrency:
@@ -33,6 +33,9 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@v5
+        with:
+          # The docs-ship check diffs the branch against origin/main.
+          fetch-depth: 0
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v5
         with:
@@ -55,13 +58,16 @@ jobs:
       - name: Validate JSON Schemas (@kindgi/specs)
         run: pnpm run spec:validate
 
+      - name: Docs ship with the change
+        if: github.event_name == 'pull_request'
+        run: pnpm run check:docs-ship
+
   # Independent of `checks` (no `needs:`) so a lint failure never hides
   # test results. Require both jobs in the main-branch ruleset.
   build-test:
     name: Build + typecheck + test + publish checks
     runs-on: ubuntu-latest
-    # Manual only (see `on:`); on pull requests `local-ci` stands in for it.
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
@@ -99,12 +105,19 @@ jobs:
           KINDGI_CONFORMANCE_PYTHON=/tmp/kindgi-floors/bin/python pnpm --filter @kindgi/pack-conformance exec vitest run tests/python.test.ts tests/python-supervisor.test.ts
       - name: Publish-readiness (publint + attw on publishable packages)
         run: pnpm run check:publish
+      # The documentation site (docs.kindgi.com) builds, with its link check
+      # and search index, from the workspace built above.
+      - name: Docs site
+        run: pnpm run docs:build
+      # Every sample that is a whole file compiles (TypeScript) or indexes
+      # (Python).
+      - name: Docs samples
+        run: pnpm run docs:samples
 
   python:
     name: Python SDK (${{ matrix.python }})
     runs-on: ubuntu-latest
-    # Manual only (see `on:`); on pull requests `local-ci` stands in for it.
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     strategy:
       fail-fast: false
       matrix:

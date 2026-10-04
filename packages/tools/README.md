@@ -6,6 +6,8 @@ Author, register, and invoke tools for Kindgi. A tool is a typed, effect-declare
 
 Tools declare their `input` and `output` shapes as **either** JSON Schema Draft 2020-12 objects **or** Zod v4 schemas. The wire form is always JSON Schema — Zod authoring is TS-user sugar the framework converts at author time via `z.toJSONSchema()`.
 
+A tool's schemas compile as Draft 2020-12 in Ajv's strict mode, which refuses loosely written JSON Schema (unknown keywords, union `type`s, open tuples). An MCP server's tools (`transport: 'mcp'`) are the exception: their schemas are the server's, compiled in the dialect they declare in `$schema` (draft-06, draft-07, 2019-09 or 2020-12) and without strict mode. Servers built with the TypeScript MCP SDK declare draft-07.
+
 ### Authoring with JSON Schema
 
 The wire form, portable to Python / Go / Rust pack authors publishing over MCP.

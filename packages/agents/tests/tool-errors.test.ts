@@ -23,6 +23,7 @@ import {
 } from '../src/handlers/tool-errors.js';
 import { resolveEffectiveHitlPolicy } from '../src/hitl-policy.js';
 import type { Agent, AgentId } from '../src/types.js';
+import { testNodeContext } from './node-context.js';
 
 describe('effectiveToolErrorPolicy', () => {
   const kinds = (p: ToolErrorPolicy) => [...p.retryOn].sort();
@@ -164,10 +165,12 @@ function turn(
         provider: { id: 'p', model: 'm' },
         nextMessages,
       },
-      {
+      testNodeContext({
         runId: 'run-1' as RunId,
-        ...(options.waitForToken !== undefined && { waitForToken: options.waitForToken }),
-      } as unknown as NodeContext,
+        ...(options.waitForToken !== undefined && {
+          waitForToken: options.waitForToken as NodeContext['waitForToken'],
+        }),
+      }),
     ) as Promise<{ readonly nextMessages: readonly ModelMessage[] }>;
   return { dispatch, persisted };
 }
