@@ -125,10 +125,7 @@ The failed turn comes back as an error, with the limit in its fields:
 // scripts/budget.ts
 import { KindgiApiError, createClient } from '@kindgi/sdk/client';
 
-const kindgi = createClient({
-  apiUrl: process.env.KINDGI_API_URL!,
-  auth: { kind: 'apiToken', token: process.env.KINDGI_API_TOKEN! },
-});
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
 try {
   await kindgi.runs.start({
@@ -157,7 +154,7 @@ steps 1 1 2cc56724-92e7-42e8-aefd-14ad5c294d1f
 # scripts/budget.py
 from kindgi.client import Kindgi, KindgiApiError
 
-kindgi = Kindgi()
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 try:
     kindgi.runs.start(agent="acme.order-desk", input={"userMessage": "Where is my order A-1001?"})
 except KindgiApiError as err:
