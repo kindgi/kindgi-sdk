@@ -9,9 +9,11 @@ sidebar:
 
 - **Node 22 or later.** The `kindgi` CLI is a Node program, for TypeScript
   and Python projects alike.
-- **Docker** (Docker Desktop, or a Docker engine on Linux). `kindgi dev`
-  runs the Kindgi runtime as a container, and starts a Postgres container
-  for it unless you point it at your own database.
+- **Docker** (Docker Desktop, or the Docker engine on Linux). `kindgi dev`
+  runs the Kindgi runtime as a container, and a Postgres container for it:
+  with `docker compose` when it's there, with plain `docker` otherwise. With
+  your own database (Postgres 16 with pgvector, passed as `--database-url`),
+  it starts no Postgres.
 - **For a Python pack:** Python 3.11 or later, and uv (or Poetry, or pip).
   The CLI still needs Node 22.
 
@@ -20,10 +22,17 @@ runs for you.
 
 :::note[Private preview]
 The runtime image is in private preview: request access at contact@kindgi.com.
-With the pull credentials you receive, log in to its registry once:
+With the pull credentials you receive (a robot name and a token), log in to
+its registry once. The CLI asks for the token without showing it, hands both
+to `docker login` (Kindgi keeps no copy), and checks that you can pull the
+image it runs:
 
 ```sh
-docker login quay.io
+npx --yes @kindgi/cli@0.1 auth registry --username <your robot name>
+```
+
+```text
+✓ You can pull quay.io/kindgi/runtime:…@sha256:…, the image this CLI runs.
 ```
 
 The first `kindgi dev` then pulls the image (about 700 MB; `amd64` and

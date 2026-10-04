@@ -92,6 +92,13 @@ export default defined.value;
 Ids start with the pack's id (`acme-support`, from the app's name).
 `mutating: false` says the tool only reads, so a dry run may call it.
 
+A package a tool imports (an ORM client such as `@prisma/client`, an API
+SDK) must be in your app's `dependencies`, not `devDependencies`: the
+deployed pack installs production dependencies only, so a dev-only import
+works under `kindgi dev` and fails once deployed. `kindgi dev` warns when a
+tool imports one, and `kindgi build` refuses the pack until it moves.
+Build-time tools (the `prisma` CLI, `typescript`) stay in `devDependencies`.
+
 ### An agent that uses it
 
 ```ts
@@ -209,6 +216,11 @@ def customer_orders(input: Customer) -> Orders:
 ```
 
 `mutating=False` says the tool only reads, so a dry run may call it.
+
+A package a tool imports must be in your app's main dependencies
+(`[project].dependencies`), not a dev group: the deployed pack installs
+without dev dependencies, so a dev-only import works under `kindgi dev` and
+fails once deployed.
 
 Inside `kindgi/`, import the pack's own modules relatively. Don't add an
 `__init__.py` to `kindgi/`: the folder would shadow the `kindgi` package.

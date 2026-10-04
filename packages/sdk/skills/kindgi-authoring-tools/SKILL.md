@@ -12,7 +12,7 @@ description: >
   authoring agents is covered by kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.2"
+version: "0.4.3"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -267,6 +267,17 @@ run start via `semver.maxSatisfying`. No implicit `:latest`.
    version doesn't gate iteration. Bump it when the *contract*
    changes (breaking schema shape, semantic behavior), not when you
    save. See the "Iterating on a tool" section above.
+
+9. **A package a tool imports, listed only in `devDependencies`.** The
+   deployed pack installs the app's production dependencies only, so the
+   import works under `kindgi dev` and fails in the image. When a tool
+   imports a new package (an ORM client such as `@prisma/client`, an API
+   SDK), check that the app's `package.json` lists it under
+   `dependencies`. Build-time tools (the `prisma` CLI, `typescript`) stay
+   in `devDependencies`. `kindgi dev` warns as soon as a tool imports one
+   ("⚠ The pack imports @prisma/client (in kindgi/tools/…), which
+   package.json lists only in devDependencies: …"), and `kindgi build`
+   refuses the pack until it moves.
 
 ## References
 

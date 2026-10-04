@@ -12,7 +12,7 @@ Docker ([Install](../install/)).
 
 :::note[Private preview]
 The runtime image is in private preview: request access at contact@kindgi.com.
-Then log in to its registry once, with `docker login quay.io`
+Then log in to its registry once, with `kindgi auth registry`
 ([Install](../install/)).
 :::
 
