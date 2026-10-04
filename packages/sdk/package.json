@@ -61,6 +61,14 @@
     "@kindgi/tools": "workspace:*",
     "@kindgi/types": "workspace:*"
   },
+  "peerDependencies": {
+    "zod": "^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "zod": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@types/node": "^22.10.5",
     "typedoc": "^0.28.20",
