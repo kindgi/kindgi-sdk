@@ -14,7 +14,7 @@ description: >
   primitive.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.4"
+version: "0.3.5"
 sdk_version: "0.0.0"
 pack_languages: [node]
 ---
@@ -160,6 +160,48 @@ Most of the setup is automatable, but two require your knowledge:
   agents). It is a fallback, so it steps aside once a real provider is
   registered — `kindgi providers register --preset=anthropic` with the
   key in `.env`; see `kindgi-authoring-providers`.
+
+## Your app and Kindgi's data
+
+When the app keeps something a run did (a ticket a flow triaged, an answer
+an agent gave), its own row stores the run's id, in a column such as
+`kindgi_run_id`. The app starts the run and reads the rest through the API,
+server side, with `createClient()` from `@kindgi/sdk/client`:
+
+```ts
+import { createClient } from '@kindgi/sdk/client';
+
+const kindgi = createClient(); // KINDGI_API_URL + KINDGI_API_TOKEN
+const run = await kindgi.runs.start({
+  flow: 'my-pack.triage-ticket',
+  input: { ticketId },
+  options: { wait: false }, // the run id now; run.finished tells you when it ends
+});
+// save run.id as the ticket's kindgi_run_id
+```
+
+
+- **Status, output, timing:** `kindgi.runs.get(runId)`
+  (`GET /v1/runs/{runId}`); status and timing only: `kindgi.runs.progress(runId)`.
+- **The audit, step by step:** `kindgi.runs.journal(runId)`
+  (`GET /v1/runs/{runId}/journal`).
+- **Where an agent's answer came from:** `kindgi.provenance.get(runId)`
+  (`GET /v1/provenance/{runId}`). A flow run has none of its own: each agent
+  step's `step.completed` entry in the flow's journal names its turn's run
+  (`payload.output.runId`).
+- **When a run finished:** the `run.finished` webhook (the run's id and
+  outcome, no output; then `runs.get`), not polling.
+
+Show it in the app's own UI. **Never:**
+
+- **query Kindgi's database**, even on the app's own Postgres server, and
+  never map its tables into the app's ORM. Its schema is private and changes
+  with every release (migrations only go forward), row-level security guards
+  every tenant query, and a runtime Kindgi hosts gives no database access.
+- **link users to Kindgi's console** or any Kindgi UI for this data.
+
+To keep a copy (reporting, search), pull it through the API into the app's
+own tables. Docs: https://docs.kindgi.com/v0.1/guides/runs/show-runs-in-your-app/
 
 ## References
 
