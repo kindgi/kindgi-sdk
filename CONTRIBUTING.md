@@ -15,8 +15,8 @@ pnpm install
 pnpm run ci        # lint, border check, spec validation, build, typecheck, test, publish checks
 ```
 
-While this repository is private, GitHub runs only the lint job on pull
-requests. The rest of CI runs on your machine: push the branch, then run
+GitHub runs only the lint job on pull requests. The rest of CI runs on
+your machine: push the branch, then run
 `pnpm run ci:local`. It runs every CI step on the clean, pushed commit
 (the Python SDK on 3.11 and 3.13 included) and posts the result to the
 pull request as the `local-ci` status, which merging requires. It needs
