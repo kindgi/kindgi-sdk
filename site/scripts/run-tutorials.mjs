@@ -143,22 +143,39 @@ function expectation(expected, output) {
   return missing;
 }
 
-/** Stop a background step: SIGINT to its process group, then SIGKILL. */
-async function stop(child) {
-  if (child.exitCode !== null) return;
+/** Whether any process of the group led by `pid` is still running. */
+function groupAlive(pid) {
   try {
-    process.kill(-child.pid, 'SIGINT');
+    process.kill(-pid, 0);
+    return true;
   } catch {
-    return;
+    return false;
   }
-  const exited = new Promise((done) => child.once('exit', done));
-  const timeout = new Promise((done) => setTimeout(() => done('timeout'), 60_000));
-  if ((await Promise.race([exited, timeout])) === 'timeout') {
-    try {
-      process.kill(-child.pid, 'SIGKILL');
-    } catch {
-      // It exited between the timeout and the kill.
-    }
+}
+
+/** Send `name` to the group led by `pid`; false when the group is gone. */
+function signal(pid, name) {
+  try {
+    process.kill(-pid, name);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Stop a background step: SIGINT to its whole process group (the CLI and
+ * what it started, such as the pack service), then wait until every one of
+ * them has exited, with SIGKILL after a minute.
+ */
+async function stop(child) {
+  if (!signal(child.pid, 'SIGINT')) return;
+  const deadline = Date.now() + 60_000;
+  while (groupAlive(child.pid) && Date.now() < deadline) {
+    await new Promise((done) => setTimeout(done, 250));
+  }
+  if (signal(child.pid, 'SIGKILL')) {
+    while (groupAlive(child.pid)) await new Promise((done) => setTimeout(done, 100));
   }
 }
 
@@ -259,7 +276,13 @@ async function runPage(page) {
   } finally {
     for (const child of background) await stop(child);
     removeOurContainers(work);
-    rmSync(work, { recursive: true, force: true });
+    // A process the page started (the pack service, a compile) can still be
+    // writing as it exits: retry, and never fail a page on its cleanup.
+    try {
+      rmSync(work, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 });
+    } catch (error) {
+      console.warn(`run-tutorials: couldn't remove ${work}: ${error.message}`);
+    }
   }
 }
 
