@@ -7,14 +7,12 @@ sidebar:
 ---
 
 The same pack as the [TypeScript quickstart](../quickstart-typescript/), in
-Python: two tools, an agent that calls them, a guardrail and a flow. You need
-Node 22 for the CLI, Docker, Python 3.11 and uv ([Install](../install/)).
+Python: two tools, an agent that calls them, a guardrail and a flow.
 
-:::note[Private preview]
-The runtime image is in private preview: request access at contact@kindgi.com.
-Then log in to its registry once, with `kindgi auth registry`
-([Install](../install/)).
-:::
+**Before you start**, set up what the [Install page](../install/) describes:
+Node 22 (for the CLI), Docker, Python 3.11 and uv, and access to the runtime
+image. The image is in private preview: request access at contact@kindgi.com,
+then log in once with `kindgi auth registry`.
 
 ## 1. Create the pack
 
@@ -48,6 +46,13 @@ my-pack/
 ├── tests/test_tools.py
 └── .claude/skills/                   # skills for your coding agent
 ```
+
+:::tip[Or ask your coding agent]
+The pack already has Kindgi's skills in `.claude/skills/`. Follow the steps
+below yourself, or ask your coding agent ("run the pack and try the agent",
+"add a tool that looks up an order"): the skills tell it which commands to
+run. [How it knows Kindgi](../coding-agents/).
+:::
 
 ## 2. Run it
 
@@ -178,3 +183,5 @@ preset too; any OpenAI-compatible endpoint registers from a short spec file.
 - [Guides](../../guides/): one task at a time.
 - [Concepts](../../concepts/): packs, runs and the journal, security.
 - [The Python SDK reference](../../reference/python/).
+- [Set up your coding agent](../coding-agents/): it already has Kindgi's
+  skills.
