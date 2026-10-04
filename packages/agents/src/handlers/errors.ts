@@ -25,7 +25,19 @@ export type InvokeAgentError =
   | GuardrailViolationError
   | UnresolvedGuardrailError
   | OutputSchemaViolationError
-  | TenantPolicyUnavailableError;
+  | TenantPolicyUnavailableError
+  | RunSnapshotError;
+
+/**
+ * A turn being resumed can't be rebuilt from its snapshot:
+ * `run-snapshot-missing`, there is none (its write failed), so it can't
+ * be resumed; `run-snapshot-unreadable`, reading it failed (a passing
+ * storage error), so resuming again may work.
+ */
+export interface RunSnapshotError {
+  readonly code: 'run-snapshot-missing' | 'run-snapshot-unreadable';
+  readonly message: string;
+}
 
 /**
  * A tenant policy the turn must apply couldn't be: its spec doesn't

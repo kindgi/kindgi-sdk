@@ -101,6 +101,10 @@ different ids) all apply: every tool any of them gates asks, and the highest
 To remove a policy, unregister **every** version: unregistering only the
 latest makes the version before it apply again.
 
+A change applies to approvals not asked for yet. A turn already waiting keeps
+the approval it asked for: the reviewer's answer still decides, even if the
+policy no longer gates that tool.
+
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/policies/acme.approval-rules/versions/1.0.0/unregister" \
   -H "Authorization: Bearer $KINDGI_API_TOKEN"

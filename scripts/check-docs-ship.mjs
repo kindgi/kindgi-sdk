@@ -17,7 +17,7 @@
  * code by itself; this check is about the pages people write.
  *
  * Usage: `pnpm run check:docs-ship [<base ref>]` (default `origin/main`;
- * `local-ci` runs it).
+ * CI runs it on pull requests).
  */
 
 import { execFileSync } from 'node:child_process';
