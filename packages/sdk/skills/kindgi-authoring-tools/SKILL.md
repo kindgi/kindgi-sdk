@@ -12,7 +12,7 @@ description: >
   authoring agents is covered by kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.3"
+version: "0.4.4"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -278,6 +278,17 @@ run start via `semver.maxSatisfying`. No implicit `:latest`.
    ("⚠ The pack imports @prisma/client (in kindgi/tools/…), which
    package.json lists only in devDependencies: …"), and `kindgi build`
    refuses the pack until it moves.
+10. **A tool that needs the app's install scripts in the image.** The
+    image installs with scripts off, so the app's `postinstall` /
+    `prepare` (`prisma generate`, husky) don't run there; `kindgi build`
+    lists them ("✓ The app's own install scripts don't run in the image:
+    …"). A tool that uses Prisma's client then fails the build ("@prisma/client
+    did not initialize yet"). Add `prisma({ schema: 'prisma/schema.prisma' })`
+    (from `@kindgi/sdk/build`; add `config: 'prisma.config.ts'` when the app
+    has one) to `image.extensions` in `kindgi.config.ts`. Other generate
+    steps: `defineBuildExtension({ name, contextFiles, postInstall: [{ bin, args }] })`.
+    Debian packages: `image.systemPackages`. Placeholder env for those steps:
+    `image.buildEnv` (never secrets).
 
 ## References
 
