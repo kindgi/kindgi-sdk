@@ -71,6 +71,7 @@ new since you last looked.
 | `iteration.started`, `iteration.completed` | A pass of a loop; the body's steps carry a `loopContext`. |
 | `fanout.dispatched`, `fanout.branch-completed`, `fanout.converged`, … | The branches of a fanout step. |
 | `wait.suspended`, `wait.resumed` | The run stopped to wait, and went on. |
+| `value.recorded` | A decision a step made once and keeps when it runs again after a wait: which approval an approval gate waits on, or a clock read. |
 
 ## Agent turns
 

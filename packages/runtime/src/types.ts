@@ -49,7 +49,22 @@ export type JournalKind =
   | 'wait.suspended'
   | 'wait.resumed'
   | 'wait.cancelled'
+  | 'value.recorded'
+  /** A clock read, as runtimes before `NodeContext.record` journaled it: informational. */
   | 'clock.read';
+
+/**
+ * Journal payload for `value.recorded`: a step's decision
+ * (`NodeContext.record`, and `clockNow` through it), read back when the
+ * step runs again. `scope` is the step: its node id; a loop-body step's
+ * `bodyStepKey`; a fanout branch's `<fanoutNodeId>/<branchId>`.
+ * Derivation keys it by `recordedValueKey(scope, key)`.
+ */
+export interface ValueRecordedPayload {
+  readonly scope: string;
+  readonly key: string;
+  readonly value: unknown;
+}
 
 /**
  * Journal payload for `step.retry-scheduled`. Emitted when a node handler
