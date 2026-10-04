@@ -16,6 +16,7 @@ import { AgentTurnFailure } from '../src/handlers/errors.js';
 import { resolveTurnHitlPolicy } from '../src/handlers/turn-environment.js';
 import { resolveEffectiveHitlPolicy } from '../src/hitl-policy.js';
 import type { Agent } from '../src/types.js';
+import { testNodeContext } from './node-context.js';
 
 const HOUR = 60 * 60 * 1000;
 
@@ -133,8 +134,19 @@ function lookupTool(ran: unknown[]): AnyTool {
   return defined.value as unknown as AnyTool;
 }
 
-/** One `pack.lookup` call, under `tenant`'s rules; approvals are granted. */
-async function dispatchUnder(tenant: HitlSpec | undefined, a: Agent = agent()) {
+/**
+ * One `pack.lookup` call, under `tenant`'s rules. Approvals are granted,
+ * unless `answer` says otherwise (it may throw, as a park does). `records`:
+ * the step's recorded decisions, kept across a park.
+ */
+async function dispatchUnder(
+  tenant: HitlSpec | undefined,
+  a: Agent = agent(),
+  options: {
+    readonly records?: Map<string, unknown>;
+    readonly answer?: (tokenId: string) => Promise<unknown>;
+  } = {},
+) {
   const ran: unknown[] = [];
   const tool = lookupTool(ran);
   const enqueued: Record<string, unknown>[] = [];
@@ -175,13 +187,16 @@ async function dispatchUnder(tenant: HitlSpec | undefined, a: Agent = agent()) {
       provider: { id: 'p', model: 'm' },
       nextMessages: [{ role: 'user', content: 'look it up' }] as readonly ModelMessage[],
     },
-    {
-      runId: 'run-1' as RunId,
-      waitForToken: async (tokenId: string, options: { readonly timeoutMs: number }) => {
-        waits.push({ tokenId, timeoutMs: options.timeoutMs });
-        return { decided: 'approve' };
+    testNodeContext(
+      {
+        runId: 'run-1' as RunId,
+        waitForToken: (async (tokenId: string, wait: { readonly timeoutMs: number }) => {
+          waits.push({ tokenId, timeoutMs: wait.timeoutMs });
+          return options.answer !== undefined ? options.answer(tokenId) : { decided: 'approve' };
+        }) as NodeContext['waitForToken'],
       },
-    } as unknown as NodeContext,
+      options.records,
+    ),
   );
   return { ran, enqueued, waits };
 }
@@ -220,5 +235,48 @@ describe("dispatch-tools — the tenant's per-tool rules", () => {
     const gated = agent({ hitl: { tools: { overrides: { 'pack.lookup': 'always_ask' } } } });
     const { enqueued } = await dispatchUnder({ minReviewerRole: 'senior' }, gated);
     expect(enqueued[0]).toMatchObject({ requiredRole: 'senior' });
+  });
+});
+
+describe('a tool gate that parked keeps its decision when the turn resumes', () => {
+  test("the reviewer's reject holds though the tenant relaxed the rule meanwhile", async () => {
+    const records = new Map<string, unknown>();
+    const parked = new Error('parked');
+    const tokens: string[] = [];
+    // The turn parks on the tenant's gate for the tool.
+    const first = dispatchUnder({ tools: { 'pack.lookup': 'always_ask' } }, agent(), {
+      records,
+      answer: async (tokenId) => {
+        tokens.push(tokenId);
+        throw parked;
+      },
+    });
+    await expect(first).rejects.toBe(parked);
+
+    // The tenant drops the rule, the reviewer rejects, and the turn resumes.
+    const resumed = await dispatchUnder(undefined, agent(), {
+      records,
+      answer: async (tokenId) => {
+        tokens.push(tokenId);
+        return { decided: 'reject', rationale: 'not this one' };
+      },
+    });
+    // It read the reviewer's answer, on the wait it parked on, and the tool didn't run.
+    expect(tokens).toHaveLength(2);
+    expect(tokens[1]).toBe(tokens[0]);
+    expect(resumed.ran).toEqual([]);
+  });
+
+  test('a gate not reached before the park follows the rules as they are now', async () => {
+    // Nothing was recorded for this call: the tenant's new rule gates it.
+    const { waits, ran } = await dispatchUnder(
+      { tools: { 'pack.lookup': 'always_ask' } },
+      agent(),
+      {
+        records: new Map(),
+      },
+    );
+    expect(waits).toHaveLength(1);
+    expect(ran).toEqual([{ q: 'x' }]);
   });
 });

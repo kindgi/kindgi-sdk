@@ -33,7 +33,7 @@ the [`kindgi` Python SDK](../../sdks/python).
 | [`kindgi deploy`](#kindgi-deploy) | Send the signed envelope to `POST /v1/deployments`. |
 | [`kindgi env`](#kindgi-env) | Per-environment values, kept in env files next to the pack. |
 | [`kindgi secrets`](#kindgi-secrets) | Per-environment secrets, through the API. |
-| [`kindgi key`](#kindgi-key) | Local Ed25519 signing keys under `~/.kindgi/keys/`. |
+| [`kindgi key`](#kindgi-key) | Ed25519 signing keys: local pairs under `~/.kindgi/keys/`, and the runtime's trust list. |
 | [`kindgi skills`](#kindgi-skills) | Refresh the Claude Code skills in `.claude/skills/`. |
 | [`kindgi mcp`](#kindgi-mcp) | MCP servers for your coding agent, in `.mcp.json`. |
 | [`kindgi feedback`](#kindgi-feedback) | Note framework friction in the pack's `FEEDBACK.md`. |
@@ -452,8 +452,8 @@ export default {
   `contextFiles`, `systemPackages`, `postInstall` steps (a package's bin, run
   through the app's package manager) and `buildEnv`.
 
-**`--local`:** builds the image with this machine's Docker
-(`docker buildx build --load`) into its image store, as
+**`--local`:** builds the image of a TypeScript or Python pack with this
+machine's Docker (`docker buildx build --load`) into its image store, as
 `kindgi-pack/<packId>:<artifactVersion>`, with the same integrity gate. There
 is no build server, signature or envelope, and no tenant or signing key
 needed. It prints a `docker run` line.
@@ -487,7 +487,7 @@ digest, and the pack's dependencies come from its lockfile (`uv.lock`, or a
 Poetry app's `poetry.lock`; one is required). Debian packages the code needs
 go in `[tool.kindgi.image] system-packages = ["tesseract-ocr"]`. The image's
 uv version must be in the pack's `[tool.uv] required-version`; `kindgi
-build` stops before uploading when it isn't.
+build` stops before building when it isn't.
 
 **Reproducible:** the build pins `SOURCE_DATE_EPOCH=0`, the publish time
 (`--published-at`, default the epoch) and the artifact version
@@ -496,7 +496,7 @@ so the same inputs give the same image.
 
 | Flag | Purpose |
 |---|---|
-| `--local` | Build with this machine's Docker instead of a build server: no signing, no envelope. TypeScript packs. |
+| `--local` | Build with this machine's Docker instead of a build server: no signing and no envelope unless `--push`. |
 | `--push[=<repository>]` | With `--local`: push the image, sign it, and write the envelope. Default repository: the env block's `registry` + `/<packId>`. |
 | `--platform=<os/arch>` | The image's platform. Default: `linux/amd64` when pushing, else this machine's. |
 | `--endpoint=<url>` | The build server. Default: the env block's `build`. |
@@ -618,6 +618,8 @@ writes to the pack's `.env.local`.
 kindgi key create <keyId> [--env <name>] [--home <dir>]
 kindgi key export <keyId> [--format=pem|base64|raw-hex] [--home <dir>]
 kindgi key list [--home <dir>]
+kindgi key trust <keyId> [--label <text>] [--home <dir>]
+kindgi key revoke <keyId> [--reason <text>]
 ```
 
 Ed25519 signing keys for `kindgi build`, as files under `~/.kindgi/keys/`
@@ -628,6 +630,13 @@ Ed25519 signing keys for `kindgi build`, as files under `~/.kindgi/keys/`
   `kindgi.config.ts`.
 - **`export`** prints the public key only, never the private one.
 - **`list`** shows each key pair's id, fingerprint and paths.
+- **`trust`** adds a local key's public key to the runtime's trust list
+  (`--url`, `--token`), so the runtime accepts deploys it signs. A key id
+  stays bound to its key: to rotate, create a key under a new id and trust
+  that.
+- **`revoke`** removes a key from the trust list. The runtime refuses new
+  deploys it signs; deployments it signed keep running, and the key stays
+  listed for audit. A revoked id can't be trusted again.
 
 ## `kindgi skills`
 

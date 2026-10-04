@@ -357,3 +357,10 @@ token, without your API token: see
 [Follow a run from the browser](../../guides/runs/follow-from-the-browser/).
 To be told when a run ends instead, have Kindgi send your app a signed
 webhook: see [Get a webhook when a run finishes](../../guides/webhooks/receive-run-finished/).
+
+### Keep what a run did
+
+Store the run's id on your own row (a `kindgi_run_id` column), and read its
+status, output, steps and sources through the API when your app shows them.
+Never from Kindgi's database, and never by sending users to Kindgi's
+console: see [Show runs in your app](../../guides/runs/show-runs-in-your-app/).
