@@ -107,7 +107,7 @@ With Zod v4 as the workspace-wide version, `@kindgi/schema` exposes three helper
 
 - **No wire-level Zod.** Every artifact on the wire is a JSON Schema. Language-agnostic MCP + OpenAPI + Python/Go/Rust consumers must never see Zod.
 - **No TS type generation from JSON Schemas.** Callers maintain matching TS types by hand, or author with Zod and derive them via `z.infer<...>`.
-- **No custom Ajv keywords or extensions.** Stock Ajv Draft 2020-12 + `ajv-formats` only.
+- **No custom Ajv keywords or extensions.** Stock Ajv + `ajv-formats` only: Draft 2020-12 for Kindgi's own schemas, and `compileJsonSchema` compiles a schema from elsewhere (an MCP server's) with Ajv's class for the dialect it declares.
 - **No schema migration between majors.** Not needed until any schema has a v2.
 - **No caching of loaded registries across calls.** Callers manage their own registry lifecycle.
 
