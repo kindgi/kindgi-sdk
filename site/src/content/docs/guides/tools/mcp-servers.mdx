@@ -67,10 +67,7 @@ reaches your machine's `localhost`.
 import { createClient } from '@kindgi/sdk/client';
 import type { TenantId } from '@kindgi/sdk/types';
 
-const kindgi = createClient({
-  apiUrl: process.env.KINDGI_API_URL ?? 'http://127.0.0.1:4000',
-  auth: { kind: 'apiToken', token: process.env.KINDGI_API_TOKEN ?? '' },
-});
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
 await kindgi.mcp.endpoints.register({
   endpointId: 'inventory',
@@ -94,7 +91,7 @@ console.log(page.items.map((e) => `${e.endpointId} (${e.transport})`));
 ```python
 from kindgi.client import Kindgi
 
-client = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN
+client = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
 client.mcp.endpoints.register(
     {
@@ -172,8 +169,11 @@ kindgi tools get inventory.stock_level
 ```
 
 Kindgi registers MCP tools as version `1.0.0`. A tool's input schema is
-the one the server gives; its output schema takes whatever the server
-returns.
+the one the server gives. Its answer is the server's structured content,
+checked against the tool's `outputSchema`, when the server declares one;
+otherwise the answer's text, parsed as JSON when the text is JSON (servers
+built with the TypeScript MCP SDK often declare none: their `echo` tool
+answers `"Echo: hi"`).
 
 ## Call its tools
 

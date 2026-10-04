@@ -42,10 +42,7 @@ From your app, the same input goes in `runs.start`. This runs the
 // scripts/drafter.ts
 import { createClient } from '@kindgi/sdk/client';
 
-const kindgi = createClient({
-  apiUrl: process.env.KINDGI_API_URL!,
-  auth: { kind: 'apiToken', token: process.env.KINDGI_API_TOKEN! },
-});
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
 const run = await kindgi.runs.start({
   agent: 'acme.reply-drafter',
@@ -65,7 +62,7 @@ console.log(turn.response.content);
 # scripts/drafter.py
 from kindgi.client import Kindgi
 
-kindgi = Kindgi()
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 run = kindgi.runs.start(
     agent="acme.reply-drafter",
     input={
