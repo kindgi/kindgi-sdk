@@ -30,9 +30,9 @@ import {
   repairMessage,
   repairsSoFar,
 } from '../src/handlers/structured-output.js';
-import { agentStepOutput, invokeAgent } from '../src/invoke.js';
+import { agentStepOutput, invokeAgent, turnInputFromSnapshot } from '../src/invoke.js';
 import { renderInstructions } from '../src/prompt.js';
-import type { RunSnapshotWriteInput } from '../src/run-snapshot-binding.js';
+import type { RunSnapshotRecord, RunSnapshotWriteInput } from '../src/run-snapshot-binding.js';
 import type { Agent, AgentOutputSpec, ConversationId } from '../src/types.js';
 
 const tenantId = 'acme' as TenantId;
@@ -424,5 +424,27 @@ describe('agentStepOutput', () => {
       usage: { steps: 1, promptTokens: 1, completionTokens: 1, totalCostUsd: 0, durationMs: 1 },
       violations: [{ guardrailId: 'acme.tone', severity: 'warning', action: 'warn' }],
     });
+  });
+});
+
+describe('turnInputFromSnapshot', () => {
+  test("a resumed turn keeps the run's project, and gets the org its caller resolved", () => {
+    const snapshot = {
+      runId,
+      tenantId,
+      projectId,
+      agentId: 'pack.agent',
+      agentVersion: '1.0.0',
+      conversationId,
+      userMessage: 'go',
+      dryRun: false,
+    } as unknown as RunSnapshotRecord;
+    const orgId = 'org-1' as OrgId;
+    expect(turnInputFromSnapshot(snapshot, { agent: agent(), orgId })).toMatchObject({
+      tenantId,
+      projectId,
+      orgId,
+    });
+    expect(turnInputFromSnapshot(snapshot, { agent: agent() })).not.toHaveProperty('orgId');
   });
 });
