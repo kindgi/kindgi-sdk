@@ -1,6 +1,6 @@
 /* Kindgi's palette on Starlight's tokens.
    Dark: the kindgi.com website's void base and amber accent.
-   Light: Attelus's cool legal paper: a cool ink scale, a honey accent,
+   Light: cool legal paper: a cool ink scale, a honey accent,
    white cards and code, chrome set apart by color rather than borders,
    IBM Plex Serif headings, 6px corners and soft card shadows.
    Fonts: IBM Plex Sans for text, IBM Plex Mono for code. */
@@ -26,7 +26,7 @@
   --sl-color-black: #0a0a0b;
 }
 
-/* Light: Attelus's cool paper. Ink scale: 25 #f8f9fb (page), 50 #f3f5f8,
+/* Light: cool paper. Ink scale: 25 #f8f9fb (page), 50 #f3f5f8,
    100 #ecf0f4, 200 #e2e6ec (soft rule), 300 #cfd4dc, 500 #6c727f,
    600 #4a4f5a, 700 #33363e, 800 #1a1c22 (text), 900 #0d1015. Every text
    color here meets WCAG AA on the surface it sits on. */
@@ -56,7 +56,7 @@
 
   --sl-shadow-sm: 0 1px 3px rgba(13, 16, 21, 0.06), 0 4px 12px rgba(13, 16, 21, 0.04);
 
-  /* Asides take Attelus's chips: reference blue, ok green, honey, danger. */
+  /* Asides: reference blue, ok green, honey, danger. */
   --sl-color-blue-low: #e6ecf4;
   --sl-color-blue: #1e4a8a;
   --sl-color-blue-high: #1e4a8a;
