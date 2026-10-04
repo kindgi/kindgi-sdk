@@ -75,10 +75,12 @@ Three modes:
   the skills under `.claude/skills/`, and `.gitignore` entries. It adds
   `@kindgi/sdk`, `zod` (`^4.0.0`, unless the app has its own: one older than
   zod 4 is kept, with a warning) and `@kindgi/cli` to `package.json`. In a
-  pnpm app it allows esbuild's install script (`allowBuilds.esbuild: true`)
-  in the `pnpm-workspace.yaml` pnpm reads, creating it if needed and keeping
-  the rest of the file; pnpm 11+ won't install `@kindgi/cli` without it. An
-  explicit `esbuild: false` is left alone, with a warning. It creates
+  pnpm app it records a decision for esbuild's install script
+  (`allowBuilds.esbuild: false`) in the `pnpm-workspace.yaml` pnpm reads,
+  creating it if needed and keeping the rest of the file: pnpm 11+ won't
+  install `@kindgi/cli` until that script has a decision, and esbuild works
+  without it (its binary comes from its `@esbuild/<platform>` package). A
+  decision the app already has, `true` or `false`, is kept. It creates
   no env files: `kindgi dev` reads the app's own `.env` / `.env.local`.
   `--new-repo` scaffolds a separate pack inside the app instead.
 - **`kindgi init`** in a directory with a `pyproject.toml` and no

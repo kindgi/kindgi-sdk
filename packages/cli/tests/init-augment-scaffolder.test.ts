@@ -535,10 +535,10 @@ describe('runInitAugment — pnpm-workspace.yaml', () => {
   }
   const workspaceFile = () => join(root, 'pnpm-workspace.yaml');
 
-  test('a pnpm app without the file gets one allowing esbuild, reported like the other edits', async () => {
+  test("a pnpm app without the file gets one deciding esbuild's install script (off), reported like the other edits", async () => {
     const { summary } = await initPnpm();
-    expect(await fileContents(workspaceFile())).toContain('allowBuilds:\n  esbuild: true\n');
-    expect(summary.created).toContain(`${workspaceFile()} (created: allowBuilds.esbuild: true)`);
+    expect(await fileContents(workspaceFile())).toContain('allowBuilds:\n  esbuild: false\n');
+    expect(summary.created).toContain(`${workspaceFile()} (created: allowBuilds.esbuild: false)`);
     expect(summary.warnings).toEqual([]);
   });
 
@@ -548,9 +548,9 @@ describe('runInitAugment — pnpm-workspace.yaml', () => {
     await writeFile(workspaceFile(), before, 'utf8');
     const { summary } = await initPnpm();
     expect(await fileContents(workspaceFile())).toBe(
-      '# Our workspace\nallowBuilds:\n  sharp: false # prebuilt\n  esbuild: true\nnodeLinker: hoisted\n',
+      '# Our workspace\nallowBuilds:\n  sharp: false # prebuilt\n  esbuild: false\nnodeLinker: hoisted\n',
     );
-    expect(summary.created).toContain(`${workspaceFile()} (patched: +allowBuilds.esbuild: true)`);
+    expect(summary.created).toContain(`${workspaceFile()} (patched: +allowBuilds.esbuild: false)`);
   });
 
   test("pnpm's placeholder is replaced", async () => {
@@ -560,20 +560,22 @@ describe('runInitAugment — pnpm-workspace.yaml', () => {
       'utf8',
     );
     const { summary } = await initPnpm();
-    expect(await fileContents(workspaceFile())).toBe('allowBuilds:\n  esbuild: true\n');
+    expect(await fileContents(workspaceFile())).toBe('allowBuilds:\n  esbuild: false\n');
     expect(summary.created.join('\n')).toContain("replacing pnpm's placeholder");
   });
 
-  test('an explicit false is left alone, with a warning', async () => {
-    await writeFile(workspaceFile(), 'allowBuilds:\n  esbuild: false\n', 'utf8');
-    const { result, summary } = await initPnpm();
-    expect(await fileContents(workspaceFile())).toBe('allowBuilds:\n  esbuild: false\n');
-    expect(summary.skipped).toContain(
-      `${workspaceFile()} (allowBuilds.esbuild is false, left as is)`,
-    );
-    expect(summary.warnings.join('\n')).toContain('sets allowBuilds.esbuild to false');
-    if (result.kind === 'ok') expect(result.rendered.stderr).toContain('  ⚠ pnpm: ');
-  });
+  test.each([true, false])(
+    "an app's existing decision (%s) is kept without a warning",
+    async (value) => {
+      await writeFile(workspaceFile(), `allowBuilds:\n  esbuild: ${value}\n`, 'utf8');
+      const { summary } = await initPnpm();
+      expect(await fileContents(workspaceFile())).toBe(`allowBuilds:\n  esbuild: ${value}\n`);
+      expect(summary.skipped).toContain(
+        `${workspaceFile()} (allowBuilds.esbuild already ${value})`,
+      );
+      expect(summary.warnings).toEqual([]);
+    },
+  );
 
   test('a file it cannot edit safely is left alone; the warning says what to add', async () => {
     await writeFile(workspaceFile(), 'allowBuilds: [esbuild]\n', 'utf8');
@@ -595,7 +597,7 @@ describe('runInitAugment — pnpm-workspace.yaml', () => {
       dependencySpecs: { source: 'published', sdk: '0.1.0', cli: '0.1.0' },
     });
     expect(result.kind).toBe('ok');
-    expect(await fileContents(workspaceFile())).toContain('  esbuild: true\n');
+    expect(await fileContents(workspaceFile())).toContain('  esbuild: false\n');
     expect(await exists(join(app, 'pnpm-workspace.yaml'))).toBe(false);
   });
 
