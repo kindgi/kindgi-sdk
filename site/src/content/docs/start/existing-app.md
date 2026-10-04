@@ -172,6 +172,64 @@ pnpm exec kindgi runs start --agent=acme-support.triage --input='{"userMessage":
     },
 ```
 
+### What the pack's image needs
+
+`kindgi build` turns the pack into an image. It installs your app's
+production dependencies with install scripts off, so your app's own
+`postinstall` and `prepare` scripts don't run there, and the build says so:
+
+```text
+    ✓ The app's own install scripts don't run in the image: postinstall (`prisma generate`)
+```
+
+When the image needs what such a script does, say so under `image` in
+`kindgi.config.ts`.
+
+**Prisma.** A tool that uses Prisma's client needs `prisma generate` in the
+image. Without it the build fails when it loads the pack:
+
+```text
+kindgi-index: file-import-failed: Failed to import kindgi/tools/find-order/index.ts: Error: @prisma/client did not initialize yet. Please run "prisma generate" and try to import it again.
+```
+
+`prisma()` copies the schema into the image and runs `prisma generate` after
+the install:
+
+```ts
+// in kindgi.config.ts
+import { prisma } from '@kindgi/sdk/build';
+
+const config = {
+  // pack, discovery and environments, as kindgi init wrote them
+  image: {
+    extensions: [prisma({ schema: 'prisma/schema.prisma' })],
+  },
+};
+```
+
+With a `prisma.config.ts`, name it too:
+`prisma({ schema: 'prisma/schema.prisma', config: 'prisma.config.ts' })`.
+
+**Also under `image`:**
+- `systemPackages`: Debian packages the image needs, such as
+  `['tesseract-ocr']`.
+- `buildEnv`: placeholder variables for the build steps and for loading your
+  modules while building, such as
+  `{ DATABASE_URL: 'postgresql://build-placeholder' }`. Never secrets: they're
+  set while building only, and the final image doesn't have them.
+- **patch-package:** when a skipped script runs it, `kindgi build` prints the
+  build step to add (`defineBuildExtension`, also from `@kindgi/sdk/build`).
+  With pnpm, `pnpm patch` applies your patches in the install itself.
+
+The build ends with the image and a check of what's in it:
+
+```text
+    ✓ Built kindgi-pack/acme-orders:20261004.1 (sha256:042e285f8cd9…)
+    ✓ /app/index.json in the image matches the local index byte for byte
+```
+
+[Self-host with Docker](../../deploy/self-host/) pushes, signs and deploys it.
+
 ## A Python app
 
 In the app's directory (where its `pyproject.toml` is):
