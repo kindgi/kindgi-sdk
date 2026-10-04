@@ -4,6 +4,7 @@
 import { type KindgiClient, createClient } from '@kindgi/client';
 
 import type { BuildRunners } from './build/runners.js';
+import type { RegistryAuthSeam } from './commands/auth.js';
 import type { EnvInitInputSeam } from './commands/env.js';
 import type { SecretsValueInputSeam } from './commands/secrets.js';
 import type { ResolvedConfig } from './config.js';
@@ -131,6 +132,13 @@ export interface CommandContext {
    * `env init` spins up a real `readline.Interface`.
    */
   readonly envInitInputSeam: EnvInitInputSeam | undefined;
+  /**
+   * Injectable seams for `kindgi auth registry`: the `docker` runner, the
+   * stdin reader, the hidden prompt and the image checked. Tests pass
+   * fixtures so the login and the check run without Docker or a
+   * terminal; production leaves this undefined (the real ones).
+   */
+  readonly registryAuthSeam: RegistryAuthSeam | undefined;
 }
 
 export interface BuildContextInputs {
@@ -153,6 +161,7 @@ export interface BuildContextInputs {
   readonly keyRunners?: KeyRunners;
   readonly secretsInputSeam?: SecretsValueInputSeam;
   readonly envInitInputSeam?: EnvInitInputSeam;
+  readonly registryAuthSeam?: RegistryAuthSeam;
 }
 
 export function buildContext(inputs: BuildContextInputs): CommandContext {
@@ -199,5 +208,6 @@ export function buildContext(inputs: BuildContextInputs): CommandContext {
     keyRunners: inputs.keyRunners,
     secretsInputSeam: inputs.secretsInputSeam,
     envInitInputSeam: inputs.envInitInputSeam,
+    registryAuthSeam: inputs.registryAuthSeam,
   };
 }

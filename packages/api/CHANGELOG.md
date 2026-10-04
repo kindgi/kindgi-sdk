@@ -1,5 +1,29 @@
 # @kindgi/api
 
+## 0.1.1
+
+### Patch Changes
+
+- 786ea98: An exception a route throws now reaches the client as a `500 internal-server-error` wire error, as JSON with its message and the request id. Before, Hono's own error handler answered first with plain-text "Internal Server Error", so the JSON error mapper never ran and clients got an unparseable 500. The mapping is now the app's error handler (`app.onError`); an exception that carries its own response (Hono's `HTTPException`) still answers with it.
+- 324aba4: **`POST /v1/runs/{runId}/resume` is not available in this release.** It now answers `422 run-resume-not-supported` and completes nothing. Every waitpoint a run can wait at belongs to an approval or to the runtime itself. A run waiting for an approval continues when a reviewer decides it, through `POST /v1/approvals/{approvalId}/complete` (`kindgi approvals complete`), which checks the reviewer and records the decision. `kindgi runs resume` says the same and is left out of `--help`.
+- @kindgi/agents@0.1.1
+  - @kindgi/audit-events@0.1.1
+  - @kindgi/authz@0.1.1
+  - @kindgi/blob-binding@0.1.1
+  - @kindgi/capabilities@0.1.1
+  - @kindgi/compliance@0.1.1
+  - @kindgi/crypto@0.1.1
+  - @kindgi/flow@0.1.1
+  - @kindgi/guardrails@0.1.1
+  - @kindgi/memory@0.1.1
+  - @kindgi/platform@0.1.1
+  - @kindgi/policy-contract@0.1.1
+  - @kindgi/provenance@0.1.1
+  - @kindgi/runtime@0.1.1
+  - @kindgi/schema@0.1.1
+  - @kindgi/tools@0.1.1
+  - @kindgi/types@0.1.1
+
 ## 0.1.0
 
 ### Minor Changes

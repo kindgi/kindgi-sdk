@@ -75,10 +75,12 @@ Three modes:
   the skills under `.claude/skills/`, and `.gitignore` entries. It adds
   `@kindgi/sdk`, `zod` (`^4.0.0`, unless the app has its own: one older than
   zod 4 is kept, with a warning) and `@kindgi/cli` to `package.json`. In a
-  pnpm app it allows esbuild's install script (`allowBuilds.esbuild: true`)
-  in the `pnpm-workspace.yaml` pnpm reads, creating it if needed and keeping
-  the rest of the file; pnpm 11+ won't install `@kindgi/cli` without it. An
-  explicit `esbuild: false` is left alone, with a warning. It creates
+  pnpm app it records a decision for esbuild's install script
+  (`allowBuilds.esbuild: false`) in the `pnpm-workspace.yaml` pnpm reads,
+  creating it if needed and keeping the rest of the file: pnpm 11+ won't
+  install `@kindgi/cli` until that script has a decision, and esbuild works
+  without it (its binary comes from its `@esbuild/<platform>` package). A
+  decision the app already has, `true` or `false`, is kept. It creates
   no env files: `kindgi dev` reads the app's own `.env` / `.env.local`.
   `--new-repo` scaffolds a separate pack inside the app instead.
 - **`kindgi init`** in a directory with a `pyproject.toml` and no
@@ -137,10 +139,18 @@ One command runs the whole loop on your machine:
   same process a deployment runs, with your Node or Python, your
   `node_modules` or virtualenv, and your app's modules. The runtime calls it
   for every tool and guardrail check.
-- **Postgres:** a bundled Postgres, started with `docker compose` (the
-  `kindgi-dev` project, shared by every `kindgi dev` on the machine and left
-  running), or the one you name with `--database-url` /
-  `KINDGI_DATABASE_URL`.
+- **Postgres:** a bundled Postgres, started with `docker compose` when it's
+  available and with plain `docker` otherwise (the `kindgi-dev` project, with
+  the same container, volume and network either way, shared by every
+  `kindgi dev` on the machine and left running), or the one you name with
+  `--database-url` / `KINDGI_DATABASE_URL`. The bundled one is published on
+  a random port on `127.0.0.1` only, since its password is a fixed dev one;
+  the runtime container reaches it through `host.docker.internal` (Docker
+  Desktop) or directly (Linux host networking). A `kindgi-dev_postgres`
+  started by an earlier CLI keeps its old binding (every address) until
+  it's recreated: `kindgi dev --recreate-services` with compose, or, without
+  compose, `docker rm -f kindgi-dev_postgres` (its data stays in the volume)
+  and run `kindgi dev` again.
 - **The pack is indexed and watched.** `kindgi dev` finds every tool,
   guardrail, agent and flow, and on each save re-indexes, rebuilds the code
   and restarts the pack service. The next request sees the new definitions;
@@ -154,8 +164,8 @@ One command runs the whole loop on your machine:
 | `--dev-token=<token>` | Pin the API token. Default: the previous run's, else a new one. Each flag overrides only its own value: `--dev-token` alone keeps the tenant. |
 | `--path=<dir>` | The pack root. Default: the current directory. It must have a `kindgi.config.ts`, or a `pyproject.toml` with a `[tool.kindgi]` table. |
 | `--no-watch` | Start, index once, and exit. For smoke tests and CI. |
-| `--reset` | Start this pack fresh: removes `.kindgirc.json`, so the boot makes a new tenant and token and the pack sees none of its earlier data. The bundled Postgres, which every pack on the machine shares, is left alone. (To wipe all dev data: `docker compose -p kindgi-dev down -v`.) |
-| `--recreate-services` | Let `docker compose` recreate the bundled Postgres if its definition changed. By default an existing container is reused as it is, so no other `kindgi dev` loses its database. |
+| `--reset` | Start this pack fresh: removes `.kindgirc.json`, so the boot makes a new tenant and token and the pack sees none of its earlier data. The bundled Postgres, which every pack on the machine shares, is left alone. (To wipe all dev data: `docker compose -p kindgi-dev down -v`; without compose, `docker rm -f kindgi-dev_postgres`, then `docker volume rm kindgi-dev_postgres-data`.) |
+| `--recreate-services` | Let `docker compose` recreate the bundled Postgres if its definition changed. By default an existing container is reused as it is, so no other `kindgi dev` loses its database. Without compose, an existing container is always reused, and `kindgi dev` says how to recreate it by hand. |
 | `--runtime-image=<ref>` | The runtime image to run. Default: the one this CLI release was tested with. |
 | `--runtime-url=<url>` | Use a runtime you run yourself instead of starting the container. Start it with the pack's `.kindgi/dev/runtime.env`. |
 
@@ -175,8 +185,10 @@ One command runs the whole loop on your machine:
   `gcloud auth application-default login` writes) is mounted read-only.
   Kindgi keeps no key files of its own.
 - **The image:** the runtime image is pulled on first use. It is in
-  private preview: request access at contact@kindgi.com, then
-  `docker login quay.io` with the pull credentials you receive. `kindgi dev`
+  private preview: request access at contact@kindgi.com, then log Docker in
+  with the pull credentials you receive:
+  `kindgi auth registry --username <robot name>` (see
+  [The runtime image's registry](#the-runtime-images-registry)). `kindgi dev`
   says so when a pull is refused.
 
 ### Env files
@@ -302,6 +314,12 @@ directory is watched, never the whole app. The dev index lives at
 - A file that fails to index or build (a bad schema, a missing default
   export, a syntax error) is reported with its path and the error, and the
   previous code keeps serving until you fix it and save.
+- A package the pack imports that `package.json` lists only in
+  `devDependencies` gets a warning naming it and the files importing it, at
+  startup and when a save adds one (once per package; the next reload after
+  you fix it says so). It loads here, but a deployed pack installs
+  production dependencies only, so `kindgi build` refuses it. `--json` lists
+  them as `devOnlyImports`. A Python pack isn't checked.
 - Deleting a primitive's folder removes it from the catalog.
 
 ### A Python pack
@@ -695,6 +713,27 @@ The API URL and token come from, in order:
 `kindgi dev` writes `.kindgirc.json` in the pack. For another API, save the
 pair once with `kindgi auth login --url=<url> --token=<token>`, and check it
 with `kindgi auth whoami`.
+
+### The runtime image's registry
+
+The Kindgi runtime image `kindgi dev` runs is in private preview: request
+access at contact@kindgi.com. With the pull credentials you receive (a robot
+name and a token), log Docker in once:
+
+```sh
+kindgi auth registry --username <robot name>     # prompts for the token, without echoing it
+printf '%s' "$TOKEN" | kindgi auth registry --username <robot name> --password-stdin
+kindgi auth registry --check                      # only check access, no login
+```
+
+It runs `docker login` with the token on its stdin, never in its arguments,
+so the credential lives in Docker's own credential store: Kindgi stores
+nothing. Then it checks that Docker can pull the exact image this CLI runs
+(pinned by digest; with `docker buildx imagetools inspect`, or
+`docker manifest inspect` by digest where buildx isn't installed), and a
+failure says whether it's access (request it at
+contact@kindgi.com) or the image or the network. `--registry <host>` logs in
+to a mirror instead and checks for the same image there.
 
 ## Output and global flags
 

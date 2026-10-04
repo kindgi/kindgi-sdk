@@ -1,5 +1,11 @@
 # @kindgi/pack-conformance
 
+## 0.1.1
+
+### Patch Changes
+
+- @kindgi/specs@0.1.1
+
 ## 0.1.0
 
 ### Minor Changes

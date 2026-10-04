@@ -49,7 +49,7 @@ import type { MCPClientProbeBinding, MCPEndpointRegistryBinding } from './mcp-en
 import type { MemoryBinding } from './memory-binding.js';
 import { type TokenResolver, bearerAuthMiddleware } from './middleware/auth.js';
 import { type Authorizer, createAuthorizer } from './middleware/authorize.js';
-import { errorMapperMiddleware } from './middleware/error-mapper.js';
+import { mapThrownError } from './middleware/error-mapper.js';
 import {
   type IdempotencyStore,
   createInMemoryIdempotencyStore,
@@ -858,7 +858,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
 
   // ---------- global middleware ----------
   app.use('*', requestIdMiddleware());
-  app.use('*', errorMapperMiddleware());
+  // A thrown exception: a 500 wire error with its message and request id.
+  app.onError(mapThrownError);
 
   // Public run tokens: checked once at startup; CORS for the two routes
   // they can call, ahead of authentication so preflights pass.

@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/secrets-dotenv",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Dev-mode `SecretBinding` over the project's own env files (`.env`, then `.env.local`, or `dev.envFiles`) — the same files, parsed the same way, as the app beside the pack — plus the one definition of which env files belong to a pack environment. `KINDGI_*` names are runtime config, never secrets. Not for production — no encryption, no audit, no versioning.",
   "license": "Apache-2.0",
   "repository": {

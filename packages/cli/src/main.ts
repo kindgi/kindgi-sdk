@@ -4,6 +4,7 @@
 import type { KindgiClient } from '@kindgi/client';
 
 import type { BuildRunners } from './build/runners.js';
+import type { RegistryAuthSeam } from './commands/auth.js';
 import type { EnvInitInputSeam } from './commands/env.js';
 import { ROOT_COMMANDS, findCommand } from './commands/index.js';
 import type { SecretsValueInputSeam } from './commands/secrets.js';
@@ -100,6 +101,12 @@ export interface RunCliInputs {
    * substitute a fixture `promptChoice`.
    */
   readonly envInitInputSeam?: EnvInitInputSeam;
+  /**
+   * Injectable seams for `kindgi auth registry`: the `docker` runner, the
+   * stdin reader, the hidden prompt and the image checked. Tests
+   * substitute fixtures so no real `docker login` runs.
+   */
+  readonly registryAuthSeam?: RegistryAuthSeam;
 }
 
 export interface CliOutcome {
@@ -217,6 +224,7 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
     ...(keyRunners !== undefined ? { keyRunners } : {}),
     ...(inputs.secretsInputSeam !== undefined ? { secretsInputSeam: inputs.secretsInputSeam } : {}),
     ...(inputs.envInitInputSeam !== undefined ? { envInitInputSeam: inputs.envInitInputSeam } : {}),
+    ...(inputs.registryAuthSeam !== undefined ? { registryAuthSeam: inputs.registryAuthSeam } : {}),
   });
 
   const label = commandLabel(command, argv, consumed);

@@ -208,9 +208,16 @@ describe('@kindgi/sdk/define — pack authoring re-exports', () => {
 });
 
 describe('@kindgi/sdk/client — client callsite re-exports', () => {
-  it('re-exports createClient identically (===) from @kindgi/client', () => {
-    expect(createClient).toBeDefined();
-    expect(createClient).toBe(createClientFromClient);
+  it("createClient is the SDK's own (it finds the runtime), with @kindgi/client's underneath", () => {
+    expect(typeof createClient).toBe('function');
+    expect(createClient).not.toBe(createClientFromClient);
+    const explicit = {
+      apiUrl: 'http://127.0.0.1:4000',
+      auth: { kind: 'apiToken', token: 't' },
+    } as const;
+    expect(Object.keys(createClient(explicit)).sort()).toEqual(
+      Object.keys(createClientFromClient(explicit)).sort(),
+    );
   });
 
   it('re-exports the error surface as callable values', () => {
@@ -325,7 +332,7 @@ describe('@kindgi/sdk/types — branded IDs + Result envelope', () => {
 describe('@kindgi/sdk — flat barrel', () => {
   it('re-exports defineTool + createClient via the barrel', () => {
     expect(sdk.defineTool).toBe(defineToolFromTools);
-    expect(sdk.createClient).toBe(createClientFromClient);
+    expect(sdk.createClient).toBe(createClient);
   });
 
   it('barrel names are disjoint (no /define ↔ /client ↔ /types collision)', () => {

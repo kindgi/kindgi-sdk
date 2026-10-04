@@ -21,8 +21,38 @@
  */
 
 // ---- Client factory + top-level shape ----
-export { createClient } from '@kindgi/client';
+import { createClient as createKindgiClient } from '@kindgi/client';
+import type { ClientOptions, KindgiClient } from '@kindgi/client';
+
+import { resolveClientOptions } from './runtime-config.js';
+
 export type { KindgiClient } from '@kindgi/client';
+
+/**
+ * A client for the app's Kindgi runtime. Every option is optional:
+ *
+ * - `apiUrl` and `auth` come from `KINDGI_API_URL` and `KINDGI_API_TOKEN`;
+ * - outside production, when those aren't set, from the running
+ *   `kindgi dev` (the nearest `.kindgirc.json`), with a one-time warning to
+ *   put them in the app's env file;
+ * - a token that doesn't match the running `kindgi dev`'s for the same
+ *   `apiUrl` (after `kindgi dev --reset`) is warned about once.
+ *
+ * Production (`NODE_ENV` or `KINDGI_ENV` = `production`) never reads
+ * `.kindgirc.json`: there, the env or explicit options must say. In a
+ * browser, pass `apiUrl` and `auth`. `@kindgi/client`'s `createClient` is
+ * the explicit form underneath.
+ *
+ * @example
+ * ```ts
+ * import { createClient } from '@kindgi/sdk/client';
+ *
+ * const kindgi = createClient();
+ * ```
+ */
+export function createClient(options: Partial<ClientOptions> = {}): KindgiClient {
+  return createKindgiClient(resolveClientOptions(options));
+}
 
 // ---- Resource client types + per-resource input shapes ----
 export type {

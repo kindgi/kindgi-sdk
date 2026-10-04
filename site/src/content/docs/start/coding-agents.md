@@ -1,23 +1,37 @@
 ---
 title: Your coding agent
-description: The skills kindgi init installs teach Claude Code to write tools, agents, guardrails and flows the way Kindgi expects.
+description: How your coding agent knows Kindgi, the commands it runs, and the two things it asks you for.
 sidebar:
   order: 6
 ---
 
-You don't have to learn Kindgi's API before your coding agent can use it.
-`kindgi init` installs **skills** into the project's `.claude/skills/`:
-instructions Claude Code loads when the task calls for them, written for an
-agent (what to do, what to check, which mistakes to avoid).
+You don't have to learn Kindgi before you build with it. Tell your coding
+agent what you want, in your own words:
 
-Ask for what you want ("add a tool that looks up a customer by email",
-"make the triage agent answer with a typed result", "branch the flow on the
-priority") and the agent writes it in your project's language, against the
-Kindgi version you have.
+- "Add a tool that looks up a customer by email."
+- "Write an agent that answers support tickets with a category, a priority
+  and a reply."
+- "Connect Claude."
+- "Branch the flow on the priority."
+- "Why did the last run fail?"
 
-## The skills
+The agent writes the code in your project's TypeScript or Python, runs it
+with the Kindgi CLI, reads what happened, and fixes it. This page explains
+how it knows to.
 
-A pack gets the skills for its language, plus the shared ones.
+## How it knows Kindgi
+
+### Skills, loaded for the task
+
+`kindgi init` copies Kindgi's **skills** into the project, under
+`.claude/skills/`. A skill is a page of instructions written for an agent:
+the steps, the commands to run, what to check, and the mistakes to avoid.
+
+Each skill opens with a short description of when it applies. Claude Code
+reads those descriptions and loads a skill's full text only when your
+request matches: asking for a tool loads the tools skill, asking for a
+model loads the providers skill. A request that spans several (a tool, an
+agent that uses it, a flow around both) loads each one in turn.
 
 | Skill | Loaded when |
 |---|---|
@@ -29,6 +43,80 @@ A pack gets the skills for its language, plus the shared ones.
 | `kindgi-authoring-providers` | Connecting a model: Anthropic, Gemini, OpenAI-compatible endpoints |
 | `kindgi-authoring-mcp-servers` | Giving the coding agent an MCP server |
 | `kindgi-framework-feedback` | Reporting a problem in Kindgi itself |
+
+A pack gets the skills for its language, plus the shared ones.
+
+### Matched to your version
+
+The skills ship with the CLI, so `kindgi init` copies the ones written for
+the Kindgi version it installs. The agent writes against the API you have,
+not one it half-remembers. After an upgrade, `kindgi dev` tells you the
+skills are behind, and `kindgi skills sync` refreshes them (see
+[Keeping them current](#keeping-them-current)).
+
+### What else it reads
+
+- **The SDK documents itself.** Every TypeScript export has JSDoc and every
+  Python one a docstring, so the agent finds field-level docs right where it
+  writes the code.
+- **The CLI explains itself.** `kindgi --help`, and `--help` on each
+  command, list the commands and their flags.
+- **Errors name what's wrong.** A flow step the runtime has no tool for, an
+  answer that doesn't match the agent's output schema, a package that's
+  only in `devDependencies`: the message says which, and the agent fixes it
+  and runs again.
+- **These docs, for agents.** [`docs.kindgi.com/llms.txt`](https://docs.kindgi.com/llms.txt)
+  indexes this site in plain text, one file per section;
+  [`llms-full.txt`](https://docs.kindgi.com/llms-full.txt) is all of it.
+  Point an agent there when it needs more than the skills.
+
+## What it runs
+
+The skills tell the agent which `kindgi` commands to run and when, so it
+works the way you would: write, run, look, fix.
+
+| Command | What the agent does with it |
+|---|---|
+| `kindgi init` | Creates a pack, or adds Kindgi to your app |
+| `kindgi dev` | Starts Kindgi on your machine, which picks up every save |
+| `kindgi runs start` | Tries an agent or a flow with an input, and reads the answer |
+| `kindgi runs get`, `runs journal` | Finds out what a run did, step by step, and why it failed |
+| `kindgi providers register` | Connects a model, once its key is in your env file |
+| `kindgi mcp add` | Gives itself access to a database or another service |
+| `kindgi skills sync` | Refreshes its skills after an upgrade |
+| `kindgi feedback write` | Records a bug it found in Kindgi itself |
+| `kindgi build` | Builds the pack's image for deployment |
+
+In a TypeScript project it runs the CLI the project pins (`pnpm exec
+kindgi`). In a Python project it runs `npx --yes @kindgi/cli@0.1`; `--yes`
+skips npx's install prompt, so the agent never waits on it.
+
+## What it asks you for
+
+Two things are yours to decide, and the skills tell the agent to ask:
+
+- **The pack's id and version.** The id prefixes every tool, agent and flow
+  (`<pack-id>.<name>`), so you pick it once.
+- **The key for your model.** The agent asks you for it rather than invent
+  one or write it into code. You put it in your env file (`.env` /
+  `.env.local`), or type it into `kindgi secrets set`, which asks for it
+  without showing it. Then the agent registers the provider.
+
+Logging in to the runtime image's registry is yours too:
+`kindgi auth registry` asks for your token the same way
+([Install](../install/)).
+
+## Other coding agents
+
+Claude Code loads the skills by itself. They're plain Markdown, so any
+coding agent can follow them once it knows where they are:
+
+- A new pack has an `AGENTS.md` that points to them, for agents that read
+  `AGENTS.md`.
+- In an existing app, `kindgi init` leaves your `AGENTS.md` (or rules file)
+  alone. Add a line to it, for example: "Kindgi's instructions are in
+  `.claude/skills/`. Before writing Kindgi code, read the skill for the
+  task."
 
 ## Keeping them current
 

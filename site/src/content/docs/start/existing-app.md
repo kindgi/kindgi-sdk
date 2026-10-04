@@ -9,6 +9,14 @@ Kindgi doesn't need a project of its own. Run `kindgi init` in your app and
 the pack lives beside your code: its tools import your app's modules, and
 your app starts runs through the SDK.
 
+:::tip[Your coding agent can do most of this]
+`kindgi init` gives your app Kindgi's skills, in `.claude/skills/`. After
+that, you can ask your coding agent instead of following each step: "make
+a Kindgi tool from our order lookup", "add an agent that uses it", "run
+it". It writes the code next to yours, runs it with `kindgi dev`, and asks
+you for your model's key. [How it knows Kindgi](../coding-agents/).
+:::
+
 ## A TypeScript or Node app
 
 In the app's root (where its `package.json` is), with no pack name:
@@ -21,8 +29,9 @@ pnpm install          # or the app's own package manager
 :::note[On Kindgi 0.1.0 (fixed in 0.1.1)]
 - In a pnpm 11+ app, the first `pnpm install` stops with
   `ERR_PNPM_IGNORED_BUILDS` for `esbuild`. In `pnpm-workspace.yaml`, set
-  `esbuild: true` under `allowBuilds:` (replacing pnpm's placeholder), then
-  install again.
+  `esbuild: false` under `allowBuilds:` (replacing pnpm's placeholder), then
+  install again. esbuild works without its install script: its native
+  binary comes from its `@esbuild/<platform>` package.
 - `init` doesn't add Zod, which tools and agents use for their schemas:
   `pnpm add zod`.
 :::
@@ -38,8 +47,11 @@ pnpm install          # or the app's own package manager
   them ES modules;
 - `@kindgi/sdk` (a dependency) and `@kindgi/cli` (a devDependency) in your
   `package.json`, at the CLI's own version, and, from 0.1.1, `zod`;
-- from 0.1.1, in a pnpm app, `allowBuilds: { esbuild: true }` in
-  `pnpm-workspace.yaml`, so pnpm runs the build step the CLI needs;
+- from 0.1.1, in a pnpm app, `allowBuilds: { esbuild: false }` in
+  `pnpm-workspace.yaml`: pnpm 11+ won't install until every dependency's
+  install script has a decision, and esbuild (the CLI's bundler) doesn't
+  need its script. A decision the app already has, `true` or `false`, is
+  kept;
 - the skills for your coding agent under `.claude/skills/`, and
   `.gitignore` entries (`.kindgi/`, `.kindgirc.json`, `.env.local`).
 
@@ -87,6 +99,13 @@ export default defined.value;
 
 Ids start with the pack's id (`acme-support`, from the app's name).
 `mutating: false` says the tool only reads, so a dry run may call it.
+
+A package a tool imports (an ORM client such as `@prisma/client`, an API
+SDK) must be in your app's `dependencies`, not `devDependencies`: the
+deployed pack installs production dependencies only, so a dev-only import
+works under `kindgi dev` and fails once deployed. `kindgi dev` warns when a
+tool imports one, and `kindgi build` refuses the pack until it moves.
+Build-time tools (the `prisma` CLI, `typescript`) stay in `devDependencies`.
 
 ### An agent that uses it
 
@@ -205,6 +224,11 @@ def customer_orders(input: Customer) -> Orders:
 ```
 
 `mutating=False` says the tool only reads, so a dry run may call it.
+
+A package a tool imports must be in your app's main dependencies
+(`[project].dependencies`), not a dev group: the deployed pack installs
+without dev dependencies, so a dev-only import works under `kindgi dev` and
+fails once deployed.
 
 Inside `kindgi/`, import the pack's own modules relatively. Don't add an
 `__init__.py` to `kindgi/`: the folder would shadow the `kindgi` package.

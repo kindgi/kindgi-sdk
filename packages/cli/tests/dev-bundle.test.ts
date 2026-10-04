@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
 
+import { esbuildBundleReal } from '../src/build/defaults.js';
 import { createDevPackBuilder } from '../src/dev/bundler.js';
 import { runIndexerReadReal } from '../src/dev/defaults.js';
 import type { PackBuild, PackBuilder } from '../src/dev/runners.js';
@@ -88,9 +89,15 @@ afterAll(async () => {
 describe('the dev bundler', () => {
   test('bundles the alias import; keeps the node_modules dependency external', async () => {
     const build = await builder().build();
-    expect(build).toEqual({
+    expect(build).toMatchObject({
       kind: 'ok',
       bundleMap: { 'tools/greet.ts': '.kindgi/dev/dist/tools/greet.mjs' },
+    });
+    // Named with the file importing it. (The linked SDK is bundled, so
+    // its own dependencies are externals too.)
+    expect(build.kind === 'ok' && build.externals?.find((e) => e.name === 'shouty')).toEqual({
+      name: 'shouty',
+      importers: ['src/lib/greet.ts'],
     });
     const bundle = await readFile(join(packDir, '.kindgi/dev/dist/tools/greet.mjs'), 'utf8');
     // The shared module is inlined …
@@ -136,47 +143,167 @@ describe('the dev bundler', () => {
     }
   });
 
-  test('watching: an edit to the shared module rebuilds; a new tool file is picked up', async () => {
-    const b = builder();
-    await b.build();
-    const builds: PackBuild[] = [];
-    await b.watch((build) => builds.push(build));
+  // A real file watcher: retried, with room for a busy machine (see dev-watch.test.ts).
+  test(
+    'watching: an edit to the shared module rebuilds; a new tool file is picked up',
+    { retry: 2, timeout: 60_000 },
+    async () => {
+      const b = builder();
+      await b.build();
+      const builds: PackBuild[] = [];
+      await b.watch((build) => builds.push(build));
 
-    await write(
-      'src/lib/greet.ts',
-      (await readFile(join(packDir, 'src/lib/greet.ts'), 'utf8')).replace("'hello'", "'hi'"),
-    );
-    await vi.waitFor(() => expect(builds.length).toBeGreaterThanOrEqual(1), { timeout: 10_000 });
-    expect(await readFile(join(packDir, '.kindgi/dev/dist/tools/greet.mjs'), 'utf8')).toContain(
-      '"hi"',
-    );
+      await write(
+        'src/lib/greet.ts',
+        (await readFile(join(packDir, 'src/lib/greet.ts'), 'utf8')).replace("'hello'", "'hi'"),
+      );
+      await vi.waitFor(() => expect(builds.length).toBeGreaterThanOrEqual(1), { timeout: 30_000 });
+      expect(await readFile(join(packDir, '.kindgi/dev/dist/tools/greet.mjs'), 'utf8')).toContain(
+        '"hi"',
+      );
 
-    await write('tools/second.ts', TOOL('bt.second'));
-    expect(await b.syncEntries()).toBe(true);
-    await vi.waitFor(
-      () =>
-        expect(builds.at(-1)).toEqual({
-          kind: 'ok',
-          bundleMap: {
-            'tools/greet.ts': '.kindgi/dev/dist/tools/greet.mjs',
-            'tools/second.ts': '.kindgi/dev/dist/tools/second.mjs',
-          },
-        }),
-      { timeout: 10_000 },
+      await write('tools/second.ts', TOOL('bt.second'));
+      expect(await b.syncEntries()).toBe(true);
+      await vi.waitFor(
+        () =>
+          expect(builds.at(-1)).toMatchObject({
+            kind: 'ok',
+            bundleMap: {
+              'tools/greet.ts': '.kindgi/dev/dist/tools/greet.mjs',
+              'tools/second.ts': '.kindgi/dev/dist/tools/second.mjs',
+            },
+          }),
+        { timeout: 30_000 },
+      );
+      expect(await b.syncEntries()).toBe(false);
+    },
+  );
+
+  // A real file watcher: retried, with room for a busy machine (see dev-watch.test.ts).
+  test(
+    'watching: removing the last primitive file reports an empty build',
+    { retry: 2, timeout: 60_000 },
+    async () => {
+      const b = builder();
+      await b.build();
+      const builds: PackBuild[] = [];
+      await b.watch((build) => builds.push(build));
+      await rm(join(packDir, 'tools'), { recursive: true, force: true });
+      expect(await b.syncEntries()).toBe(true);
+      await vi.waitFor(
+        () => expect(builds.at(-1)).toEqual({ kind: 'ok', bundleMap: {}, externals: [] }),
+        { timeout: 30_000 },
+      );
+      await b.dispose();
+    },
+  );
+});
+
+describe("the dev bundler's externals", () => {
+  let dir: string;
+  const put = async (rel: string, body: string): Promise<void> => {
+    await mkdir(join(dir, rel, '..'), { recursive: true });
+    await writeFile(join(dir, rel), body, 'utf8');
+  };
+  const fakePackage = async (name: string, exportsName: string): Promise<void> => {
+    await put(
+      `node_modules/${name}/package.json`,
+      JSON.stringify({
+        name,
+        version: '1.0.0',
+        type: 'module',
+        exports: { '.': './index.js', './sub': './index.js' },
+      }),
     );
-    expect(await b.syncEntries()).toBe(false);
+    await put(`node_modules/${name}/index.js`, `export const ${exportsName} = () => 1;\n`);
+  };
+  const externalsOf = (build: PackBuild | undefined) =>
+    build?.kind === 'ok' ? build.externals : undefined;
+
+  beforeAll(async () => {
+    dir = await mkdtemp(join(PACKAGE_DIR, 'tmp', 'dev-externals-'));
+    await fakePackage('acme-clock', 'now');
+    await fakePackage('@acme/ids', 'id');
+    await fakePackage('acme-config-helper', 'helper');
+    await put('src/time.ts', "import { now } from 'acme-clock';\nexport const at = now;\n");
+    await put(
+      'tools/clock.ts',
+      "import { now } from 'acme-clock';\nimport { at } from '../src/time';\nexport default { now, at };\n",
+    );
+    await put(
+      'kindgi.config.ts',
+      "import { helper } from 'acme-config-helper';\nexport default { pack: { id: 'x', version: '0.1.0' }, helper };\n",
+    );
   });
 
-  test('watching: removing the last primitive file reports an empty build', async () => {
-    const b = builder();
-    await b.build();
-    const builds: PackBuild[] = [];
-    await b.watch((build) => builds.push(build));
-    await rm(join(packDir, 'tools'), { recursive: true, force: true });
-    expect(await b.syncEntries()).toBe(true);
-    await vi.waitFor(() => expect(builds.at(-1)).toEqual({ kind: 'ok', bundleMap: {} }), {
-      timeout: 10_000,
+  afterAll(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  function externalsBuilder(): PackBuilder {
+    const b = createDevPackBuilder({
+      packDir: dir,
+      patterns: PATTERNS,
+      configPath: join(dir, 'kindgi.config.ts'),
     });
-    await b.dispose();
+    builders.push(b);
+    return b;
+  }
+
+  test("a build names what it loads from node_modules, with the files importing it; the config's imports too", async () => {
+    expect(externalsOf(await externalsBuilder().build())).toEqual([
+      { name: 'acme-clock', importers: ['src/time.ts', 'tools/clock.ts'] },
+      { name: 'acme-config-helper', importers: ['kindgi.config.ts'] },
+    ]);
   });
+
+  test("the same packages as a pack image's bundles (`kindgi build`)", async () => {
+    const dev = externalsOf(await externalsBuilder().build());
+    const image = await esbuildBundleReal({
+      packDir: dir,
+      outputDir: join(dir, '.kindgi', 'build', 'dist'),
+      discoveryPatterns: PATTERNS,
+      configPath: join(dir, 'kindgi.config.ts'),
+      nodeMajor: 22,
+    });
+    expect(dev?.map((e) => e.name)).toEqual(image.externals);
+  });
+
+  // A real file watcher: retried, with room for a busy machine (see dev-watch.test.ts).
+  test(
+    'watching: each rebuild names its own externals',
+    { retry: 2, timeout: 60_000 },
+    async () => {
+      const b = externalsBuilder();
+      await b.build();
+      const builds: PackBuild[] = [];
+      await b.watch((build) => builds.push(build));
+
+      // A new import (a subpath: the package is named).
+      await put(
+        'tools/clock.ts',
+        "import { now } from 'acme-clock';\nimport { id } from '@acme/ids/sub';\nexport default { now, id };\n",
+      );
+      await vi.waitFor(
+        () =>
+          expect(externalsOf(builds.at(-1))).toEqual([
+            { name: '@acme/ids', importers: ['tools/clock.ts'] },
+            { name: 'acme-clock', importers: ['tools/clock.ts'] },
+            { name: 'acme-config-helper', importers: ['kindgi.config.ts'] },
+          ]),
+        { timeout: 30_000 },
+      );
+
+      // An import removed is gone from the next build's.
+      await put('tools/clock.ts', "import { id } from '@acme/ids';\nexport default { id };\n");
+      await vi.waitFor(
+        () =>
+          expect(externalsOf(builds.at(-1))).toEqual([
+            { name: '@acme/ids', importers: ['tools/clock.ts'] },
+            { name: 'acme-config-helper', importers: ['kindgi.config.ts'] },
+          ]),
+        { timeout: 30_000 },
+      );
+    },
+  );
 });

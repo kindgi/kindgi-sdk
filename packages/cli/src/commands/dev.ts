@@ -17,8 +17,9 @@
  * v1 constraints:
  *   - Docker required for the runtime (unless `--runtime-url`), and
  *     Postgres: `kindgi dev` starts a bundled `docker-compose.dev.yml`
- *     (Postgres) with `docker compose`, shared by every `kindgi dev` on
- *     the machine and left running; or set `--database-url` /
+ *     (Postgres) with `docker compose`, or the same container with plain
+ *     `docker` when compose isn't available, shared by every `kindgi dev`
+ *     on the machine and left running; or set `--database-url` /
  *     `KINDGI_DATABASE_URL`.
  *   - `--watch` defaults ON. `--no-watch` runs a single boot + register
  *     cycle then exits — useful for smoke tests + CI.
@@ -58,6 +59,7 @@ import type { KindgiClient } from '@kindgi/client';
 import { CORS_ORIGINS_VAR, PUBLIC_TOKEN_KEY_PATH_VAR, parseCorsOrigins } from '@kindgi/env-schema';
 
 import type { CommandContext } from '../context.js';
+import { createDevOnlyImportsCheck } from '../dev/dev-only-imports.js';
 import { type PackCode, resolvePackCode } from '../dev/pack-code.js';
 import { devPackEnv, devPackEnvFiles } from '../dev/pack-env.js';
 import { createPackRefresher, describePackEvent } from '../dev/pack-service.js';
@@ -145,10 +147,11 @@ export const devCommand: LeafCommand = {
     // --recreate-services: let `docker compose` recreate the shared
     // Postgres if its definition changed. Default: an existing container
     // is reused as it is, so no other kindgi dev loses its database.
+    // Without compose it's always reused, and the output says so.
     'recreate-services': {
       type: 'boolean',
       description:
-        'Let `docker compose` recreate the bundled Postgres if its definition changed. By default an existing container is reused.',
+        'Let `docker compose` recreate the bundled Postgres if its definition changed (needs compose). By default an existing container is reused.',
     },
   },
   run: async (ctx): Promise<CommandResult> => runDev(ctx),
@@ -162,8 +165,8 @@ export const DEFAULT_WATCH_DEBOUNCE_MS = 200;
 /**
  * Render the "manual KINDGI_DATABASE_URL required" hint shown when
  * (a) the caller passed neither `--database-url` nor `KINDGI_DATABASE_URL`
- * AND (b) the auto-start path is not viable (no docker-compose on
- * PATH, or the runner isn't wired). Includes the auto-start reason
+ * AND (b) the auto-start path is not viable (docker isn't installed or
+ * doesn't answer, or the runner isn't wired). Includes the auto-start reason
  * so the user knows what to fix.
  */
 /**
@@ -222,7 +225,7 @@ async function withHeartbeat<T>(
 }
 
 function renderMissingDbHint(reason: string): string {
-  return `kindgi dev needs Postgres. Auto-start not available: ${reason}\n\nOptions:\n  1. Install Docker Desktop / Colima so \`docker compose\` is on PATH — then just run \`kindgi dev\` and services start automatically.\n  2. Provide your own Postgres and set KINDGI_DATABASE_URL:\n     docker run --rm -d --name kindgi-dev-pg -p 5432:5432 -e POSTGRES_PASSWORD=kindgi postgres:16\n     export KINDGI_DATABASE_URL=postgres://postgres:kindgi@localhost:5432/postgres\n`;
+  return `kindgi dev needs Postgres, and couldn't start the bundled one: ${reason}\n\nOptions:\n  1. Install Docker (Docker Desktop, or Docker Engine on Linux) and make sure it runs: kindgi dev then starts the bundled Postgres itself, with \`docker compose\` when it's there and plain \`docker\` otherwise.\n  2. Use your own Postgres (16, with pgvector): pass --database-url=<url>, or set KINDGI_DATABASE_URL.\n`;
 }
 
 interface ResolvedDevArgs {
@@ -230,7 +233,7 @@ interface ResolvedDevArgs {
   /**
    * `undefined` when the caller passed neither `--database-url` nor
    * `KINDGI_DATABASE_URL` — in that case `runDev` tries `startServices` to
-   * auto-start postgres+openfga+minio. If that also fails, error out.
+   * auto-start the bundled Postgres. If that also fails, error out.
    */
   readonly databaseUrl: string | undefined;
   readonly tenantId: string | undefined;
@@ -259,8 +262,8 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   // Confirm the pack has a kindgi.config.ts (or one of its
   // accepted extensions). Failing loud here beats a cryptic
   // config-not-found from the indexer.
-  const configOk = await ensurePackConfig(args.packDir);
-  if (!configOk.ok) {
+  const configFile = await findKindgiConfig(args.packDir);
+  if (configFile === undefined) {
     return {
       kind: 'error',
       stderr: `kindgi dev could not find a kindgi.config.ts (or a pyproject.toml with a [tool.kindgi] table) at ${args.packDir}.\nRun \`kindgi init <pack-name>\` to scaffold a pack, or pass --path=<dir> to point at an existing one.\n`,
@@ -296,8 +299,8 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   //      (resolved into args.databaseUrl at resolveDevArgs time).
   //   2. KINDGI_DATABASE_URL from the project's env files.
   //   3. Auto-start the bundled Postgres via
-  //      `dev.startServices` when it's wired AND docker-compose is
-  //      available.
+  //      `dev.startServices` when it's wired AND docker is available
+  //      (`docker compose`, else plain `docker`).
   //   4. Loud error with the manual quick-start hint.
   let databaseUrl = args.databaseUrl ?? projectEnv.runtime.KINDGI_DATABASE_URL;
   if (args.databaseUrl === undefined && databaseUrl !== undefined) {
@@ -338,7 +341,12 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
     }
     servicesHandle = outcome.handle;
     databaseUrl = outcome.handle.databaseUrl;
-    emitProgress(`✓ services ready: ${outcome.handle.services.join(', ')}`);
+    emitProgress(
+      outcome.handle.startedWith === 'docker'
+        ? "✓ Postgres: started with docker (docker compose isn't available)"
+        : '✓ Postgres: started with docker compose',
+    );
+    for (const note of outcome.handle.notes ?? []) emitProgress(`⚠ ${note}`);
   }
 
   // Resolve the tenant and the bearer token BEFORE booting, so the
@@ -384,6 +392,11 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   if (code.kind === 'error') {
     return code;
   }
+  // A Node pack's imports that `kindgi build` would refuse (in
+  // devDependencies only): a warning here, on boot and when the set
+  // changes on a save.
+  const devOnly =
+    code.value.language === 'node' ? createDevOnlyImportsCheck(args.packDir) : undefined;
   const packOptions = {
     packDir: args.packDir,
     code: code.value,
@@ -418,6 +431,7 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   const builder = dev.createPackBuilder({
     packDir: args.packDir,
     patterns: projectEnv.discoveryPatterns,
+    ...(configFile.format === 'module' && { configPath: configFile.path }),
     code: code.value,
     env: packEnv,
   });
@@ -428,6 +442,12 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
     packDir: args.packDir,
     env: packEnv,
     code: code.value,
+    ...(devOnly !== undefined && {
+      onBuild: async (build) => {
+        if (build.externals === undefined) return;
+        for (const line of await devOnly.check(build.externals)) emitProgress(`  ${line}`);
+      },
+    }),
   });
 
   // Bundle, index and start the pack's code before the runtime: it reads
@@ -717,6 +737,8 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
     watch: args.watch,
     packDir: args.packDir,
     boot: summariseOutcome(bootIndex, bootReport),
+    // A Node pack's dev-only imports when kindgi dev stopped.
+    ...(devOnly !== undefined && { devOnlyImports: devOnly.current() }),
     ...(args.watch && {
       watchTicks,
       ...(lastWatchOutcome !== undefined && {
@@ -868,9 +890,9 @@ function resolveDevArgs(ctx: CommandContext): DevArgsOutcome {
         ? dbEnv
         : undefined;
   // databaseUrl is allowed to be undefined at resolve time. `runDev`
-  // handles it: if `startServices` is wired AND docker-compose is
-  // available, auto-start postgres+openfga+minio and use the
-  // container URL. If not, error with the manual quick-start hint.
+  // handles it: if `startServices` is wired AND docker is available,
+  // auto-start the bundled Postgres and use the container URL. If not,
+  // error with the manual quick-start hint.
 
   // --tenant / --dev-token
   const tenantFlag = ctx.options.tenant;
@@ -1157,10 +1179,6 @@ async function resolveDevPackCode(
     emitProgress(`✓ pack code: ${checked.value}`);
   }
   return { kind: 'ok', value: resolved.value };
-}
-
-async function ensurePackConfig(packDir: string): Promise<{ readonly ok: boolean }> {
-  return { ok: (await findKindgiConfig(packDir)) !== undefined };
 }
 
 function getEnv(ctx: CommandContext, key: string): string | undefined {

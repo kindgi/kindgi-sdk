@@ -19,9 +19,6 @@
  */
 
 import { readFile, stat } from 'node:fs/promises';
-import { EOL } from 'node:os';
-import * as readline from 'node:readline';
-import type { ReadStream } from 'node:tty';
 
 import type {
   RotationOutcome,
@@ -35,6 +32,14 @@ import type { EnvName } from '@kindgi/types';
 import type { CommandContext } from '../context.js';
 import type { EnvRunners } from '../env/runners.js';
 import { renderJson } from '../output.js';
+import {
+  PromptCancelled,
+  type TtySeam,
+  readStdinToEnd,
+  stdinIsTty as realStdinIsTty,
+  realTtySeam,
+  stripTrailingNewline,
+} from '../terminal-input.js';
 import { commandResultFromThrown, integerFlag, requiredPositional, stringFlag } from './helpers.js';
 import type { Command, CommandResult, LeafCommand } from './types.js';
 
@@ -228,7 +233,7 @@ async function readValueInput(
   }
 
   // Default: TTY prompt.
-  const stdinIsTty = cfg.stdinIsTty ?? (() => Boolean((process.stdin as ReadStream).isTTY));
+  const stdinIsTty = cfg.stdinIsTty ?? realStdinIsTty;
   if (!stdinIsTty()) {
     return {
       kind: 'err',
@@ -249,74 +254,12 @@ async function readValueInput(
       return { kind: 'err', stderr: 'Empty value refused.\n' };
     }
     return { kind: 'ok', value: first };
+  } catch (err) {
+    if (err instanceof PromptCancelled) return { kind: 'err', stderr: 'Cancelled.\n' };
+    throw err;
   } finally {
     tty.close();
   }
-}
-
-function stripTrailingNewline(s: string): string {
-  if (s.endsWith(EOL)) return s.slice(0, -EOL.length);
-  if (s.endsWith('\n')) return s.slice(0, -1);
-  return s;
-}
-
-async function readStdinToEnd(): Promise<string> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of process.stdin) {
-    chunks.push(chunk as Buffer);
-  }
-  return Buffer.concat(chunks).toString('utf8');
-}
-
-// ---------------------------------------------------------------------
-// TTY prompt seam
-// ---------------------------------------------------------------------
-
-export interface TtySeam {
-  promptHidden(prompt: string): Promise<string>;
-  close(): void;
-}
-
-function realTtySeam(): TtySeam {
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stderr,
-    terminal: true,
-  });
-  // Silence output while user types. `readline` doesn't expose a
-  // built-in "no-echo" mode; the standard trick is to override the
-  // internal `_writeToOutput` on the interface. This is portable
-  // enough across Node 22.x + prints only the prompt itself.
-  const rlAny = rl as unknown as {
-    _writeToOutput?: (s: string) => void;
-    output?: NodeJS.WritableStream;
-  };
-  return {
-    promptHidden: (prompt) =>
-      new Promise<string>((resolve) => {
-        const originalWrite = rlAny._writeToOutput;
-        rlAny._writeToOutput = function overrideWrite(str: string): void {
-          // Write only the prompt itself (rl.question emits the
-          // prompt via the same channel); swallow keystrokes.
-          if (str === prompt) {
-            (rlAny.output ?? process.stderr).write(str);
-          }
-        };
-        rl.question(prompt, (answer) => {
-          if (originalWrite !== undefined) {
-            rlAny._writeToOutput = originalWrite;
-          } else {
-            // biome-ignore lint/performance/noDelete: readline distinguishes missing property from undefined
-            delete rlAny._writeToOutput;
-          }
-          (rlAny.output ?? process.stderr).write('\n');
-          resolve(answer);
-        });
-      }),
-    close: () => {
-      rl.close();
-    },
-  };
 }
 
 // ---------------------------------------------------------------------

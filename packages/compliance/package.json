@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/compliance",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Kindgi™ compliance evidence contract. Types for the Evidence wire record and its sub-types (EvidenceActor, EvidenceSubject, EvidenceKind, EvidenceOutcome, EvidencePayload, EvidenceSignature, ProvenanceRef, ActorKind; ComplianceEvidence alias), the ComplianceProvider seam (EmitEvidenceInput, ListEvidenceFilter, EvidenceSigner), the ComplianceEvidenceGenerator interface with its inputs (RecordFromRunOptions, RunEvidenceContext, ModelCallSummary, ToolInvocationSummary, GuardrailResultSummary), EvidenceFilter, EvidencePage, SignedEvidenceBundle and EvidenceBundleBody, the classifier file format (ComplianceClassifierFile, Classification, LoadedClassifier), and the ComplianceError union. Runtime exports: the EVIDENCE_KINDS list, the pure auditEventToEvidence transform, and emitResolveEvent / emitLifecycleEvent, which append env-* and secret-* audit events to an AuditEventBinding. The generator implementation and the classifier loader are provided by the Kindgi runtime or by the caller.",
   "license": "Apache-2.0",
   "repository": {

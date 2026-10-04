@@ -2,21 +2,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 /**
- * Builds every version of the docs into one site, ready to deploy:
+ * Builds the public docs site, every released version of it, ready to
+ * deploy:
  *
  *   /            the latest release line (indexed by search engines)
  *   /vX.Y/       every release line, from its newest `@kindgi/sdk@X.Y.*` tag
- *   /next/       this checkout (main): what's merged but not released
  *   /versions.json   the list the version menu reads
+ *
+ * Only releases are public: readers install a release, so the site
+ * describes what they have. What's merged but not released is checked in a
+ * private preview instead (`build-preview.mjs`).
  *
  * A release line is built from its own tag, in a temporary worktree, so its
  * docs, its generated reference and its code are the same commit. Only tags
  * that contain the site count (releases before it have no docs to build).
- * Before the first such release, the checkout is built at the root alone.
  *
- * Usage: node site/scripts/build-versions.mjs [--out <dir>] [--skip-releases]
+ * Usage: node site/scripts/build-versions.mjs [--out <dir>]
  *   --out            where to write the site (default: site/dist-versions)
- *   --skip-releases  build only this checkout (a quick local preview)
  *
  * Needs git, pnpm and uv, and this checkout's workspace built (`pnpm run build`).
  */
@@ -32,7 +34,6 @@ const option = (name) => {
 };
 const repo = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
 const out = resolve(option('--out') ?? join(repo, 'site', 'dist-versions'));
-const skipReleases = args.includes('--skip-releases');
 
 function run(command, commandArgs, cwd, env = {}) {
   const result = spawnSync(command, commandArgs, {
@@ -87,40 +88,30 @@ function buildDocs(dir, base, ref, dest) {
 }
 
 rmSync(out, { recursive: true, force: true });
-const lines = skipReleases ? [] : releaseLines();
+const lines = releaseLines();
 const versions = [];
 
 if (lines.length === 0) {
-  console.log('build-versions: no release with the site yet; building this checkout at the root.');
-  buildDocs(repo, '/', 'main', out);
-  versions.push({ version: 'next', path: '/' });
-} else {
-  const latest = lines[0].parsed.line;
-  for (const [i, { tag, parsed }] of lines.entries()) {
-    console.log(`build-versions: v${parsed.line} from ${tag}`);
-    const worktree = mkdtempSync(join(tmpdir(), `kindgi-docs-${parsed.line}-`));
-    run('git', ['worktree', 'add', '--detach', worktree, tag], repo);
-    try {
-      run('pnpm', ['install', '--frozen-lockfile'], worktree);
-      run('pnpm', ['run', 'build'], worktree);
-      buildDocs(worktree, `/v${parsed.line}/`, tag, join(out, `v${parsed.line}`));
-      if (i === 0) buildDocs(worktree, '/', tag, out);
-    } finally {
-      run('git', ['worktree', 'remove', '--force', worktree], repo);
-    }
-    versions.push({ version: parsed.line, path: i === 0 ? '/' : `/v${parsed.line}/` });
-    if (i === 0) versions.push({ version: parsed.line, path: `/v${parsed.line}/` });
-  }
-  console.log('build-versions: next, from this checkout');
-  buildDocs(repo, '/next/', 'main', join(out, 'next'));
-  versions.push({ version: 'next', path: '/next/' });
-  writeFileSync(join(out, 'versions.json'), `${JSON.stringify({ latest, versions }, null, 2)}\n`);
-}
-
-if (lines.length === 0) {
-  writeFileSync(
-    join(out, 'versions.json'),
-    `${JSON.stringify({ latest: 'next', versions }, null, 2)}\n`,
+  console.error(
+    'build-versions: no release contains the site yet. To look at this checkout, use `pnpm run docs:preview`.',
   );
+  process.exit(1);
 }
+const latest = lines[0].parsed.line;
+for (const [i, { tag, parsed }] of lines.entries()) {
+  console.log(`build-versions: v${parsed.line} from ${tag}`);
+  const worktree = mkdtempSync(join(tmpdir(), `kindgi-docs-${parsed.line}-`));
+  run('git', ['worktree', 'add', '--detach', worktree, tag], repo);
+  try {
+    run('pnpm', ['install', '--frozen-lockfile'], worktree);
+    run('pnpm', ['run', 'build'], worktree);
+    buildDocs(worktree, `/v${parsed.line}/`, tag, join(out, `v${parsed.line}`));
+    if (i === 0) buildDocs(worktree, '/', tag, out);
+  } finally {
+    run('git', ['worktree', 'remove', '--force', worktree], repo);
+  }
+  versions.push({ version: parsed.line, path: i === 0 ? '/' : `/v${parsed.line}/` });
+  if (i === 0) versions.push({ version: parsed.line, path: `/v${parsed.line}/` });
+}
+writeFileSync(join(out, 'versions.json'), `${JSON.stringify({ latest, versions }, null, 2)}\n`);
 console.log(`build-versions: ${out}`);

@@ -1,6 +1,8 @@
 # pnpm 12+ reads settings from this file, not from `package.json`'s
-# `pnpm` block. `allowBuilds` grants postinstall permission to
-# specific dependencies — esbuild ships a native binary via
-# postinstall that the vitest transform pipeline depends on.
+# `pnpm` block. `allowBuilds` records, per dependency, whether pnpm runs
+# its install script (true) or skips it (false); pnpm 11+ stops an install
+# until each one has a decision. esbuild (the CLI's bundler, and vitest's
+# transform) works without its script: its native binary comes from its
+# `@esbuild/<platform>` package, so the script stays off.
 allowBuilds:
-  esbuild: true
+  esbuild: false

@@ -14,7 +14,35 @@ hero:
       variant: minimal
 ---
 
-import { LinkCard, CardGrid } from '@astrojs/starlight/components';
+import { Card, LinkCard, CardGrid } from '@astrojs/starlight/components';
+
+## Your coding agent already knows Kindgi
+
+`kindgi init` gives your project Kindgi's skills: instructions your coding
+agent loads when the task calls for them. Describe what you want in your own
+words. The agent writes the code, runs it, reads what happened and fixes it.
+
+<CardGrid>
+  <Card title="It knows your version" icon="open-book">
+    The skills ship with the CLI, written for the Kindgi version you
+    installed. Claude Code loads the one the task needs.
+  </Card>
+  <Card title="It writes the code" icon="pencil">
+    Tools, agents, guardrails and flows, in your project's TypeScript or
+    Python.
+  </Card>
+  <Card title="It runs Kindgi" icon="rocket">
+    `kindgi dev` to start Kindgi on your machine, `kindgi runs start` to try
+    what it wrote, the run's journal to find what went wrong.
+  </Card>
+  <Card title="It asks you for two things" icon="comment-alt">
+    The pack's id, and the key for your model. It asks rather than guesses.
+  </Card>
+</CardGrid>
+
+[How your coding agent knows Kindgi](start/coding-agents/)
+
+## The documentation
 
 <CardGrid>
   <LinkCard title="Start" href="start/" description="What Kindgi is, installing it, and your first pack in TypeScript or Python." />
