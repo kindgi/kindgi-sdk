@@ -111,26 +111,29 @@ export interface NodeContext {
   check(action: Action, resource: ResourceRef): Promise<Decision>;
   /**
    * Read the clock, as `record` does: each call journals `Date.now()`.
-   * When the step runs again (it resumes after a wait), its first call
-   * returns the time the first call read before, its second the second's,
-   * and so on; calls past those read the clock. **Determinism:** call it
-   * in the same order every time the step runs.
+   * When the step resumes after a wait, its first call returns the time
+   * the first call read before, its second the second's, and so on; calls
+   * past those read the clock. A retry after a failure reads it afresh.
+   * **Determinism:** call it in the same order every time the step runs.
    */
   clockNow(): Promise<number>;
   /**
    * Decide once for this step. The first call for `key` runs `decide`,
-   * journals its result, then returns it. When the step runs again (it
-   * resumes after a wait), the call returns the journaled result and
-   * `decide` doesn't run, whatever the data it decided from says now.
+   * journals its result, then returns it. When the step runs again
+   * (resumed after a wait, or retried after a failure), the call returns
+   * the journaled result and `decide` doesn't run, whatever the data it
+   * decided from says now.
    *
    * For a decision the step must keep across a wait: an approval gate's
    * (did the policy ask for a review, under which token), so a policy
    * changed meanwhile can't undo the park or lose the reviewer's answer.
    *
-   * - The result is stored as JSON: `decide` returns JSON data.
+   * - The result is kept as JSON, and returned as JSON the first time too
+   *   (a `Date` comes back as its string): `decide` returns JSON data.
    * - `undefined` isn't journaled: the next call decides again.
    * - `key` names the decision within the step; a step in a loop body
-   *   keeps one per iteration. Don't run two calls for one key at once.
+   *   keeps one per iteration. Calls for one key at the same time share
+   *   one decision.
    */
   record<T>(key: string, decide: () => T | Promise<T>): Promise<T>;
   /**

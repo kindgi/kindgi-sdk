@@ -18,8 +18,11 @@ export function testNodeContext(
     async record<T>(key: string, decide: () => T | Promise<T>): Promise<T> {
       if (records.has(key)) return records.get(key) as T;
       const value = await decide();
-      if (value !== undefined) records.set(key, value);
-      return value;
+      if (value === undefined) return value;
+      // Kept as JSON, and returned as JSON, as a runtime does.
+      const kept = JSON.parse(JSON.stringify(value)) as T;
+      records.set(key, kept);
+      return kept;
     },
     ...fields,
   } as unknown as NodeContext;
