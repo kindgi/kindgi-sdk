@@ -1,8 +1,13 @@
 # kindgi dev — bundled composition for auto-started local services.
 # Started by `kindgi dev` with `docker compose -p kindgi-dev` (see `startServicesReal`)
-# when docker-compose is detected AND no KINDGI_DATABASE_URL is set.
+# when no KINDGI_DATABASE_URL is set. Without compose (a Docker engine
+# without the plugin), `kindgi dev` starts the same Postgres with plain
+# `docker`, read from this file (`postgres-container.ts`): the same
+# container, volume and network names and the compose project's labels,
+# so either way finds the other's container and data. That start carries
+# over only the keys this file uses; its test fails on any other.
 #
-# Every container is namespaced under kindgi-dev-* so nothing collides with
+# Every name is namespaced under kindgi-dev so nothing collides with
 # other local docker-compose stacks. Only Postgres:
 # OpenFGA and MinIO were started and never wired (authz is off in dev), so
 # they're not started until dev wires them. The Kindgi runtime itself runs
@@ -12,13 +17,16 @@
 #
 # A named volume carries the Postgres data across `kindgi dev` restarts —
 # providers a user registers via `kindgi providers register` survive
-# reboots. `kindgi dev --reset` (which runs `docker compose down -v`)
-# removes it for a true clean slate.
+# reboots. Every `kindgi dev` on the machine shares it: `kindgi dev
+# --reset` starts one pack fresh and leaves it alone. To wipe all dev
+# data, `docker compose -p kindgi-dev down -v` (without compose:
+# `docker rm -f kindgi-dev_postgres`, then
+# `docker volume rm kindgi-dev_postgres-data`).
 #
 # Trade-off: migrations no longer re-run from scratch on every boot
 # (drizzle is idempotent — only new migrations apply), so migration-path
-# regressions are caught less continuously. Mitigation: run `kindgi dev
-# --reset` before pushing schema changes, and CI runs against a fresh DB.
+# regressions are caught less continuously. Mitigation: wipe the dev data
+# before pushing schema changes, and CI runs against a fresh DB.
 
 services:
   postgres:
@@ -39,8 +47,12 @@ services:
       - "wal_level=logical"
     volumes:
       - kindgi-dev-postgres-data:/var/lib/postgresql/data
+    # A random host port on loopback only: the password is a fixed dev
+    # one, so the database must not be reachable from the LAN. The
+    # runtime still reaches it: through host.docker.internal on Docker
+    # Desktop, directly with Linux host networking.
     ports:
-      - "5432"
+      - "127.0.0.1::5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U kindgi -d kindgi"]
       interval: 5s
