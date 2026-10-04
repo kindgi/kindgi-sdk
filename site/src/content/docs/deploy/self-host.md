@@ -261,7 +261,12 @@ pnpm exec kindgi runs start --flow=acme-pack.echo-flow --input='{"name":"Ada"}' 
 The flow's tool step ran in your pack's container, and its agent step answered with the model; what the reply says depends on the model. A first call can outlast the agent's time budget while the model loads; run it again.
 
 :::note[Models that need a key]
-A provider that needs an API key (Anthropic, OpenAI, Gemini) keeps it in the runtime's secrets store: Postgres (`KINDGI_SECRETS_BACKEND=postgres`), with each secret's key wrapped by Google Cloud KMS (`KINDGI_SECRETS_BACKEND_KMS=gcp`) or, on a single host, by a local key the runtime holds (`KINDGI_SECRETS_BACKEND_KMS=libsodium`, the key in `KINDGI_SECRETS_LOCAL_KEY_PATH`, and `KINDGI_SECRETS_LOCAL_KEY_ACK=single-node`). Back a local key up apart from the database: a lost key loses every secret. The settings are in the [reference](../../reference/env-vars/). A keyless endpoint (Ollama, vLLM) needs no secrets store.
+A provider that needs an API key (Anthropic, OpenAI, Gemini) keeps it in the runtime's secrets store, in Postgres (`KINDGI_SECRETS_BACKEND=postgres`). The key that protects the stored secrets is held in one of two places:
+
+- **Google Cloud KMS:** `KINDGI_SECRETS_BACKEND_KMS=gcp`, with its settings.
+- **A local key, on a single host:** `KINDGI_SECRETS_BACKEND_KMS=libsodium` and `KINDGI_SECRETS_LOCAL_KEY_ACK=single-node`. The key is 32 random bytes in a file `KINDGI_SECRETS_LOCAL_KEY_PATH` names (`openssl rand 32`), mounted into the container like the signing key in [Operate](../operate/#rotate-the-public-run-token-key): mode 0600, readable by the runtime's user (uid 10001). `KINDGI_SECRETS_LOCAL_KEY` takes it as base64 instead. Back the key up apart from the database: if it's lost, every secret is lost.
+
+The settings are in the [reference](../../reference/env-vars/). A keyless endpoint (Ollama, vLLM) needs no secrets store.
 :::
 
 ## Clean up
