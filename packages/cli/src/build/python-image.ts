@@ -60,6 +60,18 @@ export const PYTHON_LOCKFILES: Readonly<Record<PythonInstaller, string>> = {
   poetry: 'poetry.lock',
 };
 
+/** A Python pack image's pack service: its ENTRYPOINT. */
+export const PYTHON_PACK_SERVICE_COMMAND: readonly string[] = [
+  '/app/.venv/bin/python',
+  '-m',
+  'kindgi.pack',
+  'serve',
+  '--index',
+  '/app/index.json',
+  '--module-root',
+  '/app',
+];
+
 export interface RenderPythonContainerfileInputs {
   readonly baseImageRef: string;
   readonly uvImageRef: string;
@@ -115,7 +127,7 @@ COPY --from=build /app /app
 COPY --from=indexer /app/index.json /app/index.json
 USER 65532:65532
 EXPOSE 8080
-ENTRYPOINT ["/app/.venv/bin/python", "-m", "kindgi.pack", "serve", "--index", "/app/index.json", "--module-root", "/app"]
+ENTRYPOINT [${PYTHON_PACK_SERVICE_COMMAND.map((arg) => JSON.stringify(arg)).join(', ')}]
 CMD []
 `;
 }
