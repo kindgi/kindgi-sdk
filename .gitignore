@@ -76,3 +76,4 @@ site/src/content/docs/contributing/*
 !site/src/content/docs/contributing/index.md
 site/generated/
 site/dist-versions/
+site/dist-preview/
