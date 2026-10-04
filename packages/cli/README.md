@@ -452,8 +452,8 @@ export default {
   `contextFiles`, `systemPackages`, `postInstall` steps (a package's bin, run
   through the app's package manager) and `buildEnv`.
 
-**`--local`:** builds the image with this machine's Docker
-(`docker buildx build --load`) into its image store, as
+**`--local`:** builds the image of a TypeScript or Python pack with this
+machine's Docker (`docker buildx build --load`) into its image store, as
 `kindgi-pack/<packId>:<artifactVersion>`, with the same integrity gate. There
 is no build server, signature or envelope, and no tenant or signing key
 needed. It prints a `docker run` line.
@@ -487,7 +487,7 @@ digest, and the pack's dependencies come from its lockfile (`uv.lock`, or a
 Poetry app's `poetry.lock`; one is required). Debian packages the code needs
 go in `[tool.kindgi.image] system-packages = ["tesseract-ocr"]`. The image's
 uv version must be in the pack's `[tool.uv] required-version`; `kindgi
-build` stops before uploading when it isn't.
+build` stops before building when it isn't.
 
 **Reproducible:** the build pins `SOURCE_DATE_EPOCH=0`, the publish time
 (`--published-at`, default the epoch) and the artifact version
@@ -496,7 +496,7 @@ so the same inputs give the same image.
 
 | Flag | Purpose |
 |---|---|
-| `--local` | Build with this machine's Docker instead of a build server: no signing, no envelope. TypeScript packs. |
+| `--local` | Build with this machine's Docker instead of a build server: no signing and no envelope unless `--push`. |
 | `--push[=<repository>]` | With `--local`: push the image, sign it, and write the envelope. Default repository: the env block's `registry` + `/<packId>`. |
 | `--platform=<os/arch>` | The image's platform. Default: `linux/amd64` when pushing, else this machine's. |
 | `--endpoint=<url>` | The build server. Default: the env block's `build`. |
