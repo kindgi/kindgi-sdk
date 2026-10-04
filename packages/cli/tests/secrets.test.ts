@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import type { SecretsValueInputSeam } from '../src/commands/secrets.js';
 import type { EnvRunners } from '../src/env/runners.js';
 import { type RunCliInputs, runCli } from '../src/main.js';
+import { PromptCancelled, type TtySeam } from '../src/terminal-input.js';
 
 let packDir: string;
 
@@ -305,6 +306,35 @@ describe('kindgi secrets set — TTY prompt', () => {
     });
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain('did not match');
+  });
+
+  test('Ctrl+C at the prompt cancels, writing nothing', async () => {
+    const fixtures = makeFixtures();
+    let closed = false;
+    (fixtures.seam as { tty?: TtySeam }).tty = {
+      promptHidden: async () => {
+        throw new PromptCancelled();
+      },
+      close: () => {
+        closed = true;
+      },
+    };
+    const setCalls: unknown[] = [];
+    const clientFactory = (): unknown =>
+      makeFakeClient({
+        set: async (args) => {
+          setCalls.push(args);
+          return {};
+        },
+      });
+    const out = await runCli({
+      ...baseInputs(fixtures, ['secrets', 'set', 'stripe.key', '--env=staging', '--scope=tenant']),
+      clientFactory: clientFactory as never,
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe('Cancelled.\n');
+    expect(closed).toBe(true);
+    expect(setCalls).toEqual([]);
   });
 
   test('rejects when stdin is not a TTY and --from-stdin absent', async () => {
