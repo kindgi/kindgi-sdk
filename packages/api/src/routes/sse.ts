@@ -12,7 +12,7 @@ import type { RunId, TenantId } from '@kindgi/types';
  * Source of truth: `@kindgi/specs/run-event.schema.json`. Names are dotted
  * `run.<xxx>-<yyy>` (e.g. `run.step-completed`) — matches the
  * conventions doc §6 example. Internal-only kernel journal kinds
- * (e.g. `clock.read`) and kinds absent from the wire enum
+ * (e.g. `value.recorded`) and kinds absent from the wire enum
  * (`edge.evaluated`) are dropped by the mapper — the journal endpoint
  * still exposes them.
  */
@@ -54,7 +54,7 @@ const TERMINAL_KINDS: ReadonlySet<RunEventKind> = new Set([
 /**
  * Project a kernel `JournalEntry` into the wire `RunEvent` shape
  * consumed over SSE. Returns `null` for kernel kinds not exposed on
- * the wire (`edge.evaluated`, `clock.read`).
+ * the wire (`edge.evaluated`, `value.recorded`).
  */
 export function projectJournalEntry(
   entry: JournalEntry,
