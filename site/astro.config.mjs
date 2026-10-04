@@ -9,12 +9,14 @@ import starlightOpenAPI, { createOpenAPISidebarGroup } from 'starlight-openapi';
 import { createStarlightTypeDocPlugin } from 'starlight-typedoc';
 
 // Each released minor line is built from its git tag under its own base
-// (`/v0.1/`); the newest at the root; `main` under `/next/`. Content links
-// are relative, so a page works under any base.
+// (`/v0.1/`), the newest also at the root. Content links are relative, so a
+// page works under any base.
 const base = process.env.KINDGI_DOCS_BASE ?? '/';
+// A private preview of unreleased docs (scripts/build-preview.mjs).
+const preview = process.env.PUBLIC_KINDGI_DOCS_PREVIEW === '1';
 // Only the latest release's docs (served at the root) are indexed: an older
-// line or `/next/` would compete with them in search results.
-const indexed = base === '/';
+// line or a preview would compete with them in search results.
+const indexed = base === '/' && !preview;
 
 // The guides, one collapsible group per area, in reading order.
 const guideAreas = [
