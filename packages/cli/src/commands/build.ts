@@ -39,12 +39,7 @@ import { checkAptPackages } from '../build/apt.js';
 import { PACK_SERVICE_COMMAND } from '../build/containerfile.js';
 import { collectIncludeFiles, readBundleConfig } from '../build/context-files.js';
 import { buildEnvelope, canonicaliseSignatureBody, sha256Hex } from '../build/envelope.js';
-import {
-  type HostInstall,
-  type SkippedScript,
-  devOnlyImports,
-  resolveHostInstall,
-} from '../build/host-install.js';
+import { type SkippedScript, devOnlyImports, resolveHostInstall } from '../build/host-install.js';
 import { readImageConfig } from '../build/image-config.js';
 import { checkIntegrity } from '../build/integrity.js';
 import { nodeBaseImageFor } from '../build/node-image.js';
@@ -53,6 +48,7 @@ import {
   DEFAULT_PYTHON_BASE_IMAGE_REF,
   DEFAULT_UV_IMAGE_REF,
   PYTHON_LOCKFILES,
+  PYTHON_PACK_SERVICE_COMMAND,
   collectPythonContextFiles,
 } from '../build/python-image.js';
 import type {
@@ -107,7 +103,7 @@ export const buildCommand: LeafCommand = {
     local: {
       type: 'boolean',
       description:
-        "Build with this machine's Docker instead of a build server: no signing and no envelope unless `--push`. TypeScript packs only.",
+        "Build with this machine's Docker instead of a build server: no signing and no envelope unless `--push`.",
     },
     push: {
       type: 'string',
@@ -257,10 +253,7 @@ export async function runBuild(ctx: CommandContext): Promise<CommandResult> {
   // ---- 1. Local indexer pass ------------------------------------------
   const expectedIndexPath = join(args.outDir, 'expected-index.json');
   await mkdir(args.outDir, { recursive: true });
-  const prepared =
-    args.language === 'python'
-      ? await preparePythonContext(ctx, runners, args, expectedIndexPath, lines)
-      : await prepareNodeTarball(runners, args, expectedIndexPath, lines);
+  const prepared = await prepareTarball(ctx, runners, args, expectedIndexPath, lines);
   if (prepared.kind === 'error') return prepared;
   const { tarball, tarballHash, counts } = prepared;
   lines('');
@@ -405,12 +398,14 @@ export async function runBuild(ctx: CommandContext): Promise<CommandResult> {
 // ---------------------------------------------------------------------
 
 /**
- * `kindgi build --local`: the image built with this machine's Docker
- * (`docker buildx build --load`) into its image store, as
- * `kindgi-pack/<packId>:<artifactVersion>`. The same context and
+ * `kindgi build --local`: the image of a TypeScript or Python pack built
+ * with this machine's Docker (`docker buildx build --load`) into its image
+ * store, as `kindgi-pack/<packId>:<artifactVersion>`. The same context and
  * integrity gate as a build-service build: the image's `/app/index.json`
  * must equal the local index byte for byte. No build service, no
- * signature, no deploy envelope: push the image yourself, or run it.
+ * signature, no deploy envelope: push the image yourself, or run it. With
+ * `--push`, the image goes to the registry, and is signed into an
+ * envelope for `kindgi deploy`.
  */
 async function runLocalBuild(
   ctx: CommandContext,
@@ -436,7 +431,7 @@ async function runLocalBuild(
 
   const expectedIndexPath = join(args.outDir, 'expected-index.json');
   await mkdir(args.outDir, { recursive: true });
-  const context = await prepareNodeContext(runners, args, expectedIndexPath, lines);
+  const context = await preparePackContext(ctx, runners, args, expectedIndexPath, lines);
   if (context.kind === 'error') return withBanner(context, banner);
   const expectedBytes = new Uint8Array(await readFile(expectedIndexPath));
   const packId = (JSON.parse(new TextDecoder().decode(expectedBytes)) as { packId?: unknown })
@@ -451,10 +446,7 @@ async function runLocalBuild(
     buildTarget: args.buildTarget,
     ...(args.platform !== undefined && { platform: args.platform }),
     ...(pushTo !== undefined && { push: true }),
-    secrets: context.install.secrets.map((s) => ({
-      id: s.id,
-      src: join(context.install.root, s.file),
-    })),
+    secrets: context.secrets.map(({ id, src }) => ({ id, src })),
     onLog: (line) => lines(`        ${line}`),
   });
   if (built.kind === 'err')
@@ -529,7 +521,8 @@ async function runLocalBuild(
   lines(
     `    docker run --rm -p 8080:8080 -e KINDGI_PACK_SERVICE_TOKEN=<token> --env-file <the pack's env> ${tag}`,
   );
-  lines(`    (the pack service: ${PACK_SERVICE_COMMAND.join(' ')})`);
+  const service = args.language === 'python' ? PYTHON_PACK_SERVICE_COMMAND : PACK_SERVICE_COMMAND;
+  lines(`    (the pack service: ${service.join(' ')})`);
   lines('');
 
   const rendered = renderJson(
@@ -652,15 +645,41 @@ type PreparedContext =
     }
   | (CommandResult & { readonly kind: 'error' });
 
-/** A Node pack's image, ready to build: its context, the local index, what the install is. */
-type NodeContext =
+/** A file the image's install reads as a BuildKit secret; never in the image. */
+interface BuildSecret {
+  readonly id: string;
+  /** Where it's read from. */
+  readonly src: string;
+  /** The file, as messages name it. */
+  readonly file: string;
+}
+
+/**
+ * A pack's image, ready to build or to tar for the build service: its
+ * context (`<out>/context`), the local index's counts, the install's build
+ * secrets.
+ */
+type PackContext =
   | {
       readonly kind: 'ok';
       readonly contextDir: string;
       readonly counts: IndexedCounts;
-      readonly install: HostInstall;
+      readonly secrets: readonly BuildSecret[];
     }
   | (CommandResult & { readonly kind: 'error' });
+
+/** The pack's image context, by the pack's language. */
+function preparePackContext(
+  ctx: CommandContext,
+  runners: BuildRunners,
+  args: ResolvedBuildArgs,
+  expectedIndexPath: string,
+  lines: (s: string) => void,
+): Promise<PackContext> {
+  return args.language === 'python'
+    ? preparePythonContext(ctx, runners, args, expectedIndexPath, lines)
+    : prepareNodeContext(runners, args, expectedIndexPath, lines);
+}
 
 /**
  * A Node pack: how the image installs the app (`host-install.ts`), its
@@ -672,7 +691,7 @@ async function prepareNodeContext(
   args: ResolvedBuildArgs,
   expectedIndexPath: string,
   lines: (s: string) => void,
-): Promise<NodeContext> {
+): Promise<PackContext> {
   const hostInstall = await resolveHostInstall(args.packDir);
   if (hostInstall.kind === 'err') return failure(`${hostInstall.message}\n`);
   const install = hostInstall.install;
@@ -790,7 +809,12 @@ async function prepareNodeContext(
     );
   }
   for (const line of skippedScriptLines(install.skippedScripts)) lines(line);
-  return { kind: 'ok', contextDir, counts: localIndex.counts, install };
+  const secrets = install.secrets.map((secret) => ({
+    id: secret.id,
+    src: join(install.root, secret.file),
+    file: secret.file,
+  }));
+  return { kind: 'ok', contextDir, counts: localIndex.counts, secrets };
 }
 
 /**
@@ -813,18 +837,19 @@ export function skippedScriptLines(skipped: readonly SkippedScript[]): string[] 
   return lines;
 }
 
-/** A Node pack's context, tarred for the build service. */
-async function prepareNodeTarball(
+/** A pack's context, tarred for the build service. */
+async function prepareTarball(
+  ctx: CommandContext,
   runners: BuildRunners,
   args: ResolvedBuildArgs,
   expectedIndexPath: string,
   lines: (s: string) => void,
 ): Promise<PreparedContext> {
-  const context = await prepareNodeContext(runners, args, expectedIndexPath, lines);
+  const context = await preparePackContext(ctx, runners, args, expectedIndexPath, lines);
   if (context.kind === 'error') return context;
-  if (context.install.secrets.length > 0) {
+  if (context.secrets.length > 0) {
     lines(
-      `    ⚠ The build service gets no build secrets: an install that needs ${context.install.secrets.map((s) => s.file).join(', ')} (a private registry) fails there. \`kindgi build --local\` passes them.`,
+      `    ⚠ The build service gets no build secrets: an install that needs ${context.secrets.map((s) => s.file).join(', ')} (a private registry) fails there. \`kindgi build --local\` passes them.`,
     );
   }
   const tarballPath = join(args.outDir, 'pack.tgz');
@@ -839,7 +864,8 @@ async function prepareNodeTarball(
 
 /**
  * A Python pack: the local index with the pack's interpreter, the Python
- * Containerfile (`build/python-image.ts`), the pack root as the context.
+ * Containerfile (`build/python-image.ts`), the pack root as the context
+ * (`<out>/context`).
  */
 async function preparePythonContext(
   ctx: CommandContext,
@@ -847,7 +873,7 @@ async function preparePythonContext(
   args: ResolvedBuildArgs,
   expectedIndexPath: string,
   lines: (s: string) => void,
-): Promise<PreparedContext> {
+): Promise<PackContext> {
   const python = runners.python;
   if (python === undefined)
     return failure('This CLI cannot build Python packs (no Python build runners).\n');
@@ -884,8 +910,8 @@ async function preparePythonContext(
       `${localIndex.counts.agents} agents, ${localIndex.counts.flows} flows discovered`,
   );
 
-  const context = await collectPythonContextFiles(args.packDir);
-  if (context.kind === 'error') return failure(`${context.message}\n`);
+  const packFiles = await collectPythonContextFiles(args.packDir);
+  if (packFiles.kind === 'error') return failure(`${packFiles.message}\n`);
   const image = args.config.image;
   const system = checkAptPackages(
     image !== null && typeof image === 'object'
@@ -902,22 +928,20 @@ async function preparePythonContext(
     baseImageRef: DEFAULT_PYTHON_BASE_IMAGE_REF,
     uvImageRef: DEFAULT_UV_IMAGE_REF,
     buildTarget: args.buildTarget,
-    installer: context.installer,
+    installer: packFiles.installer,
     systemPackages: system.packages,
   });
-  lines(
-    `    ✓ ${context.files.length} pack file(s) in the image (the pack root, minus caches, virtualenvs and secrets); dependencies from ${PYTHON_LOCKFILES[context.installer]}${system.packages.length > 0 ? `; Debian packages: ${system.packages.join(', ')}` : ''}`,
-  );
-  const tarballPath = join(args.outDir, 'pack.tgz');
-  const tarball = await python.tarContext({
+  const contextDir = join(args.outDir, 'context');
+  await python.writeContext({
     packDir: args.packDir,
-    files: context.files,
+    files: packFiles.files,
     containerfilePath,
-    outputPath: tarballPath,
+    contextDir,
   });
-  const tarballHash = await sha256Hex(tarball.bytes);
-  lines(`    ✓ Emitted ${tarballPath} (${humanBytes(tarball.size)}, ${tarballHash.slice(0, 14)}…)`);
-  return { kind: 'ok', tarball, tarballHash, counts: localIndex.counts };
+  lines(
+    `    ✓ ${packFiles.files.length} pack file(s) in the image (the pack root, minus caches, virtualenvs and secrets); dependencies from ${PYTHON_LOCKFILES[packFiles.installer]}${system.packages.length > 0 ? `; Debian packages: ${system.packages.join(', ')}` : ''}`,
+  );
+  return { kind: 'ok', contextDir, counts: localIndex.counts, secrets: [] };
 }
 
 async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
@@ -940,14 +964,6 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
     return {
       kind: 'error',
       stderr: '--push goes with --local: `kindgi build --local --push [<repository>]`.\n',
-      exitCode: 1,
-    };
-  }
-  if (local && language === 'python') {
-    return {
-      kind: 'error',
-      stderr:
-        'kindgi build --local builds TypeScript packs; build a Python pack with the build service.\n',
       exitCode: 1,
     };
   }

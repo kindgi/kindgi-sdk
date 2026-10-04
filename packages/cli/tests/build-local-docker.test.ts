@@ -6,7 +6,8 @@
  * the pack's own lockfile, its indexer stage writes the same index as
  * the local one, and the image serves the pack's tool — a TypeScript
  * tool that imports a module of the app, bundled. Once with npm, once
- * with a pnpm workspace whose pack sits in a member folder.
+ * with a pnpm workspace whose pack sits in a member folder. And a Python
+ * pack, from its `uv.lock`, with a tool that imports a module beside it.
  *
  * Gated: `KINDGI_DOCKER_TESTS=1` (needs Docker, and the network for the
  * base image and corepack's pnpm).
@@ -14,9 +15,11 @@
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
+import { readdirSync } from 'node:fs';
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { afterAll, describe, expect, test } from 'vitest';
 
@@ -76,6 +79,70 @@ async function writePack(packDir: string, packageJson: Record<string, unknown>):
     'export const greet = (name: string): string => `Hello, ${name}!`;\n',
   );
   await put(packDir, 'tools/echo/index.ts', ECHO_TOOL);
+}
+
+/** This repository's Python SDK, which a Python pack's image installs as a wheel. */
+const PYTHON_SDK = fileURLToPath(new URL('../../../sdks/python', import.meta.url));
+
+const PYTHON_ECHO_TOOL = `from pydantic import BaseModel
+
+from kindgi import tool
+from lib.greet import greet
+
+
+class GreetInput(BaseModel):
+    name: str
+
+
+class Greeting(BaseModel):
+    greeting: str
+
+
+@tool(id="smoke.echo")
+def echo(input: GreetInput) -> Greeting:
+    \"\"\"Greets by name.\"\"\"
+    return Greeting(greeting=greet(input.name))
+`;
+
+/**
+ * A Python pack: a tool and the module of the app it imports, with the
+ * Python SDK as a wheel inside the pack (the image builds from the pack
+ * root), locked and synced with uv: the local indexer runs in its `.venv`.
+ */
+async function writePythonPack(packDir: string): Promise<void> {
+  execFileSync('uv', [
+    'build',
+    '--wheel',
+    '--quiet',
+    '--out-dir',
+    join(packDir, 'wheels'),
+    PYTHON_SDK,
+  ]);
+  const wheel = readdirSync(join(packDir, 'wheels')).find((f) => f.endsWith('.whl'));
+  await put(
+    packDir,
+    'pyproject.toml',
+    `[project]
+name = "smoke-py"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["kindgi"]
+
+[tool.uv.sources]
+kindgi = { path = "wheels/${wheel}" }
+
+[tool.kindgi.pack]
+id = "smoke"
+version = "0.1.0"
+`,
+  );
+  await put(
+    packDir,
+    'lib/greet.py',
+    'def greet(name: str) -> str:\n    return f"Hello, {name}!"\n',
+  );
+  await put(packDir, 'tools/echo.py', PYTHON_ECHO_TOOL);
+  execFileSync('uv', ['sync', '--quiet'], { cwd: packDir });
 }
 
 async function buildLocal(
@@ -294,6 +361,20 @@ fs.writeFileSync('generated/marker.json', JSON.stringify({ input: fs.readFileSyn
     expect(inImage[2]).toBe('BUILD_MARK=unset');
     // The tool still answers.
     expect(await serveAndInvoke(imageRef, 'image')).toMatchObject({ kind: 'result' });
+  }, 600_000);
+
+  test('Python: builds from uv.lock and serves the tool, which imports a module beside it', async () => {
+    const packDir = await realpath(await mkdtemp(join(tmpdir(), 'kindgi-docker-python-')));
+    dirs.push(packDir);
+    await writePythonPack(packDir);
+
+    const { imageRef } = await buildLocal(packDir, '20261004.1');
+    expect(imageRef).toBe('kindgi-pack/smoke:20261004.1');
+    expect(await serveAndInvoke(imageRef, 'python')).toEqual({
+      v: 2,
+      kind: 'result',
+      output: { greeting: 'Hello, Ada!' },
+    });
   }, 600_000);
 
   test('--push: builds for linux/amd64, pushes to the registry, and writes a signed envelope', async () => {
