@@ -72,16 +72,18 @@ export interface HostInstall {
   readonly projectManifests: readonly string[];
   /** The install scripts those manifests have, which the image leaves out, in order. */
   readonly skippedScripts: readonly SkippedScript[];
-  /**
-   * The pack project's own dependency names, sorted: what the image keeps
-   * (`dependencies`, `optionalDependencies`, `peerDependencies`), and what
-   * its prune to production drops (`devDependencies`).
-   */
-  readonly packDependencies: {
-    readonly runtime: readonly string[];
-    readonly dev: readonly string[];
-  };
+  readonly packDependencies: PackDependencies;
   readonly secrets: readonly HostSecret[];
+}
+
+/**
+ * The pack project's own dependency names, sorted: what the image keeps
+ * (`dependencies`, `optionalDependencies`, `peerDependencies`), and what
+ * its prune to production drops (`devDependencies`).
+ */
+export interface PackDependencies {
+  readonly runtime: readonly string[];
+  readonly dev: readonly string[];
 }
 
 /** An install script of the app's own that never runs in the image. */
@@ -255,9 +257,8 @@ export async function resolveHostInstall(packDir: string): Promise<HostInstallOu
   }
 
   const enginesNode = stringField(objectField(rootManifest, 'engines'), 'node');
+  // The pack folder's own manifest (`readPackDependencies` reads the same file).
   const packManifest = manifests.find(([dir]) => dir === packRel)?.[1] ?? {};
-  const namesIn = (...fields: readonly string[]): string[] =>
-    [...new Set(fields.flatMap((field) => Object.keys(objectField(packManifest, field))))].sort();
   return {
     kind: 'ok',
     install: {
@@ -280,12 +281,39 @@ export async function resolveHostInstall(packDir: string): Promise<HostInstallOu
             .filter(([name, command]) => INSTALL_LIFECYCLE_SCRIPTS.includes(name) && typeof command === 'string')
             .map(([name, command]) => ({ manifest: path, name, command: command as string })),
         ),
-      packDependencies: {
-        runtime: namesIn('dependencies', 'optionalDependencies', 'peerDependencies'),
-        dev: namesIn('devDependencies'),
-      },
+      packDependencies: packDependenciesOf(packManifest),
       secrets,
     },
+  };
+}
+
+/**
+ * The pack project's dependency names, as `resolveHostInstall` reads
+ * them: from the pack folder's own `package.json` (the app's, when Kindgi
+ * is added to an app; the member's, for a pack in a workspace member).
+ * None when the folder has no manifest. Needs no lockfile, so `kindgi dev`
+ * can read them on every save.
+ */
+export async function readPackDependencies(packDir: string): Promise<PackDependencies> {
+  return packDependenciesOf((await readManifest(join(resolve(packDir), 'package.json'))) ?? {});
+}
+
+/**
+ * The packages the pack's bundles import that its project lists only in
+ * devDependencies: the image's prune to production drops them, so they'd
+ * be missing there although they load locally. A package in both
+ * sections stays.
+ */
+export function devOnlyImports(externals: readonly string[], deps: PackDependencies): string[] {
+  return externals.filter((name) => deps.dev.includes(name) && !deps.runtime.includes(name));
+}
+
+function packDependenciesOf(manifest: Manifest): PackDependencies {
+  const namesIn = (...fields: readonly string[]): string[] =>
+    [...new Set(fields.flatMap((field) => Object.keys(objectField(manifest, field))))].sort();
+  return {
+    runtime: namesIn('dependencies', 'optionalDependencies', 'peerDependencies'),
+    dev: namesIn('devDependencies'),
   };
 }
 

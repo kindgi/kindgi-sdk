@@ -86,10 +86,26 @@ export interface StartApiServerOptions {
  * One bundle of the pack's code: each primitive's source path (as the
  * index records it) mapped to its bundle, both relative to the pack
  * root — or the build errors, located `file:line:column`.
+ *
+ * `externals` (a Node pack's): the packages the code loads from the
+ * app's `node_modules`, the same ones a pack image's bundles load — its
+ * primitives' and its config's. Absent for a Python pack.
  */
 export type PackBuild =
-  | { readonly kind: 'ok'; readonly bundleMap: Readonly<Record<string, string>> }
+  | {
+      readonly kind: 'ok';
+      readonly bundleMap: Readonly<Record<string, string>>;
+      readonly externals?: readonly ExternalPackage[];
+    }
   | { readonly kind: 'err'; readonly errors: readonly string[] };
+
+/** A package the pack's code loads from `node_modules`, and the files that import it. */
+export interface ExternalPackage {
+  /** `@scope/name` or `name`. */
+  readonly name: string;
+  /** Relative to the pack root, sorted. */
+  readonly importers: readonly string[];
+}
 
 /**
  * Makes the pack's code ready for the pack service: esbuild bundles for a
@@ -247,6 +263,8 @@ export interface DevRunners {
   readonly createPackBuilder: (opts: {
     readonly packDir: string;
     readonly patterns: readonly string[];
+    /** A Node pack's `kindgi.config.*`: its imports count among the externals, as in a pack image. */
+    readonly configPath?: string;
     readonly code: PackCode;
     /** The pack's environment (a Python build runs the pack's interpreter with it). */
     readonly env: () => Promise<Readonly<Record<string, string>>>;

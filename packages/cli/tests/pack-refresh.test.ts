@@ -151,6 +151,27 @@ describe('createPackRefresher', () => {
     expect(h.steps).not.toContain('publish');
   });
 
+  test('onBuild gets each build a refresh loads, before it is indexed; not one that failed', async () => {
+    const h = harness();
+    const seen: PackBuild[] = [];
+    const refresher = createPackRefresher({
+      ...h,
+      packDir,
+      env,
+      code: NODE_PACK_CODE,
+      onBuild: async (build) => {
+        h.steps.push('onBuild');
+        seen.push(build);
+      },
+    });
+    await refresher.refresh();
+    expect(h.steps).toEqual(['build', 'onBuild', 'index staged', 'start pack-index', 'publish']);
+    // An env-file change loads the last good build again.
+    await refresher.refresh();
+    await refresher.refresh({ kind: 'err', errors: ['tools/a.ts:1:1: x'] });
+    expect(seen).toEqual([BUILD, BUILD]);
+  });
+
   test('without a build (an env-file change), the last good bundle is reused', async () => {
     const h = harness();
     const refresher = createPackRefresher({ ...h, packDir, env, code: NODE_PACK_CODE });

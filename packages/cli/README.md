@@ -304,6 +304,12 @@ directory is watched, never the whole app. The dev index lives at
 - A file that fails to index or build (a bad schema, a missing default
   export, a syntax error) is reported with its path and the error, and the
   previous code keeps serving until you fix it and save.
+- A package the pack imports that `package.json` lists only in
+  `devDependencies` gets a warning naming it and the files importing it, at
+  startup and when a save adds one (once per package; the next reload after
+  you fix it says so). It loads here, but a deployed pack installs
+  production dependencies only, so `kindgi build` refuses it. `--json` lists
+  them as `devOnlyImports`. A Python pack isn't checked.
 - Deleting a primitive's folder removes it from the catalog.
 
 ### A Python pack
