@@ -126,7 +126,8 @@ export interface ResumeAgentTurnInput {
  * runId — this happens when the setup handler's snapshot write failed
  * (the write is best-effort). Recovery: cancel the run explicitly;
  * there is no way to reconstruct the InvokeAgentInput without the
- * snapshot.
+ * snapshot. Fails with `run-snapshot-unreadable` when reading it failed;
+ * resuming again may work.
  */
 /**
  * Rebuild a resumed turn's context from its journal (see
@@ -167,9 +168,9 @@ export async function resumeAgentTurn(
     return {
       kind: 'err',
       error: {
-        code: 'run-snapshot-missing',
-        message: `Failed to load run snapshot for run ${input.runId as unknown as string}: ${snapshotResult.error.message}`,
-      } as never,
+        code: 'run-snapshot-unreadable',
+        message: `Could not read the run snapshot of run ${input.runId as unknown as string}: ${snapshotResult.error.message}`,
+      },
     };
   }
   const snapshot = snapshotResult.value;
@@ -179,7 +180,7 @@ export async function resumeAgentTurn(
       error: {
         code: 'run-snapshot-missing',
         message: `No run snapshot for run ${input.runId as unknown as string} — resume-context unavailable.`,
-      } as never,
+      },
     };
   }
 
@@ -287,6 +288,7 @@ export type {
   InvokeAgentError,
   ModelInvocationError,
   OutputSchemaViolationError,
+  RunSnapshotError,
   ToolInvocationError,
   UnresolvedToolError,
 } from './handlers/errors.js';
