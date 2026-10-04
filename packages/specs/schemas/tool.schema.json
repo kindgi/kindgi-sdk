@@ -24,11 +24,11 @@
     },
     "input": {
       "type": "object",
-      "description": "JSON Schema for the tool input. MUST validate under Draft 2020-12."
+      "description": "JSON Schema for the tool input. MUST validate under Draft 2020-12, except on an MCP server's tool (`transport: \"mcp\"`), whose schemas are in the dialect their `$schema` declares: draft-06, draft-07, 2019-09 or 2020-12."
     },
     "output": {
       "type": "object",
-      "description": "JSON Schema for the tool output. MUST validate under Draft 2020-12."
+      "description": "JSON Schema for the tool output. MUST validate under Draft 2020-12, except on an MCP server's tool (`transport: \"mcp\"`), whose schemas are in the dialect their `$schema` declares: draft-06, draft-07, 2019-09 or 2020-12."
     },
     "needs": {
       "type": "array",
