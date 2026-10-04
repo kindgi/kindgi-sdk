@@ -1,0 +1,102 @@
+---
+title: Show runs in your app
+description: Keep a run's id on your own row, and read its status, output, steps and sources through the API, never from Kindgi's database or console.
+sidebar:
+  order: 8
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+When your app keeps something a run did (a ticket a flow triaged, an answer an
+agent gave), it keeps the run's id on its own row and reads the rest from
+Kindgi's API when it needs it. Your users see it in your app, in your UI.
+
+## Keep the run's id
+
+`runs.start` answers with the run's id. Store it with your own record, in a
+column such as `kindgi_run_id`. It's all your app needs to read the run again.
+
+## Hear when it finished
+
+Subscribe to the `run.finished` webhook instead of polling:
+[Get a webhook when a run finishes](../../webhooks/receive-run-finished/). It
+carries the run's id and outcome (`completed`, `failed` or `cancelled`), never
+its output, so your handler finds the row by `kindgi_run_id` and reads the run.
+
+## Read what you show
+
+| Your app shows | Read | Client call |
+|---|---|---|
+| The status, the output, when it started and finished | `GET /v1/runs/{runId}` | `runs.get` |
+| Only the status and timing (no data) | `GET /v1/runs/{runId}/progress` | `runs.progress` |
+| What happened, step by step: tool calls, branches, approvals | `GET /v1/runs/{runId}/journal` | `runs.journal` ([Read a run's journal](../read-the-journal/)) |
+| Where an agent's answer came from: its model calls and tool results | `GET /v1/provenance/{runId}` | `provenance.get` ([Trace an answer](../../observability/trace-an-answer/)) |
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// app/run-details.ts
+import { createClient } from '@kindgi/sdk/client';
+import type { RunId } from '@kindgi/sdk/types';
+
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN
+
+/** What a ticket's page shows about its run, from the ticket's kindgi_run_id. */
+export async function runDetails(kindgiRunId: string) {
+  const runId = kindgiRunId as RunId;
+  const run = await kindgi.runs.get(runId);
+  const { data: steps } = await kindgi.runs.journal(runId);
+  return {
+    status: run.status,
+    startedAt: run.createdAt,
+    finishedAt: run.completedAt,
+    output: run.output,
+    steps: steps.length,
+  };
+}
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# in app/run_details.py
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN
+
+
+def run_details(kindgi_run_id: str) -> dict[str, object]:
+    """What a ticket's page shows about its run, from the ticket's kindgi_run_id."""
+    run = kindgi.runs.get(kindgi_run_id)
+    steps = kindgi.runs.journal(kindgi_run_id).data
+    return {
+        "status": run.status,
+        "started_at": run.created_at,
+        "finished_at": run.completed_at,
+        "output": run.output,
+        "steps": len(steps),
+    }
+```
+
+</TabItem>
+</Tabs>
+
+A flow run has no provenance of its own: each agent step in it is a turn with
+its own run. The step's `step.completed` entry in the flow's journal names that
+run (`payload.output.runId`); read the turn's provenance by that id.
+
+## Kindgi's database and console aren't your app's
+
+Read Kindgi's data only through its API, from your app's server:
+
+- **Don't query Kindgi's database**, even when it's on the same Postgres
+  server as your app's. Its schema is private and changes with every release
+  (migrations only go forward), row-level security guards every query by
+  tenant, and a runtime Kindgi hosts for you gives no database access at all.
+  The API is the contract that stays.
+- **Don't send your users to Kindgi's console** to see a run. Show what they
+  need in your own UI, with your own access rules.
+- **To keep a copy** for reporting or search, pull it through the API into
+  your own tables.

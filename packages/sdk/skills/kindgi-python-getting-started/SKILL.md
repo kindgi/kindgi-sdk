@@ -14,7 +14,7 @@ description: >
   kindgi-python-authoring-agents; models by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.1"
+version: "0.1.2"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -181,6 +181,37 @@ for event in client.runs.stream(str(run.id)):
 
 `AsyncKindgi` is the asyncio twin. `kindgi dev` prints the URL and the
 token; `.kindgirc.json` in the pack holds them for the CLI.
+
+## Your app and Kindgi's data
+
+When the app keeps something a run did (a ticket a flow triaged, an answer
+an agent gave), its own row stores the run's id, in a column such as
+`kindgi_run_id` (`run = client.runs.start(flow=…, input=…, options={"wait": False})`,
+then `run.id`). The app reads the rest through the API, server side, with
+`Kindgi()` from `kindgi.client`:
+
+- **Status, output, timing:** `client.runs.get(run_id)`
+  (`GET /v1/runs/{runId}`); status and timing only: `client.runs.progress(run_id)`.
+- **The audit, step by step:** `client.runs.journal(run_id).data`
+  (`GET /v1/runs/{runId}/journal`).
+- **Where an agent's answer came from:** `client.provenance.get(run_id)`
+  (`GET /v1/provenance/{runId}`). A flow run has none of its own: each agent
+  step's `step.completed` entry in the flow's journal names its turn's run
+  (`entry.payload["output"]["runId"]`).
+- **When a run finished:** the `run.finished` webhook (the run's id and
+  outcome, no output; then `runs.get`), not polling.
+
+Show it in the app's own UI. **Never:**
+
+- **query Kindgi's database**, even on the app's own Postgres server, and
+  never map its tables into the app's ORM (SQLAlchemy, Django models). Its
+  schema is private and changes with every release (migrations only go
+  forward), row-level security guards every tenant query, and a runtime
+  Kindgi hosts gives no database access.
+- **link users to Kindgi's console** or any Kindgi UI for this data.
+
+To keep a copy (reporting, search), pull it through the API into the app's
+own tables. Docs: https://docs.kindgi.com/v0.1/guides/runs/show-runs-in-your-app/
 
 ## Build an image
 
