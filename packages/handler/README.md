@@ -14,7 +14,7 @@ code.
 | Symbol | Kind | What it is |
 | --- | --- | --- |
 | `NodeHandler` | type | `(input: unknown, ctx: NodeContext) => Promise<HandlerResult \| unknown>` |
-| `NodeContext` | type | What handlers receive: `runId`, `nodeId`, `tenantId`, `nodeOutputs`, `state`, `abortSignal`, `dryRun`, `principal?`, `authorize`, `can`, `check`, `clockNow`, `waitForToken` |
+| `NodeContext` | type | What handlers receive: `runId`, `nodeId`, `tenantId`, `nodeOutputs`, `state`, `abortSignal`, `dryRun`, `principal?`, `authorize`, `can`, `check`, `clockNow`, `record`, `waitForToken` |
 | `HandlerResult` | type | Optional structured return — `{ output, stateDelta? }` |
 | `HandlerRegistry` | type | `ReadonlyMap<NodeId, NodeHandler>` |
 | `LoopContext` | type | Loop annotation (`loopNodeId`, `iteration`, enclosing-loop `path`) on the journal entries of nodes that ran inside a loop body |

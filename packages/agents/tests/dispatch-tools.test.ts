@@ -1,17 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { describe, expect, test } from 'vitest';
-
-import type { NodeContext } from '@kindgi/handler';
 import { defineTool } from '@kindgi/tools';
 import type { AnyTool, ToolContext } from '@kindgi/tools';
 import type { RunId, TenantId, ToolId } from '@kindgi/types';
+import { describe, expect, test } from 'vitest';
 
 import type { TurnContext } from '../src/handlers/context.js';
 import { buildDispatchToolsHandler } from '../src/handlers/dispatch-tools.js';
 import { resolveEffectiveHitlPolicy } from '../src/hitl-policy.js';
 import type { Agent } from '../src/types.js';
+import { testNodeContext } from './node-context.js';
 
 describe('dispatch-tools — the context a tool receives', () => {
   test('runId is the kernel run; requestId is the model call', async () => {
@@ -76,7 +75,7 @@ describe('dispatch-tools — the context a tool receives', () => {
         provider: { id: 'p', model: 'm' },
         nextMessages: [],
       },
-      { runId: 'run-42' as RunId } as unknown as NodeContext,
+      testNodeContext({ runId: 'run-42' as RunId }),
     );
 
     expect(seen?.runId).toBe('run-42');
