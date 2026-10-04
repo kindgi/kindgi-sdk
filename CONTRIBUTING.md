@@ -7,7 +7,7 @@ describes how the repository works for maintainers.
 
 ## Setup
 
-Requires Node.js 22+ and pnpm (the version pinned in `package.json`'s
+Requires Node.js 22.12+ and pnpm (the version pinned in `package.json`'s
 `packageManager` field; `corepack enable` picks it up).
 
 ```sh

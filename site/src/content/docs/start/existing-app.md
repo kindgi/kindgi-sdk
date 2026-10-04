@@ -253,6 +253,24 @@ The token stays the same when you restart `kindgi dev`. `kindgi dev --reset`
 starts over with a new tenant and a new token: copy the new token after it.
 In production they're your deployment's URL and API token.
 
+### In a CommonJS app
+
+An app that isn't `"type": "module"`, or that compiles to CommonJS, loads
+the client with `require()`:
+
+```js
+const { createClient } = require('@kindgi/sdk/client');
+```
+
+- **Node 22.12 or later.** The SDK is ES modules, and Node's `require()`
+  loads ES modules from 22.12 on.
+- **TypeScript that compiles to CommonJS:** TypeScript 5.8 or later, with
+  `"module": "nodenext"`. In an app a bundler builds, `"moduleResolution":
+  "bundler"` works too. With `"moduleResolution": "node10"` (or `"node"`),
+  TypeScript doesn't find the SDK's types.
+
+Pack code (`kindgi/`) is ES modules in every app; `init` sets that up.
+
 ### Run an agent and read its answer
 
 ```ts
