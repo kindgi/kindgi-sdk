@@ -35,6 +35,7 @@ export type {
   ModelInvocationError,
   OutputSchemaViolationError,
   ResumeAgentTurnInput,
+  RunSnapshotError,
   ToolInvocationError,
   UnresolvedToolError,
 } from './invoke.js';

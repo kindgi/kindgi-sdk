@@ -4,7 +4,7 @@
 import type { HandlerResult, LoopContext } from '@kindgi/handler';
 import type { EdgeId, NodeId } from '@kindgi/types';
 
-import type { JournalEntry } from './types.js';
+import type { JournalEntry, ValueRecordedPayload } from './types.js';
 
 /**
  * Pure functions that project journal entries into the state shapes the
@@ -72,6 +72,13 @@ export interface DerivedRunState {
    * own completed steps.
    */
   readonly completedBodySteps: Map<string, CompletedBodyStep>;
+  /**
+   * Steps' recorded decisions (`NodeContext.record`, `clockNow`), keyed
+   * by `recordedValueKey(scope, key)`. Populated from `value.recorded`
+   * entries; a step that runs again reads its own back instead of
+   * deciding again. The last entry for a key wins.
+   */
+  readonly recordedValues: Map<string, unknown>;
 }
 
 /** What a loop-body step journaled when it completed. */
@@ -83,6 +90,11 @@ export interface CompletedBodyStep {
 /** Composite key for `waitResolutions` lookups. */
 export function waitResolutionKey(nodeId: NodeId, tokenId: string): string {
   return `${nodeId}::${tokenId}`;
+}
+
+/** Composite key for `recordedValues` lookups: the step's scope, and the decision's key. */
+export function recordedValueKey(scope: string, key: string): string {
+  return `${scope}::${key}`;
 }
 
 /** A loop-body step's key in `completedBodySteps`: the node, at its iteration of every enclosing loop. */
@@ -110,6 +122,7 @@ export function bodyStepKey(nodeId: NodeId, loopContext: LoopContext): string {
  *   - `step.concurrency-deferred` adds the node to `deferredNodes`.
  *   - a `step.completed` with a `loopContext` (a loop-body step) is also
  *     recorded in `completedBodySteps`.
+ *   - `value.recorded` records the value by `recordedValueKey(scope, key)`.
  *   - Every other kind is informational (run.started, run.completed, etc.).
  */
 export function deriveRunState(journal: readonly JournalEntry[]): DerivedRunState {
@@ -134,6 +147,7 @@ export function createRunState(): DerivedRunState {
     waitCancellations: new Map<string, string>(),
     nodeAttempts: new Map<NodeId, number>(),
     completedBodySteps: new Map<string, CompletedBodyStep>(),
+    recordedValues: new Map<string, unknown>(),
   };
 }
 
@@ -168,6 +182,7 @@ export function cloneRunState(state: DerivedRunState): DerivedRunState {
     waitCancellations: new Map(state.waitCancellations),
     nodeAttempts: new Map(state.nodeAttempts),
     completedBodySteps: new Map(state.completedBodySteps),
+    recordedValues: new Map(state.recordedValues),
   };
 }
 
@@ -185,6 +200,7 @@ interface MutableDerivedState {
   waitCancellations: Map<string, string>;
   nodeAttempts: Map<NodeId, number>;
   completedBodySteps: Map<string, CompletedBodyStep>;
+  recordedValues: Map<string, unknown>;
 }
 
 function applyEntry(acc: MutableDerivedState, entry: JournalEntry): void {
@@ -215,6 +231,9 @@ function applyEntry(acc: MutableDerivedState, entry: JournalEntry): void {
       return;
     case 'step.concurrency-deferred':
       applyStepConcurrencyDeferred(acc, entry);
+      return;
+    case 'value.recorded':
+      applyValueRecorded(acc, entry);
       return;
     default:
       // iteration.*, fanout.*, subgraph.*, run.*, clock.read: informational.
@@ -336,6 +355,12 @@ function applyWaitCancelled(acc: MutableDerivedState, entry: JournalEntry): void
     const reason = typeof p.reason === 'string' ? p.reason : 'unknown';
     acc.waitCancellations.set(waitResolutionKey(entry.nodeId, p.tokenId), reason);
   }
+}
+
+function applyValueRecorded(acc: MutableDerivedState, entry: JournalEntry): void {
+  const p = entry.payload as Partial<ValueRecordedPayload> | undefined;
+  if (p === undefined || typeof p.scope !== 'string' || typeof p.key !== 'string') return;
+  acc.recordedValues.set(recordedValueKey(p.scope, p.key), p.value);
 }
 
 /**
