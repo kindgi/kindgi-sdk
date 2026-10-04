@@ -297,9 +297,11 @@ Your app calls Kindgi over HTTP, through the SDK's client.
 
 ### Connect your app to the runtime
 
-`kindgi dev` prints the API's URL and a token (`API` and `Token` in its
-banner) and writes them to `.kindgirc.json`. Give them to your app as
-`KINDGI_API_URL` and `KINDGI_API_TOKEN`; in a Next.js app, in `.env.local`:
+In development, `kindgi dev` is enough: it writes the API's URL and a token
+to `.kindgirc.json`, and the client finds them there, with a one-time warning
+to set them. For production, and to silence the warning, give them to your
+app as `KINDGI_API_URL` and `KINDGI_API_TOKEN` in your env file (`.env` /
+`.env.local`). `kindgi dev` prints them (`API` and `Token` in its banner):
 
 ```sh
 # .env.local
@@ -308,8 +310,29 @@ KINDGI_API_TOKEN=kgi_bt_…
 ```
 
 The token stays the same when you restart `kindgi dev`. `kindgi dev --reset`
-starts over with a new tenant and a new token: copy the new token after it.
-In production they're your deployment's URL and API token.
+starts over with a new tenant and a new token: copy the new token after it
+(the client warns when the token in your env file no longer matches).
+In production they're your deployment's URL and API token. To pass them
+yourself instead: `createClient({ apiUrl, auth: { kind: 'apiToken', token } })`,
+or `Kindgi(url, token=…)` in Python.
+
+### In a CommonJS app
+
+An app that isn't `"type": "module"`, or that compiles to CommonJS, loads
+the client with `require()`:
+
+```js
+const { createClient } = require('@kindgi/sdk/client');
+```
+
+- **Node 22.12 or later.** The SDK is ES modules, and Node's `require()`
+  loads ES modules from 22.12 on.
+- **TypeScript that compiles to CommonJS:** TypeScript 5.8 or later, with
+  `"module": "nodenext"`. In an app a bundler builds, `"moduleResolution":
+  "bundler"` works too. With `"moduleResolution": "node10"` (or `"node"`),
+  TypeScript doesn't find the SDK's types.
+
+Pack code (`kindgi/`) is ES modules in every app; `init` sets that up.
 
 ### Run an agent and read its answer
 
@@ -317,10 +340,7 @@ In production they're your deployment's URL and API token.
 // src/lib/kindgi.ts
 import { createClient } from '@kindgi/sdk/client';
 
-export const kindgi = createClient({
-  apiUrl: process.env.KINDGI_API_URL!,
-  auth: { kind: 'apiToken', token: process.env.KINDGI_API_TOKEN! },
-});
+export const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 ```
 
 ```ts
@@ -365,7 +385,7 @@ In Python:
 ```python
 from kindgi.client import Kindgi, KindgiApiError
 
-kindgi = Kindgi()  # KINDGI_API_URL and KINDGI_API_TOKEN from the environment
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 try:
     run = kindgi.runs.start(agent="acme-support.triage", input={"userMessage": "Triage REQ-1002"})
     triage = run.output["output"]

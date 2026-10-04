@@ -18,7 +18,8 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     }
   },
   "files": ["dist", "src", "README.md"],
@@ -35,7 +36,7 @@
     "@kindgi/types": "workspace:*"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.12.0"
   },
   "publishConfig": {
     "access": "public",

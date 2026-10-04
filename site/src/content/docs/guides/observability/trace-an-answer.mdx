@@ -79,10 +79,7 @@ Edges point from an effect to its cause: `caused-by`, `invoked`, `produced`.
 import { createClient } from '@kindgi/sdk/client';
 import type { RunId } from '@kindgi/sdk/types';
 
-const kindgi = createClient({
-  apiUrl: process.env.KINDGI_API_URL!,
-  auth: { kind: 'apiToken', token: process.env.KINDGI_API_TOKEN! },
-});
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
 const record = await kindgi.provenance.get(process.argv[2] as RunId);
 for (const node of record.dag.nodes) {
@@ -117,7 +114,7 @@ import sys
 
 from kindgi.client import Kindgi
 
-kindgi = Kindgi()
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
 record = kindgi.provenance.get(sys.argv[1])
 for node in record.dag.nodes:

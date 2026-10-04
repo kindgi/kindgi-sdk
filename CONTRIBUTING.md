@@ -7,7 +7,7 @@ describes how the repository works for maintainers.
 
 ## Setup
 
-Requires Node.js 22+ and pnpm (the version pinned in `package.json`'s
+Requires Node.js 22.12+ and pnpm (the version pinned in `package.json`'s
 `packageManager` field; `corepack enable` picks it up).
 
 ```sh
@@ -23,6 +23,24 @@ One step runs only on your machine: the docs tutorials, which start
 `kindgi dev` with the private runtime image (`pnpm run docs:tutorials`).
 `pnpm run ci:local` runs all of CI, the tutorials included, on the clean,
 pushed commit. It needs pnpm, uv and Docker.
+
+## With your coding agent
+
+Changes here are made by coding agents and supervised by people: the agent
+does the work, and you read it before it's submitted.
+[`.claude/skills/kindgi-contributing/SKILL.md`](./.claude/skills/kindgi-contributing/SKILL.md)
+tells your agent how. Claude Code loads it by itself in a clone, and
+[`AGENTS.md`](./AGENTS.md) points other agents to it. It covers:
+- where a docs page's source is;
+- the checks to run for what changed;
+- the pull request's format.
+
+Every pull request carries:
+- the agent's `Co-Authored-By` trailer on its commits;
+- a `## Checks` list of the checks it ran, with their results;
+- a `Supervised-by:` line with your own name and email.
+
+A check on the pull request asks for any of them that's missing.
 
 ## Rules
 

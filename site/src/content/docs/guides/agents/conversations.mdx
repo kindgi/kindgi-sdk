@@ -25,10 +25,7 @@ and `KINDGI_API_TOKEN`. With `kindgi dev`, they're the URL and token it prints
 import { createClient } from '@kindgi/sdk/client';
 import type { ThreadId } from '@kindgi/sdk/types';
 
-const kindgi = createClient({
-  apiUrl: process.env.KINDGI_API_URL!,
-  auth: { kind: 'apiToken', token: process.env.KINDGI_API_TOKEN! },
-});
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
 type Turn = { conversationId: ThreadId; turnNumber: number; response: { content: string } };
 
@@ -70,7 +67,7 @@ node scripts/chat.ts
 # scripts/chat.py
 from kindgi.client import Kindgi
 
-kindgi = Kindgi()  # KINDGI_API_URL and KINDGI_API_TOKEN from the environment
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
 first = kindgi.runs.start(
     agent="acme.order-desk",
@@ -156,10 +153,7 @@ refused.
 import { KindgiApiError, createClient } from '@kindgi/sdk/client';
 import type { AgentId } from '@kindgi/sdk/types';
 
-const kindgi = createClient({
-  apiUrl: process.env.KINDGI_API_URL!,
-  auth: { kind: 'apiToken', token: process.env.KINDGI_API_TOKEN! },
-});
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
 const conversation = await kindgi.conversations.open({
   agentId: 'acme.order-desk' as AgentId,
@@ -208,7 +202,7 @@ conversation-closed Conversation "88356874-400d-4bcd-9708-63ab51f88dd3" is close
 # scripts/close.py
 from kindgi.client import ConflictError, Kindgi
 
-kindgi = Kindgi()
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
 conversation = kindgi.conversations.open(
     agent_id="acme.order-desk",

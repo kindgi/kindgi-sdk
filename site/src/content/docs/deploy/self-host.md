@@ -20,7 +20,7 @@ The runtime image is in private preview: request access at contact@kindgi.com
 
 ## Before you start
 
-- **Docker**, and **Node 22** or later.
+- **Docker**, and **Node 22.12** or later.
 - **A pack.** This page uses the sample:
 
   ```sh
@@ -69,6 +69,10 @@ If your app's code needs a generate step in the image (Prisma's client, for
 example), set that up first:
 [What the pack's image needs](../../start/existing-app/#what-the-packs-image-needs).
 
+In a Python pack, run each `pnpm exec kindgi` on this page as
+`npx --yes @kindgi/cli@0.1`, and lock its dependencies first (`uv lock`, or
+`poetry lock`): the image installs them from the lockfile.
+
 Pick a tenant id. The runtime serves this tenant, and the pack's signature names it:
 
 ```sh
@@ -95,6 +99,17 @@ environments: {
 },
 ```
 
+In a Python pack, the same keys go in `pyproject.toml`:
+
+```toml
+[tool.kindgi.environments.selfhost]
+endpoint = "http://localhost:4000"
+registry = "registry.localhost:5050"
+tenantId = "<your tenant id>"
+signingKey = "~/.kindgi/keys/acme-selfhost.pem"
+signerKeyId = "acme-selfhost"
+```
+
 Build the image with your own Docker, push it, and sign it:
 
 ```sh
@@ -106,6 +121,12 @@ pnpm exec kindgi build --local --push --env selfhost
     ✓ /app/index.json in the image matches the local index byte for byte
     ✓ Ed25519 signature over (imageDigest, artifactVersion, indexHash, tenantId, publishedAt)
   Deploy envelope written to …/acme-pack/.kindgi/build/deploy-envelope.json
+```
+
+A Python pack's build also says where its dependencies come from:
+
+```text
+    ✓ 22 pack file(s) in the image (the pack root, minus caches, virtualenvs and secrets); dependencies from uv.lock
 ```
 
 The image is for `linux/amd64` by default. On Apple silicon it runs under emulation; `--platform` picks another.
@@ -205,16 +226,18 @@ A key within 30 days of expiry adds the warning under the license line, as this 
 
 ## 7. Trust your key and deploy
 
-The runtime deploys only images signed by a key its tenant trusts. Trust yours with its 32 raw bytes, base64:
+The runtime deploys only images signed by a key its tenant trusts. Trust yours:
 
 ```sh
 export KINDGI_API_TOKEN=<the token from kindgi.env>
-PUB="$(pnpm exec kindgi key export acme-selfhost --format=raw-hex | xxd -r -p | base64)"
-
-curl -s -X POST http://localhost:4000/v1/signing-keys \
-  -H "authorization: Bearer $KINDGI_API_TOKEN" -H 'content-type: application/json' \
-  -d "{\"keyId\":\"acme-selfhost\",\"publicKey\":\"$PUB\"}"
+pnpm exec kindgi key trust acme-selfhost --url http://localhost:4000 --token "$KINDGI_API_TOKEN"
 ```
+
+```text
+  ✓ Trusted acme-selfhost (sha256:7bfbd97be075d796eb24f80d)
+```
+
+The fingerprint is the one `kindgi key create` printed.
 
 Then deploy:
 
@@ -265,12 +288,14 @@ pnpm exec kindgi runs start --flow=acme-pack.echo-flow --input='{"name":"Ada"}' 
 The flow's tool step ran in your pack's container, and its agent step answered with the model; what the reply says depends on the model. A first call can outlast the agent's time budget while the model loads; run it again.
 
 :::note[Models that need a key]
-A provider that needs an API key (Anthropic, OpenAI, Gemini) keeps it in the runtime's secrets store, in Postgres (`KINDGI_SECRETS_BACKEND=postgres`). The key that protects the stored secrets is held in one of two places:
+A provider that needs an API key (Anthropic, OpenAI, Gemini) keeps it in the runtime's secrets store, in Postgres (`KINDGI_SECRETS_BACKEND=postgres`). The store needs two keys, each 32 random bytes (`openssl rand 32`):
 
-- **Google Cloud KMS:** `KINDGI_SECRETS_BACKEND_KMS=gcp`, with its settings.
-- **A local key, on a single host:** `KINDGI_SECRETS_BACKEND_KMS=libsodium` and `KINDGI_SECRETS_LOCAL_KEY_ACK=single-node`. The key is 32 random bytes in a file `KINDGI_SECRETS_LOCAL_KEY_PATH` names (`openssl rand 32`), mounted into the container like the signing key in [Operate](../operate/#rotate-the-public-run-token-key): mode 0600, readable by the runtime's user (uid 10001). `KINDGI_SECRETS_LOCAL_KEY` takes it as base64 instead. Back the key up apart from the database: if it's lost, every secret is lost.
+- **The AAD key,** which every stored secret is bound to: a file `KINDGI_SECRETS_AAD_KEY_PATH` names, or base64 in `KINDGI_SECRETS_AAD_KEY`. The same on every replica.
+- **The key that wraps each secret's own key,** held in one of two places:
+  - **Google Cloud KMS:** `KINDGI_SECRETS_BACKEND_KMS=gcp`, with its settings.
+  - **A local key, on a single host:** `KINDGI_SECRETS_BACKEND_KMS=libsodium` and `KINDGI_SECRETS_LOCAL_KEY_ACK=single-node`, with the key in a file `KINDGI_SECRETS_LOCAL_KEY_PATH` names, or base64 in `KINDGI_SECRETS_LOCAL_KEY`. It must differ from the AAD key. The startup log then says `Secrets: Postgres, with a local key from /etc/kindgi/secrets-local.key (single-node; not a cloud KMS; KINDGI_SECRETS_LOCAL_KEY_ACK)`.
 
-The settings are in the [reference](../../reference/env-vars/). A keyless endpoint (Ollama, vLLM) needs no secrets store.
+Mount key files into the container like the signing key in [Operate](../operate/#rotate-the-public-run-token-key): mode 0600, readable by the runtime's user (uid 10001). Back both keys up apart from the database: if either is lost, every stored secret is lost. Without them the runtime doesn't start, and says which setting is missing. The settings are in the [reference](../../reference/env-vars/). A keyless endpoint (Ollama, vLLM) needs no secrets store.
 :::
 
 ## Clean up
