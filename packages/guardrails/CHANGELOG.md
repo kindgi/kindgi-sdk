@@ -1,5 +1,14 @@
 # @kindgi/guardrails
 
+## 0.1.1
+
+### Patch Changes
+
+- @kindgi/capabilities@0.1.1
+  - @kindgi/compliance@0.1.1
+  - @kindgi/schema@0.1.1
+  - @kindgi/types@0.1.1
+
 ## 0.1.0
 
 ### Minor Changes

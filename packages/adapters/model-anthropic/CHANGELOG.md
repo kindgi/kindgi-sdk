@@ -1,5 +1,11 @@
 # @kindgi/adapter-model-anthropic
 
+## 0.1.1
+
+### Patch Changes
+
+- @kindgi/capabilities@0.1.1
+
 ## 0.1.0
 
 ### Patch Changes

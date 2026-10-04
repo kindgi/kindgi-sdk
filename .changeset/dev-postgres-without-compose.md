@@ -1,9 +1,0 @@
----
-"@kindgi/cli": patch
----
-
-**`kindgi dev` starts its Postgres without `docker compose`.** On a Docker engine without the compose plugin (common on a bare Linux engine), `kindgi dev` no longer stops and asks for `KINDGI_DATABASE_URL`: it starts the bundled Postgres with plain `docker`, and says so (`Postgres: started with docker (docker compose isn't available)`).
-- **The same Postgres either way:** the image, settings, healthcheck and random host port the bundled compose file defines, and the same container (`kindgi-dev_postgres`), volume (`kindgi-dev_postgres-data`) and network (`kindgi-dev`), so the data is shared whichever way it was started. What plain `docker` creates carries the `kindgi-dev` compose project's labels, so once compose is installed, `kindgi dev` and `docker compose -p kindgi-dev down -v` take it as their own.
-- **An existing container is reused as it is**, started if it's stopped, never recreated or removed. `--recreate-services` needs compose: without it, `kindgi dev` says the container was reused and how to recreate it by hand. `--reset` behaves as before: it starts one pack fresh and leaves the shared Postgres alone.
-- **The bundled Postgres listens on `127.0.0.1` only** (a random port), in both ways of starting it: its password is a fixed dev one, so it must not be reachable from the LAN. The runtime container still reaches it, through `host.docker.internal` on Docker Desktop and directly with Linux host networking. A `kindgi-dev_postgres` an earlier CLI started keeps its old binding (every address) until it's recreated: `kindgi dev --recreate-services` with compose, or `docker rm -f kindgi-dev_postgres` without it (the data stays in its volume), then `kindgi dev`.
-- **Without Docker,** the error names the two options: install Docker, or pass `--database-url` (or set `KINDGI_DATABASE_URL`) for your own Postgres 16 with pgvector.
