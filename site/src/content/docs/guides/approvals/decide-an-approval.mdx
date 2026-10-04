@@ -151,10 +151,7 @@ API token belongs to.
 // review.ts
 import { createClient } from '@kindgi/sdk/client';
 
-const kindgi = createClient({
-  apiUrl: process.env.KINDGI_API_URL!,
-  auth: { kind: 'apiToken', token: process.env.KINDGI_API_TOKEN! },
-});
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
 const pending = await kindgi.approvals.list({ status: 'pending' });
 for (const approval of pending.items) {
@@ -190,7 +187,7 @@ approved true
 # review.py
 from kindgi.client import Kindgi
 
-kindgi = Kindgi()  # KINDGI_API_URL and KINDGI_API_TOKEN from the environment
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
 pending = kindgi.approvals.list(status="pending")
 for approval in pending.data:
