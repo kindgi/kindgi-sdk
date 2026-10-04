@@ -308,10 +308,11 @@ reconnects:
 - An MCP tool always counts as one that changes things: it doesn't run in a
   [dry run](../read-only-tools/#dry-runs), and an approval gate asks before
   it.
-- Kindgi skips a tool whose input schema it can't compile, and the runtime's
-  log names the tool. In 0.1.0 that includes every tool whose schema declares
-  JSON Schema draft-07 (`"$schema": "http://json-schema.org/draft-07/schema#"`),
-  which servers built with the TypeScript MCP SDK do.
+- A tool's schemas are read in the JSON Schema dialect they declare
+  (`"$schema"`): draft-06, draft-07 (what servers built with the TypeScript
+  MCP SDK declare), 2019-09 or 2020-12, the default when they declare none.
+  Kindgi skips a tool whose schema declares another dialect or doesn't
+  compile, and the runtime's log names the tool.
 - An endpoint is registered at a scope: `tenant`, as here, or a project
   (`"scopeKind": "project", "scopeId": "<project id>"`). See the
   [API reference](../../../reference/api/operations/tags/mcp/).
