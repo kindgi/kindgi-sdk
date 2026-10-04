@@ -17,6 +17,11 @@
  * `syncEntries()` recreates the build. When the last primitive file is
  * removed there is nothing for esbuild to build or watch, so the (empty)
  * build is reported directly — the refresh then publishes an empty index.
+ *
+ * Each build says which packages the code loads from `node_modules`
+ * (`externals`), by the same rule as a pack image's bundles. An image
+ * bundles the pack's config too, so the config's own are added: it is
+ * bundled for them once, as `kindgi dev` reads the config once.
  */
 
 import { stat } from 'node:fs/promises';
@@ -31,13 +36,18 @@ import {
   nodeModulesExternalPlugin,
 } from '../build/bundle.js';
 import { devDistDir } from './paths.js';
-import type { PackBuild, PackBuilder } from './runners.js';
+import type { ExternalPackage, PackBuild, PackBuilder } from './runners.js';
 
 export interface DevPackBuilderOptions {
   readonly packDir: string;
   /** The pack's discovery patterns. */
   readonly patterns: readonly string[];
+  /** The pack's `kindgi.config.*`, whose imports count among the externals. */
+  readonly configPath?: string;
 }
+
+/** External packages, each with the files importing it (absolute paths). */
+type Importers = Map<string, Set<string>>;
 
 export function createDevPackBuilder(options: DevPackBuilderOptions): PackBuilder {
   const outDir = devDistDir(options.packDir);
@@ -47,6 +57,26 @@ export function createDevPackBuilder(options: DevPackBuilderOptions): PackBuilde
   let listener: ((build: PackBuild) => void) | undefined;
   /** What the last reported build read: each input's path, size and mtime. */
   let reportedInputs: string | undefined;
+  /** The externals of the build running now (a new map per build, read once it ends). */
+  let importing: Importers = new Map();
+  let configImporting: Promise<Importers> | undefined;
+
+  const configExternals = (): Promise<Importers> => {
+    configImporting ??= configExternalsOf(options.packDir, options.configPath);
+    return configImporting;
+  };
+  const externalsOf = async (code: Importers): Promise<readonly ExternalPackage[]> =>
+    listExternals([code, await configExternals()], options.packDir);
+
+  /** Each build starts with no externals; `nodeModulesExternalPlugin` records them. */
+  const collector: Plugin = {
+    name: 'kindgi-dev-externals',
+    setup(build) {
+      build.onStart(() => {
+        importing = new Map();
+      });
+    },
+  };
 
   /** Each build's outcome, for the listener while watching. */
   const reporter: Plugin = {
@@ -54,10 +84,12 @@ export function createDevPackBuilder(options: DevPackBuilderOptions): PackBuilde
     setup(build) {
       build.onEnd(async (result) => {
         if (listener === undefined) return;
+        const code = importing;
         const read = result.errors.length > 0 ? undefined : await inputsOf(result, options.packDir);
         if (read !== undefined && read === reportedInputs) return;
         reportedInputs = read;
-        listener(outcomeOf(result, entries, options.packDir));
+        const outcome = outcomeOf(result, entries, options.packDir, await externalsOf(code));
+        listener?.(outcome);
       });
     },
   };
@@ -82,7 +114,13 @@ export function createDevPackBuilder(options: DevPackBuilderOptions): PackBuilde
       target: 'node22',
       sourcemap: 'linked',
       banner: { js: REQUIRE_BANNER },
-      plugins: [nodeModulesExternalPlugin(), reporter],
+      plugins: [
+        collector,
+        nodeModulesExternalPlugin({
+          onExternal: (name, importer) => add(importing, name, importer),
+        }),
+        reporter,
+      ],
       metafile: true,
       logLevel: 'silent',
     });
@@ -92,11 +130,14 @@ export function createDevPackBuilder(options: DevPackBuilderOptions): PackBuilde
   return {
     async build() {
       await ensureContext();
-      if (context === undefined) return { kind: 'ok', bundleMap: {} };
+      if (context === undefined) {
+        return { kind: 'ok', bundleMap: {}, externals: await externalsOf(new Map()) };
+      }
       try {
         const result = await context.rebuild();
+        const code = importing;
         reportedInputs = await inputsOf(result, options.packDir);
-        return outcomeOf(result, entries, options.packDir);
+        return outcomeOf(result, entries, options.packDir, await externalsOf(code));
       } catch (failure) {
         return failed((failure as { errors?: Message[] }).errors ?? [], failure);
       }
@@ -112,7 +153,8 @@ export function createDevPackBuilder(options: DevPackBuilderOptions): PackBuilde
       if (!changed || listener === undefined) return changed;
       if (entries.length === 0) {
         reportedInputs = '';
-        listener({ kind: 'ok', bundleMap: {} });
+        const externals = await externalsOf(new Map());
+        listener?.({ kind: 'ok', bundleMap: {}, externals });
       } else {
         // A new context doesn't watch yet; watching triggers its first build.
         await context?.watch();
@@ -130,17 +172,72 @@ export function createDevPackBuilder(options: DevPackBuilderOptions): PackBuilde
 
 /**
  * A build's outcome: each primitive's source path (as the index records
- * it) mapped to its bundle, both relative to the pack root — or the
- * errors, each located `file:line:column`.
+ * it) mapped to its bundle, both relative to the pack root, and the
+ * externals — or the errors, each located `file:line:column`.
  */
-function outcomeOf(result: BuildResult, entries: readonly PackEntry[], packDir: string): PackBuild {
+function outcomeOf(
+  result: BuildResult,
+  entries: readonly PackEntry[],
+  packDir: string,
+  externals: readonly ExternalPackage[],
+): PackBuild {
   if (result.errors.length > 0) return failed(result.errors, undefined);
   const bundleMap: Record<string, string> = {};
   const outDir = devDistDir(packDir);
   for (const entry of entries) {
     bundleMap[entry.sourceRel] = toPosix(relative(packDir, `${outDir}/${entry.outRel}.mjs`));
   }
-  return { kind: 'ok', bundleMap };
+  return { kind: 'ok', bundleMap, externals };
+}
+
+/**
+ * What the config imports from `node_modules`: bundled in memory, by the
+ * externals rule. A config that doesn't bundle adds nothing here (`kindgi
+ * build` reports it).
+ */
+async function configExternalsOf(
+  packDir: string,
+  configPath: string | undefined,
+): Promise<Importers> {
+  const found: Importers = new Map();
+  if (configPath === undefined) return found;
+  const esbuild = await import('esbuild');
+  try {
+    await esbuild.build({
+      absWorkingDir: packDir,
+      entryPoints: [configPath],
+      bundle: true,
+      write: false,
+      format: 'esm',
+      platform: 'node',
+      target: 'node22',
+      logLevel: 'silent',
+      plugins: [
+        nodeModulesExternalPlugin({ onExternal: (name, importer) => add(found, name, importer) }),
+      ],
+    });
+  } catch {
+    return new Map();
+  }
+  return found;
+}
+
+function add(importers: Importers, name: string, importer: string): void {
+  const files = importers.get(name) ?? new Set<string>();
+  files.add(importer);
+  importers.set(name, files);
+}
+
+/** The externals, merged, sorted by name; importers relative to the pack root. */
+function listExternals(sets: readonly Importers[], packDir: string): ExternalPackage[] {
+  const merged: Importers = new Map();
+  for (const set of sets) {
+    for (const [name, files] of set) for (const file of files) add(merged, name, file);
+  }
+  return [...merged.keys()].sort().map((name) => ({
+    name,
+    importers: [...(merged.get(name) ?? [])].map((file) => toPosix(relative(packDir, file))).sort(),
+  }));
 }
 
 /** Every file a build read, with its size and mtime — equal when nothing changed. */

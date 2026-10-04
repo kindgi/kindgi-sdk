@@ -39,7 +39,12 @@ import { checkAptPackages } from '../build/apt.js';
 import { PACK_SERVICE_COMMAND } from '../build/containerfile.js';
 import { collectIncludeFiles, readBundleConfig } from '../build/context-files.js';
 import { buildEnvelope, canonicaliseSignatureBody, sha256Hex } from '../build/envelope.js';
-import { type HostInstall, type SkippedScript, resolveHostInstall } from '../build/host-install.js';
+import {
+  type HostInstall,
+  type SkippedScript,
+  devOnlyImports,
+  resolveHostInstall,
+} from '../build/host-install.js';
 import { readImageConfig } from '../build/image-config.js';
 import { checkIntegrity } from '../build/integrity.js';
 import { nodeBaseImageFor } from '../build/node-image.js';
@@ -1128,18 +1133,6 @@ function failure(stderr: string): CommandResult & { readonly kind: 'error' } {
  * The packages the bundles load from the app's `node_modules`, for the
  * summary. Empty list → empty string (caller emits no extra line).
  */
-/**
- * The packages the pack's bundles import that its project lists only in
- * devDependencies: the image's prune to production drops them, so they'd
- * be missing there although they load locally.
- */
-export function devOnlyImports(
-  externals: readonly string[],
-  deps: HostInstall['packDependencies'],
-): string[] {
-  return externals.filter((name) => deps.dev.includes(name) && !deps.runtime.includes(name));
-}
-
 function renderExternalsSummary(externals: readonly string[]): string {
   if (externals.length === 0) return '';
   const suffix = externals.length === 1 ? '' : 's';

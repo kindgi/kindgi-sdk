@@ -163,7 +163,10 @@ export async function esbuildBundleReal(
 
   const packEntries = await collectPackEntries(opts.packDir, opts.discoveryPatterns);
   const externalPackages = new Set<string>();
-  const externals = nodeModulesExternalPlugin({ importBy: 'bare', externalPackages });
+  const externals = nodeModulesExternalPlugin({
+    importBy: 'bare',
+    onExternal: (name) => externalPackages.add(name),
+  });
   const pack = await esbuild.build({
     ...common,
     entryPoints: [

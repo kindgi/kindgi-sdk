@@ -58,6 +58,7 @@ import type { KindgiClient } from '@kindgi/client';
 import { CORS_ORIGINS_VAR, PUBLIC_TOKEN_KEY_PATH_VAR, parseCorsOrigins } from '@kindgi/env-schema';
 
 import type { CommandContext } from '../context.js';
+import { createDevOnlyImportsCheck } from '../dev/dev-only-imports.js';
 import { type PackCode, resolvePackCode } from '../dev/pack-code.js';
 import { devPackEnv, devPackEnvFiles } from '../dev/pack-env.js';
 import { createPackRefresher, describePackEvent } from '../dev/pack-service.js';
@@ -259,8 +260,8 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   // Confirm the pack has a kindgi.config.ts (or one of its
   // accepted extensions). Failing loud here beats a cryptic
   // config-not-found from the indexer.
-  const configOk = await ensurePackConfig(args.packDir);
-  if (!configOk.ok) {
+  const configFile = await findKindgiConfig(args.packDir);
+  if (configFile === undefined) {
     return {
       kind: 'error',
       stderr: `kindgi dev could not find a kindgi.config.ts (or a pyproject.toml with a [tool.kindgi] table) at ${args.packDir}.\nRun \`kindgi init <pack-name>\` to scaffold a pack, or pass --path=<dir> to point at an existing one.\n`,
@@ -384,6 +385,11 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   if (code.kind === 'error') {
     return code;
   }
+  // A Node pack's imports that `kindgi build` would refuse (in
+  // devDependencies only): a warning here, on boot and when the set
+  // changes on a save.
+  const devOnly =
+    code.value.language === 'node' ? createDevOnlyImportsCheck(args.packDir) : undefined;
   const packOptions = {
     packDir: args.packDir,
     code: code.value,
@@ -418,6 +424,7 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   const builder = dev.createPackBuilder({
     packDir: args.packDir,
     patterns: projectEnv.discoveryPatterns,
+    ...(configFile.format === 'module' && { configPath: configFile.path }),
     code: code.value,
     env: packEnv,
   });
@@ -428,6 +435,12 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
     packDir: args.packDir,
     env: packEnv,
     code: code.value,
+    ...(devOnly !== undefined && {
+      onBuild: async (build) => {
+        if (build.externals === undefined) return;
+        for (const line of await devOnly.check(build.externals)) emitProgress(`  ${line}`);
+      },
+    }),
   });
 
   // Bundle, index and start the pack's code before the runtime: it reads
@@ -717,6 +730,8 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
     watch: args.watch,
     packDir: args.packDir,
     boot: summariseOutcome(bootIndex, bootReport),
+    // A Node pack's dev-only imports when kindgi dev stopped.
+    ...(devOnly !== undefined && { devOnlyImports: devOnly.current() }),
     ...(args.watch && {
       watchTicks,
       ...(lastWatchOutcome !== undefined && {
@@ -1157,10 +1172,6 @@ async function resolveDevPackCode(
     emitProgress(`✓ pack code: ${checked.value}`);
   }
   return { kind: 'ok', value: resolved.value };
-}
-
-async function ensurePackConfig(packDir: string): Promise<{ readonly ok: boolean }> {
-  return { ok: (await findKindgiConfig(packDir)) !== undefined };
 }
 
 function getEnv(ctx: CommandContext, key: string): string | undefined {
