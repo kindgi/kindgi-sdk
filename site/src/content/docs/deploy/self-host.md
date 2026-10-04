@@ -65,6 +65,10 @@ On Linux or a server, use your own registry instead, and give the runtime its cr
 
 ## 3. Build, sign and push your pack
 
+If your app's code needs a generate step in the image (Prisma's client, for
+example), set that up first:
+[What the pack's image needs](../../start/existing-app/#what-the-packs-image-needs).
+
 Pick a tenant id. The runtime serves this tenant, and the pack's signature names it:
 
 ```sh
