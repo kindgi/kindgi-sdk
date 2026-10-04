@@ -1,14 +1,24 @@
 ---
 /*
  * Starlight's page banner, plus a notice on docs that aren't the latest
- * release's: an older line ("you're reading v0.1") or `main` ("unreleased").
- * Filled in from `/versions.json`; nothing shows without it.
+ * release's ("you're reading v0.1", filled in from `/versions.json`), and
+ * on every page of a private preview build.
  */
 import Default from '@astrojs/starlight/components/Banner.astro';
+
+const preview = import.meta.env.PUBLIC_KINDGI_DOCS_PREVIEW === '1';
 ---
 
 <Default />
-<div class="kindgi-version-notice" role="note" hidden></div>
+{
+  preview ? (
+    <div class="kindgi-version-notice" role="note">
+      Private preview: these docs describe what's merged but not released yet.
+    </div>
+  ) : (
+    <div class="kindgi-version-notice" role="note" hidden />
+  )
+}
 
 <script>
   interface Version {
@@ -32,12 +42,7 @@ import Default from '@astrojs/starlight/components/Banner.astro';
     const link = document.createElement('a');
     link.href = `/${rest}`;
     link.textContent = `Go to the latest (v${latest})`;
-    element.append(
-      current.version === 'next'
-        ? `These docs describe unreleased changes on main. `
-        : `You're reading the docs for v${current.version}. `,
-      link,
-    );
+    element.append(`You're reading the docs for v${current.version}. `, link);
     element.hidden = false;
   }
 

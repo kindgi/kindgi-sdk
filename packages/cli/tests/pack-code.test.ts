@@ -159,14 +159,28 @@ describe('the Python pack builder', () => {
     const builds: unknown[] = [];
     await mkdir(join(packDir, 'tools'), { recursive: true });
     await builder.watch((build) => builds.push(build));
-    await new Promise((r) => setTimeout(r, 100));
+    // The watcher is live once a probe edit rebuilds: a fixed sleep after
+    // starting it isn't enough on a loaded machine, where the event stream
+    // can start late. Then wait until no more builds arrive and start over.
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const liveBy = Date.now() + 15_000;
+    for (let i = 0; builds.length === 0 && Date.now() < liveBy; i += 1) {
+      await writeFile(join(packDir, 'tools', 'probe.py'), `x = ${i}\n`);
+      await sleep(250);
+    }
+    expect(builds.length).toBeGreaterThan(0);
+    const quietBy = Date.now() + 15_000;
+    for (let seen = -1; seen !== builds.length && Date.now() < quietBy; ) {
+      seen = builds.length;
+      await sleep(1_500);
+    }
+    builds.length = 0;
     await writeFile(join(packDir, 'notes.txt'), 'ignored\n');
-    await new Promise((r) => setTimeout(r, 400));
+    await sleep(400);
     expect(builds).toEqual([]);
     await writeFile(join(packDir, 'tools', 'a.py'), 'x = 1\n');
-    const deadline = Date.now() + 5_000;
-    while (builds.length === 0 && Date.now() < deadline)
-      await new Promise((r) => setTimeout(r, 20));
+    const deadline = Date.now() + 15_000;
+    while (builds.length === 0 && Date.now() < deadline) await sleep(20);
     expect(builds.length).toBeGreaterThan(0);
     expect(
       builds.every((b) => JSON.stringify(b) === JSON.stringify({ kind: 'ok', bundleMap: {} })),
