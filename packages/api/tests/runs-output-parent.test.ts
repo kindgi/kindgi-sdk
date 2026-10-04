@@ -199,25 +199,24 @@ describe('POST /v1/runs — options.wait', () => {
 });
 
 describe('POST /v1/runs/:runId/resume', () => {
-  test('completes the waitpoint, then resumes the run', async () => {
+  // Not available in this release: every waitpoint belongs to an approval
+  // (decided through the approvals routes) or to the runtime. The route
+  // answers 422 and completes nothing, whatever the body names.
+  test.each([
+    [
+      'an approval waitpoint, approved',
+      { waitpointId: 'approval-1', value: { decided: 'approve' } },
+    ],
+    ['a runtime child waitpoint', { waitpointId: `child:${randomUUID()}:1`, value: {} }],
+    ['no waitpoint', {}],
+  ])('%s: 422 run-resume-not-supported, nothing completed or resumed', async (_name, body) => {
     const suspended = row({ status: 'suspended' });
     const h = harness([suspended]);
-    const res = await call(h, `/v1/runs/${suspended.runId}/resume`, {
-      waitpointId: 'approval-1',
-      value: { decided: 'approve' },
-    });
-    expect(res.status).toBe(200);
-    expect(h.completed).toEqual(['approval-1']);
-    expect(h.resumed).toEqual([suspended.runId]);
-  });
-
-  test('waitpoint ids starting with child: are reserved for the runtime', async () => {
-    const suspended = row({ status: 'suspended' });
-    const h = harness([suspended]);
-    const res = await call(h, `/v1/runs/${suspended.runId}/resume`, {
-      waitpointId: `child:${randomUUID()}:1`,
-    });
-    expect(res.status).toBe(400);
+    const res = await call(h, `/v1/runs/${suspended.runId}/resume`, body);
+    expect(res.status).toBe(422);
+    const json = res.body as { error: { code: string; message: string } };
+    expect(json.error.code).toBe('run-resume-not-supported');
+    expect(json.error.message).toContain('/v1/approvals/{approvalId}/complete');
     expect(h.completed).toEqual([]);
     expect(h.resumed).toEqual([]);
   });

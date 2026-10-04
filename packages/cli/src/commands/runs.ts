@@ -12,6 +12,7 @@ import {
   runSdk,
   runSdkRendered,
   stringFlag,
+  throwUnwired,
 } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
@@ -246,17 +247,10 @@ const resume: LeafCommand = {
         'The value to resume with, as JSON or `@<file>` to read it from a file. Required.',
     },
   },
-  run: (ctx) =>
-    runSdk(ctx, 'runs resume', async () => {
-      const runId = requiredPositional(ctx, 0, 'run-id') as RunId;
-      const waitpointId = stringFlag(ctx, 'waitpoint');
-      const valueSpec = stringFlag(ctx, 'value');
-      if (waitpointId === undefined) throw new Error('--waitpoint=<id> is required');
-      if (valueSpec === undefined) throw new Error('--value=<json-or-@file> is required');
-      const value = await readJsonInput(valueSpec);
-      await ctx.client().runs.resume({ runId, waitpointId, value });
-      return { ok: true, runId };
-    }),
+  // Not available in this release: listed in `UNWIRED_COMMANDS`, with the
+  // reason the CLI prints. The runtime refuses it too
+  // (`run-resume-not-supported`).
+  run: (ctx) => runSdk(ctx, 'runs resume', async () => throwUnwired('runs.resume')),
 };
 
 export const runsCommand: Command = {

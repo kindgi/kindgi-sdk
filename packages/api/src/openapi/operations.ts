@@ -998,17 +998,16 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/runs/:runId/resume',
     openapiPath: '/v1/runs/{runId}/resume',
     operationId: 'runs.resume',
-    summary: 'Resume a suspended run at a waitpoint',
+    summary: 'Resume a suspended run at a waitpoint (not available in this release)',
     description:
-      'Completes a pending waitpoint token (`RunBinding.completeToken`), then resumes the run in the same request; the response shows the status it reached. Resuming without a `waitpointId` returns `400 bad-input`.',
+      'Not available in this release: always `422 run-resume-not-supported`, and no waitpoint is completed. Every waitpoint a run can wait at belongs to an approval or to the runtime itself. A run waiting for an approval continues when a reviewer decides it: `POST /v1/approvals/{approvalId}/complete`.',
     tags: ['runs'],
     security: 'bearer',
     parameters: [RunIdPathParam, IdempotencyKeyParam],
     requestBody: { required: true, schema: ref('ResumeRunBody') },
     responses: {
-      '200': { description: 'Updated run row.', schema: ref('Run') },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No run with that id under this tenant.'),
+      '422': ErrorResponse('`run-resume-not-supported`: not available in this release.'),
     },
   },
   {

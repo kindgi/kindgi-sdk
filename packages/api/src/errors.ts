@@ -95,6 +95,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'flow-unbound': 422,
   'flow-runs-not-supported': 422,
   'flow-resume-not-supported': 422,
+  // `POST /v1/runs/{runId}/resume` in this release: every waitpoint
+  // belongs to an approval (decided through the approvals routes, which
+  // check the reviewer and record the decision) or to the runtime itself.
+  'run-resume-not-supported': 422,
   // 429 — rate limit. No route in this package emits it; a rate limiter
   // in front of the routes can.
   'rate-limit-exceeded': 429,

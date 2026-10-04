@@ -22,7 +22,7 @@ OPERATIONS: dict[str, Operation] = {
     "runs.start": Operation("runs.start", "POST", "/v1/runs", "json", True),
     "runs.get": Operation("runs.get", "GET", "/v1/runs/{runId}", "json", False),
     "runs.cancel": Operation("runs.cancel", "POST", "/v1/runs/{runId}/cancel", "json", True),
-    "runs.resume": Operation("runs.resume", "POST", "/v1/runs/{runId}/resume", "json", True),
+    "runs.resume": Operation("runs.resume", "POST", "/v1/runs/{runId}/resume", "empty", True),
     "runs.journal": Operation("runs.journal", "GET", "/v1/runs/{runId}/journal", "json", False),
     "runs.stream": Operation("runs.stream", "GET", "/v1/runs/{runId}/stream", "sse", False),
     "runs.progress": Operation("runs.progress", "GET", "/v1/runs/{runId}/progress", "json", False),
@@ -714,10 +714,10 @@ class RunsResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.Run:
-        """Resume a suspended run at a waitpoint. `POST /v1/runs/{runId}/resume`
+    ) -> None:
+        """Resume a suspended run at a waitpoint (not available in this release). `POST /v1/runs/{runId}/resume`
 
-        Completes a pending waitpoint token (`RunBinding.completeToken`), then resumes the run in the same request; the response shows the status it reached. Resuming without a `waitpointId` returns `400 bad-input`.
+        Not available in this release: always `422 run-resume-not-supported`, and no waitpoint is completed. Every waitpoint a run can wait at belongs to an approval or to the runtime itself. A run waiting for an approval continues when a reviewer decides it: `POST /v1/approvals/{approvalId}/complete`.
         """
         return self._client._request(
             _OPERATIONS["runs.resume"],
@@ -725,7 +725,6 @@ class RunsResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.ResumeRunBody, body, fields),
-            response=_models.Run,
             timeout=timeout,
         )
 
@@ -5502,10 +5501,10 @@ class AsyncRunsResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.Run:
-        """Resume a suspended run at a waitpoint. `POST /v1/runs/{runId}/resume`
+    ) -> None:
+        """Resume a suspended run at a waitpoint (not available in this release). `POST /v1/runs/{runId}/resume`
 
-        Completes a pending waitpoint token (`RunBinding.completeToken`), then resumes the run in the same request; the response shows the status it reached. Resuming without a `waitpointId` returns `400 bad-input`.
+        Not available in this release: always `422 run-resume-not-supported`, and no waitpoint is completed. Every waitpoint a run can wait at belongs to an approval or to the runtime itself. A run waiting for an approval continues when a reviewer decides it: `POST /v1/approvals/{approvalId}/complete`.
         """
         return await self._client._request(
             _OPERATIONS["runs.resume"],
@@ -5513,7 +5512,6 @@ class AsyncRunsResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.ResumeRunBody, body, fields),
-            response=_models.Run,
             timeout=timeout,
         )
 
