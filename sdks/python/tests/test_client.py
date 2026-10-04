@@ -274,7 +274,10 @@ def test_paginate_follows_the_cursor() -> None:
     assert [r.url.params.get("cursor") for r in seen] == [None, "c2"]
 
 
-def test_settings_come_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_settings_come_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)  # no running kindgi dev to fall back to
     monkeypatch.setenv("KINDGI_API_URL", "http://env.test")
     monkeypatch.setenv("KINDGI_API_TOKEN", "kgi_bt_env")
     with Kindgi() as api:
