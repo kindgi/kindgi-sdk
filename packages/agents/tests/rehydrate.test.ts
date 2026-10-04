@@ -5,7 +5,6 @@ import { describe, expect, test } from 'vitest';
 
 import { createProviderRegistry } from '@kindgi/capabilities';
 import type { ModelMessage, ModelProvider } from '@kindgi/capabilities';
-import type { NodeContext } from '@kindgi/handler';
 import type { JournalEntry } from '@kindgi/runtime';
 import { createToolRegistry, defineTool } from '@kindgi/tools';
 import type { AnyTool } from '@kindgi/tools';
@@ -18,6 +17,7 @@ import { AgentTurnFailure } from '../src/handlers/errors.js';
 import { rehydrateTurnContext } from '../src/handlers/rehydrate.js';
 import { resolveEffectiveHitlPolicy } from '../src/hitl-policy.js';
 import type { AgentId, ConversationMessage } from '../src/types.js';
+import { testNodeContext } from './node-context.js';
 
 const tenantId = 't-1' as TenantId;
 
@@ -290,7 +290,7 @@ describe('dispatch-tools, resumed in the step it parked in', () => {
         provider: { id: 'second', model: 'second-model' },
         nextMessages: [{ role: 'user', content: 'look them up' }],
       },
-      { runId: 'run-1' as RunId } as unknown as NodeContext,
+      testNodeContext({ runId: 'run-1' as RunId }),
     )) as {
       readonly iterationAppended: readonly ConversationMessage[];
       readonly nextMessages: readonly ModelMessage[];

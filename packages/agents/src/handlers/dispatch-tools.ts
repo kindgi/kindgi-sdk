@@ -80,6 +80,55 @@ function agentToolHitl(
 }
 
 /**
+ * A tool call's gate, as the step records it the first time the gate asks
+ * for a review: the wait it parks on, and the review it asks for.
+ */
+interface ToolGateRecord {
+  readonly argsHash: string;
+  readonly waitTokenId: string;
+  readonly requiredRole: 'standard' | 'senior' | 'admin';
+  readonly timeoutMs: number;
+}
+
+/**
+ * Whether `call` waits for a review, decided once (`NodeContext.record`):
+ * a step resumed after the park reads the gate it parked on back, so a
+ * policy relaxed meanwhile can't skip the reviewer's answer. A call the
+ * gate lets through isn't recorded: it runs, and its stored result is
+ * reused after a park further down the list.
+ */
+async function decideToolGate(
+  ctx: TurnContext,
+  kctx: NodeContext,
+  call: ModelToolCall,
+  tool: Tool,
+): Promise<ToolGateRecord | undefined> {
+  const effectiveHitl = ctx.hitlPolicy;
+  if (effectiveHitl === undefined) {
+    throwAgentTurnFailure({
+      code: 'model-invocation-failed',
+      message: 'dispatch-tools invoked before the turn resolved its approval rules',
+      cause: null,
+    });
+  }
+  return kctx.record(`tool-hitl-gate:${call.id}`, (): ToolGateRecord | undefined => {
+    const resolved = resolveEffectiveToolHitl(effectiveHitl, tool);
+    if (resolved.mode === 'never_ask') return undefined;
+    const argsHash = hashToolArgs(call.arguments);
+    return {
+      argsHash,
+      waitTokenId: computeToolCallWaitToken({
+        runId: kctx.runId as unknown as string,
+        callId: call.id,
+        argsHash,
+      }),
+      requiredRole: resolved.requiredRole,
+      timeoutMs: effectiveHitl.timeoutMs,
+    };
+  });
+}
+
+/**
  * Loop-body node #2. If the model returned `finishReason='tool-use'`
  * with a non-empty tool-call list, persist the assistant tool-call
  * message + dispatch every tool + persist every tool result. Update
@@ -188,26 +237,14 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
       //
       // Kernel replay: within one run, waitForToken with the same
       // deterministic tokenId returns the resolved decision from the
-      // journal — no re-park. Cross-turn `ask_on_first_use` caching
+      // journal — no re-park. The gate itself is decided once
+      // (`decideToolGate`), so a policy changed during the park can't
+      // skip the reviewer's answer. Cross-turn `ask_on_first_use` caching
       // (via conversation metadata) is not implemented.
-      const effectiveHitl = ctx.hitlPolicy;
-      if (effectiveHitl === undefined) {
-        throwAgentTurnFailure({
-          code: 'model-invocation-failed',
-          message: 'dispatch-tools invoked before the turn resolved its approval rules',
-          cause: null,
-        });
-      }
-      const resolvedHitl = resolveEffectiveToolHitl(effectiveHitl, tool);
+      const gate = await decideToolGate(ctx, kctx, call, tool);
       let toolRejectionPayload: { readonly rationale?: string } | null = null;
-      if (resolvedHitl.mode !== 'never_ask') {
-        const argsHash = hashToolArgs(call.arguments);
-        const waitTokenId = computeToolCallWaitToken({
-          runId: kctx.runId as unknown as string,
-          callId: call.id,
-          argsHash,
-        });
-        const timeoutMs = effectiveHitl.timeoutMs;
+      if (gate !== undefined) {
+        const { argsHash, waitTokenId, timeoutMs } = gate;
         const expiresAt = new Date(Date.now() + timeoutMs).toISOString();
 
         if (ctx.bindings.hitl?.enqueue !== undefined) {
@@ -225,7 +262,7 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
                 argsHash,
                 arguments: call.arguments as never,
               },
-              requiredRole: resolvedHitl.requiredRole,
+              requiredRole: gate.requiredRole,
               title: `HITL review: ${call.name}`,
               description: `Tool call ${call.name} awaiting reviewer approval before dispatch.`,
               waitTokenId,

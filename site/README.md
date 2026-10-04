@@ -5,7 +5,7 @@ content in `src/content/docs/`. Private workspace package; never published.
 
 ```sh
 pnpm run docs:dev     # from the repo root: a live preview at localhost:4321
-pnpm run docs:build   # what local-ci runs: the build, its link check, search
+pnpm run docs:build   # what CI runs: the build, its link check, search
 ```
 
 ## Where a page goes

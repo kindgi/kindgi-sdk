@@ -15,12 +15,14 @@ pnpm install
 pnpm run ci        # lint, border check, spec validation, build, typecheck, test, publish checks
 ```
 
-GitHub runs only the lint job on pull requests. The rest of CI runs on
-your machine: push the branch, then run
-`pnpm run ci:local`. It runs every CI step on the clean, pushed commit
-(the Python SDK on 3.11 and 3.13 included) and posts the result to the
-pull request as the `local-ci` status, which merging requires. It needs
-pnpm, uv and Docker.
+GitHub runs CI on every pull request that isn't a draft: lint and
+specs, the build, typecheck, tests and publish checks, the docs site and
+its samples, and the Python SDK on 3.11 and 3.13. Merging requires them.
+
+One step runs only on your machine: the docs tutorials, which start
+`kindgi dev` with the private runtime image (`pnpm run docs:tutorials`).
+`pnpm run ci:local` runs all of CI, the tutorials included, on the clean,
+pushed commit. It needs pnpm, uv and Docker.
 
 ## Rules
 
@@ -54,6 +56,7 @@ All `@kindgi/*` packages share one version (Changesets fixed group).
    (opened by the org's release GitHub App, so CI runs on it like any
    other pull request).
 3. Merging that pull request bumps versions and changelogs. Run
-   `pnpm run ci:local` on its branch first: merging requires `local-ci`.
+   `pnpm run ci:local` on its branch first, so the docs tutorials pass
+   against the release.
 4. Publishing is a manual, approved run of the **Release** workflow
    (npm trusted publishing with provenance — no tokens).
