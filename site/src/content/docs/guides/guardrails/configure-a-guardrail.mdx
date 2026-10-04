@@ -105,7 +105,7 @@ The two SDKs differ here.
 - **Defaults aren't filled in.** A guardrail without `config` runs its check
   with `{}`, and a Zod `.default()` doesn't apply. Make settings optional in
   the schema and fall back in the check, as `config.maxChars ?? 500` does.
-- **Values aren't checked against `configSchema`** in 0.1.0. With
+- **Values aren't checked against `configSchema`** in 0.1. With
   `config: { maxChars: -5 }`, every answer fails:
   `The answer is 86 characters; the limit is -5.` Check a value in
   `evaluate` if a wrong one would do harm.

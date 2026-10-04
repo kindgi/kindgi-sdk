@@ -21,7 +21,7 @@ API, as below.
 
 ## A server to try
 
-An MCP server that speaks Streamable HTTP works (with one limit in 0.1.0,
+An MCP server that speaks Streamable HTTP works (with one limit in 0.1,
 under [Good to know](#good-to-know)). This one, written with the Python MCP
 SDK (1.x), has two tools:
 
@@ -309,7 +309,7 @@ reconnects:
   [dry run](../read-only-tools/#dry-runs), and an approval gate asks before
   it.
 - Kindgi skips a tool whose input schema it can't compile, and the runtime's
-  log names the tool. In 0.1.0 that includes every tool whose schema declares
+  log names the tool. In 0.1 that includes every tool whose schema declares
   JSON Schema draft-07 (`"$schema": "http://json-schema.org/draft-07/schema#"`),
   which servers built with the TypeScript MCP SDK do.
 - An endpoint is registered at a scope: `tenant`, as here, or a project
