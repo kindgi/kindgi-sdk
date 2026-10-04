@@ -65,6 +65,25 @@ describe('envVarsForTarget', () => {
     }
   });
 
+  test('backend=postgres + kms=libsodium: the local key, its acknowledgement (required), no GCP vars', () => {
+    const target = { secretsBackend: 'postgres', secretsBackendKms: 'libsodium' } as const;
+    const byName = new Map(envVarsForTarget(target).map((v) => [v.name, v]));
+    expect(byName.get('KINDGI_SECRETS_LOCAL_KEY_PATH')?.required).toBe(false);
+    expect(byName.get('KINDGI_SECRETS_LOCAL_KEY')?.required).toBe(false);
+    expect(byName.get('KINDGI_SECRETS_LOCAL_KEY_ACK')?.required).toBe(true);
+    expect(byName.get('KINDGI_SECRETS_LOCAL_KEY_ACK')?.allowedValues).toEqual(['single-node']);
+    expect(byName.has('KINDGI_SECRETS_AAD_KEY_PATH')).toBe(true);
+    expect(byName.has('KINDGI_SECRETS_GCP_PROJECT_ID')).toBe(false);
+    const missing = validateEnvForTarget(
+      { KINDGI_SECRETS_BACKEND: 'postgres', KINDGI_SECRETS_BACKEND_KMS: 'libsodium' },
+      target,
+    );
+    expect(missing).toEqual({ ok: false, missing: ['KINDGI_SECRETS_LOCAL_KEY_ACK'] });
+    // The local key's vars are libsodium's alone.
+    const gcp = envVarsForTarget({ secretsBackend: 'postgres', secretsBackendKms: 'gcp' });
+    expect(gcp.map((v) => v.name)).not.toContain('KINDGI_SECRETS_LOCAL_KEY_PATH');
+  });
+
   test('backend=dotenv includes its directory (required) and file list, and no KMS vars', () => {
     const vars = envVarsForTarget({ secretsBackend: 'dotenv' });
     const byName = new Map(vars.map((v) => [v.name, v]));

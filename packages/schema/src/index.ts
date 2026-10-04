@@ -12,6 +12,8 @@ export type {
   ValidationError,
 } from './errors.js';
 export { compileInlineSchema, createSpecRegistry, loadSpecRegistry } from './registry.js';
+export { compileJsonSchema, jsonSchemaDialect } from './dialect.js';
+export type { CompileJsonSchemaOptions, JsonSchemaDialect } from './dialect.js';
 export type { CompiledInlineSchema, SpecRegistry, ValidationErrorLike } from './registry.js';
 export { versionOf } from './version.js';
 export type { SchemaVersion } from './version.js';

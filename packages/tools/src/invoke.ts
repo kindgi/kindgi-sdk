@@ -2,10 +2,9 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { ValidateFunction } from 'ajv';
-import * as addFormatsModule from 'ajv-formats';
-import { Ajv2020 } from 'ajv/dist/2020.js';
 
-import { parseWithSchema } from '@kindgi/schema';
+import { compileJsonSchema, parseWithSchema } from '@kindgi/schema';
+import type { CompileJsonSchemaOptions } from '@kindgi/schema';
 import type { Result } from '@kindgi/types';
 
 import type {
@@ -18,38 +17,47 @@ import type {
 import { isToolPreconditionError } from './precondition.js';
 import type { JsonSchema, Tool, ToolContext } from './types.js';
 
-type AddFormatsFn = (ajv: InstanceType<typeof Ajv2020>, opts?: unknown) => unknown;
-const addFormatsRaw = addFormatsModule as unknown;
-const addFormats: AddFormatsFn =
-  typeof addFormatsRaw === 'function'
-    ? (addFormatsRaw as AddFormatsFn)
-    : (addFormatsRaw as { default: AddFormatsFn }).default;
-
 /**
  * Cache compiled validators keyed by the schema *object reference*. Tools
  * are defined once and reused, so schema identity is stable — the WeakMap
- * releases entries when the tool is dropped.
+ * releases entries when the tool is dropped. A pack's tools' validators
+ * and an MCP server's are cached apart (`schemaOptions`).
  */
-const inputCache: WeakMap<JsonSchema, ValidateFunction> = new WeakMap();
-const outputCache: WeakMap<JsonSchema, ValidateFunction> = new WeakMap();
+const caches = {
+  input: { pack: new WeakMap<JsonSchema, ValidateFunction>(), mcp: new WeakMap() },
+  output: { pack: new WeakMap<JsonSchema, ValidateFunction>(), mcp: new WeakMap() },
+} as const;
+
+const PACK_SCHEMAS: CompileJsonSchemaOptions = { dialects: ['2020-12'] };
+const MCP_SCHEMAS: CompileJsonSchemaOptions = { strict: false };
+
+/**
+ * How a tool's schemas compile. A pack's own tools: Draft 2020-12, in
+ * Ajv's strict mode (an authoring lint). An MCP server's (`transport:
+ * 'mcp'`): in the dialect the server declares, without strict mode — the
+ * schema is valid JSON Schema without being written to that lint.
+ */
+export function schemaOptions(tool: Pick<Tool, 'transport'>): CompileJsonSchemaOptions {
+  return tool.transport === 'mcp' ? MCP_SCHEMAS : PACK_SCHEMAS;
+}
 
 /**
  * A compiled validator. Input validators fill in each property's JSON
  * Schema `default` (`useDefaults`) — the data they check is a copy of the
  * caller's.
  */
-function compile(schema: JsonSchema, side: 'input' | 'output'): ValidateFunction {
-  const cache = side === 'input' ? inputCache : outputCache;
+function compile(
+  schema: JsonSchema,
+  side: 'input' | 'output',
+  tool: Pick<Tool, 'transport'>,
+): ValidateFunction {
+  const cache = caches[side][tool.transport === 'mcp' ? 'mcp' : 'pack'];
   const cached = cache.get(schema);
   if (cached !== undefined) return cached;
-  const ajv = new Ajv2020({
-    strict: true,
-    allErrors: true,
-    allowUnionTypes: false,
+  const validator = compileJsonSchema(schema as Readonly<Record<string, unknown>>, {
+    ...schemaOptions(tool),
     ...(side === 'input' && { useDefaults: true }),
   });
-  addFormats(ajv);
-  const validator = ajv.compile(schema as object);
   cache.set(schema, validator);
   return validator;
 }
@@ -61,11 +69,11 @@ function compile(schema: JsonSchema, side: 'input' | 'output'): ValidateFunction
  * gets what its `z.infer` type says.
  */
 async function prepareInput(
-  tool: Pick<Tool, 'id' | 'input' | 'inputZod'>,
+  tool: Pick<Tool, 'id' | 'input' | 'inputZod' | 'transport'>,
   input: unknown,
 ): Promise<Result<unknown, InputValidationError>> {
   const candidate = structuredClone(input);
-  const validator = compile(tool.input, 'input');
+  const validator = compile(tool.input, 'input', tool);
   if (!validator(candidate)) {
     return { kind: 'err', error: inputError(tool.id, validator.errors ?? []) };
   }
@@ -149,7 +157,7 @@ export async function invokeTool<TInput = unknown, TOutput = unknown>(
   }
 
   if (!options.skipOutputValidation) {
-    const outputValidator = compile(tool.output, 'output');
+    const outputValidator = compile(tool.output, 'output', tool);
     if (!outputValidator(output)) {
       const err: OutputValidationError = {
         code: 'output-validation-failed',

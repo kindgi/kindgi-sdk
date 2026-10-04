@@ -163,7 +163,7 @@ export interface DryRunWarning {
 // @wire `@kindgi/api/openapi.json#/components/schemas/RunEvent`.
 // SSE frame mapper: `packages/api/src/routes/sse.ts` (journal entry →
 //   wire `RunEvent`; drops journal-only kinds like `edge.evaluated` and
-//   `clock.read`).
+//   `value.recorded`).
 // Schema source: `@kindgi/specs/run-event.schema.json`.
 // ============================================================
 
@@ -177,7 +177,7 @@ import type { TurnEvent } from '@kindgi/agents';
  * @wire `@kindgi/api/openapi.json#/components/schemas/RunEvent#kind` (enum).
  *
  * The run journal carries additional kinds (`edge.evaluated`,
- * `clock.read`) that the wire SSE mapper drops — those still appear on
+ * `value.recorded`) that the wire SSE mapper drops — those still appear on
  * `GET /v1/runs/{runId}/journal` for callers that want the full record.
  */
 export type RunEventKind =

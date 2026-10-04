@@ -34,6 +34,23 @@ function computeSessionGateWaitToken(input: {
     .slice(0, 40);
 }
 
+/** The `record` key of the session gate's decision. */
+const SESSION_GATE_RECORD = 'session-hitl-gate';
+
+/**
+ * The session gate's decision, as `setup` records it the first time
+ * the gate asks for a review: the wait it parks on, and the review it asks
+ * for. A turn resumed after the park reads it back instead of deciding again.
+ */
+interface SessionGateRecord {
+  readonly waitTokenId: string;
+  readonly turnCount: number;
+  readonly threshold: number;
+  readonly reason: string;
+  readonly requiredRole: 'standard' | 'senior' | 'admin';
+  readonly timeoutMs: number;
+}
+
 /**
  * Shape the setup handler expects when a session-gate waitpoint
  * resolves. Approvals-complete route materializes this from the
@@ -111,16 +128,28 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
     // `hitl` policy — before the gate that may park on them.
     const effectiveHitl = await resolveTurnHitlPolicy(ctx);
     ctx.hitlPolicy = effectiveHitl;
-    const sessionGate = evaluateSessionGate(
-      { ...(effectiveHitl.turn !== undefined && { afterTurns: effectiveHitl.turn.afterTurns }) },
-      conversation.turnCount,
-    );
-    if (sessionGate.kind === 'hitl-required') {
-      const waitTokenId = computeSessionGateWaitToken({
-        runId: kctx.runId as unknown as string,
+    // Decided once: a turn that parked here resumes on the gate it parked
+    // on, whatever the policy or the conversation's turn count say by then.
+    const gate = await kctx.record(SESSION_GATE_RECORD, (): SessionGateRecord | undefined => {
+      const evaluated = evaluateSessionGate(
+        { ...(effectiveHitl.turn !== undefined && { afterTurns: effectiveHitl.turn.afterTurns }) },
+        conversation.turnCount,
+      );
+      if (evaluated.kind !== 'hitl-required') return undefined;
+      return {
+        waitTokenId: computeSessionGateWaitToken({
+          runId: kctx.runId as unknown as string,
+          turnCount: conversation.turnCount,
+        }),
         turnCount: conversation.turnCount,
-      });
-      const timeoutMs = effectiveHitl.timeoutMs;
+        threshold: evaluated.threshold,
+        reason: evaluated.reason,
+        requiredRole: effectiveHitl.defaultReviewerRole,
+        timeoutMs: effectiveHitl.timeoutMs,
+      };
+    });
+    if (gate !== undefined) {
+      const { waitTokenId, timeoutMs } = gate;
       const expiresAt = new Date(Date.now() + timeoutMs).toISOString();
 
       if (ctx.bindings.hitl?.enqueue !== undefined) {
@@ -132,12 +161,12 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
               conversationId: ctx.input.conversationId,
               agentId: ctx.input.agent.id,
               agentVersion: ctx.input.agent.version,
-              turnCount: conversation.turnCount,
-              threshold: sessionGate.threshold,
+              turnCount: gate.turnCount,
+              threshold: gate.threshold,
             },
-            requiredRole: effectiveHitl.defaultReviewerRole,
+            requiredRole: gate.requiredRole,
             title: `HITL review required for ${ctx.input.agent.name}`,
-            description: sessionGate.reason,
+            description: gate.reason,
             waitTokenId,
             provenanceRef: { runId: kctx.runId },
             expiresAt: expiresAt as never,
@@ -153,8 +182,8 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
       // execution (park), persist-provenance never runs so this node is
       // lost — that's fine. On the FINAL replay after resume, this node
       // AND the `resume` node below both emit and get persisted.
-      const waitNodeId = `session-hitl-gate-wait:${conversation.turnCount}`;
-      const resumeNodeId = `session-hitl-gate-resume:${conversation.turnCount}`;
+      const waitNodeId = `session-hitl-gate-wait:${gate.turnCount}`;
+      const resumeNodeId = `session-hitl-gate-resume:${gate.turnCount}`;
       if (ctx.provenance !== undefined) {
         ctx.provenance.addNode({
           id: waitNodeId,
@@ -163,8 +192,8 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
           actor: `agent:${ctx.input.agent.id as unknown as string}`,
           attributes: {
             gate: 'session-hitl',
-            turnCount: conversation.turnCount,
-            threshold: sessionGate.threshold,
+            turnCount: gate.turnCount,
+            threshold: gate.threshold,
             waitTokenId,
           },
         });

@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import * as addFormatsModule from 'ajv-formats';
-import { Ajv2020 } from 'ajv/dist/2020.js';
-
 import {
+  compileJsonSchema,
   createSpecRegistry,
   isZodSchema,
   loadZodConverter,
@@ -26,6 +24,7 @@ import type {
   ToolError,
   UnknownEffectError,
 } from './errors.js';
+import { schemaOptions } from './invoke.js';
 import { type ToolSpecSynthesizerOptions, getToolSpecSynthesizer } from './spec-registry.js';
 import toolSchema from './tool.schema.json' with { type: 'json' };
 import {
@@ -46,14 +45,6 @@ const TOOL_SCHEMA_URI = 'https://kindgi.com/schemas/v1/tool.schema.json';
  * dispatch time).
  */
 const SEMVER_EXACT_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
-
-// ajv-formats CJS/ESM interop — same trick used in @kindgi/schema.
-type AddFormatsFn = (ajv: InstanceType<typeof Ajv2020>, opts?: unknown) => unknown;
-const addFormatsRaw = addFormatsModule as unknown;
-const addFormats: AddFormatsFn =
-  typeof addFormatsRaw === 'function'
-    ? (addFormatsRaw as AddFormatsFn)
-    : (addFormatsRaw as { default: AddFormatsFn }).default;
 
 let cachedRegistry: SpecRegistry | undefined;
 function registry(): SpecRegistry {
@@ -77,18 +68,17 @@ function resolveZodConverterSync(): ZodConverter | undefined {
 }
 
 /**
- * Sanity-check that a candidate JSON Schema compiles under Draft 2020-12.
- * We build a throwaway Ajv per call — cheap for authoring-time, safe under
- * concurrent defineTool() calls.
+ * Sanity-check that a candidate JSON Schema compiles as the tool's
+ * schemas do (`schemaOptions`): a pack's own tool's as Draft 2020-12 in
+ * Ajv's strict mode, an MCP server's in the dialect it declares.
  */
 function compilesAsSchema(
   schema: unknown,
   where: 'input' | 'output',
+  tool: Pick<ToolManifest, 'transport'>,
 ): InvalidSchemaError | undefined {
-  const ajv = new Ajv2020({ strict: true, allErrors: true, allowUnionTypes: false });
-  addFormats(ajv);
   try {
-    ajv.compile(schema as object);
+    compileJsonSchema(schema as Readonly<Record<string, unknown>>, schemaOptions(tool));
     return undefined;
   } catch (cause) {
     return {
@@ -406,9 +396,9 @@ function finalizeDefinition<
   const badEffect = checkEffectKinds(manifest);
   if (badEffect) return { kind: 'err', error: badEffect };
 
-  const badInput = compilesAsSchema(manifest.input, 'input');
+  const badInput = compilesAsSchema(manifest.input, 'input', manifest);
   if (badInput) return { kind: 'err', error: badInput };
-  const badOutput = compilesAsSchema(manifest.output, 'output');
+  const badOutput = compilesAsSchema(manifest.output, 'output', manifest);
   if (badOutput) return { kind: 'err', error: badOutput };
 
   const tool = {
@@ -494,9 +484,9 @@ export function validateToolManifest(
   const parsed = candidate as unknown as ToolManifest;
   const badEffect = checkEffectKinds(parsed);
   if (badEffect) return { kind: 'err', error: badEffect };
-  const badInput = compilesAsSchema(parsed.input, 'input');
+  const badInput = compilesAsSchema(parsed.input, 'input', parsed);
   if (badInput) return { kind: 'err', error: badInput };
-  const badOutput = compilesAsSchema(parsed.output, 'output');
+  const badOutput = compilesAsSchema(parsed.output, 'output', parsed);
   if (badOutput) return { kind: 'err', error: badOutput };
   const badUrl = checkHttpUrlTemplate(parsed);
   if (badUrl) return { kind: 'err', error: badUrl };
