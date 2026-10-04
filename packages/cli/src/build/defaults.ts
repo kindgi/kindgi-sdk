@@ -23,7 +23,7 @@ import { readSse } from '@kindgi/sdk/client';
 import { runPythonIndexer } from '../dev/defaults.js';
 import { REQUIRE_BANNER, collectPackEntries, nodeModulesExternalPlugin } from './bundle.js';
 import { renderContainerfile } from './containerfile.js';
-import { installCommands } from './host-install.js';
+import { installCommands, withoutInstallScripts } from './host-install.js';
 import { renderPythonContainerfile } from './python-image.js';
 import type {
   BuildRunners,
@@ -256,10 +256,17 @@ export async function writeContainerfileReal(opts: WriteContainerfileOptions): P
 export async function writeContextReal(opts: WriteContextOptions): Promise<void> {
   await rm(opts.contextDir, { recursive: true, force: true });
   await mkdir(opts.contextDir, { recursive: true });
+  const projectManifests = new Set(opts.install.projectManifests);
   for (const rel of opts.install.files) {
     const dest = join(opts.contextDir, 'host', rel);
     await mkdir(dirname(dest), { recursive: true });
-    await cp(join(opts.install.root, rel), dest);
+    if (projectManifests.has(rel)) {
+      // The app's own install scripts never run in the image.
+      const text = await readFile(join(opts.install.root, rel), 'utf8');
+      await writeFile(dest, withoutInstallScripts(text), 'utf8');
+    } else {
+      await cp(join(opts.install.root, rel), dest);
+    }
   }
   for (const rel of opts.extensionFiles) {
     const dest = join(opts.contextDir, 'ext', opts.install.packRel, rel);

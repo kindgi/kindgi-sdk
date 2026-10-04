@@ -26,6 +26,8 @@ function install(over: Partial<HostInstall> = {}): HostInstall {
     yarnBerry: false,
     workspace: false,
     files: ['package.json', 'pnpm-lock.yaml'],
+    projectManifests: ['package.json'],
+    skippedScripts: [],
     secrets: [],
     ...over,
   };

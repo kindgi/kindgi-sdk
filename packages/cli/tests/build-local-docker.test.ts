@@ -33,6 +33,16 @@ afterAll(async () => {
   for (const dir of dirs) await rm(dir, { recursive: true, force: true });
 });
 
+/**
+ * The app's own install scripts, which never run in the image (a
+ * `postinstall: prisma generate` would fail there): if one ran, the
+ * build would fail.
+ */
+const APP_INSTALL_SCRIPTS = {
+  postinstall: 'echo "the app\'s own postinstall ran in the image" >&2; exit 1',
+  prepare: 'echo "the app\'s own prepare ran in the image" >&2; exit 1',
+};
+
 const ECHO_TOOL = `import { greet } from '../../lib/greet';
 
 export default {
@@ -137,7 +147,7 @@ async function serveAndInvoke(imageRef: string, name: string): Promise<unknown> 
 }
 
 describe.skipIf(gated)('kindgi build --local with Docker', () => {
-  test('npm: builds from package-lock.json and serves the tool', async () => {
+  test("npm: builds from package-lock.json and serves the tool; the app's own install scripts don't run", async () => {
     const packDir = await realpath(await mkdtemp(join(tmpdir(), 'kindgi-docker-npm-')));
     dirs.push(packDir);
     await writePack(packDir, {
@@ -145,8 +155,11 @@ describe.skipIf(gated)('kindgi build --local with Docker', () => {
       version: '0.1.0',
       private: true,
       engines: { node: '>=22' },
+      scripts: APP_INSTALL_SCRIPTS,
     });
-    execFileSync('npm', ['install', '--package-lock-only', '--silent'], { cwd: packDir });
+    execFileSync('npm', ['install', '--package-lock-only', '--ignore-scripts', '--silent'], {
+      cwd: packDir,
+    });
 
     const { imageRef } = await buildLocal(packDir, '20261002.1');
     expect(await serveAndInvoke(imageRef, 'npm')).toEqual({
@@ -163,7 +176,7 @@ describe.skipIf(gated)('kindgi build --local with Docker', () => {
     await put(
       root,
       'package.json',
-      `${JSON.stringify({ name: 'mono', private: true, packageManager: `pnpm@${pnpm}` }, null, 2)}\n`,
+      `${JSON.stringify({ name: 'mono', private: true, packageManager: `pnpm@${pnpm}`, scripts: APP_INSTALL_SCRIPTS }, null, 2)}\n`,
     );
     await put(root, 'pnpm-workspace.yaml', "packages:\n  - 'apps/*'\n  - 'services/*'\n");
     // Another member: the image installs only the pack's project, so not this.
@@ -178,6 +191,7 @@ describe.skipIf(gated)('kindgi build --local with Docker', () => {
       version: '0.1.0',
       private: true,
       engines: { node: '24.x' },
+      scripts: APP_INSTALL_SCRIPTS,
       dependencies: { 'kind-of': '6.0.3' } as Record<string, string>,
     };
     await writePack(packDir, manifest);

@@ -13,7 +13,12 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import { installCommands, resolveHostInstall } from '../src/build/host-install.js';
+import {
+  installCommands,
+  resolveHostInstall,
+  withoutInstallScripts,
+} from '../src/build/host-install.js';
+import { skippedScriptLines } from '../src/commands/build.js';
 
 let root: string;
 const put = async (rel: string, body = '{}\n'): Promise<void> => {
@@ -66,6 +71,8 @@ describe('resolveHostInstall', () => {
           'pnpm-workspace.yaml',
           'services/api/package.json',
         ],
+        projectManifests: ['package.json', 'services/api/package.json'],
+        skippedScripts: [],
         secrets: [{ id: 'npmrc', file: '.npmrc' }],
       },
     });
@@ -84,8 +91,25 @@ describe('resolveHostInstall', () => {
       packRel: 'apps/support',
       manager: 'npm',
       files: ['apps/support/package.json', 'package-lock.json', 'package.json'],
+      projectManifests: ['apps/support/package.json', 'package.json'],
       secrets: [],
     });
+  });
+
+  test("a local folder dependency's manifest ships, but isn't one of the app's project manifests", async () => {
+    await put(
+      'package.json',
+      json({ name: 'app', dependencies: { '@acme/local': 'file:vendor/local' } }),
+    );
+    await put('pnpm-lock.yaml', 'lockfileVersion: 9.0\n');
+    await put(
+      'vendor/local/package.json',
+      json({ name: '@acme/local', scripts: { install: 'node build.js' } }),
+    );
+    const outcome = await resolveHostInstall(root);
+    if (outcome.kind !== 'ok') throw new Error(outcome.message);
+    expect(outcome.install.files).toContain('vendor/local/package.json');
+    expect(outcome.install.projectManifests).toEqual(['package.json']);
   });
 
   test('a local tarball inside the project ships; a package linked from outside it is refused', async () => {
@@ -205,6 +229,8 @@ describe('installCommands', () => {
     yarnBerry: false,
     workspace: false,
     files: [],
+    projectManifests: [],
+    skippedScripts: [],
     secrets: [],
   } as const;
 
@@ -224,5 +250,85 @@ describe('installCommands', () => {
     ['yarn', true, 'yarn install --immutable', 'yarn workspaces focus --all --production'],
   ] as const)('%s (berry: %s)', (manager, yarnBerry, install, prune) => {
     expect(installCommands({ ...base, manager, yarnBerry })).toEqual({ install, prune });
+  });
+});
+
+test("the app's own install scripts are listed: every project manifest's, not a local dependency's", async () => {
+  await put(
+    'package.json',
+    json({
+      name: 'app',
+      workspaces: ['services/*'],
+      scripts: { postinstall: 'prisma generate', prepare: 'husky', build: 'next build' },
+      dependencies: { '@acme/local': 'file:vendor/local' },
+    }),
+  );
+  await put('package-lock.json', json({ lockfileVersion: 3 }));
+  await put(
+    'services/api/package.json',
+    json({ name: 'api', scripts: { preinstall: 'only-allow npm' } }),
+  );
+  await put(
+    'vendor/local/package.json',
+    json({ name: '@acme/local', scripts: { install: 'node build.js' } }),
+  );
+  const outcome = await resolveHostInstall(root);
+  if (outcome.kind !== 'ok') throw new Error(outcome.message);
+  expect(outcome.install.skippedScripts).toEqual([
+    { manifest: 'package.json', name: 'postinstall', command: 'prisma generate' },
+    { manifest: 'package.json', name: 'prepare', command: 'husky' },
+    { manifest: 'services/api/package.json', name: 'preinstall', command: 'only-allow npm' },
+  ]);
+});
+
+describe('withoutInstallScripts', () => {
+  test('leaves out the install lifecycle scripts, and keeps every other field and script', () => {
+    const text = json({
+      name: 'app',
+      scripts: {
+        preinstall: 'only-allow pnpm',
+        postinstall: 'prisma generate',
+        prepare: 'husky',
+        build: 'next build',
+        dev: 'next dev',
+      },
+      dependencies: { next: '15.0.0' },
+    });
+    expect(JSON.parse(withoutInstallScripts(text))).toEqual({
+      name: 'app',
+      scripts: { build: 'next build', dev: 'next dev' },
+      dependencies: { next: '15.0.0' },
+    });
+  });
+
+  test('a manifest with no install scripts comes back byte for byte', () => {
+    const text = '{\n    "name": "app",\n    "scripts": { "build": "tsc" }\n}\n';
+    expect(withoutInstallScripts(text)).toBe(text);
+    expect(withoutInstallScripts('{"name":"app"}')).toBe('{"name":"app"}');
+  });
+});
+
+describe('skippedScriptLines', () => {
+  test('lists the skipped scripts, and says how to apply patch-package patches', () => {
+    const lines = skippedScriptLines([
+      {
+        manifest: 'package.json',
+        name: 'postinstall',
+        command: 'prisma generate && patch-package',
+      },
+      { manifest: 'services/api/package.json', name: 'prepare', command: 'husky' },
+    ]);
+    expect(lines[0]).toBe(
+      "    ✓ The app's own install scripts don't run in the image: postinstall (`prisma generate && patch-package`), services/api/package.json prepare (`husky`)",
+    );
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toContain(
+      "postinstall runs patch-package, so its patches aren't applied in the image",
+    );
+    expect(lines[1]).toContain("postInstall: [{ bin: 'patch-package' }]");
+  });
+
+  test('nothing skipped, nothing said', () => {
+    expect(skippedScriptLines([])).toEqual([]);
   });
 });

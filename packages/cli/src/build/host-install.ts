@@ -15,6 +15,14 @@
  * overrides (pnpm, npm) or resolutions (yarn) point at. Config that can hold registry
  * credentials (`.npmrc`, `.yarnrc`, `.yarnrc.yml`) is never copied: the
  * install reads it as a build secret.
+ *
+ * The app's own install scripts never run in the image (`postinstall:
+ * prisma generate`, `prepare: husky`): the pack's code is bundled, and
+ * what the image needs from such a script is a build extension
+ * (`prisma()`). Installing with scripts off isn't enough, since a
+ * rebuild (pnpm, npm) then runs the projects' own pending scripts too,
+ * so the context's copies of the project manifests leave them out
+ * (`withoutInstallScripts`).
  */
 
 import type { Dirent } from 'node:fs';
@@ -56,7 +64,23 @@ export interface HostInstall {
   readonly enginesNode?: string;
   /** Files the install reads, relative to `root`, sorted. */
   readonly files: readonly string[];
+  /**
+   * The app's own project manifests among `files` (the root's, every
+   * workspace member's, the pack's), sorted: the context's copies leave
+   * out their install scripts. A local dependency's manifest isn't one.
+   */
+  readonly projectManifests: readonly string[];
+  /** The install scripts those manifests have, which the image leaves out, in order. */
+  readonly skippedScripts: readonly SkippedScript[];
   readonly secrets: readonly HostSecret[];
+}
+
+/** An install script of the app's own that never runs in the image. */
+export interface SkippedScript {
+  /** The manifest, relative to the install root. */
+  readonly manifest: string;
+  readonly name: string;
+  readonly command: string;
 }
 
 export type HostInstallOutcome =
@@ -233,9 +257,52 @@ export async function resolveHostInstall(packDir: string): Promise<HostInstallOu
       workspace,
       ...(enginesNode !== undefined && { enginesNode }),
       files: [...files].sort(),
+      projectManifests: manifests
+        .map(([dir]) => (dir === '' ? 'package.json' : `${dir}/package.json`))
+        .sort(),
+      skippedScripts: manifests
+        .map(([dir, manifest]) => [dir === '' ? 'package.json' : `${dir}/package.json`, manifest] as const)
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .flatMap(([path, manifest]) =>
+          Object.entries(objectField(manifest, 'scripts'))
+            .filter(([name, command]) => INSTALL_LIFECYCLE_SCRIPTS.includes(name) && typeof command === 'string')
+            .map(([name, command]) => ({ manifest: path, name, command: command as string })),
+        ),
       secrets,
     },
   };
+}
+
+/**
+ * The lifecycle scripts a package manager runs for a project on install
+ * or rebuild: npm's and pnpm's install hooks, `prepare` and its pre/post,
+ * npm's legacy `prepublish` and `dependencies`.
+ */
+export const INSTALL_LIFECYCLE_SCRIPTS: readonly string[] = [
+  'preinstall',
+  'install',
+  'postinstall',
+  'preprepare',
+  'prepare',
+  'postprepare',
+  'prepublish',
+  'dependencies',
+];
+
+/**
+ * A project manifest's text without its install scripts
+ * (`INSTALL_LIFECYCLE_SCRIPTS`); every other field, and every other
+ * script, stays. A manifest with none comes back byte for byte.
+ */
+export function withoutInstallScripts(text: string): string {
+  const manifest = JSON.parse(text) as Record<string, unknown>;
+  const scripts = manifest.scripts;
+  if (scripts === null || typeof scripts !== 'object' || Array.isArray(scripts)) return text;
+  const kept = Object.fromEntries(
+    Object.entries(scripts).filter(([name]) => !INSTALL_LIFECYCLE_SCRIPTS.includes(name)),
+  );
+  if (Object.keys(kept).length === Object.keys(scripts).length) return text;
+  return `${JSON.stringify({ ...manifest, scripts: kept }, null, 2)}\n`;
 }
 
 /** The install, and the prune once build steps that need dev dependencies are done. */
