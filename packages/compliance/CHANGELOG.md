@@ -1,5 +1,13 @@
 # @kindgi/compliance
 
+## 0.1.1
+
+### Patch Changes
+
+- @kindgi/audit-events@0.1.1
+  - @kindgi/platform@0.1.1
+  - @kindgi/types@0.1.1
+
 ## 0.1.0
 
 ### Patch Changes

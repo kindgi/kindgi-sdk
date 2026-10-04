@@ -1,5 +1,24 @@
 # @kindgi/agents
 
+## 0.1.1
+
+### Patch Changes
+
+- @kindgi/authz@0.1.1
+  - @kindgi/capabilities@0.1.1
+  - @kindgi/compliance@0.1.1
+  - @kindgi/embedding@0.1.1
+  - @kindgi/flow@0.1.1
+  - @kindgi/guardrails@0.1.1
+  - @kindgi/handler@0.1.1
+  - @kindgi/memory@0.1.1
+  - @kindgi/policy-contract@0.1.1
+  - @kindgi/provenance@0.1.1
+  - @kindgi/runtime@0.1.1
+  - @kindgi/schema@0.1.1
+  - @kindgi/tools@0.1.1
+  - @kindgi/types@0.1.1
+
 ## 0.1.0
 
 ### Minor Changes

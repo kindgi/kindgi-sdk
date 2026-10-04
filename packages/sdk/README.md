@@ -54,10 +54,7 @@ point for JSON coming off disk / network.
 import { createClient } from '@kindgi/sdk/client';
 import type { AgentId } from '@kindgi/sdk/types';
 
-const client = createClient({
-  apiUrl: process.env.KINDGI_API_URL!,
-  auth: { kind: 'apiToken', token: process.env.KINDGI_API_TOKEN! },
-});
+const client = createClient();
 
 const run = await client.runs.start({
   agent: 'acme.drafting' as AgentId,
@@ -65,9 +62,32 @@ const run = await client.runs.start({
 });
 ```
 
-Re-exports:
+`createClient()` finds the runtime by itself. Every option is optional:
 
-- `createClient`, `KindgiClient`.
+- `apiUrl` and `auth` come from `KINDGI_API_URL` and `KINDGI_API_TOKEN`;
+- in development, when those aren't set, from the running `kindgi dev`
+  (the nearest `.kindgirc.json`), with a one-time warning to put them in
+  your env file (`.env` / `.env.local`);
+- a token that doesn't match the running `kindgi dev`'s for the same URL
+  (after `kindgi dev --reset`) is warned about once.
+
+Production (`NODE_ENV` or `KINDGI_ENV` = `production`) never reads
+`.kindgirc.json`: the env or explicit options must say. Explicit options
+always win, field by field:
+
+```ts
+const client = createClient({
+  apiUrl: 'https://kindgi.internal.acme.com',
+  auth: { kind: 'apiToken', token: await secrets.get('kindgi-api-token') },
+});
+```
+
+In a browser, pass `apiUrl` and `auth` to `@kindgi/client`'s `createClient`
+(the explicit client underneath).
+
+Exports:
+
+- `createClient` (above), `KindgiClient`.
 - Every resource client type — `AgentsClient`, `RunsClient`, `ToolsClient`,
   `ApprovalsClient`, `SupervisorClient`, `ProposalsClient`, `ObservationsClient`,
   `FlowsClient`, `GuardrailsClient`, `ConversationsClient`, `MemoryClient`,

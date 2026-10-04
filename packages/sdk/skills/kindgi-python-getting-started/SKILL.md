@@ -14,7 +14,7 @@ description: >
   kindgi-python-authoring-agents; models by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.0"
+version: "0.1.1"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -90,7 +90,9 @@ name (`from acme.text import normalize`); inside `kindgi/`, import the pack's
 modules relatively. Don't add an `__init__.py` to `kindgi/` — the folder
 would then shadow the `kindgi` package. `kindgi dev` reads the app's `.env`
 / `.env.local` — keys already there reach the tools as environment
-variables.
+variables. A package a tool imports must be in the app's main dependencies,
+not a dev group: the deployed pack installs without dev dependencies (see
+`kindgi-python-authoring-tools`).
 
 ## Layout of the template
 
