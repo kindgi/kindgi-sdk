@@ -10,6 +10,8 @@
 
 import { describe, expect, test } from 'vitest';
 
+import { KindgiApiError } from '@kindgi/client';
+
 import type {
   GeneratedKeyPair,
   KeyDirEntry,
@@ -289,5 +291,190 @@ describe('kindgi key list', () => {
     const s2 = JSON.parse(out2.stdout) as { keys: Array<{ fingerprint: string }> };
     expect(s1.keys[0]?.fingerprint).toBe(s2.keys[0]?.fingerprint);
     expect(s1.keys[0]?.fingerprint).toMatch(/^sha256:[0-9a-f]{24}$/);
+  });
+});
+
+// ---------- key trust / revoke (the runtime's trust list) ----------
+
+const KEYS_DIR = '/tmp/fake-home/.kindgi/keys';
+/** The 32 raw bytes of FAKE_PUBLIC_PEM's key, base64: what the runtime takes. */
+const RAW_PUBLIC_KEY_BASE64 = Buffer.from(FIXED_PUBLIC_KEY).toString('base64');
+
+/** The CLI against `client`, with a runtime URL and token. */
+function remoteInputs(
+  fixtures: Fixtures,
+  argv: readonly string[],
+  client: Record<string, unknown>,
+): RunCliInputs {
+  return {
+    ...baseInputs(fixtures, [...argv, '--url=https://runtime.example', '--token=t']),
+    clientFactory: () => client as never,
+  };
+}
+
+describe('kindgi key trust', () => {
+  const trusted = {
+    keyId: 'acme-signing',
+    publicKey: RAW_PUBLIC_KEY_BASE64,
+    algorithm: 'ed25519',
+    createdAt: '2026-10-04T00:00:00.000Z',
+  };
+
+  test("sends the local key's 32 raw bytes, base64 (not the SPKI form), and its label", async () => {
+    const fixtures = makeFixtures({ [`${KEYS_DIR}/acme-signing.pub.pem`]: FAKE_PUBLIC_PEM });
+    const calls: unknown[] = [];
+    const out = await runCli(
+      remoteInputs(fixtures, ['key', 'trust', 'acme-signing', '--label=release signing'], {
+        signingKeys: {
+          trust: async (input: unknown) => {
+            calls.push(input);
+            return trusted;
+          },
+        },
+      }),
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      { keyId: 'acme-signing', publicKey: RAW_PUBLIC_KEY_BASE64, label: 'release signing' },
+    ]);
+    const exported = await runCli(
+      baseInputs(fixtures, ['key', 'export', 'acme-signing', '--format=base64']),
+    );
+    expect(exported.stdout.trim()).not.toBe(RAW_PUBLIC_KEY_BASE64);
+    expect(JSON.parse(out.stdout)).toEqual(trusted);
+    expect(out.stderr).toContain('✓ Trusted acme-signing (sha256:');
+  });
+
+  test('without --label, sends none', async () => {
+    const fixtures = makeFixtures({ [`${KEYS_DIR}/acme-signing.pub.pem`]: FAKE_PUBLIC_PEM });
+    const calls: unknown[] = [];
+    const out = await runCli(
+      remoteInputs(fixtures, ['key', 'trust', 'acme-signing'], {
+        signingKeys: {
+          trust: async (input: unknown) => {
+            calls.push(input);
+            return trusted;
+          },
+        },
+      }),
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([{ keyId: 'acme-signing', publicKey: RAW_PUBLIC_KEY_BASE64 }]);
+  });
+
+  test('no local key: says how to make one, and calls nothing', async () => {
+    const fixtures = makeFixtures();
+    const calls: unknown[] = [];
+    const out = await runCli(
+      remoteInputs(fixtures, ['key', 'trust', 'acme-signing'], {
+        signingKeys: { trust: async (input: unknown) => calls.push(input) },
+      }),
+    );
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(`no public key at ${KEYS_DIR}/acme-signing.pub.pem`);
+    expect(out.stderr).toContain('kindgi key create acme-signing');
+    expect(calls).toEqual([]);
+  });
+
+  test.each(['signing-key-conflict', 'signing-key-revoked'])(
+    'refused with %s: the error, and the commands for a new key id',
+    async (serverCode) => {
+      const fixtures = makeFixtures({ [`${KEYS_DIR}/acme-signing.pub.pem`]: FAKE_PUBLIC_PEM });
+      const out = await runCli(
+        remoteInputs(fixtures, ['key', 'trust', 'acme-signing'], {
+          signingKeys: {
+            trust: async () => {
+              throw new KindgiApiError({ code: 'server', serverCode, message: 'refused' });
+            },
+          },
+        }),
+      );
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toBe(
+        'Error [server]: refused\nTo trust another key: `kindgi key create <newId>`, then `kindgi key trust <newId>`.\n',
+      );
+    },
+  );
+
+  test('any other error: as usual, with no hint', async () => {
+    const fixtures = makeFixtures({ [`${KEYS_DIR}/acme-signing.pub.pem`]: FAKE_PUBLIC_PEM });
+    const out = await runCli(
+      remoteInputs(fixtures, ['key', 'trust', 'acme-signing'], {
+        signingKeys: {
+          trust: async () => {
+            throw new KindgiApiError({
+              code: 'server',
+              serverCode: 'internal-error',
+              message: 'boom',
+            });
+          },
+        },
+      }),
+    );
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe('Error [server]: boom\n');
+  });
+});
+
+describe('kindgi key revoke', () => {
+  function revoker(result: unknown) {
+    const calls: unknown[][] = [];
+    return {
+      calls,
+      client: {
+        signingKeys: {
+          revoke: async (...args: unknown[]) => {
+            calls.push(args);
+            return result;
+          },
+        },
+      },
+    };
+  }
+
+  test('sends the id and --reason; the runtime refuses its new deploys', async () => {
+    const { calls, client } = revoker({ keyId: 'acme-signing', revoked: true });
+    const out = await runCli(
+      remoteInputs(makeFixtures(), ['key', 'revoke', 'acme-signing', '--reason=rotated'], client),
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['acme-signing', { reason: 'rotated' }]]);
+    expect(JSON.parse(out.stdout)).toEqual({ keyId: 'acme-signing', revoked: true });
+    expect(out.stderr).toContain('✓ Revoked acme-signing');
+  });
+
+  test('without --reason, sends none', async () => {
+    const { calls, client } = revoker({ keyId: 'acme-signing', revoked: true });
+    const out = await runCli(
+      remoteInputs(makeFixtures(), ['key', 'revoke', 'acme-signing'], client),
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['acme-signing', undefined]]);
+  });
+
+  test("an id the runtime doesn't trust (or revoked already): says so, and succeeds", async () => {
+    const { client } = revoker({ keyId: 'acme-signing', revoked: false });
+    const out = await runCli(
+      remoteInputs(makeFixtures(), ['key', 'revoke', 'acme-signing'], client),
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toContain("acme-signing wasn't revoked");
+  });
+
+  test("an id `kindgi key create` wouldn't make still goes to the runtime", async () => {
+    const { calls, client } = revoker({ keyId: 'Release:2026', revoked: true });
+    const out = await runCli(
+      remoteInputs(makeFixtures(), ['key', 'revoke', 'Release:2026'], client),
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['Release:2026', undefined]]);
+  });
+
+  test('no id: an error, and nothing called', async () => {
+    const { calls, client } = revoker({ revoked: true });
+    const out = await runCli(remoteInputs(makeFixtures(), ['key', 'revoke'], client));
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('Missing required argument: keyId');
+    expect(calls).toEqual([]);
   });
 });
