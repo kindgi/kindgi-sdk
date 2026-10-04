@@ -7,12 +7,13 @@ import {
   type GenerateContentResponse,
   GoogleGenAI,
 } from '@google/genai';
-import type {
-  AdapterFactory,
-  ModelCallInput,
-  ModelCallResult,
-  ModelProvider,
-  ProviderMetadata,
+import {
+  type AdapterFactory,
+  type ModelCallInput,
+  type ModelCallResult,
+  type ModelProvider,
+  type ProviderMetadata,
+  createAttemptCounter,
 } from '@kindgi/capabilities';
 
 import { type GeminiModelInfo, computeCostUsd, toFrameworkUsage } from './cost.js';
@@ -66,6 +67,8 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
   // One client per credential: reused while the resolved key stays the
   // same, rebuilt when it rotates. `''` stands for ADC.
   let cached: { readonly key: string; readonly client: GeminiClient } | undefined;
+  // Counts each call's HTTP attempts, through the `fetch` the client sends with.
+  const attempts = createAttemptCounter();
   async function resolveClient(): Promise<GeminiClient> {
     if (options.client !== undefined) return options.client;
     const key = options.credentials !== undefined ? await options.credentials() : '';
@@ -74,6 +77,7 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
       vertexai: true,
       project: options.vertex.project,
       location: options.vertex.location,
+      httpOptions: { fetch: attempts.fetch },
       ...(key !== '' && {
         googleAuthOptions: {
           credentials: parseServiceAccountKey(key),
@@ -114,11 +118,14 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
       };
 
       const client = await resolveClient();
-      const response = await client.models.generateContent({
-        model: input.model,
-        contents: [...contents],
-        config,
-      });
+      const counted = await attempts.count(() =>
+        client.models.generateContent({
+          model: input.model,
+          contents: [...contents],
+          config,
+        }),
+      );
+      const response = counted.value;
 
       const { message, finishReason } = fromGeminiResponse(response);
       const usage = toFrameworkUsage(response.usageMetadata);
@@ -129,6 +136,11 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
         costUsd: computeCostUsd(usage, model.cost),
         durationMs: Date.now() - startedAt,
         provider: { id: metadata.id, model: input.model },
+        ...(response.modelVersion !== undefined && { servedModel: response.modelVersion }),
+        ...(response.responseId !== undefined && { providerRequestId: response.responseId }),
+        // An injected client sends with its own fetch: nothing was counted.
+        ...(counted.attempts > 0 && { attempts: counted.attempts }),
+        ...(response.usageMetadata !== undefined && { rawUsage: { ...response.usageMetadata } }),
       };
     },
   };

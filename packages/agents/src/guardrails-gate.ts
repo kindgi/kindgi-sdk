@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { ProviderRegistry, TenantPolicy } from '@kindgi/capabilities';
+import type { ProviderRegistry, TenantPolicy, UsageSink } from '@kindgi/capabilities';
 import type { ComplianceProvider } from '@kindgi/compliance';
 import {
   type CheckRegistry,
@@ -179,7 +179,8 @@ export function resolveGuardrails(
  * doesn't halt on its own. `tenantPolicy` (the policy the turn was
  * routed under) also governs which models llm-judge guardrails may use;
  * `abortSignal` (the turn's) reaches every check, so a slow judge or
- * pack check stops when the turn does.
+ * pack check stops when the turn does. `usage` (the turn's sink) records
+ * every llm-judge call, as the turn's own model calls are.
  */
 export async function evaluateGate(
   guardrails: readonly Guardrail[],
@@ -187,6 +188,7 @@ export async function evaluateGate(
   bindings: GuardrailsBindings,
   tenantPolicy?: TenantPolicy,
   abortSignal?: AbortSignal,
+  usage?: UsageSink,
 ): Promise<readonly EvaluationOutcome[]> {
   if (guardrails.length === 0 || bindings.checks === undefined) return [];
   const evalBindings: EvaluationBindings = {
@@ -194,6 +196,7 @@ export async function evaluateGate(
     ...(bindings.compliance !== undefined && { compliance: bindings.compliance }),
     ...(tenantPolicy !== undefined && { tenantPolicy }),
     ...(abortSignal !== undefined && { abortSignal }),
+    ...(usage !== undefined && { usage }),
   };
   return await evaluateAll(guardrails, bindings.checks, trace, evalBindings);
 }

@@ -2,6 +2,8 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 export { createAdapterFactoryRegistry } from './adapter-factory.js';
+export { createAttemptCounter } from './attempts.js';
+export type { AttemptCounter } from './attempts.js';
 export type {
   AdapterConfig,
   AdapterFactory,
@@ -23,6 +25,7 @@ export type {
   ComparisonOp,
   Feature,
   ModelCallInput,
+  ModelUsageRecord,
   ModelCallResult,
   ModelMessage,
   ModelInfo,
@@ -40,6 +43,7 @@ export type {
   TenantPolicy,
   UpperBoundOp,
   UsageCounters,
+  UsageSink,
 } from './types.js';
 export type {
   BudgetExceededError,

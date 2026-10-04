@@ -288,3 +288,51 @@ describe('adapter_config extraBody.* keys', () => {
     expect(Object.hasOwn(Object.prototype, 'polluted')).toBe(false);
   });
 });
+
+describe('what the endpoint says about the call', () => {
+  test("served model, request id, cached and reasoning tokens, raw usage, and the attempts its SDK's retries took", async () => {
+    let requests = 0;
+    const flaky = (async () => {
+      requests += 1;
+      if (requests === 1) {
+        return new Response(JSON.stringify({ error: { message: 'slow down' } }), {
+          status: 429,
+          headers: { 'content-type': 'application/json', 'retry-after-ms': '1' },
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          ...COMPLETION,
+          model: 'gpt-test-2026-01-01',
+          usage: {
+            prompt_tokens: 30,
+            completion_tokens: 20,
+            total_tokens: 50,
+            prompt_tokens_details: { cached_tokens: 10 },
+            completion_tokens_details: { reasoning_tokens: 8 },
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json', 'x-request-id': 'req_7' } },
+      );
+    }) as typeof fetch;
+    const provider = openAICompatAdapterFactory({
+      metadata,
+      config: { baseURL: 'http://llm.test/v1' },
+      fetch: flaky,
+    });
+    const result = await provider.invoke(call);
+    expect(requests).toBe(2);
+    expect(result).toMatchObject({
+      servedModel: 'gpt-test-2026-01-01',
+      providerRequestId: 'req_7',
+      attempts: 2,
+      usage: { promptTokens: 30, completionTokens: 20, cacheReadTokens: 10, reasoningTokens: 8 },
+      rawUsage: {
+        prompt_tokens: 30,
+        completion_tokens: 20,
+        prompt_tokens_details: { cached_tokens: 10 },
+        completion_tokens_details: { reasoning_tokens: 8 },
+      },
+    });
+  });
+});

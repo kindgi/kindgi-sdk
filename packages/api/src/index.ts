@@ -391,6 +391,7 @@ export type {
   CostRecord,
   CostRecordFilter,
   CostRecordPage,
+  CostTokenTotals,
 } from './cost-binding.js';
 export type {
   ToolGetInput,
@@ -550,6 +551,8 @@ export type {
   ListProvenanceRecordsInput,
   ListProvenanceRecordsResult,
   ProvenanceBinding,
+  CallUsage,
+  CallUsageByCallId,
   ProvenanceBindingError,
   ProvenanceListCursor,
   ProvenanceRecordSummary,

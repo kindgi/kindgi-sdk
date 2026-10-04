@@ -12,7 +12,9 @@ import type { ConversationId, RunId, SigningKeyId, TenantId, Timestamp } from '@
 import { statusFor, toWireError } from '../errors.js';
 
 import type {
+  CallUsageByCallId,
   ProvenanceBinding,
+  ProvenanceBindingError,
   ProvenanceListCursor,
   ProvenanceRecordSummary,
 } from '../provenance-binding.js';
@@ -48,7 +50,8 @@ export interface ProvenanceRouterOptions {
 }
 
 /** Bundle schema version — bump when the wire shape of `bundle.body` changes. */
-const BUNDLE_SCHEMA_VERSION = '1.0.0';
+/** 1.1.0 adds `callUsage`: the model calls' usage from the cost ledger, when the run has any. */
+const BUNDLE_SCHEMA_VERSION = '1.1.0';
 
 export function provenanceRouter(
   binding: ProvenanceBinding,
@@ -148,6 +151,13 @@ export function provenanceRouter(
       );
     }
     const provenance = result.value;
+    const callUsage = await readCallUsage(binding, tenantId, runId);
+    if (callUsage.kind === 'err') {
+      c.status(statusFor(callUsage.error.code) as never);
+      return c.json(
+        toWireError({ code: callUsage.error.code, message: callUsage.error.message }, requestId),
+      );
+    }
     return c.json({
       id: provenance.id as unknown as string,
       runId: provenance.runId as unknown as string,
@@ -165,6 +175,7 @@ export function provenanceRouter(
         edges: provenance.edges,
       },
       ...(provenance.signature !== undefined && { signature: provenance.signature }),
+      ...(callUsage.value !== undefined && { callUsage: callUsage.value }),
     });
   });
 
@@ -232,6 +243,14 @@ export function provenanceRouter(
       );
     }
     const provenance = loaded.value;
+    // The calls' usage as it stands now: the signature covers it.
+    const callUsage = await readCallUsage(binding, tenantId, runId);
+    if (callUsage.kind === 'err') {
+      c.status(statusFor(callUsage.error.code) as never);
+      return c.json(
+        toWireError({ code: callUsage.error.code, message: callUsage.error.message }, requestId),
+      );
+    }
 
     // 2. Optionally hydrate conversation messages. Agent turns use the
     //    conversation id as the run id; for flow-only runs no
@@ -306,6 +325,7 @@ export function provenanceRouter(
         edges: provenance.edges,
       },
       ...(messages !== undefined && { messages }),
+      ...(callUsage.value !== undefined && { callUsage: callUsage.value }),
     };
     const canonicalBundleBytes = new TextEncoder().encode(canonicalize(bundleBody));
 
@@ -403,4 +423,19 @@ function parseExportBody(body: Record<string, unknown>): ParseResult<ValidatedEx
       includeMessages,
     },
   };
+}
+
+/** The run's call usage, when the binding has a cost ledger and the run made calls. */
+async function readCallUsage(
+  binding: ProvenanceBinding,
+  tenantId: TenantId,
+  runId: RunId,
+): Promise<
+  | { readonly kind: 'ok'; readonly value: CallUsageByCallId | undefined }
+  | { readonly kind: 'err'; readonly error: ProvenanceBindingError }
+> {
+  if (binding.getCallUsage === undefined) return { kind: 'ok', value: undefined };
+  const read = await binding.getCallUsage(tenantId, runId);
+  if (read.kind === 'err') return read;
+  return { kind: 'ok', value: Object.keys(read.value).length > 0 ? read.value : undefined };
 }

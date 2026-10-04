@@ -288,3 +288,65 @@ describe('createAnthropicProvider — lazy apiKey resolver', () => {
     expect(resolver).not.toHaveBeenCalled();
   });
 });
+
+describe('createAnthropicProvider — what the vendor says about the call', () => {
+  test("served model, request id, raw usage, and the attempts its SDK's retries took", async () => {
+    // The vendor is overloaded once (529, which the SDK retries), then answers.
+    const sent: string[] = [];
+    const fetch: typeof globalThis.fetch = async (input) => {
+      sent.push(String(input));
+      if (sent.length === 1) {
+        return new Response(
+          JSON.stringify({ type: 'error', error: { type: 'overloaded_error' } }),
+          {
+            status: 529,
+            headers: { 'content-type': 'application/json', 'retry-after-ms': '1' },
+          },
+        );
+      }
+      return new Response(
+        JSON.stringify(
+          fakeResponse({
+            model: 'claude-opus-4-7-20260101',
+            usage: {
+              input_tokens: 20,
+              output_tokens: 5,
+              cache_creation_input_tokens: 300,
+              cache_read_input_tokens: 700,
+            },
+          }),
+        ),
+        { status: 200, headers: { 'content-type': 'application/json', 'request-id': 'req_42' } },
+      );
+    };
+    const provider = createAnthropicProvider({
+      apiKey: 'sk-test',
+      metadata: OPUS_METADATA,
+      clientOptions: { fetch },
+    });
+    const result = await provider.invoke({
+      model: 'claude-opus-4-7',
+      messages: [{ role: 'user', content: 'hi' }],
+    } as ModelCallInput);
+
+    expect(sent).toHaveLength(2);
+    expect(result).toMatchObject({
+      provider: { id: 'anthropic', model: 'claude-opus-4-7' },
+      servedModel: 'claude-opus-4-7-20260101',
+      providerRequestId: 'req_42',
+      attempts: 2,
+      usage: {
+        promptTokens: 1020,
+        completionTokens: 5,
+        cacheReadTokens: 700,
+        cacheWriteTokens: 300,
+      },
+      rawUsage: {
+        input_tokens: 20,
+        output_tokens: 5,
+        cache_creation_input_tokens: 300,
+        cache_read_input_tokens: 700,
+      },
+    });
+  });
+});

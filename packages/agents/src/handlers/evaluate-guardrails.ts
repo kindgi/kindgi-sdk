@@ -93,6 +93,7 @@ export function buildEvaluateGuardrailsHandler(ctx: TurnContext): NodeHandler {
       ctx.bindings,
       ctx.tenantPolicy,
       ctx.turnAbort.signal,
+      ctx.bindings.usage,
     );
     const categorized = categorizeOutcomes(outcomes);
 

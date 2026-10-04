@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type Anthropic from '@anthropic-ai/sdk';
+import type { UsageCounters } from '@kindgi/capabilities';
 
 /**
  * Cost multipliers for prompt-cache tokens. Anthropic prices cache
@@ -66,27 +67,21 @@ export function computeCostUsd(usage: Anthropic.Usage, rates: CostRates): number
 }
 
 /**
- * Roll up Anthropic's four-way token split into the framework's
- * `UsageCounters` shape.
+ * Anthropic's four-way token split as the framework's `UsageCounters`:
  *
- *   - `promptTokens` = total tokens billed as input = regular +
- *     cache-creation + cache-read.
- *   - `completionTokens` = output tokens.
- *   - `cachedTokens` = cache-read tokens (surfaced for observability;
- *     the framework's cost meter uses `costUsd` directly, not this
- *     field, so we don't need to bake cache math into `promptTokens`).
+ *   - `promptTokens` = every input token = regular + cache-write +
+ *     cache-read (`input_tokens` excludes both cache counts);
+ *   - `cacheReadTokens` / `cacheWriteTokens` = the cache's parts of it;
+ *   - `completionTokens` = output tokens. Anthropic counts thinking in
+ *     them and doesn't report it apart, so there's no `reasoningTokens`.
  */
-export function toFrameworkUsage(usage: Anthropic.Usage): {
-  readonly promptTokens: number;
-  readonly completionTokens: number;
-  readonly cachedTokens?: number;
-} {
-  const cacheCreation = usage.cache_creation_input_tokens ?? 0;
+export function toFrameworkUsage(usage: Anthropic.Usage): UsageCounters {
+  const cacheWrite = usage.cache_creation_input_tokens ?? 0;
   const cacheRead = usage.cache_read_input_tokens ?? 0;
-  const promptTokens = usage.input_tokens + cacheCreation + cacheRead;
-  const base = {
-    promptTokens,
+  return {
+    promptTokens: usage.input_tokens + cacheWrite + cacheRead,
     completionTokens: usage.output_tokens,
+    ...(cacheRead > 0 && { cacheReadTokens: cacheRead }),
+    ...(cacheWrite > 0 && { cacheWriteTokens: cacheWrite }),
   };
-  return cacheRead > 0 ? { ...base, cachedTokens: cacheRead } : base;
 }

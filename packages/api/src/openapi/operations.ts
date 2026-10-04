@@ -532,7 +532,7 @@ const CostToQueryParam: ParameterSpec = {
   in: 'query',
   required: false,
   description:
-    'ISO 8601 timestamp; records with `occurredAt <= to`. Required on `/v1/cost/aggregate` (or both endpoints omitted for default last-30-days window).',
+    'ISO 8601 timestamp; records with `occurredAt < to` (exclusive). Required on `/v1/cost/aggregate` (or both endpoints omitted for default last-30-days window).',
   schema: { type: 'string', format: 'date-time' },
 };
 
@@ -541,8 +541,51 @@ const CostGroupByQueryParam: ParameterSpec = {
   in: 'query',
   required: true,
   description:
-    'Comma-separated list of dimensions to aggregate over. Each value must be one of `agentId | runId | category | providerId | day | month | tenant | conversationId`. Duplicates collapse.',
+    "Comma-separated list of dimensions to aggregate over. Each value must be one of `agentId | runId | category | providerId | day | month | tenant | conversationId | model | servedModel | projectId | orgId | rootRunId | flowId`. `model` is the model actually called; `servedModel` the exact version the vendor reported; `orgId` the org of the record's project. Duplicates collapse.",
   schema: { type: 'string' },
+};
+
+const CostModelQueryParam: ParameterSpec = {
+  name: 'model',
+  in: 'query',
+  required: false,
+  description: 'Filter model calls to this model, the one actually called (exact match).',
+  schema: { type: 'string' },
+};
+
+const CostServedModelQueryParam: ParameterSpec = {
+  name: 'servedModel',
+  in: 'query',
+  required: false,
+  description: 'Filter model calls to the exact model version the vendor reported (exact match).',
+  schema: { type: 'string' },
+};
+
+const CostRootRunIdQueryParam: ParameterSpec = {
+  name: 'rootRunId',
+  in: 'query',
+  required: false,
+  description:
+    'Every record of the run tree whose root is this run: a flow run and the agent turns and sub-flows it started.',
+  schema: { type: 'string', format: 'uuid' },
+};
+
+const CostIncludeDescendantsQueryParam: ParameterSpec = {
+  name: 'includeDescendants',
+  in: 'query',
+  required: false,
+  description:
+    "With `runId`: the run's records and those of every run it started, at any depth. `true` or `false` (default).",
+  schema: { type: 'string', enum: ['true', 'false'] },
+};
+
+const CostIncludeQueryParam: ParameterSpec = {
+  name: 'include',
+  in: 'query',
+  required: false,
+  description:
+    "Extra fields, comma-separated. `rawUsage`: each model call's usage object exactly as the vendor reported it.",
+  schema: { type: 'string', enum: ['rawUsage'] },
 };
 
 const ProviderIdPathParam: ParameterSpec = {
@@ -2764,7 +2807,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'cost.records.list',
     summary: 'List cost records',
     description:
-      'Cursor-paginated. Filters (all AND): `runId`, `agentId`, `conversationId`, `category`, `providerId`, `from`, `to`. Sort order is fixed: `occurredAt desc, id desc`. Records represent one accounted resource event each — LLM inference, tool invocation, storage write, sandbox execution, etc.',
+      "Cursor-paginated. Filters (all AND): `runId` (with `includeDescendants`, its whole subtree), `rootRunId`, `agentId`, `conversationId`, `category`, `providerId`, `model`, `servedModel`, `from`, `to`. Sort order is fixed: `occurredAt desc, id desc`. Records represent one accounted resource event each — a model call (`category` `llm.inference`: one record per call, with its model, usage and what the vendor said about it), tool invocation, storage write, sandbox execution, etc. `include=rawUsage` adds each model call's usage as the vendor reported it.",
     tags: ['cost'],
     security: 'bearer',
     parameters: [
@@ -2775,11 +2818,16 @@ export const OPERATIONS: readonly OperationSpec[] = [
       CostConversationIdQueryParam,
       CostCategoryQueryParam,
       CostProviderIdQueryParam,
+      CostModelQueryParam,
+      CostServedModelQueryParam,
+      CostRootRunIdQueryParam,
+      CostIncludeDescendantsQueryParam,
       CostFromQueryParam,
       CostToQueryParam,
       ScopeKindQueryParam,
       ScopeIdQueryParam,
       InheritQueryParam,
+      CostIncludeQueryParam,
     ],
     responses: {
       '200': { description: 'Page of cost records.', schema: ref('CostRecordCollectionPage') },
@@ -2795,7 +2843,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     summary: 'Fetch a cost record',
     tags: ['cost'],
     security: 'bearer',
-    parameters: [CostRecordIdPathParam],
+    parameters: [CostRecordIdPathParam, CostIncludeQueryParam],
     responses: {
       '200': { description: 'Cost record.', schema: ref('CostRecord') },
       ...CommonAuthErrors,
@@ -2809,7 +2857,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'cost.aggregate',
     summary: 'Aggregate cost across a time window',
     description:
-      'Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId + ?inherit` narrow the aggregate to a specific scope — reconciles byte-for-byte with the same scoped `/records` list.',
+      "Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId` narrow the aggregate to a scope: `org` covers every project in the org, so one call sums an org's spend. Each group, and the total, carries its cost and its token sums (`tokens`). `inherit` has no effect on cost records, which always belong to a project.",
     tags: ['cost'],
     security: 'bearer',
     parameters: [
@@ -2821,6 +2869,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       CostAgentIdQueryParam,
       CostRunIdQueryParam,
       CostConversationIdQueryParam,
+      CostModelQueryParam,
+      CostServedModelQueryParam,
+      CostRootRunIdQueryParam,
+      CostIncludeDescendantsQueryParam,
       ScopeKindQueryParam,
       ScopeIdQueryParam,
       InheritQueryParam,

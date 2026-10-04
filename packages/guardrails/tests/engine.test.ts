@@ -3,7 +3,7 @@
 
 import { describe, expect, test } from 'vitest';
 
-import type { ModelProvider, TenantPolicy } from '@kindgi/capabilities';
+import type { ModelProvider, ModelUsageRecord, TenantPolicy } from '@kindgi/capabilities';
 import { createProviderRegistry } from '@kindgi/capabilities';
 import type { AgentId, GuardrailId, RunId, TenantId, Timestamp, ToolId } from '@kindgi/types';
 
@@ -429,5 +429,81 @@ describe('evaluateGuardrail — llm-judge under the tenant policy', () => {
     });
     expect(outcome.kind).toBe('ok');
     expect(calls).toEqual(['us-judge']);
+  });
+});
+
+describe('evaluateGuardrail — llm-judge records its model calls', () => {
+  const judgeMetadata = {
+    id: 'test-provider',
+    region: 'test',
+    models: [
+      {
+        name: 'test-model',
+        contextWindow: 8000,
+        features: ['tool-use' as const],
+        cost: { promptUsdPer1kTokens: 0, completionUsdPer1kTokens: 0 },
+      },
+    ],
+  };
+  const guardrail: Guardrail = {
+    id: 'acme.on-topic' as GuardrailId,
+    kind: 'llm-judge',
+    check: 'judge-usage',
+    config: { rubric: 'Is the output on topic?' },
+    action: { 'on-violation': 'log-only' },
+    judgeCapabilities: { needs: [{ feature: 'tool-use' }] },
+  };
+  const registry = createCheckRegistry();
+  registry.register({
+    id: 'judge-usage',
+    kind: 'llm-judge',
+    evaluate: async () => ({ passed: true }),
+  });
+
+  test("a judge call is recorded with the run's identity and the guardrail it judged", async () => {
+    const recorded: ModelUsageRecord[] = [];
+    const trace = baseTrace({ agentId: 'acme.helper' as AgentId });
+    const outcome = await evaluateGuardrail(guardrail, registry, trace, {
+      judgeProvider: {
+        metadata: judgeMetadata,
+        invoke: async () => ({
+          message: { role: 'assistant', content: 'PASS\nOn topic.' },
+          finishReason: 'stop',
+          usage: { promptTokens: 100, completionTokens: 20 },
+          costUsd: 0.0001,
+          durationMs: 50,
+          provider: { id: 'test-provider', model: 'test-model' },
+        }),
+      },
+      usage: { record: async (call) => void recorded.push(call) },
+    });
+    if (outcome.kind !== 'ok') throw new Error('expected ok');
+    expect(recorded).toEqual([
+      expect.objectContaining({
+        tenantId: TENANT,
+        runId: trace.runId,
+        agentId: 'acme.helper',
+        providerId: 'test-provider',
+        model: 'test-model',
+        purpose: 'guardrail-judge:acme.on-topic',
+        status: 'ok',
+        result: expect.objectContaining({ usage: { promptTokens: 100, completionTokens: 20 } }),
+      }),
+    ]);
+  });
+
+  test('a judge call that threw is recorded as failed', async () => {
+    const recorded: ModelUsageRecord[] = [];
+    const outcome = await evaluateGuardrail(guardrail, registry, baseTrace(), {
+      judgeProvider: {
+        metadata: judgeMetadata,
+        invoke: () => Promise.reject(new Error('429 slow down')),
+      },
+      usage: { record: async (call) => void recorded.push(call) },
+    }).catch((e: unknown) => e);
+    expect(outcome).toBeDefined();
+    expect(recorded).toEqual([
+      expect.objectContaining({ status: 'failed', error: { message: '429 slow down' } }),
+    ]);
   });
 });

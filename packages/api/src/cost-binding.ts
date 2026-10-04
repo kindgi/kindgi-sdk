@@ -42,12 +42,15 @@ export interface CostBinding {
   getRecord(input: CostGetRecordInput): Promise<CostRecord | null>;
   /**
    * Multi-dimensional aggregate rollup. `groupBy` may combine any
-   * subset of `agentId | runId | category | providerId | day | month
-   * | tenant | conversationId`; the binding returns one group per
-   * distinct key tuple within the required `from`..`to` window.
+   * subset of `COST_GROUP_DIMENSIONS`; the binding returns one group per
+   * distinct key tuple within the required `from`..`to` window, with its
+   * cost and token sums.
    */
   aggregate(input: CostAggregateInput): Promise<CostAggregateResult>;
 }
+
+// A binding throws when its store fails: the route answers 500. It never
+// answers a failed read with an empty page or zero sums.
 
 // -------- listRecords --------
 
@@ -80,6 +83,8 @@ export interface CostListRecordsInput {
    * uniformity: scope-aware bindings share one filter shape.
    */
   readonly inherit?: boolean;
+  /** Add each record's `rawUsage`: the vendor's own usage object. */
+  readonly includeRawUsage?: boolean;
 }
 
 export interface CostRecordFilter {
@@ -94,7 +99,20 @@ export interface CostRecordFilter {
    */
   readonly category?: string;
   readonly providerId?: string;
+  /** The model actually called. */
+  readonly model?: string;
+  /** The exact model version the vendor reported. */
+  readonly servedModel?: string;
+  /** Every record of the run tree whose root is this run. */
+  readonly rootRunId?: string;
+  /**
+   * With `runId`: that run's records and those of every run it started,
+   * at any depth.
+   */
+  readonly includeDescendants?: boolean;
+  /** Inclusive. */
   readonly from?: Date;
+  /** Exclusive. */
   readonly to?: Date;
 }
 
@@ -108,6 +126,8 @@ export interface CostRecordPage {
 export interface CostGetRecordInput {
   readonly tenantId: TenantId;
   readonly recordId: string;
+  /** Add the record's `rawUsage`: the vendor's own usage object. */
+  readonly includeRawUsage?: boolean;
 }
 
 // -------- aggregate --------
@@ -116,7 +136,9 @@ export interface CostGetRecordInput {
  * Group dimensions the binding may aggregate over. `day` / `month` are
  * time bucketing on `occurredAt` (UTC calendar day / month). Every call
  * is tenant-scoped, so `tenant` always resolves to the caller's tenant
- * id.
+ * id. `model` is the model actually called; `servedModel` the exact
+ * version the vendor reported. `orgId` is the org of the record's
+ * project (`null` for a project in no org).
  */
 export type CostGroupDimension =
   | 'agentId'
@@ -126,7 +148,13 @@ export type CostGroupDimension =
   | 'day'
   | 'month'
   | 'tenant'
-  | 'conversationId';
+  | 'conversationId'
+  | 'model'
+  | 'servedModel'
+  | 'projectId'
+  | 'orgId'
+  | 'rootRunId'
+  | 'flowId';
 
 export const COST_GROUP_DIMENSIONS: readonly CostGroupDimension[] = [
   'agentId',
@@ -137,6 +165,12 @@ export const COST_GROUP_DIMENSIONS: readonly CostGroupDimension[] = [
   'month',
   'tenant',
   'conversationId',
+  'model',
+  'servedModel',
+  'projectId',
+  'orgId',
+  'rootRunId',
+  'flowId',
 ];
 
 export interface CostAggregateInput {
@@ -174,12 +208,27 @@ export interface CostAggregateGroup {
   readonly key: Readonly<Record<string, string | null>>;
   readonly count: number;
   readonly totalUsd: number;
+  readonly tokens: CostTokenTotals;
+}
+
+/**
+ * Token sums. `prompt` and `completion` are the totals; `cacheRead` /
+ * `cacheWrite` are parts of `prompt`, `reasoning` of `completion`
+ * (`0` where providers didn't report them).
+ */
+export interface CostTokenTotals {
+  readonly prompt: number;
+  readonly completion: number;
+  readonly cacheRead: number;
+  readonly cacheWrite: number;
+  readonly reasoning: number;
 }
 
 export interface CostAggregateResult {
   readonly groups: readonly CostAggregateGroup[];
   readonly totalUsd: number;
   readonly totalRecords: number;
+  readonly tokens: CostTokenTotals;
   readonly timeRange: {
     readonly from: Timestamp;
     readonly to: Timestamp;
@@ -210,4 +259,46 @@ export interface CostRecord {
   readonly occurredAt: Timestamp;
   readonly metrics?: Readonly<Record<string, unknown>>;
   readonly attributes?: Readonly<Record<string, unknown>>;
+  // A model call (`category` `llm.inference`):
+  /** The call's id; its provenance node carries it too. */
+  readonly callId?: string;
+  readonly projectId?: string;
+  /** The root of the record's run tree. */
+  readonly rootRunId?: string;
+  readonly parentRunId?: string;
+  readonly agentVersion?: string;
+  /** The flow of the run tree's root. */
+  readonly flowId?: string;
+  /** The step that made the call, and the turn's step number. */
+  readonly nodeId?: string;
+  readonly step?: number;
+  /** What the call was for, beyond the turn's own model step (`guardrail-judge:<id>`). */
+  readonly purpose?: string;
+  /** The model actually called. */
+  readonly model?: string;
+  /** The exact model version the vendor reported. */
+  readonly servedModel?: string;
+  /** The router picked a fallback provider. */
+  readonly fallback?: boolean;
+  /** `ok`: the provider answered. `failed`: the call threw. */
+  readonly status?: 'ok' | 'failed';
+  readonly usage?: {
+    readonly promptTokens: number;
+    readonly completionTokens: number;
+    readonly cacheReadTokens?: number;
+    readonly cacheWriteTokens?: number;
+    readonly reasoningTokens?: number;
+  };
+  readonly durationMs?: number;
+  readonly finishReason?: string;
+  readonly providerRequestId?: string;
+  /** HTTP attempts, the client's retries included. */
+  readonly attempts?: number;
+  readonly error?: { readonly message: string };
+  /** The vendor's own usage object (only when asked for: `include=rawUsage`). */
+  readonly rawUsage?: {
+    readonly provider: string;
+    readonly model: string;
+    readonly usage: Readonly<Record<string, unknown>>;
+  };
 }

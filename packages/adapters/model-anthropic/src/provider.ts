@@ -3,12 +3,13 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 
-import type {
-  ModelCallInput,
-  ModelCallResult,
-  ModelInfo,
-  ModelProvider,
-  ProviderMetadata,
+import {
+  type ModelCallInput,
+  type ModelCallResult,
+  type ModelInfo,
+  type ModelProvider,
+  type ProviderMetadata,
+  createAttemptCounter,
 } from '@kindgi/capabilities';
 
 import { computeCostUsd, toFrameworkUsage } from './cost.js';
@@ -71,7 +72,10 @@ export interface AnthropicProviderOptions {
    * Additional SDK client options (timeouts, custom fetch, headers,
    * etc.). `apiKey` and `baseURL` from the top level always win.
    */
-  readonly clientOptions?: Omit<ConstructorParameters<typeof Anthropic>[0], 'apiKey' | 'baseURL'>;
+  readonly clientOptions?: Omit<
+    NonNullable<ConstructorParameters<typeof Anthropic>[0]>,
+    'apiKey' | 'baseURL'
+  >;
   /**
    * Dependency-injected SDK client. When present, `apiKey` /
    * `baseURL` / `clientOptions` are ignored on construction (tests
@@ -110,6 +114,9 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
   // keepalive — throwing it away on every invoke would tank latency).
   // When the resolver returns a new value (key rotation), rebuild.
   let cached: { readonly key: string; readonly client: Anthropic } | undefined;
+  // Counts each call's HTTP attempts, the SDK's own retries included (its
+  // retry policy stays the SDK's), through the `fetch` the client sends with.
+  const attempts = createAttemptCounter(options.clientOptions?.fetch ?? globalThis.fetch);
   if (options.client !== undefined) {
     // Dep-injected client — pin to sentinel key so resolveClient below
     // always returns the same instance regardless of what the resolver
@@ -130,6 +137,7 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
       apiKey: key,
       ...(options.baseURL !== undefined && { baseURL: options.baseURL }),
       ...(options.clientOptions ?? {}),
+      fetch: attempts.fetch,
     });
     cached = { key, client };
     return client;
@@ -158,17 +166,20 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
         input.abortSignal !== undefined ? { signal: input.abortSignal } : {};
       const maxTokens = input.maxOutputTokens ?? modelInfo.maxOutputTokens ?? DEFAULT_MAX_TOKENS;
 
-      const response = await client.messages.create(
-        {
-          model: input.model,
-          max_tokens: maxTokens,
-          ...(system !== undefined && { system }),
-          messages: [...messages],
-          ...(tools !== undefined && { tools: [...tools] }),
-          ...(input.temperature !== undefined && { temperature: input.temperature }),
-        },
-        requestOptions,
+      const counted = await attempts.count(() =>
+        client.messages.create(
+          {
+            model: input.model,
+            max_tokens: maxTokens,
+            ...(system !== undefined && { system }),
+            messages: [...messages],
+            ...(tools !== undefined && { tools: [...tools] }),
+            ...(input.temperature !== undefined && { temperature: input.temperature }),
+          },
+          requestOptions,
+        ),
       );
+      const response = counted.value;
 
       const durationMs = Date.now() - startedAt;
       const message = fromAnthropicResponse(response);
@@ -182,6 +193,13 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
         costUsd,
         durationMs,
         provider: { id: metadata.id, model: input.model },
+        ...(response.model !== undefined && { servedModel: response.model }),
+        ...(typeof response._request_id === 'string' && {
+          providerRequestId: response._request_id,
+        }),
+        // An injected client sends with its own fetch: nothing was counted.
+        ...(counted.attempts > 0 && { attempts: counted.attempts }),
+        rawUsage: { ...response.usage },
       };
     },
   };

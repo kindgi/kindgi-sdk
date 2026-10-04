@@ -2824,28 +2824,6 @@ class Signature(BaseModel):
     signed_at: Annotated[AwareDatetime, Field(alias="signedAt")]
 
 
-class ProvenanceRecord(BaseModel):
-    """
-    Full provenance record including the DAG payload.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    id: UUID
-    run_id: Annotated[UUID, Field(alias="runId")]
-    tenant_id: Annotated[UUID, Field(alias="tenantId")]
-    version: str
-    flow_ref: Annotated[FlowRef | None, Field(alias="flowRef")] = None
-    dag: Dag
-    signature: Signature | None = None
-    """
-    Runtime-side signature attached at emission time (if the deployment signs on write). Independent of the export-time signature returned by the export route.
-    """
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-
-
 class ProvenanceCollectionPage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -2873,7 +2851,7 @@ class ExportProvenanceBody(BaseModel):
 
 class ExportProvenanceResult(BaseModel):
     """
-    Signed exportable bundle. `bundle` is base64 of the exact bytes that were signed (sorted-key canonical JSON, no whitespace); verifiers can pass those bytes directly to `verifyEd25519`. The bundle body itself includes `bundleSchemaVersion`, `runId`, `tenantId`, `dag: { nodes, edges }`, `messages?` (if requested), etc. See `canonicalization` for the deterministic serialization algorithm.
+    Signed exportable bundle. `bundle` is base64 of the exact bytes that were signed (sorted-key canonical JSON, no whitespace); verifiers can pass those bytes directly to `verifyEd25519`. The bundle body itself includes `bundleSchemaVersion`, `runId`, `tenantId`, `dag: { nodes, edges }`, `messages?` (if requested), `callUsage?` (the usage of the model calls, from the cost ledger), etc. See `canonicalization` for the deterministic serialization algorithm.
     """
 
     model_config = ConfigDict(
@@ -2887,7 +2865,7 @@ class ExportProvenanceResult(BaseModel):
     """
     bundle_schema_version: Annotated[str, Field(alias="bundleSchemaVersion")]
     """
-    Semver for the shape of the bundle body. Currently `1.0.0`.
+    Semver for the shape of the bundle body. Currently `1.1.0`, which adds `callUsage`: each model call's usage from the cost ledger, by call id, as it stood when signed.
     """
     algorithm: Literal["ed25519"]
     signing_key_id: Annotated[str, Field(alias="signingKeyId")]
@@ -3471,46 +3449,54 @@ class GetMCPPromptResult(BaseModel):
     messages: list[MCPPromptMessage]
 
 
-class CostRecord(BaseModel):
+class Error1(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    id: str
-    tenant_id: Annotated[UUID, Field(alias="tenantId")]
-    category: str
-    """
-    Free-form resource category (`llm.inference`, `tool.invocation`, `storage.write`, `sandbox.exec`, …). Maps to `resourceKind` in the runtime.
-    """
-    provider_id: Annotated[str | None, Field(alias="providerId")] = None
-    run_id: Annotated[UUID | None, Field(alias="runId")] = None
-    agent_id: Annotated[str | None, Field(alias="agentId")] = None
-    conversation_id: Annotated[UUID | None, Field(alias="conversationId")] = None
-    quantity: Annotated[float, Field(ge=0.0)]
-    unit: str
-    """
-    Metered unit (`tokens`, `seconds`, `bytes`, …).
-    """
-    cost_usd: Annotated[float | None, Field(alias="costUsd", ge=0.0)] = None
-    occurred_at: Annotated[AwareDatetime, Field(alias="occurredAt")]
-    metrics: dict[str, Any] | None = None
-    """
-    Kind-specific counters (e.g. `{ promptTokens, completionTokens }`).
-    """
-    attributes: dict[str, Any] | None = None
-    """
-    Free-form filter/display tags — never counters.
-    """
+    message: str
 
 
-class CostRecordCollectionPage(BaseModel):
+class RawUsage(BaseModel):
+    """
+    The vendor's own usage object, exactly as it reported it. Only with `include=rawUsage`.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    data: list[CostRecord]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    has_more: Annotated[bool, Field(alias="hasMore")]
+    provider: str
+    model: str
+    usage: dict[str, Any]
+
+
+class ModelCallTokens(BaseModel):
+    """
+    The call's tokens. `promptTokens` / `completionTokens` are the totals; `cacheReadTokens` / `cacheWriteTokens` are parts of `promptTokens`, `reasoningTokens` of `completionTokens`, present when the provider reports them.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    prompt_tokens: Annotated[int, Field(alias="promptTokens", ge=0)]
+    completion_tokens: Annotated[int, Field(alias="completionTokens", ge=0)]
+    cache_read_tokens: Annotated[int | None, Field(alias="cacheReadTokens", ge=0)] = None
+    cache_write_tokens: Annotated[int | None, Field(alias="cacheWriteTokens", ge=0)] = None
+    reasoning_tokens: Annotated[int | None, Field(alias="reasoningTokens", ge=0)] = None
+
+
+class CostTokenTotals(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    prompt: Annotated[int, Field(ge=0)]
+    completion: Annotated[int, Field(ge=0)]
+    cache_read: Annotated[int, Field(alias="cacheRead", ge=0)]
+    cache_write: Annotated[int, Field(alias="cacheWrite", ge=0)]
+    reasoning: Annotated[int, Field(ge=0)]
 
 
 class CostAggregateGroup(BaseModel):
@@ -3524,6 +3510,7 @@ class CostAggregateGroup(BaseModel):
     """
     count: Annotated[int, Field(ge=0)]
     total_usd: Annotated[float, Field(alias="totalUsd", ge=0.0)]
+    tokens: CostTokenTotals
 
 
 class TimeRange(BaseModel):
@@ -3543,6 +3530,7 @@ class CostAggregateResult(BaseModel):
     groups: list[CostAggregateGroup]
     total_usd: Annotated[float, Field(alias="totalUsd", ge=0.0)]
     total_records: Annotated[int, Field(alias="totalRecords", ge=0)]
+    tokens: CostTokenTotals
     time_range: Annotated[TimeRange, Field(alias="timeRange")]
     group_by: Annotated[
         list[
@@ -3555,6 +3543,12 @@ class CostAggregateResult(BaseModel):
                 "month",
                 "tenant",
                 "conversationId",
+                "model",
+                "servedModel",
+                "projectId",
+                "orgId",
+                "rootRunId",
+                "flowId",
             ]
         ],
         Field(alias="groupBy"),
@@ -5893,6 +5887,20 @@ class WebhookEndpointUnregisterResult(BaseModel):
     """
 
 
+class Usage(BaseModel):
+    """
+    The model calls of the whole run tree (this run and every run it started), from the cost ledger. Absent when the runtime records no usage.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    calls: Annotated[int, Field(ge=0)]
+    cost_usd: Annotated[float, Field(alias="costUsd", ge=0.0)]
+    tokens: CostTokenTotals
+
+
 class FinishedRun(BaseModel):
     """
     A finished top-level run: its identity and outcome, never its input or output. Field names match `GET /v1/runs/{runId}`.
@@ -5917,6 +5925,10 @@ class FinishedRun(BaseModel):
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     completed_at: Annotated[AwareDatetime, Field(alias="completedAt")]
+    usage: Usage | None = None
+    """
+    The model calls of the whole run tree (this run and every run it started), from the cost ledger. Absent when the runtime records no usage.
+    """
 
 
 class Data(BaseModel):
@@ -6049,6 +6061,43 @@ class AuditAuthzListResponse(BaseModel):
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
+class CallUsage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    usage: ModelCallTokens
+    cost_usd: Annotated[float | None, Field(alias="costUsd", ge=0.0)] = None
+    duration_ms: Annotated[int | None, Field(alias="durationMs", ge=0)] = None
+    served_model: Annotated[str | None, Field(alias="servedModel")] = None
+
+
+class ProvenanceRecord(BaseModel):
+    """
+    Full provenance record including the DAG payload.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: UUID
+    run_id: Annotated[UUID, Field(alias="runId")]
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    version: str
+    flow_ref: Annotated[FlowRef | None, Field(alias="flowRef")] = None
+    dag: Dag
+    signature: Signature | None = None
+    """
+    Runtime-side signature attached at emission time (if the deployment signs on write). Independent of the export-time signature returned by the export route.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    call_usage: Annotated[dict[str, CallUsage] | None, Field(alias="callUsage")] = None
+    """
+    Each model call's usage from the cost ledger, by the `callId` in its `model-call` node's attributes. Joined when read: not part of the signed DAG. A signed export includes it, as it stood when signed.
+    """
+
+
 class MCPEndpoint(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -6123,6 +6172,107 @@ class RegisterMCPEndpointBody(BaseModel):
     """
     Required when `scopeKind` is `org` or `project`; absent for `tenant` (implicit from the session).
     """
+
+
+class CostRecord(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    category: str
+    """
+    Free-form resource category (`llm.inference`, `tool.invocation`, `storage.write`, `sandbox.exec`, …). Maps to `resourceKind` in the runtime.
+    """
+    provider_id: Annotated[str | None, Field(alias="providerId")] = None
+    run_id: Annotated[UUID | None, Field(alias="runId")] = None
+    agent_id: Annotated[str | None, Field(alias="agentId")] = None
+    conversation_id: Annotated[UUID | None, Field(alias="conversationId")] = None
+    quantity: Annotated[float, Field(ge=0.0)]
+    unit: str
+    """
+    Metered unit (`tokens`, `seconds`, `bytes`, …).
+    """
+    cost_usd: Annotated[float | None, Field(alias="costUsd", ge=0.0)] = None
+    occurred_at: Annotated[AwareDatetime, Field(alias="occurredAt")]
+    metrics: dict[str, Any] | None = None
+    """
+    Kind-specific counters (e.g. `{ promptTokens, completionTokens }`).
+    """
+    attributes: dict[str, Any] | None = None
+    """
+    Free-form filter/display tags — never counters.
+    """
+    call_id: Annotated[str | None, Field(alias="callId")] = None
+    """
+    A model call's id (`category` `llm.inference`); its provenance `model-call` node carries it too.
+    """
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    root_run_id: Annotated[UUID | None, Field(alias="rootRunId")] = None
+    """
+    The root of the record's run tree (a flow run, for its agent turns).
+    """
+    parent_run_id: Annotated[UUID | None, Field(alias="parentRunId")] = None
+    agent_version: Annotated[str | None, Field(alias="agentVersion")] = None
+    flow_id: Annotated[str | None, Field(alias="flowId")] = None
+    """
+    The flow of the run tree's root.
+    """
+    node_id: Annotated[str | None, Field(alias="nodeId")] = None
+    """
+    The step that made the call.
+    """
+    step: Annotated[int | None, Field(ge=1)] = None
+    """
+    The turn's step number.
+    """
+    purpose: str | None = None
+    """
+    What the call was for, beyond the turn's own model step: `guardrail-judge:<guardrail id>`.
+    """
+    model: str | None = None
+    """
+    The model actually called.
+    """
+    served_model: Annotated[str | None, Field(alias="servedModel")] = None
+    """
+    The exact model version the vendor reported (vendors alias).
+    """
+    fallback: bool | None = None
+    """
+    The router picked a fallback provider for the turn.
+    """
+    status: Literal["ok", "failed"] | None = None
+    """
+    `ok`: the provider answered. `failed`: the call threw.
+    """
+    usage: ModelCallTokens | None = None
+    duration_ms: Annotated[int | None, Field(alias="durationMs", ge=0)] = None
+    finish_reason: Annotated[str | None, Field(alias="finishReason")] = None
+    provider_request_id: Annotated[str | None, Field(alias="providerRequestId")] = None
+    """
+    The vendor's id for the request.
+    """
+    attempts: Annotated[int | None, Field(ge=1)] = None
+    """
+    HTTP attempts the call took, the client's retries included.
+    """
+    error: Error1 | None = None
+    raw_usage: Annotated[RawUsage | None, Field(alias="rawUsage")] = None
+    """
+    The vendor's own usage object, exactly as it reported it. Only with `include=rawUsage`.
+    """
+
+
+class CostRecordCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[CostRecord]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
 
 
 class WhoamiResult(BaseModel):
