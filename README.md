@@ -12,7 +12,7 @@ tools and guardrail checks in Python.
 
 ## Get started
 
-You need Node 22 or later and Docker.
+You need Node 22.12 or later and Docker.
 
 ```sh
 npx @kindgi/cli init my-pack        # a new pack; in an existing app: npx @kindgi/cli init

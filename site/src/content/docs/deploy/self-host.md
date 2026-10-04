@@ -20,7 +20,7 @@ The runtime image is in private preview: request access at contact@kindgi.com
 
 ## Before you start
 
-- **Docker**, and **Node 22** or later.
+- **Docker**, and **Node 22.12** or later.
 - **A pack.** This page uses the sample:
 
   ```sh
