@@ -169,10 +169,19 @@ export function defineCheck<TConfigSchema extends AnySchema = AnySchema>(
 
   const validate = chainValidator(derivedValidator, spec.validateConfig);
 
+  // `evaluate` gets the config its schema resolves: the schema's defaults
+  // applied (a guardrail that declares no config gets them all), and a
+  // config that doesn't fit refused, naming where. Python's guardrails do
+  // the same. Without a schema, the config as declared.
+  const evaluate = evaluateWithResolvedConfig(
+    spec.evaluate as CheckFunction,
+    configResolver(zodSchema, jsonSchema, spec.id),
+  );
+
   const check = {
     id: spec.id,
     kind: spec.kind,
-    evaluate: spec.evaluate as CheckFunction,
+    evaluate,
     ...(validate !== undefined && { validateConfig: validate }),
     ...(zodSchema !== undefined && { configZod: zodSchema }),
     ...(jsonSchema !== undefined && { configJsonSchema: jsonSchema }),
@@ -181,11 +190,89 @@ export function defineCheck<TConfigSchema extends AnySchema = AnySchema>(
   return check;
 }
 
+/** `evaluate`, called with the config `resolve` gives (as declared without one). */
+function evaluateWithResolvedConfig(
+  evaluate: CheckFunction,
+  resolve: ConfigResolver | undefined,
+): CheckFunction {
+  if (resolve === undefined) return evaluate;
+  return async (config, trace, bindings) =>
+    evaluate((await resolve(config)) as Parameters<CheckFunction>[0], trace, bindings);
+}
+
+/** The resolver for the check's schema: Zod's own parse, or Ajv for JSON Schema; none without one. */
+function configResolver(
+  zodSchema: ZodLikeSchema | undefined,
+  jsonSchema: Readonly<Record<string, unknown>> | undefined,
+  checkId: string,
+): ConfigResolver | undefined {
+  if (zodSchema !== undefined) return zodConfigResolver(zodSchema, checkId);
+  if (jsonSchema !== undefined) return jsonConfigResolver(jsonSchema, checkId);
+  return undefined;
+}
+
+/** A config resolved by its schema: defaults applied, or an error naming what doesn't fit. */
+type ConfigResolver = (config: unknown) => Promise<unknown>;
+
+/** The Standard Schema interface (`~standard`) every Zod v4 schema implements. */
+interface StandardSchema {
+  readonly validate: (value: unknown) => StandardResult | Promise<StandardResult>;
+}
+type StandardResult =
+  | { readonly value: unknown; readonly issues?: undefined }
+  | {
+      readonly issues: readonly {
+        readonly message: string;
+        readonly path?: readonly (PropertyKey | { readonly key: PropertyKey })[];
+      }[];
+    };
+
+/** A Zod config, parsed by Zod itself (through `~standard`): its defaults and transforms apply. */
+function zodConfigResolver(schema: ZodLikeSchema, checkId: string): ConfigResolver {
+  const standard = schema['~standard'] as StandardSchema;
+  return async (config) => {
+    const result = await standard.validate(config ?? {});
+    if (result.issues === undefined) return result.value;
+    const issue = result.issues[0];
+    const path = (issue?.path ?? [])
+      .map((segment) =>
+        String(typeof segment === 'object' && segment !== null ? segment.key : segment),
+      )
+      .join('.');
+    throw new Error(
+      `Check "${checkId}": the guardrail's config doesn't fit its configSchema${path === '' ? '' : ` at ${path}`}: ${issue?.message ?? 'invalid config'}`,
+    );
+  };
+}
+
+/** A JSON Schema config: checked by Ajv, which fills in the schema's `default`s (on a copy). */
+function jsonConfigResolver(
+  schema: Readonly<Record<string, unknown>>,
+  checkId: string,
+): ConfigResolver {
+  const validator = compileValidator(schema, checkId, { useDefaults: true });
+  return async (config) => {
+    const resolved = structuredClone(config ?? {});
+    if (validator(resolved)) return resolved;
+    const first = validator.errors?.[0] as { instancePath?: string; message?: string } | undefined;
+    const path = first?.instancePath ?? '';
+    throw new Error(
+      `Check "${checkId}": the guardrail's config doesn't fit its configSchema${path === '' ? '' : ` at ${path}`}: ${first?.message ?? 'invalid config'}`,
+    );
+  };
+}
+
 function compileValidator(
   schema: Readonly<Record<string, unknown>>,
   checkId: string,
+  options: { readonly useDefaults?: boolean } = {},
 ): ValidateFunction {
-  const ajv = new Ajv2020({ strict: true, allErrors: true, allowUnionTypes: false });
+  const ajv = new Ajv2020({
+    strict: true,
+    allErrors: true,
+    allowUnionTypes: false,
+    ...(options.useDefaults === true && { useDefaults: true }),
+  });
   addFormats(ajv);
   try {
     return ajv.compile(schema as object);

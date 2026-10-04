@@ -107,11 +107,17 @@ How the pack tooling reads this file:
   `configZod`, `configSchema` or `configJsonSchema`, or a top-level
   `configZod` / `configSchema`), and the declaration's `config` — what
   the check runs with. It does not record `description`, `budget` or
-  `judgeCapabilities`.
+  `judgeCapabilities`. It checks `config` (none counts as `{}`) against
+  the config schema: a config that doesn't fit, or a required field with
+  no default left out, is a file error naming where, and `kindgi build`
+  refuses the pack.
 - The **pack service** loads the same module to run the check. It uses
   the module's `evaluate` export, or the `default` / `check` export when
   that is a function or has an `evaluate` method — here, the named
-  `check` export.
+  `check` export. A `defineCheck` check's `evaluate` gets the config its
+  schema resolves: the schema's defaults applied (a guardrail that
+  declares no config gets them all), and a config that doesn't fit
+  refused, naming where.
 
 ## Validating a declaration in-process
 
