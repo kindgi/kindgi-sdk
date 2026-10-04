@@ -14,11 +14,13 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import {
+  devOnlyImports,
   installCommands,
+  readPackDependencies,
   resolveHostInstall,
   withoutInstallScripts,
 } from '../src/build/host-install.js';
-import { devOnlyImports, skippedScriptLines } from '../src/commands/build.js';
+import { skippedScriptLines } from '../src/commands/build.js';
 
 let root: string;
 const put = async (rel: string, body = '{}\n'): Promise<void> => {
@@ -101,6 +103,34 @@ describe('resolveHostInstall', () => {
       runtime: ['@acme/db', 'react', 'sharp', 'zod'],
       dev: ['@acme/db-client', 'vitest'],
     });
+    // What `kindgi dev` reads on each save: the same names, without the install.
+    expect(await readPackDependencies(join(root, 'apps', 'support'))).toEqual(
+      outcome.install.packDependencies,
+    );
+    expect(await readPackDependencies(root)).toEqual({ runtime: ['left-pad'], dev: [] });
+  });
+
+  test("a pack in a pnpm workspace member: the member's own manifest, not the root's", async () => {
+    await put(
+      'package.json',
+      json({ name: 'mono', packageManager: 'pnpm@11.25.0', devDependencies: { ms: '2.1.3' } }),
+    );
+    await put('pnpm-lock.yaml', 'lockfileVersion: 9.0\n');
+    await put('pnpm-workspace.yaml', "packages:\n  - 'apps/*'\n");
+    await put(
+      'apps/support/package.json',
+      json({
+        name: 'support',
+        dependencies: { ms: '2.1.3' },
+        devDependencies: { nanoid: '5.0.0' },
+      }),
+    );
+    const outcome = await resolveHostInstall(join(root, 'apps', 'support'));
+    if (outcome.kind !== 'ok') throw new Error(outcome.message);
+    expect(outcome.install.packDependencies).toEqual({ runtime: ['ms'], dev: ['nanoid'] });
+    expect(await readPackDependencies(join(root, 'apps', 'support'))).toEqual(
+      outcome.install.packDependencies,
+    );
   });
 
   test('a pack inside a monorepo installs from the root, with the pack at its own path', async () => {

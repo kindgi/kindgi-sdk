@@ -121,12 +121,17 @@ export function createPackServiceReal(opts: DevPackServiceOptions): DevPackServi
 export function createPackBuilderReal(opts: {
   readonly packDir: string;
   readonly patterns: readonly string[];
+  readonly configPath?: string;
   readonly code: PackCode;
   readonly env: () => Promise<Readonly<Record<string, string>>>;
 }): PackBuilder {
   return opts.code.language === 'python'
     ? createPythonPackBuilder({ packDir: opts.packDir, python: opts.code.python, env: opts.env })
-    : createDevPackBuilder({ packDir: opts.packDir, patterns: opts.patterns });
+    : createDevPackBuilder({
+        packDir: opts.packDir,
+        patterns: opts.patterns,
+        ...(opts.configPath !== undefined && { configPath: opts.configPath }),
+      });
 }
 
 export interface PythonIndexerOptions {

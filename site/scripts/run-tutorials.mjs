@@ -80,6 +80,9 @@ function steps(markdown) {
   return found;
 }
 
+/** A `kindgi dev` command, however the CLI is invoked. */
+const KINDGI_DEV = /(?:\bkindgi|@kindgi\/cli(?:@\S+)?)\s+dev\b/;
+
 function freePort() {
   return new Promise((resolvePort, reject) => {
     const server = createServer();
@@ -237,7 +240,10 @@ async function runPage(page) {
         cwd = readFileSync(state, 'utf8').trim();
       } else if (step.kind === 'background') {
         if (!step.ready) throw new Error(`${where}: a background step needs ready="…"`);
-        const command = /\bkindgi dev\b/.test(body) ? `${body} --port ${await freePort()}` : body;
+        // Every form of `kindgi dev` (`kindgi dev`, `pnpm exec kindgi dev`,
+        // `npx @kindgi/cli@0.1 dev`) gets its own free port, so two runs at
+        // once never both reach for the default.
+        const command = KINDGI_DEV.test(body) ? `${body} --port ${await freePort()}` : body;
         const child = spawn('bash', ['-c', `cd ${JSON.stringify(cwd)} && exec ${command}`], {
           env,
           detached: true,

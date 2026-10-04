@@ -4,7 +4,8 @@
 /**
  * What `kindgi build` and `kindgi dev` share about bundling a pack: the
  * entry points (every file the discovery patterns match), the local
- * source files a build read, and — for dev — the externals rule.
+ * source files a build read, and the externals rule: which packages both
+ * load from the app's `node_modules`.
  */
 
 import { readdir, stat } from 'node:fs/promises';
@@ -104,16 +105,19 @@ const SKIP = Symbol('kindgi-externals-resolving');
  *     the bundle's folder upward into the image's own `node_modules` —
  *     the host's absolute paths don't exist there.
  *
- * `externalPackages` (optional) collects the external packages' names.
+ * Which packages are external doesn't depend on `importBy`: a dev bundle
+ * and an image's leave out the same ones. `onExternal` (optional) is told
+ * each external import: the package's name (`@scope/name` of
+ * `@scope/name/sub`), and the absolute path of the file importing it.
  */
 export function nodeModulesExternalPlugin(
   options: {
     readonly importBy?: 'resolved' | 'bare';
-    readonly externalPackages?: Set<string>;
+    readonly onExternal?: (name: string, importer: string) => void;
   } = {},
 ): Plugin {
   const importBy = options.importBy ?? 'resolved';
-  const names = options.externalPackages;
+  const onExternal = options.onExternal;
   return {
     name: 'kindgi-node-modules-external',
     setup(build) {
@@ -127,7 +131,7 @@ export function nodeModulesExternalPlugin(
         });
         if (resolved.errors.length > 0 || resolved.external) return undefined;
         if (/[\\/]node_modules[\\/]/.test(resolved.path)) {
-          names?.add(packageName(args.path));
+          onExternal?.(packageName(args.path), args.importer);
           return { path: importBy === 'bare' ? args.path : resolved.path, external: true };
         }
         return undefined;

@@ -26,6 +26,9 @@ import {
   runLauncher,
 } from '../src/mcp/launcher.js';
 
+/** vi.waitFor's own default (1 s) is too short on a loaded machine; a passing wait returns as soon as it holds. */
+const WAIT = { timeout: 15_000 } as const;
+
 // ---------------------------------------------------------------------
 // parseSecretRef
 // ---------------------------------------------------------------------
@@ -519,7 +522,7 @@ describe('runLauncher', () => {
     );
 
     // Wait until the launcher subscribes to child events before emitting exit.
-    await vi.waitFor(() => expect(mockChild.listenerCount('exit')).toBeGreaterThan(0));
+    await vi.waitFor(() => expect(mockChild.listenerCount('exit')).toBeGreaterThan(0), WAIT);
     mockChild.emit('exit', 0, null);
     const code = await promise;
 
@@ -549,7 +552,7 @@ describe('runLauncher', () => {
       },
     );
 
-    await vi.waitFor(() => expect(mockChild.listenerCount('exit')).toBeGreaterThan(0));
+    await vi.waitFor(() => expect(mockChild.listenerCount('exit')).toBeGreaterThan(0), WAIT);
     mockChild.emit('exit', null, 'SIGTERM');
     expect(await promise).toBe(128 + 15);
   });
@@ -578,12 +581,12 @@ describe('runLauncher', () => {
     );
 
     // Wait until the launcher has subscribed both signal + exit before firing.
-    await vi.waitFor(() => expect(signalHandler).toBeDefined());
+    await vi.waitFor(() => expect(signalHandler).toBeDefined(), WAIT);
     signalHandler?.('SIGINT');
     expect(killSpy).toHaveBeenCalledWith('SIGINT');
 
     // Complete the child so promise resolves.
-    await vi.waitFor(() => expect(mockChild.listenerCount('exit')).toBeGreaterThan(0));
+    await vi.waitFor(() => expect(mockChild.listenerCount('exit')).toBeGreaterThan(0), WAIT);
     mockChild.emit('exit', 0, null);
     await promise;
   });
