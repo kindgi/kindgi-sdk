@@ -133,10 +133,25 @@ kindgi runs cancel <run-id>
 Cancelling a run doesn't close its approval either: withdraw the approval of
 a run you cancelled, so it leaves the pending list.
 
-:::note
-Approvals don't expire in this release. Each has an `expiresAt`, but a pending
-approval stays pending, and its run keeps waiting, until a reviewer decides it.
-:::
+### When nobody decides
+
+Each approval has a deadline, its `expiresAt`: 24 hours after it's asked for,
+or the agent's own `hitl.timeoutMs` (one hour:
+`conversationPolicy: { hitl: { tools: {}, timeoutMs: 3_600_000 } }`). When the
+deadline passes with no decision:
+
+- **Below `admin`,** the approval becomes `escalated`, and a new one asks the
+  next role up (`standard`, then `senior`, then `admin`), with a deadline as
+  long again. The run keeps waiting.
+- **At `admin`,** the approval becomes `expired`, and the run's turn fails:
+
+  ```text
+  "error":{"code":"hitl-cancelled","message":"Tool-call HITL cancelled for acme-desk.echo: timeout","reason":"timeout"}
+  ```
+
+A decision made before the deadline always wins. In 0.1 a deadline always
+escalates this way: `hitl.onTimeout` (`auto-approve`, `auto-reject`) isn't
+applied yet.
 
 ## From your app
 
