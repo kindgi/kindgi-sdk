@@ -30,7 +30,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
-import { DEFAULT_UV_IMAGE_REF } from '../src/build/python-image.js';
+import { DEFAULT_UV_IMAGE_REF, PYTHON_PACK_SERVICE_COMMAND } from '../src/build/python-image.js';
 import type {
   BuildRunners,
   DockerBuildOptions,
@@ -667,6 +667,7 @@ describe('kindgi build — a Python pack', () => {
       pythons: [] as (readonly string[])[],
       uvImages: [] as string[],
       files: [] as (readonly string[])[],
+      contextDirs: [] as string[],
     };
     fixtures.runners = {
       ...fixtures.runners,
@@ -687,11 +688,9 @@ describe('kindgi build — a Python pack', () => {
           calls.uvImages.push(o.uvImageRef);
           await writeFile(o.outputPath, '# python containerfile\n', 'utf8');
         },
-        tarContext: async (o) => {
+        writeContext: async (o) => {
           calls.files.push(o.files);
-          const bytes = new TextEncoder().encode('python-tarball');
-          await writeFile(o.outputPath, bytes);
-          return { path: o.outputPath, bytes, size: bytes.length };
+          calls.contextDirs.push(o.contextDir);
         },
       },
     };
@@ -710,8 +709,10 @@ describe('kindgi build — a Python pack', () => {
     expect(calls.pythons).toEqual([['/opt/py/bin/python']]);
     expect(calls.uvImages).toEqual([DEFAULT_UV_IMAGE_REF]);
     expect(calls.files).toEqual([['pyproject.toml', 'tools/echo.py', 'uv.lock']]);
+    expect(calls.contextDirs).toEqual([join(packDir, '.kindgi/build/context')]);
     expect(fixtures.state.esbuildCalls).toBe(0);
-    expect(fixtures.state.tarCalls).toBe(0);
+    // Its context is tarred as a TypeScript pack's is.
+    expect(fixtures.state.tarCalls).toBe(1);
     expect(fixtures.state.postCalls).toBe(1);
     expect(fixtures.state.pullCalls).toBe(1);
     expect(fixtures.state.signCalls).toBe(1);
@@ -728,6 +729,73 @@ describe('kindgi build — a Python pack', () => {
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain('uv lock');
     expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test('--local builds its context with Docker, checks the image index, and says how to run it', async () => {
+    await pythonPack();
+    const fixtures = makeFixtures();
+    const calls = withPython(fixtures);
+    const out = await runCli({
+      ...baseInputs(
+        fixtures,
+        { env: {} },
+        { language: 'python', dev: { python: ['/opt/py/bin/python'] }, environments: {} },
+      ),
+      argv: ['build', '--local', '--artifact-version=20261004.1', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls.pythons).toEqual([['/opt/py/bin/python']]);
+    expect(fixtures.state.dockerBuilds).toHaveLength(1);
+    expect(fixtures.state.dockerBuilds[0]).toMatchObject({
+      tag: 'kindgi-pack/my-pack:20261004.1',
+      contextDir: calls.contextDirs[0],
+      secrets: [],
+    });
+    expect(fixtures.state.pullOptions).toEqual([
+      { imageRef: 'kindgi-pack/my-pack:20261004.1', pull: false },
+    ]);
+    expect(fixtures.state.esbuildCalls).toBe(0);
+    expect(fixtures.state.tarCalls).toBe(0);
+    expect(fixtures.state.postCalls).toBe(0);
+    expect(fixtures.state.signCalls).toBe(0);
+    expect(out.stderr).toContain('matches the local index byte for byte');
+    expect(out.stderr).toContain(`(the pack service: ${PYTHON_PACK_SERVICE_COMMAND.join(' ')})`);
+  });
+
+  test('--local --push pushes, gates on the pushed image, signs, and writes the envelope', async () => {
+    await pythonPack();
+    const fixtures = makeFixtures();
+    withPython(fixtures);
+    const out = await runCli({
+      ...baseInputs(fixtures, {}, { language: 'python', dev: { python: ['/opt/py/bin/python'] } }),
+      argv: [
+        'build',
+        '--local',
+        '--push',
+        '--env=staging',
+        '--artifact-version=20261004.1',
+        `--path=${packDir}`,
+      ],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(fixtures.state.dockerBuilds[0]).toMatchObject({
+      tag: 'ghcr.io/acme/my-pack:20261004.1',
+      platform: 'linux/amd64',
+      push: true,
+    });
+    const imageRef = `ghcr.io/acme/my-pack@${PUSHED_DIGEST}`;
+    expect(fixtures.state.pullOptions).toEqual([{ imageRef, pull: true, platform: 'linux/amd64' }]);
+    expect(fixtures.state.signCalls).toBe(1);
+    const envelope = JSON.parse(
+      await readFile(join(packDir, '.kindgi/build/deploy-envelope.json'), 'utf8'),
+    ) as Record<string, unknown>;
+    expect(envelope).toMatchObject({
+      imageRef,
+      imageDigest: PUSHED_DIGEST,
+      artifactVersion: '20261004.1',
+      indexHash: SAMPLE_INDEX_HASH_HEX,
+    });
+    expect(envelope.signature).toBeTruthy();
   });
 });
 
