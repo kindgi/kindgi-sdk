@@ -82,6 +82,19 @@ The runtime prints what it's running with when it starts (`docker logs kindgi-se
 - **`License`:** who the key is for, its kind and its end date. A warning follows within 30 days of the end.
 - **`Pack service`:** the pack it reached, with its artifact version. When it can't reach it, a warning takes this line's place, with the reason.
 
+### After a crash
+
+When the runtime comes back after stopping without a shutdown, its sweep
+repairs the runs the stop left mid-way
+([If the runtime stops](../../concepts/runs/#if-the-runtime-stops)). Each
+repair is a line in its log:
+
+```text
+[run-leases] resuming run <run id> (tenant <tenant id>): its wait resolved and nothing resumed it
+[run-leases] woke the flow run waiting on child run <run id> …: the child had moved on
+[run-leases] ended run <run id> …: its parent run had ended
+```
+
 ### Where errors show
 
 - **A setting the runtime refuses** (a missing license key, for example): it exits with code 2, and its log says what to fix.
