@@ -14,7 +14,7 @@ description: >
   kindgi-python-getting-started.
 type: core
 library: "kindgi (Python)"
-version: "0.1.0"
+version: "0.1.1"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -290,6 +290,12 @@ removed field, a narrower type — not on every save.
    and an agent's tool approval gate asks before it on first use.
 10. **`mutating=False` on a tool that writes.** A dry run then runs it
     for real.
+11. **A package a tool imports, only in a dev group.** The deployed pack
+    installs without dev dependencies (`uv sync --no-dev`, or Poetry's
+    main group only), so the import works under `kindgi dev` and fails in
+    the image. Put what tools import in `[project].dependencies` (in a
+    Poetry 1 app, `[tool.poetry.dependencies]`); test and build tools stay
+    in dev groups.
 
 ## When the framework itself is the problem
 

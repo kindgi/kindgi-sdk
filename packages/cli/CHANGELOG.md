@@ -1,5 +1,58 @@
 # @kindgi/cli
 
+## 0.1.1
+
+### Patch Changes
+
+- 799aaaa: **`kindgi auth registry` logs Docker in to the runtime image's registry.** The Kindgi runtime image `kindgi dev` runs is in private preview. With the pull credentials you receive, `kindgi auth registry --username <robot name>` asks for the token without echoing it (or reads it from stdin with `--password-stdin`), runs `docker login` with the token on its stdin, then checks that Docker can pull the exact image this CLI runs (with `docker buildx imagetools inspect`, or `docker manifest inspect` by digest where buildx isn't installed). Kindgi stores nothing: the credential lives in Docker's own credential store. `--check` only checks access, and a failure says whether it's access (request it at contact@kindgi.com) or the image or the network. When a pull is refused, `kindgi dev` now points to `kindgi auth registry`.
+  
+  **Ctrl+C at a hidden prompt cancels.** At the value prompt of `kindgi secrets set` and `rotate`, Ctrl+C (or Ctrl+D) ended the CLI silently with exit code 0. It now prints `Cancelled.` and exits 1, like the other prompts.
+- a3070fa: Fixes for adding Kindgi to an existing app, and for `kindgi dev` output:
+  - **`pnpm install` works right after `kindgi init`** in a pnpm app. pnpm 11+ stopped the first install with `ERR_PNPM_IGNORED_BUILDS` for esbuild, which `@kindgi/cli` uses to bundle the pack. `init` now records a decision for esbuild's install script, `allowBuilds.esbuild: false`, in the `pnpm-workspace.yaml` pnpm reads (the workspace root's, or a new one in the app). esbuild works without the script: its native binary comes from its `@esbuild/<platform>` package. `init` keeps the file's other keys and comments, replaces pnpm's `set this to true or false` placeholder, and keeps a decision the app already has (`true` or `false`). New packs' templates also switch from `true` to `false`.
+  - **`init` adds `zod`** (`^4.0.0`, the new-pack range) to an existing app, since every tool's schemas use it. An app's own zod is kept; if it is older than zod 4, `init` says so.
+  - **Ctrl+C on `kindgi dev` prints one line**, `Stopping kindgi dev... stopped.`, not the startup banner and a JSON summary. The JSON summary now goes to stdout only with `--json` or `--raw`, and reports an empty pack as `ok`, not as an indexer error.
+  - **An empty pack says so at startup.** The startup output says there are no primitives yet and where to add the first one, and shows an indexer error at startup instead of at exit.
+  - **`--table` works** for `runs list`, `tools list` and `providers list`. When there is a next page, its `--cursor` goes to stderr.
+  - **The sample pack type-checks under pnpm.** `tsc --noEmit` failed with TS2742 on the sample guardrail. Its inline check is now typed with `DefinedCheck` from `@kindgi/sdk/define`.
+- ca66617: `kindgi runs start --no-wait` describes what it does: an agent run returns as soon as it exists, like a flow run (follow it with `kindgi runs stream` or `kindgi runs get`). The `--path` help of `kindgi dev` and `kindgi test` names `kindgi.config.mts` too.
+- e184714: **A new pack gets its `.gitignore` again.** `npx @kindgi/cli init` wrote no `.gitignore`: npm renames a package's `.gitignore` to `.npmignore` when it installs it, so the templates' file never reached the new pack, and `.env` (model keys) and `.kindgirc.json` (the dev token) weren't ignored by git. The templates now store it as `gitignore`, and `init` writes it as `.gitignore`. If you created a pack with 0.1.0, add a `.gitignore` with at least `.env`, `.env.local`, `.kindgirc.json` and `.kindgi/`. Adding Kindgi to an existing app was not affected.
+- 811d030: **`kindgi dev` starts its Postgres without `docker compose`.** On a Docker engine without the compose plugin (common on a bare Linux engine), `kindgi dev` no longer stops and asks for `KINDGI_DATABASE_URL`: it starts the bundled Postgres with plain `docker`, and says so (`Postgres: started with docker (docker compose isn't available)`).
+  - **The same Postgres either way:** the image, settings, healthcheck and random host port the bundled compose file defines, and the same container (`kindgi-dev_postgres`), volume (`kindgi-dev_postgres-data`) and network (`kindgi-dev`), so the data is shared whichever way it was started. What plain `docker` creates carries the `kindgi-dev` compose project's labels, so once compose is installed, `kindgi dev` and `docker compose -p kindgi-dev down -v` take it as their own.
+  - **An existing container is reused as it is**, started if it's stopped, never recreated or removed. `--recreate-services` needs compose: without it, `kindgi dev` says the container was reused and how to recreate it by hand. `--reset` behaves as before: it starts one pack fresh and leaves the shared Postgres alone.
+  - **The bundled Postgres listens on `127.0.0.1` only** (a random port), in both ways of starting it: its password is a fixed dev one, so it must not be reachable from the LAN. The runtime container still reaches it, through `host.docker.internal` on Docker Desktop and directly with Linux host networking. A `kindgi-dev_postgres` an earlier CLI started keeps its old binding (every address) until it's recreated: `kindgi dev --recreate-services` with compose, or `docker rm -f kindgi-dev_postgres` without it (the data stays in its volume), then `kindgi dev`.
+  - **Without Docker,** the error names the two options: install Docker, or pass `--database-url` (or set `KINDGI_DATABASE_URL`) for your own Postgres 16 with pgvector.
+- 3699f29: **`kindgi dev` warns about an import `kindgi build` would refuse:** a package the pack imports that `package.json` lists only in `devDependencies`. It loads on your machine, but a deployed pack installs production dependencies only, so it's missing there. The warning names the package and the files importing it, at startup and when a save adds one, once per package; after you move it to `dependencies`, the next reload says it's resolved. It checks what a pack image would load from `node_modules`, including what `kindgi.config.ts` imports. `--json` and `--raw` list them as `devOnlyImports`. Python packs aren't checked.
+- faf19ec: A pack image never runs the app's own install scripts.
+  
+  - **The bug:** `kindgi build` installs the app's dependencies with scripts off, then rebuilds so the dependencies the app allows can build. The rebuild also ran the app's own pending scripts: pnpm and npm treat the project itself as pending. So a `postinstall: prisma generate` or a `prepare: husky` ran in the image and failed the build, since the image holds no schema and no `.git`.
+  - **The fix:** the build context's copies of the app's project manifests (the root's, each workspace member's, the pack's) leave out their install lifecycle scripts: `preinstall`, `install`, `postinstall`, `prepare` and its pre/post, `prepublish`, `dependencies`. Every other field and script stays. The lockfile, the dependencies' own scripts and the allowlist are untouched. What the image needs from such a script comes from a build extension: `prisma()` runs `prisma generate`.
+  - **`kindgi build` says what it left out:** "The app's own install scripts don't run in the image: postinstall (`prisma generate`), prepare (`husky`)".
+  - **A skipped script that runs `patch-package` gets a warning:** its patches wouldn't be applied in the image. To apply them, add a build step: `defineBuildExtension({ name: 'patch-package', contextFiles: [<the patch files>], postInstall: [{ bin: 'patch-package' }] })`. Or, with pnpm, use `pnpm patch`, which the install applies itself.
+- 319a134: A pack module that wouldn't load in the image now fails the build, saying why, not as a vague integrity-gate mismatch later.
+  
+  - **`@kindgi/cli`:**
+    - `kindgi build` refuses a pack that imports a package its project lists only in `devDependencies`, before the image is built. The image keeps production dependencies only, so such an import loads locally but not in the image. The message names the package and says to move it to `dependencies`.
+    - A Node pack's local index fails the build on file errors (a module that throws on import), as a Python pack's already did.
+    - The image's indexer stage runs `kindgi-index --strict`.
+  - **`@kindgi/handler-runtime`:** `kindgi-index --strict` exits 1 when a module fails to load, printing each file error. Before, the index was written without that module, and only the CLI's integrity gate noticed: "indexHash mismatch".
+- 324aba4: **`POST /v1/runs/{runId}/resume` is not available in this release.** It now answers `422 run-resume-not-supported` and completes nothing. Every waitpoint a run can wait at belongs to an approval or to the runtime itself. A run waiting for an approval continues when a reviewer decides it, through `POST /v1/approvals/{approvalId}/complete` (`kindgi approvals complete`), which checks the reviewer and records the decision. `kindgi runs resume` says the same and is left out of `--help`.
+- Updated dependencies [0fe5626]
+- Updated dependencies [5ef3129]
+- Updated dependencies [319a134]
+- Updated dependencies [d00fc1b]
+- Updated dependencies [d28e1fd]
+- Updated dependencies [ca66617]
+- Updated dependencies [bbe0bc9]
+  - @kindgi/sdk@0.1.1
+  - @kindgi/handler-runtime@0.1.1
+  - @kindgi/env-schema@0.1.1
+  - @kindgi/secrets-dotenv@0.1.1
+  - @kindgi/client@0.1.1
+  - @kindgi/crypto@0.1.1
+  - @kindgi/dotenv-file@0.1.1
+  - @kindgi/platform@0.1.1
+  - @kindgi/types@0.1.1
+
 ## 0.1.0
 
 ### Minor Changes

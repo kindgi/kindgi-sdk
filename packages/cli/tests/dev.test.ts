@@ -32,12 +32,17 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import type {
   DevRunners,
+  ExternalPackage,
   IndexResult,
   PackBuild,
   RunningApiServer,
+  StartServicesResult,
   WatchHandle,
 } from '../src/dev/runners.js';
 import { type RunCliInputs, runCli } from '../src/main.js';
+
+/** vi.waitFor's own default (1 s) is too short on a loaded machine; a passing wait returns as soon as it holds. */
+const WAIT = { timeout: 15_000 } as const;
 
 let cwd: string;
 let home: string;
@@ -79,8 +84,8 @@ interface Fixtures {
   readonly indexOutcomes: IndexResult[];
   captureIndexerCalls: string[];
   captureWatchCalls: { readonly packDir: string; readonly debounceMs?: number }[];
-  /** A code change: the bundler reports a rebuild. */
-  triggerChange: () => void;
+  /** A code change: the bundler reports a rebuild (default: an empty one). */
+  triggerChange: (build?: PackBuild) => void;
   /** An env-file change (the second watcher). */
   triggerEnvChange: () => void;
   readonly watchHandle: FakeWatchHandle;
@@ -113,6 +118,8 @@ function makeFixtures(
     readonly pythonProblem?: string;
     /** The tenant's providers (default: the dev-echo fallback). */
     readonly providers?: readonly unknown[];
+    /** What the boot build loads from `node_modules` (default: not reported). */
+    readonly externals?: readonly ExternalPackage[];
   } = {},
 ): Fixtures {
   const pythonChecks: (readonly string[])[] = [];
@@ -195,7 +202,11 @@ function makeFixtures(
     createPackBuilder: (builderOpts) => {
       builderCodes.push(builderOpts.code);
       return {
-        build: async () => ({ kind: 'ok', bundleMap: FIXTURE_BUNDLES }),
+        build: async () => ({
+          kind: 'ok',
+          bundleMap: FIXTURE_BUNDLES,
+          ...(opts.externals !== undefined && { externals: opts.externals }),
+        }),
         watch: async (onBuild) => {
           rebuildRef = onBuild;
         },
@@ -237,7 +248,7 @@ function makeFixtures(
     captureIndexerCalls,
     captureWatchCalls,
     watchHandle,
-    triggerChange: () => rebuildRef?.({ kind: 'ok', bundleMap: {} }),
+    triggerChange: (build) => rebuildRef?.(build ?? { kind: 'ok', bundleMap: {} }),
     triggerEnvChange: () => onChangeRefs[1]?.(),
     agentDefineCalls: [],
     guardrailAuthorCalls: [],
@@ -411,7 +422,7 @@ describe('kindgi dev — argument validation', () => {
     // Test's DevRunners fixture has no `startServices` wired, so the
     // auto-start path bails out with "start-services runner not wired"
     // and the hint falls back to the docker + manual paths.
-    expect(out.stderr).toContain('Auto-start not available');
+    expect(out.stderr).toContain("couldn't start the bundled one: start-services runner not wired");
   });
 
   test("host app's un-prefixed DATABASE_URL is ignored — never boots Kindgi against it", async () => {
@@ -934,7 +945,7 @@ describe('kindgi dev — watch flow', () => {
 
     // Wait for boot to reach the watch stage (condition-based, not a fixed
     // sleep — boot time varies with machine load).
-    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2));
+    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
 
     // One boot-time index run.
     expect(fixtures.captureIndexerCalls.length).toBeGreaterThanOrEqual(1);
@@ -943,7 +954,10 @@ describe('kindgi dev — watch flow', () => {
 
     // Fire a change — background re-index should happen.
     fixtures.triggerChange();
-    await vi.waitFor(() => expect(fixtures.captureIndexerCalls.length).toBeGreaterThanOrEqual(2));
+    await vi.waitFor(
+      () => expect(fixtures.captureIndexerCalls.length).toBeGreaterThanOrEqual(2),
+      WAIT,
+    );
 
     // Abort → command completes gracefully.
     controller.abort();
@@ -970,9 +984,12 @@ describe('kindgi dev — watch flow', () => {
       ...baseInputs(fixtures, { stopSignal: controller.signal }),
       argv: ['dev', '--json', `--path=${packDir}`],
     });
-    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2));
+    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
     fixtures.triggerChange();
-    await vi.waitFor(() => expect(fixtures.captureIndexerCalls.length).toBeGreaterThanOrEqual(2));
+    await vi.waitFor(
+      () => expect(fixtures.captureIndexerCalls.length).toBeGreaterThanOrEqual(2),
+      WAIT,
+    );
     controller.abort();
     const out = await promise;
     expect(out.exitCode).toBe(0);
@@ -1014,9 +1031,9 @@ describe('kindgi dev — watch flow', () => {
       ...baseInputs(fixtures, { stopSignal: controller.signal, devRunners }),
       argv: ['dev', '--json', `--path=${packDir}`],
     });
-    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2));
+    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
     fixtures.triggerChange();
-    await vi.waitFor(() => expect(releaseTick).toBeDefined());
+    await vi.waitFor(() => expect(releaseTick).toBeDefined(), WAIT);
 
     controller.abort();
     // Shutdown must wait for the tick: give it a chance to (wrongly) proceed.
@@ -1046,7 +1063,7 @@ describe('kindgi dev — watch flow', () => {
         ...baseInputs(fixtures, { stopSignal: controller.signal }),
         argv: ['dev', `--path=${packDir}`],
       });
-      await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2));
+      await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
       writes.length = 0;
       controller.abort();
       out = await promise;
@@ -1082,9 +1099,9 @@ describe('kindgi dev — watch flow', () => {
         ...baseInputs(fixtures, { stopSignal: controller.signal, devRunners }),
         argv: ['dev', `--path=${packDir}`],
       });
-      await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2));
+      await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
       fixtures.triggerChange();
-      await vi.waitFor(() => expect(releaseTick).toBeDefined());
+      await vi.waitFor(() => expect(releaseTick).toBeDefined(), WAIT);
       writes.length = 0;
       controller.abort();
       await new Promise((r) => setTimeout(r, 20));
@@ -1137,6 +1154,171 @@ describe('kindgi dev — watch flow', () => {
     expect(fixtures.captureWatchCalls).toHaveLength(2);
     expect(fixtures.watchHandle.closeCount).toBe(2);
     expect(fixtures.server.shutdownCount).toBe(1);
+  });
+});
+
+describe("kindgi dev — imports a deployed pack wouldn't have", () => {
+  const WARNING = 'which package.json lists only in devDependencies';
+  const ms: ExternalPackage = { name: 'ms', importers: ['tools/clock/index.ts'] };
+  const nanoid: ExternalPackage = { name: 'nanoid', importers: ['lib/ids.ts', 'tools/a.ts'] };
+  const build = (...externals: ExternalPackage[]): PackBuild => ({
+    kind: 'ok',
+    bundleMap: FIXTURE_BUNDLES,
+    externals,
+  });
+  const manifest = (deps: {
+    readonly dependencies?: Record<string, string>;
+    readonly devDependencies?: Record<string, string>;
+  }): Promise<void> =>
+    writeFile(join(packDir, 'package.json'), JSON.stringify({ name: 'acme-app', ...deps }), 'utf8');
+  /** The live lines naming `text`, and the exit output too. */
+  const linesWith = (writes: readonly string[], out: { stderr: string }, text: string) =>
+    [...writes, out.stderr]
+      .join('')
+      .split('\n')
+      .filter((line) => line.includes(text));
+
+  test('a package in devDependencies only warns once at boot, naming the file that imports it', async () => {
+    await manifest({ dependencies: { zod: '^4.0.0' }, devDependencies: { ms: '^2.1.3' } });
+    const fixtures = makeFixtures({ externals: [ms, { name: 'zod', importers: ['tools/a.ts'] }] });
+    const { writes, restore } = captureStderr();
+    let out: Awaited<ReturnType<typeof runCli>>;
+    try {
+      out = await runCli({
+        ...baseInputs(fixtures),
+        argv: ['dev', '--no-watch', `--path=${packDir}`],
+      });
+    } finally {
+      restore();
+    }
+    expect(out.exitCode).toBe(0);
+    expect(linesWith(writes, out, WARNING)).toEqual([
+      "    ⚠ The pack imports ms (in tools/clock/index.ts), which package.json lists only in devDependencies: a deployed pack installs production dependencies only, so it won't load there. Move it to dependencies (kindgi build refuses until then).",
+    ]);
+  });
+
+  test('a package in dependencies, or in both sections, does not warn', async () => {
+    await manifest({
+      dependencies: { ms: '^2.1.3', nanoid: '^5.0.0' },
+      devDependencies: { nanoid: '^5.0.0', vitest: '^3.0.0' },
+    });
+    const fixtures = makeFixtures({ externals: [ms, nanoid] });
+    const { writes, restore } = captureStderr();
+    let out: Awaited<ReturnType<typeof runCli>>;
+    try {
+      out = await runCli({
+        ...baseInputs(fixtures),
+        argv: ['dev', '--no-watch', '--json', `--path=${packDir}`],
+      });
+    } finally {
+      restore();
+    }
+    expect(linesWith(writes, out, WARNING)).toEqual([]);
+    expect(JSON.parse(out.stdout)).toMatchObject({ devOnlyImports: [] });
+  });
+
+  test('--json carries the dev-only imports with their files', async () => {
+    await manifest({ devDependencies: { ms: '^2.1.3', nanoid: '^5.0.0' } });
+    const fixtures = makeFixtures({ externals: [ms, nanoid] });
+    const { writes, restore } = captureStderr();
+    let out: Awaited<ReturnType<typeof runCli>>;
+    try {
+      out = await runCli({
+        ...baseInputs(fixtures),
+        argv: ['dev', '--no-watch', '--json', `--path=${packDir}`],
+      });
+    } finally {
+      restore();
+    }
+    expect(JSON.parse(out.stdout).devOnlyImports).toEqual([ms, nanoid]);
+    // Both in one warning.
+    expect(linesWith(writes, out, WARNING)).toEqual([
+      expect.stringContaining(
+        'The pack imports ms (in tools/clock/index.ts), nanoid (in lib/ids.ts, tools/a.ts), which',
+      ),
+    ]);
+    expect(linesWith(writes, out, WARNING)[0]).toContain("so they won't load there. Move them");
+  });
+
+  test('on a save: a new one warns, the same ones stay quiet, one moved to dependencies is reported', async () => {
+    await manifest({ devDependencies: { ms: '^2.1.3', nanoid: '^5.0.0' } });
+    const controller = new AbortController();
+    const fixtures = makeFixtures({ externals: [ms] });
+    const { writes, restore } = captureStderr();
+    let out: Awaited<ReturnType<typeof runCli>>;
+    try {
+      const promise = runCli({
+        ...baseInputs(fixtures, { stopSignal: controller.signal }),
+        argv: ['dev', '--json', `--path=${packDir}`],
+      });
+      await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2));
+      expect(linesWith(writes, { stderr: '' }, 'The pack imports ms')).toHaveLength(1);
+
+      // A save that imports nanoid too: a warning for nanoid only.
+      fixtures.triggerChange(build(ms, nanoid));
+      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(2));
+      expect(linesWith(writes, { stderr: '' }, WARNING)).toEqual([
+        expect.stringContaining('The pack imports ms (in tools/clock/index.ts), which'),
+        expect.stringContaining('The pack imports nanoid (in lib/ids.ts, tools/a.ts), which'),
+      ]);
+
+      // The same imports again (another save, an env-file change): nothing new.
+      fixtures.triggerChange(build(ms, nanoid));
+      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(3));
+      fixtures.triggerEnvChange();
+      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(4));
+      expect(linesWith(writes, { stderr: '' }, WARNING)).toHaveLength(2);
+
+      // ms moves to dependencies: the next refresh says so, once.
+      await manifest({ dependencies: { ms: '^2.1.3' }, devDependencies: { nanoid: '^5.0.0' } });
+      fixtures.triggerChange(build(ms, nanoid));
+      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(5));
+      fixtures.triggerChange(build(ms, nanoid));
+      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(6));
+      controller.abort();
+      out = await promise;
+    } finally {
+      restore();
+    }
+    expect(linesWith(writes, out, WARNING)).toHaveLength(2);
+    expect(linesWith(writes, out, 'no longer imports')).toEqual([
+      '    ✓ The pack no longer imports ms from devDependencies only.',
+    ]);
+    // Where the pack stood when kindgi dev stopped.
+    expect(JSON.parse(out.stdout).devOnlyImports).toEqual([nanoid]);
+  });
+
+  test("the builder gets the pack's config: a pack image bundles it, so its imports count", async () => {
+    const fixtures = makeFixtures();
+    const spy = vi.spyOn(fixtures.runners, 'createPackBuilder');
+    await runCli({ ...baseInputs(fixtures), argv: ['dev', '--no-watch', `--path=${packDir}`] });
+    expect(spy.mock.calls[0]?.[0]?.configPath).toBe(join(packDir, 'kindgi.config.ts'));
+  });
+
+  test('a Python pack is not checked', async () => {
+    await rm(join(packDir, 'kindgi.config.ts'));
+    await writeFile(
+      join(packDir, 'pyproject.toml'),
+      '[project]\nname = "my-pack"\n\n[tool.kindgi.pack]\nid = "my-pack"\nversion = "0.1.0"\n',
+      'utf8',
+    );
+    await manifest({ devDependencies: { ms: '^2.1.3' } });
+    const fixtures = makeFixtures({ externals: [ms] });
+    const spy = vi.spyOn(fixtures.runners, 'createPackBuilder');
+    const { writes, restore } = captureStderr();
+    let out: Awaited<ReturnType<typeof runCli>>;
+    try {
+      out = await runCli({
+        ...baseInputs(fixtures),
+        argv: ['dev', '--no-watch', '--json', `--path=${packDir}`],
+      });
+    } finally {
+      restore();
+    }
+    expect(out.exitCode).toBe(0);
+    expect(spy.mock.calls[0]?.[0]?.configPath).toBeUndefined();
+    expect(linesWith(writes, out, WARNING)).toEqual([]);
+    expect(JSON.parse(out.stdout)).not.toHaveProperty('devOnlyImports');
   });
 });
 
@@ -1232,24 +1414,89 @@ describe("kindgi dev — the pack service's front across boots", () => {
 
 describe('kindgi dev — the shared services and --reset', () => {
   /** The fixture's runners, with the bundled services started (no KINDGI_DATABASE_URL). */
-  function withServices() {
+  function withServices(outcome?: StartServicesResult) {
     const fixtures = makeFixtures();
     const calls: { recreate: boolean }[] = [];
     const runners = {
       ...fixtures.runners,
       startServices: async (options: { readonly recreate: boolean }) => {
         calls.push({ ...options });
-        return {
-          kind: 'ok' as const,
-          handle: {
-            databaseUrl: 'postgres://kindgi@127.0.0.1:5432/kindgi',
-            services: ['postgres'],
-          },
-        };
+        return (
+          outcome ?? {
+            kind: 'ok' as const,
+            handle: {
+              databaseUrl: 'postgres://kindgi@127.0.0.1:5432/kindgi',
+              services: ['postgres'],
+              startedWith: 'docker compose' as const,
+            },
+          }
+        );
       },
     };
     return { fixtures: { ...fixtures, runners }, calls };
   }
+
+  test('the output says how Postgres started: docker compose, or plain docker without it', async () => {
+    const viaCompose = withServices();
+    const composeErr = captureStderr();
+    try {
+      const out = await runCli({
+        ...baseInputs(viaCompose.fixtures),
+        env: {},
+        argv: ['dev', '--no-watch', `--path=${packDir}`],
+      });
+      expect(out.exitCode).toBe(0);
+    } finally {
+      composeErr.restore();
+    }
+    expect(composeErr.writes.join('')).toContain('✓ Postgres: started with docker compose\n');
+
+    const viaDocker = withServices({
+      kind: 'ok',
+      handle: {
+        databaseUrl: 'postgres://kindgi@127.0.0.1:55432/kindgi',
+        services: ['postgres'],
+        startedWith: 'docker',
+        notes: [
+          '--recreate-services needs docker compose: the existing kindgi-dev_postgres is reused as it is.',
+        ],
+      },
+    });
+    const spy = vi.spyOn(viaDocker.fixtures.runners, 'startApiServer');
+    const dockerErr = captureStderr();
+    try {
+      const out = await runCli({
+        ...baseInputs(viaDocker.fixtures),
+        env: {},
+        argv: ['dev', '--no-watch', '--recreate-services', `--path=${packDir}`],
+      });
+      expect(out.exitCode).toBe(0);
+    } finally {
+      dockerErr.restore();
+    }
+    const written = dockerErr.writes.join('');
+    expect(written).toContain("✓ Postgres: started with docker (docker compose isn't available)\n");
+    expect(written).toContain(
+      '⚠ --recreate-services needs docker compose: the existing kindgi-dev_postgres is reused as it is.',
+    );
+    expect(spy.mock.calls[0]?.[0]?.databaseUrl).toBe('postgres://kindgi@127.0.0.1:55432/kindgi');
+  });
+
+  test('without docker: one error naming the options, install Docker or --database-url', async () => {
+    const { fixtures } = withServices({
+      kind: 'unavailable',
+      reason: "Docker isn't available: spawn docker ENOENT",
+    });
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      env: {},
+      argv: ['dev', '--no-watch', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      "kindgi dev needs Postgres, and couldn't start the bundled one: Docker isn't available: spawn docker ENOENT\n\nOptions:\n  1. Install Docker (Docker Desktop, or Docker Engine on Linux) and make sure it runs: kindgi dev then starts the bundled Postgres itself, with `docker compose` when it's there and plain `docker` otherwise.\n  2. Use your own Postgres (16, with pgvector): pass --database-url=<url>, or set KINDGI_DATABASE_URL.\n",
+    );
+  });
 
   test('the shared Postgres is reused as it is, unless --recreate-services', async () => {
     const reuse = withServices();

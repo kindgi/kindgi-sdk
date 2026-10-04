@@ -42,18 +42,21 @@ are the same commit:
 ```
 /            the latest release line (the only one search engines index)
 /vX.Y/       every release line
-/next/       main: merged, not released
 /versions.json   what the version menu lists
 ```
 
 ```sh
-pnpm run build && pnpm run docs:versions   # all of it, into site/dist-versions/
-node site/scripts/build-versions.mjs --skip-releases   # this checkout only, at the root
+pnpm run build && pnpm run docs:versions   # the public site, into site/dist-versions/
+pnpm run build && pnpm run docs:preview    # this checkout, a private preview, into site/dist-preview/
 ```
 
-Each release line builds in a temporary worktree at its tag. Before the
-first release that contains the site, the checkout is built at the root on
-its own. A page on an older line, or on `/next/`, says so and links to the
-latest; the version menu keeps you on the same page when the other version
-has it. `KINDGI_DOCS_BASE` sets the base a single build is served under, and
+Only releases are public: readers install a release, so the site describes
+what they have. Each release line builds in a temporary worktree at its tag.
+A page on an older line says so and links to the latest; the version menu
+keeps you on the same page when the other version has it.
+
+The preview is this checkout (usually `main`, merged but not released), for
+checking before a release. Every page says it's a preview, search engines
+don't index it, and it's deployed only behind a login
+(`wrangler.preview.jsonc`), never to the public site. `KINDGI_DOCS_BASE` sets the base a single build is served under, and
 `KINDGI_DOCS_REF` the git ref its links into the repository point at.

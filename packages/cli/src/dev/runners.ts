@@ -86,10 +86,26 @@ export interface StartApiServerOptions {
  * One bundle of the pack's code: each primitive's source path (as the
  * index records it) mapped to its bundle, both relative to the pack
  * root — or the build errors, located `file:line:column`.
+ *
+ * `externals` (a Node pack's): the packages the code loads from the
+ * app's `node_modules`, the same ones a pack image's bundles load — its
+ * primitives' and its config's. Absent for a Python pack.
  */
 export type PackBuild =
-  | { readonly kind: 'ok'; readonly bundleMap: Readonly<Record<string, string>> }
+  | {
+      readonly kind: 'ok';
+      readonly bundleMap: Readonly<Record<string, string>>;
+      readonly externals?: readonly ExternalPackage[];
+    }
   | { readonly kind: 'err'; readonly errors: readonly string[] };
+
+/** A package the pack's code loads from `node_modules`, and the files that import it. */
+export interface ExternalPackage {
+  /** `@scope/name` or `name`. */
+  readonly name: string;
+  /** Relative to the pack root, sorted. */
+  readonly importers: readonly string[];
+}
 
 /**
  * Makes the pack's code ready for the pack service: esbuild bundles for a
@@ -204,19 +220,29 @@ export interface WatchHandle {
  *
  * The services aren't stopped when `kindgi dev` exits: every `kindgi dev`
  * on the machine shares the one `kindgi-dev` compose project, so another
- * session's runtime may be using them. The next boot picks them up;
- * `kindgi dev --reset` removes them and their data.
+ * session's runtime may be using them. The next boot picks them up.
+ * `kindgi dev --reset` leaves them alone; `docker compose -p kindgi-dev
+ * down -v` removes them and their data.
  */
 export interface StartedServicesHandle {
   readonly databaseUrl: string;
   readonly services: readonly string[];
+  /**
+   * How they were started: with `docker compose`, or with plain `docker`
+   * when compose isn't available (a Docker engine without the plugin).
+   * The same containers, volume and network either way.
+   */
+  readonly startedWith: 'docker compose' | 'docker';
+  /** What the developer should know about this start: a flag that needs compose. */
+  readonly notes?: readonly string[];
 }
 
 /**
- * Outcome of `startServices`. `kind: 'ok'` = docker-compose available
- * AND all containers healthy. `kind: 'unavailable'` = docker-compose
- * not detected (or docker not installed); caller falls back to the
- * missing-KINDGI_DATABASE_URL error. `kind: 'error'` = docker-compose was
+ * Outcome of `startServices`. `kind: 'ok'` = started (with docker
+ * compose, or plain docker without it) AND all containers healthy.
+ * `kind: 'unavailable'` = docker itself isn't available (not installed,
+ * or the engine doesn't answer); caller falls back to the
+ * missing-KINDGI_DATABASE_URL error. `kind: 'error'` = docker was
  * available but the boot failed (image pull, port collision, health
  * timeout) — caller surfaces the reason.
  */
@@ -247,6 +273,8 @@ export interface DevRunners {
   readonly createPackBuilder: (opts: {
     readonly packDir: string;
     readonly patterns: readonly string[];
+    /** A Node pack's `kindgi.config.*`: its imports count among the externals, as in a pack image. */
+    readonly configPath?: string;
     readonly code: PackCode;
     /** The pack's environment (a Python build runs the pack's interpreter with it). */
     readonly env: () => Promise<Readonly<Record<string, string>>>;
@@ -285,19 +313,20 @@ export interface DevRunners {
   ) => Promise<WatchHandle>;
   /**
    * Auto-start the bundled `docker-compose.dev.yml` (Postgres) with
-   * `docker compose`, in the `kindgi-dev` project. Called only when the user did NOT
+   * `docker compose`, in the `kindgi-dev` project, or with plain `docker`
+   * when compose isn't available. Called only when the user did NOT
    * provide `--database-url` / `KINDGI_DATABASE_URL`. Returns an outcome
    * enum: `ok` (fall through with the container's URL), `unavailable`
-   * (docker-compose not detected — caller falls back to the manual
-   * error), or `error` (docker was available but boot failed).
+   * (docker isn't available — caller falls back to the manual error),
+   * or `error` (docker was available but boot failed).
    *
    * Optional so tests can leave it unset (falls through to the
    * current "manual KINDGI_DATABASE_URL required" error).
-   */
-  /**
+   *
    * `recreate`: let compose recreate the shared Postgres when its
    * definition changed (`--recreate-services`). Default: an existing
    * container is reused as it is — another `kindgi dev` may be using it.
+   * Without compose it is always reused; the handle's `notes` say so.
    */
   readonly startServices?: (options: {
     readonly recreate: boolean;

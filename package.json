@@ -18,6 +18,7 @@
     "docs:samples": "pnpm --filter kindgi-docs run site:samples",
     "docs:tutorials": "pnpm --filter kindgi-docs run site:tutorials",
     "docs:versions": "node site/scripts/build-versions.mjs",
+    "docs:preview": "node site/scripts/build-preview.mjs",
     "typecheck:all": "pnpm -r --workspace-concurrency=2 run typecheck",
     "test:all": "pnpm -r run test",
     "ci:local": "node scripts/local-ci.mjs",

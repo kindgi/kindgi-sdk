@@ -46,6 +46,12 @@ export interface PackRefresherDeps {
   readonly env: () => Promise<Readonly<Record<string, string>>>;
   /** The pack's code: which indexer reads it. */
   readonly code: PackCode;
+  /**
+   * Told each build a refresh loads (a watch rebuild, a new bundle, or
+   * the last good one again), before it's indexed; the refresh waits for
+   * it. Refreshes run one at a time, so calls never overlap.
+   */
+  readonly onBuild?: (build: Extract<PackBuild, { readonly kind: 'ok' }>) => Promise<void>;
 }
 
 export interface PackRefresher {
@@ -79,6 +85,7 @@ export function createPackRefresher(deps: PackRefresherDeps): PackRefresher {
       };
     }
     lastGood = build;
+    await deps.onBuild?.(build);
     const staged = devStagedIndexPath(deps.packDir);
     const indexed = await deps.dev.runIndexer(deps.packDir, staged, {
       bundleMap: build.bundleMap,

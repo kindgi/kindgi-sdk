@@ -7,14 +7,12 @@ sidebar:
 ---
 
 In ten minutes: a pack with two tools, an agent that calls them, a guardrail
-on its answers and a flow, running on your machine. You need Node 22 and
-Docker ([Install](../install/)).
+on its answers and a flow, running on your machine.
 
-:::note[Private preview]
-The runtime image is in private preview: request access at contact@kindgi.com.
-Then log in to its registry once, with `docker login quay.io`
-([Install](../install/)).
-:::
+**Before you start**, set up what the [Install page](../install/) describes:
+Node 22, Docker, and access to the runtime image. The image is in private
+preview: request access at contact@kindgi.com, then log in once with
+`kindgi auth registry`.
 
 ## 1. Create the pack
 
@@ -48,6 +46,13 @@ my-pack/
 ├── flows/echo-flow/index.ts            # a flow: a tool step, then the agent
 └── .claude/skills/                     # skills for your coding agent
 ```
+
+:::tip[Or ask your coding agent]
+The pack already has Kindgi's skills in `.claude/skills/`. Follow the steps
+below yourself, or ask your coding agent ("run the pack and try the agent",
+"add a tool that looks up an order"): the skills tell it which commands to
+run. [How it knows Kindgi](../coding-agents/).
+:::
 
 (The default template, `minimal`, gives you the folders and none of the
 examples.)
