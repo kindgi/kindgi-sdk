@@ -139,10 +139,18 @@ One command runs the whole loop on your machine:
   same process a deployment runs, with your Node or Python, your
   `node_modules` or virtualenv, and your app's modules. The runtime calls it
   for every tool and guardrail check.
-- **Postgres:** a bundled Postgres, started with `docker compose` (the
-  `kindgi-dev` project, shared by every `kindgi dev` on the machine and left
-  running), or the one you name with `--database-url` /
-  `KINDGI_DATABASE_URL`.
+- **Postgres:** a bundled Postgres, started with `docker compose` when it's
+  available and with plain `docker` otherwise (the `kindgi-dev` project, with
+  the same container, volume and network either way, shared by every
+  `kindgi dev` on the machine and left running), or the one you name with
+  `--database-url` / `KINDGI_DATABASE_URL`. The bundled one is published on
+  a random port on `127.0.0.1` only, since its password is a fixed dev one;
+  the runtime container reaches it through `host.docker.internal` (Docker
+  Desktop) or directly (Linux host networking). A `kindgi-dev_postgres`
+  started by an earlier CLI keeps its old binding (every address) until
+  it's recreated: `kindgi dev --recreate-services` with compose, or, without
+  compose, `docker rm -f kindgi-dev_postgres` (its data stays in the volume)
+  and run `kindgi dev` again.
 - **The pack is indexed and watched.** `kindgi dev` finds every tool,
   guardrail, agent and flow, and on each save re-indexes, rebuilds the code
   and restarts the pack service. The next request sees the new definitions;
@@ -156,8 +164,8 @@ One command runs the whole loop on your machine:
 | `--dev-token=<token>` | Pin the API token. Default: the previous run's, else a new one. Each flag overrides only its own value: `--dev-token` alone keeps the tenant. |
 | `--path=<dir>` | The pack root. Default: the current directory. It must have a `kindgi.config.ts`, or a `pyproject.toml` with a `[tool.kindgi]` table. |
 | `--no-watch` | Start, index once, and exit. For smoke tests and CI. |
-| `--reset` | Start this pack fresh: removes `.kindgirc.json`, so the boot makes a new tenant and token and the pack sees none of its earlier data. The bundled Postgres, which every pack on the machine shares, is left alone. (To wipe all dev data: `docker compose -p kindgi-dev down -v`.) |
-| `--recreate-services` | Let `docker compose` recreate the bundled Postgres if its definition changed. By default an existing container is reused as it is, so no other `kindgi dev` loses its database. |
+| `--reset` | Start this pack fresh: removes `.kindgirc.json`, so the boot makes a new tenant and token and the pack sees none of its earlier data. The bundled Postgres, which every pack on the machine shares, is left alone. (To wipe all dev data: `docker compose -p kindgi-dev down -v`; without compose, `docker rm -f kindgi-dev_postgres`, then `docker volume rm kindgi-dev_postgres-data`.) |
+| `--recreate-services` | Let `docker compose` recreate the bundled Postgres if its definition changed. By default an existing container is reused as it is, so no other `kindgi dev` loses its database. Without compose, an existing container is always reused, and `kindgi dev` says how to recreate it by hand. |
 | `--runtime-image=<ref>` | The runtime image to run. Default: the one this CLI release was tested with. |
 | `--runtime-url=<url>` | Use a runtime you run yourself instead of starting the container. Start it with the pack's `.kindgi/dev/runtime.env`. |
 

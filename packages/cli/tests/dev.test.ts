@@ -35,6 +35,7 @@ import type {
   IndexResult,
   PackBuild,
   RunningApiServer,
+  StartServicesResult,
   WatchHandle,
 } from '../src/dev/runners.js';
 import { type RunCliInputs, runCli } from '../src/main.js';
@@ -411,7 +412,7 @@ describe('kindgi dev — argument validation', () => {
     // Test's DevRunners fixture has no `startServices` wired, so the
     // auto-start path bails out with "start-services runner not wired"
     // and the hint falls back to the docker + manual paths.
-    expect(out.stderr).toContain('Auto-start not available');
+    expect(out.stderr).toContain("couldn't start the bundled one: start-services runner not wired");
   });
 
   test("host app's un-prefixed DATABASE_URL is ignored — never boots Kindgi against it", async () => {
@@ -1232,24 +1233,89 @@ describe("kindgi dev — the pack service's front across boots", () => {
 
 describe('kindgi dev — the shared services and --reset', () => {
   /** The fixture's runners, with the bundled services started (no KINDGI_DATABASE_URL). */
-  function withServices() {
+  function withServices(outcome?: StartServicesResult) {
     const fixtures = makeFixtures();
     const calls: { recreate: boolean }[] = [];
     const runners = {
       ...fixtures.runners,
       startServices: async (options: { readonly recreate: boolean }) => {
         calls.push({ ...options });
-        return {
-          kind: 'ok' as const,
-          handle: {
-            databaseUrl: 'postgres://kindgi@127.0.0.1:5432/kindgi',
-            services: ['postgres'],
-          },
-        };
+        return (
+          outcome ?? {
+            kind: 'ok' as const,
+            handle: {
+              databaseUrl: 'postgres://kindgi@127.0.0.1:5432/kindgi',
+              services: ['postgres'],
+              startedWith: 'docker compose' as const,
+            },
+          }
+        );
       },
     };
     return { fixtures: { ...fixtures, runners }, calls };
   }
+
+  test('the output says how Postgres started: docker compose, or plain docker without it', async () => {
+    const viaCompose = withServices();
+    const composeErr = captureStderr();
+    try {
+      const out = await runCli({
+        ...baseInputs(viaCompose.fixtures),
+        env: {},
+        argv: ['dev', '--no-watch', `--path=${packDir}`],
+      });
+      expect(out.exitCode).toBe(0);
+    } finally {
+      composeErr.restore();
+    }
+    expect(composeErr.writes.join('')).toContain('✓ Postgres: started with docker compose\n');
+
+    const viaDocker = withServices({
+      kind: 'ok',
+      handle: {
+        databaseUrl: 'postgres://kindgi@127.0.0.1:55432/kindgi',
+        services: ['postgres'],
+        startedWith: 'docker',
+        notes: [
+          '--recreate-services needs docker compose: the existing kindgi-dev_postgres is reused as it is.',
+        ],
+      },
+    });
+    const spy = vi.spyOn(viaDocker.fixtures.runners, 'startApiServer');
+    const dockerErr = captureStderr();
+    try {
+      const out = await runCli({
+        ...baseInputs(viaDocker.fixtures),
+        env: {},
+        argv: ['dev', '--no-watch', '--recreate-services', `--path=${packDir}`],
+      });
+      expect(out.exitCode).toBe(0);
+    } finally {
+      dockerErr.restore();
+    }
+    const written = dockerErr.writes.join('');
+    expect(written).toContain("✓ Postgres: started with docker (docker compose isn't available)\n");
+    expect(written).toContain(
+      '⚠ --recreate-services needs docker compose: the existing kindgi-dev_postgres is reused as it is.',
+    );
+    expect(spy.mock.calls[0]?.[0]?.databaseUrl).toBe('postgres://kindgi@127.0.0.1:55432/kindgi');
+  });
+
+  test('without docker: one error naming the options, install Docker or --database-url', async () => {
+    const { fixtures } = withServices({
+      kind: 'unavailable',
+      reason: "Docker isn't available: spawn docker ENOENT",
+    });
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      env: {},
+      argv: ['dev', '--no-watch', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      "kindgi dev needs Postgres, and couldn't start the bundled one: Docker isn't available: spawn docker ENOENT\n\nOptions:\n  1. Install Docker (Docker Desktop, or Docker Engine on Linux) and make sure it runs: kindgi dev then starts the bundled Postgres itself, with `docker compose` when it's there and plain `docker` otherwise.\n  2. Use your own Postgres (16, with pgvector): pass --database-url=<url>, or set KINDGI_DATABASE_URL.\n",
+    );
+  });
 
   test('the shared Postgres is reused as it is, unless --recreate-services', async () => {
     const reuse = withServices();
