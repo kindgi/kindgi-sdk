@@ -18,7 +18,7 @@ import {
   resolveHostInstall,
   withoutInstallScripts,
 } from '../src/build/host-install.js';
-import { skippedScriptLines } from '../src/commands/build.js';
+import { devOnlyImports, skippedScriptLines } from '../src/commands/build.js';
 
 let root: string;
 const put = async (rel: string, body = '{}\n'): Promise<void> => {
@@ -73,8 +73,33 @@ describe('resolveHostInstall', () => {
         ],
         projectManifests: ['package.json', 'services/api/package.json'],
         skippedScripts: [],
+        packDependencies: { runtime: [], dev: [] },
         secrets: [{ id: 'npmrc', file: '.npmrc' }],
       },
+    });
+  });
+
+  test("the pack project's own dependencies: what the image keeps, and what its prune drops", async () => {
+    await put(
+      'package.json',
+      json({ name: 'mono', workspaces: ['apps/*'], dependencies: { 'left-pad': '1.3.0' } }),
+    );
+    await put('package-lock.json', json({ lockfileVersion: 3 }));
+    await put(
+      'apps/support/package.json',
+      json({
+        name: 'support',
+        dependencies: { zod: '4.0.0', '@acme/db': '1.0.0' },
+        optionalDependencies: { sharp: '0.34.0' },
+        peerDependencies: { react: '19.0.0' },
+        devDependencies: { '@acme/db-client': '1.0.0', vitest: '3.0.0' },
+      }),
+    );
+    const outcome = await resolveHostInstall(join(root, 'apps', 'support'));
+    if (outcome.kind !== 'ok') throw new Error(outcome.message);
+    expect(outcome.install.packDependencies).toEqual({
+      runtime: ['@acme/db', 'react', 'sharp', 'zod'],
+      dev: ['@acme/db-client', 'vitest'],
     });
   });
 
@@ -231,6 +256,7 @@ describe('installCommands', () => {
     files: [],
     projectManifests: [],
     skippedScripts: [],
+    packDependencies: { runtime: [], dev: [] },
     secrets: [],
   } as const;
 
@@ -330,5 +356,18 @@ describe('skippedScriptLines', () => {
 
   test('nothing skipped, nothing said', () => {
     expect(skippedScriptLines([])).toEqual([]);
+  });
+});
+
+describe('devOnlyImports', () => {
+  test("the pack's imports its project lists only in devDependencies", () => {
+    expect(
+      devOnlyImports(['@acme/db-client', 'zod', 'undeclared'], {
+        runtime: ['zod'],
+        dev: ['@acme/db-client', 'vitest'],
+      }),
+    ).toEqual(['@acme/db-client']);
+    // Listed in both: the image keeps it.
+    expect(devOnlyImports(['zod'], { runtime: ['zod'], dev: ['zod'] })).toEqual([]);
   });
 });

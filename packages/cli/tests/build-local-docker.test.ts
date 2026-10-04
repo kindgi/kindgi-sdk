@@ -16,7 +16,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 
 import { afterAll, describe, expect, test } from 'vitest';
 
@@ -176,7 +176,9 @@ describe.skipIf(gated)('kindgi build --local with Docker', () => {
     await put(
       root,
       'package.json',
-      `${JSON.stringify({ name: 'mono', private: true, packageManager: `pnpm@${pnpm}`, scripts: APP_INSTALL_SCRIPTS }, null, 2)}\n`,
+      // A name of its own each run, so BuildKit's layer cache can't skip the
+      // install: the rebuild below must run pnpm to show what it reused.
+      `${JSON.stringify({ name: `mono-${basename(root).toLowerCase()}`, private: true, packageManager: `pnpm@${pnpm}`, scripts: APP_INSTALL_SCRIPTS }, null, 2)}\n`,
     );
     await put(root, 'pnpm-workspace.yaml', "packages:\n  - 'apps/*'\n  - 'services/*'\n");
     // Another member: the image installs only the pack's project, so not this.

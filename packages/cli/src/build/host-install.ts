@@ -72,6 +72,15 @@ export interface HostInstall {
   readonly projectManifests: readonly string[];
   /** The install scripts those manifests have, which the image leaves out, in order. */
   readonly skippedScripts: readonly SkippedScript[];
+  /**
+   * The pack project's own dependency names, sorted: what the image keeps
+   * (`dependencies`, `optionalDependencies`, `peerDependencies`), and what
+   * its prune to production drops (`devDependencies`).
+   */
+  readonly packDependencies: {
+    readonly runtime: readonly string[];
+    readonly dev: readonly string[];
+  };
   readonly secrets: readonly HostSecret[];
 }
 
@@ -246,6 +255,9 @@ export async function resolveHostInstall(packDir: string): Promise<HostInstallOu
   }
 
   const enginesNode = stringField(objectField(rootManifest, 'engines'), 'node');
+  const packManifest = manifests.find(([dir]) => dir === packRel)?.[1] ?? {};
+  const namesIn = (...fields: readonly string[]): string[] =>
+    [...new Set(fields.flatMap((field) => Object.keys(objectField(packManifest, field))))].sort();
   return {
     kind: 'ok',
     install: {
@@ -268,6 +280,10 @@ export async function resolveHostInstall(packDir: string): Promise<HostInstallOu
             .filter(([name, command]) => INSTALL_LIFECYCLE_SCRIPTS.includes(name) && typeof command === 'string')
             .map(([name, command]) => ({ manifest: path, name, command: command as string })),
         ),
+      packDependencies: {
+        runtime: namesIn('dependencies', 'optionalDependencies', 'peerDependencies'),
+        dev: namesIn('devDependencies'),
+      },
       secrets,
     },
   };

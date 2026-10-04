@@ -953,6 +953,54 @@ describe('runIndexer — a build (bundleMap)', () => {
     expect(stderr.join('')).toContain('--module-root goes with --bundle-map');
     expect(stderr.join('')).toContain('must be a JSON object');
   });
+
+  test('the command: --strict exits 1 when a module fails to load, saying which and why', async () => {
+    const tool = (id: string, prelude = ''): string =>
+      `${prelude}export default { id: '${id}', description: 'echo', input: { type: 'object', properties: {}, additionalProperties: false }, output: { type: 'object', properties: {}, additionalProperties: false }, effects: [], handler: async () => ({}) };\n`;
+    const fixture = await makeFixture({
+      files: {
+        'kindgi.config.mjs': {
+          module: undefined,
+          content: "export default { pack: { id: 'acme.pack', version: '1.0.0' } };\n",
+        },
+        'tools/ok.mjs': { module: undefined, content: tool('acme.ok') },
+        // A package the image doesn't have (a devDependency its prune dropped).
+        'tools/broken.mjs': {
+          module: undefined,
+          content: tool('acme.broken', "import 'acme-package-not-installed';\n"),
+        },
+      },
+    });
+    const output = path.join(scratch, 'index.json');
+    const stderr: string[] = [];
+    const stdout = process.stdout.write;
+    const write = process.stderr.write;
+    process.stdout.write = (() => true) as typeof process.stdout.write;
+    process.stderr.write = ((chunk: string) => {
+      stderr.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      const args = [
+        '--pack-dir',
+        fixture.packDir,
+        '--output',
+        output,
+        '--published-at',
+        FIXED_TIMESTAMP,
+      ];
+      // Without --strict the index is written without the broken tool, and the command succeeds.
+      expect(await main(args)).toBe(0);
+      expect(await main([...args, '--strict'])).toBe(1);
+    } finally {
+      process.stdout.write = stdout;
+      process.stderr.write = write;
+    }
+    expect(stderr.join('')).toContain(
+      'kindgi-index: file-import-failed: Failed to import tools/broken.mjs',
+    );
+    expect(stderr.join('')).toContain('acme-package-not-installed');
+  });
 });
 
 // -----------------------------------------------------------------------
