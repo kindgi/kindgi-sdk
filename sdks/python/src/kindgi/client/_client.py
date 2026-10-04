@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import os
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Mapping
 from typing import Any, Protocol, TypeVar
 
@@ -13,27 +12,18 @@ import httpx
 
 from ._base import DEFAULT_MAX_RETRIES, DEFAULT_TIMEOUT, AsyncClientBase, SyncClientBase
 from ._resources import AsyncResources, Resources
+from ._runtime_config import resolve_settings
 
 __all__ = ["AsyncKindgi", "Kindgi", "apaginate", "paginate"]
 
 T = TypeVar("T")
 
 
-def _settings(base_url: str | None, token: str | None) -> tuple[str, str]:
-    url = base_url or os.environ.get("KINDGI_API_URL")
-    secret = token or os.environ.get("KINDGI_API_TOKEN")
-    if not url:
-        raise ValueError("pass base_url= or set KINDGI_API_URL")
-    if not secret:
-        raise ValueError("pass token= or set KINDGI_API_TOKEN")
-    return url, secret
-
-
 class Kindgi(SyncClientBase, Resources):
     """The Kindgi API, synchronously.
 
         client = Kindgi("http://127.0.0.1:4000", token="kgi_bt_…")
-        client = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN
+        client = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN; in development, kindgi dev
         run = client.runs.start(agent="acme.bookkeeper", input={"userMessage": "hi"})
 
     Resources follow the API's operation ids (`client.approvals.reviewers.list()`).
@@ -50,7 +40,7 @@ class Kindgi(SyncClientBase, Resources):
         default_headers: Mapping[str, str] | None = None,
         http_client: httpx.Client | None = None,
     ) -> None:
-        url, secret = _settings(base_url, token)
+        url, secret = resolve_settings(base_url, token)
         SyncClientBase.__init__(
             self,
             url,
@@ -88,7 +78,7 @@ class AsyncKindgi(AsyncClientBase, AsyncResources):
         default_headers: Mapping[str, str] | None = None,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
-        url, secret = _settings(base_url, token)
+        url, secret = resolve_settings(base_url, token)
         AsyncClientBase.__init__(
             self,
             url,

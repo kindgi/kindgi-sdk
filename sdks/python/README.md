@@ -276,6 +276,14 @@ for agent in paginate(client.agents.list, limit=50):  # every page
     print(agent.id)
 ```
 
+Without arguments, the client takes `KINDGI_API_URL` and `KINDGI_API_TOKEN`
+from the environment. In development, when they're unset, it uses the running
+`kindgi dev` (the nearest `.kindgirc.json` at or above the working directory)
+and warns once (`KindgiConfigWarning`) to put them in your env file (`.env` /
+`.env.local`). Production (`KINDGI_ENV` or `NODE_ENV` set to `production`)
+never reads `.kindgirc.json`. It's the same lookup as the TypeScript SDK's
+`createClient()`.
+
 - A request body is a model from `kindgi.client.models`, a mapping, or its
   fields as keywords (snake_case or the wire's camelCase); answers are models.
 - Path parameters are positional; query and header parameters keyword-only.
