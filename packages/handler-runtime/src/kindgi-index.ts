@@ -60,6 +60,7 @@ import type { Result } from '@kindgi/types';
 import { parse as parseToml } from 'smol-toml';
 
 import { TEST_FILE_REGEX, globStaticPrefix, globToRegex } from './discovery.js';
+import { compileSchema } from './handler-runner.js';
 import { type PackEnvConfig, type PackEnvDeclaration, resolvePackEnv } from './pack-env.js';
 
 // -----------------------------------------------------------------------
@@ -1319,6 +1320,9 @@ function buildGuardrail(
     configSchema = check.configJsonSchema as Readonly<Record<string, unknown>>;
   }
 
+  const configCheck = checkGuardrailConfig(rec.id, rec.config, configSchema, relPath);
+  if (configCheck.kind === 'err') return configCheck;
+
   const checkId: string | undefined =
     typeof rec.check === 'string'
       ? rec.check
@@ -1421,6 +1425,49 @@ function buildGraph(raw: unknown, relPath: string): Result<IndexedFlow, IndexerE
     modulePath: normalizeModulePath(relPath),
   };
   return { kind: 'ok', value: flow };
+}
+
+/**
+ * A guardrail's `config` against its `configSchema`, when the pack is
+ * indexed: a config that doesn't fit stops `kindgi build` / `kindgi dev`
+ * here, naming where, as Python's guardrails refuse it at definition,
+ * rather than failing every evaluation. No config is checked as `{}`: the
+ * check gets its defaults, so required fields without one must be set.
+ */
+function checkGuardrailConfig(
+  id: string,
+  config: unknown,
+  configSchema: Readonly<Record<string, unknown>> | undefined,
+  relPath: string,
+): Result<void, IndexerError> {
+  const fail = (message: string): Result<never, IndexerError> => ({
+    kind: 'err',
+    error: {
+      code: 'manifest-validation-failed',
+      message: `${relPath}: guardrail ${id}'s config ${message}`,
+      filePath: relPath,
+      field: 'config',
+    },
+  });
+  if (config !== undefined && !isObject(config)) return fail('must be an object');
+  if (configSchema === undefined) return { kind: 'ok', value: undefined };
+  let validate: ReturnType<typeof compileSchema>;
+  try {
+    // The output side: checks without filling in defaults (the index
+    // keeps the config as declared; the check resolves it).
+    validate = compileSchema(configSchema, 'output');
+  } catch (cause) {
+    return fail(
+      `can't be checked: its configSchema doesn't compile: ${cause instanceof Error ? cause.message : String(cause)}`,
+    );
+  }
+  if (validate(config ?? {})) return { kind: 'ok', value: undefined };
+  const first = validate.errors?.[0];
+  const at =
+    first?.instancePath === undefined || first.instancePath === ''
+      ? ''
+      : ` at ${first.instancePath}`;
+  return fail(`doesn't fit its configSchema${at}: ${first?.message ?? 'invalid'}`);
 }
 
 function manifestErr(relPath: string, msg: string): Result<never, IndexerError> {
