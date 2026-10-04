@@ -148,6 +148,25 @@ describe('envVarsForTarget', () => {
   });
 });
 
+describe('envVarsForTarget — the executor lease', () => {
+  test("its timings are the server's, optional, in core; the pack service has neither", () => {
+    const server = new Map(envVarsForTarget({ component: 'server' }).map((v) => [v.name, v]));
+    expect(server.get('KINDGI_RUN_LEASE_MS')).toMatchObject({
+      required: false,
+      group: 'core',
+      example: '300000',
+    });
+    expect(server.get('KINDGI_RUN_SWEEP_INTERVAL_MS')).toMatchObject({
+      required: false,
+      group: 'core',
+      example: '60000',
+    });
+    const packService = envVarsForTarget({ component: 'pack-service' }).map((v) => v.name);
+    expect(packService).not.toContain('KINDGI_RUN_LEASE_MS');
+    expect(packService).not.toContain('KINDGI_RUN_SWEEP_INTERVAL_MS');
+  });
+});
+
 describe('envVarsForTarget — the pack service', () => {
   const PACK_SERVICE_VARS = [
     'KINDGI_PACK_SERVICE_TOKEN',
