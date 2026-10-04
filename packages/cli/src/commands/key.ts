@@ -2,25 +2,28 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * `kindgi key` — local Ed25519 signing-key lifecycle.
- *
- * FULLY LOCAL. Reads + writes files under `<home>/.kindgi/keys/`.
- * `SigningKeyBinding` is a runtime primitive with no HTTP admin
- * surface yet, so there is no `push` / `pull` / `rotate` / `delete`.
+ * `kindgi key` — Ed25519 signing keys: the local pairs under
+ * `<home>/.kindgi/keys/`, and the runtime's trust list.
  *
  * Subcommands:
- *   - `create <keyId> [--env <name>] [--home <dir>]`
- *   - `export <keyId> [--format=pem|base64|raw-hex] [--home <dir>]`
- *   - `list [--home <dir>]`
+ *   - `create <keyId> [--env <name>] [--home <dir>]` (local)
+ *   - `export <keyId> [--format=pem|base64|raw-hex] [--home <dir>]` (local)
+ *   - `list [--home <dir>]` (local)
+ *   - `trust <keyId> [--label <text>] [--home <dir>]`: the runtime trusts
+ *     the local key's public key (`POST /v1/signing-keys`)
+ *   - `revoke <keyId> [--reason <text>]`: the runtime stops trusting it
+ *     (`POST /v1/signing-keys/{keyId}/revoke`)
  *
  * Every filesystem side-effect flows through `KeyRunners` so tests
  * substitute stubs — no real key files touch disk during unit tests.
- * Production wiring lives at `packages/cli/src/key/defaults.ts`.
+ * Production wiring lives at `packages/cli/src/key/defaults.ts`. `trust`
+ * and `revoke` call the runtime through the SDK client (`--url`, `--token`).
  */
 
 import { parsePublicKeyPem, serializePublicKeyBase64 } from '@kindgi/crypto';
 
 import type { CommandContext } from '../context.js';
+import { extractKindgiError } from '../errors.js';
 import { shortFingerprint } from '../key/fingerprint.js';
 import {
   KEYS_DIR_MODE,
@@ -32,6 +35,12 @@ import {
 } from '../key/paths.js';
 import type { KeyRunners } from '../key/runners.js';
 import { renderJson } from '../output.js';
+import {
+  commandResultFromThrown,
+  requiredPositional,
+  runSdkRendered,
+  stringFlag,
+} from './helpers.js';
 import type { Command, CommandResult, LeafCommand } from './types.js';
 
 // ---------------------------------------------------------------------
@@ -363,14 +372,154 @@ const listCmd: LeafCommand = {
 };
 
 // ---------------------------------------------------------------------
+// `kindgi key trust <keyId> [--label <text>] [--home <dir>]`
+// ---------------------------------------------------------------------
+
+/**
+ * The runtime refuses a key id bound to another key (`signing-key-conflict`)
+ * or revoked (`signing-key-revoked`). Its message says to use a new id;
+ * the hint adds the commands.
+ */
+const NEW_KEY_ID_CODES: ReadonlySet<string> = new Set([
+  'signing-key-conflict',
+  'signing-key-revoked',
+]);
+const NEW_KEY_ID_HINT =
+  'To trust another key: `kindgi key create <newId>`, then `kindgi key trust <newId>`.';
+
+const trustCmd: LeafCommand = {
+  kind: 'leaf',
+  name: 'trust',
+  description:
+    "Add a local key's public key to the runtime's trust list, so the runtime accepts deploys the key signs.",
+  usage: 'kindgi key trust <keyId> [--label <text>] [--home <dir>]',
+  optionSpec: {
+    label: {
+      type: 'string',
+      description: 'A label the runtime keeps with the key (up to 200 characters).',
+    },
+    home: {
+      type: 'string',
+      description: 'The home directory whose `.kindgi/keys/` holds the keys. Default: `$HOME`.',
+    },
+  },
+  run: async (ctx): Promise<CommandResult> => {
+    const idCheck = validateKeyId(ctx.positionals[0]);
+    if (!idCheck.ok) {
+      return { kind: 'error', stderr: `${idCheck.error}\n`, exitCode: 1 };
+    }
+    const keyId = idCheck.id;
+
+    const runnersOutcome = pickRunners(ctx);
+    if (runnersOutcome.kind === 'error') return runnersOutcome;
+    const runners = runnersOutcome.runners;
+
+    const pubPath = resolveKeyPaths(pickHomeFromCtx(ctx)).publicKeyPath(keyId);
+    const pubPem = await runners.readFile(pubPath);
+    if (pubPem === null) {
+      return {
+        kind: 'error',
+        stderr:
+          `kindgi key trust: no public key at ${pubPath}. ` +
+          `Run \`kindgi key create ${keyId}\` first, or pass --home <dir>.\n`,
+        exitCode: 1,
+      };
+    }
+    const parsed = parsePublicKeyPem(pubPem);
+    if (parsed.kind === 'err') {
+      return {
+        kind: 'error',
+        stderr:
+          `kindgi key trust: ${pubPath} is not a valid Ed25519 public key PEM: ` +
+          `${parsed.error.message}\n`,
+        exitCode: 1,
+      };
+    }
+
+    // The runtime takes the 32 raw bytes, base64 (not the SPKI form that
+    // `kindgi key export --format=base64` prints).
+    const publicKey = Buffer.from(parsed.value).toString('base64');
+    const label = stringFlag(ctx, 'label');
+    try {
+      const trusted = await ctx
+        .client()
+        .signingKeys.trust({ keyId, publicKey, ...(label !== undefined && { label }) });
+      const rendered = renderJson(trusted, ctx.globals.format);
+      const banner = [
+        '',
+        `  ✓ Trusted ${keyId} (${shortFingerprint(parsed.value)})`,
+        '    The runtime now accepts deploys this key signs.',
+        '',
+      ];
+      return {
+        kind: 'ok',
+        rendered: { stdout: rendered.stdout, stderr: `${banner.join('\n')}\n` },
+      };
+    } catch (err) {
+      const failed = commandResultFromThrown(err, ctx, 'kindgi key trust');
+      const wire = extractKindgiError(err);
+      return wire?.code === 'server' &&
+        NEW_KEY_ID_CODES.has(wire.serverCode) &&
+        failed.kind === 'error'
+        ? { ...failed, stderr: `${failed.stderr}${NEW_KEY_ID_HINT}\n` }
+        : failed;
+    }
+  },
+};
+
+// ---------------------------------------------------------------------
+// `kindgi key revoke <keyId> [--reason <text>]`
+// ---------------------------------------------------------------------
+
+const revokeCmd: LeafCommand = {
+  kind: 'leaf',
+  name: 'revoke',
+  description:
+    "Remove a key from the runtime's trust list: the runtime refuses new deploys it signs.",
+  usage: 'kindgi key revoke <keyId> [--reason <text>]',
+  optionSpec: {
+    reason: {
+      type: 'string',
+      description: 'Why, kept with the key as `revokedReason`.',
+    },
+  },
+  run: async (ctx): Promise<CommandResult> => {
+    const reason = stringFlag(ctx, 'reason');
+    return runSdkRendered(ctx, 'kindgi key revoke', async () => {
+      // The runtime validates the id: it may have been trusted another way,
+      // with an id `kindgi key create` wouldn't make.
+      const keyId = requiredPositional(ctx, 0, 'keyId');
+      const result = await ctx
+        .client()
+        .signingKeys.revoke(keyId, reason !== undefined ? { reason } : undefined);
+      const rendered = renderJson(result, ctx.globals.format);
+      const banner = result.revoked
+        ? [
+            '',
+            `  ✓ Revoked ${keyId}`,
+            '    The runtime refuses new deploys it signs. Deployments it signed keep running, and the key stays listed for audit.',
+            '',
+          ]
+        : [
+            '',
+            `  ${keyId} wasn't revoked: the runtime doesn't trust a key with that id, or it's revoked already.`,
+            '',
+          ];
+      return { stdout: rendered.stdout, stderr: `${banner.join('\n')}\n` };
+    });
+  },
+};
+
+// ---------------------------------------------------------------------
 // Group registration
 // ---------------------------------------------------------------------
 
 export const keyCommand: Command = {
   kind: 'group',
   name: 'key',
-  description: "Manage the tenant's local Ed25519 signing keys under ~/.kindgi/keys/.",
-  subcommands: [createCmd, exportCmd, listCmd],
+  description:
+    "Manage Ed25519 signing keys: the local pairs under ~/.kindgi/keys/, and the runtime's trust list.",
+  subcommands: [createCmd, exportCmd, listCmd, trustCmd, revokeCmd],
 };
 
 // ---------------------------------------------------------------------
