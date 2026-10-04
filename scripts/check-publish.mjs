@@ -14,8 +14,12 @@
  *     repository — a mismatch fails the publish).
  *   - `publishConfig.access` is `public` and `publishConfig.provenance` is true.
  *   - publint (package.json / exports / files correctness).
- *   - are-the-types-wrong on the packed tarball (ESM-only profile unless
- *     the package ships a `require` condition).
+ *   - are-the-types-wrong on the packed tarball: from ES modules and from
+ *     CommonJS (strict, for a package that ships a `require` condition).
+ *   - Every export an app loads has a `default` condition beside `import`,
+ *     and loads with `require()` (`scripts/check-cjs-require.cjs`): CommonJS
+ *     apps require() the ES modules, from Node 22.12. An export path ending
+ *     in `-main` is a program, run with `node`: it stays import-only.
  *
  * Also: the Python SDK (`sdks/python`) shares the npm packages' major.minor.
  *
@@ -51,6 +55,16 @@ function hasRequireCondition(exportsField) {
   return JSON.stringify(exportsField ?? {}).includes('"require"');
 }
 
+/** An export path that names a program (`node <file>`), never loaded: it stays import-only. */
+const isProgram = (subpath) => subpath.endsWith('-main');
+
+/** The `exports` entries with conditions: `[subpath, conditions]`. */
+function exportEntries(exportsField) {
+  return Object.entries(exportsField ?? {}).filter(
+    ([, target]) => typeof target === 'object' && target !== null,
+  );
+}
+
 /** Run a root dev tool (`node_modules/.bin`, no `pnpm exec` start-up per call); its output when it fails. */
 async function check(args) {
   try {
@@ -66,6 +80,7 @@ async function check(args) {
 }
 
 const tools = []; // [name, label, args] for publint and attw, run in parallel below
+const cjsChecked = []; // package dirs for the CommonJS check
 for (const pkg of workspace) {
   if (pkg.path === root) continue;
   const manifest = JSON.parse(readFileSync(join(pkg.path, 'package.json'), 'utf8'));
@@ -85,9 +100,68 @@ for (const pkg of workspace) {
     problems.push(`${name}: publishConfig must set access "public" and provenance true`);
   }
 
+  // CommonJS apps `require()` the packages (Node's require(esm), from Node
+  // 22.12): every entry an app loads answers `default` (or `require`).
+  const entries = exportEntries(manifest.exports);
+  for (const [subpath, conditions] of entries) {
+    if (isProgram(subpath) || conditions.import === undefined) continue;
+    if (conditions.default === undefined && conditions.require === undefined) {
+      problems.push(
+        `${name}: export "${subpath}" has an "import" condition but no "default": a CommonJS app can't require() it`,
+      );
+    }
+  }
+  cjsChecked.push(pkg.path);
+
   tools.push([name, 'publint', ['publint', pkg.path, '--strict']]);
-  const profile = hasRequireCondition(manifest.exports) ? [] : ['--profile', 'esm-only'];
-  tools.push([name, 'are-the-types-wrong', ['attw', '--pack', pkg.path, ...profile]]);
+  if (hasRequireCondition(manifest.exports)) {
+    tools.push([name, 'are-the-types-wrong', ['attw', '--pack', pkg.path]]);
+  } else {
+    // ES modules for every caller. From CommonJS they resolve and are typed
+    // through `default`; loading them with `require()` is Node 22.12's and
+    // TypeScript 5.8's (`module: nodenext`), which attw doesn't model yet, so
+    // its "ESM (dynamic import only)" is expected. Programs are import-only,
+    // so they're checked as ES modules alone.
+    const programs = entries.map(([subpath]) => subpath).filter(isProgram);
+    tools.push([
+      name,
+      'are-the-types-wrong',
+      [
+        'attw',
+        '--pack',
+        pkg.path,
+        '--profile',
+        'node16',
+        '--ignore-rules',
+        'cjs-resolves-to-esm',
+        ...(programs.length > 0 ? ['--exclude-entrypoints', ...programs] : []),
+      ],
+    ]);
+    if (programs.length > 0) {
+      tools.push([
+        name,
+        'are-the-types-wrong (programs)',
+        ['attw', '--pack', pkg.path, '--profile', 'esm-only', '--entrypoints', ...programs],
+      ]);
+    }
+  }
+}
+
+// A real CommonJS caller: every entry loads with `require()` where it loads
+// with `import()` (`scripts/check-cjs-require.cjs`).
+let cjsSummary = '';
+try {
+  cjsSummary = execFileSync(
+    process.execPath,
+    [join(root, 'scripts', 'check-cjs-require.cjs'), ...cjsChecked],
+    {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  );
+} catch (err) {
+  problems.push(`CommonJS require() check\n${err.stdout ?? ''}${err.stderr ?? ''}`);
 }
 
 // A small pool: JOBS checks at a time, results kept in package order.
@@ -130,5 +204,5 @@ if (problems.length > 0) {
   process.exit(1);
 }
 console.log(
-  `Publish-readiness OK — ${checked} publishable package(s) checked; kindgi ${pythonVersion} shares their minor.`,
+  `Publish-readiness OK — ${checked} publishable package(s) checked; kindgi ${pythonVersion} shares their minor. ${cjsSummary.trim()}`,
 );

@@ -10,7 +10,7 @@ The same pack as the [TypeScript quickstart](../quickstart-typescript/), in
 Python: two tools, an agent that calls them, a guardrail and a flow.
 
 **Before you start**, set up what the [Install page](../install/) describes:
-Node 22 (for the CLI), Docker, Python 3.11 and uv, and access to the runtime
+Node 22.12 (for the CLI), Docker, Python 3.11 and uv, and access to the runtime
 image. The image is in private preview: request access at contact@kindgi.com,
 then log in once with `kindgi auth registry`.
 
