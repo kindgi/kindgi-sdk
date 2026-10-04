@@ -14,7 +14,7 @@ import { z } from 'zod';
 import type { ModelMessage } from '@kindgi/capabilities';
 import type { NodeContext } from '@kindgi/handler';
 import type { RunBinding, RunFlowInput } from '@kindgi/runtime';
-import type { NodeId, ProjectId, RunId, TenantId } from '@kindgi/types';
+import type { NodeId, OrgId, ProjectId, RunId, TenantId } from '@kindgi/types';
 
 import { defineAgent } from '../src/define.js';
 import { buildRunTrace } from '../src/guardrails-gate.js';
@@ -345,6 +345,24 @@ describe('structured step input', () => {
 });
 
 describe('buildRunTrace', () => {
+  test("carries the project's org when it has one, and no orgId when it hasn't", () => {
+    const base = {
+      runId,
+      tenantId,
+      projectId,
+      conversationId,
+      turnNumber: 1,
+      agent: agent(),
+      userMessage: 'go',
+      appended: [],
+      finalResponse: { sequence: 1, role: 'agent', content: 'ok', createdAt: 'now' } as never,
+      usage: { steps: 1, promptTokens: 1, completionTokens: 1, totalCostUsd: 0, durationMs: 1 },
+    };
+    const orgId = 'org-1' as OrgId;
+    expect(buildRunTrace({ ...base, orgId })).toMatchObject({ projectId, orgId });
+    expect(buildRunTrace(base)).not.toHaveProperty('orgId');
+  });
+
   test('carries the run, project, turn number, user input, step input and structured output', () => {
     const trace = buildRunTrace({
       runId,

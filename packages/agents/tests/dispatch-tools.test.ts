@@ -12,74 +12,104 @@ import { resolveEffectiveHitlPolicy } from '../src/hitl-policy.js';
 import type { Agent } from '../src/types.js';
 import { testNodeContext } from './node-context.js';
 
+/**
+ * Run one model tool call through dispatch-tools and return the context the
+ * tool saw. `input` adds to the turn's input; `args` are the model's arguments.
+ */
+async function contextSeen(
+  input: Record<string, unknown>,
+  args: Record<string, unknown> = { q: 'x' },
+): Promise<ToolContext | undefined> {
+  let seen: ToolContext | undefined;
+  const defined = defineTool<Record<string, unknown>, { ok: boolean }>({
+    id: 'pack.probe' as ToolId,
+    description: 'Records its context.',
+    version: '1.0.0',
+    input: {
+      type: 'object',
+      properties: {
+        q: { type: 'string' },
+        projectId: { type: 'string' },
+        orgId: { type: 'string' },
+      },
+      required: ['q'],
+      additionalProperties: false,
+    },
+    output: {
+      type: 'object',
+      properties: { ok: { type: 'boolean' } },
+      required: ['ok'],
+      additionalProperties: false,
+    },
+    effects: [],
+    handler: async (_input, ctx) => {
+      seen = ctx;
+      return { ok: true };
+    },
+  });
+  if (defined.kind === 'err') throw new Error(defined.error.message);
+  const tool = defined.value as unknown as AnyTool;
+
+  let seq = 0;
+  const agent = { id: 'pack.agent', version: '1.0.0' } as unknown as Agent;
+  const ctx = {
+    input: { tenantId: 't-1' as TenantId, conversationId: 'conv-1', agent, ...input },
+    bindings: {
+      conversationBinding: {
+        appendMessage: async (m: Record<string, unknown>) => ({
+          kind: 'ok',
+          value: { id: `msg-${++seq}`, ...m },
+        }),
+      },
+    },
+    tools: {
+      definitions: [],
+      byName: new Map([[tool.id, { tool, resolvedVersion: '1.0.0', requestedRange: '^1.0.0' }]]),
+    },
+    turnAbort: new AbortController(),
+    appended: [],
+    hitlPolicy: resolveEffectiveHitlPolicy({ tenant: undefined, agent }),
+  } as unknown as TurnContext;
+
+  const handler = buildDispatchToolsHandler(ctx);
+  await handler(
+    {
+      step: 1,
+      finishReason: 'tool-use',
+      message: {
+        role: 'assistant',
+        content: '',
+        toolCalls: [{ id: 'call-7', name: 'pack.probe', arguments: args }],
+      },
+      iterationUsage: { promptTokens: 0, completionTokens: 0 },
+      provider: { id: 'p', model: 'm' },
+      nextMessages: [],
+    },
+    testNodeContext({ runId: 'run-42' as RunId }),
+  );
+  return seen;
+}
+
 describe('dispatch-tools — the context a tool receives', () => {
   test('runId is the kernel run; requestId is the model call', async () => {
-    let seen: ToolContext | undefined;
-    const defined = defineTool<{ q: string }, { ok: boolean }>({
-      id: 'pack.probe' as ToolId,
-      description: 'Records its context.',
-      version: '1.0.0',
-      input: {
-        type: 'object',
-        properties: { q: { type: 'string' } },
-        required: ['q'],
-        additionalProperties: false,
-      },
-      output: {
-        type: 'object',
-        properties: { ok: { type: 'boolean' } },
-        required: ['ok'],
-        additionalProperties: false,
-      },
-      effects: [],
-      handler: async (_input, ctx) => {
-        seen = ctx;
-        return { ok: true };
-      },
-    });
-    if (defined.kind === 'err') throw new Error(defined.error.message);
-    const tool = defined.value as unknown as AnyTool;
-
-    let seq = 0;
-    const agent = { id: 'pack.agent', version: '1.0.0' } as unknown as Agent;
-    const ctx = {
-      input: { tenantId: 't-1' as TenantId, conversationId: 'conv-1', agent },
-      bindings: {
-        conversationBinding: {
-          appendMessage: async (m: Record<string, unknown>) => ({
-            kind: 'ok',
-            value: { id: `msg-${++seq}`, ...m },
-          }),
-        },
-      },
-      tools: {
-        definitions: [],
-        byName: new Map([[tool.id, { tool, resolvedVersion: '1.0.0', requestedRange: '^1.0.0' }]]),
-      },
-      turnAbort: new AbortController(),
-      appended: [],
-      hitlPolicy: resolveEffectiveHitlPolicy({ tenant: undefined, agent }),
-    } as unknown as TurnContext;
-
-    const handler = buildDispatchToolsHandler(ctx);
-    await handler(
-      {
-        step: 1,
-        finishReason: 'tool-use',
-        message: {
-          role: 'assistant',
-          content: '',
-          toolCalls: [{ id: 'call-7', name: 'pack.probe', arguments: { q: 'x' } }],
-        },
-        iterationUsage: { promptTokens: 0, completionTokens: 0 },
-        provider: { id: 'p', model: 'm' },
-        nextMessages: [],
-      },
-      testNodeContext({ runId: 'run-42' as RunId }),
-    );
-
+    const seen = await contextSeen({ projectId: 'project-1' });
     expect(seen?.runId).toBe('run-42');
     expect(seen?.requestId).toBe('call-7');
     expect(seen?.tenantId).toBe('t-1');
+  });
+
+  test("the run's project and org, never the model's arguments", async () => {
+    const seen = await contextSeen(
+      { projectId: 'project-1', orgId: 'org-1' },
+      { q: 'x', projectId: 'project-other', orgId: 'org-other' },
+    );
+    expect(seen?.projectId).toBe('project-1');
+    expect(seen?.orgId).toBe('org-1');
+  });
+
+  test('a project without an org: no orgId', async () => {
+    const seen = await contextSeen({ projectId: 'project-1' });
+    expect(seen?.projectId).toBe('project-1');
+    expect(seen).not.toHaveProperty('orgId');
   });
 });

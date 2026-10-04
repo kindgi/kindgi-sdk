@@ -103,6 +103,10 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
 - `ctx.run_id` — the run (an agent turn or a flow step) the call belongs to.
 - `ctx.request_id` — this call, e.g. the model's tool-call id; useful
   for logs and idempotency keys.
+- `ctx.project_id`, `ctx.org_id` — the run's project, and that project's
+  org (`None` when it has none). The runtime sets them from the run, never
+  from the input: to check an org or project id the input names, compare
+  it with these instead of trusting it.
 - `ctx.cancellation` — fires when the call's deadline passes or the
   caller disconnects. An `async def` handler is also cancelled at its
   next `await`. A `def` handler keeps running in its thread: check

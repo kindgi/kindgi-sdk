@@ -573,6 +573,9 @@ async function dispatchOne(
   const toolCtx: ToolContext = {
     tenantId: ctx.input.tenantId,
     runId,
+    // The run's own project and org, never the model's arguments.
+    projectId: ctx.input.projectId,
+    ...(ctx.input.orgId !== undefined && { orgId: ctx.input.orgId }),
     requestId: call.id,
     abortSignal: ctx.turnAbort.signal,
     // HTTP tools built via defineTool({spec: {kind: 'http'}}) resolve declared
