@@ -35,7 +35,7 @@ The runtime image is in private preview: request access at contact@kindgi.com
 
 ```sh
 docker login quay.io
-docker pull quay.io/kindgi/runtime:0.1.0
+docker pull quay.io/kindgi/runtime:0.1.1
 ```
 
 ## 2. Start Postgres and a registry
@@ -52,8 +52,8 @@ docker run -d --name kindgi-db --network kindgi \
 docker run -d --name kindgi-registry -p 127.0.0.1:5050:5000 registry:2
 ```
 
-:::caution[Postgres in 0.1.0]
-The runtime needs **Postgres 16 with pgvector**, and its database user must be a **superuser**. The official image's `POSTGRES_USER` is one. Managed Postgres where no user is a superuser (Cloud SQL, for example) isn't supported yet.
+:::note[Postgres]
+The runtime needs **Postgres 16 with pgvector**. Its database user needn't be a superuser: it needs `CREATEROLE` and to own the runtime's database (the migrations create the restricted role that tenant queries run as), so managed Postgres such as Cloud SQL, Amazon RDS or AlloyDB works. Create the `vector` extension once, as a user allowed to: `CREATE EXTENSION IF NOT EXISTS vector`. The official image's `POSTGRES_USER` has all of this. With Kindgi 0.1.0, the user had to be a superuser.
 :::
 
 The runtime verifies your pack's image by reading it from a registry. On one machine with Docker Desktop, the name `registry.localhost` reaches the local registry from two places:
@@ -159,7 +159,7 @@ Start the runtime:
 docker run -d --name kindgi-server --network kindgi \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.0
+  quay.io/kindgi/runtime:0.1.1
 ```
 
 ## 6. Check it
@@ -261,7 +261,7 @@ pnpm exec kindgi runs start --flow=acme-pack.echo-flow --input='{"name":"Ada"}' 
 The flow's tool step ran in your pack's container, and its agent step answered with the model; what the reply says depends on the model. A first call can outlast the agent's time budget while the model loads; run it again.
 
 :::note[Models that need a key]
-A provider that needs an API key (Anthropic, OpenAI, Gemini) keeps it in the runtime's secrets store. In 0.1.0 that's Postgres with Google Cloud KMS: `KINDGI_SECRETS_BACKEND=postgres`, `KINDGI_SECRETS_BACKEND_KMS=gcp` and their settings, in the [reference](../../reference/env-vars/). A keyless endpoint (Ollama, vLLM) needs no secrets store.
+A provider that needs an API key (Anthropic, OpenAI, Gemini) keeps it in the runtime's secrets store. In 0.1 that's Postgres with Google Cloud KMS: `KINDGI_SECRETS_BACKEND=postgres`, `KINDGI_SECRETS_BACKEND_KMS=gcp` and their settings, in the [reference](../../reference/env-vars/). A keyless endpoint (Ollama, vLLM) needs no secrets store.
 :::
 
 ## Clean up
