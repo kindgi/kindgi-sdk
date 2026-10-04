@@ -26,7 +26,8 @@
  *     app's own `zod` is kept; one before zod 4 is reported.
  *   - `.gitignore`: Kindgi's local-state patterns
  *   - in a pnpm app, `pnpm-workspace.yaml` (the workspace root's, or a new
- *     one): `allowBuilds.esbuild: true`, without which pnpm 11+ refuses to
+ *     one): a decision for esbuild's install script, `allowBuilds.esbuild:
+ *     false` (esbuild works without it), without which pnpm 11+ refuses to
  *     install `@kindgi/cli` (`pnpm-workspace-patcher.ts`)
  *
  * What augment mode does NOT write:
@@ -58,7 +59,12 @@ import {
 import { type KindgiDependencySpecs, resolveKindgiDependencySpecs } from './dependency-specs.js';
 import { patchGitignore, patchPrettierignore } from './gitignore-patcher.js';
 import { type WantedDependency, patchPackageJson } from './package-json-patcher.js';
-import { ESBUILD, patchPnpmWorkspace, pnpmWorkspaceFileFor } from './pnpm-workspace-patcher.js';
+import {
+  ESBUILD,
+  ESBUILD_DECISION,
+  patchPnpmWorkspace,
+  pnpmWorkspaceFileFor,
+} from './pnpm-workspace-patcher.js';
 import {
   type Substitutions,
   collectTemplateFiles,
@@ -666,7 +672,7 @@ async function applyAugmentPatches(args: {
   }
 
   if (args.packageManager === 'pnpm') {
-    const workspace = await allowEsbuildInPnpm(args.targetDir);
+    const workspace = await decideEsbuildInPnpm(args.targetDir);
     if (workspace.kind === 'err') return workspace;
     created.push(...workspace.created);
     skipped.push(...workspace.skipped);
@@ -676,8 +682,11 @@ async function applyAugmentPatches(args: {
   return { kind: 'ok', created, skipped, warnings };
 }
 
-/** `allowBuilds.esbuild: true` in the `pnpm-workspace.yaml` pnpm reads for the app. */
-async function allowEsbuildInPnpm(targetDir: string): Promise<PatchesResult> {
+/**
+ * A decision for esbuild's install script (`allowBuilds.esbuild: false`) in
+ * the `pnpm-workspace.yaml` pnpm reads for the app, unless it has one.
+ */
+async function decideEsbuildInPnpm(targetDir: string): Promise<PatchesResult> {
   const path = await pnpmWorkspaceFileFor(targetDir);
   const setting = `allowBuilds.${ESBUILD}`;
   const result = await patchPnpmWorkspace(path);
@@ -686,28 +695,22 @@ async function allowEsbuildInPnpm(targetDir: string): Promise<PatchesResult> {
     case 'error':
       return { kind: 'err', stderr: `Failed to patch ${path}: ${result.message}\n` };
     case 'created':
-      rows.created.push(`${path} (created: ${setting}: true)`);
+      rows.created.push(`${path} (created: ${setting}: ${ESBUILD_DECISION})`);
       break;
     case 'patched':
       rows.created.push(
         result.change === 'placeholder'
-          ? `${path} (patched: ${setting} set to true, replacing pnpm's placeholder)`
-          : `${path} (patched: +${setting}: true)`,
+          ? `${path} (patched: ${setting} set to ${ESBUILD_DECISION}, replacing pnpm's placeholder)`
+          : `${path} (patched: +${setting}: ${ESBUILD_DECISION})`,
       );
       break;
-    case 'already-allowed':
-      rows.skipped.push(`${path} (${setting} already true)`);
-      break;
-    case 'declined':
-      rows.skipped.push(`${path} (${setting} is false, left as is)`);
-      rows.warnings.push(
-        `pnpm: ${path} sets ${setting} to false, so pnpm skips esbuild's install script, left as is. Kindgi bundles the pack with esbuild: if \`kindgi dev\` fails to bundle the pack, set it to true.`,
-      );
+    case 'already-decided':
+      rows.skipped.push(`${path} (${setting} already ${result.value})`);
       break;
     case 'refused':
       rows.skipped.push(`${path} (not edited: ${result.reason})`);
       rows.warnings.push(
-        `pnpm: couldn't add ${setting}: true to ${path} (${result.reason}). Add it by hand — without it, pnpm 11+ stops \`pnpm install\` with ERR_PNPM_IGNORED_BUILDS.`,
+        `pnpm: couldn't add ${setting}: ${ESBUILD_DECISION} to ${path} (${result.reason}). Add it by hand: without a decision for esbuild's install script, pnpm 11+ stops \`pnpm install\` with ERR_PNPM_IGNORED_BUILDS.`,
       );
       break;
   }
