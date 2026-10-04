@@ -533,6 +533,7 @@ describe('runIndexer — Zod schemas', () => {
               check: 'acme.checks.threshold',
               action: { 'on-violation': 'halt' },
               configZod: ConfigZod,
+              config: { threshold: 0.5 },
             },
           },
         },
@@ -549,6 +550,83 @@ describe('runIndexer — Zod schemas', () => {
 
     const parsed = await readValidIndex(outcome.value.outputPath);
     expect(parsed.guardrails[0].configSchema).toEqual(z.toJSONSchema(ConfigZod, { io: 'input' }));
+  });
+
+  describe("a guardrail's config is checked against its configSchema", () => {
+    /** Index a pack whose one guardrail has `fields` added. */
+    async function indexGuardrail(fields: Record<string, unknown>) {
+      const fixture = await makeFixture({
+        files: {
+          'kindgi.config.mjs': config(),
+          'tools/echo.mjs': toolModule(),
+          'guardrails/limit.mjs': {
+            module: {
+              default: {
+                id: 'acme.limit',
+                kind: 'zero-llm',
+                check: 'acme.checks.limit',
+                action: { 'on-violation': 'halt' },
+                ...fields,
+              },
+            },
+          },
+        },
+      });
+      return runIndexer({
+        packDir: fixture.packDir,
+        publishedAt: FIXED_TIMESTAMP,
+        importModule: fixture.importModule,
+      });
+    }
+
+    /** The one file error, and that the guardrail isn't in the index (`kindgi build` refuses). */
+    async function rejected(outcome: Awaited<ReturnType<typeof indexGuardrail>>) {
+      expect(outcome.kind).toBe('ok');
+      if (outcome.kind !== 'ok') throw new Error('expected the index to be written');
+      expect((await readValidIndex(outcome.value.outputPath)).guardrails).toEqual([]);
+      expect(outcome.value.fileErrors).toHaveLength(1);
+      return outcome.value.fileErrors[0];
+    }
+
+    test("a config that doesn't fit is a file error, naming the guardrail and where", async () => {
+      const error = await rejected(
+        await indexGuardrail({
+          configZod: z.object({ maxChars: z.number().int().min(0) }),
+          config: { maxChars: -5 },
+        }),
+      );
+      expect(error).toMatchObject({
+        code: 'manifest-validation-failed',
+        field: 'config',
+        filePath: 'guardrails/limit.mjs',
+        message:
+          "guardrails/limit.mjs: guardrail acme.limit's config doesn't fit its configSchema at /maxChars: must be >= 0",
+      });
+    });
+
+    test('no config, with a required field that has no default: a file error', async () => {
+      const error = await rejected(
+        await indexGuardrail({ configZod: z.object({ maxChars: z.number().int().min(0) }) }),
+      );
+      expect(error?.message).toContain(
+        "guardrail acme.limit's config doesn't fit its configSchema: must have required property 'maxChars'",
+      );
+    });
+
+    test('a config that is not an object: a file error', async () => {
+      const error = await rejected(await indexGuardrail({ config: 'strict' }));
+      expect(error?.message).toContain("guardrail acme.limit's config must be an object");
+    });
+
+    test('no config, and every field has a default: indexed, the config kept as declared', async () => {
+      const outcome = await indexGuardrail({
+        configZod: z.object({ minLength: z.number().int().min(0).default(1) }),
+      });
+      expect(outcome.kind).toBe('ok');
+      if (outcome.kind !== 'ok') return;
+      const parsed = await readValidIndex(outcome.value.outputPath);
+      expect(parsed.guardrails[0].config).toBeUndefined();
+    });
   });
 
   test('Zod converter failure surfaces as zod-conversion-failed', async () => {
