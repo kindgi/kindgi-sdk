@@ -22,6 +22,8 @@ it, follows it, and reads what it returned; the journal records every step.
 - [Cancel a run](cancel-a-run/): stop a run that's running or waiting.
 - [List runs](list-runs/): the newest runs, page by page, and the runs inside
   a run.
+- [Show runs in your app](show-runs-in-your-app/): keep a run's id on your
+  own row, and read the rest through the API, not Kindgi's database.
 
 The examples use the flows from the [flow guides](../flows/), and a client
 for the Kindgi API: `@kindgi/sdk/client` in TypeScript, `kindgi.client` in
