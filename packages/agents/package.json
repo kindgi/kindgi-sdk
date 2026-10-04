@@ -45,7 +45,7 @@
     "@kindgi/schema": "workspace:*",
     "@kindgi/tools": "workspace:*",
     "@kindgi/types": "workspace:*",
-    "drizzle-orm": "^0.36.4",
+    "drizzle-orm": "^0.45.3",
     "liquidjs": "^10.29.0"
   },
   "peerDependencies": {
