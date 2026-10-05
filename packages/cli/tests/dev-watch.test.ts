@@ -12,7 +12,6 @@
  * separately, for one thing only: that its events reach the watcher.
  */
 
-import { watch } from 'node:fs';
 import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -21,6 +20,7 @@ import { type Mock, afterEach, beforeEach, describe, expect, test, vi } from 'vi
 
 import { type WatchEvents, watchPackReal } from '../src/dev/defaults.js';
 import type { WatchHandle } from '../src/dev/runners.js';
+import { untilReported } from './fs-events.js';
 
 let dir: string;
 let handle: WatchHandle | undefined;
@@ -210,56 +210,6 @@ describe('watchPackReal: which events count', () => {
 // The real file system
 // ---------------------------------------------------------------------------
 
-/**
- * How long to wait for the system to report a change at all. macOS's event
- * daemon can fall far behind on a busy machine, and drops events when it
- * does, so the change is made again every round until one is reported.
- */
-const SYSTEM_REPORTS_WITHIN_MS = 30_000;
-
-/** Once the system has reported the change, how long `watchPackReal` may take to pass it on. */
-const PASSED_ON_WITHIN_MS = 10_000;
-
-/**
- * Make `change` every round until `onChange` fires, beside a plain
- * `fs.watch` of the same folder that looks for the change's `name`. That
- * one is the control: once the system has reported the change to it,
- * `watchPackReal` must pass it on. When the system reports nothing at all
- * (its event service far behind, as macOS's gets on a busy machine), the
- * test is skipped and says so: that's the machine, not the watcher.
- */
-async function untilReported(
-  context: { skip(): void },
-  watched: { readonly folder: string; readonly recursive: boolean; readonly name: string },
-  onChange: Mock,
-  change: () => Promise<void>,
-): Promise<void> {
-  let reportedAt: number | undefined;
-  const control = watch(watched.folder, { recursive: watched.recursive }, (_event, filename) => {
-    if (filename === watched.name) reportedAt ??= Date.now();
-  });
-  const giveUpAt = Date.now() + SYSTEM_REPORTS_WITHIN_MS;
-  try {
-    while (onChange.mock.calls.length === 0) {
-      if (reportedAt !== undefined && Date.now() > reportedAt + PASSED_ON_WITHIN_MS) {
-        throw new Error(
-          `the system reported ${watched.name} ${Date.now() - reportedAt} ms ago; watchPackReal hasn't`,
-        );
-      }
-      if (reportedAt === undefined && Date.now() > giveUpAt) {
-        console.warn(
-          `skipped: the system reported no change to ${watched.folder} in ${SYSTEM_REPORTS_WITHIN_MS} ms`,
-        );
-        context.skip();
-      }
-      await change();
-      await new Promise((resolve) => setTimeout(resolve, 250));
-    }
-  } finally {
-    control.close();
-  }
-}
-
 describe('watchPackReal on the real file system', { timeout: 60_000 }, () => {
   test('a file written under a discovery root is reported', async (context) => {
     const onChange = vi.fn();
@@ -268,7 +218,7 @@ describe('watchPackReal on the real file system', { timeout: 60_000 }, () => {
     await untilReported(
       context,
       { folder: tools, recursive: true, name: 'echo.ts' },
-      onChange,
+      () => onChange.mock.calls.length > 0,
       () => writeFile(join(tools, 'echo.ts'), `export default {}; // ${Date.now()}\n`),
     );
   });
@@ -285,7 +235,7 @@ describe('watchPackReal on the real file system', { timeout: 60_000 }, () => {
     await untilReported(
       context,
       { folder: tools, recursive: true, name: 'echo' },
-      onChange,
+      () => onChange.mock.calls.length > 0,
       async () => {
         await (out ? rename(trashed, inPack) : rename(inPack, trashed));
         out = !out;
@@ -300,8 +250,11 @@ describe('watchPackReal on the real file system', { timeout: 60_000 }, () => {
       patterns: PATTERNS,
       files: [join(dir, '.env')],
     });
-    await untilReported(context, { folder: dir, recursive: false, name: '.env' }, onChange, () =>
-      writeFile(join(dir, '.env'), `X=${Date.now()}\n`),
+    await untilReported(
+      context,
+      { folder: dir, recursive: false, name: '.env' },
+      () => onChange.mock.calls.length > 0,
+      () => writeFile(join(dir, '.env'), `X=${Date.now()}\n`),
     );
   });
 });
