@@ -981,6 +981,12 @@ export interface Conversation {
   readonly agentVersion: string;
   readonly title: string;
   readonly participantId?: string;
+  /**
+   * The project the conversation is in: the project of the run that
+   * opened it, or `projectId` on open (the tenant's Default project when
+   * omitted). Absent on conversations from before 0.1.3.
+   */
+  readonly projectId?: string;
   /** Structural scope (project id, matter id, etc.). */
   readonly scope: Readonly<Record<string, unknown>>;
   readonly status: ConversationStatus;
@@ -999,6 +1005,11 @@ export interface Conversation {
 export interface OpenConversationInput {
   readonly agentId: import('@kindgi/types').AgentId;
   readonly agentVersion: string;
+  /**
+   * Put the conversation in a project (one of the tenant's): lists filter
+   * by it. Omitted: the tenant's Default project, as for a run.
+   */
+  readonly projectId?: string;
   readonly scope?: Readonly<Record<string, unknown>>;
   readonly participantId?: string;
   readonly title?: string;
@@ -1223,6 +1234,8 @@ export interface ProvenanceRecordMetadata {
     readonly version: string;
   };
   readonly signed: boolean;
+  /** The project of the record's run; absent on records from before 0.1.3. */
+  readonly projectId?: string;
 }
 
 /**
@@ -1244,6 +1257,8 @@ export interface ExportedProvenance {
 }
 
 export interface ProvenanceQueryFilter extends Filter {
+  /** Only one project's records (`kind: 'project'`), or every project's in an org (`kind: 'org'`). */
+  readonly scope?: import('./scope-wire.js').ScopeRef;
   readonly runId?: import('@kindgi/types').RunId;
   readonly agentId?: import('@kindgi/types').AgentId;
   /** ISO 8601 timestamp — server filters `createdAt > createdAfter`. */
@@ -1404,7 +1419,7 @@ export interface CostRecordFilter extends Filter {
   /** The exact model version the vendor reported. */
   readonly servedModel?: string;
   /** Records in this scope: a project, or every project of an org. */
-  readonly scope?: import('@kindgi/platform').Scope;
+  readonly scope?: import('./scope-wire.js').ScopeRef;
   readonly from?: import('@kindgi/types').Timestamp;
   /** Exclusive. */
   readonly to?: import('@kindgi/types').Timestamp;
@@ -2051,7 +2066,7 @@ export interface RegisterMcpEndpointInput {
    */
   readonly secretRef?: McpEndpointSecretRef;
   /** The scope the endpoint is registered in; authorization checks it. */
-  readonly scope: import('@kindgi/platform').Scope;
+  readonly scope: import('./scope-wire.js').ScopeRef;
 }
 
 /**

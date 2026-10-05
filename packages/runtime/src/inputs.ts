@@ -4,7 +4,7 @@
 import type { Principal } from '@kindgi/authz';
 import type { Flow } from '@kindgi/flow';
 import type { HandlerRegistry } from '@kindgi/handler';
-import type { NodeId, ProjectId, Result, RunId, TenantId } from '@kindgi/types';
+import type { ConversationId, NodeId, ProjectId, Result, RunId, TenantId } from '@kindgi/types';
 
 import type { HandlerMissingError } from './errors.js';
 import type { KernelEventBusBinding } from './event-bus.js';
@@ -42,6 +42,18 @@ export interface ParentRunRef {
    * loop.
    */
   readonly scope: string;
+}
+
+/**
+ * The agent an agent turn's run is for: which agent, at which version, in
+ * which conversation. Stored on the run's row when the run starts, so the
+ * run record names it; set on the runs of `agent.turn` (an agent run, or
+ * a flow's agent step) and on no other run.
+ */
+export interface RunAgentRef {
+  readonly id: string;
+  readonly version: string;
+  readonly conversationId: ConversationId;
 }
 
 /**
@@ -87,10 +99,12 @@ export interface RunFlowInput {
   readonly subgraphDepth?: number;
   /** The parent node that started this run, when it is a child run. */
   readonly parent?: ParentRunRef;
+  /** The agent this run is a turn of; see `RunAgentRef`. */
+  readonly agent?: RunAgentRef;
   /**
    * Run an existing `pending` row (created by `startRun`) instead of
    * inserting a new one — how a caller hands back a run id before the
-   * run finishes.
+   * run finishes. The row keeps what `startRun` stored (`agent` too).
    */
   readonly runId?: RunId;
   /** Handlers for child flows; see `HandlerResolver`. */
@@ -154,6 +168,8 @@ export interface StartRunParams {
   readonly dryRun?: boolean;
   /** The parent node that starts this run, when it is a child run. */
   readonly parent?: ParentRunRef;
+  /** The agent this run is a turn of; see `RunAgentRef`. */
+  readonly agent?: RunAgentRef;
 }
 
 export type StartRunError = { readonly code: 'insert-failed'; readonly message: string };

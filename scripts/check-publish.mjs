@@ -21,7 +21,8 @@
  *     apps require() the ES modules, from Node 22.12. An export path ending
  *     in `-main` is a program, run with `node`: it stays import-only.
  *
- * Also: the Python SDK (`sdks/python`) shares the npm packages' major.minor.
+ * The Python SDK's version (the npm packages', exactly) is
+ * `scripts/sync-python-version.mjs --check`'s, not this script's.
  *
  * publint and attw run for several packages at once (`KINDGI_PUBLISH_CHECK_JOBS`,
  * default 6): one at a time they took two minutes for 38 packages.
@@ -179,30 +180,11 @@ tools.forEach(([name, label], i) => {
   if (results[i] !== undefined) problems.push(`${name}: ${label}\n${results[i]}`);
 });
 
-// The Python SDK (`kindgi`, PyPI) shares the npm packages' major.minor: a
-// published CLI writes `kindgi` within its own minor for Python packs
-// (`kindgiRequirement`), so the two must move together. Patches may differ.
-const npmVersion = JSON.parse(
-  readFileSync(join(root, 'packages/sdk/package.json'), 'utf8'),
-).version;
-const pyproject = readFileSync(join(root, 'sdks/python/pyproject.toml'), 'utf8');
-const pythonVersion = /^version = "([^"]+)"$/m.exec(pyproject)?.[1];
-const minorOf = (v) =>
-  /^(\d+)\.(\d+)\./
-    .exec(v ?? '')
-    ?.slice(1, 3)
-    .join('.');
-if (minorOf(pythonVersion) === undefined || minorOf(pythonVersion) !== minorOf(npmVersion)) {
-  problems.push(
-    `kindgi (sdks/python) ${pythonVersion ?? '(no version)'} must share the npm packages' major.minor (${npmVersion}): a published CLI writes kindgi within its own minor`,
-  );
-}
-
 if (problems.length > 0) {
   console.error('\nPublish-readiness FAILED:\n');
   for (const p of problems) console.error(`  ${p}\n`);
   process.exit(1);
 }
 console.log(
-  `Publish-readiness OK — ${checked} publishable package(s) checked; kindgi ${pythonVersion} shares their minor. ${cjsSummary.trim()}`,
+  `Publish-readiness OK — ${checked} publishable package(s) checked. ${cjsSummary.trim()}`,
 );

@@ -152,7 +152,7 @@ async function dispatchUnder(
   const enqueued: Record<string, unknown>[] = [];
   const waits: { readonly tokenId: string; readonly timeoutMs: number }[] = [];
   const ctx = {
-    input: { tenantId: 't-1' as TenantId, conversationId: 'conv-1', agent: a },
+    input: { tenantId: 't-1' as TenantId, projectId: 'p-1', conversationId: 'conv-1', agent: a },
     bindings: {
       conversationBinding: {
         appendMessage: async (m: Record<string, unknown>) => ({
@@ -208,7 +208,12 @@ describe("dispatch-tools — the tenant's per-tool rules", () => {
       tools: { 'pack.lookup': { mode: 'always_ask', requiredRole: 'admin' } },
     });
     expect(enqueued).toHaveLength(1);
-    expect(enqueued[0]).toMatchObject({ subjectKind: 'tool-call:pending', requiredRole: 'admin' });
+    // In the turn's project, so approval lists filter by it.
+    expect(enqueued[0]).toMatchObject({
+      subjectKind: 'tool-call:pending',
+      requiredRole: 'admin',
+      projectId: 'p-1',
+    });
     expect(waits).toEqual([{ tokenId: expect.any(String), timeoutMs: HOUR }]);
     expect(ran).toEqual([{ q: 'x' }]);
   });

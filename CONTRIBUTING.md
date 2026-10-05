@@ -67,7 +67,15 @@ A check on the pull request asks for any of them that's missing.
 
 ## Releases
 
-All `@kindgi/*` packages share one version (Changesets fixed group).
+All `@kindgi/*` packages share one version (Changesets fixed group), and
+the Python SDK (`kindgi` on PyPI, `sdks/python`) ships with that same
+version. Nobody sets the Python version by hand:
+`pnpm run version-packages` runs `scripts/sync-python-version.mjs` after
+`changeset version`, which writes the new version to `pyproject.toml` and
+re-locks `uv.lock` (it needs uv). CI fails when they differ
+(`pnpm run check:python-version`), and so do both publish jobs. A
+prerelease is `-alpha.N`, `-beta.N` or `-rc.N` (`aN`, `bN`, `rcN` on
+PyPI); the script refuses any other.
 
 1. Every user-visible change adds a changeset: `pnpm changeset`.
 2. Merging to `main` updates the "Version Packages" pull request
@@ -77,4 +85,5 @@ All `@kindgi/*` packages share one version (Changesets fixed group).
    `pnpm run ci:local` on its branch first, so the docs tutorials pass
    against the release.
 4. Publishing is a manual, approved run of the **Release** workflow
-   (npm trusted publishing with provenance — no tokens).
+   (npm trusted publishing with provenance, and PyPI trusted publishing
+   with attestations — no tokens).

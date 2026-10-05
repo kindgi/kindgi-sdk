@@ -127,11 +127,13 @@ export async function postDeploymentReal(
     };
   }
 
+  const replay = res.headers.get('x-idempotent-replay') === 'true' && { idempotentReplay: true };
   if (res.status === 201) {
     return {
       kind: 'created',
       status: 201,
       record: body as DeploymentRecord,
+      ...replay,
     };
   }
   if (res.status === 200) {
@@ -139,6 +141,7 @@ export async function postDeploymentReal(
       kind: 'replayed',
       status: 200,
       record: body as DeploymentRecord,
+      ...replay,
     };
   }
 
@@ -152,6 +155,7 @@ export async function postDeploymentReal(
   return {
     kind: 'wire-error',
     status: res.status,
+    ...replay,
     error: { code, message, ...(details !== undefined && { details }) },
   };
 }

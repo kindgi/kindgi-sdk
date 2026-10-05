@@ -224,6 +224,30 @@
           "cancelled"
         ]
       },
+      "RunAgent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "conversationId"
+        ],
+        "description": "Set on an agent's turn (an agent run, or the turn a flow's agent step started): the agent, the version that ran and the conversation. Absent on other runs, and on turns that ran before Kindgi 0.1.3.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The agent id."
+          },
+          "version": {
+            "type": "string",
+            "description": "The agent version that ran (semver)."
+          },
+          "conversationId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "Run": {
         "type": "object",
         "additionalProperties": false,
@@ -298,6 +322,9 @@
           "parentNodeId": {
             "type": "string",
             "description": "Set on a child run: the node in the parent run that started it."
+          },
+          "agent": {
+            "$ref": "#/components/schemas/RunAgent"
           },
           "publicAccessToken": {
             "type": "string",
@@ -510,6 +537,9 @@
                 "parentNodeId": {
                   "type": "string",
                   "description": "Set on a child run: the node in the parent run that started it."
+                },
+                "agent": {
+                  "$ref": "#/components/schemas/RunAgent"
                 },
                 "publicAccessToken": {
                   "type": "string",
@@ -3656,6 +3686,11 @@
           "participantId": {
             "type": "string"
           },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The project the conversation is in: the project of the run that opened it, or `projectId` on open (the tenant's Default project when omitted). Absent on conversations from before Kindgi 0.1.3; those are listed only without a scope."
+          },
           "scope": {
             "type": "object",
             "additionalProperties": true,
@@ -3764,6 +3799,11 @@
           "title": {
             "type": "string",
             "description": "Optional. Defaults to `\"Untitled conversation\"` when omitted."
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The project the conversation is in; `GET /v1/conversations?scopeKind=project&scopeId=…` lists it. A project of the caller's tenant, else `400 bad-input`. Omitted: the tenant's Default project, as for a run."
           },
           "scope": {
             "type": "object",
@@ -4908,6 +4948,11 @@
           "createdAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The project of the record's run. Absent on records from before Kindgi 0.1.3; those are listed only without a scope."
           }
         }
       },
@@ -11443,7 +11488,7 @@
             }
           },
           "400": {
-            "description": "Malformed cursor or filter.",
+            "description": "Malformed cursor, filter or scope.",
             "content": {
               "application/json": {
                 "schema": {
@@ -11487,6 +11532,25 @@
             "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
+            "name": "scopeKind",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/ScopeKind"
+            },
+            "required": false,
+            "description": "Optional scope discriminator. If absent, no scope filter is applied."
+          },
+          {
+            "name": "scopeId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Required IF scopeKind is `org` or `project`. MUST be absent if scopeKind=`tenant` (tenant is implicit from the session). Malformed combinations return 400 scope-invalid."
+          },
+          {
             "name": "parentRunId",
             "in": "query",
             "schema": {
@@ -11504,6 +11568,16 @@
             },
             "required": false,
             "description": "When true, only runs that are not a child of another run."
+          },
+          {
+            "name": "agentId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Only this agent's turns, at any version. Turns that ran before Kindgi 0.1.3 don't name their agent and aren't matched."
           },
           {
             "name": "include",
@@ -11539,6 +11613,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Run"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`runId` is not a run id (a UUID).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
                 }
               }
             }
@@ -11799,6 +11883,16 @@
               }
             }
           },
+          "400": {
+            "description": "`runId` is not a run id (a UUID).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
             "content": {
@@ -11864,6 +11958,16 @@
               "text/event-stream": {
                 "schema": {
                   "$ref": "#/components/schemas/RunEvent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`runId` is not a run id (a UUID).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
                 }
               }
             }
@@ -11936,6 +12040,16 @@
               }
             }
           },
+          "400": {
+            "description": "`runId` is not a run id (a UUID).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
             "content": {
@@ -11994,6 +12108,16 @@
               "text/event-stream": {
                 "schema": {
                   "$ref": "#/components/schemas/RunProgressEvent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`runId` is not a run id (a UUID).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
                 }
               }
             }
@@ -12869,7 +12993,7 @@
             }
           },
           "400": {
-            "description": "Malformed query parameter.",
+            "description": "Malformed query parameter or scope.",
             "content": {
               "application/json": {
                 "schema": {
@@ -12899,7 +13023,7 @@
             }
           }
         },
-        "description": "Requires the token to carry a `reviewerRole`. Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin).",
+        "description": "Requires the token to carry a `reviewerRole`. Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin). `scopeKind`/`scopeId` narrow to one project's approvals, or every project's in an org; approvals from before Kindgi 0.1.3 have no project and are listed only without a scope.",
         "parameters": [
           {
             "name": "limit",
@@ -12921,6 +13045,25 @@
             },
             "required": false,
             "description": "Opaque cursor from a prior response. Absent → first page."
+          },
+          {
+            "name": "scopeKind",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/ScopeKind"
+            },
+            "required": false,
+            "description": "Optional scope discriminator. If absent, no scope filter is applied."
+          },
+          {
+            "name": "scopeId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Required IF scopeKind is `org` or `project`. MUST be absent if scopeKind=`tenant` (tenant is implicit from the session). Malformed combinations return 400 scope-invalid."
           },
           {
             "name": "status",
@@ -15807,7 +15950,7 @@
             }
           },
           "400": {
-            "description": "Malformed query parameter.",
+            "description": "Malformed query parameter or scope.",
             "content": {
               "application/json": {
                 "schema": {
@@ -15827,7 +15970,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`.",
+        "description": "Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations from before Kindgi 0.1.3 have no project and are listed only without a scope.",
         "parameters": [
           {
             "name": "limit",
@@ -15849,6 +15992,25 @@
             },
             "required": false,
             "description": "Opaque cursor from a prior response. Absent → first page."
+          },
+          {
+            "name": "scopeKind",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/ScopeKind"
+            },
+            "required": false,
+            "description": "Optional scope discriminator. If absent, no scope filter is applied."
+          },
+          {
+            "name": "scopeId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Required IF scopeKind is `org` or `project`. MUST be absent if scopeKind=`tenant` (tenant is implicit from the session). Malformed combinations return 400 scope-invalid."
           },
           {
             "name": "agentId",
@@ -15932,7 +16094,7 @@
             }
           }
         },
-        "description": "Pins `(agentId, agentVersion)` at open time. `title` defaults to `\"Untitled conversation\"` when omitted; `scope` accepts arbitrary JSON.",
+        "description": "Pins `(agentId, agentVersion)` at open time. `title` defaults to `\"Untitled conversation\"` when omitted; `projectId` puts it in a project (lists filter by it; omitted, the Default project); `scope` accepts arbitrary JSON.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -17611,7 +17773,7 @@
             }
           },
           "400": {
-            "description": "Malformed cursor or `createdAfter` timestamp.",
+            "description": "Malformed cursor, `createdAfter` timestamp or scope.",
             "content": {
               "application/json": {
                 "schema": {
@@ -17631,7 +17793,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Metadata rows only — clients fetch the DAG payload via `GET /v1/provenance/{runId}`. Fixed sort: `createdAt desc, id desc`. Filters: `?runId=`, `?agentId=`, `?createdAfter=`.",
+        "description": "Cursor-paginated. Metadata rows only — clients fetch the DAG payload via `GET /v1/provenance/{runId}`. Fixed sort: `createdAt desc, id desc`. Filters: `?runId=`, `?agentId=`, `?createdAfter=`, and `scopeKind`/`scopeId` for one project's records, or every project's in an org (records from before Kindgi 0.1.3 have no project and are listed only without a scope).",
         "parameters": [
           {
             "name": "limit",
@@ -17653,6 +17815,25 @@
             },
             "required": false,
             "description": "Opaque cursor from a prior response. Absent → first page."
+          },
+          {
+            "name": "scopeKind",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/ScopeKind"
+            },
+            "required": false,
+            "description": "Optional scope discriminator. If absent, no scope filter is applied."
+          },
+          {
+            "name": "scopeId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Required IF scopeKind is `org` or `project`. MUST be absent if scopeKind=`tenant` (tenant is implicit from the session). Malformed combinations return 400 scope-invalid."
           },
           {
             "name": "runId",

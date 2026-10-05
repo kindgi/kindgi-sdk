@@ -12,6 +12,7 @@ import type { ReviewerRole } from '@kindgi/authz';
 import type {
   ApprovalId,
   Cursor,
+  ListScope,
   ProjectId,
   ProvenanceId,
   Result,
@@ -82,6 +83,8 @@ export interface ReviewDecision {
 export interface ListApprovalsBindingInput {
   readonly tenantId: TenantId;
   readonly limit: number;
+  /** Only one project's approvals, or every project's in an org. Absent: the tenant's. */
+  readonly scope?: ListScope;
   readonly status?: ApprovalStatus;
   readonly requiredRole?: ReviewerRole;
   readonly since?: Timestamp;

@@ -506,7 +506,7 @@ describe('kindgi deploy — response handling', () => {
     expect(out.stderr).toContain('--tenant');
   });
 
-  test('4xx signer-not-trusted → exit 1, hint about SigningKeyBinding', async () => {
+  test("4xx signer-not-trusted → exit 1, hint: kindgi key trust <the envelope's key>", async () => {
     await writeAutoEnvelope();
     const fixtures = makeFixtures({
       postResult: {
@@ -522,6 +522,53 @@ describe('kindgi deploy — response handling', () => {
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain('signer-not-trusted');
     expect(out.stderr).toContain('trust list');
+    expect(out.stderr).toContain(
+      '\n      kindgi key trust staging --url https://api.staging.example.com\n',
+    );
+    expect(out.stderr).not.toContain('SigningKeyBinding');
+    expect(out.stderr).not.toContain('This answer is a replay');
+  });
+
+  test('a refusal the server replays (a runtime before 0.1.3): says so, and how to retry', async () => {
+    await writeAutoEnvelope();
+    const fixtures = makeFixtures({
+      postResult: {
+        kind: 'wire-error',
+        status: 403,
+        idempotentReplay: true,
+        error: { code: 'signer-not-trusted', message: 'not on trust list' },
+      },
+    });
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      'This answer is a replay: an earlier request with the same Idempotency-Key',
+    );
+    expect(out.stderr).toContain('with a new key: --idempotency-key <new value>.');
+  });
+
+  test('a deployment answered from the record of an earlier request with the same key says so', async () => {
+    await writeAutoEnvelope();
+    const fixtures = makeFixtures();
+    const created = fixtures.runners.postDeployment;
+    const runners = {
+      ...fixtures.runners,
+      postDeployment: async (o: Parameters<typeof created>[0]) => {
+        const result = await created(o);
+        return result.kind === 'created' ? { ...result, idempotentReplay: true } : result;
+      },
+    };
+    const out = await runCli({
+      ...baseInputs({ ...fixtures, runners }),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(0);
+    expect(out.stderr).toContain(
+      "answered from the server's record of an earlier request with this Idempotency-Key",
+    );
   });
 
   test('5xx → exit 1, retryable hint', async () => {
@@ -539,7 +586,7 @@ describe('kindgi deploy — response handling', () => {
     });
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain('server error');
-    expect(out.stderr).toContain('Idempotent-safe to retry');
+    expect(out.stderr).toContain("check the runtime's logs, then run the same command again");
   });
 
   test('transport error → exit 1', async () => {
@@ -554,6 +601,7 @@ describe('kindgi deploy — response handling', () => {
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain('transport failure');
     expect(out.stderr).toContain('ECONNREFUSED');
+    expect(out.stderr).toContain("so a deploy that did land isn't registered twice");
   });
 });
 

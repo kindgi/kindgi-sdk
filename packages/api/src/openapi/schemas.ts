@@ -128,6 +128,23 @@ export const RunStatusSchema: JsonSchema = {
   enum: ['pending', 'running', 'suspended', 'completed', 'failed', 'cancelled'],
 };
 
+/**
+ * The agent a run is a turn of. A component of its own, so generated
+ * clients name it `RunAgent` (not after the `agent` property).
+ */
+export const RunAgentSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'version', 'conversationId'],
+  description:
+    "Set on an agent's turn (an agent run, or the turn a flow's agent step started): the agent, the version that ran and the conversation. Absent on other runs, and on turns that ran before Kindgi 0.1.3.",
+  properties: {
+    id: { type: 'string', description: 'The agent id.' },
+    version: { type: 'string', description: 'The agent version that ran (semver).' },
+    conversationId: { type: 'string', format: 'uuid' },
+  },
+};
+
 export const RunSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -167,6 +184,7 @@ export const RunSchema: JsonSchema = {
       type: 'string',
       description: 'Set on a child run: the node in the parent run that started it.',
     },
+    agent: { $ref: '#/components/schemas/RunAgent' },
     publicAccessToken: {
       type: 'string',
       description:
@@ -1675,6 +1693,12 @@ export const ConversationSchema: JsonSchema = {
     agentVersion: { type: 'string', description: 'Semver.' },
     title: { type: 'string' },
     participantId: { type: 'string' },
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        "The project the conversation is in: the project of the run that opened it, or `projectId` on open (the tenant's Default project when omitted). Absent on conversations from before Kindgi 0.1.3; those are listed only without a scope.",
+    },
     scope: {
       type: 'object',
       additionalProperties: true,
@@ -1728,6 +1752,12 @@ export const OpenConversationBodySchema: JsonSchema = {
     title: {
       type: 'string',
       description: 'Optional. Defaults to `"Untitled conversation"` when omitted.',
+    },
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        "The project the conversation is in; `GET /v1/conversations?scopeKind=project&scopeId=…` lists it. A project of the caller's tenant, else `400 bad-input`. Omitted: the tenant's Default project, as for a run.",
     },
     scope: {
       type: 'object',
@@ -2506,6 +2536,12 @@ export const ProvenanceRecordMetadataSchema: JsonSchema = {
         'True when the emission-time signature is present. Independent of whether the export route can produce a signed bundle.',
     },
     createdAt: { type: 'string', format: 'date-time' },
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        "The project of the record's run. Absent on records from before Kindgi 0.1.3; those are listed only without a scope.",
+    },
   },
 };
 
@@ -6192,6 +6228,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['WireError', WireErrorSchema],
   ['HealthResult', HealthResultSchema],
   ['RunStatus', RunStatusSchema],
+  ['RunAgent', RunAgentSchema],
   ['Run', RunSchema],
   ['StartRunOptions', StartRunOptionsSchema],
   ['StartRunBody', StartRunBodySchema],

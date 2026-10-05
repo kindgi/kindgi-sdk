@@ -148,6 +148,7 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
         try {
           await ctx.bindings.hitl.enqueue({
             tenantId: ctx.input.tenantId,
+            projectId: ctx.input.projectId,
             subjectKind: SESSION_GATE_SUBJECT,
             subjectRef: {
               conversationId: ctx.input.conversationId,

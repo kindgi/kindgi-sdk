@@ -63,7 +63,11 @@ const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
  *   byte-identical (status, content-type, body).
  * - Cached hit with different body hash → 409
  *   `idempotency-key-body-mismatch`.
- * - Cache miss → run the handler, then store the response.
+ * - Cache miss → run the handler, then store the response when the
+ *   request took effect (a status below 400). A refusal (4xx) changed
+ *   nothing, and a failure (5xx) may be transient: neither is stored, so
+ *   a retry with the same key after fixing the cause runs again instead
+ *   of replaying the old error.
  *
  * The middleware sits AFTER auth so `tenantId` is available; the
  * cache key is namespaced by tenant so callers can't collide across
@@ -122,6 +126,8 @@ export function idempotencyMiddleware(
     await next();
 
     const res = c.res;
+    // Only what took effect is replayed; see the doc above.
+    if (res.status >= 400) return;
     const savedBody = await res.clone().text();
     const contentType = res.headers.get('Content-Type') ?? 'application/octet-stream';
     await store.set(cacheKey, {
