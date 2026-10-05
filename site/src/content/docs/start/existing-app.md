@@ -310,8 +310,10 @@ KINDGI_API_TOKEN=kgi_bt_…
 ```
 
 The token stays the same when you restart `kindgi dev`. `kindgi dev --reset`
-starts over with a new tenant and a new token: copy the new token after it
-(the client warns when the token in your env file no longer matches).
+starts the project over, dropping its database
+([after asking](../install/#where-kindgi-dev-keeps-its-data)), with a new
+token: copy the new token after it (the client warns when the token in your
+env file no longer matches).
 In production they're your deployment's URL and API token. To pass them
 yourself instead: `createClient({ apiUrl, auth: { kind: 'apiToken', token } })`,
 or `Kindgi(url, token=…)` in Python.
