@@ -223,7 +223,13 @@ export function renderTerraform(plan: PackEnvPlan): string {
   return `${JSON.stringify({ env, secret_env: secretEnv }, null, 2)}\n`;
 }
 
-/** `gcloud run deploy` flags: `--set-env-vars` and `--set-secrets`, one per line. */
+/**
+ * `gcloud run deploy` (or `gcloud run services update`) flags:
+ * `--update-env-vars` and `--update-secrets`, one per line. They add or
+ * replace the names they list and leave the service's other variables as
+ * they are; `--set-*` would replace the whole env, silently dropping
+ * whatever else the service had (the runtime's own settings, say).
+ */
 export function renderGcloud(plan: PackEnvPlan): string {
   const values: string[] = [];
   const secrets: string[] = [];
@@ -233,8 +239,8 @@ export function renderGcloud(plan: PackEnvPlan): string {
     if (source?.kind === 'secret') secrets.push(`${entry.name}=${secretReference(source)}`);
   }
   const lines: string[] = [];
-  if (values.length > 0) lines.push(`--set-env-vars=${joinForGcloud(values)}`);
-  if (secrets.length > 0) lines.push(`--set-secrets=${joinForGcloud(secrets)}`);
+  if (values.length > 0) lines.push(`--update-env-vars=${joinForGcloud(values)}`);
+  if (secrets.length > 0) lines.push(`--update-secrets=${joinForGcloud(secrets)}`);
   return lines.length > 0 ? `${lines.join(' \\\n')}\n` : '';
 }
 

@@ -180,8 +180,8 @@ describe('renderings', () => {
   test("gcloud: another delimiter when a value has a comma; another project's secret by its full name", () => {
     expect(renderGcloud(plan)).toBe(
       [
-        '--set-env-vars=^@^REGIONS=ca,us@LOG_LEVEL=info \\',
-        '--set-secrets=DATABASE_URL=acme-db-url:3,SHARED_TOKEN=projects/123456789012/secrets/shared-token:2',
+        '--update-env-vars=^@^REGIONS=ca,us@LOG_LEVEL=info \\',
+        '--update-secrets=DATABASE_URL=acme-db-url:3,SHARED_TOKEN=projects/123456789012/secrets/shared-token:2',
         '',
       ].join('\n'),
     );
