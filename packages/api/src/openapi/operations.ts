@@ -4055,7 +4055,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'orgs.delete',
     summary: 'Delete an org (idempotent)',
     description:
-      'Idempotent — deleting an unknown or already-deleted org returns 204 per the binding contract.',
+      "Idempotent — deleting an unknown or already-deleted org returns 204 per the binding contract. The org's projects stay, without an org; when one of them has the slug of a project that has none, nothing is deleted: `409 slug-conflict` names the slugs (rename or move those projects first).",
     tags: ['orgs'],
     security: 'bearer',
     parameters: [
@@ -4071,6 +4071,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '204': { description: 'Deleted (or already absent). No body.' },
       ...CommonAuthErrors,
+      '409': ErrorResponse(
+        "slug-conflict: the org's projects would leave it with slugs that projects without an org already have.",
+      ),
     },
   },
 
@@ -4374,6 +4377,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/projects',
     operationId: 'projects.create',
     summary: 'Create a project',
+    description:
+      "A project's slug is unique within its org, and a project without an org's among the tenant's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second Default, `409 project-default-already-exists`.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -4412,6 +4417,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/projects/{projectId}',
     operationId: 'projects.update',
     summary: 'Partially update a project',
+    description:
+      'A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up.',
     tags: ['projects'],
     security: 'bearer',
     parameters: [

@@ -17,6 +17,7 @@ export type {
   OrgBinding,
   OrgCreateOutcome,
   OrgListFilter,
+  OrgDeleteConflict,
   OrgUpdateOutcome,
 } from './org-binding.js';
 export type {

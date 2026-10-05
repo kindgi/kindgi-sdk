@@ -65,10 +65,20 @@ interface Options {
   readonly authorized: boolean;
   /** Membership adds find the team or project gone (deleted after the route's get). */
   readonly membershipTargetsGone?: boolean;
+  /** An org delete finds these of its projects' slugs taken by projects without an org. */
+  readonly orgDeleteConflict?: readonly string[];
 }
 
 function makeApp(options: Options) {
-  const orgs = makeInMemoryOrgBinding();
+  const inMemoryOrgs = makeInMemoryOrgBinding();
+  const conflicting = options.orgDeleteConflict;
+  const orgs =
+    conflicting === undefined
+      ? inMemoryOrgs
+      : {
+          ...inMemoryOrgs,
+          delete: async () => ({ kind: 'slug-conflict' as const, slugs: conflicting }),
+        };
   const teamPair = makeInMemoryTeamBinding();
   const projectTrio = makeInMemoryProjectBinding();
 
@@ -149,7 +159,7 @@ interface Answer {
 
 async function send(
   app: App,
-  method: 'POST' | 'PATCH',
+  method: 'POST' | 'PATCH' | 'DELETE',
   path: string,
   body: unknown,
   token = TOKEN_A,
@@ -180,14 +190,16 @@ describe.each([
   { mode: 'with an authorizer', authorized: true },
 ])('hierarchy conflicts, $mode', ({ authorized }) => {
   describe.each(RESOURCES)('$path', ({ resource, path }) => {
-    test('a slug the tenant already has → 409 slug-conflict', async () => {
+    test('a slug already taken → 409 slug-conflict', async () => {
       const app = makeApp({ authorized });
       await created(app, path, { name: 'Acme', slug: 'acme' });
       const second = await send(app, 'POST', path, { name: 'Acme again', slug: 'acme' });
       expect(second.status).toBe(409);
       expect(second.body.error?.code).toBe('slug-conflict');
       expect(second.body.error?.message).toBe(
-        `Another ${resource} in the tenant has the slug "acme"`,
+        resource === 'project'
+          ? 'Another project in its org has the slug "acme" (for a project without an org: another project without one)'
+          : `Another ${resource} in the tenant has the slug "acme"`,
       );
       expect(second.body.error?.details).toEqual({ resource, slug: 'acme' });
     });
@@ -214,6 +226,33 @@ describe.each([
       const patched = await send(app, 'PATCH', `${path}/${randomUUID()}`, { name: 'X' });
       expect(patched.status).toBe(404);
       expect(patched.body.error?.code).toBe(`${resource}-not-found`);
+    });
+  });
+
+  test('two orgs may each have a project with the same slug → 201', async () => {
+    const app = makeApp({ authorized });
+    const orgA = await created(app, '/v1/orgs', { name: 'A', slug: 'a' });
+    const orgB = await created(app, '/v1/orgs', { name: 'B', slug: 'b' });
+    await created(app, '/v1/projects', { name: 'Intake', slug: 'intake', orgId: orgA });
+    await created(app, '/v1/projects', { name: 'Intake', slug: 'intake', orgId: orgB });
+    const again = await send(app, 'POST', '/v1/projects', {
+      name: 'Intake again',
+      slug: 'intake',
+      orgId: orgA,
+    });
+    expect(again.status).toBe(409);
+  });
+
+  test("deleting an org whose projects' slugs are taken without an org → 409, naming them", async () => {
+    const app = makeApp({ authorized, orgDeleteConflict: ['intake', 'billing'] });
+    const org = await created(app, '/v1/orgs', { name: 'A', slug: 'a' });
+    const deleted = await send(app, 'DELETE', `/v1/orgs/${org}`, undefined);
+    expect(deleted.status).toBe(409);
+    expect(deleted.body.error?.code).toBe('slug-conflict');
+    expect(deleted.body.error?.message).toContain('"intake", "billing"');
+    expect(deleted.body.error?.details).toEqual({
+      resource: 'project',
+      slugs: ['intake', 'billing'],
     });
   });
 

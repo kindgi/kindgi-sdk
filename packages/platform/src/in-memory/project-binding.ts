@@ -13,8 +13,9 @@
  *
  * `create` enforces the `Project.isDefault = true` uniqueness
  * guardrail at write time: creating a second Default in the same
- * tenant resolves to `project-default-already-exists`. Project slugs
- * are unique within a tenant (`slug-conflict`).
+ * tenant resolves to `project-default-already-exists`. A project's
+ * slug is unique within its org, and a project without an org's among
+ * the tenant's projects without one (`slug-conflict`).
  */
 
 import type { Filter, Page, ProjectId, TeamId, TenantId, UserId } from '@kindgi/types';
@@ -87,10 +88,26 @@ export function makeInMemoryProjectBinding(): {
     return false;
   }
 
-  /** Is `slug` held by a project in the tenant other than `exceptId`? */
-  function slugTaken(tenantId: TenantId, slug: string, exceptId?: ProjectId): boolean {
+  /**
+   * Is `slug` held by another project (not `exceptId`) where a project of
+   * `orgId` lives: in that org, or, without an org, among the tenant's
+   * projects without one?
+   */
+  function slugTaken(
+    tenantId: TenantId,
+    orgId: Project['orgId'],
+    slug: string,
+    exceptId?: ProjectId,
+  ): boolean {
     for (const row of projectRows.values()) {
-      if (row.tenantId === tenantId && row.slug === slug && row.id !== exceptId) return true;
+      if (
+        row.tenantId === tenantId &&
+        row.orgId === orgId &&
+        row.slug === slug &&
+        row.id !== exceptId
+      ) {
+        return true;
+      }
     }
     return false;
   }
@@ -103,7 +120,9 @@ export function makeInMemoryProjectBinding(): {
       if (isDefault && tenantAlreadyHasDefault(tenantId)) {
         return { kind: 'project-default-already-exists' };
       }
-      if (slugTaken(tenantId, spec.slug)) return { kind: 'slug-conflict', slug: spec.slug };
+      if (slugTaken(tenantId, spec.orgId, spec.slug)) {
+        return { kind: 'slug-conflict', slug: spec.slug };
+      }
       const id = nextProjectId();
       const now = nowTimestamp();
       const row: Project = {
@@ -154,12 +173,18 @@ export function makeInMemoryProjectBinding(): {
       if (row === undefined) {
         return { kind: 'project-not-found' };
       }
-      if (patch.slug !== undefined && slugTaken(tenantId, patch.slug, projectId)) {
-        return { kind: 'slug-conflict', slug: patch.slug };
-      }
       let nextOrgId = row.orgId;
       if (patch.orgId !== undefined) {
         nextOrgId = patch.orgId === null ? undefined : patch.orgId;
+      }
+      // The slug it ends up with, where it ends up: a move to another org
+      // (or out of one) can meet a project with the same slug there.
+      const nextSlug = patch.slug ?? row.slug;
+      if (
+        (patch.slug !== undefined || patch.orgId !== undefined) &&
+        slugTaken(tenantId, nextOrgId, nextSlug, projectId)
+      ) {
+        return { kind: 'slug-conflict', slug: nextSlug };
       }
       const nextDescription = patch.description ?? row.description;
       const next: Project = {
