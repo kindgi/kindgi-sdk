@@ -328,6 +328,31 @@ export type {
   PolicyVersionPage,
   PolicyVersionRow,
 } from '@kindgi/policy-contract';
+export { JUDGE_CLASS_SCOPE_KINDS, VERDICTS, judgeClassApplies } from './judgment-binding.js';
+export type {
+  JudgeClass,
+  JudgeClassCreateInput,
+  JudgeClassCreateOutcome,
+  JudgeClassGetInput,
+  JudgeClassListInput,
+  JudgeClassPage,
+  JudgeClassScope,
+  JudgeClassScopeKind,
+  JudgeClassUpdateInput,
+  JudgedItem,
+  JudgedRunCopy,
+  JudgedSubject,
+  Judgment,
+  JudgmentAssertedBy,
+  JudgmentGetInput,
+  JudgmentListInput,
+  JudgmentPage,
+  JudgmentRecordInput,
+  JudgmentRegistryBinding,
+  JudgmentWithCopies,
+  Verdict,
+} from './judgment-binding.js';
+export { resolvePointer } from './routes/judgments.js';
 export { EVAL_KINDS } from './eval-suite-binding.js';
 export type {
   EvalKind,
