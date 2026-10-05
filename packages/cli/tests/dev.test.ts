@@ -256,7 +256,7 @@ function makeFixtures(
     agentDefineCalls: [],
     guardrailAuthorCalls: [],
     flowDefineCalls: [],
-    providers: opts.providers ?? [DEV_ECHO_ROW],
+    providers: [...(opts.providers ?? [DEV_ECHO_ROW])],
     fetchCalls: [],
     packStarts,
     published,
@@ -354,7 +354,19 @@ function makeFakeClient(fixtures: Fixtures): unknown {
       }),
     },
     providers: {
-      list: vi.fn(async () => ({ data: fixtures.providers, hasMore: false })),
+      list: vi.fn(async () => ({ data: [...fixtures.providers], hasMore: false })),
+      register: vi.fn(async (input: { readonly metadata: unknown }) => {
+        (fixtures.providers as unknown[]).push(input.metadata);
+        return {};
+      }),
+      unregister: vi.fn(async (id: string) => {
+        const all = fixtures.providers as { readonly id: string }[];
+        all.splice(
+          all.findIndex((p) => p.id === id),
+          1,
+        );
+        return {};
+      }),
     },
   };
 }
@@ -682,6 +694,30 @@ describe('kindgi dev — a Python pack', () => {
     expect(again.pythonChecks).toEqual([[join(packDir, '.venv', 'bin', 'python')]]);
   });
 
+  test('[[tool.kindgi.providers]] in pyproject.toml are registered on boot', async () => {
+    await pythonPack(
+      '\n[[tool.kindgi.providers]]\npreset = "gemini"\nproject = "acme-gcp"\nmodels = ["gemini-2.5-pro"]\nmaxOutputTokens = 16384\n',
+    );
+    const fixtures = makeFixtures();
+    const { writes, restore } = captureStderr();
+    try {
+      const out = await runCli({
+        ...baseInputs(fixtures),
+        argv: ['dev', '--no-watch', `--path=${packDir}`],
+      });
+      expect(out.exitCode).toBe(0);
+    } finally {
+      restore();
+    }
+    expect(writes.join('')).toContain('Providers from pyproject.toml:\n    ✓ gemini: registered\n');
+    expect(fixtures.providers).toContainEqual(
+      expect.objectContaining({
+        id: 'gemini',
+        models: [expect.objectContaining({ name: 'gemini-2.5-pro', maxOutputTokens: 16384 })],
+      }),
+    );
+  });
+
   test('a Python that cannot import kindgi stops the boot with the reason', async () => {
     await pythonPack();
     const fixtures = makeFixtures({
@@ -776,6 +812,67 @@ describe('kindgi dev — boot flow (no watch)', () => {
     expect(out.stderr).toContain(
       'Providers          anthropic (claude-haiku-4-5) · dev-echo (fallback)\n',
     );
+  });
+
+  test('providers the config declares are registered on boot, and left alone on the next', async () => {
+    await writeFile(
+      join(packDir, 'kindgi.config.ts'),
+      "export default { pack: { id: 'my-pack', version: '0.1.0' }, providers: [{ preset: 'anthropic' }, { preset: 'gemini', project: 'acme-gcp', models: ['gemini-2.5-flash'] }] };\n",
+      'utf8',
+    );
+    const fixtures = makeFixtures();
+    const boot = async (): Promise<string> => {
+      const { writes, restore } = captureStderr();
+      try {
+        const out = await runCli({
+          ...baseInputs(fixtures),
+          argv: ['dev', '--no-watch', `--path=${packDir}`],
+        });
+        expect(out.exitCode).toBe(0);
+        return writes.join('') + out.stderr;
+      } finally {
+        restore();
+      }
+    };
+    const first = await boot();
+    expect(first).toContain('Providers from kindgi.config.ts:\n');
+    expect(first).toContain('  ✓ gemini: registered\n');
+    // Its key isn't in the env files: one line, and the boot goes on.
+    expect(first).toContain(
+      '  ⚠ anthropic: not registered: ANTHROPIC_API_KEY is not in .env, .env.local. Set it (npx --no kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant), then restart kindgi dev',
+    );
+    expect(first).toContain('Providers          dev-echo (fallback) · gemini (gemini-2.5-flash)\n');
+    const record = JSON.parse(
+      await readFile(join(packDir, '.kindgi', 'dev', 'providers.json'), 'utf8'),
+    ) as { readonly runtimes: Record<string, Record<string, unknown>> };
+    expect(Object.keys(record.runtimes)).toEqual(['localhost:5432/db tenant tenant-abc']);
+    expect(Object.keys(record.runtimes['localhost:5432/db tenant tenant-abc'] ?? {})).toEqual([
+      'gemini',
+    ]);
+
+    await writeFile(join(packDir, '.env'), 'ANTHROPIC_API_KEY=sk-test\n');
+    const second = await boot();
+    expect(second).toContain('  · gemini: unchanged\n');
+    expect(second).toContain('  ✓ anthropic: registered\n');
+  });
+
+  test('a malformed provider in the config stops the boot before anything starts', async () => {
+    await writeFile(
+      join(packDir, 'kindgi.config.ts'),
+      "export default { pack: { id: 'my-pack', version: '0.1.0' }, providers: [{ preset: 'anthropic', model: 'claude-haiku-4-5' }] };\n",
+      'utf8',
+    );
+    const fixtures = makeFixtures();
+    const spy = vi.spyOn(fixtures.runners, 'startApiServer');
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['dev', '--no-watch', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      'kindgi dev: `providers` in kindgi.config.ts: entry 1: a preset takes',
+    );
+    expect(spy).not.toHaveBeenCalled();
   });
 
   test('with no providers, the banner says turns fail until one is registered', async () => {
