@@ -21,10 +21,11 @@ kindgi approvals list
 ```
 
 ```text
-Error [auth]: This token was not provisioned with a reviewer role; approvals surface is reviewer-only.
+Error [auth]: The caller isn't a reviewer: its token carries no reviewer role, and its user isn't registered as one (`kindgi reviewers register`). The approvals surface is reviewer-only.
 ```
 
-Register yourself, the user your API token belongs to, with a role:
+Register yourself, the user your API token belongs to, with a role. That
+covers any token of yours: this one, another API key, or a console sign-in.
 
 ```sh
 kindgi reviewers register --spec='{"role":"standard","displayName":"Ada Lovelace"}'
