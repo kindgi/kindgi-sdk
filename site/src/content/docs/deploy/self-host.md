@@ -20,7 +20,7 @@ The runtime image is in private preview: request access at contact@kindgi.com
 
 ## Before you start
 
-- **Docker**, and **Node 22.12** or later.
+- **Docker**, and for a TypeScript pack **Node 22.12** or later.
 - **A pack.** This page uses the sample:
 
   ```sh
@@ -70,7 +70,7 @@ example), set that up first:
 [What the pack's image needs](../../start/existing-app/#what-the-packs-image-needs).
 
 In a Python pack, run each `pnpm exec kindgi` on this page as
-`npx --yes @kindgi/cli@0.1`, and lock its dependencies first (`uv lock`, or
+`uv run kindgi`, and lock its dependencies first (`uv lock`, or
 `poetry lock`): the image installs them from the lockfile.
 
 Pick a tenant id. The runtime serves this tenant, and the pack's signature names it:
