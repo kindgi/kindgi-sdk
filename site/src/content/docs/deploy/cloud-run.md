@@ -253,12 +253,11 @@ service in about 5.
 ## Use Gemini
 
 The runtime can call Gemini on Vertex AI with its own service account, so
-there's no key to store. Turn on the Vertex AI API in the project, set
-`vertex_ai = true` (the module then grants the runtime's service account
-`roles/aiplatform.user`), apply, and register the preset:
+there's no key to store. Set `vertex_ai = true` and apply: the module turns
+on the Vertex AI API and grants the runtime's service account
+`roles/aiplatform.user`. Then register the preset:
 
 ```sh
-gcloud services enable aiplatform.googleapis.com
 pnpm exec kindgi providers register --preset=gemini --project=<project> --models=gemini-2.5-flash --url … --token …
 ```
 
