@@ -3072,7 +3072,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'policies.publish',
     summary: 'Publish a policy',
     description:
-      "Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).",
+      "Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).",
     tags: ['policies'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -3080,7 +3080,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Policy published.', schema: ref('PublishPolicyResult') },
       ...CommonMutationErrors,
-      '400': ErrorResponse('Validation failed (see `details.issues`).'),
+      '400': ErrorResponse(
+        'Validation failed (see `details.issues`), or `kind-not-applied`: no runtime consumer applies that kind yet.',
+      ),
       '409': ErrorResponse('Policy already registered at that (id, version).'),
     },
   },
@@ -4053,7 +4055,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'orgs.delete',
     summary: 'Delete an org (idempotent)',
     description:
-      'Idempotent — deleting an unknown or already-deleted org returns 204 per the binding contract.',
+      "Idempotent — deleting an unknown or already-deleted org returns 204 per the binding contract. The org's projects stay, without an org; when one of them has the slug of a project that has none, nothing is deleted: `409 slug-conflict` names the slugs (rename or move those projects first).",
     tags: ['orgs'],
     security: 'bearer',
     parameters: [
@@ -4069,6 +4071,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '204': { description: 'Deleted (or already absent). No body.' },
       ...CommonAuthErrors,
+      '409': ErrorResponse(
+        "slug-conflict: the org's projects would leave it with slugs that projects without an org already have.",
+      ),
     },
   },
 
@@ -4372,6 +4377,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/projects',
     operationId: 'projects.create',
     summary: 'Create a project',
+    description:
+      "A project's slug is unique within its org, and a project without an org's among the tenant's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second Default, `409 project-default-already-exists`.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -4410,6 +4417,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/projects/{projectId}',
     operationId: 'projects.update',
     summary: 'Partially update a project',
+    description:
+      'A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up.',
     tags: ['projects'],
     security: 'bearer',
     parameters: [

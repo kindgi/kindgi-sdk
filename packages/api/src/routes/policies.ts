@@ -6,10 +6,12 @@ import { Hono } from 'hono';
 import type { Cursor, TenantId } from '@kindgi/types';
 
 import {
+  APPLIED_POLICY_KINDS,
   POLICY_KINDS,
   type Policy,
   type PolicyKind,
   type PolicyRegistryBinding,
+  isAppliedPolicyKind,
   validatePolicySpec,
 } from '@kindgi/policy-contract';
 import { statusFor, toWireError } from '../errors.js';
@@ -215,6 +217,23 @@ export function policiesRouter(binding: PolicyRegistryBinding): Hono<AppEnv> {
             code: 'validation-failed',
             message: validation.error.message,
             issues: validation.error.issues as unknown as Record<string, unknown>[],
+          },
+          requestId,
+        ),
+      );
+    }
+
+    // A known kind no runtime consumer applies yet: publishing it would
+    // change nothing, silently.
+    if (!isAppliedPolicyKind(validation.value.kind)) {
+      c.status(statusFor('kind-not-applied') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'kind-not-applied',
+            message: `This runtime doesn't apply "${validation.value.kind}" policies yet, so publishing one would change nothing. Policy kinds it applies: ${APPLIED_POLICY_KINDS.join(', ')}.`,
+            kind: validation.value.kind,
+            appliedKinds: [...APPLIED_POLICY_KINDS],
           },
           requestId,
         ),
