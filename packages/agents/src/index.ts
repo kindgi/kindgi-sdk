@@ -25,7 +25,7 @@ export {
   TOOL_CALL_GATE_SUBJECT,
   readGateDecision,
 } from './handlers/gate-decision.js';
-export type { GateDecision } from './handlers/gate-decision.js';
+export type { GateDecision, GateDecisionValue } from './handlers/gate-decision.js';
 export type { EffectiveHitlPolicy } from './hitl-policy.js';
 export { agentStepOutput, invokeAgent, resumeAgentTurn } from './invoke.js';
 export type {

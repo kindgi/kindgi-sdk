@@ -127,6 +127,11 @@ export interface PresetChoices {
   readonly envName: string;
   /** The values of the preset's `adapterConfig` settings, by key. */
   readonly settings: Readonly<Record<string, string | undefined>>;
+  /**
+   * Each registered model's output cap, in place of the preset's (the
+   * model's own limit): what one answer may use, thinking included.
+   */
+  readonly maxOutputTokens?: number;
 }
 
 /** The registration body for a preset, or why the choices don't fit it. */
@@ -147,8 +152,16 @@ export function presetRegistration(
       message: `preset "${preset.name}" has no model ${unknown.join(', ')} — it has ${all.map((m) => m.name).join(', ')}`,
     };
   }
-  const models =
+  const chosen =
     choices.models === undefined ? all : all.filter((m) => choices.models?.includes(m.name));
+  const cap = choices.maxOutputTokens;
+  if (cap !== undefined && (!Number.isInteger(cap) || cap < 1)) {
+    return {
+      kind: 'err',
+      message: `--max-output-tokens must be a whole number of at least 1, got ${cap}`,
+    };
+  }
+  const models = cap === undefined ? chosen : chosen.map((m) => ({ ...m, maxOutputTokens: cap }));
   const missing = (preset.adapterConfig ?? []).filter((s) => choices.settings[s.key] === undefined);
   if (missing.length > 0) {
     return {

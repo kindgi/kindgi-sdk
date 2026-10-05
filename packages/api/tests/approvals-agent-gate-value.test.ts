@@ -112,11 +112,18 @@ describe("an agent gate's approval takes no value", () => {
     },
   );
 
-  test('a reject without a value resumes the run with the decision', async () => {
+  test('a reject without a value resumes the run with the decision, and who decided it', async () => {
     const h = appFor(TOOL_CALL_GATE_SUBJECT);
     const answer = await complete(h.app, { decision: 'reject', rationale: 'not this refund' });
     expect(answer.status).toBe(200);
-    expect(h.resumedWith).toEqual([{ decided: 'reject', rationale: 'not this refund' }]);
+    expect(h.resumedWith).toEqual([
+      {
+        decided: 'reject',
+        rationale: 'not this refund',
+        decidedBy: 'user:user-1',
+        approvalId: 'appr-1',
+      },
+    ]);
   });
 
   test("another subject's approval still resumes with its value", async () => {

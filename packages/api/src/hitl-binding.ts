@@ -58,6 +58,12 @@ export interface Approval {
   readonly updatedAt: Timestamp;
   readonly decidedAt?: Timestamp;
   readonly expiresAt?: Timestamp;
+  /**
+   * The reviewer's decision, once one is recorded. Absent while the
+   * approval is open, and when it ended without one (it expired, or a
+   * timeout escalated it).
+   */
+  readonly decision?: ReviewDecisionRecord;
 }
 
 export interface ReviewDecision {
@@ -113,12 +119,18 @@ export type SubmitReviewBindingResult =
     };
 
 /**
- * A single review-decision row hydrated for the audit-bundle route.
- * `null` = the approval terminated without a recorded decision (e.g.
- * status `expired`).
+ * An approval's recorded decision: on the approval it decided
+ * (`Approval.decision`), and for the audit-bundle route. `null` from
+ * `loadReviewDecision` = the approval terminated without a recorded
+ * decision (e.g. status `expired`).
  */
 export interface ReviewDecisionRecord {
   readonly decision: ReviewDecisionKind;
+  /**
+   * Who decided, as an actor: `user:<userId>`, the reviewer's user.
+   * Absent from a binding that doesn't record it (the Kindgi runtime does).
+   */
+  readonly decidedBy?: string;
   readonly reviewerId: ReviewerId;
   readonly reviewerRoleAtDecision: ReviewerRole;
   readonly decidedAt: Timestamp;
@@ -166,7 +178,8 @@ export interface HitlBinding {
   /**
    * Hydrate the recorded decision row for an approval — used by the
    * audit-bundle route. Returns `null` when the approval terminated
-   * without a recorded decision (status `expired`).
+   * without a recorded decision (status `expired`). `getApproval` and
+   * `listApprovals` return the same decision on each approval.
    */
   loadReviewDecision(
     tenantId: TenantId,
