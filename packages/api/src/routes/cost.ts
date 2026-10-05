@@ -12,6 +12,7 @@ import {
   type CostGroupDimension,
   type CostRecord,
   type CostRecordFilter,
+  type CostTokenTotals,
 } from '../cost-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { AppEnv } from '../types.js';
@@ -52,6 +53,11 @@ export function costRouter(binding: CostBinding): Hono<AppEnv> {
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: filter.error }, requestId));
     }
+    const include = parseInclude(c.req.query('include'));
+    if (include.kind === 'err') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(toWireError({ code: 'bad-input', message: include.error }, requestId));
+    }
 
     // Thread the ?scopeKind + ?scopeId + ?inherit
     // triplet as a sibling of `filter` (matches the binding's shape:
@@ -71,6 +77,7 @@ export function costRouter(binding: CostBinding): Hono<AppEnv> {
       filter: filter.value,
       ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
+      ...(include.rawUsage && { includeRawUsage: true }),
     });
     return c.json({
       data: page.data.map(serializeRecord),
@@ -84,8 +91,17 @@ export function costRouter(binding: CostBinding): Hono<AppEnv> {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const recordId = c.req.param('recordId');
+    const include = parseInclude(c.req.query('include'));
+    if (include.kind === 'err') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(toWireError({ code: 'bad-input', message: include.error }, requestId));
+    }
 
-    const record = await binding.getRecord({ tenantId, recordId });
+    const record = await binding.getRecord({
+      tenantId,
+      recordId,
+      ...(include.rawUsage && { includeRawUsage: true }),
+    });
     if (record === null) {
       c.status(statusFor('cost-record-not-found') as never);
       return c.json(
@@ -230,6 +246,7 @@ export function costRouter(binding: CostBinding): Hono<AppEnv> {
       groups: result.groups.map(serializeGroup),
       totalUsd: result.totalUsd,
       totalRecords: result.totalRecords,
+      tokens: serializeTokens(result.tokens),
       timeRange: {
         from: result.timeRange.from,
         to: result.timeRange.to,
@@ -248,27 +265,34 @@ function parseRecordFilter(
   opts: { skipTime?: boolean } = {},
 ): { kind: 'ok'; value: CostRecordFilter } | { kind: 'err'; error: string } {
   const out: {
-    runId?: string;
-    agentId?: string;
-    conversationId?: string;
-    category?: string;
-    providerId?: string;
-    from?: Date;
-    to?: Date;
+    -readonly [K in keyof CostRecordFilter]: CostRecordFilter[K];
   } = {};
-  const strKeys: Array<
-    ['runId' | 'agentId' | 'conversationId' | 'category' | 'providerId', string]
-  > = [
-    ['runId', 'runId'],
-    ['agentId', 'agentId'],
-    ['conversationId', 'conversationId'],
-    ['category', 'category'],
-    ['providerId', 'providerId'],
-  ];
-  for (const [outKey, qKey] of strKeys) {
-    const raw = query[qKey];
+  const strKeys = [
+    'runId',
+    'agentId',
+    'conversationId',
+    'category',
+    'providerId',
+    'model',
+    'servedModel',
+    'rootRunId',
+  ] as const;
+  for (const key of strKeys) {
+    const raw = query[key];
     if (raw !== undefined && raw.length > 0) {
-      out[outKey] = raw;
+      out[key] = raw;
+    }
+  }
+  const descendants = query.includeDescendants;
+  if (descendants !== undefined && descendants.length > 0) {
+    if (descendants !== 'true' && descendants !== 'false') {
+      return { kind: 'err', error: '`includeDescendants` must be `true` or `false`' };
+    }
+    if (descendants === 'true') {
+      if (out.runId === undefined) {
+        return { kind: 'err', error: '`includeDescendants` needs a `runId`' };
+      }
+      out.includeDescendants = true;
     }
   }
   if (opts.skipTime !== true) {
@@ -289,6 +313,22 @@ function parseRecordFilter(
     }
   }
   return { kind: 'ok', value: out };
+}
+
+/** The `include` query: optional extra fields, comma-separated. Only `rawUsage` today. */
+function parseInclude(
+  raw: string | undefined,
+): { kind: 'ok'; rawUsage: boolean } | { kind: 'err'; error: string } {
+  const fields = (raw ?? '')
+    .split(',')
+    .map((f) => f.trim())
+    .filter((f) => f.length > 0);
+  for (const field of fields) {
+    if (field !== 'rawUsage') {
+      return { kind: 'err', error: `\`include\` value "${field}" is not known (one of: rawUsage)` };
+    }
+  }
+  return { kind: 'ok', rawUsage: fields.includes('rawUsage') };
 }
 
 function parseIsoDate(raw: string): Date | null {
@@ -312,7 +352,40 @@ function serializeRecord(rec: CostRecord): Record<string, unknown> {
     occurredAt: rec.occurredAt as unknown as string,
     ...(rec.metrics !== undefined && { metrics: rec.metrics }),
     ...(rec.attributes !== undefined && { attributes: rec.attributes }),
+    ...pick(rec, MODEL_CALL_FIELDS),
   };
+}
+
+/** A model call's fields on the wire, as the binding gives them (all optional). */
+const MODEL_CALL_FIELDS = [
+  'callId',
+  'projectId',
+  'rootRunId',
+  'parentRunId',
+  'agentVersion',
+  'flowId',
+  'nodeId',
+  'step',
+  'purpose',
+  'model',
+  'servedModel',
+  'fallback',
+  'status',
+  'usage',
+  'durationMs',
+  'finishReason',
+  'providerRequestId',
+  'attempts',
+  'error',
+  'rawUsage',
+] as const satisfies readonly (keyof CostRecord)[];
+
+function pick(rec: CostRecord, keys: readonly (keyof CostRecord)[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of keys) {
+    if (rec[key] !== undefined) out[key] = rec[key];
+  }
+  return out;
 }
 
 function serializeGroup(g: CostAggregateGroup): Record<string, unknown> {
@@ -320,6 +393,17 @@ function serializeGroup(g: CostAggregateGroup): Record<string, unknown> {
     key: g.key,
     count: g.count,
     totalUsd: g.totalUsd,
+    tokens: serializeTokens(g.tokens),
+  };
+}
+
+function serializeTokens(t: CostTokenTotals): CostTokenTotals {
+  return {
+    prompt: t.prompt,
+    completion: t.completion,
+    cacheRead: t.cacheRead,
+    cacheWrite: t.cacheWrite,
+    reasoning: t.reasoning,
   };
 }
 

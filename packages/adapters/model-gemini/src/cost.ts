@@ -34,18 +34,25 @@ export interface GeminiModelInfo extends ModelInfo {
 }
 
 /**
- * Gemini's usage as the framework's counters. Thinking tokens bill as
- * output, so they count as completion tokens; the prompt count includes
- * cached tokens and the tokens of built-in tool prompts.
+ * Gemini's usage as the framework's counters:
+ *   - `promptTokens` includes the cached tokens and the tokens of
+ *     built-in tool prompts; `cacheReadTokens` = the cached part. Gemini
+ *     writes a cache in a call of its own, so there's no
+ *     `cacheWriteTokens`;
+ *   - thinking bills as output, so `completionTokens` includes it, and
+ *     `reasoningTokens` is that part.
  */
 export function toFrameworkUsage(
   usage: GenerateContentResponseUsageMetadata | undefined,
 ): UsageCounters {
-  const cached = usage?.cachedContentTokenCount ?? 0;
+  const cached = usage?.cachedContentTokenCount;
+  const thoughts = usage?.thoughtsTokenCount;
   return {
     promptTokens: (usage?.promptTokenCount ?? 0) + (usage?.toolUsePromptTokenCount ?? 0),
-    completionTokens: (usage?.candidatesTokenCount ?? 0) + (usage?.thoughtsTokenCount ?? 0),
-    ...(cached > 0 && { cachedTokens: cached }),
+    completionTokens: (usage?.candidatesTokenCount ?? 0) + (thoughts ?? 0),
+    // A part the vendor reports is kept, 0 included.
+    ...(typeof cached === 'number' && { cacheReadTokens: cached }),
+    ...(typeof thoughts === 'number' && { reasoningTokens: thoughts }),
   };
 }
 
@@ -62,7 +69,7 @@ export function computeCostUsd(usage: UsageCounters, rates: GeminiCostRates): nu
       : undefined;
   const promptRate = long?.promptUsdPer1kTokens ?? rates.promptUsdPer1kTokens;
   const completionRate = long?.completionUsdPer1kTokens ?? rates.completionUsdPer1kTokens;
-  const cached = usage.cachedTokens ?? 0;
+  const cached = usage.cacheReadTokens ?? 0;
   const multiplier = rates.cachedPromptMultiplier ?? DEFAULT_CACHED_PROMPT_MULTIPLIER;
   return (
     ((usage.promptTokens - cached) * promptRate +

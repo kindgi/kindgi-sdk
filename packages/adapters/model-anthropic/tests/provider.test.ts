@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type Anthropic from '@anthropic-ai/sdk';
+import Anthropic from '@anthropic-ai/sdk';
 import { describe, expect, test, vi } from 'vitest';
 
 import type { ModelCallInput } from '@kindgi/capabilities';
+import { attemptsOf } from '@kindgi/capabilities/attempts';
 
 import { type AnthropicModelInfo, createAnthropicProvider } from '../src/provider.js';
 
@@ -286,5 +287,94 @@ describe('createAnthropicProvider — lazy apiKey resolver', () => {
     // injected) is covered by the client-cache design; live
     // validation exercises the full path.
     expect(resolver).not.toHaveBeenCalled();
+  });
+});
+
+describe('createAnthropicProvider — what the vendor says about the call', () => {
+  test('a call the vendor refuses on every attempt throws its own error; attemptsOf counts them', async () => {
+    let sent = 0;
+    const fetch: typeof globalThis.fetch = async () => {
+      sent += 1;
+      return new Response(JSON.stringify({ type: 'error', error: { type: 'overloaded_error' } }), {
+        status: 529,
+        headers: { 'content-type': 'application/json', 'retry-after-ms': '1' },
+      });
+    };
+    const provider = createAnthropicProvider({
+      apiKey: 'sk-test',
+      metadata: OPUS_METADATA,
+      clientOptions: { fetch, maxRetries: 2 },
+    });
+    const thrown = await provider
+      .invoke({
+        model: 'claude-opus-4-7',
+        messages: [{ role: 'user', content: 'hi' }],
+      } as ModelCallInput)
+      .catch((error: unknown) => error);
+    // The SDK's own error, unchanged: callers can still read its status.
+    expect(thrown).toBeInstanceOf(Anthropic.APIError);
+    expect((thrown as InstanceType<typeof Anthropic.APIError>).status).toBe(529);
+    expect(sent).toBe(3);
+    expect(attemptsOf(thrown)).toBe(3);
+  });
+
+  test("served model, request id, raw usage, and the attempts its SDK's retries took", async () => {
+    // The vendor is overloaded once (529, which the SDK retries), then answers.
+    const sent: string[] = [];
+    const fetch: typeof globalThis.fetch = async (input) => {
+      sent.push(String(input));
+      if (sent.length === 1) {
+        return new Response(
+          JSON.stringify({ type: 'error', error: { type: 'overloaded_error' } }),
+          {
+            status: 529,
+            headers: { 'content-type': 'application/json', 'retry-after-ms': '1' },
+          },
+        );
+      }
+      return new Response(
+        JSON.stringify(
+          fakeResponse({
+            model: 'claude-opus-4-7-20260101',
+            usage: {
+              input_tokens: 20,
+              output_tokens: 5,
+              cache_creation_input_tokens: 300,
+              cache_read_input_tokens: 700,
+            },
+          }),
+        ),
+        { status: 200, headers: { 'content-type': 'application/json', 'request-id': 'req_42' } },
+      );
+    };
+    const provider = createAnthropicProvider({
+      apiKey: 'sk-test',
+      metadata: OPUS_METADATA,
+      clientOptions: { fetch },
+    });
+    const result = await provider.invoke({
+      model: 'claude-opus-4-7',
+      messages: [{ role: 'user', content: 'hi' }],
+    } as ModelCallInput);
+
+    expect(sent).toHaveLength(2);
+    expect(result).toMatchObject({
+      provider: { id: 'anthropic', model: 'claude-opus-4-7' },
+      servedModel: 'claude-opus-4-7-20260101',
+      providerRequestId: 'req_42',
+      attempts: 2,
+      usage: {
+        promptTokens: 1020,
+        completionTokens: 5,
+        cacheReadTokens: 700,
+        cacheWriteTokens: 300,
+      },
+      rawUsage: {
+        input_tokens: 20,
+        output_tokens: 5,
+        cache_creation_input_tokens: 300,
+        cache_read_input_tokens: 700,
+      },
+    });
   });
 });

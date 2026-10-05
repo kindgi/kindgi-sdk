@@ -132,3 +132,75 @@ describe('cost.budgets (not yet wired)', () => {
     expect(stub.calls.length).toBe(0);
   });
 });
+
+describe("cost: an org's spend, a run tree's calls, the vendor's own counts", () => {
+  const client = (body: unknown) => {
+    const stub = jsonFetch(body);
+    return {
+      stub,
+      client: createClient({ apiUrl: 'https://api.example.com', auth: AUTH, fetch: stub.fetch }),
+    };
+  };
+  const TOKENS = { prompt: 2400, completion: 160, cacheRead: 2000, cacheWrite: 200, reasoning: 60 };
+
+  it("summary: one call sums an org's month by the model actually called, tokens included", async () => {
+    const { stub, client: c } = client({
+      groups: [
+        {
+          key: { month: '2026-10', model: 'claude-haiku-4-5' },
+          count: 2,
+          totalUsd: 0.004,
+          tokens: TOKENS,
+        },
+      ],
+      totalUsd: 0.004,
+      totalRecords: 2,
+      tokens: TOKENS,
+      timeRange: { from: '2026-10-01T00:00:00Z', to: '2026-10-04T00:00:00Z' },
+      groupBy: ['month', 'model'],
+    });
+    const result = await c.cost.usage.summary({
+      scope: { kind: 'org', orgId: 'org-1' as never },
+      from: '2026-10-01T00:00:00Z' as never,
+      to: '2026-10-04T00:00:00Z' as never,
+      groupBy: ['month', 'model'],
+    });
+    expect(result.tokens).toEqual(TOKENS);
+    const url = new URL(stub.calls[0]?.url);
+    expect(url.pathname).toBe('/v1/cost/aggregate');
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      scopeKind: 'org',
+      scopeId: 'org-1',
+      from: '2026-10-01T00:00:00Z',
+      to: '2026-10-04T00:00:00Z',
+      groupBy: 'month,model',
+    });
+  });
+
+  it("query: a run tree's model calls, by model; the vendor's own counts when asked", async () => {
+    const tree = client({ data: [], hasMore: false });
+    await tree.client.cost.usage.query({
+      rootRunId: 'run-root' as never,
+      model: 'claude-haiku-4-5',
+      includeRawUsage: true,
+    });
+    const subtree = client({ data: [], hasMore: false });
+    await subtree.client.cost.usage.query({ runId: 'run-mid' as never, includeDescendants: true });
+    const params = (stub: typeof tree.stub) =>
+      Object.fromEntries(new URL(stub.calls[0]?.url ?? '').searchParams);
+    expect(params(tree.stub)).toEqual({
+      rootRunId: 'run-root',
+      model: 'claude-haiku-4-5',
+      include: 'rawUsage',
+    });
+    expect(params(subtree.stub)).toEqual({ runId: 'run-mid', includeDescendants: 'true' });
+  });
+
+  it('get: the raw usage too, when asked', async () => {
+    const { stub, client: c } = client(WIRE_RECORD);
+    await c.cost.usage.get('rec-1', { includeRawUsage: true });
+    expect(stub.calls[0]?.url).toBe(
+      'https://api.example.com/v1/cost/records/rec-1?include=rawUsage',
+    );
+  });
+});
