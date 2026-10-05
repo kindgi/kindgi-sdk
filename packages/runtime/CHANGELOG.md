@@ -1,5 +1,17 @@
 # @kindgi/runtime
 
+## 0.1.3
+
+### Patch Changes
+
+- 6bae409: An agent's turn names its agent. The run record of an agent run, and of the turn a flow's agent step starts, carries `agent`: the agent's id, the version that ran and the conversation (`RunAgentRef` in `@kindgi/runtime`, `Run.agent` on the wire, the `RunAgent` schema). `GET /v1/runs?agentId=` lists one agent's turns, at every version; it combines with the scope, `topLevel` and the cursor. The TypeScript client takes `runs.list({ agentId })`; the Python client `runs.list(agent_id=…)`. Turns that ran before this release don't name their agent: they have no `agent` and aren't listed by `agentId`.
+- Updated dependencies [1463b77]
+- Updated dependencies [eac7732]
+  - @kindgi/types@0.1.3
+  - @kindgi/handler@0.1.3
+  - @kindgi/authz@0.1.3
+  - @kindgi/flow@0.1.3
+
 ## 0.1.2
 
 ### Patch Changes
