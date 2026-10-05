@@ -536,6 +536,9 @@ async function indexResultOf(outcome: IndexerOutcome): Promise<IndexResult> {
  * A single debounce timer is shared across every event → the callback
  * fires at most once per debounce window. Roots that don't exist yet
  * are skipped.
+ *
+ * `watch` is where the events come from (`node:fs/promises`'s by
+ * default); a test passes its own to drive the events deterministically.
  */
 export async function watchPackReal(
   packDir: string,
@@ -544,8 +547,10 @@ export async function watchPackReal(
     readonly debounceMs?: number;
     readonly patterns?: readonly string[];
     readonly files?: readonly string[];
+    readonly watch?: WatchEvents;
   } = {},
 ): Promise<WatchHandle> {
+  const watchEvents = opts.watch ?? watch;
   const debounceMs = opts.debounceMs ?? DEFAULT_DEBOUNCE_MS;
   const patterns = opts.patterns ?? Object.values(DEFAULT_DISCOVERY);
   const matches = createGlobMatcher(patterns);
@@ -573,7 +578,9 @@ export async function watchPackReal(
     if (!(await isDirectory(abs))) continue;
     const controller = new AbortController();
     controllers.push(controller);
-    watchers.push(consumeWatch(abs, root, controller.signal, matches, fire, () => closed));
+    watchers.push(
+      consumeWatch(watchEvents, abs, root, controller.signal, matches, fire, () => closed),
+    );
   }
   // Single files (the env files): watch each one's directory, not
   // recursively, and fire for that name only — so an env file that
@@ -582,7 +589,7 @@ export async function watchPackReal(
     if (!(await isDirectory(dir))) continue;
     const controller = new AbortController();
     controllers.push(controller);
-    watchers.push(consumeFileWatch(dir, names, controller.signal, fire, () => closed));
+    watchers.push(consumeFileWatch(watchEvents, dir, names, controller.signal, fire, () => closed));
   }
 
   return {
@@ -601,6 +608,12 @@ export async function watchPackReal(
     },
   };
 }
+
+/** A directory's change events, as `node:fs/promises`'s `watch` gives them. */
+export type WatchEvents = (
+  path: string,
+  options: { readonly recursive?: boolean; readonly signal: AbortSignal },
+) => AsyncIterable<{ readonly filename?: string | null }>;
 
 async function isDirectory(path: string): Promise<boolean> {
   try {
@@ -622,6 +635,7 @@ function filesByDirectory(files: readonly string[]): Map<string, Set<string>> {
 
 /** Consume one directory watch in the background, firing for `names` only. */
 async function consumeFileWatch(
+  watchEvents: WatchEvents,
   dir: string,
   names: ReadonlySet<string>,
   signal: AbortSignal,
@@ -629,7 +643,7 @@ async function consumeFileWatch(
   isClosed: () => boolean,
 ): Promise<void> {
   try {
-    for await (const evt of watch(dir, { signal })) {
+    for await (const evt of watchEvents(dir, { signal })) {
       if (evt.filename !== null && evt.filename !== undefined && names.has(evt.filename)) fire();
     }
   } catch (err) {
@@ -655,6 +669,7 @@ function isFolderName(relPath: string): boolean {
 }
 
 async function consumeWatch(
+  watchEvents: WatchEvents,
   abs: string,
   root: string,
   signal: AbortSignal,
@@ -663,7 +678,7 @@ async function consumeWatch(
   isClosed: () => boolean,
 ): Promise<void> {
   try {
-    for await (const evt of watch(abs, { recursive: true, signal })) {
+    for await (const evt of watchEvents(abs, { recursive: true, signal })) {
       if (evt.filename === null || evt.filename === undefined) {
         fire();
         continue;

@@ -83,6 +83,12 @@ export async function invokeAgent(
       flow: AGENT_TURN_FLOW,
       handlers,
       input: input.userMessage,
+      // The run's record names the agent, its version and the conversation.
+      agent: {
+        id: input.agent.id,
+        version: input.agent.version,
+        conversationId: input.conversationId,
+      },
       ...(input.parent !== undefined && { parent: input.parent }),
       ...(input.dryRun === true && { options: { dryRun: true } }),
       // Authorization — carry principal + authz into the run so every

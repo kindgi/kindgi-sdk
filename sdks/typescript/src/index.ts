@@ -21,6 +21,7 @@ export type {
 } from './resources/agents.js';
 export type {
   Run,
+  RunAgent,
   RunsClient,
   ResumeRunInput,
   StartedRun,

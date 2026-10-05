@@ -29,6 +29,7 @@ import type { ReviewerBinding } from '../reviewer-binding.js';
 import { callerReviewerRole } from '../reviewer-role.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import { parseListScope } from './scope-params.js';
 
 const APPROVAL_STATUSES: ReadonlySet<ApprovalStatus> = new Set([
   'pending',
@@ -135,6 +136,14 @@ export function approvalsRouter(
     const role = c.get('reviewerRole') as ReviewerRole;
     const limit = clampLimit(c.req.query('limit'));
 
+    const scopeParsed = parseListScope(c.req.query(), { tenantId });
+    if (scopeParsed.kind === 'err') {
+      c.status(statusFor('scope-invalid') as never);
+      return c.json(
+        toWireError({ code: 'scope-invalid', message: scopeParsed.message }, requestId),
+      );
+    }
+
     const statusRaw = c.req.query('status');
     let statusFilter: ApprovalStatus | undefined;
     if (statusRaw !== undefined && statusRaw.length > 0) {
@@ -218,6 +227,7 @@ export function approvalsRouter(
     const listInput = {
       tenantId,
       limit: HITL_LIMIT_CAP,
+      ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(statusFilter !== undefined && { status: statusFilter }),
       ...(requiredRoleFilter !== undefined && { requiredRole: requiredRoleFilter }),
       ...(createdAfterIso !== undefined && { since: createdAfterIso as unknown as Timestamp }),
