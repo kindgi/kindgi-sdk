@@ -30,6 +30,8 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
+import type { EnsureOutcome, ProjectDatabases } from '../src/dev/project-database.js';
+import type { DevProject, ProjectOutcome } from '../src/dev/project.js';
 import type {
   DevRunners,
   ExternalPackage,
@@ -40,6 +42,7 @@ import type {
   WatchHandle,
 } from '../src/dev/runners.js';
 import { type RunCliInputs, runCli } from '../src/main.js';
+import { CLI_VERSION } from '../src/version-info.js';
 
 /** vi.waitFor's own default (1 s) is too short on a loaded machine; a passing wait returns as soon as it holds. */
 const WAIT = { timeout: 15_000 } as const;
@@ -1548,6 +1551,249 @@ describe('kindgi dev — the shared services and --reset', () => {
     expect(opts?.userId).not.toBe('old-user');
     // Started as on any boot: reused, never recreated or removed.
     expect(calls).toEqual([{ recreate: false }]);
+  });
+});
+
+describe('kindgi dev — a database per project', () => {
+  const PROJECT: DevProject = {
+    name: 'acme',
+    nameFrom: 'repository',
+    root: '/work/acme',
+    database: 'kindgi_acme',
+    tenantId: '7a1c0000-0000-5000-8000-00000000aaaa',
+    userId: '7a1c0000-0000-5000-8000-00000000bbbb',
+  };
+
+  /**
+   * The fixture's runners with the bundled services started, their project
+   * databases faked, and the project and terminal seams set.
+   */
+  function withProjectDatabase(
+    options: {
+      readonly ensure?: EnsureOutcome;
+      readonly project?: ProjectOutcome;
+      readonly interactive?: boolean;
+      readonly answer?: boolean;
+    } = {},
+  ) {
+    const fixtures = makeFixtures();
+    const calls: string[] = [];
+    const resolveInputs: { packDir: string; configured: unknown }[] = [];
+    const questions: string[] = [];
+    const projectDatabases: ProjectDatabases = {
+      urlFor: (database) => `postgres://kindgi@127.0.0.1:5432/${database}`,
+      ensure: async (project, cliVersion) => {
+        calls.push(`ensure ${project.database} ${cliVersion}`);
+        return options.ensure ?? { kind: 'created' };
+      },
+      drop: async (database) => {
+        calls.push(`drop ${database}`);
+        return { ok: true };
+      },
+      exists: async () => true,
+    };
+    const runners: DevRunners = {
+      ...fixtures.runners,
+      startServices: async () => ({
+        kind: 'ok' as const,
+        handle: {
+          databaseUrl: 'postgres://kindgi@127.0.0.1:5432/kindgi',
+          services: ['postgres'],
+          startedWith: 'docker compose' as const,
+          projectDatabases,
+        },
+      }),
+      resolveProject: async (input) => {
+        resolveInputs.push({ ...input });
+        return options.project ?? { kind: 'ok', project: PROJECT };
+      },
+      interactive: () => options.interactive ?? false,
+      confirm: async (question) => {
+        questions.push(question);
+        return options.answer ?? false;
+      },
+    };
+    return { fixtures: { ...fixtures, runners }, calls, resolveInputs, questions };
+  }
+
+  async function boot(
+    fixtures: ReturnType<typeof withProjectDatabase>['fixtures'],
+    argv: readonly string[] = [],
+    env: Record<string, string> = {},
+  ) {
+    const spy = vi.spyOn(fixtures.runners, 'startApiServer');
+    const { writes, restore } = captureStderr();
+    try {
+      const out = await runCli({
+        ...baseInputs(fixtures),
+        env,
+        argv: ['dev', '--no-watch', `--path=${packDir}`, ...argv],
+      });
+      return { out, opts: spy.mock.calls[0]?.[0], log: writes.join('') };
+    } finally {
+      restore();
+    }
+  }
+
+  test("the runtime gets the project's database and its dev tenant and user", async () => {
+    const { fixtures, calls } = withProjectDatabase();
+    const { out, opts, log } = await boot(fixtures);
+    expect(out.exitCode).toBe(0);
+    expect(opts?.databaseUrl).toBe('postgres://kindgi@127.0.0.1:5432/kindgi_acme');
+    expect(opts?.tenantId).toBe(PROJECT.tenantId);
+    expect(opts?.userId).toBe(PROJECT.userId);
+    expect(calls).toEqual([`ensure kindgi_acme ${CLI_VERSION}`]);
+    expect(log).toContain(
+      "✓ Project: acme (the git repository's name; set `project` in the Kindgi config to name it)\n",
+    );
+    expect(log).toContain(
+      '✓ Database: kindgi_acme (created) in the bundled Postgres; to use your own: --database-url\n',
+    );
+    expect(log).toContain('  Project    acme · database kindgi_acme');
+  });
+
+  test('a restart keeps the tenant and token; `project` in the config reaches the resolver', async () => {
+    await writeFile(
+      join(packDir, 'kindgi.config.ts'),
+      "export default { pack: { id: 'my-pack', version: '0.1.0' }, project: 'acme-app' };\n",
+      'utf8',
+    );
+    const first = withProjectDatabase();
+    await boot(first.fixtures);
+    expect(first.resolveInputs[0]).toEqual({ packDir, configured: 'acme-app' });
+    const persisted = JSON.parse(await readFile(join(packDir, '.kindgirc.json'), 'utf8')) as {
+      token: string;
+    };
+    const second = withProjectDatabase({ ensure: { kind: 'exists' } });
+    const two = await boot(second.fixtures);
+    expect(two.out.exitCode).toBe(0);
+    expect(two.opts?.tenantId).toBe(PROJECT.tenantId);
+    expect(two.opts?.token).toBe(persisted.token);
+    expect(two.log).toContain('✓ Database: kindgi_acme in the bundled Postgres');
+    expect(two.log).not.toContain('(created)');
+  });
+
+  test("the first boot after the shared `kindgi` database says, once, that this project's data starts fresh", async () => {
+    await writeFile(
+      join(packDir, '.kindgirc.json'),
+      JSON.stringify({ token: 'kgi_bt_old', tenantId: 'shared-tenant', userId: 'shared-user' }),
+    );
+    const created = withProjectDatabase();
+    const { opts, log } = await boot(created.fixtures);
+    expect(opts?.tenantId).toBe(PROJECT.tenantId);
+    expect(log).toContain(
+      '  This project now has its own database, kindgi_acme. The old shared `kindgi` database is left as it is: projects on an older Kindgi still use it. Providers and reviewers are set up once per project: set them up here again.',
+    );
+    const again = withProjectDatabase({ ensure: { kind: 'exists' } });
+    expect((await boot(again.fixtures)).log).not.toContain('now has its own database');
+  });
+
+  test('another folder owns a database of the same name: refused, naming the way out', async () => {
+    const message =
+      'the database kindgi_acme belongs to /elsewhere/acme, another folder whose project is also named "acme". Give this one its own name: set `project` in kindgi.config.ts (or `project` under [tool.kindgi] in pyproject.toml), or pass --database-url.';
+    const { fixtures } = withProjectDatabase({ ensure: { kind: 'refused', message } });
+    const { out, opts } = await boot(fixtures);
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(`kindgi dev: ${message}\n`);
+    expect(opts).toBeUndefined();
+  });
+
+  test('a moved project adopts its database, and says from where', async () => {
+    const { fixtures } = withProjectDatabase({
+      ensure: { kind: 'adopted', previousRoot: '/old/acme' },
+    });
+    const { out, log } = await boot(fixtures);
+    expect(out.exitCode).toBe(0);
+    expect(log).toContain(
+      "  kindgi_acme was /old/acme's, a folder that's gone: it's this folder's now",
+    );
+  });
+
+  test('an invalid `project` stops the boot', async () => {
+    const message =
+      '`project` in the Kindgi config must be a name with at least one letter or digit, e.g. "acme-app".';
+    const { fixtures, calls } = withProjectDatabase({ project: { kind: 'invalid', message } });
+    const { out } = await boot(fixtures);
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(`kindgi dev: ${message}\n`);
+    expect(calls).toEqual([]);
+  });
+
+  test('a worktree says so on the project line', async () => {
+    const { fixtures } = withProjectDatabase({
+      project: {
+        kind: 'ok',
+        project: { ...PROJECT, worktree: 'acme-login', database: 'kindgi_acme__acme_login' },
+      },
+    });
+    const { opts, log } = await boot(fixtures);
+    expect(opts?.databaseUrl).toBe('postgres://kindgi@127.0.0.1:5432/kindgi_acme__acme_login');
+    expect(log).toContain('; git worktree acme-login)\n');
+  });
+
+  describe('--reset', () => {
+    test('with no terminal to ask on and no --yes: nothing is dropped', async () => {
+      const { fixtures, calls, questions } = withProjectDatabase({ interactive: false });
+      const { out, opts } = await boot(fixtures, ['--reset']);
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toBe(
+        "kindgi dev --reset would drop kindgi_acme, and there's no terminal to ask on. Run it with --yes to drop it.\n",
+      );
+      expect(calls).toEqual([]);
+      expect(questions).toEqual([]);
+      expect(opts).toBeUndefined();
+    });
+
+    test('asked and declined: nothing is dropped', async () => {
+      const { fixtures, calls, questions } = withProjectDatabase({
+        interactive: true,
+        answer: false,
+      });
+      const { out } = await boot(fixtures, ['--reset']);
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toBe('kindgi dev --reset: nothing dropped.\n');
+      expect(questions).toEqual([
+        "Reset project acme? This drops the database kindgi_acme: every pack's dev data in it (runs, approvals, providers, secrets stored there). [y/N] ",
+      ]);
+      expect(calls).toEqual([]);
+    });
+
+    test('asked and confirmed: dropped, made again, and a new token', async () => {
+      await writeFile(
+        join(packDir, '.kindgirc.json'),
+        JSON.stringify({ token: 'kgi_bt_old', tenantId: PROJECT.tenantId, userId: PROJECT.userId }),
+      );
+      const { fixtures, calls } = withProjectDatabase({ interactive: true, answer: true });
+      const { out, opts, log } = await boot(fixtures, ['--reset']);
+      expect(out.exitCode).toBe(0);
+      expect(calls).toEqual(['drop kindgi_acme', `ensure kindgi_acme ${CLI_VERSION}`]);
+      expect(log).toContain('🧹 --reset: dropped kindgi_acme\n');
+      expect(log).not.toContain('now has its own database');
+      // The project's tenant stays the project's; the token is new.
+      expect(opts?.tenantId).toBe(PROJECT.tenantId);
+      expect(opts?.token).not.toBe('kgi_bt_old');
+    });
+
+    test('--yes drops it without asking, with no terminal', async () => {
+      const { fixtures, calls, questions } = withProjectDatabase({ interactive: false });
+      const { out } = await boot(fixtures, ['--reset', '--yes']);
+      expect(out.exitCode).toBe(0);
+      expect(questions).toEqual([]);
+      expect(calls[0]).toBe('drop kindgi_acme');
+    });
+
+    test('a database named with --database-url is never dropped', async () => {
+      const { fixtures, calls } = withProjectDatabase({ interactive: true, answer: true });
+      const { out, opts, log } = await boot(fixtures, [
+        '--reset',
+        '--yes',
+        '--database-url=postgres://me@db.internal/mine',
+      ]);
+      expect(out.exitCode).toBe(0);
+      expect(calls).toEqual([]);
+      expect(opts?.databaseUrl).toBe('postgres://me@db.internal/mine');
+      expect(log).toContain('  --reset: the database you gave is left as it is (never dropped)\n');
+    });
   });
 });
 

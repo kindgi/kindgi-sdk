@@ -14,6 +14,8 @@ import type {
   PackServiceSupervisor,
   PackServiceSupervisorEvent,
 } from '@kindgi/handler-runtime/pack-service';
+import type { ProjectDatabases } from './project-database.js';
+import type { ProjectOutcome } from './project.js';
 
 import type { PackCode } from './pack-code.js';
 
@@ -235,6 +237,12 @@ export interface StartedServicesHandle {
   readonly startedWith: 'docker compose' | 'docker';
   /** What the developer should know about this start: a flag that needs compose. */
   readonly notes?: readonly string[];
+  /**
+   * The project databases in this Postgres (`project-database.ts`): each
+   * project gets one, and the runtime connects to it. Absent: the shared
+   * `databaseUrl` is used as is.
+   */
+  readonly projectDatabases?: ProjectDatabases;
 }
 
 /**
@@ -331,4 +339,13 @@ export interface DevRunners {
   readonly startServices?: (options: {
     readonly recreate: boolean;
   }) => Promise<StartServicesResult>;
+  /** Resolve the project (default: `resolveDevProject`, with git). Tests pass their own. */
+  readonly resolveProject?: (input: {
+    readonly packDir: string;
+    readonly configured: unknown;
+  }) => Promise<ProjectOutcome>;
+  /** Whether there's a person at a terminal to ask (default: stdin and stderr are TTYs). */
+  readonly interactive?: () => boolean;
+  /** Ask a yes/no question (default: on the terminal). */
+  readonly confirm?: (question: string) => Promise<boolean>;
 }
