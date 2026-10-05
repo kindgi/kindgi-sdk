@@ -16,7 +16,7 @@ import { describe, expect, test } from 'vitest';
 import type { ConversationBinding } from '@kindgi/agents';
 import type { ProjectBinding } from '@kindgi/platform';
 import { createStubAppBindings } from '@kindgi/testing';
-import type { ListScope, TenantId, UserId } from '@kindgi/types';
+import type { TenantId, UserId } from '@kindgi/types';
 
 import { createApp } from '../src/index.js';
 import type {
@@ -138,7 +138,7 @@ describe.each(LISTS)('GET %s by project', (path, key) => {
     const answer = await call(`${path}?scopeKind=project&scopeId=${projectId}`);
     expect(answer.status).toBe(200);
     expect(answer.seen[key]).toEqual([
-      expect.objectContaining({ scope: { kind: 'project', projectId } satisfies ListScope }),
+      expect.objectContaining({ scope: { kind: 'project', projectId } }),
     ]);
   });
 
@@ -146,7 +146,7 @@ describe.each(LISTS)('GET %s by project', (path, key) => {
     const answer = await call(`${path}?scopeKind=org&scopeId=${orgId}`);
     expect(answer.status).toBe(200);
     expect(answer.seen[key]).toEqual([
-      expect.objectContaining({ scope: { kind: 'org', orgId } satisfies ListScope }),
+      expect.objectContaining({ scope: { kind: 'org', orgId } }),
     ]);
   });
 
