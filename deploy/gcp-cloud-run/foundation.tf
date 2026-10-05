@@ -5,7 +5,7 @@
 # services stand on.
 
 locals {
-  apis = [
+  apis = concat([
     "artifactregistry.googleapis.com",
     "cloudkms.googleapis.com",
     "compute.googleapis.com",
@@ -13,7 +13,7 @@ locals {
     "run.googleapis.com",
     "secretmanager.googleapis.com",
     "sqladmin.googleapis.com",
-  ]
+  ], var.vertex_ai ? ["aiplatform.googleapis.com"] : [])
 }
 
 resource "google_project_service" "apis" {

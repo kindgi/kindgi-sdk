@@ -266,7 +266,7 @@ variable "server_invoker_iam_disabled" {
 }
 
 variable "vertex_ai" {
-  description = "Grant the server's service account roles/aiplatform.user, for Gemini on Vertex with the service's own credentials (ADC)."
+  description = "Enable the Vertex AI API (aiplatform.googleapis.com) and grant the server's service account roles/aiplatform.user, for Gemini on Vertex with the service's own credentials (ADC)."
   type        = bool
   default     = false
 }
