@@ -15,9 +15,10 @@ export interface AppEnv {
     tenantId: TenantId;
     /**
      * Set by `bearerAuthMiddleware` when the token's `TokenResolution`
-     * carried a `reviewerRole`. Approvals routes gate visibility +
-     * decisions on this: `standard < senior < admin`. Absent for
-     * tokens that were never provisioned with a reviewer role.
+     * carried a `reviewerRole`, or by the approvals routes (and `whoami`)
+     * from the reviewer roster for a token whose user is a registered
+     * reviewer (`ReviewerBinding.resolveReviewerRole`). Approvals routes
+     * gate visibility + decisions on this: `standard < senior < admin`.
      */
     reviewerRole?: ReviewerRole;
     /**
