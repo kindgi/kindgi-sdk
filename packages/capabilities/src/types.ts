@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { TenantId } from '@kindgi/types';
+import type { ProjectId, RunId, TenantId } from '@kindgi/types';
 
 /**
  * The closed set of feature flags an agent can require. Matches
@@ -384,12 +384,27 @@ export interface ModelCallInput {
   readonly abortSignal?: AbortSignal;
 }
 
-/** Usage counters — used by the cost meter. */
+/**
+ * A model call's token counts. `promptTokens` and `completionTokens` are
+ * the totals; the optional counts are parts of them, there when the
+ * provider reports them (a reported 0 is 0; a part it doesn't report is
+ * absent):
+ *   - `cacheReadTokens` and `cacheWriteTokens` are part of `promptTokens`;
+ *   - `reasoningTokens` are part of `completionTokens`.
+ * Nothing is folded away: the provider's own counts are in
+ * `ModelCallResult.rawUsage`.
+ */
 export interface UsageCounters {
+  /** Every input token, cache reads and writes included. */
   readonly promptTokens: number;
+  /** Every output token, reasoning included. */
   readonly completionTokens: number;
-  /** Some providers report cached tokens separately. Optional. */
-  readonly cachedTokens?: number;
+  /** Prompt tokens read from the provider's prompt cache. */
+  readonly cacheReadTokens?: number;
+  /** Prompt tokens written to the provider's prompt cache. */
+  readonly cacheWriteTokens?: number;
+  /** Completion tokens the model spent reasoning ("thinking"). */
+  readonly reasoningTokens?: number;
 }
 
 /**
@@ -410,6 +425,70 @@ export interface ModelCallResult {
   readonly durationMs: number;
   /** Provider + model actually invoked (in case the router picked a variant). */
   readonly provider: { readonly id: string; readonly model: string };
+  /**
+   * The exact model version the vendor says answered. Vendors alias: a
+   * `…-pro` request can be served by `…-pro-001`.
+   */
+  readonly servedModel?: string;
+  /** The vendor's id for the request: Anthropic's `request-id`, OpenAI's `x-request-id`, Gemini's `responseId`. */
+  readonly providerRequestId?: string;
+  /** HTTP attempts the call took, its client's own retries included. */
+  readonly attempts?: number;
+  /** The vendor's usage object, exactly as it reported it. */
+  readonly rawUsage?: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * One model call, as a usage sink records it: who made it (tenant,
+ * project, run, agent, step), which provider and model answered, and what
+ * the call used. Never the messages.
+ */
+export interface ModelUsageRecord {
+  /** The call's id, unique per call; its provenance node carries it too. */
+  readonly callId: string;
+  readonly tenantId: TenantId;
+  readonly projectId?: ProjectId;
+  readonly runId?: RunId;
+  readonly agentId?: string;
+  readonly agentVersion?: string;
+  readonly conversationId?: string;
+  /** The step of the run that made the call (`model-call`, `evaluate-guardrails`). */
+  readonly nodeId?: string;
+  /** The turn's step: its loop iteration. */
+  readonly step?: number;
+  /**
+   * What the call was for, when it isn't the turn's own model step:
+   * `guardrail-judge:<guardrail id>`.
+   */
+  readonly purpose?: string;
+  readonly providerId: string;
+  /** The model of the provider invoked. */
+  readonly model: string;
+  /** The router picked a fallback provider (`ProviderMetadata.fallback`). */
+  readonly fallback?: boolean;
+  /** When the call ended (ISO 8601). */
+  readonly occurredAt: string;
+  /** `ok`: the provider answered. `failed`: the call threw. */
+  readonly status: 'ok' | 'failed';
+  /** What the answer used, and what the vendor said about it (`ok`). */
+  readonly result?: Omit<ModelCallResult, 'message'>;
+  /**
+   * Why the call failed (`failed`), and the HTTP attempts it took before
+   * it did, when they were counted (`attemptsOf`).
+   */
+  readonly error?: { readonly message: string; readonly attempts?: number };
+  /** How long the call took, failed or not. */
+  readonly durationMs: number;
+}
+
+/**
+ * Where model calls are recorded: the runtime's cost ledger. The caller
+ * awaits `record` before it goes on with the answer, and a `record` that
+ * throws fails the caller: a model call isn't left unrecorded. Recording
+ * the same `callId` again changes nothing.
+ */
+export interface UsageSink {
+  record(call: ModelUsageRecord): Promise<void>;
 }
 
 /**

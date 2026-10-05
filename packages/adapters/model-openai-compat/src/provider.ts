@@ -15,7 +15,9 @@ import type {
   ModelToolCall,
   ModelToolDefinition,
   ProviderMetadata,
+  UsageCounters,
 } from '@kindgi/capabilities';
+import { createAttemptCounter } from '@kindgi/capabilities/attempts';
 
 /**
  * OpenAI (and every downstream compat endpoint — Ollama, vLLM, Groq,
@@ -72,7 +74,10 @@ export interface OpenAICompatProviderOptions {
   /** Metadata surfaced to the router — required. */
   readonly metadata: ProviderMetadata;
   /** Optional HTTP overrides passed through to the OpenAI SDK. */
-  readonly clientOptions?: Omit<ConstructorParameters<typeof OpenAI>[0], 'apiKey' | 'baseURL'>;
+  readonly clientOptions?: Omit<
+    NonNullable<ConstructorParameters<typeof OpenAI>[0]>,
+    'apiKey' | 'baseURL'
+  >;
   /**
    * Fields merged into every Chat Completions request body: settings an
    * endpoint takes that the OpenAI format has no field for. A Qwen
@@ -113,6 +118,9 @@ export function createOpenAICompatModelProvider(
   // One client per key: reused while the resolver returns the same key
   // (the SDK keeps its connection pool), rebuilt when it rotates.
   let cached: { readonly key: string; readonly client: OpenAI } | undefined;
+  // Counts each call's HTTP attempts, the SDK's own retries included (its
+  // retry policy stays the SDK's), through the `fetch` the client sends with.
+  const attempts = createAttemptCounter(options.clientOptions?.fetch);
   async function clientForCall(): Promise<OpenAI> {
     const key = typeof options.apiKey === 'function' ? await options.apiKey() : options.apiKey;
     if (cached !== undefined && cached.key === key) return cached.client;
@@ -120,6 +128,7 @@ export function createOpenAICompatModelProvider(
       apiKey: key,
       baseURL: options.baseURL,
       ...(options.clientOptions ?? {}),
+      fetch: attempts.fetch,
     });
     cached = { key, client };
     return client;
@@ -152,19 +161,22 @@ export function createOpenAICompatModelProvider(
           }
         : undefined;
 
-      const completion = await openai.chat.completions.create(
-        {
-          ...extraBody,
-          model: input.model,
-          messages,
-          ...(tools !== undefined && tools.length > 0 && { tools }),
-          ...(responseFormat !== undefined && { response_format: responseFormat }),
-          ...(input.temperature !== undefined && { temperature: input.temperature }),
-          ...(input.maxOutputTokens !== undefined && { max_tokens: input.maxOutputTokens }),
-          stream: false,
-        },
-        input.abortSignal !== undefined ? { signal: input.abortSignal } : undefined,
+      const counted = await attempts.count(() =>
+        openai.chat.completions.create(
+          {
+            ...extraBody,
+            model: input.model,
+            messages,
+            ...(tools !== undefined && tools.length > 0 && { tools }),
+            ...(responseFormat !== undefined && { response_format: responseFormat }),
+            ...(input.temperature !== undefined && { temperature: input.temperature }),
+            ...(input.maxOutputTokens !== undefined && { max_tokens: input.maxOutputTokens }),
+            stream: false,
+          },
+          input.abortSignal !== undefined ? { signal: input.abortSignal } : undefined,
+        ),
       );
+      const completion = counted.value;
 
       const durationMs = Date.now() - startedAt;
       const choice = completion.choices[0];
@@ -176,16 +188,25 @@ export function createOpenAICompatModelProvider(
         ...(toolCalls.length > 0 && { toolCalls }),
       };
 
-      const promptTokens = completion.usage?.prompt_tokens ?? 0;
-      const completionTokens = completion.usage?.completion_tokens ?? 0;
+      const usage = toFrameworkUsage(completion.usage);
 
       return {
         message: responseMessage,
         finishReason: mapFinishReason(choice?.finish_reason),
-        usage: { promptTokens, completionTokens },
-        costUsd: computeCost(modelInfo, promptTokens, completionTokens),
+        usage,
+        costUsd: computeCost(modelInfo, usage.promptTokens, usage.completionTokens),
         durationMs,
         provider: { id: metadata.id, model: input.model },
+        ...(completion.model !== undefined &&
+          completion.model !== '' && {
+            servedModel: completion.model,
+          }),
+        ...(typeof completion._request_id === 'string' && {
+          providerRequestId: completion._request_id,
+        }),
+        // An injected client sends with its own fetch: nothing was counted.
+        ...(counted.attempts > 0 && { attempts: counted.attempts }),
+        ...(completion.usage !== undefined && { rawUsage: { ...completion.usage } }),
       };
     },
   };
@@ -407,4 +428,23 @@ function extraBodyProblem(value: unknown): string | undefined {
   return reserved.length > 0
     ? `extraBody can't set ${reserved.join(', ')}: the adapter sets ${reserved.length === 1 ? 'it' : 'them'}`
     : undefined;
+}
+
+/**
+ * The completion's usage as the framework's counters. The endpoint's
+ * `prompt_tokens` include cached ones (`prompt_tokens_details.cached_tokens`),
+ * and its `completion_tokens` include reasoning
+ * (`completion_tokens_details.reasoning_tokens`): reported apart when the
+ * endpoint gives them. OpenAI doesn't report cache writes.
+ */
+function toFrameworkUsage(usage: OpenAI.CompletionUsage | undefined): UsageCounters {
+  const cacheRead = usage?.prompt_tokens_details?.cached_tokens;
+  const reasoning = usage?.completion_tokens_details?.reasoning_tokens;
+  return {
+    promptTokens: usage?.prompt_tokens ?? 0,
+    completionTokens: usage?.completion_tokens ?? 0,
+    // A part the endpoint reports is kept, 0 included.
+    ...(typeof cacheRead === 'number' && { cacheReadTokens: cacheRead }),
+    ...(typeof reasoning === 'number' && { reasoningTokens: reasoning }),
+  };
 }

@@ -20,6 +20,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./attempts": {
+      "types": "./dist/attempts.d.ts",
+      "import": "./dist/attempts.js",
+      "default": "./dist/attempts.js"
     }
   },
   "files": ["dist", "src", "README.md", "SPEC.md", "type-manifest.json"],

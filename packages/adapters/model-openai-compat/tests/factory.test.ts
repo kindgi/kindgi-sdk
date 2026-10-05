@@ -7,6 +7,9 @@
  * on each call, the endpoint, the extra body fields, the turn's abort signal.
  */
 
+import { type Server, createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+
 import { describe, expect, test } from 'vitest';
 
 import type { ProviderMetadata } from '@kindgi/capabilities';
@@ -286,5 +289,118 @@ describe('adapter_config extraBody.* keys', () => {
       ).toThrow(says);
     }
     expect(Object.hasOwn(Object.prototype, 'polluted')).toBe(false);
+  });
+});
+
+describe('what the endpoint says about the call', () => {
+  test("served model, request id, cached and reasoning tokens, raw usage, and the attempts its SDK's retries took", async () => {
+    let requests = 0;
+    const flaky = (async () => {
+      requests += 1;
+      if (requests === 1) {
+        return new Response(JSON.stringify({ error: { message: 'slow down' } }), {
+          status: 429,
+          headers: { 'content-type': 'application/json', 'retry-after-ms': '1' },
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          ...COMPLETION,
+          model: 'gpt-test-2026-01-01',
+          usage: {
+            prompt_tokens: 30,
+            completion_tokens: 20,
+            total_tokens: 50,
+            prompt_tokens_details: { cached_tokens: 10 },
+            completion_tokens_details: { reasoning_tokens: 8 },
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json', 'x-request-id': 'req_7' } },
+      );
+    }) as typeof fetch;
+    const provider = openAICompatAdapterFactory({
+      metadata,
+      config: { baseURL: 'http://llm.test/v1' },
+      fetch: flaky,
+    });
+    const result = await provider.invoke(call);
+    expect(requests).toBe(2);
+    expect(result).toMatchObject({
+      servedModel: 'gpt-test-2026-01-01',
+      providerRequestId: 'req_7',
+      attempts: 2,
+      usage: { promptTokens: 30, completionTokens: 20, cacheReadTokens: 10, reasoningTokens: 8 },
+      rawUsage: {
+        prompt_tokens: 30,
+        completion_tokens: 20,
+        prompt_tokens_details: { cached_tokens: 10 },
+        completion_tokens_details: { reasoning_tokens: 8 },
+      },
+    });
+  });
+
+  test('a part the endpoint reports as 0 is kept as 0; one it leaves out is absent', async () => {
+    const answering = (usage: Record<string, unknown>) =>
+      (async () =>
+        new Response(JSON.stringify({ ...COMPLETION, usage }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })) as typeof fetch;
+    const reported = await openAICompatAdapterFactory({
+      metadata,
+      config: { baseURL: 'http://llm.test/v1' },
+      fetch: answering({
+        prompt_tokens: 30,
+        completion_tokens: 20,
+        total_tokens: 50,
+        prompt_tokens_details: { cached_tokens: 0 },
+        completion_tokens_details: { reasoning_tokens: 0 },
+      }),
+    }).invoke(call);
+    expect(reported.usage).toEqual({
+      promptTokens: 30,
+      completionTokens: 20,
+      cacheReadTokens: 0,
+      reasoningTokens: 0,
+    });
+    const unreported = await openAICompatAdapterFactory({
+      metadata,
+      config: { baseURL: 'http://llm.test/v1' },
+      fetch: answering({ prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 }),
+    }).invoke(call);
+    expect(unreported.usage).toEqual({ promptTokens: 30, completionTokens: 20 });
+  });
+
+  test('a body that stalls past the timeout is retried by the SDK, and both attempts are counted', async () => {
+    // The real SDK over real HTTP: the first answer sends its headers and
+    // part of its body, then stalls; the SDK times the body out and
+    // retries from inside its lazy promise.
+    let requests = 0;
+    const server: Server = createServer((_req, res) => {
+      requests += 1;
+      res.writeHead(200, { 'content-type': 'application/json', 'x-request-id': `req_${requests}` });
+      if (requests === 1) {
+        res.write('{"id":');
+        return;
+      }
+      res.end(JSON.stringify(COMPLETION));
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const { port } = server.address() as AddressInfo;
+      const provider = createOpenAICompatModelProvider({
+        baseURL: `http://127.0.0.1:${port}/v1`,
+        apiKey: 'sk-test',
+        metadata,
+        clientOptions: { timeout: 300, maxRetries: 2 },
+      });
+      const result = await provider.invoke(call);
+      expect(requests).toBe(2);
+      expect(result.attempts).toBe(2);
+      expect(result.providerRequestId).toBe('req_2');
+    } finally {
+      server.closeAllConnections();
+      await new Promise((resolve) => server.close(resolve));
+    }
   });
 });

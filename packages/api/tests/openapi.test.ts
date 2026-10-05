@@ -322,6 +322,7 @@ const noopCost: CostBinding = {
     groups: [],
     totalUsd: 0,
     totalRecords: 0,
+    tokens: { prompt: 0, completion: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 },
     timeRange: {
       from: from.toISOString() as never,
       to: to.toISOString() as never,

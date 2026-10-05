@@ -83,6 +83,7 @@ export function createStubAppBindings(): StubAppBindings {
     provenanceBinding: createStubBinding<CreateAppInput['provenanceBinding']>('provenanceBinding', {
       listRecords: true,
       getByRunId: true,
+      getCallUsage: true,
     }),
   };
 }

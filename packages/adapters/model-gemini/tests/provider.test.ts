@@ -59,6 +59,8 @@ const OK_ANSWER: Partial<GenerateContentResponse> = {
     { content: { role: 'model', parts: [{ text: 'done' }] }, finishReason: 'STOP' as never },
   ],
   usageMetadata: { promptTokenCount: 1000, candidatesTokenCount: 100, thoughtsTokenCount: 50 },
+  modelVersion: 'gemini-2.5-pro-001',
+  responseId: 'resp-42',
 };
 
 describe('createGeminiProvider', () => {
@@ -110,9 +112,14 @@ describe('createGeminiProvider', () => {
     expect(result).toMatchObject({
       message: { role: 'assistant', content: 'done' },
       finishReason: 'stop',
-      usage: { promptTokens: 1000, completionTokens: 150 },
+      usage: { promptTokens: 1000, completionTokens: 150, reasoningTokens: 50 },
       provider: { id: 'gemini-vertex', model: 'gemini-2.5-pro' },
+      servedModel: 'gemini-2.5-pro-001',
+      providerRequestId: 'resp-42',
+      rawUsage: { promptTokenCount: 1000, candidatesTokenCount: 100, thoughtsTokenCount: 50 },
     });
+    // The injected client sends with its own fetch: no attempts were counted.
+    expect(result.attempts).toBeUndefined();
     expect(result.costUsd).toBeCloseTo((1000 * 0.00125 + 150 * 0.01) / 1000, 12);
   });
 
@@ -142,7 +149,7 @@ describe('createGeminiProvider', () => {
 });
 
 describe('usage and cost', () => {
-  test('thinking tokens count as completion; cached and tool-prompt tokens as prompt', () => {
+  test('thinking counts as completion, and is reported apart; cached and tool-prompt tokens count as prompt', () => {
     expect(
       toFrameworkUsage({
         promptTokenCount: 900,
@@ -151,15 +158,35 @@ describe('usage and cost', () => {
         thoughtsTokenCount: 60,
         cachedContentTokenCount: 400,
       }),
-    ).toEqual({ promptTokens: 1000, completionTokens: 100, cachedTokens: 400 });
+    ).toEqual({
+      promptTokens: 1000,
+      completionTokens: 100,
+      cacheReadTokens: 400,
+      reasoningTokens: 60,
+    });
     expect(toFrameworkUsage(undefined)).toEqual({ promptTokens: 0, completionTokens: 0 });
+  });
+
+  test('a part Gemini reports as 0 is kept as 0; one it leaves out is absent', () => {
+    expect(
+      toFrameworkUsage({
+        promptTokenCount: 10,
+        candidatesTokenCount: 2,
+        thoughtsTokenCount: 0,
+        cachedContentTokenCount: 0,
+      }),
+    ).toEqual({ promptTokens: 10, completionTokens: 2, cacheReadTokens: 0, reasoningTokens: 0 });
+    expect(toFrameworkUsage({ promptTokenCount: 10, candidatesTokenCount: 2 })).toEqual({
+      promptTokens: 10,
+      completionTokens: 2,
+    });
   });
 
   test('cached prompt tokens bill at the cached share; long prompts at the long-context rates', () => {
     const rates = METADATA.models[0]?.cost;
     if (rates === undefined) throw new Error('no rates');
     expect(
-      computeCostUsd({ promptTokens: 1000, completionTokens: 100, cachedTokens: 400 }, rates),
+      computeCostUsd({ promptTokens: 1000, completionTokens: 100, cacheReadTokens: 400 }, rates),
     ).toBeCloseTo(
       (600 * 0.00125 + 400 * 0.00125 * DEFAULT_CACHED_PROMPT_MULTIPLIER + 100 * 0.01) / 1000,
       12,
