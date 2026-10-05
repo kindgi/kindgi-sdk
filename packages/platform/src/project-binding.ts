@@ -20,7 +20,9 @@
  * `AgentPublishInput.projectId` in `@kindgi/api`).
  *
  * Same convention as `org-binding.ts`: `tenantId` first, `Page<T>`
- * return, `Filter`-extending filter shapes.
+ * return, `Filter`-extending filter shapes, and writes the caller can
+ * get wrong resolve to an outcome discriminated on `kind` instead of
+ * rejecting.
  */
 
 import type { Filter, OrgId, Page, ProjectId, TenantId, UserId } from '@kindgi/types';
@@ -58,12 +60,14 @@ export interface ProjectMembershipAddInput {
  */
 export interface ProjectBinding {
   /**
-   * Create a `Project` within the tenant. `spec.orgId` optional. If
-   * `spec.isDefault === true` and a Default already exists, the
-   * binding rejects — the isDefault-uniqueness guardrail is enforced
-   * at write time.
+   * Create a `Project` within the tenant. `spec.orgId` optional.
+   * Resolves to `ok` with the assigned `ProjectId`; to `slug-conflict`
+   * when another project in the tenant has `spec.slug`; and, when
+   * `spec.isDefault === true` and the tenant already has a Default, to
+   * `project-default-already-exists` — the isDefault-uniqueness
+   * guardrail is enforced at write time.
    */
-  create(tenantId: TenantId, spec: ProjectSpec): Promise<ProjectId>;
+  create(tenantId: TenantId, spec: ProjectSpec): Promise<ProjectCreateOutcome>;
   /**
    * Look up a `Project` by id. `undefined` when unknown or in a
    * different tenant.
@@ -81,9 +85,15 @@ export interface ProjectBinding {
   getDefault(tenantId: TenantId): Promise<Project | undefined>;
   /**
    * Partially update a `Project`. `ProjectPatch.orgId` supports
-   * `null` to re-assign the project out of any org.
+   * `null` to re-assign the project out of any org. Resolves to
+   * `project-not-found` when no project has `projectId` in the tenant,
+   * and to `slug-conflict` when `patch.slug` is another project's slug.
    */
-  update(tenantId: TenantId, projectId: ProjectId, patch: ProjectPatch): Promise<void>;
+  update(
+    tenantId: TenantId,
+    projectId: ProjectId,
+    patch: ProjectPatch,
+  ): Promise<ProjectUpdateOutcome>;
   /**
    * Delete a `Project`. What happens to content rows that still
    * reference the project is the storage layer's concern; the
@@ -104,8 +114,10 @@ export interface ProjectMembershipBinding {
    * Add a user directly to a project. Idempotent on
    * `(projectId, userId)` — re-adding the same user does not mutate
    * a stored differing role. Use `updateRole` to change roles.
+   * Resolves to `project-not-found` when no project has
+   * `input.projectId` in the tenant.
    */
-  add(tenantId: TenantId, input: ProjectMembershipAddInput): Promise<void>;
+  add(tenantId: TenantId, input: ProjectMembershipAddInput): Promise<ProjectMembershipAddOutcome>;
   /**
    * Remove the direct project grant. No-op when absent.
    */
@@ -122,13 +134,61 @@ export interface ProjectMembershipBinding {
    */
   listForUser(tenantId: TenantId, userId: UserId, filter: Filter): Promise<Page<ProjectMembership>>;
   /**
-   * Update an existing direct-membership's role. Errors when the
-   * membership doesn't exist.
+   * Update an existing direct-membership's role. Resolves to
+   * `project-not-found` when the project isn't in the tenant, and to
+   * `project-membership-not-found` when the user has no direct
+   * membership.
    */
   updateRole(
     tenantId: TenantId,
     projectId: ProjectId,
     userId: UserId,
     role: ProjectRole,
-  ): Promise<void>;
+  ): Promise<ProjectMembershipUpdateRoleOutcome>;
 }
+
+/** What `ProjectBinding.create` did. */
+export type ProjectCreateOutcome =
+  | { readonly kind: 'ok'; readonly projectId: ProjectId }
+  | {
+      /** Another project in the tenant already has this slug. */
+      readonly kind: 'slug-conflict';
+      readonly slug: string;
+    }
+  | {
+      /** `spec.isDefault` was `true` and the tenant already has a Default project. */
+      readonly kind: 'project-default-already-exists';
+    };
+
+/** What `ProjectBinding.update` did. */
+export type ProjectUpdateOutcome =
+  | { readonly kind: 'ok' }
+  | {
+      /** No project with this id in the tenant. */
+      readonly kind: 'project-not-found';
+    }
+  | {
+      /** Another project in the tenant already has the patched slug. */
+      readonly kind: 'slug-conflict';
+      readonly slug: string;
+    };
+
+/** What `ProjectMembershipBinding.add` did (`ok` when already a member, too). */
+export type ProjectMembershipAddOutcome =
+  | { readonly kind: 'ok' }
+  | {
+      /** No project with this id in the tenant. */
+      readonly kind: 'project-not-found';
+    };
+
+/** What `ProjectMembershipBinding.updateRole` did. */
+export type ProjectMembershipUpdateRoleOutcome =
+  | { readonly kind: 'ok' }
+  | {
+      /** No project with this id in the tenant. */
+      readonly kind: 'project-not-found';
+    }
+  | {
+      /** The user has no direct membership on the project. */
+      readonly kind: 'project-membership-not-found';
+    };

@@ -62,10 +62,21 @@ export interface AddProjectMemberParams {
   readonly role: ProjectRole;
 }
 
-export interface MembershipMutationError {
-  readonly code: string;
-  readonly message: string;
-}
+export type AddTeamMemberError =
+  | {
+      /** No team with this id in the tenant. */
+      readonly code: 'team-not-found';
+      readonly message: string;
+    }
+  | { readonly code: 'add-failed'; readonly message: string; readonly cause?: unknown };
+
+export type AddProjectMemberError =
+  | {
+      /** No project with this id in the tenant. */
+      readonly code: 'project-not-found';
+      readonly message: string;
+    }
+  | { readonly code: 'add-failed'; readonly message: string; readonly cause?: unknown };
 
 /**
  * Tenant-summary read shape returned by `getTenant`. Only the fields
@@ -96,8 +107,8 @@ export interface TenantHierarchyBinding {
   createProject(
     params: CreateProjectParams,
   ): Promise<Result<{ readonly projectId: ProjectId }, CreateProjectError>>;
-  addTeamMember(params: AddTeamMemberParams): Promise<Result<void, MembershipMutationError>>;
-  addProjectMember(params: AddProjectMemberParams): Promise<Result<void, MembershipMutationError>>;
+  addTeamMember(params: AddTeamMemberParams): Promise<Result<void, AddTeamMemberError>>;
+  addProjectMember(params: AddProjectMemberParams): Promise<Result<void, AddProjectMemberError>>;
   /**
    * Look up a tenant by id. Returns `null` when no tenant exists.
    * Not itself tenant-scoped: it is how a caller finds out which

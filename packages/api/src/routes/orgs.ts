@@ -11,6 +11,7 @@ import type { Cursor, OrgId, TenantId, UserId } from '@kindgi/types';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
+import { orgDeleteSlugConflictError, slugConflictError } from './hierarchy-errors.js';
 import { clampLimit } from './pagination.js';
 
 /**
@@ -19,10 +20,13 @@ import { clampLimit } from './pagination.js';
  * Five endpoints on `/v1/orgs`:
  *   - `GET    /`                — cursor-paginated list; optional
  *                                 `?limit=` / `?cursor=` / `?nameContains=`.
- *   - `POST   /`                — create; body `{ name, slug }`; 201 `{ id }`.
+ *   - `POST   /`                — create; body `{ name, slug }`; 201 `{ id }`;
+ *                                 409 `slug-conflict` when the tenant has
+ *                                 an org with that slug.
  *   - `GET    /:orgId`          — 200 `Org`; 404 `org-not-found`.
  *   - `PATCH  /:orgId`          — partial update via `OrgPatch`; 204 on
- *                                 success; 404 `org-not-found`.
+ *                                 success; 404 `org-not-found`; 409
+ *                                 `slug-conflict`.
  *   - `DELETE /:orgId`          — 204 idempotent (unknown is 204 per the
  *                                 binding's delete-is-a-no-op contract).
  *
@@ -142,17 +146,24 @@ export function orgsRouter(
           : ('00000000-0000-0000-0000-000000000000' as UserId);
       const result = await tenantHierarchy.createOrg({ tenantId, creatorUserId, spec });
       if (result.kind === 'err') {
-        const code =
-          result.error.code === 'slug-conflict' ? 'slug-conflict' : 'internal-server-error';
-        c.status(statusFor(code) as never);
-        return c.json(toWireError({ code, message: result.error.message }, requestId));
+        const error =
+          result.error.code === 'slug-conflict'
+            ? slugConflictError('org', spec.slug)
+            : { code: 'internal-server-error', message: result.error.message };
+        c.status(statusFor(error.code) as never);
+        return c.json(toWireError(error, requestId));
       }
       c.status(201);
       return c.json({ id: result.value.orgId as unknown as string });
     }
-    const id = await binding.create(tenantId, spec);
+    const outcome = await binding.create(tenantId, spec);
+    if (outcome.kind === 'slug-conflict') {
+      const error = slugConflictError('org', outcome.slug);
+      c.status(statusFor(error.code) as never);
+      return c.json(toWireError(error, requestId));
+    }
     c.status(201);
-    return c.json({ id: id as unknown as string });
+    return c.json({ id: outcome.orgId as unknown as string });
   });
 
   // ---------- GET /:orgId ----------
@@ -226,24 +237,24 @@ export function orgsRouter(
       shaped.slug = b.slug;
     }
 
-    try {
-      await binding.update(tenantId, orgId, shaped);
-    } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause);
-      if (message.startsWith('org-not-found')) {
-        c.status(statusFor('org-not-found') as never);
-        return c.json(
-          toWireError(
-            {
-              code: 'org-not-found',
-              message: `No org with id "${orgId as unknown as string}"`,
-              orgId: orgId as unknown as string,
-            },
-            requestId,
-          ),
-        );
-      }
-      throw cause;
+    const outcome = await binding.update(tenantId, orgId, shaped);
+    if (outcome.kind === 'org-not-found') {
+      c.status(statusFor('org-not-found') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'org-not-found',
+            message: `No org with id "${orgId as unknown as string}"`,
+            orgId: orgId as unknown as string,
+          },
+          requestId,
+        ),
+      );
+    }
+    if (outcome.kind === 'slug-conflict') {
+      const error = slugConflictError('org', outcome.slug);
+      c.status(statusFor(error.code) as never);
+      return c.json(toWireError(error, requestId));
     }
     c.status(204);
     return c.body(null);
@@ -251,9 +262,15 @@ export function orgsRouter(
 
   // ---------- DELETE /:orgId ----------
   r.delete('/:orgId', async (c) => {
+    const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const orgId = c.req.param('orgId') as OrgId;
-    await binding.delete(tenantId, orgId);
+    const outcome = await binding.delete(tenantId, orgId);
+    if (outcome?.kind === 'slug-conflict') {
+      const error = orgDeleteSlugConflictError(outcome.slugs);
+      c.status(statusFor(error.code) as never);
+      return c.json(toWireError(error, requestId));
+    }
     c.status(204);
     return c.body(null);
   });

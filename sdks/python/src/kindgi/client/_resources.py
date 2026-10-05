@@ -3074,7 +3074,7 @@ class PoliciesResource:
     ) -> _models.PublishPolicyResult:
         """Publish a policy. `POST /v1/policies`
 
-        Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).
+        Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).
         """
         return self._client._request(
             _OPERATIONS["policies.publish"],
@@ -3960,7 +3960,7 @@ class OrgsResource:
     ) -> None:
         """Delete an org (idempotent). `DELETE /v1/orgs/{orgId}`
 
-        Idempotent — deleting an unknown or already-deleted org returns 204 per the binding contract.
+        Idempotent — deleting an unknown or already-deleted org returns 204 per the binding contract. The org's projects stay, without an org; when one of them has the slug of a project that has none, nothing is deleted: `409 slug-conflict` names the slugs (rename or move those projects first).
         """
         return self._client._request(
             _OPERATIONS["orgs.delete"],
@@ -4312,7 +4312,10 @@ class ProjectsResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.CreateResourceResult:
-        """Create a project. `POST /v1/projects`"""
+        """Create a project. `POST /v1/projects`
+
+        A project's slug is unique within its org, and a project without an org's among the tenant's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second Default, `409 project-default-already-exists`.
+        """
         return self._client._request(
             _OPERATIONS["projects.create"],
             path={},
@@ -4344,7 +4347,10 @@ class ProjectsResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> None:
-        """Partially update a project. `PATCH /v1/projects/{projectId}`"""
+        """Partially update a project. `PATCH /v1/projects/{projectId}`
+
+        A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up.
+        """
         return self._client._request(
             _OPERATIONS["projects.update"],
             path={"projectId": project_id},
@@ -7921,7 +7927,7 @@ class AsyncPoliciesResource:
     ) -> _models.PublishPolicyResult:
         """Publish a policy. `POST /v1/policies`
 
-        Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).
+        Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).
         """
         return await self._client._request(
             _OPERATIONS["policies.publish"],
@@ -8809,7 +8815,7 @@ class AsyncOrgsResource:
     ) -> None:
         """Delete an org (idempotent). `DELETE /v1/orgs/{orgId}`
 
-        Idempotent — deleting an unknown or already-deleted org returns 204 per the binding contract.
+        Idempotent — deleting an unknown or already-deleted org returns 204 per the binding contract. The org's projects stay, without an org; when one of them has the slug of a project that has none, nothing is deleted: `409 slug-conflict` names the slugs (rename or move those projects first).
         """
         return await self._client._request(
             _OPERATIONS["orgs.delete"],
@@ -9161,7 +9167,10 @@ class AsyncProjectsResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.CreateResourceResult:
-        """Create a project. `POST /v1/projects`"""
+        """Create a project. `POST /v1/projects`
+
+        A project's slug is unique within its org, and a project without an org's among the tenant's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second Default, `409 project-default-already-exists`.
+        """
         return await self._client._request(
             _OPERATIONS["projects.create"],
             path={},
@@ -9193,7 +9202,10 @@ class AsyncProjectsResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> None:
-        """Partially update a project. `PATCH /v1/projects/{projectId}`"""
+        """Partially update a project. `PATCH /v1/projects/{projectId}`
+
+        A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up.
+        """
         return await self._client._request(
             _OPERATIONS["projects.update"],
             path={"projectId": project_id},

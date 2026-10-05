@@ -123,6 +123,28 @@ export const POLICY_KINDS = [
 export type PolicyKind = (typeof POLICY_KINDS)[number];
 
 /**
+ * The policy kinds a runtime consumer applies today: publishing one of
+ * these changes what runs. The others (`access-control`,
+ * `adapter-allowlist`, `rate-limit`, `compliance`) are known kinds with
+ * no consumer yet, so the API refuses to publish them
+ * (`kind-not-applied`) until one exists: a policy that silently changes
+ * nothing is worse than none. Policies of those kinds already stored stay
+ * readable.
+ */
+export const APPLIED_POLICY_KINDS = [
+  'model-routing',
+  'retention',
+  'tool-errors',
+  'hitl',
+] as const satisfies readonly PolicyKind[];
+export type AppliedPolicyKind = (typeof APPLIED_POLICY_KINDS)[number];
+
+/** Whether a runtime consumer applies `kind` (see `APPLIED_POLICY_KINDS`). */
+export function isAppliedPolicyKind(kind: PolicyKind): kind is AppliedPolicyKind {
+  return (APPLIED_POLICY_KINDS as readonly PolicyKind[]).includes(kind);
+}
+
+/**
  * Wire shape for a single tenant policy. `spec` is a JSON object whose
  * shape is dictated by `kind` — the registry treats it as opaque JSON
  * so new kinds can extend the catalog without touching this file.

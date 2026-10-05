@@ -19,6 +19,7 @@ import type { Cursor, OrgId, ProjectId, TenantId, UserId } from '@kindgi/types';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
+import { projectDefaultAlreadyExistsError, slugConflictError } from './hierarchy-errors.js';
 import { clampLimit } from './pagination.js';
 
 /**
@@ -30,12 +31,20 @@ import { clampLimit } from './pagination.js';
  *                                          `?nameContains=`.
  *   - `POST   /`                         — create; body `{ name, slug,
  *                                          orgId?, description?, isDefault? }`;
- *                                          201 `{ id }`.
+ *                                          201 `{ id }`; 409 `slug-conflict`
+ *                                          when its org (or, without an org,
+ *                                          the tenant's projects without one)
+ *                                          has a project with that slug, or
+ *                                          `project-default-already-exists`
+ *                                          for a second Default.
  *   - `GET    /default`                  — returns the tenant's Default
  *                                          project or 404 `project-not-found`.
  *                                          MUST be mounted BEFORE `/:projectId`.
  *   - `GET    /:projectId`               — get; 200 or 404 `project-not-found`.
- *   - `PATCH  /:projectId`               — partial update; 204 or 404.
+ *   - `PATCH  /:projectId`               — partial update; 204, 404
+ *                                          `project-not-found` or 409
+ *                                          `slug-conflict` (a new slug, or a
+ *                                          move to an org that has it).
  *   - `DELETE /:projectId`               — 204 idempotent.
  *   - `GET    /:projectId/memberships`   — list; cursor-paginated.
  *   - `POST   /:projectId/memberships`   — add member; body `{ userId, role }`;
@@ -235,23 +244,31 @@ export function projectsRouter(
           : ('00000000-0000-0000-0000-000000000000' as UserId);
       const result = await tenantHierarchy.createProject({ tenantId, creatorUserId, spec });
       if (result.kind === 'err') {
-        const code =
+        const error =
           result.error.code === 'slug-conflict'
-            ? 'slug-conflict'
+            ? slugConflictError('project', spec.slug)
             : result.error.code === 'default-conflict'
-              ? 'project-default-already-exists'
-              : 'internal-server-error';
-        c.status(statusFor(code) as never);
-        return c.json(toWireError({ code, message: result.error.message }, requestId));
+              ? projectDefaultAlreadyExistsError()
+              : { code: 'internal-server-error', message: result.error.message };
+        c.status(statusFor(error.code) as never);
+        return c.json(toWireError(error, requestId));
       }
       c.status(201);
       return c.json({ id: result.value.projectId as unknown as string });
     }
     // No authorizer configured — fall back to the raw binding create;
     // no FGA tuples written.
-    const id = await binding.create(tenantId, spec);
+    const outcome = await binding.create(tenantId, spec);
+    if (outcome.kind !== 'ok') {
+      const error =
+        outcome.kind === 'slug-conflict'
+          ? slugConflictError('project', outcome.slug)
+          : projectDefaultAlreadyExistsError();
+      c.status(statusFor(error.code) as never);
+      return c.json(toWireError(error, requestId));
+    }
     c.status(201);
-    return c.json({ id: id as unknown as string });
+    return c.json({ id: outcome.projectId as unknown as string });
   });
 
   // ---------- GET /:projectId/memberships ----------
@@ -346,42 +363,41 @@ export function projectsRouter(
         ),
       );
     }
-    try {
-      // With an authorizer, add through the tenant-hierarchy binding — it
-      // writes the FGA `<role>@project` tuple atomically so the granted
-      // user's permissions land in FGA.
-      if (authorizer !== undefined) {
-        const res = await tenantHierarchy.addProjectMember({
-          tenantId,
-          projectId,
-          userId: b.userId as unknown as UserId,
-          role: b.role as ProjectRole,
-        });
-        if (res.kind === 'err') throw new Error(res.error.message);
-      } else {
-        await membershipBinding.add(tenantId, {
-          projectId,
-          userId: b.userId as unknown as UserId,
-          role: b.role,
-        });
+    // Racy — the project can be deleted between the preliminary get and the add.
+    const projectGone = () => {
+      c.status(statusFor('project-not-found') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'project-not-found',
+            message: `No project with id "${projectId as unknown as string}"`,
+            projectId: projectId as unknown as string,
+          },
+          requestId,
+        ),
+      );
+    };
+    // With an authorizer, add through the tenant-hierarchy binding — it
+    // writes the FGA `<role>@project` tuple atomically so the granted
+    // user's permissions land in FGA.
+    if (authorizer !== undefined) {
+      const res = await tenantHierarchy.addProjectMember({
+        tenantId,
+        projectId,
+        userId: b.userId as unknown as UserId,
+        role: b.role as ProjectRole,
+      });
+      if (res.kind === 'err') {
+        if (res.error.code === 'project-not-found') return projectGone();
+        throw new Error(res.error.message, { cause: res.error });
       }
-    } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause);
-      if (message.startsWith('project-not-found')) {
-        // Racy — project was deleted between preliminary get and add.
-        c.status(statusFor('project-not-found') as never);
-        return c.json(
-          toWireError(
-            {
-              code: 'project-not-found',
-              message: `No project with id "${projectId as unknown as string}"`,
-              projectId: projectId as unknown as string,
-            },
-            requestId,
-          ),
-        );
-      }
-      throw cause;
+    } else {
+      const outcome = await membershipBinding.add(tenantId, {
+        projectId,
+        userId: b.userId as unknown as UserId,
+        role: b.role,
+      });
+      if (outcome.kind === 'project-not-found') return projectGone();
     }
     c.status(201);
     return c.json({
@@ -436,38 +452,33 @@ export function projectsRouter(
         ),
       );
     }
-    try {
-      await membershipBinding.updateRole(tenantId, projectId, userId, b.role);
-    } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause);
-      if (message.startsWith('project-membership-not-found')) {
-        c.status(statusFor('project-membership-not-found') as never);
-        return c.json(
-          toWireError(
-            {
-              code: 'project-membership-not-found',
-              message: `No membership for project "${projectId as unknown as string}" + user "${userId as unknown as string}"`,
-              projectId: projectId as unknown as string,
-              userId: userId as unknown as string,
-            },
-            requestId,
-          ),
-        );
-      }
-      if (message.startsWith('project-not-found')) {
-        c.status(statusFor('project-not-found') as never);
-        return c.json(
-          toWireError(
-            {
-              code: 'project-not-found',
-              message: `No project with id "${projectId as unknown as string}"`,
-              projectId: projectId as unknown as string,
-            },
-            requestId,
-          ),
-        );
-      }
-      throw cause;
+    const outcome = await membershipBinding.updateRole(tenantId, projectId, userId, b.role);
+    if (outcome.kind === 'project-membership-not-found') {
+      c.status(statusFor('project-membership-not-found') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'project-membership-not-found',
+            message: `No membership for project "${projectId as unknown as string}" + user "${userId as unknown as string}"`,
+            projectId: projectId as unknown as string,
+            userId: userId as unknown as string,
+          },
+          requestId,
+        ),
+      );
+    }
+    if (outcome.kind === 'project-not-found') {
+      c.status(statusFor('project-not-found') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'project-not-found',
+            message: `No project with id "${projectId as unknown as string}"`,
+            projectId: projectId as unknown as string,
+          },
+          requestId,
+        ),
+      );
     }
     c.status(204);
     return c.body(null);
@@ -571,24 +582,24 @@ export function projectsRouter(
         );
       }
     }
-    try {
-      await binding.update(tenantId, projectId, shaped);
-    } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause);
-      if (message.startsWith('project-not-found')) {
-        c.status(statusFor('project-not-found') as never);
-        return c.json(
-          toWireError(
-            {
-              code: 'project-not-found',
-              message: `No project with id "${projectId as unknown as string}"`,
-              projectId: projectId as unknown as string,
-            },
-            requestId,
-          ),
-        );
-      }
-      throw cause;
+    const outcome = await binding.update(tenantId, projectId, shaped);
+    if (outcome.kind === 'project-not-found') {
+      c.status(statusFor('project-not-found') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'project-not-found',
+            message: `No project with id "${projectId as unknown as string}"`,
+            projectId: projectId as unknown as string,
+          },
+          requestId,
+        ),
+      );
+    }
+    if (outcome.kind === 'slug-conflict') {
+      const error = slugConflictError('project', outcome.slug);
+      c.status(statusFor(error.code) as never);
+      return c.json(toWireError(error, requestId));
     }
     c.status(204);
     return c.body(null);
