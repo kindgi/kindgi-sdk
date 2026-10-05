@@ -1670,6 +1670,12 @@ export const ConversationSchema: JsonSchema = {
     agentVersion: { type: 'string', description: 'Semver.' },
     title: { type: 'string' },
     participantId: { type: 'string' },
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        'The project the conversation is in: the project of the run that opened it, or `projectId` on open. Absent when opened without one, and on conversations from before Kindgi 0.1.3; those are listed only without a scope.',
+    },
     scope: {
       type: 'object',
       additionalProperties: true,
@@ -1723,6 +1729,12 @@ export const OpenConversationBodySchema: JsonSchema = {
     title: {
       type: 'string',
       description: 'Optional. Defaults to `"Untitled conversation"` when omitted.',
+    },
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        "The project the conversation is in; `GET /v1/conversations?scopeKind=project&scopeId=…` lists it. A project of the caller's tenant, else `400 bad-input`. Omit it and the conversation is listed only without a scope.",
     },
     scope: {
       type: 'object',
@@ -2501,6 +2513,12 @@ export const ProvenanceRecordMetadataSchema: JsonSchema = {
         'True when the emission-time signature is present. Independent of whether the export route can produce a signed bundle.',
     },
     createdAt: { type: 'string', format: 'date-time' },
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        "The project of the record's run. Absent on records from before Kindgi 0.1.3; those are listed only without a scope.",
+    },
   },
 };
 

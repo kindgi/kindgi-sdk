@@ -1094,6 +1094,8 @@ class ApprovalsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
+        scope_kind: Literal["tenant", "org", "project"] | None = None,
+        scope_id: str | None = None,
         status: Literal[
             "pending",
             "assigned",
@@ -1111,7 +1113,7 @@ class ApprovalsResource:
     ) -> _models.ApprovalCollectionPage:
         """List approvals visible to the caller. `GET /v1/approvals`
 
-        Requires the token to carry a `reviewerRole`. Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin).
+        Requires the token to carry a `reviewerRole`. Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin). `scopeKind`/`scopeId` narrow to one project's approvals, or every project's in an org; approvals from before Kindgi 0.1.3 have no project and are listed only without a scope.
         """
         return self._client._request(
             _OPERATIONS["approvals.list"],
@@ -1119,6 +1121,8 @@ class ApprovalsResource:
             query={
                 "limit": limit,
                 "cursor": cursor,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
                 "status": status,
                 "requiredRole": required_role,
                 "createdAfter": created_after,
@@ -1745,18 +1749,27 @@ class ConversationsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
+        scope_kind: Literal["tenant", "org", "project"] | None = None,
+        scope_id: str | None = None,
         agent_id: str | None = None,
         status: Literal["open", "closed"] | None = None,
         timeout: float | None = None,
     ) -> _models.ConversationCollectionPage:
         """List conversations. `GET /v1/conversations`
 
-        Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`.
+        Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations without a project (opened without one, or before Kindgi 0.1.3) are listed only without a scope.
         """
         return self._client._request(
             _OPERATIONS["conversations.list"],
             path={},
-            query={"limit": limit, "cursor": cursor, "agentId": agent_id, "status": status},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+                "agentId": agent_id,
+                "status": status,
+            },
             headers={},
             response=_models.ConversationCollectionPage,
             timeout=timeout,
@@ -1773,7 +1786,7 @@ class ConversationsResource:
     ) -> _models.Conversation:
         """Open a conversation. `POST /v1/conversations`
 
-        Pins `(agentId, agentVersion)` at open time. `title` defaults to `"Untitled conversation"` when omitted; `scope` accepts arbitrary JSON.
+        Pins `(agentId, agentVersion)` at open time. `title` defaults to `"Untitled conversation"` when omitted; `projectId` puts it in a project (lists filter by it); `scope` accepts arbitrary JSON.
         """
         return self._client._request(
             _OPERATIONS["conversations.open"],
@@ -2184,6 +2197,8 @@ class ProvenanceResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
+        scope_kind: Literal["tenant", "org", "project"] | None = None,
+        scope_id: str | None = None,
         run_id: str | None = None,
         agent_id: str | None = None,
         created_after: str | None = None,
@@ -2191,7 +2206,7 @@ class ProvenanceResource:
     ) -> _models.ProvenanceCollectionPage:
         """List provenance records. `GET /v1/provenance`
 
-        Cursor-paginated. Metadata rows only — clients fetch the DAG payload via `GET /v1/provenance/{runId}`. Fixed sort: `createdAt desc, id desc`. Filters: `?runId=`, `?agentId=`, `?createdAfter=`.
+        Cursor-paginated. Metadata rows only — clients fetch the DAG payload via `GET /v1/provenance/{runId}`. Fixed sort: `createdAt desc, id desc`. Filters: `?runId=`, `?agentId=`, `?createdAfter=`, and `scopeKind`/`scopeId` for one project's records, or every project's in an org (records from before Kindgi 0.1.3 have no project and are listed only without a scope).
         """
         return self._client._request(
             _OPERATIONS["provenance.list"],
@@ -2199,6 +2214,8 @@ class ProvenanceResource:
             query={
                 "limit": limit,
                 "cursor": cursor,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
                 "runId": run_id,
                 "agentId": agent_id,
                 "createdAfter": created_after,
@@ -5916,6 +5933,8 @@ class AsyncApprovalsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
+        scope_kind: Literal["tenant", "org", "project"] | None = None,
+        scope_id: str | None = None,
         status: Literal[
             "pending",
             "assigned",
@@ -5933,7 +5952,7 @@ class AsyncApprovalsResource:
     ) -> _models.ApprovalCollectionPage:
         """List approvals visible to the caller. `GET /v1/approvals`
 
-        Requires the token to carry a `reviewerRole`. Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin).
+        Requires the token to carry a `reviewerRole`. Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin). `scopeKind`/`scopeId` narrow to one project's approvals, or every project's in an org; approvals from before Kindgi 0.1.3 have no project and are listed only without a scope.
         """
         return await self._client._request(
             _OPERATIONS["approvals.list"],
@@ -5941,6 +5960,8 @@ class AsyncApprovalsResource:
             query={
                 "limit": limit,
                 "cursor": cursor,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
                 "status": status,
                 "requiredRole": required_role,
                 "createdAfter": created_after,
@@ -6567,18 +6588,27 @@ class AsyncConversationsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
+        scope_kind: Literal["tenant", "org", "project"] | None = None,
+        scope_id: str | None = None,
         agent_id: str | None = None,
         status: Literal["open", "closed"] | None = None,
         timeout: float | None = None,
     ) -> _models.ConversationCollectionPage:
         """List conversations. `GET /v1/conversations`
 
-        Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`.
+        Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations without a project (opened without one, or before Kindgi 0.1.3) are listed only without a scope.
         """
         return await self._client._request(
             _OPERATIONS["conversations.list"],
             path={},
-            query={"limit": limit, "cursor": cursor, "agentId": agent_id, "status": status},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+                "agentId": agent_id,
+                "status": status,
+            },
             headers={},
             response=_models.ConversationCollectionPage,
             timeout=timeout,
@@ -6595,7 +6625,7 @@ class AsyncConversationsResource:
     ) -> _models.Conversation:
         """Open a conversation. `POST /v1/conversations`
 
-        Pins `(agentId, agentVersion)` at open time. `title` defaults to `"Untitled conversation"` when omitted; `scope` accepts arbitrary JSON.
+        Pins `(agentId, agentVersion)` at open time. `title` defaults to `"Untitled conversation"` when omitted; `projectId` puts it in a project (lists filter by it); `scope` accepts arbitrary JSON.
         """
         return await self._client._request(
             _OPERATIONS["conversations.open"],
@@ -7008,6 +7038,8 @@ class AsyncProvenanceResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
+        scope_kind: Literal["tenant", "org", "project"] | None = None,
+        scope_id: str | None = None,
         run_id: str | None = None,
         agent_id: str | None = None,
         created_after: str | None = None,
@@ -7015,7 +7047,7 @@ class AsyncProvenanceResource:
     ) -> _models.ProvenanceCollectionPage:
         """List provenance records. `GET /v1/provenance`
 
-        Cursor-paginated. Metadata rows only — clients fetch the DAG payload via `GET /v1/provenance/{runId}`. Fixed sort: `createdAt desc, id desc`. Filters: `?runId=`, `?agentId=`, `?createdAfter=`.
+        Cursor-paginated. Metadata rows only — clients fetch the DAG payload via `GET /v1/provenance/{runId}`. Fixed sort: `createdAt desc, id desc`. Filters: `?runId=`, `?agentId=`, `?createdAfter=`, and `scopeKind`/`scopeId` for one project's records, or every project's in an org (records from before Kindgi 0.1.3 have no project and are listed only without a scope).
         """
         return await self._client._request(
             _OPERATIONS["provenance.list"],
@@ -7023,6 +7055,8 @@ class AsyncProvenanceResource:
             query={
                 "limit": limit,
                 "cursor": cursor,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
                 "runId": run_id,
                 "agentId": agent_id,
                 "createdAfter": created_after,

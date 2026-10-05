@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { RunBinding } from '@kindgi/runtime';
-import type { Result, Semver, TenantId } from '@kindgi/types';
+import type { ListScope, ProjectId, Result, Semver, TenantId } from '@kindgi/types';
 
 import type { AgentError } from './errors.js';
 import type {
@@ -21,6 +21,8 @@ export interface OpenConversationInput {
   readonly agentVersion: Semver;
   readonly title: string;
   readonly participantId?: string;
+  /** The project the conversation is in: its turns' project. Lists filter by it. */
+  readonly projectId?: ProjectId;
   readonly scope: Readonly<Record<string, unknown>>;
   readonly metadata?: Readonly<Record<string, unknown>>;
 }
@@ -72,6 +74,12 @@ export interface ConversationPageCursor {
 
 export interface ListConversationsPageInput {
   readonly tenantId: TenantId;
+  /**
+   * Only one project's conversations, or every project's in an org.
+   * Absent: the tenant's. A conversation opened without a project is
+   * listed only without a scope.
+   */
+  readonly scope?: ListScope;
   readonly agentId?: AgentId;
   /** When set, filter to open (no closedAt) or closed (closedAt set) rows only. */
   readonly status?: 'open' | 'closed';

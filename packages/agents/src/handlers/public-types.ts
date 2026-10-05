@@ -183,6 +183,8 @@ export interface HitlBindings {
 
 export interface HitlEnqueueInput {
   readonly tenantId: TenantId;
+  /** The turn's project: approval lists filter by it. */
+  readonly projectId?: ProjectId;
   readonly subjectKind: string;
   readonly subjectRef: Readonly<Record<string, unknown>>;
   readonly requiredRole?: 'standard' | 'senior' | 'admin';
