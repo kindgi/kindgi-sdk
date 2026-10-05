@@ -77,6 +77,12 @@ import {
   shellReferencesOf,
   writeRuntimeEnv,
 } from './runtime-env.js';
+import {
+  DEFAULT_SCAN_INTERVAL_MS,
+  type ScanBackstop,
+  scanSignature,
+  startScanBackstop,
+} from './scan-backstop.js';
 
 const DEFAULT_DEBOUNCE_MS = 200;
 
@@ -533,9 +539,11 @@ async function indexResultOf(outcome: IndexerOutcome): Promise<IndexResult> {
  * and unrelated files never trigger a re-index. `patterns` defaults to
  * the indexer's `DEFAULT_DISCOVERY`.
  *
- * Uses `node:fs.watch({ recursive: true })` — dependency-free; on
- * macOS + Linux this delivers reliable change events. Windows behavior
- * is a known-good path per the Node docs but not exercised in CI.
+ * Uses `node:fs.watch({ recursive: true })` — dependency-free — with a
+ * scan behind it (`scan-backstop.ts`): FSEvents can drop events under
+ * load, so the same folders and files are also scanned every second.
+ * Windows behavior is a known-good path per the Node docs but not
+ * exercised in CI.
  *
  * A single debounce timer is shared across every event → the callback
  * fires at most once per debounce window. Roots that don't exist yet
@@ -552,6 +560,10 @@ export async function watchPackReal(
     readonly patterns?: readonly string[];
     readonly files?: readonly string[];
     readonly watch?: WatchEvents;
+    /** How often the watched files are also scanned. */
+    readonly scanIntervalMs?: number;
+    /** Test seam: what the watched files are now (`scanSignature`). */
+    readonly scan?: () => Promise<string>;
   } = {},
 ): Promise<WatchHandle> {
   const watchEvents = opts.watch ?? watch;
@@ -569,6 +581,8 @@ export async function watchPackReal(
     timer = setTimeout(() => {
       timer = undefined;
       if (closed) return;
+      // Acting on the files as they are now: the scan fires only for later changes.
+      void backstop.mark();
       try {
         onChange();
       } catch {
@@ -577,7 +591,24 @@ export async function watchPackReal(
     }, debounceMs);
   };
 
-  for (const root of discoveryRoots(patterns)) {
+  const roots = discoveryRoots(patterns);
+  const backstop: ScanBackstop = await startScanBackstop({
+    scan:
+      opts.scan ??
+      (() =>
+        scanSignature({
+          folders: roots.map((root) => ({
+            abs: root === '' ? packDir : join(packDir, root),
+            rel: root,
+          })),
+          includes: matches,
+          files: opts.files ?? [],
+        })),
+    intervalMs: opts.scanIntervalMs ?? DEFAULT_SCAN_INTERVAL_MS,
+    onChange: fire,
+  });
+
+  for (const root of roots) {
     const abs = root === '' ? packDir : join(packDir, root);
     if (!(await isDirectory(abs))) continue;
     const controller = new AbortController();
@@ -601,6 +632,7 @@ export async function watchPackReal(
       if (closed) return;
       closed = true;
       if (timer !== undefined) clearTimeout(timer);
+      backstop.stop();
       for (const c of controllers) {
         try {
           c.abort();

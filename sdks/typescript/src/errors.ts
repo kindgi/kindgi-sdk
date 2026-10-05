@@ -277,6 +277,8 @@ export function fromWire(body: unknown): KindgiError {
     case 'provider-already-registered':
     case 'proposal-invalid-state-transition':
     case 'approval-not-decided':
+    case 'slug-conflict':
+    case 'project-default-already-exists':
       return { code: 'conflict', message, reason: code };
     case 'invalid-request':
     case 'validation-failed':

@@ -15,19 +15,30 @@ export { scopeKey } from './scope.js';
 
 export type {
   OrgBinding,
+  OrgCreateOutcome,
   OrgListFilter,
+  OrgDeleteConflict,
+  OrgUpdateOutcome,
 } from './org-binding.js';
 export type {
   TeamBinding,
+  TeamCreateOutcome,
   TeamListFilter,
   TeamMembershipAddInput,
+  TeamMembershipAddOutcome,
   TeamMembershipBinding,
+  TeamMembershipUpdateRoleOutcome,
+  TeamUpdateOutcome,
 } from './team-binding.js';
 export type {
   ProjectBinding,
+  ProjectCreateOutcome,
   ProjectListFilter,
   ProjectMembershipAddInput,
+  ProjectMembershipAddOutcome,
   ProjectMembershipBinding,
+  ProjectMembershipUpdateRoleOutcome,
+  ProjectUpdateOutcome,
 } from './project-binding.js';
 export type {
   TeamProjectGrant,
@@ -42,7 +53,9 @@ export {
 } from './in-memory/index.js';
 
 export type {
+  AddProjectMemberError,
   AddProjectMemberParams,
+  AddTeamMemberError,
   AddTeamMemberParams,
   CreateOrgError,
   CreateOrgParams,
@@ -50,7 +63,6 @@ export type {
   CreateProjectParams,
   CreateTeamError,
   CreateTeamParams,
-  MembershipMutationError,
   TenantHierarchyBinding,
   TenantSummary,
 } from './tenant-hierarchy-binding.js';

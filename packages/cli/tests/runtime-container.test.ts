@@ -15,6 +15,7 @@ import {
 import {
   type RuntimeContainerOptions,
   RuntimeStartStopped,
+  describeStartupStop,
   pauseUnlessStopped,
   runtimeContainerName,
   runtimeRunArgs,
@@ -33,8 +34,8 @@ describe('runtimeRunArgs', () => {
   test('Docker Desktop: the API on host loopback only, the pack at /pack, the host alias', () => {
     expect(runtimeRunArgs('kindgi-dev-runtime-x', OPTIONS)).toEqual([
       'run',
+      // No --rm: a container that stops while starting is read, then removed.
       '--detach',
-      '--rm',
       '--name',
       'kindgi-dev-runtime-x',
       '--env-file',
@@ -166,5 +167,40 @@ describe('a stop while kindgi dev waits for its runtime (T176)', () => {
     } finally {
       await rm(packDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('describeStartupStop', () => {
+  test('a container that stopped before printing anything says so, with how it exited', () => {
+    expect(describeStartupStop([], { code: 139, oomKilled: false })).toBe(
+      'the Kindgi runtime container stopped while starting, before it printed anything (exit code 139: it crashed (a segmentation fault)).',
+    );
+    expect(describeStartupStop([], { code: 137, oomKilled: true })).toContain(
+      '(exit code 137: killed, out of memory)',
+    );
+    expect(describeStartupStop([], { code: 137, oomKilled: false })).toContain(
+      '(exit code 137: killed)',
+    );
+    expect(
+      describeStartupStop([], { code: 127, oomKilled: false, error: 'exec: "kindgi": not found' }),
+    ).toContain('(exit code 127: its command couldn\'t run; docker: exec: "kindgi": not found)');
+    expect(describeStartupStop([], { code: 0, oomKilled: false })).toContain(
+      'before it printed anything (exit code 0).',
+    );
+    // How it exited couldn't be read: still never an empty reason.
+    expect(describeStartupStop([], {})).toBe(
+      'the Kindgi runtime container stopped while starting, before it printed anything.',
+    );
+  });
+
+  test('otherwise its last 15 lines, after how it exited', () => {
+    const lines = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`);
+    const text = describeStartupStop(lines, { code: 1, oomKilled: false });
+    expect(
+      text.startsWith(
+        'the Kindgi runtime container stopped while starting (exit code 1):\nline 6\n',
+      ),
+    ).toBe(true);
+    expect(text.endsWith('line 20')).toBe(true);
   });
 });

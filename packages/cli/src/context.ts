@@ -139,6 +139,15 @@ export interface CommandContext {
    * terminal; production leaves this undefined (the real ones).
    */
   readonly registryAuthSeam: RegistryAuthSeam | undefined;
+  /**
+   * `kindgi init`'s read of the host's pnpm version (`pnpm --version` in
+   * the new pack). Tests inject it; production leaves it undefined.
+   */
+  readonly initSeam: InitSeam | undefined;
+}
+
+export interface InitSeam {
+  readonly pnpmVersion?: (dir: string) => Promise<string>;
 }
 
 export interface BuildContextInputs {
@@ -162,6 +171,7 @@ export interface BuildContextInputs {
   readonly secretsInputSeam?: SecretsValueInputSeam;
   readonly envInitInputSeam?: EnvInitInputSeam;
   readonly registryAuthSeam?: RegistryAuthSeam;
+  readonly initSeam?: InitSeam;
 }
 
 export function buildContext(inputs: BuildContextInputs): CommandContext {
@@ -209,5 +219,6 @@ export function buildContext(inputs: BuildContextInputs): CommandContext {
     secretsInputSeam: inputs.secretsInputSeam,
     envInitInputSeam: inputs.envInitInputSeam,
     registryAuthSeam: inputs.registryAuthSeam,
+    initSeam: inputs.initSeam,
   };
 }

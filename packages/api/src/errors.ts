@@ -31,6 +31,7 @@ export interface WireError {
 export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // 400 — bad request
   'validation-failed': 400,
+  'kind-not-applied': 400,
   'unknown-field': 400,
   'bad-input': 400,
   'unresolved-tool': 400,
@@ -164,6 +165,13 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'eval-suite-already-registered': 409,
   // Admin plane — eval-run dispatch.
   'eval-run-not-found': 404,
+  // Judgments (yes/no on a run's output items) and judge classes.
+  'judgment-not-found': 404,
+  'judge-class-not-found': 404,
+  'judge-class-name-taken': 409,
+  'judge-class-not-applicable': 400,
+  'run-not-finished': 409,
+  'item-not-found': 400,
   'eval-run-already-terminal': 409,
   'dispatcher-not-registered': 422,
   'dispatcher-input-invalid': 400,
@@ -215,6 +223,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'project-not-found': 404,
   'team-membership-not-found': 404,
   'project-membership-not-found': 404,
+  // A slug another org, team or project in the tenant already has; a
+  // second Default project.
+  'slug-conflict': 409,
+  'project-default-already-exists': 409,
   'tenant-not-found': 404,
   'tenant-config-not-found': 404,
   'tenant-config-revision-conflict': 409,

@@ -20,6 +20,8 @@ import { type EventsClient, makeEventsClient } from './resources/events.js';
 import { type FlowsClient, makeFlowsClient } from './resources/flows.js';
 import { type GuardrailsClient, makeGuardrailsClient } from './resources/guardrails.js';
 import { type IdentityClient, makeIdentityClient } from './resources/identity.js';
+import { type JudgeClassesClient, makeJudgeClassesClient } from './resources/judge-classes.js';
+import { type JudgmentsClient, makeJudgmentsClient } from './resources/judgments.js';
 import { type McpClient, makeMcpClient } from './resources/mcp.js';
 import { type MemoryClient, makeMemoryClient } from './resources/memory.js';
 import { type ObservationsClient, makeObservationsClient } from './resources/observations.js';
@@ -86,6 +88,8 @@ export interface KindgiClient {
   readonly audit: AuditResourceClient;
   readonly evalSuites: EvalSuitesClient;
   readonly evalRuns: EvalRunsClient;
+  readonly judgments: JudgmentsClient;
+  readonly judgeClasses: JudgeClassesClient;
   // Identity
   readonly users: UsersClient;
   readonly identity: IdentityClient;
@@ -148,6 +152,8 @@ export function createClient(options: ClientOptions): KindgiClient {
     audit: makeAuditClient(transport),
     evalSuites: makeEvalSuitesClient(transport),
     evalRuns: makeEvalRunsClient(transport),
+    judgments: makeJudgmentsClient(transport),
+    judgeClasses: makeJudgeClassesClient(transport),
     users: makeUsersClient(transport),
     identity: makeIdentityClient(transport),
     auth: makeAuthClient(transport),

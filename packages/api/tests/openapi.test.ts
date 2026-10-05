@@ -39,6 +39,7 @@ import type {
   IdentityDirectoryBinding,
   IdentityProviderBinding,
   ImageRegistryBinding,
+  JudgmentRegistryBinding,
   MCPEndpointRegistryBinding,
   MemoryBinding,
   PolicyRegistryBinding,
@@ -308,6 +309,20 @@ const noopEvalSuiteRegistry: EvalSuiteRegistryBinding = {
   reinstateVersion: async ({ suiteId, version }) => ({ kind: 'not-found', suiteId, version }),
 };
 
+const noopJudgmentRegistry: JudgmentRegistryBinding = {
+  createClass: async () => ({ kind: 'name-taken' }),
+  listClasses: async () => ({ data: [], hasMore: false }),
+  getClass: async () => null,
+  updateClass: async () => null,
+  unregisterClass: async () => ({ unregistered: false }),
+  record: async () => {
+    throw new Error('noop');
+  },
+  list: async () => ({ data: [], hasMore: false }),
+  get: async () => null,
+  unregister: async () => ({ unregistered: false }),
+};
+
 const noopEvalRunBinding: EvalRunBinding = {
   start: async () => ({ kind: 'suite-not-found', suiteId: 'noop' }),
   get: async () => null,
@@ -505,6 +520,7 @@ function collectMountedRoutes(): HonoRouteRecord[] {
     policyRegistry: noopPolicyRegistry,
     evalSuiteRegistry: noopEvalSuiteRegistry,
     evalRunBinding: noopEvalRunBinding,
+    judgmentRegistry: noopJudgmentRegistry,
     sessionStore: noopSessionStore,
     identityProvider: noopIdentityProvider,
     exchangeCode: noopExchangeCode,

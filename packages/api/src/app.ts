@@ -45,6 +45,7 @@ import type {
   RefreshTokenFn,
 } from './identity-provider-binding.js';
 import type { ImageRegistryBinding } from './image-registry-binding.js';
+import type { JudgmentRegistryBinding } from './judgment-binding.js';
 import type { MCPClientProbeBinding, MCPEndpointRegistryBinding } from './mcp-endpoint-binding.js';
 import type { MemoryBinding } from './memory-binding.js';
 import { type TokenResolver, bearerAuthMiddleware } from './middleware/auth.js';
@@ -91,6 +92,7 @@ import { eventTriggersRouter } from './routes/event-triggers.js';
 import { flowsRouter } from './routes/flows.js';
 import { guardrailsRouter } from './routes/guardrails.js';
 import { identityRouter } from './routes/identity.js';
+import { judgeClassesRouter, judgmentsRouter } from './routes/judgments.js';
 import { mcpRouter } from './routes/mcp.js';
 import { memoryRouter } from './routes/memory.js';
 import { observationsRouter } from './routes/observations.js';
@@ -584,6 +586,13 @@ export interface CreateAppInput {
    * `422 dispatcher-not-registered`.
    */
   readonly evalRunBinding?: EvalRunBinding;
+  /**
+   * Optional. Mounts judgments, yes or no with an optional reason about
+   * one item of a run's output (`/v1/judgments`), and the judge classes
+   * they're recorded under, each with a weight (`/v1/judge-classes`).
+   * Caller-plugged: the API package doesn't own their storage.
+   */
+  readonly judgmentRegistry?: JudgmentRegistryBinding;
   /**
    * Optional. Push-based pub/sub binding used by SSE endpoints to
    * deliver run events without polling. When present, `GET
@@ -1099,6 +1108,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   }
   if (input.evalSuiteRegistry !== undefined) {
     v1.route('/eval-suites', evalSuitesRouter(input.evalSuiteRegistry, authorizer));
+  }
+  if (input.judgmentRegistry !== undefined) {
+    v1.route('/judgments', judgmentsRouter(input.judgmentRegistry, runBinding, authorizer));
+    v1.route('/judge-classes', judgeClassesRouter(input.judgmentRegistry, authorizer));
   }
   // ---------- platform hierarchy ----------
   // Mounts are independent: `/v1/orgs`, `/v1/teams`, `/v1/projects`,

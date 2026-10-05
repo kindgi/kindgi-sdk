@@ -975,6 +975,277 @@ class ObservationCollectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
+class JudgeClassScope1(BaseModel):
+    """
+    Where a judge class applies: the whole tenant, one project, or one agent in a project.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["tenant"]
+
+
+class JudgeClassScope2(BaseModel):
+    """
+    Where a judge class applies: the whole tenant, one project, or one agent in a project.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["project"]
+    project_id: Annotated[str, Field(alias="projectId", min_length=1)]
+
+
+class JudgeClassScope3(BaseModel):
+    """
+    Where a judge class applies: the whole tenant, one project, or one agent in a project.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["agent"]
+    project_id: Annotated[str, Field(alias="projectId", min_length=1)]
+    agent_id: Annotated[str, Field(alias="agentId", min_length=1)]
+
+
+class JudgeClass(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    tenant_id: Annotated[str, Field(alias="tenantId")]
+    scope: JudgeClassScope1 | JudgeClassScope2 | JudgeClassScope3
+    """
+    Where a judge class applies: the whole tenant, one project, or one agent in a project.
+    """
+    name: str
+    """
+    The deployment's own word for the class: "expert", "user", "arbitrator".
+    """
+    weight: Annotated[float, Field(ge=0.0)]
+    """
+    How much a judgment of this class counts, relative to the others.
+    """
+    description: str | None = None
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    Set when the class was retired.
+    """
+
+
+class JudgeClassCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[JudgeClass]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor. Treat as opaque on the client.
+    """
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class CreateJudgeClassBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    scope: JudgeClassScope1 | JudgeClassScope2 | JudgeClassScope3
+    """
+    Where a judge class applies: the whole tenant, one project, or one agent in a project.
+    """
+    name: Annotated[str, Field(max_length=100, min_length=1)]
+    weight: Annotated[float, Field(ge=0.0)]
+    description: str | None = None
+
+
+class UpdateJudgeClassBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    weight: Annotated[float | None, Field(ge=0.0)] = None
+    description: str | None = None
+
+
+class UnregisterJudgeClassResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    judge_class_id: Annotated[str, Field(alias="judgeClassId")]
+    unregistered: Literal[True]
+
+
+class JudgedSubject(BaseModel):
+    """
+    What a judged run ran: an agent at a version, or a flow at a version.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["agent", "flow"]
+    id: str
+    version: str
+
+
+class JudgedItem(BaseModel):
+    """
+    The judged item of a run's output.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    key: Annotated[str, Field(min_length=1)]
+    """
+    The caller's stable id for the item.
+    """
+    pointer: str | None = None
+    """
+    Where the item is in the run's output, as a JSON Pointer (RFC 6901), e.g. `/matches/2`. `""` is the whole output.
+    """
+    rank: Annotated[int | None, Field(ge=0)] = None
+    """
+    The item's position in a ranked list (0 = first).
+    """
+
+
+class JudgmentAssertedBy(BaseModel):
+    """
+    Who asserted a judgment: the authenticated caller, never a typed name.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["user", "service"]
+    id: str
+    """
+    A user id, or for a service token its token or session id.
+    """
+
+
+class Judgment(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    tenant_id: Annotated[str, Field(alias="tenantId")]
+    project_id: Annotated[str, Field(alias="projectId")]
+    run_id: Annotated[str, Field(alias="runId")]
+    subject: JudgedSubject
+    item: JudgedItem
+    verdict: Literal["yes", "no"]
+    reason: str | None = None
+    judge_class_id: Annotated[str | None, Field(alias="judgeClassId")] = None
+    """
+    The judge class the judgment is recorded under. Absent when unclassified (counts with weight 1).
+    """
+    asserted_by: Annotated[JudgmentAssertedBy, Field(alias="assertedBy")]
+    participant_id: Annotated[str | None, Field(alias="participantId")] = None
+    """
+    The app's opaque id for its end user who judged, when an app judged on their behalf.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    Set when the judgment was removed or superseded.
+    """
+    superseded_by: Annotated[str | None, Field(alias="supersededBy")] = None
+    """
+    The judgment that replaced this one.
+    """
+
+
+class JudgedRunCopy(BaseModel):
+    """
+    The stored copy of a judged run's input and output, taken when it was first judged.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    run_id: Annotated[str, Field(alias="runId")]
+    subject: JudgedSubject
+    input: Any
+    output: Any
+    captured_at: Annotated[AwareDatetime, Field(alias="capturedAt")]
+
+
+class JudgmentWithCopies(Judgment):
+    """
+    A judgment with the stored copies of what was judged.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    run: JudgedRunCopy
+    item_value: Annotated[Any | None, Field(alias="itemValue")] = None
+    """
+    The judged item's value, when the judgment pointed at it.
+    """
+
+
+class JudgmentCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Judgment]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor. Treat as opaque on the client.
+    """
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class CreateJudgmentBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    run_id: Annotated[str, Field(alias="runId", min_length=1)]
+    item: JudgedItem
+    verdict: Literal["yes", "no"]
+    reason: Annotated[str | None, Field(max_length=4000)] = None
+    judge_class_id: Annotated[str | None, Field(alias="judgeClassId", min_length=1)] = None
+    """
+    Optional. When given it must exist and apply to the run.
+    """
+    participant_id: Annotated[str | None, Field(alias="participantId", min_length=1)] = None
+    """
+    An app's opaque id for its end user, when judging on their behalf.
+    """
+
+
+class UnregisterJudgmentResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    judgment_id: Annotated[str, Field(alias="judgmentId")]
+    unregistered: Literal[True]
+
+
 class PromptParameter(BaseModel):
     model_config = ConfigDict(
         extra="allow",

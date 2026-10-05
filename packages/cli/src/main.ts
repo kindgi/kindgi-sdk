@@ -10,6 +10,7 @@ import { ROOT_COMMANDS, findCommand } from './commands/index.js';
 import type { SecretsValueInputSeam } from './commands/secrets.js';
 import type { Command } from './commands/types.js';
 import { loadConfig } from './config.js';
+import type { InitSeam } from './context.js';
 import { buildContext } from './context.js';
 import type { DeployRunners } from './deploy/runners.js';
 import type { DevRunners } from './dev/runners.js';
@@ -107,6 +108,7 @@ export interface RunCliInputs {
    * substitute fixtures so no real `docker login` runs.
    */
   readonly registryAuthSeam?: RegistryAuthSeam;
+  readonly initSeam?: InitSeam;
 }
 
 export interface CliOutcome {
@@ -225,6 +227,7 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
     ...(inputs.secretsInputSeam !== undefined ? { secretsInputSeam: inputs.secretsInputSeam } : {}),
     ...(inputs.envInitInputSeam !== undefined ? { envInitInputSeam: inputs.envInitInputSeam } : {}),
     ...(inputs.registryAuthSeam !== undefined ? { registryAuthSeam: inputs.registryAuthSeam } : {}),
+    ...(inputs.initSeam !== undefined ? { initSeam: inputs.initSeam } : {}),
   });
 
   const label = commandLabel(command, argv, consumed);

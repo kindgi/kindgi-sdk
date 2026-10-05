@@ -145,6 +145,16 @@ def test_path_and_query_parameters() -> None:
             lambda e: e.server_code == "run-already-terminal",
         ),
         (
+            error(409, "slug-conflict", details={"resource": "project", "slug": "acme"}),
+            ConflictError,
+            lambda e: (e.server_code, e.details["slug"]) == ("slug-conflict", "acme"),
+        ),
+        (
+            error(409, "project-default-already-exists"),
+            ConflictError,
+            lambda e: e.server_code == "project-default-already-exists",
+        ),
+        (
             error(400, "validation-failed", details={"issues": [{"path": "/x", "message": "bad"}]}),
             InvalidRequestError,
             lambda e: e.issues == [{"path": "/x", "message": "bad"}],

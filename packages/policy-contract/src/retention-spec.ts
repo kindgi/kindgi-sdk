@@ -21,7 +21,7 @@
 /**
  * Closed vocabulary of tombstoning domains. Uses the object type names
  * of the authorization model in `@kindgi/authz` wherever one exists
- * (`policy` has none), so a retention policy on `domain: 'tool'` names
+ * (`policy`, `judgment` and `judge_class` have none), so a retention policy on `domain: 'tool'` names
  * the same resource kind that authorization checks refer to.
  *
  * `'*'` is a wildcard — matches any domain that has no specific policy.
@@ -38,6 +38,8 @@ export const RETENTION_DOMAINS = [
   'secret',
   'run',
   'policy',
+  'judgment',
+  'judge_class',
   '*',
 ] as const;
 export type RetentionDomain = (typeof RETENTION_DOMAINS)[number];
