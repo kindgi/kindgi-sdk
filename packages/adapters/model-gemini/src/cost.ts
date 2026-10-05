@@ -45,13 +45,14 @@ export interface GeminiModelInfo extends ModelInfo {
 export function toFrameworkUsage(
   usage: GenerateContentResponseUsageMetadata | undefined,
 ): UsageCounters {
-  const cached = usage?.cachedContentTokenCount ?? 0;
-  const thoughts = usage?.thoughtsTokenCount ?? 0;
+  const cached = usage?.cachedContentTokenCount;
+  const thoughts = usage?.thoughtsTokenCount;
   return {
     promptTokens: (usage?.promptTokenCount ?? 0) + (usage?.toolUsePromptTokenCount ?? 0),
-    completionTokens: (usage?.candidatesTokenCount ?? 0) + thoughts,
-    ...(cached > 0 && { cacheReadTokens: cached }),
-    ...(thoughts > 0 && { reasoningTokens: thoughts }),
+    completionTokens: (usage?.candidatesTokenCount ?? 0) + (thoughts ?? 0),
+    // A part the vendor reports is kept, 0 included.
+    ...(typeof cached === 'number' && { cacheReadTokens: cached }),
+    ...(typeof thoughts === 'number' && { reasoningTokens: thoughts }),
   };
 }
 

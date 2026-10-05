@@ -387,7 +387,8 @@ export interface ModelCallInput {
 /**
  * A model call's token counts. `promptTokens` and `completionTokens` are
  * the totals; the optional counts are parts of them, there when the
- * provider reports them:
+ * provider reports them (a reported 0 is 0; a part it doesn't report is
+ * absent):
  *   - `cacheReadTokens` and `cacheWriteTokens` are part of `promptTokens`;
  *   - `reasoningTokens` are part of `completionTokens`.
  * Nothing is folded away: the provider's own counts are in

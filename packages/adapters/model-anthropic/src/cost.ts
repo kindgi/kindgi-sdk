@@ -76,12 +76,13 @@ export function computeCostUsd(usage: Anthropic.Usage, rates: CostRates): number
  *     them and doesn't report it apart, so there's no `reasoningTokens`.
  */
 export function toFrameworkUsage(usage: Anthropic.Usage): UsageCounters {
-  const cacheWrite = usage.cache_creation_input_tokens ?? 0;
-  const cacheRead = usage.cache_read_input_tokens ?? 0;
+  const cacheWrite = usage.cache_creation_input_tokens;
+  const cacheRead = usage.cache_read_input_tokens;
   return {
-    promptTokens: usage.input_tokens + cacheWrite + cacheRead,
+    promptTokens: usage.input_tokens + (cacheWrite ?? 0) + (cacheRead ?? 0),
     completionTokens: usage.output_tokens,
-    ...(cacheRead > 0 && { cacheReadTokens: cacheRead }),
-    ...(cacheWrite > 0 && { cacheWriteTokens: cacheWrite }),
+    // A part the vendor reports is kept, 0 included.
+    ...(typeof cacheRead === 'number' && { cacheReadTokens: cacheRead }),
+    ...(typeof cacheWrite === 'number' && { cacheWriteTokens: cacheWrite }),
   };
 }

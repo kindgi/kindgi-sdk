@@ -339,6 +339,38 @@ describe('what the endpoint says about the call', () => {
     });
   });
 
+  test('a part the endpoint reports as 0 is kept as 0; one it leaves out is absent', async () => {
+    const answering = (usage: Record<string, unknown>) =>
+      (async () =>
+        new Response(JSON.stringify({ ...COMPLETION, usage }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })) as typeof fetch;
+    const reported = await openAICompatAdapterFactory({
+      metadata,
+      config: { baseURL: 'http://llm.test/v1' },
+      fetch: answering({
+        prompt_tokens: 30,
+        completion_tokens: 20,
+        total_tokens: 50,
+        prompt_tokens_details: { cached_tokens: 0 },
+        completion_tokens_details: { reasoning_tokens: 0 },
+      }),
+    }).invoke(call);
+    expect(reported.usage).toEqual({
+      promptTokens: 30,
+      completionTokens: 20,
+      cacheReadTokens: 0,
+      reasoningTokens: 0,
+    });
+    const unreported = await openAICompatAdapterFactory({
+      metadata,
+      config: { baseURL: 'http://llm.test/v1' },
+      fetch: answering({ prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 }),
+    }).invoke(call);
+    expect(unreported.usage).toEqual({ promptTokens: 30, completionTokens: 20 });
+  });
+
   test('a body that stalls past the timeout is retried by the SDK, and both attempts are counted', async () => {
     // The real SDK over real HTTP: the first answer sends its headers and
     // part of its body, then stalls; the SDK times the body out and

@@ -167,6 +167,21 @@ describe('usage and cost', () => {
     expect(toFrameworkUsage(undefined)).toEqual({ promptTokens: 0, completionTokens: 0 });
   });
 
+  test('a part Gemini reports as 0 is kept as 0; one it leaves out is absent', () => {
+    expect(
+      toFrameworkUsage({
+        promptTokenCount: 10,
+        candidatesTokenCount: 2,
+        thoughtsTokenCount: 0,
+        cachedContentTokenCount: 0,
+      }),
+    ).toEqual({ promptTokens: 10, completionTokens: 2, cacheReadTokens: 0, reasoningTokens: 0 });
+    expect(toFrameworkUsage({ promptTokenCount: 10, candidatesTokenCount: 2 })).toEqual({
+      promptTokens: 10,
+      completionTokens: 2,
+    });
+  });
+
   test('cached prompt tokens bill at the cached share; long prompts at the long-context rates', () => {
     const rates = METADATA.models[0]?.cost;
     if (rates === undefined) throw new Error('no rates');

@@ -438,12 +438,13 @@ function extraBodyProblem(value: unknown): string | undefined {
  * endpoint gives them. OpenAI doesn't report cache writes.
  */
 function toFrameworkUsage(usage: OpenAI.CompletionUsage | undefined): UsageCounters {
-  const cacheRead = usage?.prompt_tokens_details?.cached_tokens ?? 0;
-  const reasoning = usage?.completion_tokens_details?.reasoning_tokens ?? 0;
+  const cacheRead = usage?.prompt_tokens_details?.cached_tokens;
+  const reasoning = usage?.completion_tokens_details?.reasoning_tokens;
   return {
     promptTokens: usage?.prompt_tokens ?? 0,
     completionTokens: usage?.completion_tokens ?? 0,
-    ...(cacheRead > 0 && { cacheReadTokens: cacheRead }),
-    ...(reasoning > 0 && { reasoningTokens: reasoning }),
+    // A part the endpoint reports is kept, 0 included.
+    ...(typeof cacheRead === 'number' && { cacheReadTokens: cacheRead }),
+    ...(typeof reasoning === 'number' && { reasoningTokens: reasoning }),
   };
 }

@@ -107,6 +107,23 @@ describe('toFrameworkUsage', () => {
     });
   });
 
+  test('cache counts the API reports as 0 are kept as 0', () => {
+    const framework = toFrameworkUsage(
+      usage({
+        input_tokens: 1000,
+        output_tokens: 100,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      }),
+    );
+    expect(framework).toEqual({
+      promptTokens: 1000,
+      completionTokens: 100,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+    });
+  });
+
   test('no cache activity → no cache counts', () => {
     const framework = toFrameworkUsage(usage({ input_tokens: 1000, output_tokens: 100 }));
     expect(framework).toEqual({ promptTokens: 1000, completionTokens: 100 });
