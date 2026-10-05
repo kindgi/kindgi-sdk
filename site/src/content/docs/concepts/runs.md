@@ -84,3 +84,10 @@ Because every step is recorded, every answer can be traced to where it came
 from: the agent's turn, the model call, the tool results it used.
 `GET /v1/provenance/{runId}` returns that graph;
 [Trace an answer](../../guides/observability/trace-an-answer/) reads it.
+Each model call is recorded with its tokens and cost too, so you can read what
+a run, a flow's whole run or one customer's month cost:
+[Cost per run and per customer](../../guides/observability/cost-per-run/).
+
+In the console, a run's page shows all of it: what the run did and what it
+cost (Overview), its journal, one sentence per step (Journal), and where the
+answer came from, as a list of steps or a graph (Provenance).
