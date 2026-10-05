@@ -43,8 +43,9 @@ events as they happen, and receives signed webhooks when they finish.
   `kindgi dev`, build and deploy it.
 - **The HTTP API:** every operation, for any language.
 - **The SDKs:** TypeScript and Python clients for the API.
-- **The console:** runs, their steps, their cost and where every answer
-  came from.
+- **The console:** in your browser, at `/console` on any runtime (with
+  `kindgi dev`, `http://127.0.0.1:4000/console/`): runs and their journals,
+  agents, tools, conversations, and approvals to approve or reject.
 
 ## Your coding agent
 
