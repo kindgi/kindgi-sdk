@@ -30,6 +30,7 @@ function install(over: Partial<HostInstall> = {}): HostInstall {
     skippedScripts: [],
     packDependencies: { runtime: [], dev: [] },
     secrets: [],
+    hostPnpm: '10.28.0',
     ...over,
   };
 }
@@ -42,8 +43,17 @@ const NO_IMAGE: ResolvedImage = {
   extensions: [],
 };
 
+/** `install(over)` without the host's pnpm version. */
+function installWithoutHostPnpm(over: Partial<HostInstall> = {}): HostInstall {
+  const { hostPnpm: _hostPnpm, ...rest } = install(over);
+  return rest;
+}
+
 function render(over: Partial<HostInstall> = {}, hasIncludes = false, image = NO_IMAGE): string {
-  const host = install(over);
+  return renderHost(install(over), hasIncludes, image);
+}
+
+function renderHost(host: HostInstall, hasIncludes = false, image = NO_IMAGE): string {
   return renderContainerfile({
     baseImageRef: NODE_24?.ref ?? '',
     artifactVersion: '20261002.1',
@@ -103,6 +113,43 @@ describe('the Containerfile', () => {
     expect(text.indexOf('RUN chown node:node /app && mkdir -p /home/node/.cache')).toBeLessThan(
       text.indexOf('USER node'),
     );
+  });
+
+  test.each([
+    ['10.28.0', '10'],
+    ['12.9.1', '12'],
+  ])("pnpm with no packageManager: the host's pnpm %s, before the install, as node", (version) => {
+    const text = render({ hostPnpm: version });
+    expect(text).toContain(
+      `# --- stage: deps (pnpm: pnpm@${version}, the host's, from the lockfile) ---`,
+    );
+    const pin = text.indexOf(`RUN corepack install -g pnpm@${version}`);
+    expect(pin).toBeGreaterThan(text.indexOf('USER node'));
+    expect(pin).toBeLessThan(text.indexOf('pnpm install --frozen-lockfile'));
+    expect(text.match(/corepack install -g/g)).toHaveLength(1);
+    // The policies stay as pnpm sets them.
+    expect(text).not.toMatch(/minimum-?release-?age/i);
+  });
+
+  test("a packageManager wins over the host's pnpm: corepack takes it from package.json", () => {
+    const text = render({ managerSpec: 'pnpm@12.9.1', hostPnpm: '10.28.0' });
+    expect(text).not.toContain('corepack install -g');
+    expect(text).toContain('# --- stage: deps (pnpm: pnpm@12.9.1, from the lockfile) ---');
+  });
+
+  test('pnpm with neither is never left to the newest: refused', () => {
+    expect(() => renderHost(installWithoutHostPnpm())).toThrow(
+      'a pnpm install needs packageManager or the host pnpm version',
+    );
+  });
+
+  test('npm and yarn: no pnpm pin', () => {
+    for (const over of [
+      { manager: 'npm' as const, files: ['package.json', 'package-lock.json'] },
+      { manager: 'yarn' as const, files: ['package.json', 'yarn.lock'] },
+    ]) {
+      expect(renderHost(installWithoutHostPnpm(over))).not.toContain('corepack install -g');
+    }
   });
 
   test("pnpm's store is the cache mount, named for pnpm explicitly (else it falls back outside it)", () => {
