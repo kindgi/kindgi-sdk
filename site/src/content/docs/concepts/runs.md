@@ -81,6 +81,6 @@ its model call. Use it to check a flow's wiring before it touches real data.
 ## Provenance and cost
 
 Because every step is recorded, every answer can be traced to where it came
-from: the agent's turn, the model call, the tool results it used. The
-console shows a run as that graph, with the cost of each model call, and
-`GET /v1/provenance/{runId}` returns it.
+from: the agent's turn, the model call, the tool results it used.
+`GET /v1/provenance/{runId}` returns that graph;
+[Trace an answer](../../guides/observability/trace-an-answer/) reads it.
