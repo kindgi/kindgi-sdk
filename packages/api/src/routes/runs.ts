@@ -6,7 +6,7 @@ import type { MiddlewareHandler } from 'hono';
 
 import type { AgentId } from '@kindgi/agents';
 import type { KernelRunRecord, ListRunsInput, RunBinding } from '@kindgi/runtime';
-import type { FlowId, OrgId, ProjectId, RunId, Semver, TenantId } from '@kindgi/types';
+import type { FlowId, ListScope, ProjectId, RunId, Semver, TenantId } from '@kindgi/types';
 
 import { ref } from '@kindgi/authz';
 
@@ -22,7 +22,7 @@ import type { MintPublicRunTokenResult } from '../public-run-token.js';
 import type { AppEnv } from '../types.js';
 import type { DecodedCursor } from './pagination.js';
 import { clampLimit, decodeCursor } from './pagination.js';
-import { type ParseScopeParamsOutcome, parseScopeParams } from './scope-params.js';
+import { parseListScope } from './scope-params.js';
 import {
   formatSseFrame,
   isTerminalWireKind,
@@ -228,7 +228,8 @@ export function runsRouter(
 
   // ---------- GET / (list, cursor-paginated) ----------
   //
-  // Content-scoped list; scope filter threaded via `parseScopeParams`.
+  // Content-scoped list; scope filter threaded via `parseListScope` (a
+  // `scopeId` that isn't a UUID is a 400 here, not a failed query).
   // Every run belongs to exactly one project; `scope.kind === 'project'`
   // narrows to that project, `scope.kind === 'org'` to the org's
   // projects, and tenant / undefined behave as documented in
@@ -251,7 +252,7 @@ export function runsRouter(
       cursorFilter = decoded;
     }
 
-    const scopeParsed = parseScopeParams(c.req.query(), { tenantId });
+    const scopeParsed = parseListScope(c.req.query(), { tenantId });
     if (scopeParsed.kind === 'err') {
       c.status(statusFor('scope-invalid') as never);
       return c.json(
@@ -725,7 +726,7 @@ async function readableRun(
 /** The binding query for `GET /v1/runs`: scope, page, and the parent filters. */
 function listRunsInput(input: {
   readonly tenantId: TenantId;
-  readonly scope: Extract<ParseScopeParamsOutcome, { kind: 'ok' }>['scope'];
+  readonly scope: ListScope | undefined;
   readonly limit: number;
   readonly cursor: DecodedCursor | null;
   readonly filter: RunListFilter;
@@ -733,12 +734,7 @@ function listRunsInput(input: {
   const { tenantId, scope, limit, cursor, filter } = input;
   return {
     tenantId,
-    ...(scope?.kind === 'project' && {
-      scope: { kind: 'project' as const, projectId: scope.projectId as ProjectId },
-    }),
-    ...(scope?.kind === 'org' && {
-      scope: { kind: 'org' as const, orgId: scope.orgId as unknown as OrgId },
-    }),
+    ...(scope !== undefined && { scope }),
     limit,
     ...(cursor !== null && {
       cursor: { createdAt: cursor.createdAt as never, id: cursor.id as RunId },
