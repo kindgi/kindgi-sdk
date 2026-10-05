@@ -7,8 +7,8 @@ sidebar:
 
 <!-- DRAFT: written from the verification run on runtime 0.1.1. Before this is
 published: the module merged at deploy/gcp-cloud-run/ (#49), and
-`kindgi key trust`'s output (0.1.2). Gemini from a deployed runtime isn't on
-this page: it hasn't been run on one. -->
+`kindgi key trust`'s output (0.1.2). "Use Gemini" was checked with the
+runtime running as a service account with and without the role. -->
 
 Kindgi's Terraform module runs the runtime and your pack's service as two Cloud
 Run services in one Google Cloud project, with everything around them. Built
@@ -246,9 +246,33 @@ service in about 5.
 | | `roles/artifactregistry.reader` | the repository |
 | | `roles/cloudsql.client` | the project, conditioned on Kindgi's instance |
 | | `roles/secretmanager.secretAccessor` | each of its secrets |
-| | `roles/aiplatform.user`, only with `vertex_ai = true` | the project |
+| | `roles/aiplatform.user`, only with `vertex_ai = true` | the project: [Gemini](#use-gemini) |
 | The pack's service account | `roles/secretmanager.secretAccessor` | the pack token and your pack's secrets |
 | | what your tools need | your own resources |
+
+## Use Gemini
+
+The runtime can call Gemini on Vertex AI with its own service account, so
+there's no key to store. Turn on the Vertex AI API in the project, set
+`vertex_ai = true` (the module then grants the runtime's service account
+`roles/aiplatform.user`), apply, and register the preset:
+
+```sh
+gcloud services enable aiplatform.googleapis.com
+pnpm exec kindgi providers register --preset=gemini --project=<project> --models=gemini-2.5-flash --url … --token …
+```
+
+```text
+✓ Registered gemini: gemini-2.5-flash
+```
+
+Without the role, every model call fails:
+
+```text
+Model call to gemini (gemini-2.5-flash) failed: {"error":{"code":403,"message":"Permission 'aiplatform.endpoints.predict' denied on resource '//aiplatform.googleapis.com/projects/<project>/locations/global/publishers/google/models/gemini-2.5-flash' (or it may not exist). …
+```
+
+A new grant can take a minute or two to apply.
 
 ## Operate it
 
