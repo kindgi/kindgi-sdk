@@ -38,9 +38,12 @@ kindgi runs start --flow=acme.reserve-order --input='{"orderId":"A-300"}' --no-w
 
 ## From your app
 
-Create a client with the API's URL and a token. In development, `kindgi dev`
-prints both, and writes them to `.kindgirc.json` in the pack (`apiUrl`,
-`token`).
+Create a client. With no arguments it reads the API's URL and a token from
+`KINDGI_API_URL` and `KINDGI_API_TOKEN`, which you set in your env file
+(`.env` / `.env.local`). In development, when they aren't set, it uses the
+running `kindgi dev`, which writes both to `.kindgirc.json`, and warns once
+that you should set them. In production (`NODE_ENV` or `KINDGI_ENV` set to
+`production`) it never does, so set them there.
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -48,10 +51,7 @@ prints both, and writes them to `.kindgirc.json` in the pack (`apiUrl`,
 ```ts
 import { createClient } from '@kindgi/sdk/client';
 
-const kindgi = createClient({
-  apiUrl: process.env.KINDGI_API_URL!,
-  auth: { kind: 'apiToken', token: process.env.KINDGI_API_TOKEN! },
-});
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 ```
 
 </TabItem>
@@ -60,7 +60,7 @@ const kindgi = createClient({
 ```python
 from kindgi.client import Kindgi
 
-kindgi = Kindgi()  # KINDGI_API_URL and KINDGI_API_TOKEN from the environment
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 ```
 
 </TabItem>

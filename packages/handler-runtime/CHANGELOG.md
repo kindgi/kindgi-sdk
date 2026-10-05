@@ -1,5 +1,22 @@
 # @kindgi/handler-runtime
 
+## 0.1.2
+
+### Patch Changes
+
+- 966a615: CommonJS apps can `require()` Kindgi. Every package's `exports` gives a `default` condition beside `import`, so `require('@kindgi/sdk/client')` loads the ES modules through Node's `require()` of ES modules, instead of failing with `ERR_PACKAGE_PATH_NOT_EXPORTED`. There's still one copy of each module, so the same code runs from either kind of app.
+  
+  - Node 22.12 or later: every package's `engines.node` is `>=22.12.0` (Node loads ES modules with `require()` from 22.12 on), and so are the apps `kindgi init` creates.
+  - TypeScript that compiles to CommonJS needs TypeScript 5.8 or later with `module: nodenext`, or `moduleResolution: bundler` in an app a bundler builds.
+  - `@kindgi/handler-runtime`'s program entries (`pack-service-main`, `kindgi-index-main`) stay ES-modules-only: they run with `node`.
+- afd259f: A TypeScript guardrail's config is resolved by its check's `configSchema`, as Python's guardrails do. `defineCheck`'s `evaluate` gets the schema's defaults applied (a guardrail that declares no config gets them all, so `z.number().default(1)` is 1, not `undefined`), and a config that doesn't fit is refused, naming where. The indexer checks each guardrail's `config` against its schema: a config that doesn't fit, or a required field with no default left out, is a file error, and `kindgi build` refuses the pack.
+- Updated dependencies [966a615]
+- Updated dependencies [89a14b6]
+  - @kindgi/flow@0.1.2
+  - @kindgi/sandbox@0.1.2
+  - @kindgi/schema@0.1.2
+  - @kindgi/types@0.1.2
+
 ## 0.1.1
 
 ### Patch Changes
