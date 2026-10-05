@@ -172,6 +172,10 @@ pnpm exec kindgi runs start --agent=acme-support.triage --input='{"userMessage":
     },
 ```
 
+To have `kindgi dev` register the model on every boot, in each worktree and
+after `--reset`, declare it in the pack's config:
+[Declare them in your pack's config](../../guides/models/#declare-them-in-your-packs-config).
+
 ### What the pack's image needs
 
 `kindgi build` turns the pack into an image. It installs your app's

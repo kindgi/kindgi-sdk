@@ -14,7 +14,7 @@ description: >
   primitive.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.6"
+version: "0.3.7"
 sdk_version: "0.0.0"
 pack_languages: [node]
 ---
@@ -158,8 +158,11 @@ Most of the setup is automatable, but two require your knowledge:
 - **Real LLM provider credentials** — the built-in dev-echo provider
   returns canned responses (great for the loop test, useless for real
   agents). It is a fallback, so it steps aside once a real provider is
-  registered — `kindgi providers register --preset=anthropic` with the
-  key in `.env`; see `kindgi-authoring-providers`.
+  registered. Declare it in `kindgi.config.ts`
+  (`providers: [{ preset: 'anthropic' }]`, the key in `.env`) and `kindgi dev`
+  registers it on every boot, in every worktree and after `--reset`; or once,
+  by hand: `kindgi providers register --preset=anthropic`. See
+  `kindgi-authoring-providers`.
 
 ## Your app and Kindgi's data
 

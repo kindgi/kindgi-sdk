@@ -22,7 +22,7 @@ description: >
   kindgi-getting-started.
 type: core
 library: "@kindgi/sdk"
-version: "0.9.2"
+version: "0.9.3"
 sdk_version: "0.0.0"
 pack_languages: [node, python]
 sources:
@@ -126,11 +126,45 @@ credential on argv.
 kindgi providers register --preset=anthropic                          # Opus 5.5, Sonnet 5.5, Haiku 4.5
 kindgi providers register --preset=anthropic --models=claude-haiku-4-5  # just one
 ```
-The preset carries the models, context windows and current prices
-(`kindgi providers presets` lists the presets and when their prices were
-checked). In a pack it refuses until the key is in the pack's env files —
+The preset carries the models, context windows, output limits and current
+prices (`kindgi providers presets` lists the presets and when their prices
+were checked); `--max-output-tokens=<n>` sets another output limit. In a pack it refuses until the key is in the pack's env files —
 step 1. That's all for Anthropic; go to step 4. The rest of this path is
 the same registration by hand, for a spec of your own.
+
+**Or declare it in the pack's config**, and `kindgi dev` registers it on
+every boot: in every git worktree (each has its own dev database), after
+`--reset`, and on a teammate's machine. Prefer this for any provider the pack
+needs under `kindgi dev`:
+```ts
+// in kindgi.config.ts
+providers: [
+  { preset: 'anthropic', models: ['claude-haiku-4-5'] },   // key ANTHROPIC_API_KEY, from the env files
+  { preset: 'gemini', project: 'acme-gcp', models: ['gemini-2.5-flash'] },
+  { spec: { /* the provider.json body below */ } },
+],
+```
+```toml
+# in pyproject.toml: one table per provider, same keys
+[[tool.kindgi.providers]]
+preset = "anthropic"
+models = ["claude-haiku-4-5"]
+```
+- A preset entry takes `models`, `project`, `secret` (the key's name, in place
+  of the preset's) and `maxOutputTokens`, spelled the same in `pyproject.toml`;
+  a `spec` entry is a `--spec` body. A
+  key is always a secret's name (`secret_ref`); a credential in
+  `adapter_config` is refused.
+- Each boot prints `Providers from kindgi.config.ts:` with one line each:
+  `registered`, `unchanged`, `registered again (changed in kindgi.config.ts)`,
+  `unregistered (no longer in kindgi.config.ts)`, or ⚠ `not registered: <KEY>
+  is not in .env, .env.local` (set the key, then restart: the config isn't
+  watched).
+- A provider with that id that `kindgi dev` didn't register is left as it is;
+  if its region or models differ, a ⚠ line names the
+  `kindgi providers unregister` that lets the config's version apply.
+- A runtime `kindgi dev` doesn't run (staging, production) still gets its
+  providers with `kindgi providers register`.
 
 **Step 2 (by hand) — write `provider.json`** at the pack root. One connection,
 three models — matches how the Anthropic SDK actually works (the API
@@ -438,7 +472,7 @@ outside Google Cloud: put a service-account key (its JSON) in a secret
         "name": "gemini-2.5-pro",
         "contextWindow": 1048576,
         "features": ["tool-use"],
-        "maxOutputTokens": 8192,
+        "maxOutputTokens": 65536,
         "cost": {
           "promptUsdPer1kTokens": 0.00125,
           "completionUsdPer1kTokens": 0.01,
@@ -453,6 +487,7 @@ outside Google Cloud: put a service-account key (its JSON) in a secret
         "name": "gemini-2.5-flash",
         "contextWindow": 1048576,
         "features": ["tool-use"],
+        "maxOutputTokens": 65536,
         "cost": { "promptUsdPer1kTokens": 0.0003, "completionUsdPer1kTokens": 0.0025 }
       }
     ]

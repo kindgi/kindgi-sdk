@@ -14,7 +14,7 @@ description: >
   kindgi-python-authoring-agents; models by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.4"
+version: "0.1.5"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -129,8 +129,16 @@ kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant   # no-echo prom
 kindgi providers register --preset=anthropic
 ```
 
-It takes over at the next turn. Details and other providers:
-`kindgi-authoring-providers`.
+It takes over at the next turn. That registration is in this project's dev
+database only. To have `kindgi dev` register it on every boot, in every
+worktree and after `--reset`, declare it in `pyproject.toml` instead:
+
+```toml
+[[tool.kindgi.providers]]
+preset = "anthropic"   # its key, ANTHROPIC_API_KEY, from the env files
+```
+
+Details and other providers: `kindgi-authoring-providers`.
 
 `uv run python -m kindgi.pack index --pack-dir .` prints what Kindgi
 sees (the index); `kindgi dev` reports a broken file with its path and
