@@ -20,6 +20,29 @@ export const LICENSE_KEY_VAR = 'KINDGI_LICENSE_KEY';
 /** The browser origins allowed on the routes a public run token opens. */
 export const CORS_ORIGINS_VAR = 'KINDGI_CORS_ORIGINS';
 
+/** The shared secret between the server and the pack service. */
+export const PACK_SERVICE_TOKEN_VAR = 'KINDGI_PACK_SERVICE_TOKEN';
+
+/**
+ * `KINDGI_PACK_SERVICE_TOKEN` as both sides use it, without its
+ * surrounding whitespace. The token travels in an HTTP header, which never
+ * carries surrounding whitespace, so a secret stored with a trailing
+ * newline (`openssl rand -hex 32 | gcloud secrets versions add …`) would
+ * otherwise never match the one the other side compares it with. Unset or
+ * blank: `undefined`. Throws on a token with whitespace, a control
+ * character or a non-ASCII character inside, which a header can't carry.
+ */
+export function parsePackServiceToken(raw: string | undefined): string | undefined {
+  const token = raw?.trim();
+  if (token === undefined || token === '') return undefined;
+  if (!/^[\x21-\x7e]+$/.test(token)) {
+    throw new Error(
+      `${PACK_SERVICE_TOKEN_VAR} may hold only printable ASCII without spaces (it travels in an HTTP header). Use a random value such as \`openssl rand -hex 32\`.`,
+    );
+  }
+  return token;
+}
+
 /**
  * Parse `KINDGI_CORS_ORIGINS`: comma-separated exact origins
  * (`https://app.example.com`, `http://localhost:3000`): a scheme, a host

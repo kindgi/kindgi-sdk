@@ -32,6 +32,7 @@ import asyncio
 import io
 import json
 import os
+import re
 import socket
 import sys
 from collections.abc import Mapping, Sequence
@@ -77,9 +78,16 @@ def read_config(argv: Sequence[str], env: Mapping[str, str]) -> ServeConfig | li
     host = arg("--host")
     if "--host" in argv and not host:
         problems.append("--host needs an address")
-    token = env.get("KINDGI_PACK_SERVICE_TOKEN", "")
+    # Read as the server reads it: without surrounding whitespace (it
+    # travels in an HTTP header, which never carries any).
+    token = env.get("KINDGI_PACK_SERVICE_TOKEN", "").strip()
     if not token:
         problems.append("KINDGI_PACK_SERVICE_TOKEN is required")
+    elif not re.fullmatch(r"[\x21-\x7e]+", token):
+        problems.append(
+            "KINDGI_PACK_SERVICE_TOKEN may hold only printable ASCII without spaces "
+            "(it travels in an HTTP header). Use a random value such as `openssl rand -hex 32`."
+        )
     raw_port = env.get("PORT", "8080")
     port = int(raw_port) if raw_port.isdigit() else -1
     if not 0 <= port <= 65535:

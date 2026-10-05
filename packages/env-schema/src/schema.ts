@@ -453,7 +453,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_PACK_SERVICE_TOKEN',
     description:
-      'Shared secret between the server and the pack service. The pack service refuses any call without it, and the server sends it with every call. Required by the pack service, and by the server when `KINDGI_PACK_SERVICE_URL` is set. Use a long random value (`openssl rand -base64 32`). The pack service removes it from its environment before it loads the pack code.',
+      'Shared secret between the server and the pack service. The pack service refuses any call without it, and the server sends it with every call. Required by the pack service, and by the server when `KINDGI_PACK_SERVICE_URL` is set. Use a long random value (`openssl rand -base64 32`). Both sides drop surrounding whitespace (such as the trailing newline of a stored secret), and refuse whitespace or control characters inside: the token travels in an HTTP header. The pack service removes it from its environment before it loads the pack code.',
     example: '',
     required: true,
     appliesTo: (t) => appliesToPackService(t) || appliesToServerHttpPackTransport(t),
