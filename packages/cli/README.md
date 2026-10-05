@@ -69,7 +69,11 @@ kindgi init [<pack-name>] [--template=minimal|sample|python] [--path=<dir>]
 Three modes:
 
 - **`kindgi init <pack-name>`** scaffolds a new pack: the standard folders,
-  a `kindgi.config.ts`, starter primitives, tests and a README.
+  a `kindgi.config.ts`, starter primitives, tests and a README. A pack that
+  stands alone (no project around it) gets `"packageManager": "pnpm@<version>"`
+  with the version `pnpm --version` gives there. `kindgi build`'s image, CI
+  and teammates then install with that same pnpm. Inside an existing project,
+  that project's own setup is left to govern.
 - **`kindgi init`** in a directory with a `package.json` adds Kindgi to that
   app: a `kindgi.config.ts`, a `kindgi/` folder for the pack's primitives,
   the skills under `.claude/skills/`, and `.gitignore` entries. It adds

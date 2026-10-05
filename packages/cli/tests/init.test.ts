@@ -30,6 +30,8 @@ function baseInputs(overrides: Partial<Parameters<typeof runCli>[0]> = {}) {
     env: emptyEnv,
     cwd,
     home,
+    // The host's pnpm, never this machine's real one.
+    initSeam: { pnpmVersion: async () => '10.28.0' },
     ...overrides,
   };
 }
@@ -172,6 +174,81 @@ describe('kindgi init — minimal template', () => {
     expect(out.stderr).toContain('cd my-pack');
     expect(out.stderr).toContain('pnpm install');
     expect(out.stderr).toContain('kindgi dev');
+  });
+});
+
+describe('kindgi init — the pack pins the pnpm that installs it', () => {
+  const manifest = async (dir: string): Promise<{ readonly packageManager?: string }> =>
+    JSON.parse(await readFile(join(dir, 'package.json'), 'utf8')) as { packageManager?: string };
+
+  test('a standalone pack: packageManager is the pnpm `pnpm --version` gives in its folder', async () => {
+    const asked: string[] = [];
+    const out = await runCli(
+      baseInputs({
+        argv: ['init', 'my-pack'],
+        initSeam: {
+          pnpmVersion: async (dir) => {
+            asked.push(dir);
+            return '12.9.1';
+          },
+        },
+      }),
+    );
+    expect(out.exitCode).toBe(0);
+    expect(asked).toEqual([join(cwd, 'my-pack')]);
+    expect((await manifest(join(cwd, 'my-pack'))).packageManager).toBe('pnpm@12.9.1');
+    expect(out.stderr).toContain('✓ package.json pins pnpm@12.9.1 (packageManager)');
+    expect(out.stderr).toContain('pnpm install');
+  });
+
+  test('inside a project that says how it installs: nothing is written, the host is not asked', async () => {
+    await writeFile(join(cwd, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n", 'utf8');
+    const asked: string[] = [];
+    const out = await runCli(
+      baseInputs({
+        argv: ['init', 'my-pack'],
+        initSeam: {
+          pnpmVersion: async (dir) => {
+            asked.push(dir);
+            return '12.9.1';
+          },
+        },
+      }),
+    );
+    expect(out.exitCode).toBe(0);
+    expect(asked).toEqual([]);
+    expect((await manifest(join(cwd, 'my-pack'))).packageManager).toBeUndefined();
+    expect(out.stderr).not.toContain('packageManager');
+  });
+
+  test("pnpm's version can't be read: no field, and one line saying how to set it", async () => {
+    const out = await runCli(
+      baseInputs({
+        argv: ['init', 'my-pack'],
+        initSeam: {
+          pnpmVersion: async () => {
+            throw new Error('spawn pnpm ENOENT');
+          },
+        },
+      }),
+    );
+    expect(out.exitCode).toBe(0);
+    expect((await manifest(join(cwd, 'my-pack'))).packageManager).toBeUndefined();
+    expect(out.stderr).toContain(
+      "package.json has no packageManager: pnpm's version couldn't be read here (pnpm --version: spawn pnpm ENOENT).",
+    );
+    expect(out.stderr).toContain('Add "packageManager": "pnpm@<version>"');
+  });
+
+  test('a version that is not one is never written', async () => {
+    const out = await runCli(
+      baseInputs({
+        argv: ['init', 'my-pack'],
+        initSeam: { pnpmVersion: async () => 'command not found' },
+      }),
+    );
+    expect((await manifest(join(cwd, 'my-pack'))).packageManager).toBeUndefined();
+    expect(out.stderr).toContain('pnpm --version printed "command not found"');
   });
 });
 
