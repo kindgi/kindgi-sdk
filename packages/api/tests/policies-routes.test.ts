@@ -346,40 +346,31 @@ describe('API — policies publish + get', () => {
     });
   });
 
-  test('publish access-control policy carries rules through spec verbatim', async () => {
-    const { app } = makeApp();
-    const rules = [
-      {
-        id: 'r1',
-        effect: 'allow',
-        principal: { roles: ['reviewer:senior'] },
-        resource: { kind: 'fix-proposal' },
-        action: ['approve'],
-      },
-    ];
-    const publish = await app.request('/v1/policies', {
-      method: 'POST',
-      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
-      body: JSON.stringify(
-        policySpec({
-          id: 'acme.access',
-          kind: 'access-control',
-          spec: { rules, defaults: { onNoMatch: 'deny' } },
-        }),
-      ),
-    });
-    expect(publish.status).toBe(201);
-
-    const get = await app.request('/v1/policies/acme.access', {
-      headers: { authorization: `Bearer ${TOKEN}` },
-    });
-    expect(get.status).toBe(200);
-    const body = (await get.json()) as {
-      spec: { rules: unknown[]; defaults: { onNoMatch: string } };
-    };
-    expect(body.spec.rules).toEqual(rules);
-    expect(body.spec.defaults.onNoMatch).toBe('deny');
-  });
+  test.each(['access-control', 'adapter-allowlist', 'rate-limit', 'compliance'] as const)(
+    'publish a %s policy, a kind no runtime consumer applies → 400 kind-not-applied, nothing stored',
+    async (kind) => {
+      const { app } = makeApp();
+      const publish = await app.request('/v1/policies', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(policySpec({ id: 'acme.unapplied', kind, spec: {} })),
+      });
+      expect(publish.status).toBe(400);
+      const body = (await publish.json()) as {
+        error: { code: string; message: string; details?: Record<string, unknown> };
+      };
+      expect(body.error.code).toBe('kind-not-applied');
+      expect(body.error.message).toContain(`doesn't apply "${kind}" policies yet`);
+      expect(body.error.details).toEqual({
+        kind,
+        appliedKinds: ['model-routing', 'retention', 'tool-errors', 'hitl'],
+      });
+      const get = await app.request('/v1/policies/acme.unapplied', {
+        headers: { authorization: `Bearer ${TOKEN}` },
+      });
+      expect(get.status).toBe(404);
+    },
+  );
 
   test('validation failure (missing kind) → 400 validation-failed with issues', async () => {
     const { app } = makeApp();

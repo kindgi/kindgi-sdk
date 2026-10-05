@@ -31,6 +31,7 @@ export interface WireError {
 export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // 400 — bad request
   'validation-failed': 400,
+  'kind-not-applied': 400,
   'unknown-field': 400,
   'bad-input': 400,
   'unresolved-tool': 400,

@@ -309,7 +309,7 @@ export {
   stdioRefusal,
 } from './tenant-host-access.js';
 export type { HostReach, TenantHostAccess } from './tenant-host-access.js';
-export { POLICY_KINDS } from '@kindgi/policy-contract';
+export { APPLIED_POLICY_KINDS, POLICY_KINDS } from '@kindgi/policy-contract';
 export type {
   Policy,
   PolicyGetInput,
