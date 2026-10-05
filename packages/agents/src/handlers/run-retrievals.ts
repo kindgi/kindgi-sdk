@@ -8,6 +8,7 @@ import { emitTurnEvent } from '../streaming.js';
 
 import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
+import { addRetrievalNodes } from './turn-provenance.js';
 
 /**
  * Execute the agent's declared retrieval intents. Populates
@@ -49,25 +50,7 @@ export function buildRunRetrievalsHandler(ctx: TurnContext): NodeHandler {
     });
 
     if (ctx.provenance !== undefined && ctx.userMessage !== undefined) {
-      for (const r of retrieved.value) {
-        ctx.provenance.addNode({
-          id: `retrieval:${r.fact.id}`,
-          kind: 'retrieval',
-          timestamp: ctx.userMessage.createdAt,
-          ...(r.fact.contentHash !== undefined && { contentHash: r.fact.contentHash }),
-          attributes: {
-            factId: r.fact.id,
-            factType: r.fact.type,
-            intentScope: r.intent.scope,
-            ...(r.score !== undefined && { score: r.score }),
-          },
-        });
-        ctx.provenance.addEdge({
-          from: `retrieval:${r.fact.id}`,
-          to: `input:${ctx.userMessage.sequence}`,
-          kind: 'influenced-by',
-        });
-      }
+      addRetrievalNodes(ctx.provenance, retrieved.value, ctx.userMessage);
     }
 
     // The facts go in the journal: a resumed turn restores them from it
