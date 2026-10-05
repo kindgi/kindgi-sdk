@@ -216,6 +216,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'project-not-found': 404,
   'team-membership-not-found': 404,
   'project-membership-not-found': 404,
+  // A slug another org, team or project in the tenant already has; a
+  // second Default project.
+  'slug-conflict': 409,
+  'project-default-already-exists': 409,
   'tenant-not-found': 404,
   'tenant-config-not-found': 404,
   'tenant-config-revision-conflict': 409,

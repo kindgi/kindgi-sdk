@@ -139,6 +139,7 @@ _CONFLICT = {
     "hitl-required", "agent-already-registered", "tool-already-registered",
     "guardrail-already-registered", "flow-already-registered", "conversation-closed",
     "provider-already-registered", "proposal-invalid-state-transition", "approval-not-decided",
+    "slug-conflict", "project-default-already-exists",
 }  # fmt: skip
 _INVALID = {
     "invalid-request", "validation-failed", "unknown-field", "bad-input", "unresolved-tool",
