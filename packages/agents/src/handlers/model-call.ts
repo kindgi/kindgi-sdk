@@ -12,11 +12,13 @@ import {
 } from '@kindgi/capabilities';
 import { attemptsOf } from '@kindgi/capabilities/attempts';
 import type { NodeContext, NodeHandler } from '@kindgi/handler';
+import type { Timestamp } from '@kindgi/types';
 
 import { emitTurnEvent } from '../streaming.js';
 
 import type { AgentTurnIterationOutput, TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
+import { addModelCallNode } from './turn-provenance.js';
 
 /**
  * Loop-body node #1. Invoke the model with the current
@@ -109,26 +111,18 @@ export function buildModelCallHandler(ctx: TurnContext): NodeHandler {
     });
 
     if (ctx.provenance !== undefined && ctx.userMessage !== undefined) {
-      const modelCallNodeId = `model-call:${ctx.usage.steps}`;
-      ctx.provenance.addNode({
-        id: modelCallNodeId,
-        kind: 'model-call',
-        timestamp: new Date().toISOString() as never,
-        modelVersion: `${callResult.provider.id}/${callResult.provider.model}`,
-        // The call's identity. Its usage is the cost ledger's, by `callId`.
-        attributes: {
+      addModelCallNode(
+        ctx.provenance,
+        {
           step: ctx.usage.steps,
           callId,
-          providerId: callResult.provider.id,
-          model: callResult.provider.model,
+          provider: callResult.provider,
           finishReason: callResult.finishReason,
+          at: new Date().toISOString() as Timestamp,
         },
-      });
-      ctx.provenance.addEdge({
-        from: modelCallNodeId,
-        to: `input:${ctx.userMessage.sequence}`,
-        kind: 'caused-by',
-      });
+        ctx.userMessage.sequence,
+        ctx.toolResultIds ?? [],
+      );
     }
 
     // Partial iteration output — `dispatch-tools` finishes it.

@@ -27,12 +27,16 @@
  * A turn parked inside `setup` (the session gate) re-runs `setup`, and
  * nothing here applies.
  *
- * Not restored: provenance nodes recorded before the park. The resumed
- * turn's provenance covers what happens from the resume on.
+ *   - the provenance nodes of the steps that ran before the park are
+ *     added again from what they left (`turn-provenance.ts`), so a
+ *     resumed turn's DAG is whole: its user message, its retrievals, each
+ *     model call, and the tool calls of each completed step. The step the
+ *     turn parked in adds its own when it runs again.
  */
 
 import type { LoopContext } from '@kindgi/handler';
 import { type JournalEntry, bodyStepKey } from '@kindgi/runtime';
+import type { Timestamp } from '@kindgi/types';
 
 import type { ConversationMessage, RetrievedFact } from '../types.js';
 import type { TurnContext } from './context.js';
@@ -42,11 +46,19 @@ import {
   resolveTurnEnvironment,
   resolveTurnHitlPolicy,
 } from './turn-environment.js';
+import {
+  addInputNode,
+  addModelCallNode,
+  addRetrievalNodes,
+  addStepToolNodes,
+} from './turn-provenance.js';
 
 interface StepRecord {
   readonly nodeId: string;
   readonly output: unknown;
   readonly inLoop: boolean;
+  /** When the step completed. */
+  readonly at: Timestamp;
 }
 
 /** Each step's last completion — a step at one loop iteration counts once. */
@@ -67,6 +79,7 @@ function completedSteps(journal: readonly JournalEntry[]): readonly StepRecord[]
       nodeId: e.nodeId as unknown as string,
       output: payload.output,
       inLoop: payload.loopContext !== undefined,
+      at: e.timestamp,
     });
   }
   return [...byStep.values()];
@@ -129,7 +142,56 @@ export async function rehydrateTurnContext(
     ctx.usage.totalCostUsd += out.iterationUsage?.costUsd ?? 0;
     if (out.provider !== undefined) ctx.lastProvider = out.provider;
   }
+  rebuildProvenance(ctx, steps, retrievals?.retrieved);
   return true;
+}
+
+/** A completed model-call step's output, as far as provenance reads it. */
+interface ModelCallStepOutput {
+  readonly step?: number;
+  readonly callId?: string;
+  readonly finishReason?: string;
+  readonly provider?: { readonly id: string; readonly model: string };
+}
+
+/**
+ * The provenance of the steps that ran before the park, in the order
+ * they ran: the user message, the retrievals, then each model call with
+ * the tool calls its completed step stored.
+ */
+function rebuildProvenance(
+  ctx: TurnContext,
+  steps: readonly StepRecord[],
+  retrieved: readonly RetrievedFact[] | undefined,
+): void {
+  const input = ctx.userMessage;
+  if (ctx.provenance === undefined || input === undefined) return;
+  addInputNode(ctx.provenance, input);
+  if (retrieved !== undefined) addRetrievalNodes(ctx.provenance, retrieved, input);
+
+  const storedByStep = new Map<number, readonly ConversationMessage[]>();
+  for (const s of steps.filter((s) => s.nodeId === 'dispatch-tools' && s.inLoop)) {
+    const out = s.output as {
+      readonly step?: number;
+      readonly iterationAppended?: readonly ConversationMessage[];
+    };
+    if (out.step !== undefined) storedByStep.set(out.step, out.iterationAppended ?? []);
+  }
+  const calls = steps
+    .filter((s) => s.nodeId === 'model-call' && s.inLoop)
+    .map((s) => ({ at: s.at, out: s.output as ModelCallStepOutput }))
+    .sort((a, b) => (a.out.step ?? 0) - (b.out.step ?? 0));
+  for (const { at, out } of calls) {
+    const { step, callId, provider, finishReason } = out;
+    if (step === undefined || callId === undefined || provider === undefined) continue;
+    addModelCallNode(
+      ctx.provenance,
+      { step, callId, provider, finishReason: finishReason ?? 'stop', at },
+      input.sequence,
+      [...(ctx.toolResultIds ?? [])],
+    );
+    addStepToolNodes(ctx, step, storedByStep.get(step) ?? []);
+  }
 }
 
 /**
