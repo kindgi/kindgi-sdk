@@ -1384,7 +1384,7 @@ export interface CostRecordFilter extends Filter {
   /** The exact model version the vendor reported. */
   readonly servedModel?: string;
   /** Records in this scope: a project, or every project of an org. */
-  readonly scope?: import('@kindgi/platform').Scope;
+  readonly scope?: import('./scope-wire.js').ScopeRef;
   readonly from?: import('@kindgi/types').Timestamp;
   /** Exclusive. */
   readonly to?: import('@kindgi/types').Timestamp;
@@ -2031,7 +2031,7 @@ export interface RegisterMcpEndpointInput {
    */
   readonly secretRef?: McpEndpointSecretRef;
   /** The scope the endpoint is registered in; authorization checks it. */
-  readonly scope: import('@kindgi/platform').Scope;
+  readonly scope: import('./scope-wire.js').ScopeRef;
 }
 
 /**

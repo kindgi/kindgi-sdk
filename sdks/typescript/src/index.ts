@@ -327,6 +327,7 @@ export type {
   RefreshResultShape,
 } from './resources/auth.js';
 export type { ListRunsFilter, RunPage } from './resources/runs.js';
+export type { ScopeRef } from './scope-wire.js';
 
 export type {
   Adapter,

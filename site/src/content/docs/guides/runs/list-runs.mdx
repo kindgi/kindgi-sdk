@@ -91,6 +91,9 @@ edaf7625-0585-40c3-805c-0c098f6846b8 acme.review-order failed
 - **`topLevel: true`** (`top_level=True`) leaves out runs started inside
   other runs, such as agent turns: the runs your app and the CLI started.
 - **`includeOutput: true`** (`include="output"`) adds each run's `output`.
+- **`scope`** (`scope_kind` / `scope_id`) lists one project's runs, or the runs
+  of every project in an org: `{ kind: 'project', projectId }`
+  (`scope_kind="project", scope_id=…`), or `{ kind: 'org', orgId }`.
 - In Python, `paginate` follows `next_cursor` for you.
 
 ## The runs inside a run
