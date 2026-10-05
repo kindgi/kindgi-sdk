@@ -98,7 +98,12 @@ print(endpoint.endpoint_id, endpoint.url)
 
 - **`url`** is your receiver. Use https in production; plain http is for
   development. In `kindgi dev`, `localhost` reaches your machine, not the
-  runtime's container.
+  runtime's container. Outside development the receiver must be on a public
+  address. A self-hosted runtime whose receiver is on its own private
+  network (the same VPC or compose network) sets
+  `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow`. That opens RFC 1918, CGNAT and
+  IPv6 unique-local addresses, still over https only. Loopback and the cloud
+  metadata addresses stay refused.
 - **`events`**: `run.finished`.
 - **`secretRef`** names the secret: the environment it's in (`local` in
   development) and its name. Kindgi checks that it exists and is strong
