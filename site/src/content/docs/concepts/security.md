@@ -96,9 +96,9 @@ Registering a `stdio` endpoint with the default:
 {"error":{"code":"host-access-denied","message":"MCP endpoint \"acme.docs\" uses the stdio transport, which runs a command on the server's host; KINDGI_TENANT_HOST_ACCESS=deployed refuses that. Run the MCP server over HTTP (streamable-http) instead.","requestId":"req-61bc35bf-9ca4-4894-b041-a5babbc7ec3f"}}
 ```
 
-A webhook, outside development, goes only to a public address and only
-over https: when it's registered, and again at each delivery, by every
-address its host resolves to. A self-hosted runtime whose receiver is on
+Outside development, a webhook goes only to a public address, and only over
+https. Kindgi checks this when the webhook is registered, and again at every
+delivery, for every address the receiver's name resolves to. A self-hosted runtime whose receiver is on
 its own private network sets `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow`, which
 opens RFC 1918, CGNAT and IPv6 unique-local addresses. Loopback and the
 cloud metadata addresses stay refused.

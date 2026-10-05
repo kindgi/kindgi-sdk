@@ -81,6 +81,35 @@ The Python SDK is the `kindgi` package. `kindgi init` adds it to your
 uv add kindgi            # or: poetry add kindgi, or: pip install kindgi
 ```
 
+## Where `kindgi dev` keeps its data
+
+`kindgi dev` gives each project its own database in the Postgres it starts:
+`kindgi_<project>`, and in a git worktree `kindgi_<project>__<worktree>`. The
+project's name is `project` in the Kindgi config (`kindgi.config.ts`, or
+`[tool.kindgi]` in `pyproject.toml`); without it, the git repository's, the
+workspace root's or the pack folder's. It says which when it starts:
+
+```text
+  ✓ Project: acme-desk (the pack's folder name; set `project` in the Kindgi config to name it)
+  ✓ Database: kindgi_acme_desk (created) in the bundled Postgres; to use your own: --database-url
+```
+
+- **Starting over:** `kindgi dev --reset` drops the project's database after
+  asking, and makes a new token. `--yes` skips the question, for scripts;
+  without a terminal to ask on and without `--yes`, it refuses. A database you
+  pass with `--database-url` is never dropped.
+- **Several packs in one project** share its database and tenant, but not
+  each other's tools: under `kindgi dev`, a flow in one pack can't call
+  another pack's tools.
+- **Coming from Kindgi 0.1.2 or earlier,** where every project shared one
+  database: that database stays as it was, and the project's first start
+  says so once. Register your model providers and reviewers again in each
+  project:
+
+  ```text
+  This project now has its own database, kindgi_acme_desk. The old shared `kindgi` database is left as it is: projects on an older Kindgi still use it. Providers and reviewers are set up once per project: set them up here again.
+  ```
+
 ## Calling Kindgi from an application
 
 An app that only starts runs and reads their results (no pack of its own)

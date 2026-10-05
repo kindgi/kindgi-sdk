@@ -40,6 +40,11 @@ kindgi providers register --spec=@ollama.json
 }
 ```
 
+To have `kindgi dev` register it on every boot, put the spec in the pack's
+config instead: `{ spec: { … } }` in `kindgi.config.ts`'s `providers`, or
+`spec = { … }` in a `[[tool.kindgi.providers]]` table in `pyproject.toml`. See
+[Declare them in your pack's config](../#declare-them-in-your-packs-config).
+
 Then run an agent. With no other provider registered, Ollama answers:
 
 ```sh

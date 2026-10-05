@@ -4,6 +4,8 @@
 
 ### Patch Changes
 
+- d93665a: The getting-started skills (TypeScript and Python) say how an app reads what a run cost: one record per model call for the run and its agent steps (`cost.usage.query({ rootRunId })` / `cost.records.list(root_run_id=)`), one customer's month by org (`cost.usage.summary` / `cost.aggregate`), and the total in `run.finished`'s `data.run.usage`.
+- 024582b: The getting-started and providers skills, and the templates' AGENTS.md, teach declaring model providers in the pack's config (`providers` in `kindgi.config.ts`, `[[tool.kindgi.providers]]` in `pyproject.toml`), which `kindgi dev` registers on every boot. The providers skill's Gemini example has the models' real output limit, 65,536 tokens.
 - Updated dependencies [2544717]
 - Updated dependencies [0f226c2]
 - Updated dependencies [629057d]
