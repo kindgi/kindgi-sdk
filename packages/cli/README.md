@@ -303,9 +303,10 @@ On each boot, `kindgi dev`:
 - re-registers a provider it registered whose declaration changed;
 - unregisters a provider it registered that the config no longer declares;
 - leaves alone any provider it didn't register (by hand, or by another pack of
-  the project). If one is registered differently from the config, `kindgi dev`
-  warns and names the `kindgi providers unregister` that lets the config's
-  version apply.
+  the project), and names the `kindgi providers unregister` that lets the
+  config's version apply. It warns (⚠) when that provider's region or models
+  differ from the config's. The runtime doesn't list a provider's adapter, its
+  settings or its key's name, so a difference only there gets the plain line.
 
 It records which providers it registered in `.kindgi/dev/providers.json`, per
 database and tenant.

@@ -217,7 +217,7 @@ describe('reconcileProviders', () => {
     expect(changed.owned.anthropic).not.toEqual(first.owned.anthropic);
   });
 
-  test('registered already, not by this pack: left; quietly when it is as declared', async () => {
+  test('registered already, not by this pack: left; `present` when its metadata is as declared', async () => {
     const [anthropic] = ok([{ preset: 'anthropic' }]);
     const same = fakeRuntime([{ ...(anthropic?.input.metadata as Provider), fallback: false }]);
     const asDeclared = await run(same, ok([{ preset: 'anthropic' }]));
@@ -236,6 +236,23 @@ describe('reconcileProviders', () => {
     const differently = await run(other, ok([{ preset: 'anthropic' }]));
     expect(differently.outcomes).toEqual([{ id: 'anthropic', kind: 'conflict' }]);
     expect(other.calls).toEqual([]);
+  });
+
+  test("only the metadata is compared: the runtime doesn't list a provider's adapter settings or key", async () => {
+    const declared = ok([
+      {
+        spec: {
+          metadata: { id: 'qwen', region: 'unspecified', models: [{ name: 'qwen3-14b' }] },
+          adapter_id: '@kindgi/adapter-model-openai-compat',
+          adapter_config: { baseURL: 'https://llm.acme.example/v1' },
+        },
+      },
+    ]);
+    // Registered by hand against another endpoint: the listing shows only the metadata.
+    const runtime = fakeRuntime([declared[0]?.input.metadata as Provider]);
+    const out = await run(runtime, declared);
+    expect(out.outcomes).toEqual([{ id: 'qwen', kind: 'present' }]);
+    expect(runtime.calls).toEqual([]);
   });
 
   test("this pack's before, but changed in the runtime since: no longer this pack's", async () => {
@@ -349,6 +366,7 @@ describe('describeReconcile', () => {
           { id: 'gemini', kind: 'unchanged' },
           { id: 'anthropic', kind: 'skipped', secret: 'ANTHROPIC_API_KEY' },
           { id: 'local-llm', kind: 'conflict' },
+          { id: 'qwen', kind: 'present' },
           { id: 'old', kind: 'removed' },
         ],
         inputs,
@@ -357,7 +375,8 @@ describe('describeReconcile', () => {
       'Providers from kindgi.config.ts:',
       '  · gemini: unchanged',
       '  ⚠ anthropic: not registered: ANTHROPIC_API_KEY is not in .env, .env.local. Set it (npx --no kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant), then restart kindgi dev',
-      "  ⚠ local-llm: registered already, differently, not from kindgi.config.ts; left as it is. For the config's: npx --no kindgi providers unregister local-llm, then restart kindgi dev",
+      "  ⚠ local-llm: registered already, not from kindgi.config.ts, with another region or models; left as it is. For the config's: npx --no kindgi providers unregister local-llm, then restart kindgi dev",
+      "  · qwen: registered already, not from kindgi.config.ts, with the same models (its adapter settings and key aren't listed to compare); left as it is. For the config's: npx --no kindgi providers unregister qwen, then restart kindgi dev",
       '  ✓ old: unregistered (no longer in kindgi.config.ts)',
     ]);
   });
