@@ -42,7 +42,17 @@ curl -s http://localhost:4000/health
 {"ok":true}
 ```
 
-`/health` says the server is up. Docker checks it too, so `docker ps` shows the runtime's state:
+`/health` says the process is up. `/ready` says its database answers too, within two seconds. Neither needs a token:
+
+```sh
+curl -s http://localhost:4000/ready
+```
+
+```text
+{"ok":true,"database":"ok"}
+```
+
+While Postgres is unreachable, `/ready` answers `503` with `{"ok":false,"database":"unreachable"}`, and `/health` still answers `{"ok":true}`. Use `/ready` for a load balancer's or platform's readiness check. The image's own health check uses it, so `docker ps` shows the runtime's state:
 
 ```sh
 docker ps --filter name=kindgi-server --format 'table {{.Names}}\t{{.Status}}'
@@ -53,7 +63,7 @@ NAMES           STATUS
 kindgi-server   Up 34 seconds (healthy)
 ```
 
-`/health` doesn't check Postgres: it answers `{"ok":true}` while the database is down. A route that reads the database does. With Postgres unreachable, `GET /v1/deployments` answers `500` and names the cause:
+`docker ps` shows `(unhealthy)` while the database is down. A route that reads the database answers `500` and names the cause. With Postgres unreachable, `GET /v1/deployments` answers:
 
 ```sh
 curl -s http://localhost:4000/v1/deployments -H "authorization: Bearer $KINDGI_API_TOKEN"
@@ -98,7 +108,7 @@ repair is a line in its log:
 ### Where errors show
 
 - **A setting the runtime refuses** (a missing license key, for example): it exits with code 2, and its log says what to fix.
-- **A failure while starting:** it exits with code 1, and the log's first line starts with `kindgi-runtime: fatal:` and ends with the cause. Here Postgres wasn't running:
+- **A database it can't reach while starting:** it exits with code 1, and its log says which database and why, never the password. Here Postgres wasn't running:
 
   ```sh
   docker inspect --format '{{.State.ExitCode}}' kindgi-server
@@ -107,8 +117,10 @@ repair is a line in its log:
 
   ```text
   1
-  kindgi-runtime: fatal: Error: migration failed for … failed: getaddrinfo ENOTFOUND kindgi-db
+  Can't connect to the database at kindgi-db:5432/kindgi: getaddrinfo ENOTFOUND kindgi-db. Check KINDGI_DATABASE_URL, and that Postgres is up and reachable from here.
   ```
+
+- **Another failure while starting:** it exits with code 1, and the log's first line starts with `kindgi-runtime: fatal:` and ends with the cause.
 
 - **A run that fails:** its `failureMessage`, in `pnpm exec kindgi runs get <run id>`.
 
