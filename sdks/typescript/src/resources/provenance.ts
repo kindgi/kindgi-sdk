@@ -4,6 +4,7 @@
 import type { AgentId, Cursor, Page, RunId, Timestamp } from '@kindgi/types';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
+import { scopeToQuery } from '../scope-wire.js';
 import type { Transport } from '../transport.js';
 import type {
   ExportedProvenance,
@@ -96,6 +97,7 @@ export function makeProvenanceClient(transport: Transport): ProvenanceClient {
         query: {
           ...(filter?.limit !== undefined && { limit: filter.limit }),
           ...(filter?.cursor !== undefined && { cursor: filter.cursor as unknown as string }),
+          ...(filter?.scope !== undefined && scopeToQuery(filter.scope)),
           ...(filter?.runId !== undefined && { runId: filter.runId as unknown as string }),
           ...(filter?.agentId !== undefined && {
             agentId: filter.agentId as unknown as AgentId as unknown as string,

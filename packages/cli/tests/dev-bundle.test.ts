@@ -11,14 +11,15 @@
  * `@kindgi/sdk` resolves as it would from an app.
  */
 
+import { readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, onTestFinished, test, vi } from 'vitest';
 
 import { esbuildBundleReal } from '../src/build/defaults.js';
-import { createDevPackBuilder } from '../src/dev/bundler.js';
+import { STAMP_SAFETY_GAP_MS, createDevPackBuilder, stampOf } from '../src/dev/bundler.js';
 import { runIndexerReadReal } from '../src/dev/defaults.js';
 import type { PackBuild, PackBuilder } from '../src/dev/runners.js';
 
@@ -52,6 +53,12 @@ async function write(rel: string, body: string): Promise<void> {
 function builder(): PackBuilder {
   const b = createDevPackBuilder({ packDir, patterns: PATTERNS });
   builders.push(b);
+  return b;
+}
+
+/** A watching builder stops with its test, so it never rebuilds into the next one's files. */
+function disposedAfterTest(b: PackBuilder): PackBuilder {
+  onTestFinished(() => b.dispose());
   return b;
 }
 
@@ -143,30 +150,30 @@ describe('the dev bundler', () => {
     }
   });
 
-  // A real file watcher: retried, with room for a busy machine (see dev-watch.test.ts).
+  // esbuild's watch mode polls, so each wait has room for a busy machine.
   test(
     'watching: an edit to the shared module rebuilds; a new tool file is picked up',
-    { retry: 2, timeout: 60_000 },
+    { timeout: 60_000 },
     async () => {
-      const b = builder();
+      const b = disposedAfterTest(builder());
       await b.build();
-      const builds: PackBuild[] = [];
-      await b.watch((build) => builds.push(build));
+      // Each report with the bundle it names, read as it's reported: the
+      // build has written it, and no other build runs until it's reported.
+      const reports: { build: PackBuild; greet: string }[] = [];
+      const greetBundle = join(packDir, '.kindgi/dev/dist/tools/greet.mjs');
+      await b.watch((build) => reports.push({ build, greet: readFileSync(greetBundle, 'utf8') }));
 
       await write(
         'src/lib/greet.ts',
         (await readFile(join(packDir, 'src/lib/greet.ts'), 'utf8')).replace("'hello'", "'hi'"),
       );
-      await vi.waitFor(() => expect(builds.length).toBeGreaterThanOrEqual(1), { timeout: 30_000 });
-      expect(await readFile(join(packDir, '.kindgi/dev/dist/tools/greet.mjs'), 'utf8')).toContain(
-        '"hi"',
-      );
+      await vi.waitFor(() => expect(reports.at(-1)?.greet).toContain('"hi"'), { timeout: 30_000 });
 
       await write('tools/second.ts', TOOL('bt.second'));
       expect(await b.syncEntries()).toBe(true);
       await vi.waitFor(
         () =>
-          expect(builds.at(-1)).toMatchObject({
+          expect(reports.at(-1)?.build).toMatchObject({
             kind: 'ok',
             bundleMap: {
               'tools/greet.ts': '.kindgi/dev/dist/tools/greet.mjs',
@@ -179,12 +186,11 @@ describe('the dev bundler', () => {
     },
   );
 
-  // A real file watcher: retried, with room for a busy machine (see dev-watch.test.ts).
   test(
     'watching: removing the last primitive file reports an empty build',
-    { retry: 2, timeout: 60_000 },
+    { timeout: 60_000 },
     async () => {
-      const b = builder();
+      const b = disposedAfterTest(builder());
       await b.build();
       const builds: PackBuild[] = [];
       await b.watch((build) => builds.push(build));
@@ -194,7 +200,6 @@ describe('the dev bundler', () => {
         () => expect(builds.at(-1)).toEqual({ kind: 'ok', bundleMap: {}, externals: [] }),
         { timeout: 30_000 },
       );
-      await b.dispose();
     },
   );
 });
@@ -269,41 +274,91 @@ describe("the dev bundler's externals", () => {
     expect(dev?.map((e) => e.name)).toEqual(image.externals);
   });
 
-  // A real file watcher: retried, with room for a busy machine (see dev-watch.test.ts).
-  test(
-    'watching: each rebuild names its own externals',
-    { retry: 2, timeout: 60_000 },
-    async () => {
-      const b = externalsBuilder();
-      await b.build();
-      const builds: PackBuild[] = [];
-      await b.watch((build) => builds.push(build));
+  // Each edit is written as soon as watching starts, while watch mode's
+  // first build may be reading the file — the race an editor's save can
+  // hit. Whatever that build read, the last build reported is the edit's.
+  test('watching: each rebuild names its own externals', { timeout: 60_000 }, async () => {
+    const b = disposedAfterTest(externalsBuilder());
+    await b.build();
+    const builds: PackBuild[] = [];
+    await b.watch((build) => builds.push(build));
 
-      // A new import (a subpath: the package is named).
-      await put(
-        'tools/clock.ts',
-        "import { now } from 'acme-clock';\nimport { id } from '@acme/ids/sub';\nexport default { now, id };\n",
-      );
-      await vi.waitFor(
-        () =>
-          expect(externalsOf(builds.at(-1))).toEqual([
-            { name: '@acme/ids', importers: ['tools/clock.ts'] },
-            { name: 'acme-clock', importers: ['tools/clock.ts'] },
-            { name: 'acme-config-helper', importers: ['kindgi.config.ts'] },
-          ]),
-        { timeout: 30_000 },
-      );
+    // A new import (a subpath: the package is named).
+    await put(
+      'tools/clock.ts',
+      "import { now } from 'acme-clock';\nimport { id } from '@acme/ids/sub';\nexport default { now, id };\n",
+    );
+    await vi.waitFor(
+      () =>
+        expect(externalsOf(builds.at(-1))).toEqual([
+          { name: '@acme/ids', importers: ['tools/clock.ts'] },
+          { name: 'acme-clock', importers: ['tools/clock.ts'] },
+          { name: 'acme-config-helper', importers: ['kindgi.config.ts'] },
+        ]),
+      { timeout: 30_000 },
+    );
 
-      // An import removed is gone from the next build's.
-      await put('tools/clock.ts', "import { id } from '@acme/ids';\nexport default { id };\n");
-      await vi.waitFor(
-        () =>
-          expect(externalsOf(builds.at(-1))).toEqual([
-            { name: '@acme/ids', importers: ['tools/clock.ts'] },
-            { name: 'acme-config-helper', importers: ['kindgi.config.ts'] },
-          ]),
-        { timeout: 30_000 },
-      );
+    // An import removed is gone from the next build's.
+    await put('tools/clock.ts', "import { id } from '@acme/ids';\nexport default { id };\n");
+    await vi.waitFor(
+      () =>
+        expect(externalsOf(builds.at(-1))).toEqual([
+          { name: '@acme/ids', importers: ['tools/clock.ts'] },
+          { name: 'acme-config-helper', importers: ['kindgi.config.ts'] },
+        ]),
+      { timeout: 30_000 },
+    );
+  });
+});
+
+describe("a build's stamp (what it read)", () => {
+  let dir: string;
+  const resultOf = (...inputs: string[]) => ({
+    metafile: {
+      inputs: Object.fromEntries(inputs.map((input) => [input, { bytes: 0, imports: [] }])),
+      outputs: {},
     },
-  );
+  });
+  /** A build that started well after the files last changed. */
+  const later = (): number => Date.now() + 60_000;
+
+  beforeAll(async () => {
+    dir = await mkdtemp(join(PACKAGE_DIR, 'tmp', 'dev-stamp-'));
+    await writeFile(join(dir, 'a.ts'), 'export const a = 1;\n');
+    await writeFile(join(dir, 'b.ts'), 'export const b = 2;\n');
+  });
+
+  afterAll(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  test('the same files, unchanged: the same stamp, whatever the order', async () => {
+    const stamp = await stampOf(resultOf('a.ts', 'b.ts'), dir, later());
+    expect(stamp).toMatch(/^a\.ts:\d+:.*\nb\.ts:\d+:/);
+    expect(await stampOf(resultOf('b.ts', 'a.ts'), dir, later())).toBe(stamp);
+  });
+
+  test('a file changed between two builds: a different stamp', async () => {
+    const before = await stampOf(resultOf('a.ts'), dir, later());
+    await writeFile(join(dir, 'a.ts'), 'export const a = 10;\n');
+    const after = await stampOf(resultOf('a.ts'), dir, later());
+    expect(after).toBeDefined();
+    expect(after).not.toBe(before);
+  });
+
+  // The build may have read it before the change (or half written): a
+  // stamp taken now would describe the file after the change, and the
+  // rebuild the change triggers would match it and go unreported.
+  test('a file changed after the build started, or just before: no stamp', async () => {
+    const startedAt = Date.now();
+    await writeFile(join(dir, 'b.ts'), 'export const b = 20;\n');
+    expect(await stampOf(resultOf('a.ts', 'b.ts'), dir, startedAt)).toBeUndefined();
+    // Within the safety gap before the start: too close to tell.
+    const soonAfter = Date.now() + STAMP_SAFETY_GAP_MS / 2;
+    expect(await stampOf(resultOf('b.ts'), dir, soonAfter)).toBeUndefined();
+  });
+
+  test('a file that is gone: no stamp', async () => {
+    expect(await stampOf(resultOf('a.ts', 'gone.ts'), dir, later())).toBeUndefined();
+  });
 });

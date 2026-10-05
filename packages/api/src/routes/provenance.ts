@@ -20,6 +20,7 @@ import type {
 } from '../provenance-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit, decodeCursor, encodeCursor } from './pagination.js';
+import { parseListScope } from './scope-params.js';
 
 /**
  * Provenance resource routes.
@@ -79,6 +80,14 @@ export function provenanceRouter(
       cursorFilter = { createdAt: decoded.createdAt, id: decoded.id };
     }
 
+    const scopeParsed = parseListScope(c.req.query(), { tenantId });
+    if (scopeParsed.kind === 'err') {
+      c.status(statusFor('scope-invalid') as never);
+      return c.json(
+        toWireError({ code: 'scope-invalid', message: scopeParsed.message }, requestId),
+      );
+    }
+
     const runIdFilter = c.req.query('runId');
     const agentIdFilter = c.req.query('agentId');
     const createdAfterRaw = c.req.query('createdAfter');
@@ -101,6 +110,7 @@ export function provenanceRouter(
     const result = await binding.listRecords({
       tenantId,
       limit,
+      ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(runIdFilter !== undefined && runIdFilter.length > 0 && { runId: runIdFilter as RunId }),
       ...(agentIdFilter !== undefined && agentIdFilter.length > 0 && { agentId: agentIdFilter }),
       ...(createdAfter !== undefined && { createdAfter }),
@@ -375,6 +385,7 @@ interface RecordMetadata {
   readonly createdAt: string;
   readonly flowRef?: { readonly id: string; readonly version: string };
   readonly signed: boolean;
+  readonly projectId?: string;
 }
 
 function serializeRecordMetadata(row: ProvenanceRecordSummary): RecordMetadata {
@@ -391,6 +402,7 @@ function serializeRecordMetadata(row: ProvenanceRecordSummary): RecordMetadata {
       },
     }),
     signed: row.signed,
+    ...(row.projectId !== undefined && { projectId: row.projectId as unknown as string }),
   };
 }
 

@@ -3,7 +3,7 @@
 
 import { type ResourceRef, ref } from '@kindgi/authz';
 import type { Scope } from '@kindgi/platform';
-import type { OrgId, ProjectId, TenantId } from '@kindgi/types';
+import type { ListScope, OrgId, ProjectId, TenantId } from '@kindgi/types';
 
 /**
  * The authorization resource for a request scope: the project or org it
@@ -130,4 +130,38 @@ export function parseScopeParams(
       : { kind: 'project', tenantId: session.tenantId, projectId: scopeIdRaw as ProjectId };
 
   return { kind: 'ok', scope, ...(inherit !== undefined && { inherit }) };
+}
+
+const SCOPE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * A content list's `?scopeKind` + `?scopeId` as a `ListScope`: a project
+ * or an org narrows the list; no scope, or `tenant`, is the whole tenant.
+ * Project and org ids are UUIDs, so a malformed `scopeId` is an error
+ * here (the route's 400), not a failed query.
+ */
+export function parseListScope(
+  query: QuerySource,
+  session: { readonly tenantId: TenantId },
+):
+  | { readonly kind: 'ok'; readonly scope?: ListScope }
+  | { readonly kind: 'err'; readonly message: string } {
+  const parsed = parseScopeParams(query, session);
+  if (parsed.kind === 'err') return parsed;
+  const scope = parsed.scope;
+  if (scope === undefined || scope.kind === 'tenant') return { kind: 'ok' };
+  const id = (scope.kind === 'project' ? scope.projectId : scope.orgId) as unknown as string;
+  if (!SCOPE_ID_RE.test(id)) {
+    return {
+      kind: 'err',
+      message: `scope query parameters malformed: scopeId must be ${scope.kind === 'project' ? 'a project' : 'an org'} id (a UUID), got "${id}"`,
+    };
+  }
+  return {
+    kind: 'ok',
+    scope:
+      scope.kind === 'project'
+        ? { kind: 'project', projectId: scope.projectId }
+        : { kind: 'org', orgId: scope.orgId },
+  };
 }
