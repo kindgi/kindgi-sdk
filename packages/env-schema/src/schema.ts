@@ -233,6 +233,16 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     allowedValues: ['local', 'deployed'],
   },
   {
+    name: 'KINDGI_WEBHOOK_PRIVATE_NETWORKS',
+    description:
+      'Whether a webhook may go to a private network address: for a receiver on the same VPC or compose network as a self-hosted server. `allow` accepts a receiver whose host resolves to a private address: RFC 1918, CGNAT (100.64.0.0/10) or IPv6 unique-local. Loopback, link-local (the cloud metadata endpoints) and unroutable addresses stay refused, and webhooks stay https only. Unset or `deny`: public addresses only. Development mode (`KINDGI_DEV`) allows http and every address anyway.',
+    example: 'allow',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+    allowedValues: ['allow', 'deny'],
+  },
+  {
     name: 'KINDGI_LICENSE_KEY',
     description:
       'The commercial license key (`kgi_lk_...`) Kindgi issues: signed, checked offline at startup, with no call to Kindgi. Required outside development mode: without a valid key the server refuses to start, naming this variable. `KINDGI_DEV=true` needs none. A production key comes with a commercial license; a free non-production key covers staging and CI. A secret: give it from your secrets store.',
