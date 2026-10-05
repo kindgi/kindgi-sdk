@@ -2,8 +2,6 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 export { createAdapterFactoryRegistry } from './adapter-factory.js';
-export { createAttemptCounter } from './attempts.js';
-export type { AttemptCounter } from './attempts.js';
 export type {
   AdapterConfig,
   AdapterFactory,
@@ -16,6 +14,8 @@ export { CAPABILITY_SCHEMA_URI, defineCapability } from './define.js';
 export { createProviderRegistry } from './registry.js';
 export { matchTuples, route } from './router.js';
 export type { RouteInput } from './router.js';
+export { recordModelUsage } from './usage.js';
+export type { RecordModelUsageOptions } from './usage.js';
 export { BUILT_IN_CAPABILITY_KINDS, DEFAULT_CAPABILITY_KIND, FEATURES } from './types.js';
 export type {
   Budget,

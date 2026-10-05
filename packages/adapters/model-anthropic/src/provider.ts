@@ -3,14 +3,14 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 
-import {
-  type ModelCallInput,
-  type ModelCallResult,
-  type ModelInfo,
-  type ModelProvider,
-  type ProviderMetadata,
-  createAttemptCounter,
+import type {
+  ModelCallInput,
+  ModelCallResult,
+  ModelInfo,
+  ModelProvider,
+  ProviderMetadata,
 } from '@kindgi/capabilities';
+import { createAttemptCounter } from '@kindgi/capabilities/attempts';
 
 import { computeCostUsd, toFrameworkUsage } from './cost.js';
 import {
@@ -116,7 +116,7 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
   let cached: { readonly key: string; readonly client: Anthropic } | undefined;
   // Counts each call's HTTP attempts, the SDK's own retries included (its
   // retry policy stays the SDK's), through the `fetch` the client sends with.
-  const attempts = createAttemptCounter(options.clientOptions?.fetch ?? globalThis.fetch);
+  const attempts = createAttemptCounter(options.clientOptions?.fetch);
   if (options.client !== undefined) {
     // Dep-injected client — pin to sentinel key so resolveClient below
     // always returns the same instance regardless of what the resolver

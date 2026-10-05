@@ -14,6 +14,7 @@ export type GuardrailError =
   | InvalidCheckConfigError
   | JudgeMissingError
   | JudgeRoutingError
+  | JudgeUsageError
   | ScopeMismatchError
   | UnknownActionError;
 
@@ -24,6 +25,19 @@ export type GuardrailError =
  */
 export interface JudgeRoutingError {
   readonly code: 'judge-routing-failed';
+  readonly message: string;
+  readonly guardrailId: GuardrailId;
+  readonly cause: unknown;
+}
+
+/**
+ * An `llm-judge` guardrail's judge answered, but its call couldn't be
+ * recorded in the usage sink (`EvaluationBindings.usage`), retries
+ * included. The caller fails what it was doing: an answered call isn't
+ * left unrecorded.
+ */
+export interface JudgeUsageError {
+  readonly code: 'judge-usage-unrecorded';
   readonly message: string;
   readonly guardrailId: GuardrailId;
   readonly cause: unknown;

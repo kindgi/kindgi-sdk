@@ -471,8 +471,11 @@ export interface ModelUsageRecord {
   readonly status: 'ok' | 'failed';
   /** What the answer used, and what the vendor said about it (`ok`). */
   readonly result?: Omit<ModelCallResult, 'message'>;
-  /** Why the call failed (`failed`). */
-  readonly error?: { readonly message: string };
+  /**
+   * Why the call failed (`failed`), and the HTTP attempts it took before
+   * it did, when they were counted (`attemptsOf`).
+   */
+  readonly error?: { readonly message: string; readonly attempts?: number };
   /** How long the call took, failed or not. */
   readonly durationMs: number;
 }

@@ -7,6 +7,9 @@
  * on each call, the endpoint, the extra body fields, the turn's abort signal.
  */
 
+import { type Server, createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+
 import { describe, expect, test } from 'vitest';
 
 import type { ProviderMetadata } from '@kindgi/capabilities';
@@ -334,5 +337,38 @@ describe('what the endpoint says about the call', () => {
         completion_tokens_details: { reasoning_tokens: 8 },
       },
     });
+  });
+
+  test('a body that stalls past the timeout is retried by the SDK, and both attempts are counted', async () => {
+    // The real SDK over real HTTP: the first answer sends its headers and
+    // part of its body, then stalls; the SDK times the body out and
+    // retries from inside its lazy promise.
+    let requests = 0;
+    const server: Server = createServer((_req, res) => {
+      requests += 1;
+      res.writeHead(200, { 'content-type': 'application/json', 'x-request-id': `req_${requests}` });
+      if (requests === 1) {
+        res.write('{"id":');
+        return;
+      }
+      res.end(JSON.stringify(COMPLETION));
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const { port } = server.address() as AddressInfo;
+      const provider = createOpenAICompatModelProvider({
+        baseURL: `http://127.0.0.1:${port}/v1`,
+        apiKey: 'sk-test',
+        metadata,
+        clientOptions: { timeout: 300, maxRetries: 2 },
+      });
+      const result = await provider.invoke(call);
+      expect(requests).toBe(2);
+      expect(result.attempts).toBe(2);
+      expect(result.providerRequestId).toBe('req_2');
+    } finally {
+      server.closeAllConnections();
+      await new Promise((resolve) => server.close(resolve));
+    }
   });
 });

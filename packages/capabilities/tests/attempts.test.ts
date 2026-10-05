@@ -3,7 +3,7 @@
 
 import { describe, expect, test } from 'vitest';
 
-import { createAttemptCounter } from '../src/index.js';
+import { attemptsOf, createAttemptCounter } from '../src/attempts.js';
 
 /** A `fetch` that fails the first `failures` requests of each call it's told about. */
 function flakyFetch(failuresByUrl: Map<string, number>): typeof globalThis.fetch {
@@ -43,6 +43,48 @@ describe('createAttemptCounter', () => {
     ]);
     expect(a).toEqual({ value: 'ok', attempts: 3 });
     expect(b).toEqual({ value: 'ok', attempts: 1 });
+  });
+
+  test('a lazy call (it sends when awaited, and retries from there) is counted whole', async () => {
+    // OpenAI's `APIPromise` shape: nothing is sent until `then`, and a
+    // body that stalls is retried from inside that step.
+    const counter = createAttemptCounter(flakyFetch(new Map([['https://vendor.test/lazy', 1]])));
+    const lazy = (): PromiseLike<string> => ({
+      // biome-ignore lint/suspicious/noThenProperty: a thenable is the point
+      then(onFulfilled, onRejected) {
+        return sdkCall(counter.fetch, 'https://vendor.test/lazy').then(onFulfilled, onRejected);
+      },
+    });
+    expect(await counter.count(lazy)).toEqual({ value: 'ok', attempts: 2 });
+  });
+
+  test('a call that throws keeps its own error; its attempts are attemptsOf(error)', async () => {
+    const counter = createAttemptCounter(flakyFetch(new Map([['https://vendor.test/down', 99]])));
+    const overloaded = new Error('overloaded');
+    const failing = async () => {
+      if ((await sdkCall(counter.fetch, 'https://vendor.test/down')) === 'overloaded') {
+        throw overloaded;
+      }
+    };
+    const thrown = await counter.count(failing).catch((error: unknown) => error);
+    expect(thrown).toBe(overloaded);
+    expect(attemptsOf(thrown)).toBe(4);
+    expect(attemptsOf(new Error('never counted'))).toBeUndefined();
+    expect(attemptsOf('a string')).toBeUndefined();
+  });
+
+  test('without an inner fetch, it sends with the global fetch as it is at each request', async () => {
+    const counter = createAttemptCounter();
+    const original = globalThis.fetch;
+    globalThis.fetch = async () => new Response('patched later', { status: 200 });
+    try {
+      const counted = await counter.count(async () =>
+        (await counter.fetch('https://vendor.test/late')).text(),
+      );
+      expect(counted).toEqual({ value: 'patched later', attempts: 1 });
+    } finally {
+      globalThis.fetch = original;
+    }
   });
 
   test('a request outside a counted call is sent, and counted nowhere', async () => {

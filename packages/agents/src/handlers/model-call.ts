@@ -3,7 +3,14 @@
 
 import { randomUUID } from 'node:crypto';
 
-import type { ModelCallInput, ModelMessage, ModelUsageRecord } from '@kindgi/capabilities';
+import {
+  type ModelCallInput,
+  type ModelMessage,
+  type ModelProvider,
+  type ModelUsageRecord,
+  recordModelUsage,
+} from '@kindgi/capabilities';
+import { attemptsOf } from '@kindgi/capabilities/attempts';
 import type { NodeContext, NodeHandler } from '@kindgi/handler';
 
 import { emitTurnEvent } from '../streaming.js';
@@ -19,7 +26,10 @@ import { throwAgentTurnFailure } from './errors.js';
  *
  * Every call is recorded in the usage sink (`InvokeAgentBindings.usage`,
  * the runtime's cost ledger) before the step goes on, a call that threw
- * included: no model call is left unrecorded. The call's id goes into
+ * included. A sink that fails is tried again (a record is idempotent by
+ * call id); one that still fails fails the step when the call succeeded,
+ * so no answered call is left unrecorded. A call that failed keeps its
+ * own failure, which says it couldn't be recorded too. The call's id goes into
  * the step's output and its provenance node, which keeps the call's
  * identity (provider, model) while its usage lives in the ledger. A dry
  * run spends nothing and records nothing.
@@ -78,37 +88,9 @@ export function buildModelCallHandler(ctx: TurnContext): NodeHandler {
       try {
         callResult = await ctx.provider.invoke(callInput);
       } catch (cause) {
-        await recordCall(ctx, kctx, {
-          callId,
-          step,
-          status: 'failed',
-          error: { message: describeCause(cause) },
-          durationMs: Date.now() - startedAt,
-        });
-        if (ctx.turnAbort.signal.aborted) {
-          throwAgentTurnFailure({
-            code: 'agent-turn-aborted',
-            message: `Agent turn aborted: ${cause instanceof Error ? cause.message : String(cause)}`,
-            reason: ctx.abortReason ?? 'timeout',
-          });
-        }
-        // The provider's own words (a 401's "invalid x-api-key", a 429)
-        // are what the caller needs; they're in `cause` too, but callers
-        // show `message`.
-        throwAgentTurnFailure({
-          code: 'model-invocation-failed',
-          message: `Model call to ${ctx.provider.metadata.id} (${ctx.model.name}) failed: ${describeCause(cause)}`,
-          cause,
-        });
+        return await failCall(ctx, kctx, { callId, step, cause, startedAt });
       }
-      const { message: _answer, ...result } = callResult;
-      await recordCall(ctx, kctx, {
-        callId,
-        step,
-        status: 'ok',
-        result,
-        durationMs: callResult.durationMs,
-      });
+      await recordAnswer(ctx, kctx, callId, step, callResult);
     }
 
     ctx.usage.promptTokens += callResult.usage.promptTokens;
@@ -170,6 +152,80 @@ export function buildModelCallHandler(ctx: TurnContext): NodeHandler {
   };
 }
 
+/**
+ * A call that answered: record it before the step goes on. A sink that
+ * still fails after its retries fails the step: an answered call isn't
+ * left unrecorded.
+ */
+async function recordAnswer(
+  ctx: TurnContext,
+  kctx: NodeContext,
+  callId: string,
+  step: number,
+  answer: Awaited<ReturnType<ModelProvider['invoke']>>,
+): Promise<void> {
+  const { message: _answer, ...result } = answer;
+  const unrecorded = await recordCall(ctx, kctx, {
+    callId,
+    step,
+    status: 'ok',
+    result,
+    durationMs: answer.durationMs,
+  });
+  if (unrecorded !== undefined) {
+    throwAgentTurnFailure({
+      code: 'persistence-error',
+      message: `The model call couldn't be recorded: ${describeCause(unrecorded)}`,
+      cause: unrecorded,
+    });
+  }
+}
+
+/**
+ * A call that threw: record it, then fail the step with the call's own
+ * failure (aborted, or the provider's words). A record that failed too
+ * is said after it.
+ */
+async function failCall(
+  ctx: TurnContext,
+  kctx: NodeContext,
+  failed: {
+    readonly callId: string;
+    readonly step: number;
+    readonly cause: unknown;
+    readonly startedAt: number;
+  },
+): Promise<never> {
+  const { cause } = failed;
+  const attempts = attemptsOf(cause);
+  const unrecorded = await recordCall(ctx, kctx, {
+    callId: failed.callId,
+    step: failed.step,
+    status: 'failed',
+    error: { message: describeCause(cause), ...(attempts !== undefined && { attempts }) },
+    durationMs: Date.now() - failed.startedAt,
+  });
+  const andUnrecorded =
+    unrecorded === undefined
+      ? ''
+      : ` (and the failed call couldn't be recorded: ${describeCause(unrecorded)})`;
+  if (ctx.turnAbort.signal.aborted) {
+    throwAgentTurnFailure({
+      code: 'agent-turn-aborted',
+      message: `Agent turn aborted: ${cause instanceof Error ? cause.message : String(cause)}${andUnrecorded}`,
+      reason: ctx.abortReason ?? 'timeout',
+    });
+  }
+  // The provider's own words (a 401's "invalid x-api-key", a 429) are
+  // what the caller needs; they're in `cause` too, but callers show
+  // `message`.
+  throwAgentTurnFailure({
+    code: 'model-invocation-failed',
+    message: `Model call to ${ctx.provider?.metadata.id} (${ctx.model?.name}) failed: ${describeCause(cause)}${andUnrecorded}`,
+    cause,
+  });
+}
+
 /** What the call came to, for `recordCall`. */
 type CallOutcome = Pick<
   ModelUsageRecord,
@@ -177,35 +233,33 @@ type CallOutcome = Pick<
 >;
 
 /**
- * Record a model call in the usage sink, when the turn has one. A sink
- * that can't record fails the step: the call isn't left unrecorded.
+ * Record a model call in the usage sink, when the turn has one, trying
+ * a failing sink again. Resolves with the sink's last failure when it
+ * couldn't record; the caller decides what that means for the step.
  */
-async function recordCall(ctx: TurnContext, kctx: NodeContext, call: CallOutcome): Promise<void> {
+async function recordCall(
+  ctx: TurnContext,
+  kctx: NodeContext,
+  call: CallOutcome,
+): Promise<unknown | undefined> {
   const sink = ctx.bindings.usage;
   if (sink === undefined || ctx.provider === undefined || ctx.model === undefined) return;
   const { input } = ctx;
-  try {
-    await sink.record({
-      ...call,
-      tenantId: input.tenantId,
-      projectId: input.projectId,
-      runId: kctx.runId,
-      agentId: input.agent.id as unknown as string,
-      agentVersion: input.agent.version,
-      conversationId: input.conversationId as unknown as string,
-      nodeId: kctx.nodeId as unknown as string,
-      providerId: ctx.provider.metadata.id,
-      model: ctx.model.name,
-      ...(ctx.provider.metadata.fallback === true && { fallback: true }),
-      occurredAt: new Date().toISOString(),
-    });
-  } catch (cause) {
-    throwAgentTurnFailure({
-      code: 'persistence-error',
-      message: `The model call couldn't be recorded: ${describeCause(cause)}`,
-      cause,
-    });
-  }
+  const recorded = await recordModelUsage(sink, {
+    ...call,
+    tenantId: input.tenantId,
+    projectId: input.projectId,
+    runId: kctx.runId,
+    agentId: input.agent.id as unknown as string,
+    agentVersion: input.agent.version,
+    conversationId: input.conversationId as unknown as string,
+    nodeId: kctx.nodeId as unknown as string,
+    providerId: ctx.provider.metadata.id,
+    model: ctx.model.name,
+    ...(ctx.provider.metadata.fallback === true && { fallback: true }),
+    occurredAt: new Date().toISOString(),
+  });
+  return recorded.kind === 'err' ? (recorded.error ?? new Error('no detail')) : undefined;
 }
 
 /** Longest cause text a failure message carries. */

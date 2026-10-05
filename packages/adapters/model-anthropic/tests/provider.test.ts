@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type Anthropic from '@anthropic-ai/sdk';
+import Anthropic from '@anthropic-ai/sdk';
 import { describe, expect, test, vi } from 'vitest';
 
 import type { ModelCallInput } from '@kindgi/capabilities';
+import { attemptsOf } from '@kindgi/capabilities/attempts';
 
 import { type AnthropicModelInfo, createAnthropicProvider } from '../src/provider.js';
 
@@ -290,6 +291,33 @@ describe('createAnthropicProvider — lazy apiKey resolver', () => {
 });
 
 describe('createAnthropicProvider — what the vendor says about the call', () => {
+  test('a call the vendor refuses on every attempt throws its own error; attemptsOf counts them', async () => {
+    let sent = 0;
+    const fetch: typeof globalThis.fetch = async () => {
+      sent += 1;
+      return new Response(JSON.stringify({ type: 'error', error: { type: 'overloaded_error' } }), {
+        status: 529,
+        headers: { 'content-type': 'application/json', 'retry-after-ms': '1' },
+      });
+    };
+    const provider = createAnthropicProvider({
+      apiKey: 'sk-test',
+      metadata: OPUS_METADATA,
+      clientOptions: { fetch, maxRetries: 2 },
+    });
+    const thrown = await provider
+      .invoke({
+        model: 'claude-opus-4-7',
+        messages: [{ role: 'user', content: 'hi' }],
+      } as ModelCallInput)
+      .catch((error: unknown) => error);
+    // The SDK's own error, unchanged: callers can still read its status.
+    expect(thrown).toBeInstanceOf(Anthropic.APIError);
+    expect((thrown as InstanceType<typeof Anthropic.APIError>).status).toBe(529);
+    expect(sent).toBe(3);
+    expect(attemptsOf(thrown)).toBe(3);
+  });
+
   test("served model, request id, raw usage, and the attempts its SDK's retries took", async () => {
     // The vendor is overloaded once (529, which the SDK retries), then answers.
     const sent: string[] = [];

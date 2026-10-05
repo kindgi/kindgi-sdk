@@ -576,7 +576,7 @@ const CostIncludeDescendantsQueryParam: ParameterSpec = {
   required: false,
   description:
     "With `runId`: the run's records and those of every run it started, at any depth. `true` or `false` (default).",
-  schema: { type: 'string', enum: ['true', 'false'] },
+  schema: { type: 'boolean', default: false },
 };
 
 const CostIncludeQueryParam: ParameterSpec = {

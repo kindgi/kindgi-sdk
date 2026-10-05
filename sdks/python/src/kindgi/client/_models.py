@@ -3449,14 +3449,6 @@ class GetMCPPromptResult(BaseModel):
     messages: list[MCPPromptMessage]
 
 
-class Error1(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    message: str
-
-
 class RawUsage(BaseModel):
     """
     The vendor's own usage object, exactly as it reported it. Only with `include=rawUsage`.
@@ -3485,6 +3477,18 @@ class ModelCallTokens(BaseModel):
     cache_read_tokens: Annotated[int | None, Field(alias="cacheReadTokens", ge=0)] = None
     cache_write_tokens: Annotated[int | None, Field(alias="cacheWriteTokens", ge=0)] = None
     reasoning_tokens: Annotated[int | None, Field(alias="reasoningTokens", ge=0)] = None
+
+
+class ModelCallError(BaseModel):
+    """
+    Why a model call failed (`status: failed`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    message: str
 
 
 class CostTokenTotals(BaseModel):
@@ -5887,9 +5891,9 @@ class WebhookEndpointUnregisterResult(BaseModel):
     """
 
 
-class Usage(BaseModel):
+class RunTreeUsage(BaseModel):
     """
-    The model calls of the whole run tree (this run and every run it started), from the cost ledger. Absent when the runtime records no usage.
+    The model calls of the run tree (this run and every run it started) that the cost ledger had recorded when this run finished: a child run still running then isn't in it. `calls` counts failed calls too. Absent when the runtime records no usage.
     """
 
     model_config = ConfigDict(
@@ -5925,10 +5929,7 @@ class FinishedRun(BaseModel):
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     completed_at: Annotated[AwareDatetime, Field(alias="completedAt")]
-    usage: Usage | None = None
-    """
-    The model calls of the whole run tree (this run and every run it started), from the cost ledger. Absent when the runtime records no usage.
-    """
+    usage: RunTreeUsage | None = None
 
 
 class Data(BaseModel):
@@ -6258,7 +6259,7 @@ class CostRecord(BaseModel):
     """
     HTTP attempts the call took, the client's retries included.
     """
-    error: Error1 | None = None
+    error: ModelCallError | None = None
     raw_usage: Annotated[RawUsage | None, Field(alias="rawUsage")] = None
     """
     The vendor's own usage object, exactly as it reported it. Only with `include=rawUsage`.

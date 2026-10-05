@@ -3,21 +3,21 @@
 
 import OpenAI from 'openai';
 
-import {
-  type AdapterFactory,
-  type AdapterFactoryInput,
-  type Feature,
-  type ModelCallInput,
-  type ModelCallResult,
-  type ModelInfo,
-  type ModelMessage,
-  type ModelProvider,
-  type ModelToolCall,
-  type ModelToolDefinition,
-  type ProviderMetadata,
-  type UsageCounters,
-  createAttemptCounter,
+import type {
+  AdapterFactory,
+  AdapterFactoryInput,
+  Feature,
+  ModelCallInput,
+  ModelCallResult,
+  ModelInfo,
+  ModelMessage,
+  ModelProvider,
+  ModelToolCall,
+  ModelToolDefinition,
+  ProviderMetadata,
+  UsageCounters,
 } from '@kindgi/capabilities';
+import { createAttemptCounter } from '@kindgi/capabilities/attempts';
 
 /**
  * OpenAI (and every downstream compat endpoint — Ollama, vLLM, Groq,
@@ -120,7 +120,7 @@ export function createOpenAICompatModelProvider(
   let cached: { readonly key: string; readonly client: OpenAI } | undefined;
   // Counts each call's HTTP attempts, the SDK's own retries included (its
   // retry policy stays the SDK's), through the `fetch` the client sends with.
-  const attempts = createAttemptCounter(options.clientOptions?.fetch ?? globalThis.fetch);
+  const attempts = createAttemptCounter(options.clientOptions?.fetch);
   async function clientForCall(): Promise<OpenAI> {
     const key = typeof options.apiKey === 'function' ? await options.apiKey() : options.apiKey;
     if (cached !== undefined && cached.key === key) return cached.client;

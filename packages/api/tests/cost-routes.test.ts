@@ -259,6 +259,31 @@ function makeApp(seed: readonly CostRecord[] = [], seen: CostListRecordsInput[] 
   return { app, binding };
 }
 
+describe('API — a cost binding that fails', () => {
+  test('answers 500, never an empty page or zero sums', async () => {
+    const down = async (): Promise<never> => {
+      throw new Error('Could not list cost records: connection refused');
+    };
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken,
+      runHandler,
+      cost: { listRecords: down, getRecord: down, aggregate: down },
+    });
+    for (const path of [
+      '/v1/cost/records',
+      `/v1/cost/records/${randomUUID()}`,
+      '/v1/cost/aggregate?groupBy=model',
+    ]) {
+      const res = await app.request(path, { headers: { authorization: `Bearer ${TOKEN}` } });
+      expect(res.status, path).toBe(500);
+      const body = (await res.json()) as { error?: { code?: string }; data?: unknown };
+      expect(body.error?.code, path).toBeDefined();
+      expect(body.data, path).toBeUndefined();
+    }
+  });
+});
+
 describe('API — cost records list', () => {
   test('empty tenant → empty list, hasMore=false', async () => {
     const { app } = makeApp();

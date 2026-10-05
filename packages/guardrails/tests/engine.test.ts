@@ -462,7 +462,10 @@ describe('evaluateGuardrail — llm-judge records its model calls', () => {
 
   test("a judge call is recorded with the run's identity and the guardrail it judged", async () => {
     const recorded: ModelUsageRecord[] = [];
-    const trace = baseTrace({ agentId: 'acme.helper' as AgentId });
+    const trace = baseTrace({
+      agentId: 'acme.helper' as AgentId,
+      conversationId: '00000000-0000-0000-0000-0000000000cc',
+    });
     const outcome = await evaluateGuardrail(guardrail, registry, trace, {
       judgeProvider: {
         metadata: judgeMetadata,
@@ -483,6 +486,7 @@ describe('evaluateGuardrail — llm-judge records its model calls', () => {
         tenantId: TENANT,
         runId: trace.runId,
         agentId: 'acme.helper',
+        conversationId: '00000000-0000-0000-0000-0000000000cc',
         providerId: 'test-provider',
         model: 'test-model',
         purpose: 'guardrail-judge:acme.on-topic',
@@ -492,18 +496,56 @@ describe('evaluateGuardrail — llm-judge records its model calls', () => {
     ]);
   });
 
-  test('a judge call that threw is recorded as failed', async () => {
+  test('a judge call that threw is recorded as failed, and throws its own error', async () => {
     const recorded: ModelUsageRecord[] = [];
-    const outcome = await evaluateGuardrail(guardrail, registry, baseTrace(), {
-      judgeProvider: {
-        metadata: judgeMetadata,
-        invoke: () => Promise.reject(new Error('429 slow down')),
-      },
+    const providerError = new Error('429 slow down');
+    const thrown = await evaluateGuardrail(guardrail, registry, baseTrace(), {
+      judgeProvider: { metadata: judgeMetadata, invoke: () => Promise.reject(providerError) },
       usage: { record: async (call) => void recorded.push(call) },
     }).catch((e: unknown) => e);
-    expect(outcome).toBeDefined();
+    expect(thrown).toBe(providerError);
     expect(recorded).toEqual([
       expect.objectContaining({ status: 'failed', error: { message: '429 slow down' } }),
     ]);
+  });
+
+  test("a failed judge call that can't be recorded either still throws its own error", async () => {
+    const providerError = new Error('429 slow down');
+    const thrown = await evaluateGuardrail(guardrail, registry, baseTrace(), {
+      judgeProvider: { metadata: judgeMetadata, invoke: () => Promise.reject(providerError) },
+      usage: { record: () => Promise.reject(new Error('database unavailable')) },
+    }).catch((e: unknown) => e);
+    expect(thrown).toBe(providerError);
+  });
+
+  test("an answered judge call the sink can't record, retries included, is judge-usage-unrecorded", async () => {
+    let tries = 0;
+    const outcome = await evaluateGuardrail(guardrail, registry, baseTrace(), {
+      judgeProvider: {
+        metadata: judgeMetadata,
+        invoke: async () => ({
+          message: { role: 'assistant', content: 'PASS\nOn topic.' },
+          finishReason: 'stop',
+          usage: { promptTokens: 100, completionTokens: 20 },
+          costUsd: 0.0001,
+          durationMs: 50,
+          provider: { id: 'test-provider', model: 'test-model' },
+        }),
+      },
+      usage: {
+        record: () => {
+          tries += 1;
+          return Promise.reject(new Error('database unavailable'));
+        },
+      },
+    });
+    expect(tries).toBe(3);
+    expect(outcome).toMatchObject({
+      kind: 'err',
+      error: {
+        code: 'judge-usage-unrecorded',
+        message: "The judge's model call couldn't be recorded: database unavailable",
+      },
+    });
   });
 });

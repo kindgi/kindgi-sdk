@@ -7,14 +7,14 @@ import {
   type GenerateContentResponse,
   GoogleGenAI,
 } from '@google/genai';
-import {
-  type AdapterFactory,
-  type ModelCallInput,
-  type ModelCallResult,
-  type ModelProvider,
-  type ProviderMetadata,
-  createAttemptCounter,
+import type {
+  AdapterFactory,
+  ModelCallInput,
+  ModelCallResult,
+  ModelProvider,
+  ProviderMetadata,
 } from '@kindgi/capabilities';
+import { createAttemptCounter } from '@kindgi/capabilities/attempts';
 
 import { type GeminiModelInfo, computeCostUsd, toFrameworkUsage } from './cost.js';
 import { fromGeminiResponse, toGeminiFunctions, toGeminiRequest } from './translate.js';

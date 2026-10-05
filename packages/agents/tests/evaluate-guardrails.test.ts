@@ -3,15 +3,16 @@
 
 import { describe, expect, test } from 'vitest';
 
-import type { ModelProvider, TenantPolicy } from '@kindgi/capabilities';
+import type { ModelProvider, ModelUsageRecord, TenantPolicy } from '@kindgi/capabilities';
 import { createProviderRegistry } from '@kindgi/capabilities';
 import type { Guardrail } from '@kindgi/guardrails';
 import { createCheckRegistry } from '@kindgi/guardrails';
 import type { NodeContext } from '@kindgi/handler';
-import type { GuardrailId, TenantId } from '@kindgi/types';
+import type { GuardrailId, NodeId, RunId, TenantId } from '@kindgi/types';
 
 import { defineAgent } from '../src/define.js';
 import type { TurnContext } from '../src/handlers/context.js';
+import { AgentTurnFailure } from '../src/handlers/errors.js';
 import { buildEvaluateGuardrailsHandler } from '../src/handlers/evaluate-guardrails.js';
 import type { InvokeAgentBindings } from '../src/handlers/public-types.js';
 import type { ConversationId } from '../src/types.js';
@@ -124,6 +125,50 @@ describe('evaluate-guardrails — llm judges route under the turn tenant policy'
     const ctx = turnContext(calls, undefined);
     await buildEvaluateGuardrailsHandler(ctx)(loopOutput, {} as NodeContext);
     expect(calls).toEqual(['judge-1']);
+  });
+});
+
+describe('evaluate-guardrails — judge calls are recorded', () => {
+  const kctx = { runId: 'run-1' as RunId, nodeId: 'evaluate-guardrails' as NodeId } as NodeContext;
+
+  test('with the step that made them, the agent version and the conversation', async () => {
+    const recorded: ModelUsageRecord[] = [];
+    const ctx = turnContext([], undefined);
+    const withSink: TurnContext = {
+      ...ctx,
+      bindings: { ...ctx.bindings, usage: { record: async (call) => void recorded.push(call) } },
+    };
+    await buildEvaluateGuardrailsHandler(withSink)(loopOutput, kctx);
+    expect(recorded).toEqual([
+      expect.objectContaining({
+        runId: 'run-1',
+        nodeId: 'evaluate-guardrails',
+        agentId: 'acme.helper',
+        agentVersion: '1.0.0',
+        conversationId: 'c-1',
+        purpose: 'guardrail-judge:acme.helpful',
+        status: 'ok',
+      }),
+    ]);
+  });
+
+  test("an answered judge call the sink can't record fails the step", async () => {
+    const ctx = turnContext([], undefined);
+    const failing: TurnContext = {
+      ...ctx,
+      bindings: {
+        ...ctx.bindings,
+        usage: { record: () => Promise.reject(new Error('database unavailable')) },
+      },
+    };
+    const thrown = await buildEvaluateGuardrailsHandler(failing)(loopOutput, kctx).catch(
+      (e: unknown) => e,
+    );
+    expect(thrown).toBeInstanceOf(AgentTurnFailure);
+    expect((thrown as AgentTurnFailure).payload).toMatchObject({
+      code: 'persistence-error',
+      message: "The judge's model call couldn't be recorded: database unavailable",
+    });
   });
 });
 

@@ -6351,16 +6351,7 @@
             "description": "HTTP attempts the call took, the client's retries included."
           },
           "error": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "message"
-            ],
-            "properties": {
-              "message": {
-                "type": "string"
-              }
-            }
+            "$ref": "#/components/schemas/ModelCallError"
           },
           "rawUsage": {
             "type": "object",
@@ -6414,6 +6405,19 @@
           "reasoningTokens": {
             "type": "integer",
             "minimum": 0
+          }
+        }
+      },
+      "ModelCallError": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "message"
+        ],
+        "description": "Why a model call failed (`status: failed`).",
+        "properties": {
+          "message": {
+            "type": "string"
           }
         }
       },
@@ -10912,6 +10916,29 @@
           }
         }
       },
+      "RunTreeUsage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "calls",
+          "costUsd",
+          "tokens"
+        ],
+        "description": "The model calls of the run tree (this run and every run it started) that the cost ledger had recorded when this run finished: a child run still running then isn't in it. `calls` counts failed calls too. Absent when the runtime records no usage.",
+        "properties": {
+          "calls": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "costUsd": {
+            "type": "number",
+            "minimum": 0
+          },
+          "tokens": {
+            "$ref": "#/components/schemas/CostTokenTotals"
+          }
+        }
+      },
       "FinishedRun": {
         "type": "object",
         "additionalProperties": false,
@@ -10970,27 +10997,7 @@
             "format": "date-time"
           },
           "usage": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "calls",
-              "costUsd",
-              "tokens"
-            ],
-            "description": "The model calls of the whole run tree (this run and every run it started), from the cost ledger. Absent when the runtime records no usage.",
-            "properties": {
-              "calls": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "costUsd": {
-                "type": "number",
-                "minimum": 0
-              },
-              "tokens": {
-                "$ref": "#/components/schemas/CostTokenTotals"
-              }
-            }
+            "$ref": "#/components/schemas/RunTreeUsage"
           }
         }
       },
@@ -19604,11 +19611,8 @@
             "name": "includeDescendants",
             "in": "query",
             "schema": {
-              "type": "string",
-              "enum": [
-                "true",
-                "false"
-              ]
+              "type": "boolean",
+              "default": false
             },
             "required": false,
             "description": "With `runId`: the run's records and those of every run it started, at any depth. `true` or `false` (default)."
@@ -19900,11 +19904,8 @@
             "name": "includeDescendants",
             "in": "query",
             "schema": {
-              "type": "string",
-              "enum": [
-                "true",
-                "false"
-              ]
+              "type": "boolean",
+              "default": false
             },
             "required": false,
             "description": "With `runId`: the run's records and those of every run it started, at any depth. `true` or `false` (default)."

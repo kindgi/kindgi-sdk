@@ -12,6 +12,8 @@
 
 import { describe, expect, test } from 'vitest';
 
+import { createAttemptCounter } from '@kindgi/capabilities/attempts';
+
 import type {
   ModelCallResult,
   ModelInfo,
@@ -197,13 +199,75 @@ describe('model-call records each call in the usage sink', () => {
     expect(t.recorded[0]?.result).toBeUndefined();
   });
 
+  test('a failed call records the attempts it took', async () => {
+    const counter = createAttemptCounter(async () => new Response('overloaded', { status: 529 }));
+    const t = turn({
+      invoke: () =>
+        counter
+          .count(async () => {
+            await counter.fetch('https://vendor.test');
+            await counter.fetch('https://vendor.test');
+            throw new Error('529 overloaded');
+          })
+          .then(() => ANSWER),
+    });
+    await failureOf(buildModelCallHandler(t.ctx)({ nextMessages: [] }, kctx()));
+    expect(t.recorded[0]?.error).toEqual({ message: '529 overloaded', attempts: 2 });
+  });
+
+  test('a failed call whose record fails too keeps its own failure, and says it went unrecorded', async () => {
+    const providerError = new Error('529 overloaded');
+    const t = turn({
+      invoke: () => Promise.reject(providerError),
+      sink: { record: () => Promise.reject(new Error('database unavailable')) },
+    });
+    const { payload } = await failureOf(buildModelCallHandler(t.ctx)({ nextMessages: [] }, kctx()));
+    expect(payload).toMatchObject({
+      code: 'model-invocation-failed',
+      message:
+        "Model call to anthropic (claude-haiku-4-5) failed: 529 overloaded (and the failed call couldn't be recorded: database unavailable)",
+      cause: providerError,
+    });
+  });
+
+  test('an aborted turn stays aborted when its failed call goes unrecorded', async () => {
+    const t = turn({
+      invoke: () => {
+        t.ctx.turnAbort.abort();
+        return Promise.reject(new Error('aborted'));
+      },
+      sink: { record: () => Promise.reject(new Error('database unavailable')) },
+    });
+    const { payload } = await failureOf(buildModelCallHandler(t.ctx)({ nextMessages: [] }, kctx()));
+    expect(payload.code).toBe('agent-turn-aborted');
+    expect(payload.message).toContain("couldn't be recorded: database unavailable");
+  });
+
+  test('a sink that fails and then records: the step goes on, the call recorded once', async () => {
+    const recorded: ModelUsageRecord[] = [];
+    let tries = 0;
+    const t = turn({
+      invoke: async () => ANSWER,
+      sink: {
+        record: async (call) => {
+          tries += 1;
+          if (tries === 1) throw new Error('connection reset');
+          recorded.push(call);
+        },
+      },
+    });
+    await expect(buildModelCallHandler(t.ctx)({ nextMessages: [] }, kctx())).resolves.toBeDefined();
+    expect(tries).toBe(2);
+    expect(recorded).toHaveLength(1);
+  });
+
   test('a fallback provider is recorded as one', async () => {
     const t = turn({ invoke: async () => ANSWER, fallback: true });
     await buildModelCallHandler(t.ctx)({ nextMessages: [] }, kctx());
     expect(t.recorded[0]?.fallback).toBe(true);
   });
 
-  test("a sink that can't record fails the step: the call isn't left unrecorded", async () => {
+  test("a sink that still can't record after its retries fails the step: the call isn't left unrecorded", async () => {
     const t = turn({
       invoke: async () => ANSWER,
       sink: {

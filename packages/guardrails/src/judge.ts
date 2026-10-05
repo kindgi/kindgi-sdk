@@ -3,7 +3,7 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { route } from '@kindgi/capabilities';
+import { recordModelUsage, route } from '@kindgi/capabilities';
 import type {
   Capability,
   ModelCallResult,
@@ -11,8 +11,10 @@ import type {
   ModelProvider,
   ModelUsageRecord,
 } from '@kindgi/capabilities';
+import { attemptsOf } from '@kindgi/capabilities/attempts';
+import type { GuardrailId } from '@kindgi/types';
 
-import type { JudgeMissingError, JudgeRoutingError } from './errors.js';
+import type { JudgeMissingError, JudgeRoutingError, JudgeUsageError } from './errors.js';
 import type { CheckResult, EvaluationBindings, RunTrace } from './types.js';
 
 /**
@@ -40,7 +42,10 @@ export interface LlmJudgeConfig {
  * a structured judgment prompt including the run trace + rubric, parses
  * the response. The call is recorded in `bindings.usage` (the cost
  * ledger) before its judgment is used, a call that threw included;
- * `guardrailId` says which guardrail it judged.
+ * `guardrailId` says which guardrail it judged. A sink that fails is
+ * tried again; an answered call it still can't record is a
+ * `judge-usage-unrecorded` error, not a judgment. A call that threw
+ * throws its own error, recorded or not: it was billed nothing.
  */
 export async function invokeJudge(
   config: LlmJudgeConfig,
@@ -48,7 +53,9 @@ export async function invokeJudge(
   trace: RunTrace,
   bindings: EvaluationBindings,
   guardrailId?: string,
-): Promise<CheckResult | { readonly error: JudgeMissingError | JudgeRoutingError }> {
+): Promise<
+  CheckResult | { readonly error: JudgeMissingError | JudgeRoutingError | JudgeUsageError }
+> {
   const provider = await resolveJudgeProvider(capability, trace, bindings);
   if ('error' in provider) return provider;
 
@@ -56,7 +63,7 @@ export async function invokeJudge(
   const rubric = config.rubric;
   const prompt = buildJudgePrompt(rubric, responseFormat, trace);
 
-  const record = (call: JudgeCallOutcome): Promise<void> =>
+  const record = (call: JudgeCallOutcome): Promise<unknown | undefined> =>
     recordJudgeCall(bindings, trace, provider, guardrailId, call);
   const callId = randomUUID();
   const startedAt = Date.now();
@@ -79,16 +86,35 @@ export async function invokeJudge(
       ...(bindings.abortSignal !== undefined && { abortSignal: bindings.abortSignal }),
     });
   } catch (cause) {
+    const attempts = attemptsOf(cause);
     await record({
       callId,
       status: 'failed',
-      error: { message: cause instanceof Error ? cause.message : String(cause) },
+      error: {
+        message: cause instanceof Error ? cause.message : String(cause),
+        ...(attempts !== undefined && { attempts }),
+      },
       durationMs: Date.now() - startedAt,
     });
     throw cause;
   }
   const { message: _answer, ...used } = result;
-  await record({ callId, status: 'ok', result: used, durationMs: result.durationMs });
+  const unrecorded = await record({
+    callId,
+    status: 'ok',
+    result: used,
+    durationMs: result.durationMs,
+  });
+  if (unrecorded !== undefined) {
+    return {
+      error: {
+        code: 'judge-usage-unrecorded',
+        message: `The judge's model call couldn't be recorded: ${unrecorded instanceof Error ? unrecorded.message : String(unrecorded)}`,
+        guardrailId: (guardrailId ?? '<unknown>') as GuardrailId,
+        cause: unrecorded,
+      },
+    };
+  }
 
   const text = result.message.content.trim();
   return parseJudgeResponse(text, responseFormat, config.threshold);
@@ -100,27 +126,33 @@ type JudgeCallOutcome = Pick<
   'callId' | 'status' | 'result' | 'error' | 'durationMs'
 >;
 
-/** Record a judge call in the usage sink, with the run's identity from the trace. */
+/**
+ * Record a judge call in the usage sink, with the run's identity from the
+ * trace, trying a failing sink again. Resolves with the sink's last
+ * failure when it couldn't record.
+ */
 async function recordJudgeCall(
   bindings: EvaluationBindings,
   trace: RunTrace,
   provider: ResolvedProvider,
   guardrailId: string | undefined,
   call: JudgeCallOutcome,
-): Promise<void> {
+): Promise<unknown | undefined> {
   if (bindings.usage === undefined) return;
-  await bindings.usage.record({
+  const recorded = await recordModelUsage(bindings.usage, {
     ...call,
     tenantId: trace.tenantId,
     ...(trace.projectId !== undefined && { projectId: trace.projectId }),
     runId: trace.runId,
     ...(trace.agentId !== undefined && { agentId: trace.agentId as unknown as string }),
+    ...(trace.conversationId !== undefined && { conversationId: trace.conversationId }),
     providerId: provider.provider.metadata.id,
     model: provider.model.name,
     ...(provider.provider.metadata.fallback === true && { fallback: true }),
     purpose: guardrailId !== undefined ? `guardrail-judge:${guardrailId}` : 'guardrail-judge',
     occurredAt: new Date().toISOString(),
   });
+  return recorded.kind === 'err' ? (recorded.error ?? new Error('no detail')) : undefined;
 }
 
 interface ResolvedProvider {

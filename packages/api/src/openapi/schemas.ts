@@ -3278,6 +3278,15 @@ export const CostGroupDimensionSchema: JsonSchema = {
   ],
 };
 
+/** Why a model call failed, as its cost record carries it. */
+export const ModelCallErrorSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['message'],
+  description: 'Why a model call failed (`status: failed`).',
+  properties: { message: { type: 'string' } },
+};
+
 /** A model call's tokens, as a cost record and a provenance record carry them. */
 export const ModelCallTokensSchema: JsonSchema = {
   type: 'object',
@@ -3393,12 +3402,7 @@ export const CostRecordSchema: JsonSchema = {
       minimum: 1,
       description: "HTTP attempts the call took, the client's retries included.",
     },
-    error: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['message'],
-      properties: { message: { type: 'string' } },
-    },
+    error: { $ref: '#/components/schemas/ModelCallError' },
     rawUsage: {
       type: 'object',
       additionalProperties: false,
@@ -5974,6 +5978,20 @@ export const WebhookEndpointUnregisterResultSchema: JsonSchema = {
   },
 };
 
+/** A run tree's model calls, as `run.finished` carries them. */
+export const RunTreeUsageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['calls', 'costUsd', 'tokens'],
+  description:
+    "The model calls of the run tree (this run and every run it started) that the cost ledger had recorded when this run finished: a child run still running then isn't in it. `calls` counts failed calls too. Absent when the runtime records no usage.",
+  properties: {
+    calls: { type: 'integer', minimum: 0 },
+    costUsd: { type: 'number', minimum: 0 },
+    tokens: { $ref: '#/components/schemas/CostTokenTotals' },
+  },
+};
+
 export const FinishedRunSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -6003,18 +6021,7 @@ export const FinishedRunSchema: JsonSchema = {
     },
     createdAt: { type: 'string', format: 'date-time' },
     completedAt: { type: 'string', format: 'date-time' },
-    usage: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['calls', 'costUsd', 'tokens'],
-      description:
-        'The model calls of the whole run tree (this run and every run it started), from the cost ledger. Absent when the runtime records no usage.',
-      properties: {
-        calls: { type: 'integer', minimum: 0 },
-        costUsd: { type: 'number', minimum: 0 },
-        tokens: { $ref: '#/components/schemas/CostTokenTotals' },
-      },
-    },
+    usage: { $ref: '#/components/schemas/RunTreeUsage' },
   },
 };
 
@@ -6333,6 +6340,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['CostGroupDimension', CostGroupDimensionSchema],
   ['CostRecord', CostRecordSchema],
   ['ModelCallTokens', ModelCallTokensSchema],
+  ['ModelCallError', ModelCallErrorSchema],
   ['CostTokenTotals', CostTokenTotalsSchema],
   ['CostRecordCollectionPage', CostRecordCollectionPageSchema],
   ['CostAggregateGroup', CostAggregateGroupSchema],
@@ -6492,6 +6500,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['CreateWebhookEndpointBody', CreateWebhookEndpointBodySchema],
   ['PatchWebhookEndpointBody', PatchWebhookEndpointBodySchema],
   ['WebhookEndpointUnregisterResult', WebhookEndpointUnregisterResultSchema],
+  ['RunTreeUsage', RunTreeUsageSchema],
   ['FinishedRun', FinishedRunSchema],
   ['RunFinishedEvent', RunFinishedEventSchema],
   ['WebhookTestEvent', WebhookTestEventSchema],
