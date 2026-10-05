@@ -477,6 +477,29 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         expect(events.map((e) => e.kind)).toContain('config-invalid');
       });
 
+      test('a token stored with a trailing newline: a call with the token itself is accepted', async () => {
+        // The server's header never carries the newline (HTTP drops
+        // surrounding whitespace), so the service compares without it.
+        const token = randomBytes(18).toString('base64url');
+        const padded = await startService(target, indexPath, {
+          KINDGI_PACK_SERVICE_TOKEN: `${token}\n`,
+        });
+        try {
+          expect((await call(padded, '/v1/info', { token })).status).toBe(200);
+          expect((await call(padded, '/v1/info', { token: `${token}x` })).status).toBe(401);
+        } finally {
+          await padded.terminate();
+        }
+      });
+
+      test("a token a header can't carry: exit 1 with a config-invalid line", async () => {
+        const { code, events } = await runToExit(target, indexPath, {
+          KINDGI_PACK_SERVICE_TOKEN: 'two words',
+        });
+        expect(code).toBe(1);
+        expect(events.map((e) => e.kind)).toContain('config-invalid');
+      });
+
       test('a module the index names is missing: exit 1 with a boot-failed line', async () => {
         const broken = JSON.parse(indexText) as typeof index;
         const first = broken.tools[0] as Record<string, unknown>;
