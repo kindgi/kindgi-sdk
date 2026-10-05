@@ -1,0 +1,10 @@
+# Terraform's working files, state and plans stay out of the repository.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+# Your environment's values: copy an example, and keep it out of git.
+*.tfvars
+!example.tfvars
+!example-connector.tfvars
+*.auto.tfvars.json
