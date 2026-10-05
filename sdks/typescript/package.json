@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/client",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "TypeScript client SDK for Kindgi™ — the sovereign AI OS. Preview: wire-generated from openapi.json via typed-openapi, ergonomic hand-authored resource clients (Transport, KindgiApiError, SSE with Last-Event-Id resume).",
   "license": "Apache-2.0",
   "repository": {
