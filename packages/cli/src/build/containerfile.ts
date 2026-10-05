@@ -50,7 +50,10 @@ export interface RenderContainerfileInputs {
   readonly artifactVersion: string;
   readonly publishedAt: string;
   readonly buildTarget: string;
-  readonly install: Pick<HostInstall, 'manager' | 'managerSpec' | 'packRel' | 'secrets' | 'yarnBerry'>;
+  readonly install: Pick<
+    HostInstall,
+    'manager' | 'managerSpec' | 'hostPnpm' | 'packRel' | 'secrets' | 'yarnBerry'
+  >;
   readonly commands: InstallCommands;
   /** What `image` in `kindgi.config` adds (`image-config.ts`). */
   readonly image: ResolvedImage;
@@ -86,6 +89,11 @@ export const PACK_SERVICE_COMMAND: readonly string[] = [
 /** Render the Containerfile. Pure; the caller writes it. */
 export function renderContainerfile(inputs: RenderContainerfileInputs): string {
   const { baseImageRef, artifactVersion, publishedAt, buildTarget, install, commands } = inputs;
+  // pnpm is never left to float to the newest: the app's packageManager, else the host's.
+  const pinPnpm = install.manager === 'pnpm' && install.managerSpec === undefined;
+  if (pinPnpm && install.hostPnpm === undefined) {
+    throw new Error('a pnpm install needs packageManager or the host pnpm version (hostPnpm)');
+  }
   const packDir = imagePackDir(install.packRel);
   const corepack = install.manager !== 'npm';
   const mounts = installMounts(install);
@@ -141,7 +149,14 @@ ENV pnpm_config_store_dir=${PNPM_STORE_DIR}
 ENV npm_config_store_dir=${PNPM_STORE_DIR}`
      : ''
  }
-USER node
+USER node${
+   pinPnpm
+     ? `
+# No packageManager in package.json: the pnpm that wrote the lockfile (the
+# host's), never the newest one corepack would take.
+RUN corepack install -g pnpm@${install.hostPnpm}`
+     : ''
+ }
 COPY --chown=node:node host/ ./${env.length > 0 ? `\n# Build env: the build steps and the indexer stage only, never the final image.\n${env.join('\n')}` : ''}
 ${run(commands.install)}${inputs.image.contextFiles.length > 0 ? '\nCOPY --chown=node:node ext/ ./' : ''}${steps.length > 0 ? `\n${steps.join('\n')}` : ''}
 ${run(commands.prune)}
@@ -220,7 +235,10 @@ function installMounts(install: RenderContainerfileInputs['install']): string[] 
 function describeManager(install: RenderContainerfileInputs['install']): string {
   const name =
     install.manager === 'yarn' ? (install.yarnBerry ? 'yarn berry' : 'yarn classic') : install.manager;
-  return install.managerSpec !== undefined ? `${name}: ${install.managerSpec}` : name;
+  if (install.managerSpec !== undefined) return `${name}: ${install.managerSpec}`;
+  return install.manager === 'pnpm' && install.hostPnpm !== undefined
+    ? `${name}: pnpm@${install.hostPnpm}, the host's`
+    : name;
 }
 
 /** A Dockerfile `ENV` value: double-quoted, with `$` not expanded. */
