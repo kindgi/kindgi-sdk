@@ -143,7 +143,12 @@ webhook-signature: v1,bj8Mj6s7ln2Gd1sDRQi8+Wax2SOFHovsdMIwvNhDrgw=
       "dryRun": false,
       "failureMessage": null,
       "createdAt": "2026-10-03T20:16:24.465Z",
-      "completedAt": "2026-10-03T20:16:24.554Z"
+      "completedAt": "2026-10-03T20:16:24.554Z",
+      "usage": {
+        "calls": 0,
+        "costUsd": 0,
+        "tokens": { "prompt": 0, "completion": 0, "cacheRead": 0, "cacheWrite": 0, "reasoning": 0 }
+      }
     }
   }
 }
@@ -151,6 +156,10 @@ webhook-signature: v1,bj8Mj6s7ln2Gd1sDRQi8+Wax2SOFHovsdMIwvNhDrgw=
 
 - `status` is `completed`, `failed` or `cancelled`; `failureMessage` says why
   when it failed.
+- `usage` is what the run's model calls cost, its agent steps included:
+  `calls` (failed ones too), `costUsd` and `tokens`. This flow calls no model,
+  so it's all zeros. See [Cost per run and per customer](../../observability/cost-per-run/).
+  A runtime before 0.1.3 doesn't send it.
 - The event carries the run's identity and outcome, never its input or
   output. Fetch the run (`runs.get`) for its output.
 - `webhook-id` is the event's id, the same on every retry.

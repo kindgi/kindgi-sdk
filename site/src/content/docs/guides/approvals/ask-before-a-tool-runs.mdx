@@ -288,7 +288,9 @@ kindgi approvals complete <approval-id> --decision=reject --rationale="Not confi
         …
 ```
 
-The run completes; it doesn't fail.
+The run completes; it doesn't fail. The turn's
+[provenance](../../observability/trace-an-answer/) keeps the rejected call:
+its `tool-call`, and a `tool-result` that is the rejection the model read.
 
 ## In a flow
 

@@ -14,7 +14,7 @@ description: >
   kindgi-python-authoring-agents; models by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.3"
+version: "0.1.4"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -198,8 +198,38 @@ then `run.id`). The app reads the rest through the API, server side, with
   (`GET /v1/provenance/{runId}`). A flow run has none of its own: each agent
   step's `step.completed` entry in the flow's journal names its turn's run
   (`entry.payload["output"]["runId"]`).
-- **When a run finished:** the `run.finished` webhook (the run's id and
-  outcome, no output; then `runs.get`), not polling.
+- **What it cost:** `client.cost.records.list(root_run_id=run_id).data`
+  (`GET /v1/cost/records?rootRunId={runId}`): one record per model call,
+  with its `model`, `usage` (`prompt_tokens`, `completion_tokens`) and
+  `cost_usd` (a float, US dollars), a flow's agent steps included. For one
+  customer's spend, see below.
+- **When a run finished:** the `run.finished` webhook (the run's id, its
+  outcome and its cost in `data.run.usage`; no output, so then `runs.get`),
+  not polling.
+
+**One customer's spend:** give each customer an org, and start their runs in a
+project of that org. Then one call sums their month:
+
+```python
+from datetime import datetime, timezone
+
+# Once per customer. Project slugs are unique across the tenant: put the customer in them.
+org = client.orgs.create(slug="acme-customer-one", name="Customer one")
+project = client.projects.create(org_id=str(org.id), slug="acme-customer-one-app", name="App")
+# save org.id and project.id on the customer's row; start their runs with project_id=project.id
+
+now = datetime.now(timezone.utc)
+month = client.cost.aggregate(
+    group_by="month",
+    scope_kind="org",
+    scope_id=str(org.id),
+    from_=now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat(),
+    to=now.isoformat(),  # exclusive
+)
+# month.total_usd; month.groups[i].key ({"month": "2026-10"}), .total_usd, .tokens
+```
+
+Docs: https://docs.kindgi.com/v0.1/guides/observability/cost-per-run/
 
 Show it in the app's own UI. **Never:**
 
