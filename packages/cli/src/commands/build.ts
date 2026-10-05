@@ -67,6 +67,7 @@ import { resolvePackPython } from '../dev/pack-code.js';
 import type { IndexedCounts } from '../dev/runners.js';
 import { renderJson } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
+import { isPackageVersion } from '../package-manager.js';
 import type { CommandResult, LeafCommand } from './types.js';
 
 /**
@@ -711,7 +712,7 @@ async function withHostPnpm(
       message: `package.json has no packageManager, and kindgi build couldn't read the pnpm version here (pnpm --version in ${install.root}: ${(err as Error).message}). The image installs with the pnpm that wrote the lockfile, never the newest. ${fix}`,
     };
   }
-  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
+  if (!isPackageVersion(version)) {
     return {
       kind: 'err',
       message: `package.json has no packageManager, and pnpm --version in ${install.root} printed "${version}", not a version. ${fix}`,
