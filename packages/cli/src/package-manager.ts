@@ -9,6 +9,7 @@
  * package, which Kindgi does not own).
  */
 
+import { spawn } from 'node:child_process';
 import { readFile, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
@@ -68,6 +69,18 @@ export async function detectPackageManager(
   dir: string,
   io: DetectIo = defaultIo,
 ): Promise<PackageManager> {
+  return (await declaredPackageManager(dir, io)) ?? 'npm';
+}
+
+/**
+ * What the folders at and above `dir` say about the package manager (a
+ * `packageManager` field, then a lockfile or workspace marker, per
+ * level); `undefined` when nothing does.
+ */
+export async function declaredPackageManager(
+  dir: string,
+  io: DetectIo = defaultIo,
+): Promise<PackageManager | undefined> {
   let current = dir;
   for (;;) {
     const declared = parsePackageManagerField(await io.readFile(join(current, 'package.json')));
@@ -76,9 +89,54 @@ export async function detectPackageManager(
       if (await io.exists(join(current, file))) return pm;
     }
     const parent = dirname(current);
-    if (parent === current) return 'npm';
+    if (parent === current) return undefined;
     current = parent;
   }
+}
+
+/** A package manager's version as it prints it: `10.28.0`, `11.0.0-rc.1`. */
+export function isPackageVersion(text: string): boolean {
+  return /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(text);
+}
+
+/**
+ * `pnpm --version` in `dir`: the pnpm the host runs there (a corepack pin
+ * included). Corepack never prompts (it would wait on no terminal), and
+ * the read gives up after 15 s. Rejects with the reason.
+ */
+export function readPnpmVersion(dir: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('pnpm', ['--version'], {
+      cwd: dir,
+      env: { ...process.env, COREPACK_ENABLE_DOWNLOAD_PROMPT: '0' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout?.on('data', (c: Buffer) => {
+      stdout += c.toString('utf8');
+    });
+    child.stderr?.on('data', (c: Buffer) => {
+      stderr += c.toString('utf8');
+    });
+    const timer = setTimeout(() => child.kill(), 15_000);
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+    child.on('close', (code, signal) => {
+      clearTimeout(timer);
+      const version = stdout.trim().split('\n').pop()?.trim() ?? '';
+      if (code === 0 && version !== '') resolve(version);
+      else {
+        const why =
+          signal !== null
+            ? 'it took longer than 15 s'
+            : (stderr.trim().split('\n').pop() ?? `exit ${code}`);
+        reject(new Error(why || `pnpm --version exited ${code}`));
+      }
+    });
+  });
 }
 
 function parsePackageManagerField(raw: string | null): PackageManager | undefined {
