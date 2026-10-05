@@ -77,6 +77,7 @@ export function buildEvaluateGuardrailsHandler(ctx: TurnContext): NodeHandler {
       runId: kctx.runId,
       tenantId: ctx.input.tenantId,
       projectId: ctx.input.projectId,
+      ...(ctx.input.orgId !== undefined && { orgId: ctx.input.orgId }),
       conversationId: ctx.input.conversationId,
       turnNumber: (ctx.conversation?.turnCount ?? 0) + 1,
       agent: ctx.input.agent,

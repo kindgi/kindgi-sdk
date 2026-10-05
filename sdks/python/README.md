@@ -92,7 +92,9 @@ def record_expense(expense: Expense, ctx: ToolContext) -> Recorded:
   handler runs in a worker thread, so blocking I/O is fine.
 - Before calling you, the pack service validates the input against the schema
   and runs your model's own validators; it validates what you return, too.
-- `ctx` carries `tenant_id`, `run_id`, `request_id` and `cancellation`.
+- `ctx` carries `tenant_id`, `run_id`, `request_id` and `cancellation`, and in
+  a run `project_id` (the run's project) and `org_id` (its org, or `None`),
+  which the runtime sets from the run, never from the input.
   `ctx.secrets` holds the secrets the tool declares
   (`needs_spec={"secrets": {"CITATOR_KEY": {"type": "string"}}}`): the
   runtime resolves them on every call, for the call's tenant, in its env

@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/types",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Foundational TypeScript types shared across Kindgi. Branded IDs, timestamps, hashes, refs, Result, list filter / page shapes. Zero runtime dependencies; the only runtime export is the makeEnvName validator.",
   "license": "Apache-2.0",
   "repository": {
@@ -18,7 +18,8 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     }
   },
   "files": ["dist", "src", "README.md", "SPEC.md", "type-manifest.json"],
@@ -29,7 +30,7 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.12.0"
   },
   "publishConfig": {
     "access": "public",

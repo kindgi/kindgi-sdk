@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/tools",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Tool authoring shape + registry + invocation for Kindgi. A tool is a typed, effect-declared unit of work — the same definition runs in-process for one flow, over MCP for another. Pure — no kernel dependency; the kernel bridges tools to node handlers separately.",
   "license": "Apache-2.0",
   "repository": {
@@ -18,7 +18,8 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     }
   },
   "files": ["dist", "src", "README.md", "SPEC.md", "type-manifest.json"],
@@ -52,7 +53,7 @@
     "zod": "^4.6.5"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.12.0"
   },
   "publishConfig": {
     "access": "public",

@@ -256,6 +256,8 @@ describe('startServicesReal: docker compose, else plain docker', () => {
         databaseUrl: 'postgres://kindgi:kindgi_dev_only@127.0.0.1:51741/kindgi?sslmode=disable',
         services: ['postgres'],
         startedWith: 'docker compose',
+        // Each project's database in it (project-database.test.ts).
+        projectDatabases: expect.objectContaining({ ensure: expect.any(Function) }),
       },
     });
     expect(d.calls.map((c) => c.filter((a) => !a.endsWith('docker-compose.dev.yml')))).toEqual([
@@ -280,6 +282,8 @@ describe('startServicesReal: docker compose, else plain docker', () => {
         databaseUrl: 'postgres://kindgi:kindgi_dev_only@127.0.0.1:55432/kindgi?sslmode=disable',
         services: ['postgres'],
         startedWith: 'docker',
+        // Each project's database in it (project-database.test.ts).
+        projectDatabases: expect.objectContaining({ ensure: expect.any(Function) }),
       },
     });
     expect(changes(d.calls)).toEqual([

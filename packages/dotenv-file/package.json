@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/dotenv-file",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Dotenv files the way applications read them (dotenv grammar, verified against the version Next.js bundles), expanded (${VAR}), layered (.env < .env.local) and edited losslessly. Used by @kindgi/secrets-dotenv. Zero runtime dependencies.",
   "license": "Apache-2.0",
   "repository": {
@@ -18,7 +18,8 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     }
   },
   "files": ["dist", "src", "README.md"],
@@ -37,7 +38,7 @@
     "vitest": "^2.1.8"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.12.0"
   },
   "publishConfig": {
     "access": "public",

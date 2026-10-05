@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/env-schema",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Machine-readable registry of the Kindgi runtime's operator-facing env vars. Single source of truth for boot-time validation (validateEnvForTarget), .env.example scaffolding (renderEnvExample), and tools or coding agents introspecting deployment config. Adding a new env var means adding one entry here — no drift between validation, docs, and .env.example generation.",
   "license": "Apache-2.0",
   "repository": {
@@ -18,7 +18,8 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     }
   },
   "files": ["dist", "src", "README.md"],
@@ -34,7 +35,7 @@
     "vitest": "^2.1.8"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.12.0"
   },
   "publishConfig": {
     "access": "public",

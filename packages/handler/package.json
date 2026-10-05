@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/handler",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Kindgi™ pack-author authoring surface. The types a pack author writes handlers against: NodeHandler (the function signature), NodeContext (what handlers receive at invocation — run scope, sibling outputs, waitForToken, authorize, clockNow, record, etc.), HandlerResult (structured return with optional stateDelta), HandlerRegistry (NodeId → NodeHandler map), LoopContext + LoopNodeOutput (loop-node shapes), plus WaitpointCancelledError (thrown by waitForToken when the wait is cancelled externally). Types plus that one error class — no other runtime code. Every runtime that executes Kindgi handlers implements this contract.",
   "license": "Apache-2.0",
   "repository": {
@@ -18,7 +18,8 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     }
   },
   "files": ["dist", "src", "README.md"],
@@ -33,7 +34,7 @@
     "@kindgi/types": "workspace:*"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.12.0"
   },
   "publishConfig": {
     "access": "public",

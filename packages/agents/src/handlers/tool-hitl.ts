@@ -101,16 +101,6 @@ export function computeToolCallWaitToken(input: {
 }
 
 /**
- * Shape the tool-level waitpoint resolves to when the reviewer decides.
- * Same shape as session-gate decisions — the approvals-complete route
- * materializes it identically.
- */
-export interface ToolHitlDecision {
-  readonly decided: 'approve' | 'reject';
-  readonly rationale?: string;
-}
-
-/**
  * In-conversation cache of decisions for `ask_on_first_use`. Persisted
  * on `agent_conversations.metadata.hitlToolDecisions` — a flat map of
  * `${toolId}:${argsHash}` → decision. Read/write goes through the

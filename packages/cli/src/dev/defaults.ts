@@ -42,6 +42,7 @@ import {
   postgresSpecFromCompose,
   startPostgresContainer,
 } from './postgres-container.js';
+import { bundledSqlRunner, createProjectDatabases } from './project-database.js';
 import { createPythonPackBuilder } from './python-builder.js';
 import type {
   DevPackService,
@@ -799,6 +800,10 @@ export async function startServicesReal(
     databaseUrl: bundledDatabaseUrl(port),
     services: ['postgres'],
     startedWith: 'docker compose',
+    projectDatabases: createProjectDatabases({
+      run: bundledSqlRunner(run),
+      baseUrl: bundledDatabaseUrl(port),
+    }),
   };
 
   return { kind: 'ok', handle };
@@ -838,6 +843,10 @@ async function startPostgresWithDocker(
       services: ['postgres'],
       startedWith: 'docker',
       ...(notes.length > 0 && { notes }),
+      projectDatabases: createProjectDatabases({
+        run: bundledSqlRunner(run),
+        baseUrl: bundledDatabaseUrl(started.port),
+      }),
     },
   };
 }

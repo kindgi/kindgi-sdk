@@ -11,7 +11,7 @@ urgent tickets and records a reply on the rest. Along the way you'll write
 two tools over your own code (one that reads, one that writes), an agent with
 a typed answer, and a flow that branches on that answer.
 
-You need Node 22, Docker with access to the runtime image
+You need Node 22.12, Docker with access to the runtime image
 ([Install](../../start/install/)), and an Anthropic API key for step 6.
 About 20 minutes.
 

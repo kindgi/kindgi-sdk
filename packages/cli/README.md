@@ -18,7 +18,7 @@ pnpm exec kindgi dev            # npm: npx --no kindgi dev
 
 Use the scoped name, `@kindgi/cli`: there is no unscoped `kindgi` package.
 
-**Requirements:** Node 22 or later, and Docker for `kindgi dev` (Docker
+**Requirements:** Node 22.12 or later, and Docker for `kindgi dev` (Docker
 Desktop, or a Docker engine on Linux). A Python pack also needs Python and
 the [`kindgi` Python SDK](../../sdks/python).
 
@@ -126,7 +126,7 @@ ones, both the shared ones. `kindgi skills sync` refreshes them, and
 
 ```sh
 kindgi dev [--port <n>] [--database-url <url>] [--tenant <id>] [--dev-token <token>]
-           [--no-watch] [--path <dir>] [--reset] [--recreate-services]
+           [--no-watch] [--path <dir>] [--reset [--yes]] [--recreate-services]
            [--runtime-image <ref> | --runtime-url <url>]
 ```
 
@@ -151,6 +151,19 @@ One command runs the whole loop on your machine:
   it's recreated: `kindgi dev --recreate-services` with compose, or, without
   compose, `docker rm -f kindgi-dev_postgres` (its data stays in the volume)
   and run `kindgi dev` again.
+- **A database per project, and per git worktree.** In the bundled Postgres,
+  each project gets its own database, `kindgi_<project>`, with its own dev
+  tenant and user. A linked git worktree gets `kindgi_<project>__<worktree>`,
+  so branches on different Kindgi versions never share a schema. The project
+  is named by `project` in the Kindgi config (`kindgi.config.ts`, or `project`
+  under `[tool.kindgi]` in `pyproject.toml`), else by the git repository, the
+  workspace root or the pack's folder. The boot log says which. A database
+  belongs to the folder that made it: another folder whose project has the
+  same name is refused until you give it its own `project`. Every pack of one
+  project shares the database and the tenant. Each pack still has its own
+  tools, its own pack service and its own env files: a flow in one pack
+  can't call another pack's tools under `kindgi dev`. The shared `kindgi`
+  database that earlier releases used is left as it is.
 - **The pack is indexed and watched.** `kindgi dev` finds every tool,
   guardrail, agent and flow, and on each save re-indexes, rebuilds the code
   and restarts the pack service. The next request sees the new definitions;
@@ -160,11 +173,12 @@ One command runs the whole loop on your machine:
 |---|---|
 | `--port=<n>` | The port the API is reached on, on `127.0.0.1`. Default `4000`. |
 | `--database-url=<url>` | The Postgres to use. Falls back to `KINDGI_DATABASE_URL` (the shell's, then the env files'). Without either, the bundled Postgres. |
-| `--tenant=<id>` | Pin the tenant. Default: the previous run's (from `.kindgirc.json`), else a new one. The pack's primitives and registered providers stay with it. |
+| `--tenant=<id>` | Pin the tenant. Default: the project's dev tenant in the bundled Postgres; with `--database-url`, the previous run's (from `.kindgirc.json`), else a new one. The pack's primitives and registered providers stay with it. |
 | `--dev-token=<token>` | Pin the API token. Default: the previous run's, else a new one. Each flag overrides only its own value: `--dev-token` alone keeps the tenant. |
 | `--path=<dir>` | The pack root. Default: the current directory. It must have a `kindgi.config.ts`, or a `pyproject.toml` with a `[tool.kindgi]` table. |
 | `--no-watch` | Start, index once, and exit. For smoke tests and CI. |
-| `--reset` | Start this pack fresh: removes `.kindgirc.json`, so the boot makes a new tenant and token and the pack sees none of its earlier data. The bundled Postgres, which every pack on the machine shares, is left alone. (To wipe all dev data: `docker compose -p kindgi-dev down -v`; without compose, `docker rm -f kindgi-dev_postgres`, then `docker volume rm kindgi-dev_postgres-data`.) |
+| `--reset` | Start the project fresh: drops its database in the bundled Postgres (every pack's dev data in it: runs, approvals, providers, secrets stored there), after asking, and makes a new token. Without a terminal to ask on it refuses, unless `--yes`. A database you pass with `--database-url` is never dropped: only the token is new. (To wipe every project's dev data: `docker compose -p kindgi-dev down -v`; without compose, `docker rm -f kindgi-dev_postgres`, then `docker volume rm kindgi-dev_postgres-data`.) |
+| `--yes` | With `--reset`: drop the project's database without asking (for scripts). |
 | `--recreate-services` | Let `docker compose` recreate the bundled Postgres if its definition changed. By default an existing container is reused as it is, so no other `kindgi dev` loses its database. Without compose, an existing container is always reused, and `kindgi dev` says how to recreate it by hand. |
 | `--runtime-image=<ref>` | The runtime image to run. Default: the one this CLI release was tested with. |
 | `--runtime-url=<url>` | Use a runtime you run yourself instead of starting the container. Start it with the pack's `.kindgi/dev/runtime.env`. |
@@ -340,7 +354,7 @@ data. `kindgi dev` runs it the same way, with the pack's own interpreter:
 - **Watch:** any `.py` file under the pack root (shared modules included)
   and `pyproject.toml`.
 - **The CLI:** a Python pack has no npm project, so it runs the published
-  CLI through npx (Node 22 needed): `npx --yes @kindgi/cli@0.1 <command>`, within
+  CLI through npx (Node 22.12 needed): `npx --yes @kindgi/cli@0.1 <command>`, within
   the CLI's minor, in the startup hints and in the `.mcp.json` entries
   `kindgi mcp add` writes.
 
