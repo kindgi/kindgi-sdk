@@ -304,9 +304,13 @@ export interface ProvidersClient {
 
 export type ProviderOutcome =
   | { readonly id: string; readonly kind: 'registered' | 'updated' | 'unchanged' | 'removed' }
-  /** Registered already, as declared, but not by this pack: left. */
+  /**
+   * Registered already, not by this pack, with the declared metadata: left.
+   * The runtime lists only a provider's metadata (not its adapter, the
+   * adapter's settings or the key's name), so those can't be compared.
+   */
   | { readonly id: string; readonly kind: 'present' }
-  /** Registered already, differently, not by this pack: left. */
+  /** Registered already, not by this pack, with other metadata (region, models): left. */
   | { readonly id: string; readonly kind: 'conflict' }
   /** This pack's before, changed since in the runtime: left, and no longer this pack's. */
   | { readonly id: string; readonly kind: 'released' }
@@ -465,6 +469,8 @@ export function describeReconcile(
   if (unchanged.length === outcomes.length) {
     return [`✓ Providers from ${inputs.file}: ${unchanged.join(', ')} (unchanged)`];
   }
+  const unregister = (id: string): string =>
+    `${inputs.kindgi('providers', 'unregister', id)}, then restart kindgi dev`;
   const lines = [`Providers from ${inputs.file}:`];
   if (unchanged.length > 0) lines.push(`  · ${unchanged.join(', ')}: unchanged`);
   for (const o of outcomes) {
@@ -481,11 +487,13 @@ export function describeReconcile(
         lines.push(`  ✓ ${o.id}: unregistered (no longer in ${inputs.file})`);
         break;
       case 'present':
-        lines.push(`  · ${o.id}: registered already, not from ${inputs.file}; left as it is`);
+        lines.push(
+          `  · ${o.id}: registered already, not from ${inputs.file}, with the same models (its adapter settings and key aren't listed to compare); left as it is. For the config's: ${unregister(o.id)}`,
+        );
         break;
       case 'conflict':
         lines.push(
-          `  ⚠ ${o.id}: registered already, differently, not from ${inputs.file}; left as it is. For the config's: ${inputs.kindgi('providers', 'unregister', o.id)}, then restart kindgi dev`,
+          `  ⚠ ${o.id}: registered already, not from ${inputs.file}, with another region or models; left as it is. For the config's: ${unregister(o.id)}`,
         );
         break;
       case 'released':
