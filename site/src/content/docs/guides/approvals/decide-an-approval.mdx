@@ -149,9 +149,13 @@ deadline passes with no decision:
   "error":{"code":"hitl-cancelled","message":"Tool-call HITL cancelled for acme-desk.echo: timeout","reason":"timeout"}
   ```
 
-A decision made before the deadline always wins. In 0.1 a deadline always
-escalates this way: `hitl.onTimeout` (`auto-approve`, `auto-reject`) isn't
-applied yet.
+A decision made before the deadline always wins. A deadline always escalates
+this way: `hitl.onTimeout` takes only `'escalate'`, the default. An agent that
+asks for anything else is refused when it's defined:
+
+```text
+hitl.onTimeout 'auto-approve' isn't supported: an approval that times out escalates one reviewer tier, and at admin it expires (the turn fails with hitl-cancelled). Use 'escalate', or leave it out.
+```
 
 ## From your app
 
