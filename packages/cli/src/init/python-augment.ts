@@ -141,7 +141,13 @@ export async function runInitPythonAugment(
   }
 
   const nextSteps = [
-    ...pythonAugmentNextSteps(installer, edited.dependencyAdded, source, inputs.pypi === true),
+    ...pythonAugmentNextSteps(
+      installer,
+      edited.dependencyAdded,
+      source,
+      inputs.pypi === true,
+      info.hasKindgiCli,
+    ),
     ...uvVersionNote(info.uvRequiredVersion),
   ];
   const summary = {
@@ -332,6 +338,8 @@ export function pythonAugmentNextSteps(
   dependencyAdded: boolean,
   source: Exclude<KindgiPythonSource, { kind: 'error' }>,
   pypi = false,
+  /** The app lists kindgi-cli already: no step to add it. */
+  cliListed = false,
 ): readonly string[] {
   // From the PyPI CLI, the app runs it from its own environment, and lists it.
   const runner: BinRunner = !pypi
@@ -342,17 +350,18 @@ export function pythonAugmentNextSteps(
         ? 'poetry'
         : 'venv';
   const cli = `"${kindgiCliRequirement(CLI_VERSION)}"`;
-  const addCli = !pypi
-    ? []
-    : [
-        `Add the CLI to the app's dev dependencies: ${
-          installer === 'uv'
-            ? `uv add --dev ${cli}`
-            : installer === 'poetry'
-              ? `poetry add --group dev ${cli}`
-              : `pip install ${cli} (and list it with the app's dev requirements)`
-        }`,
-      ];
+  const addCli =
+    !pypi || cliListed
+      ? []
+      : [
+          `Add the CLI to the app's dev dependencies: ${
+            installer === 'uv'
+              ? `uv add --dev ${cli}`
+              : installer === 'poetry'
+                ? `poetry add --group dev ${cli}`
+                : `pip install ${cli} (and list it with the app's dev requirements)`
+          }`,
+        ];
   const sdk = source.kind === 'local-checkout' ? source.path : undefined;
   // Quoted: the range has `<` and `>`, which a shell would read as redirects.
   const requirement = `"${kindgiRequirementFor(source)}"`;

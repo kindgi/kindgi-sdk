@@ -36,6 +36,12 @@ export interface PyprojectInfo {
   readonly dependencyStyle: DependencyStyle;
   /** `kindgi` is already one of `[project].dependencies`. */
   readonly hasKindgiDependency: boolean;
+  /**
+   * `kindgi-cli` is listed somewhere a dev tool goes: `[project]`
+   * dependencies or optional dependencies, a `[dependency-groups]` group, or
+   * Poetry's dependencies, dev-dependencies or groups.
+   */
+  readonly hasKindgiCli: boolean;
   /** `[tool.poetry]` is present. */
   readonly usesPoetry: boolean;
   /** `[tool.uv]` is present, or the build backend is `uv_build`. */
@@ -75,12 +81,33 @@ export function readPyproject(
       hasKindgiDependency: deps.some(
         (d) => typeof d === 'string' && requirementName(d) === 'kindgi',
       ),
+      hasKindgiCli: listsDistribution(doc, 'kindgi-cli'),
       usesPoetry: tool?.poetry !== undefined,
       usesUv:
         tool?.uv !== undefined || record(doc['build-system'])?.['build-backend'] === 'uv_build',
       uvRequiredVersion: stringAt(record(tool?.uv), 'required-version'),
     },
   };
+}
+
+/** Whether `name` (normalized) is listed as a dependency anywhere in the file. */
+function listsDistribution(doc: Doc, name: string): boolean {
+  const inArray = (value: unknown): boolean =>
+    Array.isArray(value) && value.some((d) => typeof d === 'string' && requirementName(d) === name);
+  const inTables = (value: unknown, test: (v: unknown) => boolean): boolean =>
+    Object.values(record(value) ?? {}).some(test);
+  const inKeys = (value: unknown): boolean =>
+    Object.keys(record(value) ?? {}).some((key) => normalizeName(key) === name);
+  const project = record(doc.project);
+  const poetry = record(record(doc.tool)?.poetry);
+  return (
+    inArray(project?.dependencies) ||
+    inTables(project?.['optional-dependencies'], inArray) ||
+    inTables(doc['dependency-groups'], inArray) ||
+    inKeys(poetry?.dependencies) ||
+    inKeys(poetry?.['dev-dependencies']) ||
+    inTables(poetry?.group, (group) => inKeys(record(group)?.dependencies))
+  );
 }
 
 /** The normalized distribution name of a requirement (`Kindgi[x]>=1` → `kindgi`). */
