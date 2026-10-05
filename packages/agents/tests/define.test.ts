@@ -215,3 +215,40 @@ describe('defineAgent — invariance', () => {
     }
   });
 });
+
+describe('defineAgent — hitl.onTimeout', () => {
+  const withOnTimeout = (onTimeout: unknown) =>
+    defineAgent({
+      ...baseSpec,
+      conversationPolicy: { hitl: { onTimeout } },
+    } as unknown as Parameters<typeof defineAgent>[0]);
+
+  test("'escalate', what happens when an approval times out, is accepted", () => {
+    expect(withOnTimeout('escalate').kind).toBe('ok');
+  });
+
+  test.each(['auto-approve', 'auto-reject'])(
+    "'%s' isn't supported: refused, saying what happens instead",
+    (value) => {
+      const r = withOnTimeout(value);
+      expect(r.kind).toBe('err');
+      if (r.kind === 'err') {
+        expect(r.error.issues).toContainEqual({
+          path: '/conversationPolicy/hitl/onTimeout',
+          message: `hitl.onTimeout '${value}' isn't supported: an approval that times out escalates one reviewer tier, and at admin it expires (the turn fails with hitl-cancelled). Use 'escalate', or leave it out.`,
+        });
+      }
+    },
+  );
+
+  test('any other value is refused', () => {
+    const r = withOnTimeout('approve-later');
+    expect(r.kind).toBe('err');
+    if (r.kind === 'err') {
+      expect(r.error.issues).toContainEqual({
+        path: '/conversationPolicy/hitl/onTimeout',
+        message: "hitl.onTimeout must be 'escalate'",
+      });
+    }
+  });
+});

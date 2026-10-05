@@ -19,5 +19,6 @@ The runtime image is in private preview: request access at contact@kindgi.com.
   service as containers, with your own Postgres.
 - **[Operate it](operate/):** health and logs, backups and restores,
   upgrades, and rotating its tokens and keys.
-- **Google Cloud Run:** coming soon.
+- **[Google Cloud Run](cloud-run/):** the runtime and your pack's service as
+  two Cloud Run services, with Cloud SQL, from Kindgi's Terraform module.
 - **Kindgi Cloud:** we run it for you. In private preview.
