@@ -139,6 +139,8 @@ describe('watchPackReal: which events count', () => {
       patterns: PATTERNS,
       files: [join(dir, '.env'), join(dir, '.env.local')],
       watch: events.watch,
+      // The scan never sees a change: only the events decide here.
+      scan: async () => 'unchanged',
     });
   });
 
@@ -202,6 +204,67 @@ describe('watchPackReal: which events count', () => {
     await watched('kindgi/tools').deliver({ filename: 'echo.ts' });
     await handle?.close();
     await vi.advanceTimersByTimeAsync(1_000);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+});
+
+describe('watchPackReal: the scan behind the events (FSEvents can drop them)', () => {
+  test('a change no event reports fires once; nothing more while the files stay so', async () => {
+    vi.useFakeTimers();
+    const onChange = vi.fn();
+    const events = scripted();
+    let files = 'kindgi/tools/echo.ts:1:10';
+    handle = await watchPackReal(dir, onChange, {
+      debounceMs: DEBOUNCE_MS,
+      patterns: PATTERNS,
+      watch: events.watch,
+      scanIntervalMs: 1_000,
+      scan: async () => files,
+    });
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(onChange).not.toHaveBeenCalled();
+    files = 'kindgi/tools/echo.ts:2:12';
+    await vi.advanceTimersByTimeAsync(1_000 + DEBOUNCE_MS);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  test('a change an event reported is not reported again by the scan', async () => {
+    vi.useFakeTimers();
+    const onChange = vi.fn();
+    const events = scripted();
+    let files = 'kindgi/tools/echo.ts:1:10';
+    handle = await watchPackReal(dir, onChange, {
+      debounceMs: DEBOUNCE_MS,
+      patterns: PATTERNS,
+      watch: events.watch,
+      scanIntervalMs: 1_000,
+      scan: async () => files,
+    });
+    files = 'kindgi/tools/echo.ts:2:12';
+    const tools = events.watched.get(join(dir, 'kindgi', 'tools'));
+    await tools?.deliver({ filename: 'echo.ts' });
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  test('close() stops the scan too', async () => {
+    vi.useFakeTimers();
+    const onChange = vi.fn();
+    let files = 'a';
+    handle = await watchPackReal(dir, onChange, {
+      debounceMs: DEBOUNCE_MS,
+      patterns: PATTERNS,
+      watch: scripted().watch,
+      scanIntervalMs: 1_000,
+      scan: async () => files,
+    });
+    await handle.close();
+    files = 'b';
+    await vi.advanceTimersByTimeAsync(5_000);
     expect(onChange).not.toHaveBeenCalled();
   });
 });
