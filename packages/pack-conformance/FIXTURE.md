@@ -15,6 +15,7 @@ Pack: id `conformance`, version `1.0.0`. Every tool is version `1.0.0`.
 | `conformance.bad-output` | any object | `{ message: string }`, required | Returns `{ message: 42 }` — breaks its output schema. |
 | `conformance.throws` | any object | any object | Throws an error whose message is `boom`. |
 | `conformance.sleep` | `{ ms: integer ≥ 0 }`, required | `{ slept: integer }`, required | Waits `ms` milliseconds, then returns `{ slept: ms }`; stops early when the call is cancelled. |
+| `conformance.hold` | `{ release: string, minLength 1 }`, required | `{ released: boolean }`, required | Prints `hold: <release>` on stdout, then waits until the file at `release` exists and returns `{ released: true }`; stops early when the call is cancelled. A test holds a call open with it, for exactly as long as it needs. |
 | `conformance.context` | any object | any object | Returns the call context: `tenantId`, `runId`, `requestId` (when sent), `env`, `secrets`, `config` (`{}` when absent). |
 | `conformance.defaults` | `{ name: string, greeting: string = "Hello", options: { loud: boolean = false } = {} }`, `name` required | any object | Returns its input as the handler received it — JSON Schema `default`s filled in, nested ones included. |
 | `conformance.noisy` | any object | `{ ok: boolean }`, required | Prints `noisy: a line on stdout` and a JSON-looking line to stdout, a line to stderr, then returns `{ ok: true }`. |

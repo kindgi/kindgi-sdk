@@ -3,6 +3,8 @@
 
 import type { Cursor, Filter, Page, ThreadId } from '@kindgi/types';
 
+import type { ScopeRef } from '../scope-wire.js';
+import { scopeToQuery } from '../scope-wire.js';
 import { singleStatusQuery } from '../status-query.js';
 import type { Transport } from '../transport.js';
 import type {
@@ -97,6 +99,8 @@ export interface ConversationFilter extends Omit<Filter<ConversationStatus>, 'st
    * passing several is rejected client-side with `invalid-request`.
    */
   readonly status?: ConversationStatus;
+  /** Only one project's conversations (`kind: 'project'`), or every project's in an org (`kind: 'org'`). */
+  readonly scope?: ScopeRef;
   readonly agent?: import('@kindgi/types').AgentId;
   readonly participantId?: string;
 }
@@ -121,6 +125,7 @@ export function makeConversationsClient(transport: Transport): ConversationsClie
         body: {
           agentId: input.agentId as unknown as string,
           agentVersion: input.agentVersion,
+          ...(input.projectId !== undefined && { projectId: input.projectId }),
           ...(input.title !== undefined && { title: input.title }),
           ...(input.scope !== undefined && { scope: input.scope }),
           ...(input.participantId !== undefined && { participantId: input.participantId }),
@@ -148,6 +153,7 @@ export function makeConversationsClient(transport: Transport): ConversationsClie
           ...(filter?.limit !== undefined && { limit: filter.limit }),
           ...(filter?.cursor !== undefined && { cursor: filter.cursor as unknown as string }),
           ...(statusParam !== undefined && { status: statusParam }),
+          ...(filter?.scope !== undefined && scopeToQuery(filter.scope)),
           ...(filter?.agent !== undefined && { agentId: filter.agent as unknown as string }),
         },
       });
