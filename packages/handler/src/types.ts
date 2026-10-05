@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { Action, Decision, Principal, ResourceRef } from '@kindgi/authz';
-import type { NodeId, RunId, TenantId } from '@kindgi/types';
+import type { NodeId, OrgId, ProjectId, RunId, TenantId } from '@kindgi/types';
 
 /**
  * A node handler is the concrete code the runtime invokes when a flow
@@ -57,6 +57,13 @@ export interface NodeContext {
   readonly nodeId: NodeId;
   /** The tenant this run belongs to — required for any tenant-scoped I/O. */
   readonly tenantId: TenantId;
+  /**
+   * The project this run belongs to, from the run (never from its input).
+   * Optional on the type: a test harness may build a context without one.
+   */
+  readonly projectId?: ProjectId;
+  /** That project's org, when it has one; resolved by the runtime from the project. */
+  readonly orgId?: OrgId;
   /**
    * Read-only outputs of previously-completed nodes, keyed by `NodeId`.
    * Present for fan-in and cross-branch reads.

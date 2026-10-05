@@ -1,5 +1,18 @@
 # kindgi-docs
 
+## 0.0.3
+
+### Patch Changes
+
+- Updated dependencies [9dbb491]
+- Updated dependencies [966a615]
+- Updated dependencies [c84139c]
+- Updated dependencies [fde369b]
+- Updated dependencies [89a14b6]
+  - @kindgi/cli@0.1.2
+  - @kindgi/env-schema@0.1.2
+  - @kindgi/specs@0.1.2
+
 ## 0.0.2
 
 ### Patch Changes

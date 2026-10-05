@@ -94,6 +94,12 @@ class ToolContext:
     """The kernel run this call belongs to (an agent turn or a flow step)."""
     request_id: str | None = None
     """This call — e.g. the model's tool-call id. Useful for logs and idempotency."""
+    project_id: str | None = None
+    """The run's project. The runtime sets it from the run, never from the run's input or a
+    model's arguments, so a tool can check an id in its input against it."""
+    org_id: str | None = None
+    """The project's org, when it belongs to one: set by the runtime from the project, never
+    from input. `None` when the project has no org."""
     env: Mapping[str, Any] = field(default_factory=_empty)
     """Environment the runtime resolves for the call — none yet (empty): read `os.environ`."""
     secrets: Mapping[str, Any] = field(default_factory=_empty)
@@ -120,11 +126,16 @@ class ToolContext:
                 return _EMPTY
             return MappingProxyType(dict(cast("Mapping[str, Any]", value)))
 
-        request_id = ctx.get("requestId")
+        def text(key: str) -> str | None:
+            value = ctx.get(key)
+            return value if isinstance(value, str) else None
+
         return cls(
             tenant_id=str(ctx["tenantId"]),
             run_id=str(ctx["runId"]),
-            request_id=request_id if isinstance(request_id, str) else None,
+            request_id=text("requestId"),
+            project_id=text("projectId"),
+            org_id=text("orgId"),
             env=mapping("env"),
             secrets=mapping("secrets"),
             config=mapping("config"),

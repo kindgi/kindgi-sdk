@@ -1,5 +1,32 @@
 # @kindgi/cli
 
+## 0.1.2
+
+### Patch Changes
+
+- 9dbb491: `kindgi build --local` builds Python packs. It refused them ("build a Python pack with the build service"), and a self-hosted runtime has no build service, so a Python pack couldn't be deployed to one. A Python pack's image now builds with this machine's Docker from the same Containerfile and context as the build service's (its lockfile, frozen; the indexer stage's `/app/index.json` byte-identical to the local index), behind the same integrity gate; with `--push` it's pushed, signed, and written into the envelope for `kindgi deploy`. A Python pack's build context is now written as a directory and tarred the way a TypeScript pack's is, so the build service gets the same bytes as before.
+- 966a615: CommonJS apps can `require()` Kindgi. Every package's `exports` gives a `default` condition beside `import`, so `require('@kindgi/sdk/client')` loads the ES modules through Node's `require()` of ES modules, instead of failing with `ERR_PACKAGE_PATH_NOT_EXPORTED`. There's still one copy of each module, so the same code runs from either kind of app.
+  
+  - Node 22.12 or later: every package's `engines.node` is `>=22.12.0` (Node loads ES modules with `require()` from 22.12 on), and so are the apps `kindgi init` creates.
+  - TypeScript that compiles to CommonJS needs TypeScript 5.8 or later with `module: nodenext`, or `moduleResolution: bundler` in an app a bundler builds.
+  - `@kindgi/handler-runtime`'s program entries (`pack-service-main`, `kindgi-index-main`) stay ES-modules-only: they run with `node`.
+- c84139c: `kindgi key trust <keyId>` adds a local key's public key to the runtime's trust list in one step, and `kindgi key revoke <keyId> [--reason]` removes it. Trusting no longer takes a shell pipeline: the runtime wants the 32 raw bytes, which `trust` sends, not the SPKI form `kindgi key export --format=base64` prints (unchanged). A refusal because the id is bound to another key, or was revoked, says to trust a key under a new id.
+- Updated dependencies [966a615]
+- Updated dependencies [fde369b]
+- Updated dependencies [afd259f]
+- Updated dependencies [80210cb]
+- Updated dependencies [5c9594b]
+- Updated dependencies [da1a8da]
+  - @kindgi/client@0.1.2
+  - @kindgi/crypto@0.1.2
+  - @kindgi/dotenv-file@0.1.2
+  - @kindgi/env-schema@0.1.2
+  - @kindgi/handler-runtime@0.1.2
+  - @kindgi/platform@0.1.2
+  - @kindgi/sdk@0.1.2
+  - @kindgi/secrets-dotenv@0.1.2
+  - @kindgi/types@0.1.2
+
 ## 0.1.1
 
 ### Patch Changes

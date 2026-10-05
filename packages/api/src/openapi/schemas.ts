@@ -599,7 +599,7 @@ export const CompleteApprovalBodySchema: JsonSchema = {
     rationale: { type: 'string' },
     value: {
       description:
-        'Payload passed to the run waitpoint (`RunBinding.completeToken`) when the approval is linked to a suspended run and the decision is `approve` or `reject`.',
+        "Payload passed to the run waitpoint (`RunBinding.completeToken`) when the approval is linked to a suspended run and the decision is `approve` or `reject`. Refused (400 `bad-input`) for an agent's tool-call or session gate (`tool-call:pending`, `agent-turn:session-hitl-gate`): those resume on the decision alone.",
     },
   },
 };

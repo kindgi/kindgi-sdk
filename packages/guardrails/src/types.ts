@@ -13,6 +13,7 @@ import type {
   AgentId,
   FlowId,
   GuardrailId,
+  OrgId,
   ProjectId,
   RunId,
   TenantId,
@@ -308,6 +309,12 @@ export interface RunTrace {
    * Optional; when absent, the violation emit is skipped.
    */
   readonly projectId?: ProjectId;
+  /**
+   * The org of that project, when it belongs to one: resolved by the
+   * runtime from the project, never from input. Absent when the project
+   * has no org.
+   */
+  readonly orgId?: OrgId;
   readonly agentId?: AgentId;
   readonly flowId?: FlowId;
   /** Final assistant output text. Present when the run produced text. */

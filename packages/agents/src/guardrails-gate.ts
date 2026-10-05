@@ -15,7 +15,15 @@ import {
   type ToolResultRecord,
   evaluateAll,
 } from '@kindgi/guardrails';
-import type { AgentId, GuardrailId, ProjectId, Result, RunId, TenantId } from '@kindgi/types';
+import type {
+  AgentId,
+  GuardrailId,
+  OrgId,
+  ProjectId,
+  Result,
+  RunId,
+  TenantId,
+} from '@kindgi/types';
 
 import type { Agent, ConversationId, ConversationMessage } from './types.js';
 
@@ -66,6 +74,8 @@ export function buildRunTrace(input: {
   readonly tenantId: TenantId;
   /** Lets the engine record compliance evidence for a failed check. */
   readonly projectId: ProjectId;
+  /** The project's org, when it has one. */
+  readonly orgId?: OrgId;
   readonly conversationId: ConversationId;
   /** 1-based number of this turn in the conversation. */
   readonly turnNumber: number;
@@ -133,6 +143,7 @@ export function buildRunTrace(input: {
     runId: input.runId,
     tenantId: input.tenantId,
     projectId: input.projectId,
+    ...(input.orgId !== undefined && { orgId: input.orgId }),
     agentId: input.agent.id as unknown as AgentId,
     output,
     toolCalls,

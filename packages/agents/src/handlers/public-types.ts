@@ -8,7 +8,7 @@ import type { MemoryQueryBinding } from '@kindgi/memory';
 import type { PolicyRegistry } from '@kindgi/policy-contract';
 import type { ParentRunRef, RunBinding } from '@kindgi/runtime';
 import type { ToolRegistry, ToolSecretRef } from '@kindgi/tools';
-import type { ProjectId, ProvenanceId, RunId, TenantId, Timestamp } from '@kindgi/types';
+import type { OrgId, ProjectId, ProvenanceId, RunId, TenantId, Timestamp } from '@kindgi/types';
 
 import type { ConversationBinding } from '../conversation-binding.js';
 import type { GuardrailsBindings } from '../guardrails-gate.js';
@@ -32,6 +32,12 @@ export interface InvokeAgentInput {
    * at the caller layer.
    */
   readonly projectId: ProjectId;
+  /**
+   * The project's org, when it belongs to one: the runtime resolves it
+   * from the project, never from input. The turn's tools get it as
+   * `ToolContext.orgId`, its guardrails as `trace.orgId`.
+   */
+  readonly orgId?: OrgId;
   readonly agent: Agent;
   readonly conversationId: ConversationId;
   readonly userMessage: string;

@@ -238,6 +238,28 @@ describe("dispatch-tools — the tenant's per-tool rules", () => {
   });
 });
 
+describe('a tool gate runs the tool only on an explicit approve', () => {
+  const gated = { tools: { 'pack.lookup': 'always_ask' as const } };
+
+  test('approve: the tool runs', async () => {
+    const { ran } = await dispatchUnder(gated, agent(), {
+      answer: async () => ({ decided: 'approve' }),
+    });
+    expect(ran).toHaveLength(1);
+  });
+
+  test.each([
+    ['a reject', { decided: 'reject', rationale: 'no' }],
+    ['a value that replaced a reject', { maxCostUsd: 1.5 }],
+    ['a value that replaced an approve', { limit: 3 }],
+    ['a malformed answer', null],
+    ['another spelling', { decided: 'Approve' }],
+  ])('%s: the tool does not run', async (_name, answer) => {
+    const { ran } = await dispatchUnder(gated, agent(), { answer: async () => answer });
+    expect(ran).toEqual([]);
+  });
+});
+
 describe('a tool gate that parked keeps its decision when the turn resumes', () => {
   test("the reviewer's reject holds though the tenant relaxed the rule meanwhile", async () => {
     const records = new Map<string, unknown>();

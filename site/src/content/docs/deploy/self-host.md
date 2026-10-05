@@ -35,7 +35,7 @@ The runtime image is in private preview: request access at contact@kindgi.com
 
 ```sh
 docker login quay.io
-docker pull quay.io/kindgi/runtime:0.1.1
+docker pull quay.io/kindgi/runtime:0.1.2
 ```
 
 ## 2. Start Postgres and a registry
@@ -184,18 +184,20 @@ Start the runtime:
 docker run -d --name kindgi-server --network kindgi \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.1
+  quay.io/kindgi/runtime:0.1.2
 ```
 
 ## 6. Check it
 
 ```sh
-curl -s http://localhost:4000/health
+curl -s http://localhost:4000/ready
 ```
 
 ```text
-{"ok":true}
+{"ok":true,"database":"ok"}
 ```
+
+`/ready` answers once the runtime is up and its database answers (`/health` checks only the process; see [Operate](../operate/#check-health-and-logs)).
 
 Its log names what it's running with:
 

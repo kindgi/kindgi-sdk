@@ -36,6 +36,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { chmod, readFile, unlink, writeFile } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
+import { createInterface } from 'node:readline';
 
 import {
   type DiscoveryConfig,
@@ -63,6 +64,7 @@ import { createDevOnlyImportsCheck } from '../dev/dev-only-imports.js';
 import { type PackCode, resolvePackCode } from '../dev/pack-code.js';
 import { devPackEnv, devPackEnvFiles } from '../dev/pack-env.js';
 import { createPackRefresher, describePackEvent } from '../dev/pack-service.js';
+import { type DevProject, resolveDevProject } from '../dev/project.js';
 import { type RegistrationReport, registerFromIndex } from '../dev/register.js';
 import type {
   DevRunners,
@@ -76,6 +78,7 @@ import { DEFAULT_RUNTIME_IMAGE } from '../dev/runtime-image.js';
 import { describeEnvDiagnostics, loadLocalEnvSettings } from '../env/project-env.js';
 import { renderJson } from '../output.js';
 import { binDisplay, detectBinRunner } from '../package-manager.js';
+import { CLI_VERSION } from '../version-info.js';
 import { defaultSdkSkillsRoot } from './init.js';
 import { detectSkillDrift } from './skills.js';
 import type { CommandResult, LeafCommand } from './types.js';
@@ -85,7 +88,7 @@ export const devCommand: LeafCommand = {
   name: 'dev',
   description: 'Run the Kindgi runtime as a container + hot-reload the pack under cwd.',
   usage:
-    'kindgi dev [--port <n>] [--database-url <url>] [--tenant <id>] [--dev-token <token>] [--no-watch] [--path <dir>] [--reset] [--recreate-services] [--runtime-image <ref> | --runtime-url <url>]',
+    'kindgi dev [--port <n>] [--database-url <url>] [--tenant <id>] [--dev-token <token>] [--no-watch] [--path <dir>] [--reset [--yes]] [--recreate-services] [--runtime-image <ref> | --runtime-url <url>]',
   optionSpec: {
     port: {
       type: 'string',
@@ -136,13 +139,17 @@ export const devCommand: LeafCommand = {
       description:
         'The pack root, with a `kindgi.config.ts` (or `.mts`) or a `pyproject.toml` with `[tool.kindgi]`. Default: the current directory.',
     },
-    // --reset: a fresh start for this pack only — a new tenant and token
-    // (it removes .kindgirc.json). The shared services and their data,
-    // which every kindgi dev on the machine uses, are never touched.
+    // --reset: a fresh start for the project. With the bundled Postgres it
+    // drops the project's database (asking first) and makes a new token;
+    // a database --database-url names is never dropped.
     reset: {
       type: 'boolean',
       description:
-        'Start this pack fresh: removes `.kindgirc.json`, so the run gets a new tenant and token. The shared Postgres is left alone.',
+        "Start the project fresh: drops its database in the bundled Postgres (every pack's dev data in it), after asking, and makes a new token. A database you pass with --database-url is never dropped: only the token is new.",
+    },
+    yes: {
+      type: 'boolean',
+      description: "With --reset: drop the project's database without asking (for scripts).",
     },
     // --recreate-services: let `docker compose` recreate the shared
     // Postgres if its definition changed. Default: an existing container
@@ -240,8 +247,10 @@ interface ResolvedDevArgs {
   readonly token: string | undefined;
   readonly watch: boolean;
   readonly packDir: string;
-  /** `--reset`: a new tenant and token for this pack (removes `.kindgirc.json`). */
+  /** `--reset`: drop the project's bundled database (asking first) and make a new token. */
   readonly reset: boolean;
+  /** `--yes`: `--reset` without asking. */
+  readonly yes: boolean;
   /** `--recreate-services`: let compose recreate the shared Postgres. */
   readonly recreateServices: boolean;
   /** The Kindgi runtime image (`--runtime-image`). */
@@ -279,20 +288,6 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
 
   const publicRunTokens = await resolveDevPublicRunTokens(ctx.env, projectEnv.runtime);
   if (publicRunTokens.kind === 'error') return publicRunTokens;
-
-  // `--reset` starts this pack fresh: without `.kindgirc.json` the boot
-  // below makes a new tenant and token, so the pack sees none of its
-  // earlier data. Other packs, and the shared services, are untouched.
-  if (args.reset) {
-    try {
-      await unlink(join(args.packDir, '.kindgirc.json'));
-      emitProgress('🧹 --reset: removed .kindgirc.json (fresh token + tenant this boot)');
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-        emitProgress(`  --reset: could not remove .kindgirc.json: ${(err as Error).message}`);
-      }
-    }
-  }
 
   // Resolve the database URL. Precedence:
   //   1. --database-url, then KINDGI_DATABASE_URL from the shell
@@ -349,6 +344,74 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
     for (const note of outcome.handle.notes ?? []) emitProgress(`⚠ ${note}`);
   }
 
+  const kindgircPath = join(args.packDir, '.kindgirc.json');
+  const persisted = await readPersistedRc(kindgircPath);
+
+  // The bundled Postgres: one database per project (and per linked git
+  // worktree), with the project's own dev tenant. `--reset` drops it,
+  // after asking. A database the developer names is theirs: never dropped.
+  let project: DevProject | undefined;
+  const projectDatabases = servicesHandle?.projectDatabases;
+  if (projectDatabases !== undefined) {
+    const resolved = await (dev.resolveProject ?? resolveDevProject)({
+      packDir: args.packDir,
+      configured: projectEnv.config?.project,
+    });
+    if (resolved.kind === 'invalid') {
+      return { kind: 'error', stderr: `kindgi dev: ${resolved.message}\n`, exitCode: 1 };
+    }
+    project = resolved.project;
+    if (args.reset) {
+      const confirmed = await confirmReset(dev, project, args.yes);
+      if (confirmed.kind === 'error') return confirmed;
+      const dropped = await projectDatabases.drop(project.database);
+      if (!dropped.ok) {
+        return {
+          kind: 'error',
+          stderr: `kindgi dev --reset: could not drop ${project.database}: ${dropped.error}\n`,
+          exitCode: 1,
+        };
+      }
+      emitProgress(`🧹 --reset: dropped ${project.database}`);
+    }
+    const ensured = await projectDatabases.ensure(project, CLI_VERSION);
+    if (ensured.kind === 'refused' || ensured.kind === 'error') {
+      return { kind: 'error', stderr: `kindgi dev: ${ensured.message}\n`, exitCode: 1 };
+    }
+    databaseUrl = projectDatabases.urlFor(project.database);
+    emitProgress(`✓ Project: ${project.name} (${describeProjectName(project)})`);
+    emitProgress(
+      `✓ Database: ${project.database}${ensured.kind === 'created' ? ' (created)' : ''} in the bundled Postgres; to use your own: --database-url`,
+    );
+    if (ensured.kind === 'adopted') {
+      emitProgress(
+        `  ${project.database} was ${ensured.previousRoot}'s, a folder that's gone: it's this folder's now`,
+      );
+    }
+    // Once, on a project's first boot with its own database: it used the
+    // shared `kindgi` database before (0.1.1), whose data stays there.
+    if (ensured.kind === 'created' && !args.reset && persisted.tenantId !== undefined) {
+      emitProgress(
+        `  This project now has its own database, ${project.database}. The old shared \`kindgi\` database is left as it is: projects on an older Kindgi still use it. Providers and reviewers are set up once per project: set them up here again.`,
+      );
+    }
+  }
+  // A fresh token on --reset (and, without a project database, a fresh tenant).
+  if (args.reset) {
+    try {
+      await unlink(kindgircPath);
+      emitProgress('🧹 --reset: removed .kindgirc.json (a new token this boot)');
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        emitProgress(`  --reset: could not remove .kindgirc.json: ${(err as Error).message}`);
+      }
+    }
+    if (projectDatabases === undefined) {
+      emitProgress('  --reset: the database you gave is left as it is (never dropped)');
+    }
+  }
+  const previous = args.reset ? {} : persisted;
+
   // Resolve the tenant and the bearer token BEFORE booting, so the
   // server seeds the same ones across `kindgi dev` runs: the pack's
   // registered primitives and providers stay with the tenant, and the
@@ -359,20 +422,21 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   //   3. Server-generated on this boot (the very first one, or after
   //      `--reset`, which already deleted the file), then persisted.
   // Per field: `--dev-token` alone keeps the previous tenant.
-  const kindgircPath = join(args.packDir, '.kindgirc.json');
-  const persisted = await readPersistedRc(kindgircPath);
-
   // Start the runtime. A failed start is the loudest error path, so
   // we tear down auto-started services (if any) before returning. The
   // first boot (or the first after `--reset`) makes the tenant, token and
   // user here; they're persisted after the runtime serves.
-  const effectiveTenantId = args.tenantId ?? persisted.tenantId ?? randomUUID();
-  const effectiveToken = args.token ?? persisted.token ?? generateDevToken();
+  // With a project database, the project's tenant and user: every pack of
+  // the project, and every restart, get the same ones.
+  const effectiveTenantId = args.tenantId ?? project?.tenantId ?? previous.tenantId ?? randomUUID();
+  const effectiveToken = args.token ?? previous.token ?? generateDevToken();
   // The user the token resolves to comes back with the tenant it
   // belongs to: what is keyed to the user (a reviewer registration)
   // survives restarts.
   const effectiveUserId =
-    (effectiveTenantId === persisted.tenantId ? persisted.userId : undefined) ?? randomUUID();
+    (effectiveTenantId === project?.tenantId ? project.userId : undefined) ??
+    (effectiveTenantId === previous.tenantId ? previous.userId : undefined) ??
+    randomUUID();
   // The pack's code is bundled and runs in a local pack service. It
   // starts once the pack is bundled and indexed; the api-server gets
   // its transport now.
@@ -412,16 +476,16 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   // its URL (`--runtime-url`) keeps reaching it.
   let pack = dev.createPackService({
     ...packOptions,
-    ...(persisted.packServicePort !== undefined && { port: persisted.packServicePort }),
-    ...(persisted.packServiceToken !== undefined && { token: persisted.packServiceToken }),
+    ...(previous.packServicePort !== undefined && { port: previous.packServicePort }),
+    ...(previous.packServiceToken !== undefined && { token: previous.packServiceToken }),
   });
   let packFront: { readonly url: string; readonly port: number };
   try {
     packFront = await pack.listen();
   } catch (err) {
-    if (persisted.packServicePort === undefined) throw err;
+    if (previous.packServicePort === undefined) throw err;
     emitProgress(
-      `  the pack service's port ${persisted.packServicePort} is taken: using another one${args.runtimeUrl !== undefined ? ' (restart your runtime with the new runtime.env)' : ''}`,
+      `  the pack service's port ${previous.packServicePort} is taken: using another one${args.runtimeUrl !== undefined ? ' (restart your runtime with the new runtime.env)' : ''}`,
     );
     await pack.close().catch(() => undefined);
     pack = dev.createPackService(packOptions);
@@ -587,6 +651,9 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   emitProgress('  ✓ Kindgi is up');
   emitProgress('════════════════════════════════════════');
   emitProgress(`  API        ${server.baseUrl}`);
+  if (project !== undefined) {
+    emitProgress(`  Project    ${project.name} · database ${project.database}`);
+  }
   if (server.consoleMounted === true) {
     emitProgress(`  Console    ${server.baseUrl}/console/`);
   }
@@ -917,8 +984,9 @@ function resolveDevArgs(ctx: CommandContext): DevArgsOutcome {
   const rawPath = typeof pathFlag === 'string' && pathFlag !== '' ? pathFlag : ctx.cwd;
   const packDir = isAbsolute(rawPath) ? rawPath : resolve(ctx.cwd, rawPath);
 
-  // --reset — a fresh start for this pack only.
+  // --reset — a fresh start for the project; --yes skips its question.
   const reset = ctx.options.reset === true;
+  const yes = ctx.options.yes === true;
   const recreateServices = ctx.options['recreate-services'] === true;
 
   // --runtime-image / --runtime-url — which runtime: an image, or one you run.
@@ -953,6 +1021,7 @@ function resolveDevArgs(ctx: CommandContext): DevArgsOutcome {
       watch,
       packDir,
       reset,
+      yes,
       recreateServices,
       runtimeImage,
       runtimeUrl,
@@ -963,6 +1032,66 @@ function resolveDevArgs(ctx: CommandContext): DevArgsOutcome {
 type RunnersOutcome =
   | { readonly kind: 'ok'; readonly runners: DevRunners }
   | (CommandResult & { readonly kind: 'error' });
+
+/** Where the project's name came from, for the boot line. */
+function describeProjectName(project: DevProject): string {
+  const from = {
+    config: 'from `project` in the Kindgi config',
+    repository: "the git repository's name",
+    workspace: "the workspace's folder name",
+    'pack folder': "the pack's folder name",
+  }[project.nameFrom];
+  const named =
+    project.nameFrom === 'config'
+      ? from
+      : `${from}; set \`project\` in the Kindgi config to name it`;
+  return project.worktree === undefined ? named : `${named}; git worktree ${project.worktree}`;
+}
+
+/**
+ * `--reset` drops every pack's dev data in the project's database: ask
+ * first. `--yes` answers for scripts; with no terminal to ask on, and no
+ * `--yes`, nothing is dropped.
+ */
+async function confirmReset(
+  dev: DevRunners,
+  project: DevProject,
+  yes: boolean,
+): Promise<{ readonly kind: 'ok' } | (CommandResult & { readonly kind: 'error' })> {
+  if (yes) return { kind: 'ok' };
+  const question = `Reset project ${project.name}? This drops the database ${project.database}: every pack's dev data in it (runs, approvals, providers, secrets stored there). [y/N] `;
+  if (!(dev.interactive ?? isInteractive)()) {
+    return {
+      kind: 'error',
+      stderr: `kindgi dev --reset would drop ${project.database}, and there's no terminal to ask on. Run it with --yes to drop it.\n`,
+      exitCode: 1,
+    };
+  }
+  const answer = await (dev.confirm ?? confirmOnTerminal)(question);
+  if (!answer) {
+    return { kind: 'error', stderr: 'kindgi dev --reset: nothing dropped.\n', exitCode: 1 };
+  }
+  return { kind: 'ok' };
+}
+
+/** A person at a terminal: stdin and stderr are both TTYs. */
+function isInteractive(): boolean {
+  return Boolean(process.stdin.isTTY) && Boolean(process.stderr.isTTY);
+}
+
+/** Ask a yes/no question on the terminal; only `y` or `yes` is a yes. */
+async function confirmOnTerminal(question: string): Promise<boolean> {
+  const rl = createInterface({ input: process.stdin, output: process.stderr });
+  try {
+    const answer = await new Promise<string>((resolveAnswer) => {
+      rl.question(question, resolveAnswer);
+      rl.once('close', () => resolveAnswer(''));
+    });
+    return /^\s*y(es)?\s*$/i.test(answer);
+  } finally {
+    rl.close();
+  }
+}
 
 function pickRunners(ctx: CommandContext): RunnersOutcome {
   if (ctx.devRunners !== undefined) return { kind: 'ok', runners: ctx.devRunners };
