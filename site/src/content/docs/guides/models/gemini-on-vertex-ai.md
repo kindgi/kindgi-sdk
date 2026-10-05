@@ -65,3 +65,12 @@ An agent that needs `structured-output` or `long-context` doesn't route to
 them. To send an agent to Gemini when other providers are registered too, set
 `preferredProvider: 'gemini'` (`preferred_provider="gemini"` in Python), or
 require it: see [Choose the model an agent uses](../../agents/choose-a-model/).
+
+## From a deployed runtime
+
+A deployed runtime has no login of yours: it calls Vertex AI as its own
+service account (on Cloud Run, the service's). That account needs
+`roles/aiplatform.user` in the project, and the project needs the Vertex AI
+API turned on. Without the role, every model call fails with
+`Permission 'aiplatform.endpoints.predict' denied`.
+[Deploy on Google Cloud Run](../../../deploy/cloud-run/#use-gemini) sets this up.
