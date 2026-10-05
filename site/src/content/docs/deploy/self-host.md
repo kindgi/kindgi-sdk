@@ -190,12 +190,14 @@ docker run -d --name kindgi-server --network kindgi \
 ## 6. Check it
 
 ```sh
-curl -s http://localhost:4000/health
+curl -s http://localhost:4000/ready
 ```
 
 ```text
-{"ok":true}
+{"ok":true,"database":"ok"}
 ```
+
+`/ready` answers once the runtime is up and its database answers (`/health` checks only the process; see [Operate](../operate/#check-health-and-logs)).
 
 Its log names what it's running with:
 
