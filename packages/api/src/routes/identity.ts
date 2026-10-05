@@ -11,6 +11,8 @@ import type {
   SessionSummary,
   UserRecord,
 } from '../identity-directory-binding.js';
+import type { ReviewerBinding } from '../reviewer-binding.js';
+import { callerReviewerRole } from '../reviewer-role.js';
 import type { SessionStoreBinding } from '../session-store-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
@@ -47,10 +49,16 @@ export interface IdentityRouterOptions {
    * deployments that don't wire an OAuth surface.
    */
   readonly sessionStore?: SessionStoreBinding;
+  /**
+   * Optional. When present, `whoami` reports the reviewer role of a
+   * caller whose token carries none from the roster, as the approvals
+   * routes resolve it.
+   */
+  readonly reviewerBinding?: ReviewerBinding;
 }
 
 export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv> {
-  const { directory, sessionStore } = options;
+  const { directory, sessionStore, reviewerBinding } = options;
   const r = new Hono<AppEnv>();
 
   // ---------- GET / whoami ----------
@@ -62,7 +70,7 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
     const userId = c.get('userId') as UserId | undefined;
     const providerId = c.get('providerId') as string | undefined;
     const scopes = (c.get('scopes') as readonly string[] | undefined) ?? [];
-    const reviewerRole = c.get('reviewerRole') as string | undefined;
+    const reviewerRole = await callerReviewerRole(c, reviewerBinding);
 
     const body: Record<string, unknown> = { tenantId };
     if (sessionId !== undefined) body.sessionId = sessionId;
