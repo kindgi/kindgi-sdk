@@ -4,7 +4,7 @@
 import type { Capability } from '@kindgi/capabilities';
 import type { Fact, MemoryScope } from '@kindgi/memory';
 import type { ToolErrorsSpec, ToolHitlMode, ToolHitlRule } from '@kindgi/policy-contract';
-import type { Brand, ConversationId, Semver, TenantId, Timestamp } from '@kindgi/types';
+import type { Brand, ConversationId, ProjectId, Semver, TenantId, Timestamp } from '@kindgi/types';
 
 /**
  * Branded agent id. Convention: dotted namespace under the tenant's
@@ -424,6 +424,12 @@ export interface Conversation {
   readonly title: string;
   /** UUID or free-form identifier for the human participant. */
   readonly participantId?: string;
+  /**
+   * The project the conversation is in, set when it is opened (by a run,
+   * from the run's project). Absent on conversations opened without one,
+   * and on those from before it was stored.
+   */
+  readonly projectId?: ProjectId;
   /** Additional attributes (project id, matter id, etc.). */
   readonly scope: MemoryScope;
   readonly openedAt: Timestamp;
