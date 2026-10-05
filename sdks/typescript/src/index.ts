@@ -345,6 +345,7 @@ export type {
   ApplyProposalResult,
   Approval,
   ApprovalDecision,
+  ApprovalDecisionRecord,
   ApprovalId,
   ApprovalStatus,
   ArtifactId,
