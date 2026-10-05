@@ -731,7 +731,7 @@ describe('kindgi env plan', () => {
     );
     expect(out.exitCode).toBe(0);
     expect(out.stdout).toBe(
-      '--set-env-vars=LOG_LEVEL=info \\\n--set-secrets=DATABASE_URL=acme-db-url:3\n',
+      '--update-env-vars=LOG_LEVEL=info \\\n--update-secrets=DATABASE_URL=acme-db-url:3\n',
     );
   });
 
