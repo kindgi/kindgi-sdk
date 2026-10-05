@@ -21,6 +21,7 @@ export type {
 } from './resources/agents.js';
 export type {
   Run,
+  RunAgent,
   RunsClient,
   ResumeRunInput,
   StartedRun,
@@ -344,6 +345,7 @@ export type {
   ApplyProposalResult,
   Approval,
   ApprovalDecision,
+  ApprovalDecisionRecord,
   ApprovalId,
   ApprovalStatus,
   ArtifactId,

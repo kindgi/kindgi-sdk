@@ -29,6 +29,7 @@ export type {
   PrimitiveKind,
   RunIndexerOptions,
   KindgiConfig,
+  KindgiProviderDeclaration,
   KindgiConfigFile,
   LoadKindgiConfigOptions,
   PackLanguage,

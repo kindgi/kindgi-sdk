@@ -151,6 +151,13 @@ export interface TurnContext {
    */
   toolResultIds?: string[];
   /**
+   * The tool-call approvals this turn's journal shows decided, by
+   * invocation id: each call's provenance shows the approval it waited on.
+   * Populated by `rehydrateTurnContext` (a decision only reaches a turn
+   * that parked, and resumes).
+   */
+  toolApprovals?: ReadonlyMap<string, import('./turn-provenance.js').ToolApproval>;
+  /**
    * The tenant policy this turn's model was routed under (bound policy
    * merged with the policy registry's). Populated by `setup`; guardrail
    * judges route under it too.

@@ -53,6 +53,26 @@ class RunStatus(
     root: Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]
 
 
+class RunAgent(BaseModel):
+    """
+    Set on an agent's turn (an agent run, or the turn a flow's agent step started): the agent, the version that ran and the conversation. Absent on other runs, and on turns that ran before Kindgi 0.1.3.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    The agent id.
+    """
+    version: str
+    """
+    The agent version that ran (semver).
+    """
+    conversation_id: Annotated[UUID, Field(alias="conversationId")]
+
+
 class Run(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -87,6 +107,7 @@ class Run(BaseModel):
     """
     Set on a child run: the node in the parent run that started it.
     """
+    agent: RunAgent | None = None
     public_access_token: Annotated[str | None, Field(alias="publicAccessToken")] = None
     """
     Only in the response to `POST /v1/runs`, when the deployment issues public run tokens: a read-only token for this run (and its descendants) to hand to a browser, for `GET /v1/runs/{runId}/progress` and its stream.
@@ -241,6 +262,7 @@ class Datum(BaseModel):
     """
     Set on a child run: the node in the parent run that started it.
     """
+    agent: RunAgent | None = None
     public_access_token: Annotated[str | None, Field(alias="publicAccessToken")] = None
     """
     Only in the response to `POST /v1/runs`, when the deployment issues public run tokens: a read-only token for this run (and its descendants) to hand to a browser, for `GET /v1/runs/{runId}/progress` and its stream.
@@ -703,41 +725,25 @@ class ProvenanceRef(BaseModel):
     provenance_id: Annotated[UUID | None, Field(alias="provenanceId")] = None
 
 
-class Approval(BaseModel):
+class ApprovalDecisionRecord(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    id: UUID
-    tenant_id: Annotated[UUID, Field(alias="tenantId")]
-    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
-    subject_kind: Annotated[str, Field(alias="subjectKind")]
-    subject_ref: Annotated[dict[str, Any], Field(alias="subjectRef")]
-    required_role: Annotated[Literal["standard", "senior", "admin"], Field(alias="requiredRole")]
+    decision: Literal["approve", "reject", "escalate", "withdraw"]
+    decided_by: Annotated[str | None, Field(alias="decidedBy")] = None
+    """
+    Who decided, as an actor: `user:<userId>`, the reviewer's user. The run's journal and provenance name the decider the same way. The Kindgi runtime always records it; a deployment whose HITL binding doesn't leaves it out.
+    """
+    reviewer_id: Annotated[UUID, Field(alias="reviewerId")]
+    reviewer_role_at_decision: Annotated[
+        Literal["standard", "senior", "admin"], Field(alias="reviewerRoleAtDecision")
+    ]
     """
     Reviewer role class. Hierarchy: standard < senior < admin.
     """
-    status: Literal[
-        "pending",
-        "assigned",
-        "in_review",
-        "approved",
-        "rejected",
-        "escalated",
-        "expired",
-        "withdrawn",
-    ]
-    assigned_to: Annotated[UUID | None, Field(alias="assignedTo")] = None
-    batch_key: Annotated[str | None, Field(alias="batchKey")] = None
-    title: str | None = None
-    description: str | None = None
-    context: dict[str, Any] | None = None
-    provenance_ref: Annotated[ProvenanceRef | None, Field(alias="provenanceRef")] = None
-    wait_token_id: Annotated[str | None, Field(alias="waitTokenId")] = None
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
-    decided_at: Annotated[AwareDatetime | None, Field(alias="decidedAt")] = None
-    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    decided_at: Annotated[AwareDatetime, Field(alias="decidedAt")]
+    rationale: str | None = None
 
 
 class ReviewDecision(BaseModel):
@@ -759,19 +765,6 @@ class ReviewDecision(BaseModel):
     decided_at: Annotated[AwareDatetime, Field(alias="decidedAt")]
 
 
-class ApprovalCollectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[Approval]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    """
-    Opaque cursor for the next page. ISO timestamp of the tail row internally; treat as opaque on the client.
-    """
-    has_more: Annotated[bool, Field(alias="hasMore")]
-
-
 class CompleteApprovalBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -782,24 +775,6 @@ class CompleteApprovalBody(BaseModel):
     value: Any | None = None
     """
     Payload passed to the run waitpoint (`RunBinding.completeToken`) when the approval is linked to a suspended run and the decision is `approve` or `reject`. Refused (400 `bad-input`) for an agent's tool-call or session gate (`tool-call:pending`, `agent-turn:session-hitl-gate`): those resume on the decision alone.
-    """
-
-
-class CompleteApprovalResult(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    kind: Literal["terminal", "escalated"]
-    approval: Approval
-    decision: ReviewDecision
-    next_approval: Annotated[Approval | None, Field(alias="nextApproval")] = None
-    """
-    Present only when `kind === "escalated"`.
-    """
-    waitpoint_resolved: Annotated[bool, Field(alias="waitpointResolved")]
-    """
-    True when the approval had a `waitTokenId` + terminal accept/reject and the run waitpoint was completed as part of this call.
     """
 
 
@@ -1960,6 +1935,10 @@ class Conversation(BaseModel):
     """
     title: str
     participant_id: Annotated[str | None, Field(alias="participantId")] = None
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The project the conversation is in: the project of the run that opened it, or `projectId` on open (the tenant's Default project when omitted). Absent on conversations from before Kindgi 0.1.3; those are listed only without a scope.
+    """
     scope: dict[str, Any]
     """
     Free-form scope object (currently `{ tenantId }` in tests; enterprises extend with `matterId`, `engagementId`, etc.).
@@ -2019,6 +1998,10 @@ class OpenConversationBody(BaseModel):
     title: str | None = None
     """
     Optional. Defaults to `"Untitled conversation"` when omitted.
+    """
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The project the conversation is in; `GET /v1/conversations?scopeKind=project&scopeId=…` lists it. A project of the caller's tenant, else `400 bad-input`. Omitted: the tenant's Default project, as for a run.
     """
     scope: dict[str, Any] | None = None
     """
@@ -2744,6 +2727,10 @@ class ProvenanceRecordMetadata(BaseModel):
     True when the emission-time signature is present. Independent of whether the export route can produce a signed bundle.
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The project of the record's run. Absent on records from before Kindgi 0.1.3; those are listed only without a scope.
+    """
 
 
 class Node(BaseModel):
@@ -6060,6 +6047,78 @@ class AuditAuthzListResponse(BaseModel):
     data: list[Datum4]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class Approval(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: UUID
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    subject_kind: Annotated[str, Field(alias="subjectKind")]
+    subject_ref: Annotated[dict[str, Any], Field(alias="subjectRef")]
+    required_role: Annotated[Literal["standard", "senior", "admin"], Field(alias="requiredRole")]
+    """
+    Reviewer role class. Hierarchy: standard < senior < admin.
+    """
+    status: Literal[
+        "pending",
+        "assigned",
+        "in_review",
+        "approved",
+        "rejected",
+        "escalated",
+        "expired",
+        "withdrawn",
+    ]
+    assigned_to: Annotated[UUID | None, Field(alias="assignedTo")] = None
+    batch_key: Annotated[str | None, Field(alias="batchKey")] = None
+    title: str | None = None
+    description: str | None = None
+    context: dict[str, Any] | None = None
+    provenance_ref: Annotated[ProvenanceRef | None, Field(alias="provenanceRef")] = None
+    wait_token_id: Annotated[str | None, Field(alias="waitTokenId")] = None
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    decided_at: Annotated[AwareDatetime | None, Field(alias="decidedAt")] = None
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    decision: ApprovalDecisionRecord | None = None
+    """
+    The reviewer's decision, once one is recorded. Absent while the approval is open, and when it ended without one (it expired, or a timeout escalated it).
+    """
+
+
+class ApprovalCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Approval]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor for the next page. ISO timestamp of the tail row internally; treat as opaque on the client.
+    """
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class CompleteApprovalResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["terminal", "escalated"]
+    approval: Approval
+    decision: ReviewDecision
+    next_approval: Annotated[Approval | None, Field(alias="nextApproval")] = None
+    """
+    Present only when `kind === "escalated"`.
+    """
+    waitpoint_resolved: Annotated[bool, Field(alias="waitpointResolved")]
+    """
+    True when the approval had a `waitTokenId` + terminal accept/reject and the run waitpoint was completed as part of this call.
+    """
 
 
 class CallUsage(BaseModel):

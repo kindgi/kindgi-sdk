@@ -199,4 +199,9 @@ curl "$KINDGI_API_URL/v1/provenance?createdAfter=2026-10-03T20:08:00Z&limit=3" \
 {"data":[{"id":"8771ea27-dc53-4c55-a799-dc78136182b0","runId":"98d49ad7-fb24-4d0f-a9e0-b5d1743a4392","tenantId":"3a9fb26d-9782-4bdb-a4f9-3c97d2644b72","version":"1.0.0","createdAt":"2026-10-03T20:10:08.430Z","signed":false},…]}
 ```
 
+Each record carries its run's `projectId`. `scopeKind=project&scopeId=<id>`
+lists one project's records, and `scopeKind=org&scopeId=<id>` every
+project's in an org (`scope` in the clients). Records from before Kindgi
+0.1.3 have no project, so only a list without a scope shows them.
+
 See [Provenance in the HTTP API](../../../reference/api/operations/tags/provenance/).

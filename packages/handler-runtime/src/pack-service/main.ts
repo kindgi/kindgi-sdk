@@ -38,6 +38,8 @@ import { access, readFile } from 'node:fs/promises';
 import { type Server, createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { dirname, isAbsolute, resolve } from 'node:path';
+import { PACK_SERVICE_TOKEN_VAR, parsePackServiceToken } from '@kindgi/env-schema';
+
 import { isProcessEntrypoint } from '../entrypoint.js';
 import type { Index } from '../kindgi-index.js';
 import { INDEX_ENVELOPE_VERSION, readBundleMap } from '../kindgi-index.js';
@@ -78,8 +80,14 @@ export function readPackServiceConfig(
   if (bundleMap === '') problems.push('--bundle-map needs a path');
   const host = arg('--host');
   if (host === '') problems.push('--host needs an address');
-  const token = env.KINDGI_PACK_SERVICE_TOKEN ?? '';
-  if (token.length === 0) problems.push('KINDGI_PACK_SERVICE_TOKEN is required');
+  // Read as the server reads it: without surrounding whitespace.
+  let token: string | undefined;
+  try {
+    token = parsePackServiceToken(env[PACK_SERVICE_TOKEN_VAR]);
+    if (token === undefined) problems.push(`${PACK_SERVICE_TOKEN_VAR} is required`);
+  } catch (err) {
+    problems.push((err as Error).message);
+  }
   const port = Number(env.PORT ?? '8080');
   if (!Number.isInteger(port) || port < 0 || port > 65535) {
     problems.push(`PORT must be a port number, got ${JSON.stringify(env.PORT)}`);
@@ -91,7 +99,9 @@ export function readPackServiceConfig(
   }
   const envCheck = parsePackEnvCheck(env[PACK_ENV_CHECK_VAR]);
   if (envCheck.kind === 'err') problems.push(envCheck.message);
-  if (problems.length > 0 || envCheck.kind === 'err') return { kind: 'err', problems };
+  if (problems.length > 0 || envCheck.kind === 'err' || token === undefined) {
+    return { kind: 'err', problems };
+  }
   return {
     kind: 'ok',
     value: {

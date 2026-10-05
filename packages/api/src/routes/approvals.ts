@@ -4,7 +4,7 @@
 import { Hono } from 'hono';
 
 import { AGENT_GATE_SUBJECTS, TOOL_CALL_GATE_SUBJECT } from '@kindgi/agents';
-import type { ConversationBinding } from '@kindgi/agents';
+import type { ConversationBinding, GateDecisionValue } from '@kindgi/agents';
 import { REVIEWER_ROLE_RANK, type ReviewerRole } from '@kindgi/authz';
 import { serializePublicKeyPem, signEd25519 } from '@kindgi/crypto';
 import type { SigningKeyBinding } from '@kindgi/crypto';
@@ -24,10 +24,17 @@ import type {
 
 import { statusFor, toWireError } from '../errors.js';
 import type { RunHandlerBinding } from '../handler-binding.js';
-import type { Approval, ApprovalStatus, HitlBinding, ReviewDecisionKind } from '../hitl-binding.js';
+import type {
+  Approval,
+  ApprovalStatus,
+  HitlBinding,
+  ReviewDecisionKind,
+  ReviewDecisionRecord,
+} from '../hitl-binding.js';
 import type { ReviewerBinding } from '../reviewer-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import { parseListScope } from './scope-params.js';
 
 const APPROVAL_STATUSES: ReadonlySet<ApprovalStatus> = new Set([
   'pending',
@@ -131,6 +138,14 @@ export function approvalsRouter(
     const role = c.get('reviewerRole') as ReviewerRole;
     const limit = clampLimit(c.req.query('limit'));
 
+    const scopeParsed = parseListScope(c.req.query(), { tenantId });
+    if (scopeParsed.kind === 'err') {
+      c.status(statusFor('scope-invalid') as never);
+      return c.json(
+        toWireError({ code: 'scope-invalid', message: scopeParsed.message }, requestId),
+      );
+    }
+
     const statusRaw = c.req.query('status');
     let statusFilter: ApprovalStatus | undefined;
     if (statusRaw !== undefined && statusRaw.length > 0) {
@@ -214,6 +229,7 @@ export function approvalsRouter(
     const listInput = {
       tenantId,
       limit: HITL_LIMIT_CAP,
+      ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(statusFilter !== undefined && { status: statusFilter }),
       ...(requiredRoleFilter !== undefined && { requiredRole: requiredRoleFilter }),
       ...(createdAfterIso !== undefined && { since: createdAfterIso as unknown as Timestamp }),
@@ -379,23 +395,25 @@ export function approvalsRouter(
     // stays suspended until the new (escalated) approval terminates,
     // or the run is cancelled explicitly.
     //
-    // Resume value shape: `{ decided, rationale? }` — the shape the
-    // agent's approval gate consumes. For another subject, the caller CAN
-    // supply an explicit `value` to override it, when the resume payload
-    // must carry more than the decision (an agent gate refuses one, above).
+    // Resume value shape: `GateDecisionValue`, `{ decided, rationale?,
+    // decidedBy, approvalId }`, the shape the agent's approval gate
+    // consumes; the run's journal keeps who decided which approval. For
+    // another subject, the caller CAN supply an explicit `value` to
+    // override it, when the resume payload must carry more than the
+    // decision (an agent gate refuses one, above).
     let waitpointResolved = false;
     if (
       approval.waitTokenId !== undefined &&
       approval.provenanceRef?.runId !== undefined &&
       (parsed.value.decision === 'approve' || parsed.value.decision === 'reject')
     ) {
-      const resumeValue =
-        parsed.value.value !== undefined
-          ? parsed.value.value
-          : {
-              decided: parsed.value.decision as 'approve' | 'reject',
-              ...(parsed.value.rationale !== undefined && { rationale: parsed.value.rationale }),
-            };
+      const decided: GateDecisionValue = {
+        decided: parsed.value.decision,
+        ...(parsed.value.rationale !== undefined && { rationale: parsed.value.rationale }),
+        decidedBy: `user:${userId as unknown as string}`,
+        approvalId: approval.id as unknown as string,
+      };
+      const resumeValue = parsed.value.value !== undefined ? parsed.value.value : decided;
       const resolved = await runBinding.completeToken(
         tenantId,
         approval.provenanceRef.runId as RunId,
@@ -678,6 +696,18 @@ function serializeApproval(a: Approval): Record<string, unknown> {
     updatedAt: a.updatedAt,
     decidedAt: a.decidedAt,
     expiresAt: a.expiresAt,
+    decision: a.decision === undefined ? undefined : serializeApprovalDecision(a.decision),
+  };
+}
+
+function serializeApprovalDecision(d: ReviewDecisionRecord): Record<string, unknown> {
+  return {
+    decision: d.decision,
+    ...(d.decidedBy !== undefined && { decidedBy: d.decidedBy }),
+    reviewerId: d.reviewerId,
+    reviewerRoleAtDecision: d.reviewerRoleAtDecision,
+    decidedAt: d.decidedAt,
+    ...(d.rationale !== undefined && { rationale: d.rationale }),
   };
 }
 

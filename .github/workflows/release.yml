@@ -22,8 +22,9 @@ name: Release
 #
 # The same dispatch also publishes the Python SDK (`kindgi`, sdks/python) to
 # PyPI, in the `pypi-publish` environment (required reviewer), with PyPI's
-# trusted publishing (OIDC — no tokens) and attestations. A version PyPI
-# already has is skipped, so an npm-only release leaves PyPI as it is.
+# trusted publishing (OIDC — no tokens) and attestations. Its version is the
+# npm packages' (scripts/sync-python-version.mjs; the job checks it before
+# it builds). A version PyPI already has is skipped.
 # PyPI trusted publisher: project `kindgi`, owner `kindgi`, repository
 # `kindgi-sdk`, workflow `release.yml`, environment `pypi-publish`.
 
@@ -69,6 +70,13 @@ jobs:
           node-version: "22"
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # `version-packages` gives the Python projects the packages' new version
+      # (scripts/sync-python-version.mjs), and uv re-locks them.
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version-file: sdks/python/pyproject.toml
+          python-version: "3.13"
+          cache-dependency-glob: sdks/python/uv.lock
       - uses: changesets/action@v2
         with:
           version-script: pnpm run version-packages
@@ -100,6 +108,9 @@ jobs:
       - run: pnpm run build
       - name: Publish-readiness (publint + attw)
         run: pnpm run check:publish
+      # npm and PyPI release one version: the Python SDK's must be the same.
+      - name: The Python SDK's version is the packages'
+        run: pnpm run check:python-version
       - name: Publish (dry-run)
         if: ${{ inputs.dry-run }}
         run: pnpm -r publish --dry-run --no-git-checks
@@ -128,6 +139,15 @@ jobs:
       id-token: write # PyPI trusted publishing (OIDC) + attestations
     steps:
       - uses: actions/checkout@v5
+      # The guard below lists the workspace's packages with pnpm (no install).
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      # PyPI gets exactly the npm packages' version: `--check` fails when
+      # pyproject.toml (or uv.lock) says anything else.
+      - name: The version is the npm packages'
+        run: node scripts/sync-python-version.mjs --check
       - uses: astral-sh/setup-uv@v6
         with:
           version-file: sdks/python/pyproject.toml

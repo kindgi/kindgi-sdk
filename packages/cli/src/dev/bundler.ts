@@ -12,7 +12,10 @@
  * not only the discovery folders. A rebuild is reported when the files
  * it read differ from those of the last build reported (so watch mode's
  * own first build, right after `build()`, is not reported twice), and
- * whenever it fails.
+ * whenever it fails. A file that changed while a build ran (an editor's
+ * save landing mid-build, or a write caught half done) may have been read
+ * before the change, so that build is compared with nothing: the rebuild
+ * the change triggers is always reported (see `stampOf`).
  * Adding or removing a primitive file changes the entry points, so
  * `syncEntries()` recreates the build. When the last primitive file is
  * removed there is nothing for esbuild to build or watch, so the (empty)
@@ -49,16 +52,32 @@ export interface DevPackBuilderOptions {
 /** External packages, each with the files importing it (absolute paths). */
 type Importers = Map<string, Set<string>>;
 
+/** The build running now: when it started, and the externals it found so far. */
+interface BuildRecord {
+  readonly startedAt: number;
+  readonly importing: Importers;
+}
+
+/**
+ * How recently an input may have changed before a build's stamp can no
+ * longer say what the build read. File times are coarse (a whole second on
+ * some file systems) and can trail the clock, so a change within this gap
+ * of the build's start may have landed after the build read the file.
+ * esbuild's watch mode waits the same 3 s before trusting a file's
+ * modification time.
+ */
+export const STAMP_SAFETY_GAP_MS = 3_000;
+
 export function createDevPackBuilder(options: DevPackBuilderOptions): PackBuilder {
   const outDir = devDistDir(options.packDir);
   let context: BuildContext | undefined;
   let entries: readonly PackEntry[] = [];
   let entriesKey: string | undefined;
   let listener: ((build: PackBuild) => void) | undefined;
-  /** What the last reported build read: each input's path, size and mtime. */
+  /** What the last reported build read (`stampOf`); undefined compares with nothing. */
   let reportedInputs: string | undefined;
-  /** The externals of the build running now (a new map per build, read once it ends). */
-  let importing: Importers = new Map();
+  /** The build running now (a new record per build, read once it ends). */
+  let current: BuildRecord = { startedAt: Date.now(), importing: new Map() };
   let configImporting: Promise<Importers> | undefined;
 
   const configExternals = (): Promise<Importers> => {
@@ -68,12 +87,16 @@ export function createDevPackBuilder(options: DevPackBuilderOptions): PackBuilde
   const externalsOf = async (code: Importers): Promise<readonly ExternalPackage[]> =>
     listExternals([code, await configExternals()], options.packDir);
 
-  /** Each build starts with no externals; `nodeModulesExternalPlugin` records them. */
+  /**
+   * Each build starts with no externals (`nodeModulesExternalPlugin`
+   * records them) and notes when it started. esbuild runs on-start
+   * callbacks before it reads any file.
+   */
   const collector: Plugin = {
     name: 'kindgi-dev-externals',
     setup(build) {
       build.onStart(() => {
-        importing = new Map();
+        current = { startedAt: Date.now(), importing: new Map() };
       });
     },
   };
@@ -84,11 +107,12 @@ export function createDevPackBuilder(options: DevPackBuilderOptions): PackBuilde
     setup(build) {
       build.onEnd(async (result) => {
         if (listener === undefined) return;
-        const code = importing;
-        const read = result.errors.length > 0 ? undefined : await inputsOf(result, options.packDir);
+        const { startedAt, importing } = current;
+        const read =
+          result.errors.length > 0 ? undefined : await stampOf(result, options.packDir, startedAt);
         if (read !== undefined && read === reportedInputs) return;
         reportedInputs = read;
-        const outcome = outcomeOf(result, entries, options.packDir, await externalsOf(code));
+        const outcome = outcomeOf(result, entries, options.packDir, await externalsOf(importing));
         listener?.(outcome);
       });
     },
@@ -117,7 +141,7 @@ export function createDevPackBuilder(options: DevPackBuilderOptions): PackBuilde
       plugins: [
         collector,
         nodeModulesExternalPlugin({
-          onExternal: (name, importer) => add(importing, name, importer),
+          onExternal: (name, importer) => add(current.importing, name, importer),
         }),
         reporter,
       ],
@@ -135,9 +159,9 @@ export function createDevPackBuilder(options: DevPackBuilderOptions): PackBuilde
       }
       try {
         const result = await context.rebuild();
-        const code = importing;
-        reportedInputs = await inputsOf(result, options.packDir);
-        return outcomeOf(result, entries, options.packDir, await externalsOf(code));
+        const { startedAt, importing } = current;
+        reportedInputs = await stampOf(result, options.packDir, startedAt);
+        return outcomeOf(result, entries, options.packDir, await externalsOf(importing));
       } catch (failure) {
         return failed((failure as { errors?: Message[] }).errors ?? [], failure);
       }
@@ -240,20 +264,35 @@ function listExternals(sets: readonly Importers[], packDir: string): ExternalPac
   }));
 }
 
-/** Every file a build read, with its size and mtime — equal when nothing changed. */
-async function inputsOf(result: BuildResult, packDir: string): Promise<string> {
+/**
+ * What a build read: every input with its size and change times — equal
+ * for two builds that read the same files. The files are looked at once
+ * the build has ended, so this stands for what it read only when none of
+ * them changed after it started. When one did (or changed within
+ * `STAMP_SAFETY_GAP_MS` of the start, too close to tell), or is gone,
+ * there's no stamp: the build may have read the file before the change,
+ * and the rebuild that change triggers would otherwise look the same and
+ * go unreported.
+ */
+export async function stampOf(
+  result: Pick<BuildResult, 'metafile'>,
+  packDir: string,
+  startedAt: number,
+): Promise<string | undefined> {
   const inputs = Object.keys(result.metafile?.inputs ?? {}).sort();
+  const settledBefore = startedAt - STAMP_SAFETY_GAP_MS;
   const stamped = await Promise.all(
     inputs.map(async (input) => {
       try {
         const s = await stat(resolve(packDir, input));
-        return `${input}:${s.size}:${s.mtimeMs}`;
+        if (Math.max(s.mtimeMs, s.ctimeMs) >= settledBefore) return undefined;
+        return `${input}:${s.size}:${s.mtimeMs}:${s.ctimeMs}`;
       } catch {
-        return `${input}:-`;
+        return undefined;
       }
     }),
   );
-  return stamped.join('\n');
+  return stamped.every((line) => line !== undefined) ? stamped.join('\n') : undefined;
 }
 
 function failed(errors: readonly Message[], cause: unknown): PackBuild {

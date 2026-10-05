@@ -145,7 +145,8 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   // ---- core server ------------------------------------------------
   {
     name: 'KINDGI_API_PORT',
-    description: 'HTTP port the Kindgi API server listens on. Default 4000.',
+    description:
+      "HTTP port the Kindgi API server listens on. The first that's set wins: the `--port` flag, `KINDGI_API_PORT`, the platform's `PORT` (Cloud Run, Render, Heroku and Fly set it and send traffic only there), the config file's `port`, then 4000.",
     example: '4000',
     required: false,
     appliesTo: appliesToServer,
@@ -231,6 +232,16 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     appliesTo: appliesToServer,
     group: 'core',
     allowedValues: ['local', 'deployed'],
+  },
+  {
+    name: 'KINDGI_WEBHOOK_PRIVATE_NETWORKS',
+    description:
+      'Whether a webhook may go to a private network address: for a receiver on the same VPC or compose network as a self-hosted server. `allow` accepts a receiver whose host resolves to a private address: RFC 1918, CGNAT (100.64.0.0/10) or IPv6 unique-local. Loopback, link-local (the cloud metadata endpoints) and unroutable addresses stay refused, and webhooks stay https only. Unset or `deny`: public addresses only. Development mode (`KINDGI_DEV`) allows http and every address anyway.',
+    example: 'allow',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+    allowedValues: ['allow', 'deny'],
   },
   {
     name: 'KINDGI_LICENSE_KEY',
@@ -453,7 +464,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_PACK_SERVICE_TOKEN',
     description:
-      'Shared secret between the server and the pack service. The pack service refuses any call without it, and the server sends it with every call. Required by the pack service, and by the server when `KINDGI_PACK_SERVICE_URL` is set. Use a long random value (`openssl rand -base64 32`). The pack service removes it from its environment before it loads the pack code.',
+      'Shared secret between the server and the pack service. The pack service refuses any call without it, and the server sends it with every call. Required by the pack service, and by the server when `KINDGI_PACK_SERVICE_URL` is set. Use a long random value (`openssl rand -base64 32`). Both sides drop surrounding whitespace (such as the trailing newline of a stored secret), and refuse whitespace or control characters inside: the token travels in an HTTP header. The pack service removes it from its environment before it loads the pack code.',
     example: '',
     required: true,
     appliesTo: (t) => appliesToPackService(t) || appliesToServerHttpPackTransport(t),

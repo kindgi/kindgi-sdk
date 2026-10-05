@@ -18,6 +18,7 @@ import {
   resolveTurnEnvironment,
   resolveTurnHitlPolicy,
 } from './turn-environment.js';
+import { decisionOf } from './turn-provenance.js';
 
 /**
  * Deterministic waitpoint token — must produce the same value on every
@@ -147,6 +148,7 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
         try {
           await ctx.bindings.hitl.enqueue({
             tenantId: ctx.input.tenantId,
+            projectId: ctx.input.projectId,
             subjectKind: SESSION_GATE_SUBJECT,
             subjectRef: {
               conversationId: ctx.input.conversationId,
@@ -204,16 +206,14 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
             id: resumeNodeId,
             kind: 'resume',
             timestamp: new Date().toISOString() as never,
-            actor: `agent:${ctx.input.agent.id as unknown as string}`,
+            // Whoever decided; a decision recorded before it named them, the agent.
+            actor: decision.decidedBy ?? `agent:${ctx.input.agent.id as unknown as string}`,
             attributes: {
               gate: 'session-hitl',
-              decision: decision.approved
-                ? 'approve'
-                : decision.reason === 'rejected'
-                  ? 'reject'
-                  : 'unreadable',
+              decision: decisionOf(decision),
               ...(!decision.approved &&
                 decision.rationale !== undefined && { rationale: decision.rationale }),
+              ...(decision.approvalId !== undefined && { approvalId: decision.approvalId }),
             },
           });
           ctx.provenance.addEdge({

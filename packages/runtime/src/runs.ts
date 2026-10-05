@@ -10,6 +10,7 @@
 
 import type { Cursor, NodeId, OrgId, ProjectId, RunId, TenantId, Timestamp } from '@kindgi/types';
 
+import type { RunAgentRef } from './inputs.js';
 import type { RunStatus } from './types.js';
 
 /**
@@ -36,6 +37,11 @@ export interface KernelRunRecord {
   readonly parentRunId?: RunId | null;
   readonly parentNodeId?: NodeId | null;
   readonly parentScope?: string | null;
+  /**
+   * The agent an agent turn's run is for (`RunAgentRef`). Absent on
+   * every other run, and on agent runs started before runs recorded it.
+   */
+  readonly agent?: RunAgentRef;
 }
 
 /**
@@ -76,6 +82,8 @@ export interface ListRunsInput {
   };
   /** Only runs that are not a child of another run. */
   readonly topLevelOnly?: boolean;
+  /** Only the turns of this agent (`RunAgentRef.id`), at any version. */
+  readonly agentId?: string;
 }
 
 export interface ListRunsPage {

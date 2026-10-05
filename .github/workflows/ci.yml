@@ -55,6 +55,11 @@ jobs:
       - name: README package table
         run: pnpm run check:readme
 
+      # The Python SDK ships with the npm packages' version (lockstep):
+      # scripts/sync-python-version.mjs.
+      - name: Python SDK version in step with the npm packages
+        run: pnpm run check:python-version
+
       - name: Validate JSON Schemas (@kindgi/specs)
         run: pnpm run spec:validate
 
@@ -95,6 +100,10 @@ jobs:
         run: pnpm run typecheck:all
       - name: Test
         run: pnpm run test:all
+      # The release scripts' own tests (node:test); the Python version sync's
+      # run uv, set up above.
+      - name: Release scripts
+        run: pnpm run test:scripts
       # The lower bounds in sdks/python/pyproject.toml are what an app's own
       # resolver may pick (an app may pin uvicorn 0.27), so the Python pack
       # service must pass conformance at them too, not only at the lock.

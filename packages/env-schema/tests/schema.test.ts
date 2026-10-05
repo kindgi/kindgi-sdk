@@ -114,6 +114,17 @@ describe('envVarsForTarget', () => {
     ).toBe(false);
   });
 
+  test('KINDGI_WEBHOOK_PRIVATE_NETWORKS: the server only, optional, allow or deny', () => {
+    const webhooks = envVarsForTarget({}).find((v) => v.name === 'KINDGI_WEBHOOK_PRIVATE_NETWORKS');
+    expect(webhooks).toMatchObject({ group: 'core', required: false });
+    expect(webhooks?.allowedValues).toEqual(['allow', 'deny']);
+    expect(
+      envVarsForTarget({ component: 'pack-service' }).some(
+        (v) => v.name === 'KINDGI_WEBHOOK_PRIVATE_NETWORKS',
+      ),
+    ).toBe(false);
+  });
+
   test("the server's bind host and its development settings: optional, server only", () => {
     const server = envVarsForTarget({});
     const host = server.find((v) => v.name === 'KINDGI_API_HOST');

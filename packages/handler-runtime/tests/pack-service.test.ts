@@ -432,6 +432,24 @@ describe('pack service — boot', () => {
     expect(bad.kind === 'err' && bad.problems).toHaveLength(2);
   });
 
+  test('the token is read as the server reads it: without surrounding whitespace, and only what a header can carry', () => {
+    // A secret stored with a trailing newline: the header the server sends
+    // carries no newline, so the service compares without it too.
+    expect(
+      readPackServiceConfig([], { KINDGI_PACK_SERVICE_TOKEN: '3f9ac0ffee\n', PORT: '0' }),
+    ).toMatchObject({ kind: 'ok', value: { token: '3f9ac0ffee' } });
+    expect(readPackServiceConfig([], { KINDGI_PACK_SERVICE_TOKEN: ' \n' })).toMatchObject({
+      kind: 'err',
+      problems: ['KINDGI_PACK_SERVICE_TOKEN is required'],
+    });
+    expect(readPackServiceConfig([], { KINDGI_PACK_SERVICE_TOKEN: 'two words' })).toMatchObject({
+      kind: 'err',
+      problems: [
+        'KINDGI_PACK_SERVICE_TOKEN may hold only printable ASCII without spaces (it travels in an HTTP header). Use a random value such as `openssl rand -hex 32`.',
+      ],
+    });
+  });
+
   test('with a bundle map, the modules the index names load from their bundles', async () => {
     const root = await mkdtemp(join(tmpdir(), 'kindgi-pack-bundles-'));
     try {

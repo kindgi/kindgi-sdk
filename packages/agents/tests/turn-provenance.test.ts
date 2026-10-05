@@ -6,7 +6,8 @@
  * after a tool-call approval adds the nodes of the steps that ran before
  * the park again, the step it parked in adds every call it holds, a
  * rejected call has its nodes like any other, and each model call is
- * `influenced-by` the tool results it read.
+ * `influenced-by` the tool results it read. A call that waited on an
+ * approval shows it, and who decided it.
  */
 
 import { describe, expect, test } from 'vitest';
@@ -345,5 +346,142 @@ describe("a model call's provenance", () => {
       edge('model-call:3', 'influenced-by', 'tool-result:c2'),
     ]);
     expect(danglingEdges(dag)).toEqual([]);
+  });
+});
+
+/** A tool call's approval as the journal holds it: its gate, the park, and the decision. */
+function approvalEntries(
+  invocationId: string,
+  value: unknown,
+  at: { readonly parked: string; readonly decided: string },
+): JournalEntry[] {
+  const tokenId = `wait-${invocationId}`;
+  return [
+    {
+      sequence: ++sequence,
+      kind: 'value.recorded',
+      nodeId: 'dispatch-tools',
+      payload: {
+        scope: 'dispatch-tools',
+        key: `tool-hitl-gate:${invocationId}`,
+        value: { argsHash: 'h', waitTokenId: tokenId, requiredRole: 'standard', timeoutMs: 1 },
+      },
+      timestamp: at.parked,
+    },
+    {
+      sequence: ++sequence,
+      kind: 'wait.suspended',
+      nodeId: 'dispatch-tools',
+      payload: { tokenId },
+      timestamp: at.parked,
+    },
+    {
+      sequence: ++sequence,
+      kind: 'wait.resumed',
+      nodeId: 'dispatch-tools',
+      payload: { tokenId, value },
+      timestamp: at.decided,
+    },
+  ] as unknown as JournalEntry[];
+}
+
+describe("a tool call's approval in provenance", () => {
+  test('each call that waited shows its approval and who decided it: in a completed step, before the park, and the one it parked on', async () => {
+    const ctx = resumedTurn(agent(true));
+    const journal = [
+      ...parkedJournal,
+      ...approvalEntries(
+        'c1',
+        { decided: 'approve', decidedBy: 'user:u-1', approvalId: 'appr-1' },
+        { parked: '2026-10-01T00:00:01Z', decided: '2026-10-01T00:00:02Z' },
+      ),
+      ...approvalEntries(
+        'c2',
+        { decided: 'approve', decidedBy: 'user:u-2', approvalId: 'appr-2' },
+        { parked: '2026-10-01T00:00:03Z', decided: '2026-10-01T00:00:04Z' },
+      ),
+      ...approvalEntries(
+        'c3',
+        {
+          decided: 'reject',
+          rationale: 'not this one',
+          decidedBy: 'user:u-3',
+          approvalId: 'appr-3',
+        },
+        { parked: '2026-10-01T00:00:05Z', decided: '2026-10-01T00:00:06Z' },
+      ),
+    ];
+    await rehydrateTurnContext(ctx, runId, journal);
+    await rerunParkedStep(ctx, {
+      decided: 'reject',
+      rationale: 'not this one',
+      decidedBy: 'user:u-3',
+      approvalId: 'appr-3',
+    });
+    const dag = ctx.provenance?.snapshot() as Provenance;
+
+    for (const id of ['c1', 'c2', 'c3']) {
+      expect(dag.edges).toEqual(
+        expect.arrayContaining([
+          edge(`tool-call:${id}`, 'waited-on', `tool-hitl-gate-wait:${id}`),
+          edge(`tool-hitl-gate-wait:${id}`, 'resumed-from', `tool-hitl-gate-resume:${id}`),
+          edge(`tool-result:${id}`, 'caused-by', `tool-hitl-gate-resume:${id}`),
+        ]),
+      );
+    }
+    expect(dag.nodes.find((n) => n.id === 'tool-hitl-gate-wait:c2')).toEqual({
+      id: 'tool-hitl-gate-wait:c2',
+      kind: 'wait',
+      timestamp: '2026-10-01T00:00:03Z',
+      actor: 'agent:pack.agent',
+      attributes: { gate: 'tool-call', invocationId: 'c2', waitTokenId: 'wait-c2' },
+    });
+    expect(dag.nodes.find((n) => n.id === 'tool-hitl-gate-resume:c2')).toEqual({
+      id: 'tool-hitl-gate-resume:c2',
+      kind: 'resume',
+      timestamp: '2026-10-01T00:00:04Z',
+      actor: 'user:u-2',
+      attributes: { gate: 'tool-call', decision: 'approve', approvalId: 'appr-2' },
+    });
+    expect(dag.nodes.find((n) => n.id === 'tool-hitl-gate-resume:c3')).toMatchObject({
+      actor: 'user:u-3',
+      attributes: {
+        gate: 'tool-call',
+        decision: 'reject',
+        rationale: 'not this one',
+        approvalId: 'appr-3',
+      },
+    });
+    expect(danglingEdges(dag)).toEqual([]);
+  });
+
+  test('a decision recorded before it named the decider still shows; its resume node names no one', async () => {
+    const ctx = resumedTurn(agent(true));
+    const journal = [
+      ...parkedJournal,
+      ...approvalEntries(
+        'c3',
+        { decided: 'approve' },
+        { parked: '2026-10-01T00:00:05Z', decided: '2026-10-01T00:00:06Z' },
+      ),
+    ];
+    await rehydrateTurnContext(ctx, runId, journal);
+    await rerunParkedStep(ctx, { decided: 'approve' });
+    const dag = ctx.provenance?.snapshot() as Provenance;
+    expect(dag.nodes.find((n) => n.id === 'tool-hitl-gate-resume:c3')).toEqual({
+      id: 'tool-hitl-gate-resume:c3',
+      kind: 'resume',
+      timestamp: '2026-10-01T00:00:06Z',
+      attributes: { gate: 'tool-call', decision: 'approve' },
+    });
+    expect(danglingEdges(dag)).toEqual([]);
+  });
+
+  test('a call that waited on no approval has none', async () => {
+    const ctx = resumedTurn(agent(true));
+    await rehydrateTurnContext(ctx, runId, parkedJournal);
+    await rerunParkedStep(ctx, { decided: 'approve' });
+    const dag = ctx.provenance?.snapshot() as Provenance;
+    expect(dag.nodes.filter((n) => n.kind === 'wait' || n.kind === 'resume')).toEqual([]);
   });
 });

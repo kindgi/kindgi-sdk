@@ -786,6 +786,9 @@ importers:
 
   packages/handler-runtime:
     dependencies:
+      '@kindgi/env-schema':
+        specifier: workspace:*
+        version: link:../env-schema
       '@kindgi/flow':
         specifier: workspace:*
         version: link:../flow

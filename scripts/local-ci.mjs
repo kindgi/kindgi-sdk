@@ -112,12 +112,14 @@ const steps = [
   ['references', 'pnpm', ['run', 'check:refs']],
   ['docs ship with the change', 'pnpm', ['run', 'check:docs-ship']],
   ['README package table', 'pnpm', ['run', 'check:readme']],
+  ['Python SDK version in step with the npm packages', 'pnpm', ['run', 'check:python-version']],
   ['JSON Schemas', 'pnpm', ['run', 'spec:validate']],
   // "Build + typecheck + test + publish checks"
   ['Python SDK environment', 'uv', ['sync', '--project', 'sdks/python', '--frozen']],
   ['build', 'pnpm', ['run', 'build']],
   ['typecheck', 'pnpm', ['run', 'typecheck:all']],
   ['test', 'pnpm', ['run', 'test:all']],
+  ['release scripts', 'pnpm', ['run', 'test:scripts']],
   [
     'pack conformance at the Python dependency floors',
     'bash',

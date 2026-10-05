@@ -140,6 +140,15 @@ const TopLevelQueryParam: ParameterSpec = {
   schema: { type: 'boolean' },
 };
 
+const RunAgentIdQueryParam: ParameterSpec = {
+  name: 'agentId',
+  in: 'query',
+  required: false,
+  description:
+    "Only this agent's turns, at any version. Turns that ran before Kindgi 0.1.3 don't name their agent and aren't matched.",
+  schema: { type: 'string', minLength: 1 },
+};
+
 const RunIncludeQueryParam: ParameterSpec = {
   name: 'include',
   in: 'query',
@@ -998,6 +1007,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ScopeIdQueryParam,
       ParentRunIdQueryParam,
       TopLevelQueryParam,
+      RunAgentIdQueryParam,
       RunIncludeQueryParam,
     ],
     responses: {
@@ -1328,12 +1338,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'approvals.list',
     summary: 'List approvals visible to the caller',
     description:
-      'Requires the token to carry a `reviewerRole`. Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin).',
+      "Requires the token to carry a `reviewerRole`. Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin). `scopeKind`/`scopeId` narrow to one project's approvals, or every project's in an org; approvals from before Kindgi 0.1.3 have no project and are listed only without a scope.",
     tags: ['approvals'],
     security: 'bearer',
     parameters: [
       LimitQueryParam,
       CursorQueryParam,
+      ScopeKindQueryParam,
+      ScopeIdQueryParam,
       ApprovalStatusQueryParam,
       ApprovalRequiredRoleQueryParam,
       CreatedAfterQueryParam,
@@ -1341,7 +1353,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Page of approvals.', schema: ref('ApprovalCollectionPage') },
       ...CommonAuthErrors,
-      '400': ErrorResponse('Malformed query parameter.'),
+      '400': ErrorResponse('Malformed query parameter or scope.'),
       '403': ErrorResponse('Token lacks a reviewer role or asked for a tier above the caller.'),
     },
   },
@@ -1352,7 +1364,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'approvals.get',
     summary: 'Fetch a single approval',
     description:
-      'Returns 404 for ids that exist but require a higher role than the caller (avoids cross-tier existence leaks — see API-ROUTE-CONVENTIONS.md §2.4).',
+      'Returns 404 for ids that exist but require a higher role than the caller (avoids cross-tier existence leaks — see API-ROUTE-CONVENTIONS.md §2.4). A decided approval carries its `decision`: what the reviewer decided, why, and who (`decidedBy`, `user:<userId>`).',
     tags: ['approvals'],
     security: 'bearer',
     parameters: [ApprovalIdPathParam],
@@ -1370,7 +1382,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'approvals.complete',
     summary: 'Submit a decision on an approval',
     description:
-      'Records the decision (`HitlBinding.submitReview`). When the approval carries a `waitTokenId` and the decision is `approve` or `reject`, also completes the waitpoint so the suspended run resumes.',
+      "Records the decision (`HitlBinding.submitReview`). When the approval carries a `waitTokenId` and the decision is `approve` or `reject`, also completes the waitpoint so the suspended run resumes, with `{ decided, rationale?, decidedBy, approvalId }`: the run's journal records who decided which approval (`decidedBy` is `user:<userId>`).",
     tags: ['approvals'],
     security: 'bearer',
     parameters: [ApprovalIdPathParam, IdempotencyKeyParam],
@@ -1931,12 +1943,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'conversations.list',
     summary: 'List conversations',
     description:
-      'Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`.',
+      "Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations from before Kindgi 0.1.3 have no project and are listed only without a scope.",
     tags: ['conversations'],
     security: 'bearer',
     parameters: [
       LimitQueryParam,
       CursorQueryParam,
+      ScopeKindQueryParam,
+      ScopeIdQueryParam,
       AgentIdQueryParam,
       ConversationStatusQueryParam,
     ],
@@ -1946,7 +1960,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('ConversationCollectionPage'),
       },
       ...CommonAuthErrors,
-      '400': ErrorResponse('Malformed query parameter.'),
+      '400': ErrorResponse('Malformed query parameter or scope.'),
     },
   },
   {
@@ -1971,7 +1985,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'conversations.open',
     summary: 'Open a conversation',
     description:
-      'Pins `(agentId, agentVersion)` at open time. `title` defaults to `"Untitled conversation"` when omitted; `scope` accepts arbitrary JSON.',
+      'Pins `(agentId, agentVersion)` at open time. `title` defaults to `"Untitled conversation"` when omitted; `projectId` puts it in a project (lists filter by it; omitted, the Default project); `scope` accepts arbitrary JSON.',
     tags: ['conversations'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -2293,12 +2307,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'provenance.list',
     summary: 'List provenance records',
     description:
-      'Cursor-paginated. Metadata rows only — clients fetch the DAG payload via `GET /v1/provenance/{runId}`. Fixed sort: `createdAt desc, id desc`. Filters: `?runId=`, `?agentId=`, `?createdAfter=`.',
+      "Cursor-paginated. Metadata rows only — clients fetch the DAG payload via `GET /v1/provenance/{runId}`. Fixed sort: `createdAt desc, id desc`. Filters: `?runId=`, `?agentId=`, `?createdAfter=`, and `scopeKind`/`scopeId` for one project's records, or every project's in an org (records from before Kindgi 0.1.3 have no project and are listed only without a scope).",
     tags: ['provenance'],
     security: 'bearer',
     parameters: [
       LimitQueryParam,
       CursorQueryParam,
+      ScopeKindQueryParam,
+      ScopeIdQueryParam,
       ProvenanceRunIdQueryParam,
       ProvenanceAgentIdQueryParam,
       ProvenanceCreatedAfterQueryParam,
@@ -2306,7 +2322,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Page of records.', schema: ref('ProvenanceCollectionPage') },
       ...CommonAuthErrors,
-      '400': ErrorResponse('Malformed cursor or `createdAfter` timestamp.'),
+      '400': ErrorResponse('Malformed cursor, `createdAfter` timestamp or scope.'),
     },
   },
   {

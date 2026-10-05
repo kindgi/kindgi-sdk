@@ -135,7 +135,7 @@ Pack service: https://<pack service> — <pack id> (artifact …), protocol 2, 3
 Pack service auth: a Google ID token per call (KINDGI_PACK_SERVICE_AUTH)
 ```
 
-The runtime's KMS key needs `roles/cloudkms.cryptoKeyEncrypterDecrypter` **and** `roles/cloudkms.viewer` (the boot probe reads the key). The module grants both.
+The runtime's KMS key needs `roles/cloudkms.cryptoKeyEncrypterDecrypter`. A runtime before 0.1.3 also needs `roles/cloudkms.viewer`, because its boot probe reads the key; from 0.1.3 the probe is an encrypt/decrypt round trip. The module grants both.
 
 ## 6. Register the pack
 
