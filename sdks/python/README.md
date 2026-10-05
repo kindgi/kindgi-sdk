@@ -92,7 +92,9 @@ def record_expense(expense: Expense, ctx: ToolContext) -> Recorded:
   handler runs in a worker thread, so blocking I/O is fine.
 - Before calling you, the pack service validates the input against the schema
   and runs your model's own validators; it validates what you return, too.
-- `ctx` carries `tenant_id`, `run_id`, `request_id` and `cancellation`.
+- `ctx` carries `tenant_id`, `run_id`, `request_id` and `cancellation`, and in
+  a run `project_id` (the run's project) and `org_id` (its org, or `None`),
+  which the runtime sets from the run, never from the input.
   `ctx.secrets` holds the secrets the tool declares
   (`needs_spec={"secrets": {"CITATOR_KEY": {"type": "string"}}}`): the
   runtime resolves them on every call, for the call's tenant, in its env
@@ -275,6 +277,14 @@ for event in client.runs.stream(str(turn.id)):        # SSE, resumes after a dro
 for agent in paginate(client.agents.list, limit=50):  # every page
     print(agent.id)
 ```
+
+Without arguments, the client takes `KINDGI_API_URL` and `KINDGI_API_TOKEN`
+from the environment. In development, when they're unset, it uses the running
+`kindgi dev` (the nearest `.kindgirc.json` at or above the working directory)
+and warns once (`KindgiConfigWarning`) to put them in your env file (`.env` /
+`.env.local`). Production (`KINDGI_ENV` or `NODE_ENV` set to `production`)
+never reads `.kindgirc.json`. It's the same lookup as the TypeScript SDK's
+`createClient()`.
 
 - A request body is a model from `kindgi.client.models`, a mapping, or its
   fields as keywords (snake_case or the wire's camelCase); answers are models.

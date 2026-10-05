@@ -26,6 +26,10 @@ export interface PackCallContext {
   readonly tenantId: string;
   /** The kernel run this call belongs to. */
   readonly runId: string;
+  /** The run's project: set by the runtime from the run, never from input (protocol 2.3.0). */
+  readonly projectId?: string;
+  /** That project's org, when it has one; from the project, never from input (2.3.0). */
+  readonly orgId?: string;
   /** The individual call — e.g. the model's tool-call id. */
   readonly requestId?: string;
   readonly env?: Readonly<Record<string, unknown>>;

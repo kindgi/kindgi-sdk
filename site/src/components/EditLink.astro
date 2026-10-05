@@ -1,12 +1,10 @@
 ---
 /*
- * "Edit page", "Report a problem" and the coding-agent pointer, under every
- * page.
+ * "Report a problem" and the coding-agent pointer, under every page.
  *
- * Edit goes to the page's source on main (Starlight's `editLink`): a
- * hand-written page's file under `site/`, or the `editUrl` a generated page
- * names (the contributing pages name their repository file). Generated
- * reference pages have no source to edit, so they get only the report link.
+ * There's no "Edit page" link while the repository doesn't take outside
+ * contributions; "Improve this page with your coding agent" replaces it once
+ * it does.
  *
  * The pointer to "Your coding agent" is on every page but that one: asking
  * a coding agent is the quickest way to build with Kindgi.
@@ -14,13 +12,8 @@
 import { Icon } from '@astrojs/starlight/components';
 
 const REPOSITORY = 'https://github.com/kindgi/kindgi-sdk';
-const GENERATED = 'src/content/docs/reference/';
 
 const route = Astro.locals.starlightRoute;
-const named = route.entry.data.editUrl;
-const generated = route.entry.filePath?.startsWith(GENERATED) ?? true;
-const editUrl =
-  typeof named === 'string' ? named : named === false || generated ? undefined : route.editUrl?.href;
 
 const page = new URL(Astro.url.pathname, 'https://docs.kindgi.com').href;
 const issue = new URL(`${REPOSITORY}/issues/new`);
@@ -32,14 +25,6 @@ const onCodingAgents = Astro.url.pathname.endsWith('/start/coding-agents/');
 ---
 
 <div class="kindgi-page-links sl-flex print:hidden">
-  {
-    editUrl && (
-      <a href={editUrl} class="sl-flex">
-        <Icon name="pencil" size="1.2em" />
-        {Astro.locals.t('page.editLink')}
-      </a>
-    )
-  }
   <a href={issue.href} class="sl-flex">
     <Icon name="comment-alt" size="1.2em" />
     Report a problem with this page

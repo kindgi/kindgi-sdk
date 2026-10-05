@@ -10,7 +10,7 @@ In ten minutes: a pack with two tools, an agent that calls them, a guardrail
 on its answers and a flow, running on your machine.
 
 **Before you start**, set up what the [Install page](../install/) describes:
-Node 22, Docker, and access to the runtime image. The image is in private
+Node 22.12, Docker, and access to the runtime image. The image is in private
 preview: request access at contact@kindgi.com, then log in once with
 `kindgi auth registry`.
 

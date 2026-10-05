@@ -1,5 +1,16 @@
 # @kindgi/env-schema
 
+## 0.1.2
+
+### Patch Changes
+
+- 966a615: CommonJS apps can `require()` Kindgi. Every package's `exports` gives a `default` condition beside `import`, so `require('@kindgi/sdk/client')` loads the ES modules through Node's `require()` of ES modules, instead of failing with `ERR_PACKAGE_PATH_NOT_EXPORTED`. There's still one copy of each module, so the same code runs from either kind of app.
+  
+  - Node 22.12 or later: every package's `engines.node` is `>=22.12.0` (Node loads ES modules with `require()` from 22.12 on), and so are the apps `kindgi init` creates.
+  - TypeScript that compiles to CommonJS needs TypeScript 5.8 or later with `module: nodenext`, or `moduleResolution: bundler` in an app a bundler builds.
+  - `@kindgi/handler-runtime`'s program entries (`pack-service-main`, `kindgi-index-main`) stay ES-modules-only: they run with `node`.
+- fde369b: The local key for secrets (`KINDGI_SECRETS_BACKEND_KMS=libsodium`): `KINDGI_SECRETS_LOCAL_KEY_PATH` or `KINDGI_SECRETS_LOCAL_KEY`, and `KINDGI_SECRETS_LOCAL_KEY_ACK` (required, exactly `single-node`). A self-hosted runtime without a cloud KMS can keep secrets in Postgres with a key it holds; `KINDGI_SECRETS_BACKEND_KMS` lists `libsodium` as supported.
+
 ## 0.1.1
 
 ### Patch Changes

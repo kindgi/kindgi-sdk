@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/dev-echo-provider",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Deterministic dev-only ModelProvider — no LLM key, no network, no cost. Emits a two-message scripted response (tool-call → text) so an agent turn completes in milliseconds. For dev, tests and tutorials. NEVER for production — every real deployment plugs in a real model provider adapter (Anthropic, OpenAI-compat, etc.) instead.",
   "license": "Apache-2.0",
   "repository": {
@@ -18,7 +18,8 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     }
   },
   "files": ["dist", "src", "README.md"],
@@ -32,7 +33,7 @@
     "@kindgi/capabilities": "workspace:*"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.12.0"
   },
   "publishConfig": {
     "access": "public",

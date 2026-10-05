@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/testing",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Test helpers for Kindgi apps and packages. `createStubAppBindings()` supplies every binding `createApp` requires as a typed stub that throws a descriptive `StubBindingError` if called — mount the API for contract / route-shape tests without a database or the Kindgi runtime.",
   "license": "Apache-2.0",
   "repository": {
@@ -18,7 +18,8 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     }
   },
   "files": ["dist", "src", "README.md", "type-manifest.json"],
@@ -42,7 +43,7 @@
     "vitest": "^2.1.8"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.12.0"
   },
   "publishConfig": {
     "access": "public",

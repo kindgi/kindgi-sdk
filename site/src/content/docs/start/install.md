@@ -7,7 +7,7 @@ sidebar:
 
 ## What you need
 
-- **Node 22 or later.** The `kindgi` CLI is a Node program, for TypeScript
+- **Node 22.12 or later.** The `kindgi` CLI is a Node program, for TypeScript
   and Python projects alike.
 - **Docker** (Docker Desktop, or the Docker engine on Linux). `kindgi dev`
   runs the Kindgi runtime as a container, and a Postgres container for it:
@@ -15,7 +15,7 @@ sidebar:
   your own database (Postgres 16 with pgvector, passed as `--database-url`),
   it starts no Postgres.
 - **For a Python pack:** Python 3.11 or later, and uv (or Poetry, or pip).
-  The CLI still needs Node 22.
+  The CLI still needs Node 22.12.
 
 Nothing else: the runtime is a container image that `kindgi dev` pulls and
 runs for you.

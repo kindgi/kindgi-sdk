@@ -88,7 +88,8 @@ const defined = defineTool({
   effects: [],
   mutating: false,
   handler: async (input, ctx) => {
-    // ctx.tenantId, ctx.abortSignal, ctx.secrets (what needsSpec declares) available
+    // ctx.tenantId, ctx.abortSignal, ctx.secrets (what needsSpec declares) available;
+    // in a run, ctx.projectId and ctx.orgId (set from the run, never from the input)
     // Return type MUST match Output schema (validated at invoke time)
     return { found: true, canonicalCite: '...' };
   },

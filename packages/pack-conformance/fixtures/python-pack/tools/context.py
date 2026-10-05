@@ -18,4 +18,8 @@ def context(input: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
     }
     if ctx.request_id is not None:
         out["requestId"] = ctx.request_id
+    if ctx.project_id is not None:
+        out["projectId"] = ctx.project_id
+    if ctx.org_id is not None:
+        out["orgId"] = ctx.org_id
     return out

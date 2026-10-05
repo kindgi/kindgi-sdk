@@ -49,6 +49,8 @@ class RunTrace(_Wire):
     run_id: str
     tenant_id: str
     project_id: str | None = None
+    org_id: str | None = None
+    """The project's org, when it belongs to one: resolved by the runtime, never from input."""
     agent_id: str | None = None
     flow_id: str | None = None
     output: str | None = None

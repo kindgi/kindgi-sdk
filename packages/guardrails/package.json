@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/guardrails",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Runtime + CI enforcement of agent-behavior guardrails for Kindgi. Same declaration runs at runtime (halt / retry / escalate / log-only / compensate on violation) and in CI (fails the build) — no drift between test and prod. Zero-LLM checks (must-cite, never-call-tool, max-tool-calls, output-matches, tool-order, required-substring, forbidden-substring) are the default fast path; LLM-judge guardrails route via @kindgi/capabilities with explicit budget declarations. Execution strategies and action handlers are pluggable registries, and failed checks optionally emit compliance evidence.",
   "license": "Apache-2.0",
   "repository": {
@@ -18,7 +18,8 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     }
   },
   "files": ["dist", "src", "README.md", "SPEC.md", "type-manifest.json"],
@@ -52,7 +53,7 @@
     "zod": "^4.6.5"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.12.0"
   },
   "publishConfig": {
     "access": "public",
