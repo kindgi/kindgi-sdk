@@ -144,6 +144,13 @@ export interface TurnContext {
    */
   persistedProvenance?: import('@kindgi/provenance').Provenance;
   /**
+   * This turn's tool results so far, by invocation id: a model call read
+   * them all (they're in its input), so its provenance node is
+   * `influenced-by` each. Filled by `dispatch-tools`, and by the rebuild
+   * of a resumed turn.
+   */
+  toolResultIds?: string[];
+  /**
    * The tenant policy this turn's model was routed under (bound policy
    * merged with the policy registry's). Populated by `setup`; guardrail
    * judges route under it too.

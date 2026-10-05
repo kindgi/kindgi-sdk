@@ -8,6 +8,7 @@ import type { ConversationMessage } from '../types.js';
 
 import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
+import { addInputNode } from './turn-provenance.js';
 
 /**
  * Persist the caller's user message BEFORE the model is called. A
@@ -33,14 +34,7 @@ export function buildPersistUserMessageHandler(ctx: TurnContext): NodeHandler {
       ctx.userMessage = synthetic;
       ctx.appended.push(synthetic);
 
-      if (ctx.provenance !== undefined) {
-        ctx.provenance.addNode({
-          id: `input:${synthetic.sequence}`,
-          kind: 'input',
-          timestamp: synthetic.createdAt,
-          ...(synthetic.actor !== undefined && { actor: synthetic.actor }),
-        });
-      }
+      if (ctx.provenance !== undefined) addInputNode(ctx.provenance, synthetic);
       return { sequence: synthetic.sequence };
     }
 
@@ -56,14 +50,7 @@ export function buildPersistUserMessageHandler(ctx: TurnContext): NodeHandler {
     ctx.userMessage = persisted.value;
     ctx.appended.push(persisted.value);
 
-    if (ctx.provenance !== undefined) {
-      ctx.provenance.addNode({
-        id: `input:${persisted.value.sequence}`,
-        kind: 'input',
-        timestamp: persisted.value.createdAt,
-        ...(persisted.value.actor !== undefined && { actor: persisted.value.actor }),
-      });
-    }
+    if (ctx.provenance !== undefined) addInputNode(ctx.provenance, persisted.value);
 
     return { sequence: persisted.value.sequence };
   };
