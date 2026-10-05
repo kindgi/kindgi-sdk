@@ -21,7 +21,8 @@ Begin here.
 :::tip[Working with a coding agent?]
 Once `kindgi init` has run, your coding agent has Kindgi's skills. You can
 follow these pages yourself, or ask the agent for what you want: it writes
-the tools, agents and flows, runs them with `kindgi dev` and
-`kindgi runs start`, and asks you only for the pack's id and your model's
-key. [How it knows Kindgi](coding-agents/).
+the tools, agents and flows, and runs them with `kindgi dev` and
+`kindgi runs start`. You still name your pack and its agents, and you provide
+the credentials, such as your model provider's API key.
+[How it knows Kindgi](coding-agents/).
 :::
