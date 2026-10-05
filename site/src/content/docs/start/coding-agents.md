@@ -1,6 +1,6 @@
 ---
 title: Your coding agent
-description: How your coding agent knows Kindgi, the commands it runs, and the two things it asks you for.
+description: How your coding agent knows Kindgi, the commands it runs, and what stays with you.
 sidebar:
   order: 6
 ---
@@ -91,16 +91,15 @@ In a TypeScript project it runs the CLI the project pins (`pnpm exec
 kindgi`). In a Python project it runs `npx --yes @kindgi/cli@0.1`; `--yes`
 skips npx's install prompt, so the agent never waits on it.
 
-## What it asks you for
+## What stays with you
 
-Two things are yours to decide, and the skills tell the agent to ask:
-
-- **The pack's id and version.** The id prefixes every tool, agent and flow
-  (`<pack-id>.<name>`), so you pick it once.
-- **The key for your model.** The agent asks you for it rather than invent
-  one or write it into code. You put it in your env file (`.env` /
-  `.env.local`), or type it into `kindgi secrets set`, which asks for it
-  without showing it. Then the agent registers the provider.
+- **The names.** You name your pack and its agents. The pack's id prefixes
+  every tool, agent and flow (`<pack-id>.<name>`), so pick it once; the skills
+  tell the agent to ask you for it rather than guess.
+- **The credentials.** You provide them, such as your model provider's API
+  key: put it in your env file (`.env` / `.env.local`), or type it into
+  `kindgi secrets set`, which asks for it without showing it. The agent never
+  invents one or writes one into code. Then it registers the provider.
 
 Logging in to the runtime image's registry is yours too:
 `kindgi auth registry` asks for your token the same way
