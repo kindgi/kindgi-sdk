@@ -19,13 +19,14 @@ import {
   type UnresolvedToolError,
   throwAgentTurnFailure,
 } from './errors.js';
+import { TOOL_CALL_GATE_SUBJECT, readGateDecision } from './gate-decision.js';
 import {
   effectiveToolErrorPolicy,
   toolErrorKindOf,
   toolErrorResult,
   toolRetriesSoFar,
 } from './tool-errors.js';
-import { type ToolHitlDecision, computeToolCallWaitToken, hashToolArgs } from './tool-hitl.js';
+import { computeToolCallWaitToken, hashToolArgs } from './tool-hitl.js';
 
 /**
  * Resolves the effective HITL mode + reviewer role for a specific
@@ -251,7 +252,7 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
           try {
             await ctx.bindings.hitl.enqueue({
               tenantId: ctx.input.tenantId,
-              subjectKind: 'tool-call:pending',
+              subjectKind: TOOL_CALL_GATE_SUBJECT,
               subjectRef: {
                 conversationId: ctx.input.conversationId,
                 agentId: ctx.input.agent.id,
@@ -275,14 +276,16 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
         }
 
         try {
-          const decision = await kctx.waitForToken<ToolHitlDecision>(waitTokenId, {
-            timeoutMs,
-          });
-          if (decision.decided === 'reject') {
+          // Fails closed: only an explicit approve runs the tool. A reject,
+          // or an answer that isn't a decision at all, gives the model a
+          // rejected result instead.
+          const decision = readGateDecision(
+            await kctx.waitForToken<unknown>(waitTokenId, { timeoutMs }),
+          );
+          if (!decision.approved) {
             toolRejectionPayload =
               decision.rationale !== undefined ? { rationale: decision.rationale } : {};
           }
-          // approve → fall through to dispatch
         } catch (cause) {
           if (cause instanceof WaitpointCancelledError) {
             throwAgentTurnFailure({
