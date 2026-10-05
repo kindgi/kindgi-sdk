@@ -57,6 +57,9 @@ kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my o
 - **`contextWindow`** is the context your server serves the model with, which
   can be less than the model's own.
 
+To have `kindgi dev` register it on every boot, put the spec in the pack's
+config instead (`{ spec: { … } }` in `providers`); see [Declare them in your pack's config](../#declare-them-in-your-packs-config).
+
 ## Extra request fields
 
 Some servers need fields the OpenAI API doesn't have. A thinking model (Qwen 3,

@@ -1,5 +1,27 @@
 # @kindgi/testing
 
+## 0.1.3
+
+### Patch Changes
+
+- Updated dependencies [2544717]
+- Updated dependencies [0f226c2]
+- Updated dependencies [629057d]
+- Updated dependencies [786cbde]
+- Updated dependencies [1463b77]
+- Updated dependencies [aa4399f]
+- Updated dependencies [453056f]
+- Updated dependencies [6bae409]
+- Updated dependencies [ab23a9b]
+- Updated dependencies [6c274dd]
+- Updated dependencies [2c185d8]
+- Updated dependencies [eac7732]
+  - @kindgi/agents@0.1.3
+  - @kindgi/api@0.1.3
+  - @kindgi/runtime@0.1.3
+  - @kindgi/memory@0.1.3
+  - @kindgi/platform@0.1.3
+
 ## 0.1.2
 
 ### Patch Changes

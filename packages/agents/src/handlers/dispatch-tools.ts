@@ -26,7 +26,7 @@ import {
   toolErrorResult,
   toolRetriesSoFar,
 } from './tool-errors.js';
-import { computeToolCallWaitToken, hashToolArgs } from './tool-hitl.js';
+import { TOOL_GATE_RECORD_PREFIX, computeToolCallWaitToken, hashToolArgs } from './tool-hitl.js';
 import { addStepToolNodes } from './turn-provenance.js';
 
 /**
@@ -113,7 +113,7 @@ async function decideToolGate(
       cause: null,
     });
   }
-  return kctx.record(`tool-hitl-gate:${call.id}`, (): ToolGateRecord | undefined => {
+  return kctx.record(`${TOOL_GATE_RECORD_PREFIX}${call.id}`, (): ToolGateRecord | undefined => {
     const resolved = resolveEffectiveToolHitl(effectiveHitl, tool);
     if (resolved.mode === 'never_ask') return undefined;
     const argsHash = hashToolArgs(call.arguments);
@@ -253,6 +253,7 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
           try {
             await ctx.bindings.hitl.enqueue({
               tenantId: ctx.input.tenantId,
+              projectId: ctx.input.projectId,
               subjectKind: TOOL_CALL_GATE_SUBJECT,
               subjectRef: {
                 conversationId: ctx.input.conversationId,

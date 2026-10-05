@@ -263,6 +263,49 @@ A turn the fallback answers carries a `fallback-provider` warning, which
 `kindgi runs start` prints. `kindgi providers unregister dev-echo` removes it
 for good.
 
+A preset's models carry their own output limit (Gemini 2.5: 65,536 tokens,
+thinking included). `--max-output-tokens=<n>` registers them with a lower
+or different cap.
+
+**Declared in the config**, `kindgi dev` registers them itself. Each project
+and git worktree has its own dev database, so this registers them in every
+worktree, after `--reset`, and on a teammate's machine:
+
+```ts
+// kindgi.config.ts
+export default {
+  pack: { id: 'acme', version: '0.1.0' },
+  providers: [
+    { preset: 'anthropic' },                     // its key, ANTHROPIC_API_KEY, in the env files
+    { preset: 'gemini', project: 'acme-gcp', models: ['gemini-2.5-flash'] },
+    { spec: { /* a --spec body */ secret_ref: { name: 'QWEN_API_KEY' } } },
+  ],
+};
+```
+
+In `pyproject.toml`, each one is a `[[tool.kindgi.providers]]` table with
+the same keys. A preset takes:
+- `models`;
+- `project`;
+- `secret`: the key's name, in place of the preset's own;
+- `maxOutputTokens`.
+
+A `spec` is what `--spec` takes. A key is always a secret's name, resolved in
+the env files. A `spec` with a credential in `adapter_config` is refused.
+
+On each boot, `kindgi dev`:
+- registers a declared provider the runtime doesn't have. If its key isn't in
+  the env files, it skips that provider and says so in one line;
+- re-registers a provider it registered whose declaration changed;
+- unregisters a provider it registered that the config no longer declares;
+- leaves alone any provider it didn't register (by hand, or by another pack of
+  the project). If one is registered differently from the config, `kindgi dev`
+  warns and names the `kindgi providers unregister` that lets the config's
+  version apply.
+
+It records which providers it registered in `.kindgi/dev/providers.json`, per
+database and tenant.
+
 **Any OpenAI-compatible endpoint** — an open-source model you serve yourself
 (vLLM, llama.cpp's `llama-server`, Ollama, LM Studio), OpenRouter, a LiteLLM
 proxy — registers with `--spec`, naming its base URL in `adapter_config`:
@@ -425,7 +468,9 @@ Builds a signed pack image with a Kindgi build server, and writes
   first whose Node satisfies the app's `engines.node`.
 - **Install:** the app's dependencies, installed the way the app installs
   them, from its own lockfile, frozen. pnpm and yarn come through corepack
-  and the `packageManager` field. Build scripts are off during the install;
+  and the `packageManager` field. A pnpm app with no `packageManager` gets the
+  host's pnpm version (`pnpm --version`), the one that wrote the lockfile,
+  never the newest. Build scripts are off during the install;
   then `rebuild` runs the ones the app allows, and the install is pruned to
   production dependencies.
 - **A workspace:** with pnpm, only the pack's project and what it depends on
@@ -605,7 +650,7 @@ Per-environment values for the pack, in env files next to
   ```
 
   It prints the Terraform input (`env` and `secret_env`), or with
-  `--format=gcloud` the `--set-env-vars` / `--set-secrets` flags. It exits 1
+  `--format=gcloud` the `--update-env-vars` / `--update-secrets` flags (they add or replace the listed names; the service's other variables stay). It exits 1
   when a required name has no source, or when a secret is given as a plain
   value: by its name (`*_KEY`, `*_TOKEN`, …) or by a credential in it (a URL
   with a password). That value is never printed. A reference to version
@@ -701,10 +746,13 @@ Inside a pack that `kindgi dev` runs, they find it on their own (see
 | `version` | The CLI's and SDK's versions, and the API's when it's reachable |
 
 `kindgi runs start` starts a run for an agent (`--agent=<id>`) or a flow
-(`--flow=<id>`) and waits for it to finish. `--no-wait` prints a flow run as
-soon as it exists and lets it finish in the background (follow it with
-`runs get` or `runs stream`); an agent run always answers when its turn ends.
-`--dry-run` runs only the tools declared read-only (`mutating: false`).
+(`--flow=<id>`) and waits until it finishes, or until it waits on an
+approval. It follows the run rather than holding the start request open, so
+a long run doesn't time it out. Stopped (Ctrl+C), the wait ends and the run
+goes on: the CLI prints its id and `kindgi runs get <id>`. `--no-wait`
+prints the run as soon as it exists (follow it with `runs get` or `runs
+stream`). `--dry-run` runs only the tools declared read-only (`mutating:
+false`).
 
 `kindgi <command> --help` prints a command's subcommands and flags.
 

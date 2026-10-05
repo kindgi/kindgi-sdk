@@ -955,7 +955,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       authorizer,
     ),
   );
-  v1.route('/conversations', conversationsRouter(input.conversationBinding, runBinding));
+  v1.route(
+    '/conversations',
+    conversationsRouter(input.conversationBinding, runBinding, input.projectBinding),
+  );
   if (publicRunTokenLimits !== undefined) {
     v1.route(
       '/tokens/public',
@@ -1070,6 +1073,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     identityRouter({
       ...(input.identityDirectory !== undefined && { directory: input.identityDirectory }),
       ...(input.sessionStore !== undefined && { sessionStore: input.sessionStore }),
+      ...(input.reviewerBinding !== undefined && { reviewerBinding: input.reviewerBinding }),
     }),
   );
   if (input.cost !== undefined) {

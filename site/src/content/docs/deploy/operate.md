@@ -17,7 +17,7 @@ docker rm kindgi-server
 docker run -d --name kindgi-server --network kindgi \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.2
+  quay.io/kindgi/runtime:0.1.3
 ```
 
 On a stop, the runtime stops taking requests and gives the runs it's executing up to 7 seconds to finish, then exits with code 0. `--time 30` gives it that time before Docker kills it.
@@ -63,14 +63,20 @@ NAMES           STATUS
 kindgi-server   Up 34 seconds (healthy)
 ```
 
-`docker ps` shows `(unhealthy)` while the database is down. A route that reads the database answers `500` and names the cause. With Postgres unreachable, `GET /v1/deployments` answers:
+`docker ps` shows `(unhealthy)` while the database is down, and the runtime's log says why:
+
+```text
+[ready] the database doesn't answer: host not found (getaddrinfo ENOTFOUND kindgi-db)
+```
+
+A route that reads the database answers `500` and names the cause. With Postgres unreachable, `GET /v1/deployments` answers:
 
 ```sh
 curl -s http://localhost:4000/v1/deployments -H "authorization: Bearer $KINDGI_API_TOKEN"
 ```
 
 ```text
-{"error":{"code":"internal-server-error","message":"Deployment list failed: deployments: Tenant-scoped query failed: getaddrinfo ENOTFOUND kindgi-db","requestId":"req-…"}}
+{"error":{"code":"internal-server-error","message":"Deployment list failed: deployments: Tenant-scoped query failed: host not found (getaddrinfo ENOTFOUND kindgi-db)","requestId":"req-…"}}
 ```
 
 ### The startup log
@@ -117,7 +123,7 @@ repair is a line in its log:
 
   ```text
   1
-  Can't connect to the database at kindgi-db:5432/kindgi: getaddrinfo ENOTFOUND kindgi-db. Check KINDGI_DATABASE_URL, and that Postgres is up and reachable from here.
+  Can't connect to the database at kindgi-db:5432/kindgi: host not found (getaddrinfo ENOTFOUND kindgi-db). Check KINDGI_DATABASE_URL, and that Postgres is up and reachable from here.
   ```
 
 - **Another failure while starting:** it exits with code 1, and the log's first line starts with `kindgi-runtime: fatal:` and ends with the cause.
@@ -133,6 +139,14 @@ docker exec kindgi-db pg_dump -U kindgi -Fc kindgi > kindgi-backup.dump
 ```
 
 `-Fc` is pg_dump's custom format, which `pg_restore` reads. The dump holds your runs' inputs and outputs: store it like the database.
+
+If the runtime stores model keys ([Models that need a key](../self-host/#8-add-a-model-and-run-a-flow)), the dump holds them encrypted, but not the keys that open them. Back up the secrets store's keys too, apart from the dump: the AAD key, and the local key (with Google Cloud KMS, that key stays in KMS). A restore needs the same ones. A runtime started with another local key stops with exit code 2:
+
+```text
+The secrets' local key changed: tenant 207f5388-1737-45c0-a02c-b5388ca12da0's secrets were stored under local:42080424744213e5, and this key is local:f6bc4a15bef0d446. Start with the key they were stored under (KINDGI_SECRETS_LOCAL_KEY_PATH or KINDGI_SECRETS_LOCAL_KEY).
+```
+
+A different AAD key isn't checked when the runtime starts, so keep the two keys together.
 
 ## Restore into a fresh database
 
@@ -332,7 +346,7 @@ docker run -d --name kindgi-server --network kindgi \
   --add-host registry.localhost:host-gateway \
   -v "$PWD/public-token-signing.pem:/etc/kindgi/public-token-signing.pem:ro" \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.2
+  quay.io/kindgi/runtime:0.1.3
 ```
 
 The file must have mode 0600, and the runtime's user in the container (uid 10001) must be able to read it. The log says:

@@ -118,8 +118,42 @@ export interface KindgiConfig {
    * `pack-env.ts`).
    */
   readonly env?: PackEnvConfig;
+  /**
+   * The project the pack belongs to under `kindgi dev`, which names its dev
+   * database and tenant. Absent: the git repository's name, else the
+   * workspace root's, else the pack folder's.
+   */
+  readonly project?: string;
+  /**
+   * Model providers `kindgi dev` registers for the project, and keeps in
+   * step with this list. Credentials are secrets by name only, resolved in
+   * the pack's env files.
+   */
+  readonly providers?: readonly KindgiProviderDeclaration[];
   readonly [k: string]: unknown;
 }
+
+/** One provider in `KindgiConfig.providers`: a preset, or a full registration. */
+export type KindgiProviderDeclaration =
+  | {
+      /** A preset by name (`kindgi providers presets` lists them). */
+      readonly preset: string;
+      /** Only these of the preset's models. Default: all. */
+      readonly models?: readonly string[];
+      /** The Google Cloud project, for a preset that needs one (`gemini`). */
+      readonly project?: string;
+      /** The secret holding the API key, in place of the preset's own. */
+      readonly secret?: string;
+      /** Each model's output cap, in place of the preset's (the model's own limit). */
+      readonly maxOutputTokens?: number;
+    }
+  | {
+      /**
+       * A registration body, as `kindgi providers register --spec` takes it.
+       * A credential goes in `secret_ref` by name, never in `adapter_config`.
+       */
+      readonly spec: Readonly<Record<string, unknown>>;
+    };
 
 /** The language of a loaded config's pack code. */
 export function packLanguage(config: KindgiConfig): PackLanguage {

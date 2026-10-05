@@ -35,7 +35,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { chmod, readFile, unlink, writeFile } from 'node:fs/promises';
-import { isAbsolute, join, resolve } from 'node:path';
+import { basename, isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 
 import {
@@ -56,7 +56,7 @@ import {
   runtimeValues,
 } from '@kindgi/secrets-dotenv';
 
-import type { KindgiClient } from '@kindgi/client';
+import type { KindgiClient, Provider } from '@kindgi/client';
 import { CORS_ORIGINS_VAR, PUBLIC_TOKEN_KEY_PATH_VAR, parseCorsOrigins } from '@kindgi/env-schema';
 
 import type { CommandContext } from '../context.js';
@@ -65,6 +65,16 @@ import { type PackCode, resolvePackCode } from '../dev/pack-code.js';
 import { devPackEnv, devPackEnvFiles } from '../dev/pack-env.js';
 import { createPackRefresher, describePackEvent } from '../dev/pack-service.js';
 import { type DevProject, resolveDevProject } from '../dev/project.js';
+import {
+  type DeclaredProvider,
+  declaredProviders,
+  describeReconcile,
+  devProvidersKey,
+  devProvidersRecordPath,
+  readOwnedProviders,
+  reconcileProviders,
+  writeOwnedProviders,
+} from '../dev/providers.js';
 import { type RegistrationReport, registerFromIndex } from '../dev/register.js';
 import type {
   DevRunners,
@@ -78,6 +88,7 @@ import { DEFAULT_RUNTIME_IMAGE } from '../dev/runtime-image.js';
 import { describeEnvDiagnostics, loadLocalEnvSettings } from '../env/project-env.js';
 import { renderJson } from '../output.js';
 import { binDisplay, detectBinRunner } from '../package-manager.js';
+import { loadProviderPresets } from '../providers/preset-loader.js';
 import { CLI_VERSION } from '../version-info.js';
 import { defaultSdkSkillsRoot } from './init.js';
 import { detectSkillDrift } from './skills.js';
@@ -288,6 +299,17 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
 
   const publicRunTokens = await resolveDevPublicRunTokens(ctx.env, projectEnv.runtime);
   if (publicRunTokens.kind === 'error') return publicRunTokens;
+
+  // The providers the config declares: refused now, before anything
+  // starts, when one is malformed; registered once the runtime serves.
+  const configName = basename(configFile.path);
+  const declared =
+    projectEnv.config?.providers === undefined
+      ? ({ kind: 'ok', providers: [] } as const)
+      : declaredProviders(projectEnv.config, configName, await loadProviderPresets());
+  if (declared.kind === 'invalid') {
+    return { kind: 'error', stderr: `kindgi dev: ${declared.message}\n`, exitCode: 1 };
+  }
 
   // Resolve the database URL. Precedence:
   //   1. --database-url, then KINDGI_DATABASE_URL from the shell
@@ -582,6 +604,16 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   // for a Python pack (no npm project), the kindgi on PATH.
   const runner = await detectBinRunner(args.packDir, code.value.language);
   const kindgi = (...a: string[]): string => binDisplay(runner, 'kindgi', a);
+  await applyDeclaredProviders({
+    client,
+    packDir: args.packDir,
+    key: devProvidersKey(databaseUrl, server.tenantId),
+    declared: declared.providers,
+    file: configName,
+    kindgi,
+    secretNames: projectEnv.secretNames,
+    envFiles: projectEnv.envFilesLabel,
+  });
   const providers = await registeredProviders(client);
   const registerProviderCommand = kindgi('providers', 'register', '--preset=anthropic');
 
@@ -870,6 +902,10 @@ type ProjectEnvOutcome =
       readonly language: PackLanguage;
       /** The loaded config (`undefined` in tests that inject none). */
       readonly config: Readonly<Record<string, unknown>> | undefined;
+      /** The names the env files give the pack: the secrets `local` resolves. */
+      readonly secretNames: ReadonlySet<string>;
+      /** The env files `local` reads, as the boot log names them. */
+      readonly envFilesLabel: string;
     }
   | (CommandResult & { readonly kind: 'error' });
 
@@ -924,6 +960,8 @@ async function loadDevProjectEnv(ctx: CommandContext, packDir: string): Promise<
     ),
     language,
     config: settings.config,
+    secretNames: new Set(Object.keys(packValues(env.values))),
+    envFilesLabel: label(env.files.read),
   };
 }
 
@@ -1325,6 +1363,21 @@ export interface BannerProvider {
   readonly fallback?: boolean;
 }
 
+/** Every provider of the tenant, all pages. */
+async function listProviders(client: KindgiClient): Promise<readonly Provider[]> {
+  const providers: Provider[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await client.providers.list({
+      limit: 100,
+      ...(cursor !== undefined && { cursor }),
+    });
+    providers.push(...page.data);
+    cursor = page.hasMore ? page.nextCursor : undefined;
+  } while (cursor !== undefined);
+  return providers;
+}
+
 /**
  * The tenant's providers for the banner; `undefined` when they can't be
  * listed (the banner then leaves the line out).
@@ -1333,19 +1386,57 @@ async function registeredProviders(
   client: KindgiClient,
 ): Promise<readonly BannerProvider[] | undefined> {
   try {
-    const providers: BannerProvider[] = [];
-    let cursor: string | undefined;
-    do {
-      const page = await client.providers.list({
-        limit: 100,
-        ...(cursor !== undefined && { cursor }),
-      });
-      providers.push(...(page.data as readonly BannerProvider[]));
-      cursor = page.hasMore ? page.nextCursor : undefined;
-    } while (cursor !== undefined);
-    return providers;
+    return (await listProviders(client)) as readonly BannerProvider[];
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * Bring the runtime's providers in step with the ones the config
+ * declares (`dev/providers.ts`). Never fails the boot: what couldn't be
+ * done is one line each.
+ */
+async function applyDeclaredProviders(inputs: {
+  readonly client: KindgiClient;
+  readonly packDir: string;
+  /** The dev database and tenant (`devProvidersKey`). */
+  readonly key: string;
+  readonly declared: readonly DeclaredProvider[];
+  readonly file: string;
+  readonly kindgi: (...args: string[]) => string;
+  readonly secretNames: ReadonlySet<string>;
+  readonly envFiles: string;
+}): Promise<void> {
+  const recordPath = devProvidersRecordPath(inputs.packDir);
+  const owned = await readOwnedProviders(recordPath, inputs.key);
+  if (inputs.declared.length === 0 && Object.keys(owned).length === 0) return;
+  const { client } = inputs;
+  let result: Awaited<ReturnType<typeof reconcileProviders>>;
+  try {
+    result = await reconcileProviders({
+      declared: inputs.declared,
+      owned,
+      client: {
+        list: () => listProviders(client),
+        register: (input) => client.providers.register(input),
+        unregister: (id) => client.providers.unregister(id),
+      },
+      hasSecret: (name) => inputs.secretNames.has(name),
+    });
+  } catch (err) {
+    emitProgress(
+      `⚠ Providers from ${inputs.file}: not applied; the runtime's providers could not be listed: ${(err as Error).message}`,
+    );
+    return;
+  }
+  for (const line of describeReconcile(result.outcomes, inputs)) emitProgress(line);
+  try {
+    await writeOwnedProviders(recordPath, inputs.key, result.owned);
+  } catch (err) {
+    emitProgress(
+      `  ⚠ could not write ${join('.kindgi', 'dev', 'providers.json')}: ${(err as Error).message}. The next boot leaves the providers registered now as they are.`,
+    );
   }
 }
 

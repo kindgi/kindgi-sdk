@@ -1,6 +1,6 @@
 ---
 title: Show runs in your app
-description: Keep a run's id on your own row, and read its status, output, steps and sources through the API, never from Kindgi's database or console.
+description: Keep a run's id on your own row, and read its status, output, steps, sources and cost through the API, never from Kindgi's database or console.
 sidebar:
   order: 8
 ---
@@ -20,8 +20,9 @@ column such as `kindgi_run_id`. It's all your app needs to read the run again.
 
 Subscribe to the `run.finished` webhook instead of polling:
 [Get a webhook when a run finishes](../../webhooks/receive-run-finished/). It
-carries the run's id and outcome (`completed`, `failed` or `cancelled`), never
-its output, so your handler finds the row by `kindgi_run_id` and reads the run.
+carries the run's id, its outcome (`completed`, `failed` or `cancelled`) and
+what its model calls cost, never its output, so your handler finds the row by
+`kindgi_run_id` and reads the run.
 
 ## Read what you show
 
@@ -31,6 +32,7 @@ its output, so your handler finds the row by `kindgi_run_id` and reads the run.
 | Only the status and timing (no data) | `GET /v1/runs/{runId}/progress` | `runs.progress` |
 | What happened, step by step: tool calls, branches, approvals | `GET /v1/runs/{runId}/journal` | `runs.journal` ([Read a run's journal](../read-the-journal/)) |
 | Where an agent's answer came from: its model calls and tool results | `GET /v1/provenance/{runId}` | `provenance.get` ([Trace an answer](../../observability/trace-an-answer/)) |
+| What it cost: each model call's tokens and cost, its agent steps' included | `GET /v1/cost/records?rootRunId={runId}` | `cost.usage.query` (Python: `cost.records.list`) ([Cost per run and per customer](../../observability/cost-per-run/)) |
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">

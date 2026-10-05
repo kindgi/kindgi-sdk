@@ -13,6 +13,8 @@ import type {
 } from '@kindgi/types';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
+import type { ScopeRef } from '../scope-wire.js';
+import { scopeToQuery } from '../scope-wire.js';
 import { singleStatusQuery } from '../status-query.js';
 import type { Transport } from '../transport.js';
 import type {
@@ -205,6 +207,8 @@ export interface ApprovalFilter extends Omit<Filter<ApprovalStatus>, 'status'> {
    * passing several is rejected client-side with `invalid-request`.
    */
   readonly status?: ApprovalStatus;
+  /** Only one project's approvals (`kind: 'project'`), or every project's in an org (`kind: 'org'`). */
+  readonly scope?: ScopeRef;
   /** Filter by required reviewer role. Caller must have rank ≥ value (else 403). */
   readonly requiredRole?: ReviewerRole;
   /** ISO 8601 timestamp — return approvals created strictly after this. */
@@ -266,6 +270,7 @@ export function makeApprovalsClient(transport: Transport): ApprovalsClient {
           ...(filter?.limit !== undefined && { limit: filter.limit }),
           ...(filter?.cursor !== undefined && { cursor: filter.cursor as unknown as string }),
           ...(statusParam !== undefined && { status: statusParam }),
+          ...(filter?.scope !== undefined && scopeToQuery(filter.scope)),
           ...(filter?.requiredRole !== undefined && { requiredRole: filter.requiredRole }),
           ...(filter?.createdAfter !== undefined && {
             createdAfter: filter.createdAfter as unknown as string,

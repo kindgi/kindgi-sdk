@@ -1,5 +1,62 @@
 # @kindgi/cli
 
+## 0.1.3
+
+### Patch Changes
+
+- **`kindgi build` installs with the pnpm that wrote the lockfile.** For a pnpm pack whose `package.json` has no `packageManager`, the image used to take the newest pnpm through corepack. pnpm 12 refuses packages published less than a day ago (`minimumReleaseAge`) when it installs from a lockfile an older pnpm wrote. So, for anyone on pnpm 10 or 11, a build failed for a day after any of the pack's dependencies was released, a new Kindgi version included, and the image's pnpm changed with every pnpm release. The image now installs the host's pnpm version, the one `pnpm --version` gives in the install root. When that can't be read, `kindgi build` refuses and says to add `packageManager`. A `packageManager` in `package.json` still wins, and pnpm's own policies are left as they are.
+- ddea933: `kindgi dev` gives each project its own database in the bundled Postgres, `kindgi_<project>`, with its own dev tenant and user. A linked git worktree gets `kindgi_<project>__<worktree>`, so branches on different Kindgi versions never share a schema.
+  
+  - **The project's name:** `project` in the Kindgi config (`kindgi.config.ts`, or `project` under `[tool.kindgi]` in `pyproject.toml`), else the git repository's, the workspace root's or the pack folder's. The boot log names it.
+  - **A database belongs to the folder that made it:** another folder whose project has the same name is refused until it sets its own `project`. A moved folder takes its database with it.
+  - **`--reset` drops the project's database** after asking. `--yes` skips the question, and with no terminal to ask on it refuses. A database passed with `--database-url` is never dropped.
+  - **Shared:** every pack of one project shares the database and the tenant. Each keeps its own tools, pack service and env files.
+  - **The shared `kindgi` database** earlier releases used is left as it is. The first boot says so, once.
+- d4dcbd7: **`kindgi dev` registers the model providers the config declares.** List them as `providers` in `kindgi.config.ts`, or as `[[tool.kindgi.providers]]` tables in `pyproject.toml`. Each one is a preset (`{ preset: 'gemini', project: 'acme-gcp', models: [...] }`, the choices `providers register --preset` takes) or a `{ spec: … }` registration body. They are then registered in every worktree's database, after `--reset`, and on a teammate's machine, with no `providers register` to repeat.
+  
+  On each boot, `kindgi dev` keeps the runtime in step with the list:
+  - it registers a missing provider;
+  - it re-registers one it registered whose declaration changed;
+  - it unregisters one the config no longer declares.
+  
+  It leaves alone any provider it didn't register. One registered differently gets a warning naming the `unregister` that lets the config's version apply. A provider whose key isn't in the env files is skipped, with one line naming the secret.
+  
+  A key is always a secret's name: a `spec` with a credential in `adapter_config` is refused. Which providers `kindgi dev` registered is recorded in `.kindgi/dev/providers.json`, per database and tenant.
+- fceb277: `kindgi dev` no longer misses a save that lands while a rebuild is running. The bundler skipped a rebuild that read the same files as the last one it reported, and told them apart by each file's size and modification time, read once the build had ended. A file saved during a build (an editor's save landing mid-build, or one caught half written, as when watching starts) was read before the save but stamped after it, so the rebuild the save triggered looked unchanged and was dropped: the dev index stayed on the stale build, a half-written file's "refresh failed" included, until the next save. A build during which an input changed (or changed within 3 s of its start, too close to tell) is now never taken for a later one.
+  
+  The pack conformance fixture has a new tool, `conformance.hold`: it prints `hold: <release>` on stdout and waits until the file `release` exists. The suite's drain, concurrency-cap and disconnect cases hold a call open with it, so each acts once the service has taken the call, and for exactly as long as it needs, rather than after a fixed wait. A pack service in another language implements it in its fixture pack (see `FIXTURE.md`).
+- 4ed3d2f: CLI fixes from a pilot's feedback, and the runtime's port order.
+  
+  - **`kindgi runs start` never loses the run.** It starts the run in the background and follows it, rather than holding the start request open. A long agent turn no longer times out the CLI with no run id to look it up by. It still waits until the run finishes or waits on an approval, and prints the same record. A stopped wait (Ctrl+C) prints `Stopped waiting. Run <id> goes on: kindgi runs get <id>`.
+  - **The Gemini preset uses the models' real output limit:** 65,536 tokens for Gemini 2.5 Pro and Flash, thinking included. It used to cap Pro at 8192. `kindgi providers register --preset=<name> --max-output-tokens=<n>` sets another cap.
+  - **`kindgi env plan --format=gcloud` emits `--update-env-vars` / `--update-secrets`.** They add or replace the names listed and leave the service's other variables alone. `--set-*` replaced the whole env.
+  - **`KINDGI_API_PORT`'s description states the port order.** The runtime takes the first that's set: the `--port` flag, `KINDGI_API_PORT`, the platform's `PORT` (Cloud Run, Render, Heroku and Fly set it), the config file's `port`, then 4000.
+- 2c185d8: Fixes from the first Cloud Run deployment.
+  
+  - **The pack service token is read the same way on both sides.** `parsePackServiceToken` (new in `@kindgi/env-schema`) drops surrounding whitespace, so a secret stored with a trailing newline no longer makes every pack call answer 401. A token with whitespace or a control character inside is refused at startup, since an HTTP header can't carry it. The Node pack service and the Python one (`kindgi.pack.serve`) both use the rule, and the pack conformance suite checks it.
+  - **Refusals aren't replayed.** The idempotency middleware stores a response only when the request took effect (a status below 400). A request retried with the same `Idempotency-Key` after a refusal (4xx) or a failure (5xx) runs again, so a deploy retried after trusting its key now goes through.
+  - **`kindgi deploy` says when an answer is a replay** (`X-Idempotent-Replay`) and how to retry: `--idempotency-key <new value>` for a replayed refusal from an older runtime. A refused signing key's hint gives the `kindgi key trust <keyId> --url <endpoint>` command on a line of its own. The retry advice for server errors and network failures is reworded.
+- 024582b: The getting-started and providers skills, and the templates' AGENTS.md, teach declaring model providers in the pack's config (`providers` in `kindgi.config.ts`, `[[tool.kindgi.providers]]` in `pyproject.toml`), which `kindgi dev` registers on every boot. The providers skill's Gemini example has the models' real output limit, 65,536 tokens.
+- Updated dependencies [2544717]
+- Updated dependencies [629057d]
+- Updated dependencies [38935d3]
+- Updated dependencies [1463b77]
+- Updated dependencies [453056f]
+- Updated dependencies [6bae409]
+- Updated dependencies [ab23a9b]
+- Updated dependencies [4ed3d2f]
+- Updated dependencies [2c185d8]
+- Updated dependencies [66e7ac2]
+  - @kindgi/client@0.1.3
+  - @kindgi/handler-runtime@0.1.3
+  - @kindgi/types@0.1.3
+  - @kindgi/env-schema@0.1.3
+  - @kindgi/sdk@0.1.3
+  - @kindgi/secrets-dotenv@0.1.3
+  - @kindgi/crypto@0.1.3
+  - @kindgi/platform@0.1.3
+  - @kindgi/dotenv-file@0.1.3
+
 ## 0.1.2
 
 ### Patch Changes

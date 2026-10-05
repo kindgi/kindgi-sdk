@@ -17,7 +17,7 @@
       {
         "name": "gemini-2.5-pro",
         "contextWindow": 1048576,
-        "maxOutputTokens": 8192,
+        "maxOutputTokens": 65536,
         "features": ["tool-use"],
         "cost": {
           "promptUsdPer1kTokens": 0.00125,
@@ -32,6 +32,7 @@
       {
         "name": "gemini-2.5-flash",
         "contextWindow": 1048576,
+        "maxOutputTokens": 65536,
         "features": ["tool-use"],
         "cost": { "promptUsdPer1kTokens": 0.0003, "completionUsdPer1kTokens": 0.0025 }
       }

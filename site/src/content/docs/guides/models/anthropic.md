@@ -39,6 +39,10 @@ kindgi providers register --preset=anthropic
   (comma-separated).
 - `--secret=<NAME>` reads the key from another variable than
   `ANTHROPIC_API_KEY`.
+- To have `kindgi dev` register it on every boot, in every worktree and after
+  `--reset`, declare it in the pack's config instead: `{ preset: 'anthropic' }`
+  in `kindgi.config.ts`'s `providers`, or a `[[tool.kindgi.providers]]` table
+  with `preset = "anthropic"` in `pyproject.toml`. See [Declare them in your pack's config](../#declare-them-in-your-packs-config).
 
 The preset checks that the key is there first:
 
