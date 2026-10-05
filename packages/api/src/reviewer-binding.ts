@@ -6,16 +6,24 @@ import type { Cursor, ReviewerId, TenantId, Timestamp, UserId } from '@kindgi/ty
 
 /**
  * Translates the bearer-token identity (`UserId`) into the `ReviewerId`
- * that `HitlBinding.submitReview` needs. The API package intentionally does
+ * that `HitlBinding.submitReview` needs, and the reviewer role the
+ * approvals surface is scoped by. The API package intentionally does
  * NOT own the `user ↔ reviewer` mapping — deployments plug that in via
  * this binding, same pattern as `TokenResolver` (for auth read) and
  * `TokenAdmin` (for mint/revoke).
  *
- * Return `null` when the user has no registered reviewer row for the
+ * Both return `null` when the user has no active reviewer row for the
  * tenant (leads to `403 permission-denied` from the approvals route).
  */
 export interface ReviewerBinding {
   resolveReviewer(input: ReviewerLookupInput): Promise<ReviewerId | null>;
+  /**
+   * The user's reviewer role in the tenant. Consulted for a token that
+   * carries no `reviewerRole` of its own (a session or API key of a
+   * registered reviewer), so the roster, not the token, says who reviews.
+   * A binding without it: only a token that carries its role reviews.
+   */
+  resolveReviewerRole?(input: ReviewerLookupInput): Promise<ReviewerRole | null>;
 }
 
 export interface ReviewerLookupInput {

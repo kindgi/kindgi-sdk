@@ -26,6 +26,7 @@ import { statusFor, toWireError } from '../errors.js';
 import type { RunHandlerBinding } from '../handler-binding.js';
 import type { Approval, ApprovalStatus, HitlBinding, ReviewDecisionKind } from '../hitl-binding.js';
 import type { ReviewerBinding } from '../reviewer-binding.js';
+import { callerReviewerRole } from '../reviewer-role.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
 
@@ -81,10 +82,11 @@ export interface ApprovalsRouterOptions {
 /**
  * Approvals resource routes.
  *
- * Reviewer-role scoping: routes require `c.get('reviewerRole')` to be
- * set by the auth middleware (see `TokenResolution.reviewerRole`).
- * Tokens without a reviewer role get `403 permission-denied` on every
- * approvals route — this surface is reviewer-only.
+ * Reviewer-role scoping: routes require a reviewer role — the token's
+ * (`TokenResolution.reviewerRole`), or its user's in the reviewer roster
+ * (`ReviewerBinding.resolveReviewerRole`). A caller with neither gets
+ * `403 permission-denied` on every approvals route — this surface is
+ * reviewer-only.
  *
  * Visibility filter: a caller with role `R` sees approvals whose
  * `requiredRole` rank ≤ their rank (standard < senior < admin). The
@@ -104,9 +106,11 @@ export function approvalsRouter(
   const runHandler = options.runHandler;
 
   // ---------- role gate for the whole resource ----------
+  // A reviewer: a token that carries a role, or whose user the roster
+  // names (a session or API key of a registered reviewer).
   r.use('*', async (c, next) => {
     const requestId = c.get('requestId');
-    const role = c.get('reviewerRole');
+    const role = await callerReviewerRole(c, reviewerBinding);
     if (role === undefined) {
       c.status(statusFor('permission-denied') as never);
       return c.json(
@@ -114,7 +118,7 @@ export function approvalsRouter(
           {
             code: 'permission-denied',
             message:
-              'This token was not provisioned with a reviewer role; approvals surface is reviewer-only.',
+              "The caller isn't a reviewer: its token carries no reviewer role, and its user isn't registered as one (`kindgi reviewers register`). The approvals surface is reviewer-only.",
           },
           requestId,
         ),

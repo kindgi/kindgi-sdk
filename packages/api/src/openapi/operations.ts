@@ -1328,7 +1328,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'approvals.list',
     summary: 'List approvals visible to the caller',
     description:
-      'Requires the token to carry a `reviewerRole`. Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin).',
+      'Requires a reviewer: a token that carries a `reviewerRole`, or whose user is a registered reviewer (the roster gives the role). Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin).',
     tags: ['approvals'],
     security: 'bearer',
     parameters: [
@@ -1342,7 +1342,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Page of approvals.', schema: ref('ApprovalCollectionPage') },
       ...CommonAuthErrors,
       '400': ErrorResponse('Malformed query parameter.'),
-      '403': ErrorResponse('Token lacks a reviewer role or asked for a tier above the caller.'),
+      '403': ErrorResponse("The caller isn't a reviewer, or asked for a tier above its own."),
     },
   },
   {
@@ -1359,7 +1359,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Approval.', schema: ref('Approval') },
       ...CommonAuthErrors,
-      '403': ErrorResponse('Token lacks a reviewer role.'),
+      '403': ErrorResponse("The caller isn't a reviewer."),
       '404': ErrorResponse('No approval with that id — or the caller cannot see it.'),
     },
   },
@@ -1468,7 +1468,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Signed audit bundle.', schema: ref('ExportAuditBundleResult') },
       ...CommonMutationErrors,
-      '403': ErrorResponse('Token lacks a reviewer role.'),
+      '403': ErrorResponse("The caller isn't a reviewer."),
       '404': ErrorResponse(
         'Approval not found, signing key id unknown, or signing not configured on this deployment.',
       ),

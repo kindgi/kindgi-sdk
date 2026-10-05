@@ -7548,7 +7548,7 @@
         }
       },
       "WhoamiResult": {
-        "description": "Introspection of the caller's current authentication context. Always carries `tenantId` and `scopes` (empty for static bearer tokens), plus `userId` when the token carries one; session-token callers additionally see `sessionId`, `providerId`, and `expiresAt`. `user` is the caller's directory record, present when the deployment wires an identity directory and it knows the `userId`. `reviewerRole` is set when the token carries a reviewer role — clients can use it to gate reviewer-only UI (the approvals surface) without a second round trip.",
+        "description": "Introspection of the caller's current authentication context. Always carries `tenantId` and `scopes` (empty for static bearer tokens), plus `userId` when the token carries one; session-token callers additionally see `sessionId`, `providerId`, and `expiresAt`. `user` is the caller's directory record, present when the deployment wires an identity directory and it knows the `userId`. `reviewerRole` is set when the caller is a reviewer — its token carries a reviewer role, or its user is a registered reviewer — so clients can gate reviewer-only UI (the approvals surface) without a second round trip.",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -12909,7 +12909,7 @@
             }
           },
           "403": {
-            "description": "Token lacks a reviewer role or asked for a tier above the caller.",
+            "description": "The caller isn't a reviewer, or asked for a tier above its own.",
             "content": {
               "application/json": {
                 "schema": {
@@ -12919,7 +12919,7 @@
             }
           }
         },
-        "description": "Requires the token to carry a `reviewerRole`. Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin).",
+        "description": "Requires a reviewer: a token that carries a `reviewerRole`, or whose user is a registered reviewer (the roster gives the role). Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin).",
         "parameters": [
           {
             "name": "limit",
@@ -13007,7 +13007,7 @@
             }
           },
           "403": {
-            "description": "Token lacks a reviewer role.",
+            "description": "The caller isn't a reviewer.",
             "content": {
               "application/json": {
                 "schema": {
@@ -13528,7 +13528,7 @@
             }
           },
           "403": {
-            "description": "Token lacks a reviewer role.",
+            "description": "The caller isn't a reviewer.",
             "content": {
               "application/json": {
                 "schema": {
