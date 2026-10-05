@@ -3640,7 +3640,7 @@
           "projectId": {
             "type": "string",
             "format": "uuid",
-            "description": "The project the conversation is in: the project of the run that opened it, or `projectId` on open. Absent when opened without one, and on conversations from before Kindgi 0.1.3; those are listed only without a scope."
+            "description": "The project the conversation is in: the project of the run that opened it, or `projectId` on open (the tenant's Default project when omitted). Absent on conversations from before Kindgi 0.1.3; those are listed only without a scope."
           },
           "scope": {
             "type": "object",
@@ -3754,7 +3754,7 @@
           "projectId": {
             "type": "string",
             "format": "uuid",
-            "description": "The project the conversation is in; `GET /v1/conversations?scopeKind=project&scopeId=…` lists it. A project of the caller's tenant, else `400 bad-input`. Omit it and the conversation is listed only without a scope."
+            "description": "The project the conversation is in; `GET /v1/conversations?scopeKind=project&scopeId=…` lists it. A project of the caller's tenant, else `400 bad-input`. Omitted: the tenant's Default project, as for a run."
           },
           "scope": {
             "type": "object",
@@ -15921,7 +15921,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations without a project (opened without one, or before Kindgi 0.1.3) are listed only without a scope.",
+        "description": "Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations from before Kindgi 0.1.3 have no project and are listed only without a scope.",
         "parameters": [
           {
             "name": "limit",
@@ -16045,7 +16045,7 @@
             }
           }
         },
-        "description": "Pins `(agentId, agentVersion)` at open time. `title` defaults to `\"Untitled conversation\"` when omitted; `projectId` puts it in a project (lists filter by it); `scope` accepts arbitrary JSON.",
+        "description": "Pins `(agentId, agentVersion)` at open time. `title` defaults to `\"Untitled conversation\"` when omitted; `projectId` puts it in a project (lists filter by it; omitted, the Default project); `scope` accepts arbitrary JSON.",
         "parameters": [
           {
             "name": "Idempotency-Key",

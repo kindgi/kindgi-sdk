@@ -1984,7 +1984,7 @@ class Conversation(BaseModel):
     participant_id: Annotated[str | None, Field(alias="participantId")] = None
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    The project the conversation is in: the project of the run that opened it, or `projectId` on open. Absent when opened without one, and on conversations from before Kindgi 0.1.3; those are listed only without a scope.
+    The project the conversation is in: the project of the run that opened it, or `projectId` on open (the tenant's Default project when omitted). Absent on conversations from before Kindgi 0.1.3; those are listed only without a scope.
     """
     scope: dict[str, Any]
     """
@@ -2048,7 +2048,7 @@ class OpenConversationBody(BaseModel):
     """
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    The project the conversation is in; `GET /v1/conversations?scopeKind=project&scopeId=…` lists it. A project of the caller's tenant, else `400 bad-input`. Omit it and the conversation is listed only without a scope.
+    The project the conversation is in; `GET /v1/conversations?scopeKind=project&scopeId=…` lists it. A project of the caller's tenant, else `400 bad-input`. Omitted: the tenant's Default project, as for a run.
     """
     scope: dict[str, Any] | None = None
     """

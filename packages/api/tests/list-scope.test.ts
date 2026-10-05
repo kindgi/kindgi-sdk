@@ -28,6 +28,7 @@ import type {
 
 const tenantId = randomUUID() as TenantId;
 const projectId = randomUUID();
+const defaultProjectId = randomUUID();
 const orgId = randomUUID();
 const TOKEN = 'list-scope-token';
 const resolveToken: TokenResolver = async (token) =>
@@ -45,7 +46,7 @@ const conversation = {
   turnCount: 0,
 };
 
-function harness() {
+function harness(options: { readonly defaultProject?: boolean } = {}) {
   const seen: { approvals: unknown[]; conversations: unknown[]; provenance: unknown[] } = {
     approvals: [],
     conversations: [],
@@ -93,6 +94,8 @@ function harness() {
   } as unknown as ProvenanceBinding;
   const projectBinding = {
     get: async (_t: TenantId, id: string) => (id === projectId ? { id } : undefined),
+    getDefault: async () =>
+      options.defaultProject === false ? undefined : { id: defaultProjectId },
   } as unknown as ProjectBinding;
   const app = createApp({
     ...stubs,
@@ -107,8 +110,12 @@ function harness() {
   return { app, seen, opened };
 }
 
-async function call(path: string, body?: unknown) {
-  const h = harness();
+async function call(
+  path: string,
+  body?: unknown,
+  options: { readonly defaultProject?: boolean } = {},
+) {
+  const h = harness(options);
   const res = await h.app.request(path, {
     method: body === undefined ? 'GET' : 'POST',
     headers: {
@@ -188,8 +195,14 @@ describe('POST /v1/conversations in a project', () => {
     expect(answer.json).toMatchObject({ projectId });
   });
 
-  test('no projectId: opened without one', async () => {
+  test("no projectId: the tenant's Default project, as for a run", async () => {
     const answer = await call('/v1/conversations', open);
+    expect(answer.status).toBe(201);
+    expect(answer.opened).toEqual([expect.objectContaining({ projectId: defaultProjectId })]);
+  });
+
+  test('no projectId and no Default project: opened without one, not refused', async () => {
+    const answer = await call('/v1/conversations', open, { defaultProject: false });
     expect(answer.status).toBe(201);
     expect(answer.opened[0]).not.toHaveProperty('projectId');
   });

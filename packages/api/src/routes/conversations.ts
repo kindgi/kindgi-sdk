@@ -31,7 +31,10 @@ const PROJECT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 export function conversationsRouter(
   conversationBinding: ConversationBinding,
   runBinding: RunBinding,
-  /** When wired, a `projectId` given to `POST /` must be one of the tenant's projects. */
+  /**
+   * When wired, a `projectId` given to `POST /` must be one of the
+   * tenant's projects, and an omitted one is the tenant's Default project.
+   */
   projectBinding?: ProjectBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
@@ -141,23 +144,26 @@ export function conversationsRouter(
       c.status(statusFor(parsed.error.code) as never);
       return c.json(toWireError(parsed.error, requestId));
     }
-    const { projectId } = parsed.value;
+    const supplied = parsed.value.projectId;
     if (
-      projectId !== undefined &&
+      supplied !== undefined &&
       projectBinding !== undefined &&
-      (await projectBinding.get(tenantId, projectId)) === undefined
+      (await projectBinding.get(tenantId, supplied)) === undefined
     ) {
       c.status(statusFor('bad-input') as never);
       return c.json(
         toWireError(
           {
             code: 'bad-input',
-            message: `\`projectId\` "${projectId as unknown as string}" does not resolve to a project in this tenant`,
+            message: `\`projectId\` "${supplied as unknown as string}" does not resolve to a project in this tenant`,
           },
           requestId,
         ),
       );
     }
+    // Omitted: the tenant's Default project, as for a run. No Default (or
+    // no project binding): no project, never a refusal.
+    const projectId = supplied ?? (await projectBinding?.getDefault(tenantId))?.id;
 
     const opened = await conversationBinding.openConversation({
       tenantId,

@@ -1757,7 +1757,7 @@ class ConversationsResource:
     ) -> _models.ConversationCollectionPage:
         """List conversations. `GET /v1/conversations`
 
-        Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations without a project (opened without one, or before Kindgi 0.1.3) are listed only without a scope.
+        Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations from before Kindgi 0.1.3 have no project and are listed only without a scope.
         """
         return self._client._request(
             _OPERATIONS["conversations.list"],
@@ -1786,7 +1786,7 @@ class ConversationsResource:
     ) -> _models.Conversation:
         """Open a conversation. `POST /v1/conversations`
 
-        Pins `(agentId, agentVersion)` at open time. `title` defaults to `"Untitled conversation"` when omitted; `projectId` puts it in a project (lists filter by it); `scope` accepts arbitrary JSON.
+        Pins `(agentId, agentVersion)` at open time. `title` defaults to `"Untitled conversation"` when omitted; `projectId` puts it in a project (lists filter by it; omitted, the Default project); `scope` accepts arbitrary JSON.
         """
         return self._client._request(
             _OPERATIONS["conversations.open"],
@@ -6596,7 +6596,7 @@ class AsyncConversationsResource:
     ) -> _models.ConversationCollectionPage:
         """List conversations. `GET /v1/conversations`
 
-        Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations without a project (opened without one, or before Kindgi 0.1.3) are listed only without a scope.
+        Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations from before Kindgi 0.1.3 have no project and are listed only without a scope.
         """
         return await self._client._request(
             _OPERATIONS["conversations.list"],
@@ -6625,7 +6625,7 @@ class AsyncConversationsResource:
     ) -> _models.Conversation:
         """Open a conversation. `POST /v1/conversations`
 
-        Pins `(agentId, agentVersion)` at open time. `title` defaults to `"Untitled conversation"` when omitted; `projectId` puts it in a project (lists filter by it); `scope` accepts arbitrary JSON.
+        Pins `(agentId, agentVersion)` at open time. `title` defaults to `"Untitled conversation"` when omitted; `projectId` puts it in a project (lists filter by it; omitted, the Default project); `scope` accepts arbitrary JSON.
         """
         return await self._client._request(
             _OPERATIONS["conversations.open"],
