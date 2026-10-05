@@ -14,7 +14,9 @@ import type {
   CostAggregateGroup,
   CostBinding,
   CostGroupDimension,
+  CostListRecordsInput,
   CostRecord,
+  CostTokenTotals,
   RunHandlerBinding,
   TokenResolver,
 } from '../src/index.js';
@@ -65,14 +67,40 @@ function makeRecord(overrides: Partial<CostRecord> = {}): CostRecord {
     occurredAt,
     ...(overrides.metrics !== undefined && { metrics: overrides.metrics }),
     ...(overrides.attributes !== undefined && { attributes: overrides.attributes }),
+    ...overrides,
   };
 }
 
-function makeInMemoryBinding(seed: readonly CostRecord[] = []): CostBinding {
+const NO_TOKENS: CostTokenTotals = {
+  prompt: 0,
+  completion: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  reasoning: 0,
+};
+
+function addTokens(t: CostTokenTotals, rec: CostRecord): CostTokenTotals {
+  const u = rec.usage;
+  if (u === undefined) return t;
+  return {
+    prompt: t.prompt + u.promptTokens,
+    completion: t.completion + u.completionTokens,
+    cacheRead: t.cacheRead + (u.cacheReadTokens ?? 0),
+    cacheWrite: t.cacheWrite + (u.cacheWriteTokens ?? 0),
+    reasoning: t.reasoning + (u.reasoningTokens ?? 0),
+  };
+}
+
+function makeInMemoryBinding(
+  seed: readonly CostRecord[] = [],
+  seen: CostListRecordsInput[] = [],
+): CostBinding {
   const store = [...seed];
 
   return {
-    async listRecords({ limit, cursor, filter }) {
+    async listRecords(input) {
+      seen.push(input);
+      const { limit, cursor, filter } = input;
       let rows = store.filter((r) => {
         if (filter.runId !== undefined && r.runId !== filter.runId) return false;
         if (filter.agentId !== undefined && r.agentId !== filter.agentId) return false;
@@ -81,6 +109,8 @@ function makeInMemoryBinding(seed: readonly CostRecord[] = []): CostBinding {
         }
         if (filter.category !== undefined && r.category !== filter.category) return false;
         if (filter.providerId !== undefined && r.providerId !== filter.providerId) return false;
+        if (filter.model !== undefined && r.model !== filter.model) return false;
+        if (filter.rootRunId !== undefined && r.rootRunId !== filter.rootRunId) return false;
         if (filter.from !== undefined && new Date(r.occurredAt).getTime() < filter.from.getTime()) {
           return false;
         }
@@ -142,27 +172,36 @@ function makeInMemoryBinding(seed: readonly CostRecord[] = []): CostBinding {
         );
         const existing = groups.get(stableKey);
         if (existing === undefined) {
-          groups.set(stableKey, { key, count: 1, totalUsd: rec.costUsd ?? 0 });
+          groups.set(stableKey, {
+            key,
+            count: 1,
+            totalUsd: rec.costUsd ?? 0,
+            tokens: addTokens(NO_TOKENS, rec),
+          });
         } else {
           groups.set(stableKey, {
             key,
             count: existing.count + 1,
             totalUsd: existing.totalUsd + (rec.costUsd ?? 0),
+            tokens: addTokens(existing.tokens, rec),
           });
         }
       }
 
       const groupArr: CostAggregateGroup[] = [];
       let totalUsd = 0;
+      let tokens = NO_TOKENS;
       for (const g of groups.values()) {
-        groupArr.push({ key: g.key, count: g.count, totalUsd: g.totalUsd });
+        groupArr.push({ key: g.key, count: g.count, totalUsd: g.totalUsd, tokens: g.tokens });
         totalUsd += g.totalUsd;
       }
+      for (const rec of filtered) tokens = addTokens(tokens, rec);
 
       return {
         groups: groupArr,
         totalUsd,
         totalRecords: filtered.length,
+        tokens,
         timeRange: {
           from: from.toISOString() as Timestamp,
           to: to.toISOString() as Timestamp,
@@ -194,13 +233,23 @@ function extractDim(
       return rec.occurredAt.slice(0, 10);
     case 'month':
       return rec.occurredAt.slice(0, 7);
+    case 'model':
+      return rec.model ?? null;
+    case 'servedModel':
+      return rec.servedModel ?? null;
+    case 'projectId':
+      return rec.projectId ?? null;
+    case 'rootRunId':
+      return rec.rootRunId ?? null;
+    case 'flowId':
+      return rec.flowId ?? null;
     default:
       return null;
   }
 }
 
-function makeApp(seed: readonly CostRecord[] = []) {
-  const binding = makeInMemoryBinding(seed);
+function makeApp(seed: readonly CostRecord[] = [], seen: CostListRecordsInput[] = []) {
+  const binding = makeInMemoryBinding(seed, seen);
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
@@ -209,6 +258,31 @@ function makeApp(seed: readonly CostRecord[] = []) {
   });
   return { app, binding };
 }
+
+describe('API — a cost binding that fails', () => {
+  test('answers 500, never an empty page or zero sums', async () => {
+    const down = async (): Promise<never> => {
+      throw new Error('Could not list cost records: connection refused');
+    };
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken,
+      runHandler,
+      cost: { listRecords: down, getRecord: down, aggregate: down },
+    });
+    for (const path of [
+      '/v1/cost/records',
+      `/v1/cost/records/${randomUUID()}`,
+      '/v1/cost/aggregate?groupBy=model',
+    ]) {
+      const res = await app.request(path, { headers: { authorization: `Bearer ${TOKEN}` } });
+      expect(res.status, path).toBe(500);
+      const body = (await res.json()) as { error?: { code?: string }; data?: unknown };
+      expect(body.error?.code, path).toBeDefined();
+      expect(body.data, path).toBeUndefined();
+    }
+  });
+});
 
 describe('API — cost records list', () => {
   test('empty tenant → empty list, hasMore=false', async () => {
@@ -646,5 +720,113 @@ describe('API — cost scope filter', () => {
     );
     expect(res.status).toBe(200);
     expect(getAggregateInput()?.scope).toEqual({ kind: 'project', tenantId, projectId });
+  });
+});
+
+describe("API — a model call's cost record (T135)", () => {
+  const ROOT = randomUUID();
+  const call = (over: Partial<CostRecord> = {}): CostRecord =>
+    makeRecord({
+      providerId: 'anthropic',
+      runId: randomUUID(),
+      costUsd: 0.002,
+      callId: randomUUID(),
+      projectId: randomUUID(),
+      rootRunId: ROOT,
+      model: 'claude-haiku-4-5',
+      servedModel: 'claude-haiku-4-5-20251001',
+      status: 'ok',
+      usage: {
+        promptTokens: 1200,
+        completionTokens: 80,
+        cacheReadTokens: 1000,
+        cacheWriteTokens: 100,
+        reasoningTokens: 30,
+      },
+      durationMs: 640,
+      finishReason: 'stop',
+      providerRequestId: 'req_1',
+      attempts: 2,
+      rawUsage: {
+        provider: 'anthropic',
+        model: 'claude-haiku-4-5',
+        usage: { input_tokens: 100, cache_read_input_tokens: 1000 },
+      },
+      ...over,
+    });
+  const auth = { headers: { authorization: `Bearer ${TOKEN}` } };
+
+  test('a record carries the call: model, served model, usage, request id, attempts', async () => {
+    const rec = call();
+    const { app } = makeApp([rec]);
+    const res = await app.request(`/v1/cost/records/${rec.id}`, auth);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      callId: rec.callId,
+      rootRunId: ROOT,
+      model: 'claude-haiku-4-5',
+      servedModel: 'claude-haiku-4-5-20251001',
+      status: 'ok',
+      usage: rec.usage,
+      providerRequestId: 'req_1',
+      attempts: 2,
+    });
+  });
+
+  test('`include=rawUsage` asks the binding for the vendor’s own counts; an unknown include is refused', async () => {
+    const seen: CostListRecordsInput[] = [];
+    const { app } = makeApp([call()], seen);
+    expect((await app.request('/v1/cost/records', auth)).status).toBe(200);
+    expect((await app.request('/v1/cost/records?include=rawUsage', auth)).status).toBe(200);
+    expect(seen.map((s) => s.includeRawUsage)).toEqual([undefined, true]);
+    const bad = await app.request('/v1/cost/records?include=prompts', auth);
+    expect(bad.status).toBe(400);
+  });
+
+  test('filters by model and root run; includeDescendants needs a runId', async () => {
+    const seen: CostListRecordsInput[] = [];
+    const { app } = makeApp([call(), call({ model: 'other', rootRunId: randomUUID() })], seen);
+    const byRoot = await app.request(
+      `/v1/cost/records?rootRunId=${ROOT}&model=claude-haiku-4-5`,
+      auth,
+    );
+    expect(((await byRoot.json()) as { data: unknown[] }).data).toHaveLength(1);
+    const runId = randomUUID();
+    await app.request(`/v1/cost/records?runId=${runId}&includeDescendants=true`, auth);
+    expect(seen.at(-1)?.filter).toEqual({ runId, includeDescendants: true });
+    expect((await app.request('/v1/cost/records?includeDescendants=true', auth)).status).toBe(400);
+    expect(
+      (await app.request(`/v1/cost/records?runId=${runId}&includeDescendants=yes`, auth)).status,
+    ).toBe(400);
+  });
+
+  test('aggregate groups by the model actually called, with token sums per group and in total', async () => {
+    const { app } = makeApp([
+      call(),
+      call(),
+      call({ model: 'gemini-2.5-pro', usage: { promptTokens: 10, completionTokens: 5 } }),
+    ]);
+    const res = await app.request(
+      '/v1/cost/aggregate?groupBy=model&from=2026-09-01T00:00:00Z&to=2026-10-01T00:00:00Z',
+      auth,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      groups: { key: Record<string, string>; count: number; tokens: Record<string, number> }[];
+      tokens: Record<string, number>;
+    };
+    const haiku = body.groups.find((g) => g.key.model === 'claude-haiku-4-5');
+    expect(haiku).toMatchObject({
+      count: 2,
+      tokens: { prompt: 2400, completion: 160, cacheRead: 2000, cacheWrite: 200, reasoning: 60 },
+    });
+    expect(body.tokens).toEqual({
+      prompt: 2410,
+      completion: 165,
+      cacheRead: 2000,
+      cacheWrite: 200,
+      reasoning: 60,
+    });
   });
 });

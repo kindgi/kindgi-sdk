@@ -448,6 +448,7 @@ function validateConversationPolicy(policy?: ConversationPolicy): Issue[] {
         message: 'hitl.timeoutMs must be a positive integer (ms)',
       });
     }
+    out.push(...validateOnTimeout(h.onTimeout));
     const ROLES: ReadonlySet<string> = new Set(['standard', 'senior', 'admin']);
     if (
       h.defaultReviewerRole !== undefined &&
@@ -488,6 +489,25 @@ function validateConversationPolicy(policy?: ConversationPolicy): Issue[] {
     }
   }
   return out;
+}
+
+/**
+ * `hitl.onTimeout`: only `'escalate'`, what the runtime does when an
+ * approval's time runs out. `'auto-approve'` / `'auto-reject'` aren't
+ * implemented, so they're refused instead of accepted and ignored.
+ */
+function validateOnTimeout(onTimeout: unknown): Issue[] {
+  if (onTimeout === undefined || onTimeout === 'escalate') return [];
+  const path = '/conversationPolicy/hitl/onTimeout';
+  if (onTimeout === 'auto-approve' || onTimeout === 'auto-reject') {
+    return [
+      {
+        path,
+        message: `hitl.onTimeout '${onTimeout}' isn't supported: an approval that times out escalates one reviewer tier, and at admin it expires (the turn fails with hitl-cancelled). Use 'escalate', or leave it out.`,
+      },
+    ];
+  }
+  return [{ path, message: "hitl.onTimeout must be 'escalate'" }];
 }
 
 type OutputOutcome =

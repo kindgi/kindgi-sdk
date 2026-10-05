@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Scope } from '@kindgi/platform';
 import type { Cursor, EnvName } from '@kindgi/types';
+import type { ScopeRef } from '../scope-wire.js';
 
 import { scopeForBody, scopeToQuery } from '../scope-wire.js';
 import { readSse, unwrapSseData } from '../streaming.js';
@@ -76,7 +76,7 @@ export interface SecretRotationsClient {
 }
 
 export interface SecretRotationGetInput {
-  readonly scope: Scope;
+  readonly scope: ScopeRef;
   readonly envName: EnvName;
   readonly name: string;
   readonly rotationId: string;
@@ -87,7 +87,7 @@ export type SecretRotationEventsInput = SecretRotationGetInput;
 // -------------------- inputs --------------------
 
 export interface SecretListInput {
-  readonly scope: Scope;
+  readonly scope: ScopeRef;
   readonly envName: EnvName;
   readonly cursor?: Cursor;
   readonly namePrefix?: string;
@@ -96,20 +96,20 @@ export interface SecretListInput {
 }
 
 export interface SecretGetInput {
-  readonly scope: Scope;
+  readonly scope: ScopeRef;
   readonly envName: EnvName;
   readonly name: string;
 }
 
 export interface SecretGetVersionInput {
-  readonly scope: Scope;
+  readonly scope: ScopeRef;
   readonly envName: EnvName;
   readonly name: string;
   readonly versionId: number;
 }
 
 export interface SecretListVersionsInput {
-  readonly scope: Scope;
+  readonly scope: ScopeRef;
   readonly envName: EnvName;
   readonly name: string;
   readonly cursor?: Cursor;
@@ -117,7 +117,7 @@ export interface SecretListVersionsInput {
 }
 
 export interface SecretSetInput {
-  readonly scope: Scope;
+  readonly scope: ScopeRef;
   readonly envName: EnvName;
   readonly name: string;
   readonly value: string;
@@ -129,7 +129,7 @@ export interface SecretSetInput {
 }
 
 export interface SecretRotateInput {
-  readonly scope: Scope;
+  readonly scope: ScopeRef;
   readonly envName: EnvName;
   readonly name: string;
   readonly newValue?: string;
@@ -162,7 +162,7 @@ export interface PollingOverrides {
 }
 
 export interface SecretRevokeInput {
-  readonly scope: Scope;
+  readonly scope: ScopeRef;
   readonly envName: EnvName;
   readonly name: string;
   readonly hard?: boolean;
@@ -172,7 +172,7 @@ export interface SecretRevokeInput {
 // -------------------- outputs --------------------
 
 export interface SecretRecord {
-  readonly scope: Scope;
+  readonly scope: ScopeRef;
   readonly envName: EnvName;
   readonly name: string;
   readonly currentVersion: number;
@@ -185,7 +185,7 @@ export interface SecretRecord {
 }
 
 export interface SecretVersionRecord {
-  readonly scope: Scope;
+  readonly scope: ScopeRef;
   readonly envName: EnvName;
   readonly name: string;
   readonly versionId: number;

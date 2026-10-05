@@ -1169,6 +1169,22 @@ export interface ProvenanceRecord {
     readonly value: string;
     readonly signedAt: import('@kindgi/types').Timestamp;
   };
+  /**
+   * Each model call's usage from the cost ledger, by the `callId` in its
+   * `model-call` node's attributes. Joined when read: not part of the
+   * signed DAG.
+   */
+  readonly callUsage?: Readonly<
+    Record<
+      string,
+      {
+        readonly usage: ModelCallTokens;
+        readonly costUsd?: number;
+        readonly durationMs?: number;
+        readonly servedModel?: string;
+      }
+    >
+  >;
 }
 
 /**
@@ -1280,6 +1296,70 @@ export interface CostRecord {
   readonly occurredAt: import('@kindgi/types').Timestamp;
   readonly metrics?: Readonly<Record<string, unknown>>;
   readonly attributes?: Readonly<Record<string, unknown>>;
+  // A model call (`category` `llm.inference`): one record per call.
+  /** The call's id; its provenance `model-call` node carries it too. */
+  readonly callId?: string;
+  readonly projectId?: import('@kindgi/types').ProjectId;
+  /** The root of the record's run tree (a flow run, for its agent turns). */
+  readonly rootRunId?: import('@kindgi/types').RunId;
+  readonly parentRunId?: import('@kindgi/types').RunId;
+  readonly agentVersion?: string;
+  /** The flow of the run tree's root. */
+  readonly flowId?: string;
+  /** The step that made the call, and the turn's step number. */
+  readonly nodeId?: string;
+  readonly step?: number;
+  /** What the call was for, beyond the turn's own model step (`guardrail-judge:<id>`). */
+  readonly purpose?: string;
+  /** The model actually called. */
+  readonly model?: string;
+  /** The exact model version the vendor reported. */
+  readonly servedModel?: string;
+  /** The router picked a fallback provider for the turn. */
+  readonly fallback?: boolean;
+  /** `ok`: the provider answered. `failed`: the call threw. */
+  readonly status?: 'ok' | 'failed';
+  readonly usage?: ModelCallTokens;
+  readonly durationMs?: number;
+  readonly finishReason?: string;
+  /** The vendor's id for the request. */
+  readonly providerRequestId?: string;
+  /** HTTP attempts the call took, the client's retries included. */
+  readonly attempts?: number;
+  readonly error?: { readonly message: string };
+  /** The vendor's own usage object, as it reported it (only with `includeRawUsage`). */
+  readonly rawUsage?: {
+    readonly provider: string;
+    readonly model: string;
+    readonly usage: Readonly<Record<string, unknown>>;
+  };
+}
+
+/**
+ * A model call's tokens. `promptTokens` / `completionTokens` are the
+ * totals; `cacheReadTokens` / `cacheWriteTokens` are parts of
+ * `promptTokens`, `reasoningTokens` of `completionTokens`, present when
+ * the provider reports them.
+ */
+export interface ModelCallTokens {
+  readonly promptTokens: number;
+  readonly completionTokens: number;
+  readonly cacheReadTokens?: number;
+  readonly cacheWriteTokens?: number;
+  readonly reasoningTokens?: number;
+}
+
+/**
+ * Token sums of an aggregate. `prompt` / `completion` are the totals;
+ * `cacheRead` / `cacheWrite` are parts of `prompt`, `reasoning` of
+ * `completion` (`0` where providers didn't report them).
+ */
+export interface CostTokenTotals {
+  readonly prompt: number;
+  readonly completion: number;
+  readonly cacheRead: number;
+  readonly cacheWrite: number;
+  readonly reasoning: number;
 }
 
 /** @deprecated Renamed to `CostRecord` to match the wire. */
@@ -1291,12 +1371,25 @@ export type UsageRecord = CostRecord;
  */
 export interface CostRecordFilter extends Filter {
   readonly runId?: import('@kindgi/types').RunId;
+  /** With `runId`: also every run it started, at any depth. */
+  readonly includeDescendants?: boolean;
+  /** Every record of the run tree whose root is this run. */
+  readonly rootRunId?: import('@kindgi/types').RunId;
   readonly agentId?: import('@kindgi/types').AgentId;
   readonly conversationId?: import('@kindgi/types').ThreadId;
   readonly category?: string;
   readonly providerId?: ProviderId;
+  /** The model actually called. */
+  readonly model?: string;
+  /** The exact model version the vendor reported. */
+  readonly servedModel?: string;
+  /** Records in this scope: a project, or every project of an org. */
+  readonly scope?: import('./scope-wire.js').ScopeRef;
   readonly from?: import('@kindgi/types').Timestamp;
+  /** Exclusive. */
   readonly to?: import('@kindgi/types').Timestamp;
+  /** Add each model call's `rawUsage`: the vendor's own usage object. */
+  readonly includeRawUsage?: boolean;
 }
 
 /** @deprecated Renamed to `CostRecordFilter` to match the wire. */
@@ -1314,7 +1407,13 @@ export type CostGroupDimension =
   | 'day'
   | 'month'
   | 'tenant'
-  | 'conversationId';
+  | 'conversationId'
+  | 'model'
+  | 'servedModel'
+  | 'projectId'
+  | 'orgId'
+  | 'rootRunId'
+  | 'flowId';
 
 /**
  * Wire shape for one aggregated bucket — matches
@@ -1328,6 +1427,7 @@ export interface CostAggregateGroup {
   readonly key: Readonly<Record<string, string | null>>;
   readonly count: number;
   readonly totalUsd: number;
+  readonly tokens: CostTokenTotals;
 }
 
 /**
@@ -1338,6 +1438,7 @@ export interface CostAggregateResult {
   readonly groups: readonly CostAggregateGroup[];
   readonly totalUsd: number;
   readonly totalRecords: number;
+  readonly tokens: CostTokenTotals;
   readonly timeRange: {
     readonly from: import('@kindgi/types').Timestamp;
     readonly to: import('@kindgi/types').Timestamp;
@@ -1930,7 +2031,7 @@ export interface RegisterMcpEndpointInput {
    */
   readonly secretRef?: McpEndpointSecretRef;
   /** The scope the endpoint is registered in; authorization checks it. */
-  readonly scope: import('@kindgi/platform').Scope;
+  readonly scope: import('./scope-wire.js').ScopeRef;
 }
 
 /**

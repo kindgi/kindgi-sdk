@@ -5040,6 +5040,33 @@
           "createdAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "callUsage": {
+            "type": "object",
+            "description": "Each model call's usage from the cost ledger, by the `callId` in its `model-call` node's attributes. Joined when read: not part of the signed DAG. A signed export includes it, as it stood when signed.",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "usage"
+              ],
+              "properties": {
+                "usage": {
+                  "$ref": "#/components/schemas/ModelCallTokens"
+                },
+                "costUsd": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "durationMs": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "servedModel": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       },
@@ -5085,7 +5112,7 @@
         }
       },
       "ExportProvenanceResult": {
-        "description": "Signed exportable bundle. `bundle` is base64 of the exact bytes that were signed (sorted-key canonical JSON, no whitespace); verifiers can pass those bytes directly to `verifyEd25519`. The bundle body itself includes `bundleSchemaVersion`, `runId`, `tenantId`, `dag: { nodes, edges }`, `messages?` (if requested), etc. See `canonicalization` for the deterministic serialization algorithm.",
+        "description": "Signed exportable bundle. `bundle` is base64 of the exact bytes that were signed (sorted-key canonical JSON, no whitespace); verifiers can pass those bytes directly to `verifyEd25519`. The bundle body itself includes `bundleSchemaVersion`, `runId`, `tenantId`, `dag: { nodes, edges }`, `messages?` (if requested), `callUsage?` (the usage of the model calls, from the cost ledger), etc. See `canonicalization` for the deterministic serialization algorithm.",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -5110,7 +5137,7 @@
           },
           "bundleSchemaVersion": {
             "type": "string",
-            "description": "Semver for the shape of the bundle body. Currently `1.0.0`."
+            "description": "Semver for the shape of the bundle body. Currently `1.1.0`, which adds `callUsage`: each model call's usage from the cost ledger, by call id, as it stood when signed."
           },
           "algorithm": {
             "type": "string",
@@ -6175,7 +6202,13 @@
           "day",
           "month",
           "tenant",
-          "conversationId"
+          "conversationId",
+          "model",
+          "servedModel",
+          "projectId",
+          "orgId",
+          "rootRunId",
+          "flowId"
         ]
       },
       "CostRecord": {
@@ -6240,6 +6273,184 @@
             "type": "object",
             "additionalProperties": true,
             "description": "Free-form filter/display tags — never counters."
+          },
+          "callId": {
+            "type": "string",
+            "description": "A model call's id (`category` `llm.inference`); its provenance `model-call` node carries it too."
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "rootRunId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The root of the record's run tree (a flow run, for its agent turns)."
+          },
+          "parentRunId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "agentVersion": {
+            "type": "string"
+          },
+          "flowId": {
+            "type": "string",
+            "description": "The flow of the run tree's root."
+          },
+          "nodeId": {
+            "type": "string",
+            "description": "The step that made the call."
+          },
+          "step": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The turn's step number."
+          },
+          "purpose": {
+            "type": "string",
+            "description": "What the call was for, beyond the turn's own model step: `guardrail-judge:<guardrail id>`."
+          },
+          "model": {
+            "type": "string",
+            "description": "The model actually called."
+          },
+          "servedModel": {
+            "type": "string",
+            "description": "The exact model version the vendor reported (vendors alias)."
+          },
+          "fallback": {
+            "type": "boolean",
+            "description": "The router picked a fallback provider for the turn."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "failed"
+            ],
+            "description": "`ok`: the provider answered. `failed`: the call threw."
+          },
+          "usage": {
+            "$ref": "#/components/schemas/ModelCallTokens"
+          },
+          "durationMs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "finishReason": {
+            "type": "string"
+          },
+          "providerRequestId": {
+            "type": "string",
+            "description": "The vendor's id for the request."
+          },
+          "attempts": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "HTTP attempts the call took, the client's retries included."
+          },
+          "error": {
+            "$ref": "#/components/schemas/ModelCallError"
+          },
+          "rawUsage": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "provider",
+              "model",
+              "usage"
+            ],
+            "description": "The vendor's own usage object, exactly as it reported it. Only with `include=rawUsage`.",
+            "properties": {
+              "provider": {
+                "type": "string"
+              },
+              "model": {
+                "type": "string"
+              },
+              "usage": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      },
+      "ModelCallTokens": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "promptTokens",
+          "completionTokens"
+        ],
+        "description": "The call's tokens. `promptTokens` / `completionTokens` are the totals; `cacheReadTokens` / `cacheWriteTokens` are parts of `promptTokens`, `reasoningTokens` of `completionTokens`, present when the provider reports them.",
+        "properties": {
+          "promptTokens": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "completionTokens": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cacheReadTokens": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cacheWriteTokens": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reasoningTokens": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "ModelCallError": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "message"
+        ],
+        "description": "Why a model call failed (`status: failed`).",
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "CostTokenTotals": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "prompt",
+          "completion",
+          "cacheRead",
+          "cacheWrite",
+          "reasoning"
+        ],
+        "properties": {
+          "prompt": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "completion": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cacheRead": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cacheWrite": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reasoning": {
+            "type": "integer",
+            "minimum": 0
           }
         }
       },
@@ -6271,7 +6482,8 @@
         "required": [
           "key",
           "count",
-          "totalUsd"
+          "totalUsd",
+          "tokens"
         ],
         "properties": {
           "key": {
@@ -6291,6 +6503,9 @@
           "totalUsd": {
             "type": "number",
             "minimum": 0
+          },
+          "tokens": {
+            "$ref": "#/components/schemas/CostTokenTotals"
           }
         }
       },
@@ -6301,6 +6516,7 @@
           "groups",
           "totalUsd",
           "totalRecords",
+          "tokens",
           "timeRange",
           "groupBy"
         ],
@@ -6318,6 +6534,9 @@
           "totalRecords": {
             "type": "integer",
             "minimum": 0
+          },
+          "tokens": {
+            "$ref": "#/components/schemas/CostTokenTotals"
           },
           "timeRange": {
             "type": "object",
@@ -10697,6 +10916,29 @@
           }
         }
       },
+      "RunTreeUsage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "calls",
+          "costUsd",
+          "tokens"
+        ],
+        "description": "The model calls of the run tree (this run and every run it started) that the cost ledger had recorded when this run finished: a child run still running then isn't in it. `calls` counts failed calls too. Absent when the runtime records no usage.",
+        "properties": {
+          "calls": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "costUsd": {
+            "type": "number",
+            "minimum": 0
+          },
+          "tokens": {
+            "$ref": "#/components/schemas/CostTokenTotals"
+          }
+        }
+      },
       "FinishedRun": {
         "type": "object",
         "additionalProperties": false,
@@ -10753,6 +10995,9 @@
           "completedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/RunTreeUsage"
           }
         }
       },
@@ -11149,7 +11394,7 @@
             }
           },
           "400": {
-            "description": "Malformed cursor or filter.",
+            "description": "Malformed cursor, filter or scope.",
             "content": {
               "application/json": {
                 "schema": {
@@ -11191,6 +11436,25 @@
             },
             "required": false,
             "description": "Opaque cursor from a prior response. Absent → first page."
+          },
+          {
+            "name": "scopeKind",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/ScopeKind"
+            },
+            "required": false,
+            "description": "Optional scope discriminator. If absent, no scope filter is applied."
+          },
+          {
+            "name": "scopeId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Required IF scopeKind is `org` or `project`. MUST be absent if scopeKind=`tenant` (tenant is implicit from the session). Malformed combinations return 400 scope-invalid."
           },
           {
             "name": "parentRunId",
@@ -11245,6 +11509,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Run"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`runId` is not a run id (a UUID).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
                 }
               }
             }
@@ -11505,6 +11779,16 @@
               }
             }
           },
+          "400": {
+            "description": "`runId` is not a run id (a UUID).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
             "content": {
@@ -11570,6 +11854,16 @@
               "text/event-stream": {
                 "schema": {
                   "$ref": "#/components/schemas/RunEvent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`runId` is not a run id (a UUID).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
                 }
               }
             }
@@ -11642,6 +11936,16 @@
               }
             }
           },
+          "400": {
+            "description": "`runId` is not a run id (a UUID).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
             "content": {
@@ -11700,6 +12004,16 @@
               "text/event-stream": {
                 "schema": {
                   "$ref": "#/components/schemas/RunProgressEvent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`runId` is not a run id (a UUID).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
                 }
               }
             }
@@ -19264,7 +19578,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Filters (all AND): `runId`, `agentId`, `conversationId`, `category`, `providerId`, `from`, `to`. Sort order is fixed: `occurredAt desc, id desc`. Records represent one accounted resource event each — LLM inference, tool invocation, storage write, sandbox execution, etc.",
+        "description": "Cursor-paginated. Filters (all AND): `runId` (with `includeDescendants`, its whole subtree), `rootRunId`, `agentId`, `conversationId`, `category`, `providerId`, `model`, `servedModel`, `from`, `to`. Sort order is fixed: `occurredAt desc, id desc`. Records represent one accounted resource event each — a model call (`category` `llm.inference`: one record per call, with its model, usage and what the vendor said about it), tool invocation, storage write, sandbox execution, etc. `include=rawUsage` adds each model call's usage as the vendor reported it.",
         "parameters": [
           {
             "name": "limit",
@@ -19335,6 +19649,44 @@
             "description": "Filter records to this provider id (exact match)."
           },
           {
+            "name": "model",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Filter model calls to this model, the one actually called (exact match)."
+          },
+          {
+            "name": "servedModel",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Filter model calls to the exact model version the vendor reported (exact match)."
+          },
+          {
+            "name": "rootRunId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "description": "Every record of the run tree whose root is this run: a flow run and the agent turns and sub-flows it started."
+          },
+          {
+            "name": "includeDescendants",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "With `runId`: the run's records and those of every run it started, at any depth. `true` or `false` (default)."
+          },
+          {
             "name": "from",
             "in": "query",
             "schema": {
@@ -19352,7 +19704,7 @@
               "format": "date-time"
             },
             "required": false,
-            "description": "ISO 8601 timestamp; records with `occurredAt <= to`. Required on `/v1/cost/aggregate` (or both endpoints omitted for default last-30-days window)."
+            "description": "ISO 8601 timestamp; records with `occurredAt < to` (exclusive). Required on `/v1/cost/aggregate` (or both endpoints omitted for default last-30-days window)."
           },
           {
             "name": "scopeKind",
@@ -19382,6 +19734,18 @@
             },
             "required": false,
             "description": "Default `true`. `false` = literal-at-this-scope only (admin/audit view). Load-bearing for policy/config-scoped resources (mcp-endpoints); documented no-op for content-scoped resources (agents/flows/tools/...)."
+          },
+          {
+            "name": "include",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "rawUsage"
+              ]
+            },
+            "required": false,
+            "description": "Extra fields, comma-separated. `rawUsage`: each model call's usage object exactly as the vendor reported it."
           }
         ],
         "security": [
@@ -19439,6 +19803,18 @@
             },
             "required": true,
             "description": "CostRecordId — opaque string identifier chosen by the binding."
+          },
+          {
+            "name": "include",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "rawUsage"
+              ]
+            },
+            "required": false,
+            "description": "Extra fields, comma-separated. `rawUsage`: each model call's usage object exactly as the vendor reported it."
           }
         ],
         "security": [
@@ -19487,7 +19863,7 @@
             }
           }
         },
-        "description": "Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId + ?inherit` narrow the aggregate to a specific scope — reconciles byte-for-byte with the same scoped `/records` list.",
+        "description": "Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId` narrow the aggregate to a scope: `org` covers every project in the org, so one call sums an org's spend. Each group, and the total, carries its cost and its token sums (`tokens`). `inherit` has no effect on cost records, which always belong to a project.",
         "parameters": [
           {
             "name": "groupBy",
@@ -19496,7 +19872,7 @@
               "type": "string"
             },
             "required": true,
-            "description": "Comma-separated list of dimensions to aggregate over. Each value must be one of `agentId | runId | category | providerId | day | month | tenant | conversationId`. Duplicates collapse."
+            "description": "Comma-separated list of dimensions to aggregate over. Each value must be one of `agentId | runId | category | providerId | day | month | tenant | conversationId | model | servedModel | projectId | orgId | rootRunId | flowId`. `model` is the model actually called; `servedModel` the exact version the vendor reported; `orgId` the org of the record's project. Duplicates collapse."
           },
           {
             "name": "from",
@@ -19516,7 +19892,7 @@
               "format": "date-time"
             },
             "required": false,
-            "description": "ISO 8601 timestamp; records with `occurredAt <= to`. Required on `/v1/cost/aggregate` (or both endpoints omitted for default last-30-days window)."
+            "description": "ISO 8601 timestamp; records with `occurredAt < to` (exclusive). Required on `/v1/cost/aggregate` (or both endpoints omitted for default last-30-days window)."
           },
           {
             "name": "category",
@@ -19564,6 +19940,44 @@
             },
             "required": false,
             "description": "Filter records to this conversation id (exact match)."
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Filter model calls to this model, the one actually called (exact match)."
+          },
+          {
+            "name": "servedModel",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Filter model calls to the exact model version the vendor reported (exact match)."
+          },
+          {
+            "name": "rootRunId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "description": "Every record of the run tree whose root is this run: a flow run and the agent turns and sub-flows it started."
+          },
+          {
+            "name": "includeDescendants",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "With `runId`: the run's records and those of every run it started, at any depth. `true` or `false` (default)."
           },
           {
             "name": "scopeKind",

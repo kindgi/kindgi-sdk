@@ -27,6 +27,7 @@ import {
   toolRetriesSoFar,
 } from './tool-errors.js';
 import { computeToolCallWaitToken, hashToolArgs } from './tool-hitl.js';
+import { addStepToolNodes } from './turn-provenance.js';
 
 /**
  * Resolves the effective HITL mode + reviewer role for a specific
@@ -375,42 +376,12 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
         output: dispatched.value.persisted.content,
         durationMs: Date.now() - toolStarted,
       });
-
-      if (ctx.provenance !== undefined) {
-        const modelCallNodeId = `model-call:${partial.step}`;
-        const toolCallNodeId = `tool-call:${call.id}`;
-        const toolResultNodeId = `tool-result:${call.id}`;
-        ctx.provenance.addNode({
-          id: toolCallNodeId,
-          kind: 'tool-call',
-          timestamp: dispatched.value.persisted.createdAt,
-          attributes: {
-            toolId: call.name,
-            invocationId: call.id,
-            // Capture the exact version the
-            // registry picked at run start + the range the agent asked
-            // for, so a replay can pin against the same version.
-            toolVersion: resolvedVersion,
-            toolVersionRange: requestedRange,
-          },
-        });
-        ctx.provenance.addNode({
-          id: toolResultNodeId,
-          kind: 'tool-result',
-          timestamp: dispatched.value.persisted.createdAt,
-        });
-        ctx.provenance.addEdge({
-          from: toolCallNodeId,
-          to: modelCallNodeId,
-          kind: 'invoked',
-        });
-        ctx.provenance.addEdge({
-          from: toolResultNodeId,
-          to: toolCallNodeId,
-          kind: 'produced',
-        });
-      }
     }
+
+    // Every call's nodes, once the step has all its results: the ones it
+    // ran, the rejected and failed ones, and those it took from before a
+    // park in this step.
+    addStepToolNodes(ctx, partial.step, iterationAppended);
 
     const forwarded: Partial<AgentTurnIterationOutput> & {
       readonly step: number;

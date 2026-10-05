@@ -631,6 +631,8 @@ class RunsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
+        scope_kind: Literal["tenant", "org", "project"] | None = None,
+        scope_id: str | None = None,
         parent_run_id: str | None = None,
         top_level: bool | None = None,
         include: Literal["output"] | None = None,
@@ -646,6 +648,8 @@ class RunsResource:
             query={
                 "limit": limit,
                 "cursor": cursor,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
                 "parentRunId": parent_run_id,
                 "topLevel": top_level,
                 "include": include,
@@ -2725,16 +2729,21 @@ class CostRecordsResource:
         conversation_id: str | None = None,
         category: str | None = None,
         provider_id: str | None = None,
+        model: str | None = None,
+        served_model: str | None = None,
+        root_run_id: str | None = None,
+        include_descendants: bool | None = None,
         from_: str | None = None,
         to: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | None = None,
         inherit: bool | None = None,
+        include: Literal["rawUsage"] | None = None,
         timeout: float | None = None,
     ) -> _models.CostRecordCollectionPage:
         """List cost records. `GET /v1/cost/records`
 
-        Cursor-paginated. Filters (all AND): `runId`, `agentId`, `conversationId`, `category`, `providerId`, `from`, `to`. Sort order is fixed: `occurredAt desc, id desc`. Records represent one accounted resource event each — LLM inference, tool invocation, storage write, sandbox execution, etc.
+        Cursor-paginated. Filters (all AND): `runId` (with `includeDescendants`, its whole subtree), `rootRunId`, `agentId`, `conversationId`, `category`, `providerId`, `model`, `servedModel`, `from`, `to`. Sort order is fixed: `occurredAt desc, id desc`. Records represent one accounted resource event each — a model call (`category` `llm.inference`: one record per call, with its model, usage and what the vendor said about it), tool invocation, storage write, sandbox execution, etc. `include=rawUsage` adds each model call's usage as the vendor reported it.
         """
         return self._client._request(
             _OPERATIONS["cost.records.list"],
@@ -2747,23 +2756,35 @@ class CostRecordsResource:
                 "conversationId": conversation_id,
                 "category": category,
                 "providerId": provider_id,
+                "model": model,
+                "servedModel": served_model,
+                "rootRunId": root_run_id,
+                "includeDescendants": include_descendants,
                 "from": from_,
                 "to": to,
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "inherit": inherit,
+                "include": include,
             },
             headers={},
             response=_models.CostRecordCollectionPage,
             timeout=timeout,
         )
 
-    def get(self, record_id: str, /, *, timeout: float | None = None) -> _models.CostRecord:
+    def get(
+        self,
+        record_id: str,
+        /,
+        *,
+        include: Literal["rawUsage"] | None = None,
+        timeout: float | None = None,
+    ) -> _models.CostRecord:
         """Fetch a cost record. `GET /v1/cost/records/{recordId}`"""
         return self._client._request(
             _OPERATIONS["cost.records.get"],
             path={"recordId": record_id},
-            query={},
+            query={"include": include},
             headers={},
             response=_models.CostRecord,
             timeout=timeout,
@@ -2789,6 +2810,10 @@ class CostResource:
         agent_id: str | None = None,
         run_id: str | None = None,
         conversation_id: str | None = None,
+        model: str | None = None,
+        served_model: str | None = None,
+        root_run_id: str | None = None,
+        include_descendants: bool | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | None = None,
         inherit: bool | None = None,
@@ -2796,7 +2821,7 @@ class CostResource:
     ) -> _models.CostAggregateResult:
         """Aggregate cost across a time window. `GET /v1/cost/aggregate`
 
-        Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId + ?inherit` narrow the aggregate to a specific scope — reconciles byte-for-byte with the same scoped `/records` list.
+        Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId` narrow the aggregate to a scope: `org` covers every project in the org, so one call sums an org's spend. Each group, and the total, carries its cost and its token sums (`tokens`). `inherit` has no effect on cost records, which always belong to a project.
         """
         return self._client._request(
             _OPERATIONS["cost.aggregate"],
@@ -2810,6 +2835,10 @@ class CostResource:
                 "agentId": agent_id,
                 "runId": run_id,
                 "conversationId": conversation_id,
+                "model": model,
+                "servedModel": served_model,
+                "rootRunId": root_run_id,
+                "includeDescendants": include_descendants,
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "inherit": inherit,
@@ -5418,6 +5447,8 @@ class AsyncRunsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
+        scope_kind: Literal["tenant", "org", "project"] | None = None,
+        scope_id: str | None = None,
         parent_run_id: str | None = None,
         top_level: bool | None = None,
         include: Literal["output"] | None = None,
@@ -5433,6 +5464,8 @@ class AsyncRunsResource:
             query={
                 "limit": limit,
                 "cursor": cursor,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
                 "parentRunId": parent_run_id,
                 "topLevel": top_level,
                 "include": include,
@@ -7524,16 +7557,21 @@ class AsyncCostRecordsResource:
         conversation_id: str | None = None,
         category: str | None = None,
         provider_id: str | None = None,
+        model: str | None = None,
+        served_model: str | None = None,
+        root_run_id: str | None = None,
+        include_descendants: bool | None = None,
         from_: str | None = None,
         to: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | None = None,
         inherit: bool | None = None,
+        include: Literal["rawUsage"] | None = None,
         timeout: float | None = None,
     ) -> _models.CostRecordCollectionPage:
         """List cost records. `GET /v1/cost/records`
 
-        Cursor-paginated. Filters (all AND): `runId`, `agentId`, `conversationId`, `category`, `providerId`, `from`, `to`. Sort order is fixed: `occurredAt desc, id desc`. Records represent one accounted resource event each — LLM inference, tool invocation, storage write, sandbox execution, etc.
+        Cursor-paginated. Filters (all AND): `runId` (with `includeDescendants`, its whole subtree), `rootRunId`, `agentId`, `conversationId`, `category`, `providerId`, `model`, `servedModel`, `from`, `to`. Sort order is fixed: `occurredAt desc, id desc`. Records represent one accounted resource event each — a model call (`category` `llm.inference`: one record per call, with its model, usage and what the vendor said about it), tool invocation, storage write, sandbox execution, etc. `include=rawUsage` adds each model call's usage as the vendor reported it.
         """
         return await self._client._request(
             _OPERATIONS["cost.records.list"],
@@ -7546,23 +7584,35 @@ class AsyncCostRecordsResource:
                 "conversationId": conversation_id,
                 "category": category,
                 "providerId": provider_id,
+                "model": model,
+                "servedModel": served_model,
+                "rootRunId": root_run_id,
+                "includeDescendants": include_descendants,
                 "from": from_,
                 "to": to,
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "inherit": inherit,
+                "include": include,
             },
             headers={},
             response=_models.CostRecordCollectionPage,
             timeout=timeout,
         )
 
-    async def get(self, record_id: str, /, *, timeout: float | None = None) -> _models.CostRecord:
+    async def get(
+        self,
+        record_id: str,
+        /,
+        *,
+        include: Literal["rawUsage"] | None = None,
+        timeout: float | None = None,
+    ) -> _models.CostRecord:
         """Fetch a cost record. `GET /v1/cost/records/{recordId}`"""
         return await self._client._request(
             _OPERATIONS["cost.records.get"],
             path={"recordId": record_id},
-            query={},
+            query={"include": include},
             headers={},
             response=_models.CostRecord,
             timeout=timeout,
@@ -7588,6 +7638,10 @@ class AsyncCostResource:
         agent_id: str | None = None,
         run_id: str | None = None,
         conversation_id: str | None = None,
+        model: str | None = None,
+        served_model: str | None = None,
+        root_run_id: str | None = None,
+        include_descendants: bool | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | None = None,
         inherit: bool | None = None,
@@ -7595,7 +7649,7 @@ class AsyncCostResource:
     ) -> _models.CostAggregateResult:
         """Aggregate cost across a time window. `GET /v1/cost/aggregate`
 
-        Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId + ?inherit` narrow the aggregate to a specific scope — reconciles byte-for-byte with the same scoped `/records` list.
+        Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId` narrow the aggregate to a scope: `org` covers every project in the org, so one call sums an org's spend. Each group, and the total, carries its cost and its token sums (`tokens`). `inherit` has no effect on cost records, which always belong to a project.
         """
         return await self._client._request(
             _OPERATIONS["cost.aggregate"],
@@ -7609,6 +7663,10 @@ class AsyncCostResource:
                 "agentId": agent_id,
                 "runId": run_id,
                 "conversationId": conversation_id,
+                "model": model,
+                "servedModel": served_model,
+                "rootRunId": root_run_id,
+                "includeDescendants": include_descendants,
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "inherit": inherit,

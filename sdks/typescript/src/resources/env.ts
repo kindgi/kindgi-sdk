@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Scope } from '@kindgi/platform';
 import type { Cursor, EnvName } from '@kindgi/types';
+import type { ScopeRef } from '../scope-wire.js';
 
 import { scopeForBody, scopeToQuery } from '../scope-wire.js';
 import type { Transport } from '../transport.js';
@@ -61,7 +61,7 @@ export interface EnvClient {
 // -------------------- inputs --------------------
 
 export interface EnvListInput {
-  readonly scope: Scope;
+  readonly scope: ScopeRef;
   readonly envName: EnvName;
   readonly cursor?: Cursor;
   readonly namePrefix?: string;
@@ -69,13 +69,13 @@ export interface EnvListInput {
 }
 
 export interface EnvGetInput {
-  readonly scope: Scope;
+  readonly scope: ScopeRef;
   readonly envName: EnvName;
   readonly name: string;
 }
 
 export interface EnvSetInput {
-  readonly scope: Scope;
+  readonly scope: ScopeRef;
   readonly envName: EnvName;
   readonly name: string;
   readonly value: string;
@@ -84,7 +84,7 @@ export interface EnvSetInput {
 }
 
 export interface EnvDeleteInput {
-  readonly scope: Scope;
+  readonly scope: ScopeRef;
   readonly envName: EnvName;
   readonly name: string;
 }
@@ -92,7 +92,7 @@ export interface EnvDeleteInput {
 // -------------------- outputs --------------------
 
 export interface EnvRecord {
-  readonly scope: Scope;
+  readonly scope: ScopeRef;
   readonly envName: EnvName;
   readonly name: string;
   readonly value: string;

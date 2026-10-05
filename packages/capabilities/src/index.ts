@@ -14,6 +14,8 @@ export { CAPABILITY_SCHEMA_URI, defineCapability } from './define.js';
 export { createProviderRegistry } from './registry.js';
 export { matchTuples, route } from './router.js';
 export type { RouteInput } from './router.js';
+export { recordModelUsage } from './usage.js';
+export type { RecordModelUsageOptions } from './usage.js';
 export { BUILT_IN_CAPABILITY_KINDS, DEFAULT_CAPABILITY_KIND, FEATURES } from './types.js';
 export type {
   Budget,
@@ -23,6 +25,7 @@ export type {
   ComparisonOp,
   Feature,
   ModelCallInput,
+  ModelUsageRecord,
   ModelCallResult,
   ModelMessage,
   ModelInfo,
@@ -40,6 +43,7 @@ export type {
   TenantPolicy,
   UpperBoundOp,
   UsageCounters,
+  UsageSink,
 } from './types.js';
 export type {
   BudgetExceededError,

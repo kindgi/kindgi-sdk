@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { Principal } from '@kindgi/authz';
-import type { ProviderRegistry, TenantPolicy } from '@kindgi/capabilities';
+import type { ProviderRegistry, TenantPolicy, UsageSink } from '@kindgi/capabilities';
 import type { EmbeddingProviderRegistry } from '@kindgi/embedding';
 import type { MemoryQueryBinding } from '@kindgi/memory';
 import type { PolicyRegistry } from '@kindgi/policy-contract';
@@ -159,6 +159,12 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
   readonly onEvent?: OnTurnEvent;
   readonly provenance?: ProvenanceBindings;
   readonly hitl?: HitlBindings;
+  /**
+   * Where the turn records each model call (the runtime's cost ledger):
+   * its usage, provider, model, run, agent and step, before the step
+   * that made it goes on. Absent: calls aren't recorded.
+   */
+  readonly usage?: UsageSink;
   /**
    * Declarative HTTP tools: optional secret resolver populated
    * from the deployment's tenant-scoped `SecretBinding`. When present,

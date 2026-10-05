@@ -204,6 +204,14 @@ export interface ConversationHitlPolicy {
    * (see `resolveEffectiveHitlPolicy`).
    */
   readonly timeoutMs?: number;
+  /**
+   * What happens when an approval's time runs out: it escalates one
+   * reviewer tier, and at `admin` it expires (the turn fails with
+   * `hitl-cancelled`). `'escalate'` is the only behavior today, and the
+   * default; `'auto-approve'` and `'auto-reject'` are refused rather than
+   * accepted and ignored.
+   */
+  readonly onTimeout?: 'escalate';
 }
 
 /**
