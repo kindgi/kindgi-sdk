@@ -67,6 +67,8 @@ import { createPackRefresher, describePackEvent } from '../dev/pack-service.js';
 import { type DevProject, resolveDevProject } from '../dev/project.js';
 import {
   type DeclaredProvider,
+  type DevProvidersTarget,
+  adoptLegacyBundledEntries,
   declaredProviders,
   describeReconcile,
   devProvidersKey,
@@ -604,10 +606,29 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   // for a Python pack (no npm project), the kindgi on PATH.
   const runner = await detectBinRunner(args.packDir, code.value.language);
   const kindgi = (...a: string[]): string => binDisplay(runner, 'kindgi', a);
+  // The runtime the providers live in: one the developer runs, else the
+  // bundled Postgres's project database, else the database they named.
+  const providersTarget: DevProvidersTarget =
+    args.runtimeUrl !== undefined
+      ? { kind: 'runtime', url: args.runtimeUrl }
+      : project !== undefined
+        ? { kind: 'bundled', database: project.database }
+        : { kind: 'database', url: databaseUrl };
+  if (providersTarget.kind === 'bundled') {
+    await adoptLegacyBundledEntries(
+      devProvidersRecordPath(args.packDir),
+      providersTarget.database,
+      server.tenantId,
+    ).catch((err: unknown) => {
+      emitProgress(
+        `  ⚠ could not update ${join('.kindgi', 'dev', 'providers.json')}: ${(err as Error).message}. Providers this pack registered before 0.1.4 may read as not its own.`,
+      );
+    });
+  }
   await applyDeclaredProviders({
     client,
     packDir: args.packDir,
-    key: devProvidersKey(databaseUrl, server.tenantId),
+    key: devProvidersKey(providersTarget, server.tenantId),
     declared: declared.providers,
     file: configName,
     kindgi,
@@ -1400,7 +1421,7 @@ async function registeredProviders(
 async function applyDeclaredProviders(inputs: {
   readonly client: KindgiClient;
   readonly packDir: string;
-  /** The dev database and tenant (`devProvidersKey`). */
+  /** The runtime and tenant (`devProvidersKey`). */
   readonly key: string;
   readonly declared: readonly DeclaredProvider[];
   readonly file: string;
