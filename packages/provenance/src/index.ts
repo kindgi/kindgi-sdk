@@ -54,4 +54,4 @@ export type {
 } from './versioning.js';
 
 // ============ ProvenanceEmitBinding — caller-plugged emit surface ============
-export type { ProvenanceEmitBinding } from './emit-binding.js';
+export type { ProvenanceEmitBinding, ProvenanceEmitContext } from './emit-binding.js';

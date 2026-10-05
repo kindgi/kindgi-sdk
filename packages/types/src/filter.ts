@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Brand } from './ids.js';
+import type { Brand, OrgId, ProjectId } from './ids.js';
 import type { Timestamp } from './temporal.js';
 
 /**
@@ -64,3 +64,14 @@ export interface Page<T> {
   readonly nextCursor?: Cursor;
   readonly truncated?: boolean;
 }
+
+/**
+ * A list's content scope: one project's records, or those of every
+ * project in an org. Absent: the whole tenant. Lists of content (runs,
+ * approvals, conversations, provenance) take it; on the wire it is
+ * `?scopeKind=project|org&scopeId=…`. It narrows a list, it isn't an
+ * authorization boundary.
+ */
+export type ListScope =
+  | { readonly kind: 'project'; readonly projectId: ProjectId }
+  | { readonly kind: 'org'; readonly orgId: OrgId };

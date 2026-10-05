@@ -1,0 +1,2 @@
+ALTER TABLE "agent_conversations" ADD COLUMN "project_id" uuid;--> statement-breakpoint
+CREATE INDEX "agent_conversations_tenant_project_opened_idx" ON "agent_conversations" USING btree ("tenant_id","project_id","opened_at" DESC NULLS LAST) WHERE "agent_conversations"."project_id" IS NOT NULL;
