@@ -1,5 +1,13 @@
 # @kindgi/flow
 
+## 0.1.3
+
+### Patch Changes
+
+- Updated dependencies [1463b77]
+  - @kindgi/types@0.1.3
+  - @kindgi/schema@0.1.3
+
 ## 0.1.2
 
 ### Patch Changes

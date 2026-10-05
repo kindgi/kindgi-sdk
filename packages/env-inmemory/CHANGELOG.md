@@ -1,5 +1,24 @@
 # @kindgi/env-inmemory
 
+## 0.1.3
+
+### Patch Changes
+
+- Updated dependencies [2544717]
+- Updated dependencies [0f226c2]
+- Updated dependencies [629057d]
+- Updated dependencies [1463b77]
+- Updated dependencies [453056f]
+- Updated dependencies [6bae409]
+- Updated dependencies [ab23a9b]
+- Updated dependencies [6c274dd]
+- Updated dependencies [2c185d8]
+  - @kindgi/api@0.1.3
+  - @kindgi/types@0.1.3
+  - @kindgi/audit-events@0.1.3
+  - @kindgi/compliance@0.1.3
+  - @kindgi/platform@0.1.3
+
 ## 0.1.2
 
 ### Patch Changes
