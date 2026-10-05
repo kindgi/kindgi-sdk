@@ -44,6 +44,13 @@ export const agentConversations = pgTable(
      */
     participantId: text('participant_id'),
     /**
+     * The project the conversation is in, set when it is opened (a run
+     * opens it in the run's project). Null when opened without one, and
+     * on conversations from before the column (nothing is backfilled).
+     * No foreign key: `projects` belongs to the runtime's schema.
+     */
+    projectId: uuid('project_id'),
+    /**
      * Structural scope — project id, matter id, etc. Persisted through
      * the versioning envelope so shape evolution is migrate-on-read.
      */
@@ -74,6 +81,10 @@ export const agentConversations = pgTable(
       t.tenantId,
       t.participantId,
     ),
+    /** One project's conversations, newest first (`listConversationsPage({ scope })`). */
+    tenantProjectOpenedIdx: index('agent_conversations_tenant_project_opened_idx')
+      .on(t.tenantId, t.projectId, t.openedAt.desc())
+      .where(sql`${t.projectId} IS NOT NULL`),
     /** Partial index: open conversations sorted by recency. Used by the UI list. */
     openRecentIdx: index('agent_conversations_open_recent_idx')
       .on(t.tenantId, t.lastMessageAt.desc())

@@ -103,15 +103,21 @@ export type PostDeploymentResult =
       readonly kind: 'created';
       readonly status: 201;
       readonly record: DeploymentRecord;
+      /** The server answered from its record of an earlier request with this Idempotency-Key (`X-Idempotent-Replay`). */
+      readonly idempotentReplay?: boolean;
     }
   | {
       readonly kind: 'replayed';
       readonly status: 200;
       readonly record: DeploymentRecord;
+      /** The server answered from its record of an earlier request with this Idempotency-Key (`X-Idempotent-Replay`). */
+      readonly idempotentReplay?: boolean;
     }
   | {
       readonly kind: 'wire-error';
       readonly status: number;
+      /** A replay of an earlier answer to this Idempotency-Key (a runtime before 0.1.3 also replays refusals). */
+      readonly idempotentReplay?: boolean;
       readonly error: {
         readonly code: string;
         readonly message: string;
@@ -206,6 +212,8 @@ export type SyncSecretsResult =
   | {
       readonly kind: 'wire-error';
       readonly status: number;
+      /** A replay of an earlier answer to this Idempotency-Key (a runtime before 0.1.3 also replays refusals). */
+      readonly idempotentReplay?: boolean;
       readonly error: {
         readonly code: string;
         readonly message: string;

@@ -2,17 +2,18 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, type watch } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, onTestFinished, test, vi } from 'vitest';
 
 import { packServiceCommand } from '../src/dev/defaults.js';
 import { checkPackPython, resolvePackCode, resolvePackPython } from '../src/dev/pack-code.js';
 import { createPythonPackBuilder, isPythonSourceChange } from '../src/dev/python-builder.js';
+import { untilReported } from './fs-events.js';
 
 // The Python SDK's own virtualenv in the sibling kindgi-sdk checkout (`uv sync` in sdks/python).
 const sdkPython = fileURLToPath(
@@ -149,47 +150,69 @@ describe('the Python pack builder', () => {
     },
   );
 
-  // Real filesystem events (see dev-watch.test.ts): a generous limit and a retry.
+  // Which events rebuild, with scripted events: "didn't rebuild" is a fact, not a wait.
   test.skipIf(systemPython === undefined)(
-    'a .py edit rebuilds; other files do not',
-    { retry: 2, timeout: 60_000 },
+    'a .py edit rebuilds; other files, and events without a name, do not',
     async () => {
+      vi.useFakeTimers();
+      onTestFinished(() => {
+        vi.useRealTimers();
+      });
+      let listener: ((event: string, filename: string | null) => void) | undefined;
+      const watchFs = ((_path: string, _options: unknown, onEvent: typeof listener) => {
+        listener = onEvent;
+        return { close() {} };
+      }) as unknown as typeof watch;
+      const builder = createPythonPackBuilder({
+        packDir,
+        python: [systemPython as string],
+        env,
+        debounceMs: 50,
+        watchFs,
+      });
+      const builds: unknown[] = [];
+      await mkdir(join(packDir, 'tools'), { recursive: true });
+      await writeFile(join(packDir, 'tools', 'a.py'), 'x = 1\n');
+      await builder.watch((build) => builds.push(build));
+      listener?.('change', 'notes.txt');
+      listener?.('change', join('.venv', 'lib', 'x.py'));
+      listener?.('rename', null);
+      expect(vi.getTimerCount()).toBe(0);
+      listener?.('change', join('tools', 'a.py'));
+      listener?.('change', join('tools', 'a.py'));
+      expect(vi.getTimerCount()).toBe(1);
+      await vi.advanceTimersByTimeAsync(50);
+      vi.useRealTimers();
+      await vi.waitFor(() => expect(builds).toEqual([{ kind: 'ok', bundleMap: {} }]), {
+        timeout: 30_000,
+      });
+      await builder.dispose();
+    },
+  );
+
+  // The real file system: its events reach the builder (see ./fs-events.ts).
+  test.skipIf(systemPython === undefined)(
+    'a .py edit on disk rebuilds',
+    { timeout: 90_000 },
+    async (context) => {
       const builder = createPythonPackBuilder({
         packDir,
         python: [systemPython as string],
         env,
         debounceMs: 50,
       });
+      onTestFinished(() => builder.dispose());
       const builds: unknown[] = [];
       await mkdir(join(packDir, 'tools'), { recursive: true });
       await builder.watch((build) => builds.push(build));
-      // The watcher is live once a probe edit rebuilds: a fixed sleep after
-      // starting it isn't enough on a loaded machine, where the event stream
-      // can start late. Then wait until no more builds arrive and start over.
-      const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-      const liveBy = Date.now() + 15_000;
-      for (let i = 0; builds.length === 0 && Date.now() < liveBy; i += 1) {
-        await writeFile(join(packDir, 'tools', 'probe.py'), `x = ${i}\n`);
-        await sleep(250);
-      }
-      expect(builds.length).toBeGreaterThan(0);
-      const quietBy = Date.now() + 15_000;
-      for (let seen = -1; seen !== builds.length && Date.now() < quietBy; ) {
-        seen = builds.length;
-        await sleep(1_500);
-      }
-      builds.length = 0;
-      await writeFile(join(packDir, 'notes.txt'), 'ignored\n');
-      await sleep(400);
-      expect(builds).toEqual([]);
-      await writeFile(join(packDir, 'tools', 'a.py'), 'x = 1\n');
-      const deadline = Date.now() + 15_000;
-      while (builds.length === 0 && Date.now() < deadline) await sleep(20);
-      expect(builds.length).toBeGreaterThan(0);
-      expect(
-        builds.every((b) => JSON.stringify(b) === JSON.stringify({ kind: 'ok', bundleMap: {} })),
-      ).toBe(true);
-      await builder.dispose();
+      let round = 0;
+      await untilReported(
+        context,
+        { folder: packDir, recursive: true, name: join('tools', 'a.py') },
+        () => builds.length > 0,
+        () => writeFile(join(packDir, 'tools', 'a.py'), `x = ${round++}\n`),
+      );
+      expect(builds[0]).toEqual({ kind: 'ok', bundleMap: {} });
     },
   );
 });

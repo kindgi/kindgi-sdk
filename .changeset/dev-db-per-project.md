@@ -1,5 +1,5 @@
 ---
-"@kindgi/cli": minor
+"@kindgi/cli": patch
 ---
 
 `kindgi dev` gives each project its own database in the bundled Postgres, `kindgi_<project>`, with its own dev tenant and user. A linked git worktree gets `kindgi_<project>__<worktree>`, so branches on different Kindgi versions never share a schema.

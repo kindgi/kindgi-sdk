@@ -58,6 +58,7 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
+    "@kindgi/env-schema": "workspace:*",
     "@kindgi/flow": "workspace:*",
     "@kindgi/sandbox": "workspace:*",
     "@kindgi/schema": "workspace:*",

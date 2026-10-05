@@ -28,7 +28,9 @@ export function buildPersistProvenanceHandler(ctx: TurnContext): NodeHandler {
       // want).
       return { persisted: false };
     }
-    const persisted = await persistProvenance(ctx.provenance, ctx.provenanceBindings);
+    const persisted = await persistProvenance(ctx.provenance, ctx.provenanceBindings, {
+      projectId: ctx.input.projectId,
+    });
     if (persisted.kind === 'ok') {
       ctx.persistedProvenance = persisted.value;
       return { persisted: true };

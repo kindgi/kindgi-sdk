@@ -21,9 +21,10 @@ const WIRE_ERROR_HINTS: Readonly<Record<string, string>> = {
     "The server re-canonicalises the envelope using the token's tenantId; " +
     'a mismatch fails signature verification.',
   'signer-not-trusted':
-    "The signing key's public key is not on this tenant's trust list. " +
-    'Print it with `kindgi key export <keyId>` and have your Kindgi operator ' +
-    'add it to the trust list (SigningKeyBinding).',
+    "The runtime doesn't trust the signing key {signerKeyId}: it isn't on this tenant's " +
+    'trust list, or it was revoked. Trust it (with a token that has signing-keys:write), ' +
+    'then deploy again. A revoked key stays revoked: make a new one with ' +
+    '`kindgi key create <newId>`.',
   'image-unverifiable':
     'The server could not pull the image or the extracted /app/index.json ' +
     'sha256 did not match the signed indexHash. Verify the build server ' +
@@ -36,6 +37,14 @@ const WIRE_ERROR_HINTS: Readonly<Record<string, string>> = {
   'bad-input':
     'The wire body was malformed. Regenerate the envelope with ' +
     '`kindgi build` — a partial write on disk can cause this.',
+};
+
+/**
+ * The command a hint names, on a line of its own so it copies whole.
+ * `{signerKeyId}` and `{endpoint}` are filled in from the deploy.
+ */
+const WIRE_ERROR_COMMANDS: Readonly<Record<string, string>> = {
+  'signer-not-trusted': 'kindgi key trust {signerKeyId} --url {endpoint}',
 };
 
 export interface RenderedResponse {
@@ -80,6 +89,11 @@ export function renderResponse(
     banner.push(`      primitives:      ${primitivesLine(result.record.primitives)}`);
     banner.push(`      activatedAt:     ${result.record.activatedAt}`);
     banner.push('');
+    if (result.idempotentReplay === true) {
+      banner.push(
+        `  Note: answered from the server's record of an earlier request with this Idempotency-Key (${ctx.idempotencyKey}); nothing ran again.`,
+      );
+    }
     if (result.kind === 'replayed') {
       banner.push(
         '  Note: same imageDigest previously landed. Server returned the existing record.',
@@ -114,13 +128,17 @@ export function renderResponse(
     banner.push(`    ✗ POST /v1/deployments  →  HTTP ${result.status}`);
     banner.push(`      code:    ${result.error.code}`);
     banner.push(`      message: ${result.error.message}`);
+    const fill = (text: string): string =>
+      text.replaceAll('{signerKeyId}', ctx.signerKeyId).replaceAll('{endpoint}', ctx.endpoint);
     const hint = WIRE_ERROR_HINTS[result.error.code];
     if (hint !== undefined) {
       banner.push('');
       banner.push('  Hint:');
-      for (const line of wrapForBanner(hint, 74, '    ')) {
+      for (const line of wrapForBanner(fill(hint), 74, '    ')) {
         banner.push(line);
       }
+      const command = WIRE_ERROR_COMMANDS[result.error.code];
+      if (command !== undefined) banner.push(`      ${fill(command)}`);
     }
     if (result.error.details !== undefined && result.error.details.length > 0) {
       banner.push('');
@@ -129,10 +147,20 @@ export function renderResponse(
         banner.push(`    · ${JSON.stringify(detail)}`);
       }
     }
-    if (result.status >= 500) {
+    if (result.idempotentReplay === true) {
+      // A runtime before 0.1.3 stored refusals too.
       banner.push('');
       banner.push(
-        '  This is a server error — check the api-server logs. Idempotent-safe to retry.',
+        `  This answer is a replay: an earlier request with the same Idempotency-Key (${ctx.idempotencyKey}) got it,`,
+      );
+      banner.push(
+        '  and the server returned it without running again. After fixing the cause, deploy',
+      );
+      banner.push('  with a new key: --idempotency-key <new value>.');
+    } else if (result.status >= 500) {
+      banner.push('');
+      banner.push(
+        "  This is a server error: check the runtime's logs, then run the same command again.",
       );
     }
     banner.push('');
@@ -146,7 +174,10 @@ export function renderResponse(
   banner.push(`      ${result.message}`);
   banner.push('');
   banner.push(
-    '  Check network connectivity + endpoint URL. Idempotent-safe to retry with the same key.',
+    '  Check the network and the endpoint URL, then run the same command again: it sends',
+  );
+  banner.push(
+    `  the same Idempotency-Key (${ctx.idempotencyKey}), so a deploy that did land isn't registered twice.`,
   );
   banner.push('');
   return { banner, summary: null, exitCode: 1 };

@@ -253,6 +253,7 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
           try {
             await ctx.bindings.hitl.enqueue({
               tenantId: ctx.input.tenantId,
+              projectId: ctx.input.projectId,
               subjectKind: TOOL_CALL_GATE_SUBJECT,
               subjectRef: {
                 conversationId: ctx.input.conversationId,

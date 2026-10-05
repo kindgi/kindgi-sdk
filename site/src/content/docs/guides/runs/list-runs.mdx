@@ -1,6 +1,6 @@
 ---
 title: List runs
-description: List the newest runs page by page, only the ones your app started, or the agent turns inside one run.
+description: List the newest runs page by page, only the ones your app started, the agent turns inside one run, or one agent's turns.
 sidebar:
   order: 7
 ---
@@ -94,6 +94,7 @@ edaf7625-0585-40c3-805c-0c098f6846b8 acme.review-order failed
 - **`scope`** (`scope_kind` / `scope_id`) lists one project's runs, or the runs
   of every project in an org: `{ kind: 'project', projectId }`
   (`scope_kind="project", scope_id=…`), or `{ kind: 'org', orgId }`.
+- **`agentId`** (`agent_id`) lists one agent's turns; see below.
 - In Python, `paginate` follows `next_cursor` for you.
 
 ## The runs inside a run
@@ -130,5 +131,51 @@ for child in children.data:
 
 </TabItem>
 </Tabs>
+
+## One agent's turns
+
+An agent's turn names its agent: `agent` carries the agent's id, the
+version that ran and the conversation. That goes for an agent run and for
+the turn a flow's agent step starts. `agentId` (`agent_id`) lists one
+agent's turns, at every version.
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+const turns = await kindgi.runs.list({ agentId: 'acme.desk-agent' });
+for (const run of turns.data) {
+  console.log(run.id, run.agent?.version, run.agent?.conversationId, run.parentRunId ?? '-');
+}
+```
+
+```text
+51f736ba-bdde-4558-bf5f-32270622b822 1.1.0 d8d51075-ee70-44bd-b93d-f15e450798b7 259f5e11-6ebe-4347-a590-e3db5c71cf7f
+f9745c06-9935-4641-bf41-77d11a7f1ffb 1.1.0 b3e40910-9a84-4fc5-a4f8-d2cced5dbb53 -
+d0f3817d-1166-462d-a666-7a193bc48f08 1.0.0 60c9d486-ff3b-4ef9-8fbe-be19ab1d7313 -
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+turns = kindgi.runs.list(agent_id="acme.desk-agent")
+for run in turns.data:
+    print(run.id, run.agent.version, run.agent.conversation_id, run.parent_run_id or "-")
+```
+
+```text
+51f736ba-bdde-4558-bf5f-32270622b822 1.1.0 d8d51075-ee70-44bd-b93d-f15e450798b7 259f5e11-6ebe-4347-a590-e3db5c71cf7f
+f9745c06-9935-4641-bf41-77d11a7f1ffb 1.1.0 b3e40910-9a84-4fc5-a4f8-d2cced5dbb53 -
+d0f3817d-1166-462d-a666-7a193bc48f08 1.0.0 60c9d486-ff3b-4ef9-8fbe-be19ab1d7313 -
+```
+
+</TabItem>
+</Tabs>
+
+The first turn is a flow's agent step (it has a `parentRunId`); add
+`topLevel: true` to leave those out. It combines with `scope` too. Turns
+that ran before Kindgi 0.1.3 don't name their agent: they have no `agent`,
+and `agentId` doesn't list them.
 
 [Read a run's journal](../read-the-journal/) to see what a turn did.

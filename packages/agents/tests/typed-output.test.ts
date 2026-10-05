@@ -342,6 +342,22 @@ describe('structured step input', () => {
     );
     expect(seen[0]?.parent).toEqual(parent);
   });
+
+  test("invokeAgent names the agent, its version and the conversation on the turn's run", async () => {
+    const seen: RunFlowInput[] = [];
+    const runBinding = {
+      runGraph: async (input: RunFlowInput) => {
+        seen.push(input);
+        return { kind: 'err', error: { code: 'journal-error', message: 'stop here', cause: null } };
+      },
+    } as unknown as RunBinding;
+    const spec = agent();
+    await invokeAgent(
+      { tenantId, projectId, agent: spec, conversationId, userMessage: '{}', input: {} },
+      { runBinding } as unknown as InvokeAgentBindings,
+    );
+    expect(seen[0]?.agent).toEqual({ id: spec.id, version: spec.version, conversationId });
+  });
 });
 
 describe('buildRunTrace', () => {

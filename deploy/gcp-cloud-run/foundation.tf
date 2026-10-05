@@ -192,9 +192,11 @@ resource "google_kms_crypto_key_iam_member" "server_wraps" {
   member        = "serviceAccount:${google_service_account.server.email}"
 }
 
-# The server checks the key at boot by reading its metadata
-# (cloudkms.cryptoKeys.get), which encrypter/decrypter doesn't include.
-# Without it every boot exits 2: "KMS probe failed at boot: kms-unauthorized".
+# A runtime before 0.1.3 checks the key at boot by reading its metadata
+# (cloudkms.cryptoKeys.get), which encrypter/decrypter doesn't include:
+# without this, its every boot exits 2 ("KMS probe failed at boot:
+# kms-unauthorized"). From 0.1.3 the probe is an encrypt/decrypt round trip
+# and needs only the role above.
 resource "google_kms_crypto_key_iam_member" "server_reads_key" {
   crypto_key_id = google_kms_crypto_key.secrets.id
   role          = "roles/cloudkms.viewer"

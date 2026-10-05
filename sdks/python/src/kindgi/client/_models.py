@@ -53,6 +53,26 @@ class RunStatus(
     root: Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]
 
 
+class RunAgent(BaseModel):
+    """
+    Set on an agent's turn (an agent run, or the turn a flow's agent step started): the agent, the version that ran and the conversation. Absent on other runs, and on turns that ran before Kindgi 0.1.3.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    The agent id.
+    """
+    version: str
+    """
+    The agent version that ran (semver).
+    """
+    conversation_id: Annotated[UUID, Field(alias="conversationId")]
+
+
 class Run(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -87,6 +107,7 @@ class Run(BaseModel):
     """
     Set on a child run: the node in the parent run that started it.
     """
+    agent: RunAgent | None = None
     public_access_token: Annotated[str | None, Field(alias="publicAccessToken")] = None
     """
     Only in the response to `POST /v1/runs`, when the deployment issues public run tokens: a read-only token for this run (and its descendants) to hand to a browser, for `GET /v1/runs/{runId}/progress` and its stream.
@@ -241,6 +262,7 @@ class Datum(BaseModel):
     """
     Set on a child run: the node in the parent run that started it.
     """
+    agent: RunAgent | None = None
     public_access_token: Annotated[str | None, Field(alias="publicAccessToken")] = None
     """
     Only in the response to `POST /v1/runs`, when the deployment issues public run tokens: a read-only token for this run (and its descendants) to hand to a browser, for `GET /v1/runs/{runId}/progress` and its stream.
@@ -1960,6 +1982,10 @@ class Conversation(BaseModel):
     """
     title: str
     participant_id: Annotated[str | None, Field(alias="participantId")] = None
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The project the conversation is in: the project of the run that opened it, or `projectId` on open (the tenant's Default project when omitted). Absent on conversations from before Kindgi 0.1.3; those are listed only without a scope.
+    """
     scope: dict[str, Any]
     """
     Free-form scope object (currently `{ tenantId }` in tests; enterprises extend with `matterId`, `engagementId`, etc.).
@@ -2019,6 +2045,10 @@ class OpenConversationBody(BaseModel):
     title: str | None = None
     """
     Optional. Defaults to `"Untitled conversation"` when omitted.
+    """
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The project the conversation is in; `GET /v1/conversations?scopeKind=project&scopeId=…` lists it. A project of the caller's tenant, else `400 bad-input`. Omitted: the tenant's Default project, as for a run.
     """
     scope: dict[str, Any] | None = None
     """
@@ -2744,6 +2774,10 @@ class ProvenanceRecordMetadata(BaseModel):
     True when the emission-time signature is present. Independent of whether the export route can produce a signed bundle.
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The project of the record's run. Absent on records from before Kindgi 0.1.3; those are listed only without a scope.
+    """
 
 
 class Node(BaseModel):
