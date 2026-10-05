@@ -131,6 +131,29 @@ describe('runs.start — options.wait and output', () => {
     expect(run.parentRunId).toBe('00000000-0000-4000-8000-000000000009');
     expect(run.parentNodeId).toBe('parse');
   });
+
+  it("surfaces an agent turn's agent, version and conversation", async () => {
+    const stub = jsonFetch({
+      ...WIRE_RUN,
+      flowId: 'agent.turn',
+      agent: {
+        id: 'acme.desk.echo-agent',
+        version: '0.3.0',
+        conversationId: '00000000-0000-4000-8000-00000000000c',
+      },
+    });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    const run = await client.runs.get('00000000-0000-4000-8000-000000000001' as never);
+    expect(run.agent).toEqual({
+      id: 'acme.desk.echo-agent',
+      version: '0.3.0',
+      conversationId: '00000000-0000-4000-8000-00000000000c',
+    });
+  });
 });
 
 describe('runs.list — filters', () => {
@@ -153,6 +176,21 @@ describe('runs.list — filters', () => {
     expect(first.searchParams.get('parentRunId')).toBe('00000000-0000-4000-8000-000000000009');
     expect(first.searchParams.get('include')).toBe('output');
     expect(new URL(stub.calls[1]?.url ?? '').searchParams.get('topLevel')).toBe('true');
+  });
+
+  it("sends agentId: one agent's turns", async () => {
+    const stub = recordingFetch([
+      { status: 200, body: JSON.stringify({ data: [], hasMore: false }) },
+    ]);
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    await client.runs.list({ agentId: 'acme.desk.echo-agent', topLevel: true });
+    const query = new URL(stub.calls[0]?.url ?? '').searchParams;
+    expect(query.get('agentId')).toBe('acme.desk.echo-agent');
+    expect(query.get('topLevel')).toBe('true');
   });
 
   it('sends a project or org scope as scopeKind + scopeId', async () => {

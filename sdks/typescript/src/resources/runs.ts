@@ -180,6 +180,8 @@ export interface ListRunsFilter {
   readonly parentRunId?: RunId;
   /** Only runs that are not a child of another run. */
   readonly topLevel?: boolean;
+  /** Only this agent's turns, at any version (turns from before 0.1.3 don't name their agent). */
+  readonly agentId?: AgentId | string;
   /** Include each run's `output` (omitted from lists by default). */
   readonly includeOutput?: boolean;
 }
@@ -234,10 +236,20 @@ export interface ResumeRunInput {
 }
 
 /**
+ * The agent a run is a turn of (`@kindgi/api/openapi.json#RunAgent`):
+ * which agent, the version that ran, and the conversation.
+ */
+export interface RunAgent {
+  readonly id: string;
+  readonly version: string;
+  readonly conversationId: string;
+}
+
+/**
  * Wire shape — matches `@kindgi/api/openapi.json#Run`. Runs are
  * flow-native on the wire: an agent run executes as a flow on the
- * server, and the row reports that flow's `flowId` / `flowVersion`
- * rather than the `agentId`.
+ * server, and the row reports that flow's `flowId` / `flowVersion`;
+ * `agent` names the agent.
  */
 export interface Run {
   readonly id: RunId;
@@ -257,6 +269,11 @@ export interface Run {
   readonly parentRunId?: RunId;
   /** Set on a child run: the node in the parent run that started it. */
   readonly parentNodeId?: string;
+  /**
+   * Set on an agent's turn (an agent run, or the turn a flow's agent step
+   * started). Absent on other runs, and on turns from before 0.1.3.
+   */
+  readonly agent?: RunAgent;
 }
 
 /**
@@ -394,6 +411,7 @@ export function makeRunsClient(transport: Transport): RunsClient {
             parentRunId: filter.parentRunId as unknown as string,
           }),
           ...(filter?.topLevel !== undefined && { topLevel: String(filter.topLevel) }),
+          ...(filter?.agentId !== undefined && { agentId: filter.agentId as string }),
           ...(filter?.includeOutput === true && { include: 'output' }),
         },
       });

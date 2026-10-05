@@ -128,7 +128,8 @@ export interface RunBinding {
    * paginated. Filter by content scope: absent = tenant-wide,
    * `{ kind: 'project' }` narrows to one project, `{ kind: 'org' }`
    * includes every project in the org. `parent` narrows to a run's
-   * children; `topLevelOnly` excludes child runs.
+   * children; `topLevelOnly` excludes child runs; `agentId` narrows to
+   * one agent's turns (`KernelRunRecord.agent`).
    */
   listRuns(input: ListRunsInput): Promise<ListRunsPage>;
 }
