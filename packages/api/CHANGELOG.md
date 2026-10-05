@@ -1,5 +1,70 @@
 # @kindgi/api
 
+## 0.1.3
+
+### Patch Changes
+
+- 2544717: An approval says who decided it, after the decision: on the API, in the run's journal, and in the turn's provenance.
+  
+  - **API.** `GET /v1/approvals/:id` and `GET /v1/approvals` carry an approval's recorded `decision` (`ApprovalDecisionRecord`): `decision`, `rationale`, `reviewerId`, `reviewerRoleAtDecision`, `decidedAt` and `decidedBy`, the decider as an actor, `user:<userId>`. An open approval, or one that ended without a decision (expired, or escalated by a timeout), has none. The TypeScript client types it (`Approval.decision`, `ApprovalDecisionRecord`), and the Python client models it.
+  - **Journal.** `POST /v1/approvals/:id/complete` resumes the run with `{ decided, rationale?, decidedBy, approvalId }` (`GateDecisionValue`, exported by `@kindgi/agents`), so the run's journal records who decided which approval. `readGateDecision` reads `decidedBy` and `approvalId` when they're there; a value without them still decides. Another subject's explicit `value` is resumed as given.
+  - **Provenance.** A tool call that waited on an approval has a `wait` node (`tool-hitl-gate-wait:<invocationId>`, the agent parked, at the time it parked) `resumed-from` a `resume` node (`tool-hitl-gate-resume:<invocationId>`, at the time the decision came; its `actor` is whoever decided, and its attributes the decision, rationale and `approvalId`). The call `waited-on` the wait, and its result was `caused-by` the resume. A resumed turn reads them from its journal, so every call shows its approval, those decided before an earlier park too. The session gate's `resume` node names whoever decided as its `actor` (the agent, for a decision recorded before it was named), with the `approvalId`.
+  - **For a custom `HitlBinding`:** return each approval's `decision` from `getApproval` and `listApprovals`, with `ReviewDecisionRecord.decidedBy`, for them to show; both are optional, and a binding without them answers as before.
+- 0f226c2: An agent's approval gates fail closed. A tool-call approval rejected with a `value` still ran the tool: `POST /v1/approvals/:id/complete` let a `value` replace the resume payload `{ decided, rationale }`, and the tool and session gates went on unless they read an explicit `reject`. Now only an explicit approve lets a tool run or a session go on; a reject, or an answer that isn't a decision at all, blocks, the tool call with a rejected result that says why. And the route refuses a `value` for an agent's tool-call or session gate (`tool-call:pending`, `agent-turn:session-hitl-gate`) with `400 bad-input`, before anything is recorded; another subject's approval still takes one. `@kindgi/agents` exports the gate subjects (`AGENT_GATE_SUBJECTS`, `TOOL_CALL_GATE_SUBJECT`, `SESSION_GATE_SUBJECT`) and `readGateDecision`.
+- 629057d: Every model call is recorded, with everything the provider says about it, and the cost API reads it per call, per run tree, and per org.
+  
+  - **Usage recording.** The agent turn records each model call in a usage sink (`InvokeAgentBindings.usage`, `UsageSink` / `ModelUsageRecord` in `@kindgi/capabilities`) before the step goes on, a call that threw included. The record carries the call id, project, run, agent and version, conversation, step, provider, the model actually called, a fallback flag, status, usage, duration and finish reason; a failed call's error carries the attempts it took. llm-judge guardrails record theirs too (`EvaluationBindings.usage`, `purpose: guardrail-judge:<id>`, with the turn's step and agent version). A dry run records nothing.
+  - **A sink that fails** is tried again (`recordModelUsage`; a record is idempotent by call id). An answered call it still can't record fails the step with `persistence-error` (an llm-judge's is `judge-usage-unrecorded`, which the turn fails on the same way). A failed call keeps its own failure, and says when it couldn't be recorded either.
+  - **Usage, unfolded.** `UsageCounters` reports the parts of its totals: `cacheReadTokens` and `cacheWriteTokens` are parts of `promptTokens`, `reasoningTokens` of `completionTokens`. A part is there when the provider reports it, a reported 0 included, and absent when it doesn't. `ModelCallResult` adds `servedModel` (the exact version the vendor reports), `providerRequestId`, `attempts` (HTTP attempts, the SDK's own retries included, counted with `createAttemptCounter` from `@kindgi/capabilities/attempts`, a Node-only entry; a call that throws keeps its own error, and `attemptsOf(error)` gives its attempts) and `rawUsage` (the vendor's usage object as it reported it). The Anthropic, Gemini and OpenAI-compatible adapters fill them.
+  - **Breaking, for a custom model adapter:** `UsageCounters.cachedTokens` is renamed `cacheReadTokens`.
+  - **Breaking, for a custom `CostBinding`:** `tokens` is required on `CostAggregateGroup` and `CostAggregateResult`, and a binding that can't read should throw (the API answers 500) rather than return an empty page.
+  - **Cost API (`@kindgi/api`, `@kindgi/client`).** A cost record of a model call carries `callId`, `projectId`, `rootRunId`, `parentRunId`, `agentVersion`, `flowId`, `nodeId`, `step`, `purpose`, `model`, `servedModel`, `fallback`, `status`, `usage`, `durationMs`, `finishReason`, `providerRequestId`, `attempts` and `error`, and `rawUsage` with `include=rawUsage`. New filters: `model`, `servedModel`, `rootRunId`, `includeDescendants` (with `runId`). New `groupBy` dimensions: `model`, `servedModel`, `projectId`, `orgId`, `rootRunId`, `flowId`. Every aggregate group and the total carry `tokens: {prompt, completion, cacheRead, cacheWrite, reasoning}`. A binding that fails answers 500, never an empty page. `to` is exclusive, as the binding always applied it. The TypeScript client takes `scope`, the new filters and `includeRawUsage`.
+  - **`run.finished`** carries `usage: {calls, costUsd, tokens}` (`RunTreeUsage`) for the run tree, when the runtime records usage: what the ledger had recorded when the run finished, failed calls counted (a child run still running then isn't in it).
+  - **Clients:** `includeDescendants` is a boolean query parameter; the Python client names a cost record's error `ModelCallError`.
+  - **Provenance (breaking for readers of `model-call` attributes):** a `model-call` node keeps the call's identity (`callId`, `providerId`, `model`, `finishReason`, `step`); its `promptTokens`, `completionTokens` and `costUsd` are gone from `attributes`. A provenance read carries them in `callUsage`, by `callId`, from the cost ledger, outside the signed DAG (`ProvenanceBinding.getCallUsage`). A signed export includes `callUsage` as it stood when signed (bundle schema `1.1.0`).
+- 1463b77: Approvals, conversations and provenance list by project, as runs do. `GET /v1/approvals`, `GET /v1/conversations` and `GET /v1/provenance` take `scopeKind=project|org` + `scopeId`: one project's records, or every project's in an org. A `scopeId` that isn't a UUID is `400 scope-invalid`. The records say their project:
+  - an agent's approvals are enqueued in the turn's project (`HitlEnqueueInput.projectId`);
+  - a conversation has `projectId`, set by the run that opens it or by `POST /v1/conversations`' new `projectId` (one of the tenant's projects, else `400 bad-input`; omitted, the tenant's Default project, as for a run); `agent_conversations` gets a nullable `project_id` (migration `0003`);
+  - a provenance record's list row has `projectId`, which the emitter passes beside the signed document (`ProvenanceEmitBinding.emit(provenance, { projectId })`).
+  
+  `ListScope` (`@kindgi/types`) is the scope of each binding's list input. TypeScript client: `scope` on `approvals.list`, `conversations.list` and `provenance.query`, and `projectId` on `conversations.open`; the Python client takes `scope_kind` / `scope_id` and `project_id` (regenerated). Records from before this release have no project, so only a list without a scope shows them (nothing is backfilled).
+- 453056f: A registered reviewer can use the approvals surface with any token of theirs. The approvals routes refused every token that didn't carry a `reviewerRole` itself, so a reviewer signed in through OAuth, or calling with an API key, got 403 on `/v1/approvals`. Now a token with no role of its own takes the role the reviewer roster gives its user (`ReviewerBinding.resolveReviewerRole`), and `GET /v1/identity/whoami` reports the same role. A token with no user, or a user who isn't a reviewer, is still refused, and the 403 says how to register one (`kindgi reviewers register`).
+  
+  - **For a custom `ReviewerBinding`:** implement the new optional `resolveReviewerRole({ tenantId, userId })` (the user's reviewer role in the tenant, or `null`) for its reviewers' sessions and API keys to work; without it, only a token that carries its role reviews, as before.
+- 6bae409: An agent's turn names its agent. The run record of an agent run, and of the turn a flow's agent step starts, carries `agent`: the agent's id, the version that ran and the conversation (`RunAgentRef` in `@kindgi/runtime`, `Run.agent` on the wire, the `RunAgent` schema). `GET /v1/runs?agentId=` lists one agent's turns, at every version; it combines with the scope, `topLevel` and the cursor. The TypeScript client takes `runs.list({ agentId })`; the Python client `runs.list(agent_id=…)`. Turns that ran before this release don't name their agent: they have no `agent` and aren't listed by `agentId`.
+- ab23a9b: A run id that isn't one is a 400. `GET /v1/runs/not-a-uuid` (and the run's `progress`, `journal`, `stream`, `progress/stream` and `cancel`) answered `500`, from the database's uuid cast; now `400 bad-input` "`runId` must be a run id (a UUID)", before any query. A `parentRunId` filter that isn't a run id is a 400 too. And the OpenAPI `runs.list` operation declares the `scopeKind` / `scopeId` filter it already took: `ListRunsFilter.scope` in the TypeScript client and `scope_kind` / `scope_id` in the Python client list one project's runs, or every project's in an org. The TypeScript client's scopes (runs, cost, env, secrets, MCP endpoints) take a `ScopeRef`: `{ kind: 'project', projectId }` or `{ kind: 'org', orgId }`, with no `tenantId` needed (the API takes the tenant from the token; a `Scope` with one still fits).
+- 6c274dd: `GET /v1/runs?scopeKind=project|org&scopeId=…` with a `scopeId` that isn't a UUID is `400 scope-invalid` ("scope query parameters malformed: scopeId must be a project id (a UUID), got …"), before any query; it reached the database's uuid cast and failed there. The runs list now reads its scope as approvals, conversations and provenance do.
+- 2c185d8: Fixes from the first Cloud Run deployment.
+  
+  - **The pack service token is read the same way on both sides.** `parsePackServiceToken` (new in `@kindgi/env-schema`) drops surrounding whitespace, so a secret stored with a trailing newline no longer makes every pack call answer 401. A token with whitespace or a control character inside is refused at startup, since an HTTP header can't carry it. The Node pack service and the Python one (`kindgi.pack.serve`) both use the rule, and the pack conformance suite checks it.
+  - **Refusals aren't replayed.** The idempotency middleware stores a response only when the request took effect (a status below 400). A request retried with the same `Idempotency-Key` after a refusal (4xx) or a failure (5xx) runs again, so a deploy retried after trusting its key now goes through.
+  - **`kindgi deploy` says when an answer is a replay** (`X-Idempotent-Replay`) and how to retry: `--idempotency-key <new value>` for a replayed refusal from an older runtime. A refused signing key's hint gives the `kindgi key trust <keyId> --url <endpoint>` command on a line of its own. The retry advice for server errors and network failures is reworded.
+- Updated dependencies [2544717]
+- Updated dependencies [0f226c2]
+- Updated dependencies [629057d]
+- Updated dependencies [786cbde]
+- Updated dependencies [1463b77]
+- Updated dependencies [aa4399f]
+- Updated dependencies [6bae409]
+- Updated dependencies [eac7732]
+  - @kindgi/agents@0.1.3
+  - @kindgi/capabilities@0.1.3
+  - @kindgi/guardrails@0.1.3
+  - @kindgi/types@0.1.3
+  - @kindgi/provenance@0.1.3
+  - @kindgi/runtime@0.1.3
+  - @kindgi/tools@0.1.3
+  - @kindgi/audit-events@0.1.3
+  - @kindgi/authz@0.1.3
+  - @kindgi/blob-binding@0.1.3
+  - @kindgi/compliance@0.1.3
+  - @kindgi/crypto@0.1.3
+  - @kindgi/flow@0.1.3
+  - @kindgi/memory@0.1.3
+  - @kindgi/platform@0.1.3
+  - @kindgi/policy-contract@0.1.3
+  - @kindgi/schema@0.1.3
+
 ## 0.1.2
 
 ### Patch Changes

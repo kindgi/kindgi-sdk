@@ -18,7 +18,8 @@ The runtime image is in private preview: request access at contact@kindgi.com
 ## What you'll have
 
 - **The runtime** (`kindgi-server`): Kindgi's server, on Cloud Run with its
-  own service account. Public ingress, port 4000, always-allocated CPU (so a
+  own service account. Public ingress, port 4000 (Cloud Run passes it as
+  `PORT`, which the runtime listens on), always-allocated CPU (so a
   run started in the background keeps running after its answer), one
   instance.
 - **Your pack's service** (`kindgi-pack`): your tools' code. Internal ingress,
@@ -104,8 +105,8 @@ built for:
 ```sh
 REPO=$(terraform output -raw image_repository)
 gcloud auth configure-docker "${REPO%%/*}"
-docker buildx imagetools create --tag "$REPO/runtime:0.1.2" \
-  quay.io/kindgi/runtime:0.1.2@sha256:<the release's digest>
+docker buildx imagetools create --tag "$REPO/runtime:0.1.3" \
+  quay.io/kindgi/runtime:0.1.3@sha256:<the release's digest>
 ```
 
 The copy keeps the release's digest. (A plain `docker pull`, `tag` and `push`
@@ -144,8 +145,7 @@ printf 'postgres://kindgi:%s@/kindgi?host=/cloudsql/%s' "$DBPW" "$CONN" \
   | gcloud secrets versions add $N-database-url --data-file=-
 unset DBPW
 
-# The token the runtime and the pack's service share. No trailing newline:
-# the two sides would disagree about the token.
+# The token the runtime and the pack's service share.
 openssl rand -hex 32 | tr -d '\n' | gcloud secrets versions add $N-pack-service-token --data-file=-
 
 # The first API token, and the two keys, base64.
@@ -221,9 +221,8 @@ Deploy complete.
 The runtime read your pack's image from Artifact Registry with its own token
 (`KINDGI_IMAGE_REGISTRY_AUTH=google`) to check it before registering it.
 
-A deploy that was refused (an untrusted key, a missing variable) is replayed
-when you retry it unchanged: after fixing the cause, retry with a new key,
-`--idempotency-key <new value>`.
+A deploy that's refused (an untrusted key, a missing variable) says what to
+fix. Fix it and run the same command again.
 
 ## 6. Check it
 
@@ -242,7 +241,8 @@ service in about 5.
 | Who | Role | On |
 |---|---|---|
 | The runtime's service account | `roles/run.invoker` | the pack's service (and no one else) |
-| | `roles/cloudkms.cryptoKeyEncrypterDecrypter` and `roles/cloudkms.viewer` | the KMS key (the startup check reads the key's metadata) |
+| | `roles/cloudkms.cryptoKeyEncrypterDecrypter` | the KMS key (the startup check encrypts and decrypts with it) |
+| | `roles/cloudkms.viewer` | the KMS key; needed only by runtimes before 0.1.3, whose startup check read the key's metadata |
 | | `roles/artifactregistry.reader` | the repository |
 | | `roles/cloudsql.client` | the project, conditioned on Kindgi's instance |
 | | `roles/secretmanager.secretAccessor` | each of its secrets |

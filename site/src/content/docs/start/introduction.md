@@ -44,8 +44,12 @@ events as they happen, and receives signed webhooks when they finish.
 - **The HTTP API:** every operation, for any language.
 - **The SDKs:** TypeScript and Python clients for the API.
 - **The console:** in your browser, at `/console` on any runtime (with
-  `kindgi dev`, `http://127.0.0.1:4000/console/`): runs and their journals,
-  agents, tools, conversations, and approvals to approve or reject.
+  `kindgi dev`, `http://127.0.0.1:4000/console/`). Each run has one page: what
+  the agent was asked, the tools it called and their results, its answer, the
+  model and the cost; its journal, one sentence per step; and where the answer
+  came from. It also has approvals to approve or reject, conversations, and
+  the agents and tools your pack defines. A project's pages show that
+  project's records, with a switch to see all of them.
 
 ## Your coding agent
 

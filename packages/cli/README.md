@@ -469,7 +469,9 @@ Builds a signed pack image with a Kindgi build server, and writes
   first whose Node satisfies the app's `engines.node`.
 - **Install:** the app's dependencies, installed the way the app installs
   them, from its own lockfile, frozen. pnpm and yarn come through corepack
-  and the `packageManager` field. Build scripts are off during the install;
+  and the `packageManager` field. A pnpm app with no `packageManager` gets the
+  host's pnpm version (`pnpm --version`), the one that wrote the lockfile,
+  never the newest. Build scripts are off during the install;
   then `rebuild` runs the ones the app allows, and the install is pruned to
   production dependencies.
 - **A workspace:** with pnpm, only the pack's project and what it depends on

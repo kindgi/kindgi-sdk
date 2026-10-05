@@ -177,6 +177,10 @@ has a preset too (`--preset=gemini --project=<gcp-project>`); any
 OpenAI-compatible endpoint (vLLM, llama.cpp, Ollama, OpenRouter) registers
 from a short spec file.
 
+The registration is in this project's dev database. To have `kindgi dev`
+register the model on every boot, in each worktree and after `--reset`,
+declare it in `kindgi.config.ts`: [Declare them in your pack's config](../../guides/models/#declare-them-in-your-packs-config).
+
 ## Next
 
 - [Build a support desk](../../tutorials/support-desk-typescript/): tools

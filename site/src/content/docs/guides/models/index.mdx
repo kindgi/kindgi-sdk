@@ -6,6 +6,8 @@ sidebar:
   label: Overview
 ---
 
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
 An agent doesn't name an API. It says what its model must support, and Kindgi
 picks a model from the **providers** registered for your tenant. A provider is
 one connection, to a vendor's API or to an endpoint you serve, with the models
@@ -66,8 +68,10 @@ kindgi providers presets
 ]
 ```
 
-A preset carries its models' features, context windows and prices.
-`pricesCheckedAt` is when the prices were last compared with the vendor's.
+A preset carries its models' features, context windows, output limits and
+prices. `pricesCheckedAt` is when the prices were last compared with the
+vendor's. `--max-output-tokens=<n>` registers the models with another output
+limit.
 
 ## A provider spec
 
@@ -109,6 +113,75 @@ tokens; vendors quote per million. Divide their price by 1000: "$2 per million
 input tokens" is `0.002`. Agents' cost budgets are computed from these prices,
 so copy them from the vendor's page when you register.
 :::
+
+## Declare them in your pack's config
+
+Under `kindgi dev`, each project and each git worktree has its own database,
+and a provider you register by hand is in that one only. Declare it in the
+pack's config instead, and `kindgi dev` registers it on every boot: in a new
+worktree, after `--reset`, and on a teammate's machine.
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// in kindgi.config.ts
+providers: [
+  { preset: 'anthropic', models: ['claude-haiku-4-5'] }, // its key, ANTHROPIC_API_KEY, from the env files
+  { preset: 'gemini', project: 'acme-gcp', models: ['gemini-2.5-flash'] },
+  { spec: { /* what --spec takes */ } },
+],
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```toml
+# in pyproject.toml
+[[tool.kindgi.providers]]
+preset = "anthropic"
+models = ["claude-haiku-4-5"]   # its key, ANTHROPIC_API_KEY, from the env files
+
+[[tool.kindgi.providers]]
+preset = "gemini"
+project = "acme-gcp"
+models = ["gemini-2.5-flash"]
+```
+
+</TabItem>
+</Tabs>
+
+A preset entry takes `models`, `project`, `maxOutputTokens`, and `secret`: the
+key's name, in place of the preset's own. The keys are spelled the same in
+`pyproject.toml`. A `spec` entry is what `--spec`
+takes. A key is always a secret's name, read from the env files; a `spec` with
+a credential in `adapter_config` is refused.
+
+At each boot, `kindgi dev` says what it did:
+
+```text
+  Providers from kindgi.config.ts:
+    ✓ anthropic: registered
+    ✓ qwen-local: registered
+    ⚠ qwen-keyed: not registered: QWEN_API_KEY is not in .env, .env.local. Set it (pnpm exec kindgi secrets set QWEN_API_KEY --env=local --scope=tenant), then restart kindgi dev
+```
+
+- A provider whose key isn't in the env files is skipped. The config isn't
+  watched: restart `kindgi dev` after setting the key.
+- One `kindgi dev` registered and whose declaration changed is registered
+  again (`qwen-local: registered again (changed in kindgi.config.ts)`); one the
+  config no longer declares is unregistered.
+- If the runtime already has a provider with that id that `kindgi dev` didn't
+  register, `kindgi dev` leaves it as it is. When its region or models (names,
+  limits, prices) differ from the config's, a ⚠ line names the
+  `kindgi providers unregister` that lets the config's version apply. The
+  runtime doesn't list a provider's adapter, its settings or its key's name,
+  so one that differs only there is left with a plain line.
+
+`kindgi dev` keeps track of the ones it registered in
+`.kindgi/dev/providers.json`. A runtime that `kindgi dev` doesn't run, such as
+your staging or production one, gets its providers with
+`kindgi providers register`.
 
 ## Keys
 

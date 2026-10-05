@@ -675,6 +675,16 @@ export async function signEnvelopeReal(opts: SignOptions): Promise<SignResult> {
 // Wired seam
 // ---------------------------------------------------------------------
 
+/** `pnpm --version` in `root`: what the host's pnpm is there (corepack's pin included). */
+async function hostPnpmVersionReal(root: string): Promise<string> {
+  const run = await spawnOutcome('pnpm', ['--version'], root);
+  const version = run.stdout.trim().split('\n').pop()?.trim() ?? '';
+  if (run.code !== 0 || version === '') {
+    throw new Error((run.stderr.trim() || `pnpm --version exited ${run.code}`).split('\n').pop() ?? '');
+  }
+  return version;
+}
+
 export const REAL_BUILD_RUNNERS: BuildRunners = {
   runLocalIndexer: runLocalIndexerReal,
   esbuildBundle: esbuildBundleReal,
@@ -687,6 +697,7 @@ export const REAL_BUILD_RUNNERS: BuildRunners = {
   pullImageIndex: pullImageIndexReal,
   signEnvelope: signEnvelopeReal,
   python: PYTHON_BUILD_RUNNERS,
+  hostPnpmVersion: hostPnpmVersionReal,
 };
 
 // Re-export utility for callers that want a portable tmp workdir for

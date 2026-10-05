@@ -21,10 +21,11 @@ kindgi approvals list
 ```
 
 ```text
-Error [auth]: This token was not provisioned with a reviewer role; approvals surface is reviewer-only.
+Error [auth]: The caller isn't a reviewer: its token carries no reviewer role, and its user isn't registered as one (`kindgi reviewers register`). The approvals surface is reviewer-only.
 ```
 
-Register yourself, the user your API token belongs to, with a role:
+Register yourself, the user your API token belongs to, with a role. That
+covers any token of yours: this one, another API key, or a console sign-in.
 
 ```sh
 kindgi reviewers register --spec='{"role":"standard","displayName":"Ada Lovelace"}'
@@ -66,6 +67,21 @@ approval:
   (the `subjectRef` has the `conversationId` and the `turnCount`).
 - **`requiredRole`** is the lowest role that may decide it.
 - **`provenanceRef.runId`** is the run that waits.
+- **`decision`**, once someone decided it: the decision, the rationale, who
+  (`decidedBy`, as `user:<id>`, and their `reviewerId`), their role then, and
+  when. There's none while it's open, nor when it ended without a decision
+  (it expired, or a timeout escalated it).
+
+```json
+"decision": {
+  "decision": "approve",
+  "decidedBy": "user:26fc414a-b49f-4e1f-a022-162865770178",
+  "reviewerId": "974b5bb3-c690-4886-a609-c7fe0cbd5659",
+  "reviewerRoleAtDecision": "standard",
+  "decidedAt": "2026-10-05T16:25:52.878Z",
+  "rationale": "Confirmed with the on-call engineer"
+}
+```
 
 ## Decide
 
@@ -149,9 +165,13 @@ deadline passes with no decision:
   "error":{"code":"hitl-cancelled","message":"Tool-call HITL cancelled for acme-desk.echo: timeout","reason":"timeout"}
   ```
 
-A decision made before the deadline always wins. In 0.1 a deadline always
-escalates this way: `hitl.onTimeout` (`auto-approve`, `auto-reject`) isn't
-applied yet.
+A decision made before the deadline always wins. A deadline always escalates
+this way: `hitl.onTimeout` takes only `'escalate'`, the default. An agent that
+asks for anything else is refused when it's defined:
+
+```text
+hitl.onTimeout 'auto-approve' isn't supported: an approval that times out escalates one reviewer tier, and at admin it expires (the turn fails with hitl-cancelled). Use 'escalate', or leave it out.
+```
 
 ## From your app
 

@@ -12,10 +12,11 @@ starts with `_`. The config is `[tool.kindgi]` in `pyproject.toml`.
 - `uv run python -m kindgi.pack index --pack-dir .` shows what Kindgi sees.
 - Agents answer through a model provider. `kindgi dev` gives a new pack
   `dev-echo`, a fallback that calls the first tool and replies
-  "Tool responded: …" while no other provider fits. For Claude:
-  `kindgi providers register --preset=anthropic` (the key in `.env`
-  first); other providers and per-agent model choice:
-  `.claude/skills/kindgi-authoring-providers/SKILL.md`.
+  "Tool responded: …" while no other provider fits. For Claude,
+  put the key in `.env` and add a `[[tool.kindgi.providers]]` table with
+  `preset = "anthropic"` to `pyproject.toml`: `kindgi dev` then registers it
+  on every boot, in every worktree. Other providers and per-agent model
+  choice: `.claude/skills/kindgi-authoring-providers/SKILL.md`.
 
 ## Skills
 

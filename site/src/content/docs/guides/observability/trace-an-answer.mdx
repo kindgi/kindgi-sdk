@@ -9,7 +9,8 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 Every agent turn leaves a **provenance record**: a graph of the turn, from the
 user's message through each model call and tool call to the answer. It names
-the model of each call, its tokens and its cost, and the version of each tool.
+the model of each call and the version of each tool, and, beside the graph,
+each call's tokens and cost.
 Use it to answer "where did this answer come from?" and "what did it cost?".
 
 ## Read a turn's record
@@ -19,55 +20,76 @@ Fetch it by the run's id. With `kindgi dev`, `$KINDGI_API_URL` and
 `.kindgirc.json`).
 
 ```sh
-curl "$KINDGI_API_URL/v1/provenance/3622fc4e-a54d-4df8-a84f-14a957eed7db" \
+curl "$KINDGI_API_URL/v1/provenance/11a79b0a-ebdd-4d21-9e66-e0cacaea50e8" \
   -H "Authorization: Bearer $KINDGI_API_TOKEN"
 ```
 
 ```json
 {
-  "id": "5a31107b-d942-4741-a96d-2ea5a2eb34c3",
-  "runId": "3622fc4e-a54d-4df8-a84f-14a957eed7db",
+  "id": "11308345-89bc-4620-a705-69c2beff5317",
+  "runId": "11a79b0a-ebdd-4d21-9e66-e0cacaea50e8",
   …
   "dag": {
     "nodes": [
-      { "id": "input:0", "kind": "input", "timestamp": "2026-10-03T19:55:06.872Z" },
-      { "id": "model-call:1", "kind": "model-call", "timestamp": "2026-10-03T19:55:07.001Z",
-        "modelVersion": "dev-echo/dev-echo-v1",
-        "attributes": { "step": 1, "costUsd": 0, "finishReason": "tool-use", "promptTokens": 20, "completionTokens": 6 } },
-      { "id": "tool-call:dev-echo-call-1", "kind": "tool-call", "timestamp": "2026-10-03T19:55:07.131Z",
-        "attributes": { "toolId": "acme-ops.echo", "toolVersion": "0.1.0", "invocationId": "dev-echo-call-1", "toolVersionRange": "0.1.0" } },
-      { "id": "tool-result:dev-echo-call-1", "kind": "tool-result", "timestamp": "2026-10-03T19:55:07.131Z" },
-      { "id": "model-call:2", "kind": "model-call", "timestamp": "2026-10-03T19:55:07.168Z",
-        "modelVersion": "dev-echo/dev-echo-v1",
-        "attributes": { "step": 2, "costUsd": 0, "finishReason": "stop", "promptTokens": 30, "completionTokens": 12 } },
-      { "id": "model-output:2", "kind": "model-output", "timestamp": "2026-10-03T19:55:07.229Z", "modelVersion": "dev-echo/dev-echo-v1" }
+      {"id": "input:0", "kind": "input", "timestamp": "2026-10-05T07:07:25.067Z"},
+      {"id": "model-call:1", "kind": "model-call", "timestamp": "2026-10-05T07:07:27.039Z", "modelVersion": "anthropic/claude-haiku-4-5", "attributes": {"step": 1, "model": "claude-haiku-4-5", "callId": "b4fd91c7-e38d-44c2-9b1e-888296324280", "providerId": "anthropic", "finishReason": "tool-use"}},
+      {"id": "tool-call:toolu_019Evao73J4aVhpAaf2f4jVN", "kind": "tool-call", "timestamp": "2026-10-05T07:07:27.736Z", "attributes": {"toolId": "acme-ops.echo", "toolVersion": "0.1.0", "invocationId": "toolu_019Evao73J4aVhpAaf2f4jVN", "toolVersionRange": "0.1.0"}},
+      {"id": "tool-result:toolu_019Evao73J4aVhpAaf2f4jVN", "kind": "tool-result", "timestamp": "2026-10-05T07:07:27.736Z"},
+      {"id": "model-call:2", "kind": "model-call", "timestamp": "2026-10-05T07:07:28.828Z", "modelVersion": "anthropic/claude-haiku-4-5", "attributes": {"step": 2, "model": "claude-haiku-4-5", "callId": "ce07551c-16de-4290-a8cb-e19833481545", "providerId": "anthropic", "finishReason": "stop"}},
+      {"id": "model-output:2", "kind": "model-output", "timestamp": "2026-10-05T07:07:28.905Z", "modelVersion": "anthropic/claude-haiku-4-5"}
     ],
     "edges": [
-      { "from": "model-call:1", "to": "input:0", "kind": "caused-by" },
-      { "from": "tool-call:dev-echo-call-1", "to": "model-call:1", "kind": "invoked" },
-      { "from": "tool-result:dev-echo-call-1", "to": "tool-call:dev-echo-call-1", "kind": "produced" },
-      { "from": "model-call:2", "to": "input:0", "kind": "caused-by" },
-      { "from": "model-output:2", "to": "model-call:2", "kind": "produced" }
+      {"from": "model-call:1", "to": "input:0", "kind": "caused-by"},
+      {"from": "tool-call:toolu_019Evao73J4aVhpAaf2f4jVN", "to": "model-call:1", "kind": "invoked"},
+      {"from": "tool-result:toolu_019Evao73J4aVhpAaf2f4jVN", "to": "tool-call:toolu_019Evao73J4aVhpAaf2f4jVN", "kind": "produced"},
+      {"from": "model-call:2", "to": "input:0", "kind": "caused-by"},
+      {"from": "model-call:2", "to": "tool-result:toolu_019Evao73J4aVhpAaf2f4jVN", "kind": "influenced-by"},
+      {"from": "model-output:2", "to": "model-call:2", "kind": "produced"}
     ]
+  },
+  "callUsage": {
+    "b4fd91c7-e38d-44c2-9b1e-888296324280": {"usage": {"promptTokens": 786, "completionTokens": 57, "cacheReadTokens": 0, "cacheWriteTokens": 0}, "costUsd": 0.0010710000000000001, "durationMs": 1558, "servedModel": "claude-haiku-4-5-20251001"},
+    "ce07551c-16de-4290-a8cb-e19833481545": {"usage": {"promptTokens": 885, "completionTokens": 40, "cacheReadTokens": 0, "cacheWriteTokens": 0}, "costUsd": 0.001085, "durationMs": 699, "servedModel": "claude-haiku-4-5-20251001"}
   }
 }
 ```
 
 Read it from the answer backwards: the answer (`model-output:2`) was
-produced by the second model call, which answered the user's message
-(`input:0`); the first model call invoked `acme-ops.echo` 0.1.0, which
-produced a result.
+produced by the second model call. That call answered the user's message
+(`caused-by input:0`) and read the echo tool's result (`influenced-by`), which
+the tool call the first model call made (`invoked`) produced.
 
 | Node | What it is |
 | --- | --- |
 | `input` | The message the turn answered. |
-| `model-call` | One call to a model: `modelVersion` is `provider/model`; `attributes` has the tokens, the cost in USD and why the model stopped. |
+| `model-call` | One call to a model: `modelVersion` is `provider/model`; `attributes` has its `step`, `model`, `providerId`, why it stopped (`finishReason`) and its `callId`. |
 | `tool-call`, `tool-result` | A tool the model called, with the exact tool version that ran, and what it returned. |
 | `model-output` | The answer. |
+| `wait`, `resume` | A tool call that waited for an approval: the wait, and the decision that ended it. |
 
-Edges point from an effect to its cause: `caused-by`, `invoked`, `produced`.
+Edges point from an effect to its cause: `caused-by`, `invoked`, `produced`,
+and `influenced-by` from a model call to each tool result it read.
 
-`kindgi runs get <run-id>` shows the same graph, under `output.provenance`.
+`callUsage` holds each model call's tokens, cost in USD, duration and the
+model version that answered (`servedModel`), by the call's `callId`. A token
+count the provider reports is there, 0 included (`cacheReadTokens: 0`); one it
+doesn't report is absent.
+
+A turn that waited for an approval is recorded whole, before and after the
+wait. The wait sits between the tool call and its result: the `tool-call`
+`waited-on` a `wait` node, which was `resumed-from` a `resume` node, and the
+`tool-result` was `caused-by` the `resume`. The `resume` node's `actor` is who
+decided, and its `attributes` have the decision, the rationale and the
+approval's id. A call a reviewer rejected:
+
+```json
+{"id": "tool-hitl-gate-resume:toolu_01MAfC8Fb7e24iY12Cenoh11", "kind": "resume", "timestamp": "2026-10-05T16:26:25.504Z", "actor": "user:26fc414a-b49f-4e1f-a022-162865770178", "attributes": {"gate": "tool-call", "decision": "reject", "rationale": "Not confirmed yet", "approvalId": "12c38101-4cac-4241-8fc7-57323e4f63b9"}}
+```
+
+Its `tool-call` is there too, and its `tool-result` is the rejection the model
+read.
+
+`kindgi runs get <run-id>` shows the same graph, under `output.provenance`, without `callUsage`.
 
 ## From your app
 
@@ -83,26 +105,10 @@ const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the runni
 
 const record = await kindgi.provenance.get(process.argv[2] as RunId);
 for (const node of record.dag.nodes) {
-  console.log(node.kind, node.modelVersion ?? '', node.attributes ?? '');
+  const { callId } = (node.attributes ?? {}) as { callId?: string };
+  const call = typeof callId === 'string' ? record.callUsage?.[callId] : undefined;
+  console.log(node.kind, node.modelVersion ?? '', call ? `${call.usage.promptTokens}+${call.usage.completionTokens} tokens, ${call.costUsd} USD` : '');
 }
-```
-
-```text
-input
-model-call dev-echo/dev-echo-v1 {
-  step: 1,
-  costUsd: 0,
-  finishReason: 'tool-use',
-  promptTokens: 20,
-  completionTokens: 6
-}
-tool-call  {
-  toolId: 'acme-ops.echo',
-  toolVersion: '0.1.0',
-  invocationId: 'dev-echo-call-1',
-  toolVersionRange: '0.1.0'
-}
-…
 ```
 
 </TabItem>
@@ -118,36 +124,31 @@ kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
 record = kindgi.provenance.get(sys.argv[1])
 for node in record.dag.nodes:
-    print(node.kind, node.model_version or "", node.attributes or "")
-```
-
-```text
-input
-model-call dev-echo/dev-echo-v1 {'step': 1, 'costUsd': 0, 'finishReason': 'tool-use', 'promptTokens': 20, 'completionTokens': 6}
-tool-call  {'toolId': 'acme-ops.echo', 'toolVersion': '0.1.0', 'invocationId': 'dev-echo-call-1', 'toolVersionRange': '0.1.0'}
-tool-result
-model-call dev-echo/dev-echo-v1 {'step': 2, 'costUsd': 0, 'finishReason': 'stop', 'promptTokens': 30, 'completionTokens': 12}
-model-output dev-echo/dev-echo-v1
+    call_id = (node.attributes or {}).get("callId")
+    call = (record.call_usage or {}).get(call_id) if call_id else None
+    usage = f"{call.usage.prompt_tokens}+{call.usage.completion_tokens} tokens, {call.cost_usd} USD" if call else ""
+    print(node.kind, node.model_version or "", usage)
 ```
 
 </TabItem>
 </Tabs>
 
-## What a turn cost
+Both print each node, with the tokens and cost of each model call:
 
-Each `model-call` node's `costUsd` is its tokens times the prices its provider
-was registered with (see [Connect a model](../../models/)).
-`dev-echo` is free, so its calls cost `0`. With a provider registered at
-`promptUsdPer1kTokens: 0.001` and `completionUsdPer1kTokens: 0.002`, a call
-with 258 prompt tokens and 53 completion tokens:
-
-```json
-{ "id": "model-call:1", "kind": "model-call", "timestamp": "2026-10-03T20:02:55.367Z",
-  "modelVersion": "ollama/llama3.1",
-  "attributes": { "step": 1, "costUsd": 0.00036400000000000007, "finishReason": "stop", "promptTokens": 258, "completionTokens": 53 } }
+```text
+input
+model-call anthropic/claude-haiku-4-5 786+57 tokens, 0.0010710000000000001 USD
+tool-call
+tool-result
+model-call anthropic/claude-haiku-4-5 885+40 tokens, 0.001085 USD
+model-output anthropic/claude-haiku-4-5
 ```
 
-The whole turn's total is in the run's output, under `usage`:
+## What a turn cost
+
+Each model call's cost, in `callUsage`, is its tokens times the prices its
+provider was registered with (see [Connect a model](../../models/)). The whole
+turn's total is in the run's output, under `usage`:
 
 ```sh
 kindgi runs get <run-id>
@@ -155,13 +156,16 @@ kindgi runs get <run-id>
 
 ```json
     "usage": {
-      "steps": 1,
-      "durationMs": 2249,
-      "promptTokens": 258,
-      "totalCostUsd": 0.00036400000000000007,
-      "completionTokens": 53
+      "steps": 2,
+      "durationMs": 4971,
+      "promptTokens": 1671,
+      "totalCostUsd": 0.002156,
+      "completionTokens": 97
     },
 ```
+
+For the cost of several runs, a flow's whole run, or one customer's month,
+read the cost API: [Cost per run and per customer](../cost-per-run/).
 
 ## A flow's answers
 
@@ -198,12 +202,12 @@ Fetch the record for `4bdae2f9-…`.
 Filter by `runId` or by `createdAfter`:
 
 ```sh
-curl "$KINDGI_API_URL/v1/provenance?createdAfter=2026-10-03T20:08:00Z&limit=3" \
+curl "$KINDGI_API_URL/v1/provenance?createdAfter=2026-10-05T16:25:00Z&limit=3" \
   -H "Authorization: Bearer $KINDGI_API_TOKEN"
 ```
 
 ```json
-{"data":[{"id":"8771ea27-dc53-4c55-a799-dc78136182b0","runId":"98d49ad7-fb24-4d0f-a9e0-b5d1743a4392","tenantId":"3a9fb26d-9782-4bdb-a4f9-3c97d2644b72","version":"1.0.0","createdAt":"2026-10-03T20:10:08.430Z","signed":false},…]}
+{"data":[{"id":"e87e13ae-472f-404b-8dfe-94ec738980cd","runId":"f91ff793-b029-48e8-9ce4-f9fa70bd0c40","tenantId":"9126df1e-094b-496d-9ea8-7daab93c3f4f","version":"1.0.0","createdAt":"2026-10-05T16:26:30.533Z","signed":false,"projectId":"13b7cfca-8b77-4983-858f-149c16afe56d"},…]}
 ```
 
 Each record carries its run's `projectId`. `scopeKind=project&scopeId=<id>`

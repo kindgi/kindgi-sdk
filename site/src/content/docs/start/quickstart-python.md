@@ -175,6 +175,10 @@ npx --yes @kindgi/cli@0.1 providers register --preset=anthropic
 It takes over from `dev-echo` at the next turn. Gemini on Vertex AI has a
 preset too; any OpenAI-compatible endpoint registers from a short spec file.
 
+The registration is in this project's dev database. To have `kindgi dev`
+register the model on every boot, in each worktree and after `--reset`,
+declare it in `pyproject.toml`: [Declare them in your pack's config](../../guides/models/#declare-them-in-your-packs-config).
+
 ## Next
 
 - [Add Kindgi to an existing Python app](../existing-app/#a-python-app):
