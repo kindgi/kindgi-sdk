@@ -2508,6 +2508,22 @@ export const ProvenanceRecordSchema: JsonSchema = {
     },
     signature: ProvenanceSignatureSchema,
     createdAt: { type: 'string', format: 'date-time' },
+    callUsage: {
+      type: 'object',
+      description:
+        "Each model call's usage from the cost ledger, by the `callId` in its `model-call` node's attributes. Joined when read: not part of the signed DAG. A signed export includes it, as it stood when signed.",
+      additionalProperties: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['usage'],
+        properties: {
+          usage: { $ref: '#/components/schemas/ModelCallTokens' },
+          costUsd: { type: 'number', minimum: 0 },
+          durationMs: { type: 'integer', minimum: 0 },
+          servedModel: { type: 'string' },
+        },
+      },
+    },
   },
 };
 
@@ -2544,7 +2560,7 @@ export const ExportProvenanceBodySchema: JsonSchema = {
 
 export const ExportProvenanceResultSchema: JsonSchema = {
   description:
-    'Signed exportable bundle. `bundle` is base64 of the exact bytes that were signed (sorted-key canonical JSON, no whitespace); verifiers can pass those bytes directly to `verifyEd25519`. The bundle body itself includes `bundleSchemaVersion`, `runId`, `tenantId`, `dag: { nodes, edges }`, `messages?` (if requested), etc. See `canonicalization` for the deterministic serialization algorithm.',
+    'Signed exportable bundle. `bundle` is base64 of the exact bytes that were signed (sorted-key canonical JSON, no whitespace); verifiers can pass those bytes directly to `verifyEd25519`. The bundle body itself includes `bundleSchemaVersion`, `runId`, `tenantId`, `dag: { nodes, edges }`, `messages?` (if requested), `callUsage?` (the usage of the model calls, from the cost ledger), etc. See `canonicalization` for the deterministic serialization algorithm.',
   type: 'object',
   additionalProperties: false,
   required: [
@@ -2566,7 +2582,8 @@ export const ExportProvenanceResultSchema: JsonSchema = {
     },
     bundleSchemaVersion: {
       type: 'string',
-      description: 'Semver for the shape of the bundle body. Currently `1.0.0`.',
+      description:
+        "Semver for the shape of the bundle body. Currently `1.1.0`, which adds `callUsage`: each model call's usage from the cost ledger, by call id, as it stood when signed.",
     },
     algorithm: { type: 'string', const: 'ed25519' },
     signingKeyId: { type: 'string' },
@@ -3243,7 +3260,65 @@ export const GetMCPPromptResultSchema: JsonSchema = {
  */
 export const CostGroupDimensionSchema: JsonSchema = {
   type: 'string',
-  enum: ['agentId', 'runId', 'category', 'providerId', 'day', 'month', 'tenant', 'conversationId'],
+  enum: [
+    'agentId',
+    'runId',
+    'category',
+    'providerId',
+    'day',
+    'month',
+    'tenant',
+    'conversationId',
+    'model',
+    'servedModel',
+    'projectId',
+    'orgId',
+    'rootRunId',
+    'flowId',
+  ],
+};
+
+/** Why a model call failed, as its cost record carries it. */
+export const ModelCallErrorSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['message'],
+  description: 'Why a model call failed (`status: failed`).',
+  properties: { message: { type: 'string' } },
+};
+
+/** A model call's tokens, as a cost record and a provenance record carry them. */
+export const ModelCallTokensSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['promptTokens', 'completionTokens'],
+  description:
+    "The call's tokens. `promptTokens` / `completionTokens` are the totals; `cacheReadTokens` / `cacheWriteTokens` are parts of `promptTokens`, `reasoningTokens` of `completionTokens`, present when the provider reports them.",
+  properties: {
+    promptTokens: { type: 'integer', minimum: 0 },
+    completionTokens: { type: 'integer', minimum: 0 },
+    cacheReadTokens: { type: 'integer', minimum: 0 },
+    cacheWriteTokens: { type: 'integer', minimum: 0 },
+    reasoningTokens: { type: 'integer', minimum: 0 },
+  },
+};
+
+/**
+ * Token sums of an aggregate. `prompt` / `completion` are the totals;
+ * `cacheRead` / `cacheWrite` are parts of `prompt`, `reasoning` of
+ * `completion` (`0` where providers didn't report them).
+ */
+export const CostTokenTotalsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['prompt', 'completion', 'cacheRead', 'cacheWrite', 'reasoning'],
+  properties: {
+    prompt: { type: 'integer', minimum: 0 },
+    completion: { type: 'integer', minimum: 0 },
+    cacheRead: { type: 'integer', minimum: 0 },
+    cacheWrite: { type: 'integer', minimum: 0 },
+    reasoning: { type: 'integer', minimum: 0 },
+  },
 };
 
 /**
@@ -3283,6 +3358,63 @@ export const CostRecordSchema: JsonSchema = {
       additionalProperties: true,
       description: 'Free-form filter/display tags — never counters.',
     },
+    callId: {
+      type: 'string',
+      description:
+        "A model call's id (`category` `llm.inference`); its provenance `model-call` node carries it too.",
+    },
+    projectId: { type: 'string', format: 'uuid' },
+    rootRunId: {
+      type: 'string',
+      format: 'uuid',
+      description: "The root of the record's run tree (a flow run, for its agent turns).",
+    },
+    parentRunId: { type: 'string', format: 'uuid' },
+    agentVersion: { type: 'string' },
+    flowId: { type: 'string', description: "The flow of the run tree's root." },
+    nodeId: { type: 'string', description: 'The step that made the call.' },
+    step: { type: 'integer', minimum: 1, description: "The turn's step number." },
+    purpose: {
+      type: 'string',
+      description:
+        "What the call was for, beyond the turn's own model step: `guardrail-judge:<guardrail id>`.",
+    },
+    model: { type: 'string', description: 'The model actually called.' },
+    servedModel: {
+      type: 'string',
+      description: 'The exact model version the vendor reported (vendors alias).',
+    },
+    fallback: {
+      type: 'boolean',
+      description: 'The router picked a fallback provider for the turn.',
+    },
+    status: {
+      type: 'string',
+      enum: ['ok', 'failed'],
+      description: '`ok`: the provider answered. `failed`: the call threw.',
+    },
+    usage: { $ref: '#/components/schemas/ModelCallTokens' },
+    durationMs: { type: 'integer', minimum: 0 },
+    finishReason: { type: 'string' },
+    providerRequestId: { type: 'string', description: "The vendor's id for the request." },
+    attempts: {
+      type: 'integer',
+      minimum: 1,
+      description: "HTTP attempts the call took, the client's retries included.",
+    },
+    error: { $ref: '#/components/schemas/ModelCallError' },
+    rawUsage: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['provider', 'model', 'usage'],
+      description:
+        "The vendor's own usage object, exactly as it reported it. Only with `include=rawUsage`.",
+      properties: {
+        provider: { type: 'string' },
+        model: { type: 'string' },
+        usage: { type: 'object', additionalProperties: true },
+      },
+    },
   },
 };
 
@@ -3303,7 +3435,7 @@ export const CostRecordCollectionPageSchema: JsonSchema = {
 export const CostAggregateGroupSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['key', 'count', 'totalUsd'],
+  required: ['key', 'count', 'totalUsd', 'tokens'],
   properties: {
     key: {
       type: 'object',
@@ -3313,13 +3445,14 @@ export const CostAggregateGroupSchema: JsonSchema = {
     },
     count: { type: 'integer', minimum: 0 },
     totalUsd: { type: 'number', minimum: 0 },
+    tokens: { $ref: '#/components/schemas/CostTokenTotals' },
   },
 };
 
 export const CostAggregateResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['groups', 'totalUsd', 'totalRecords', 'timeRange', 'groupBy'],
+  required: ['groups', 'totalUsd', 'totalRecords', 'tokens', 'timeRange', 'groupBy'],
   properties: {
     groups: {
       type: 'array',
@@ -3327,6 +3460,7 @@ export const CostAggregateResultSchema: JsonSchema = {
     },
     totalUsd: { type: 'number', minimum: 0 },
     totalRecords: { type: 'integer', minimum: 0 },
+    tokens: { $ref: '#/components/schemas/CostTokenTotals' },
     timeRange: {
       type: 'object',
       additionalProperties: false,
@@ -5844,6 +5978,20 @@ export const WebhookEndpointUnregisterResultSchema: JsonSchema = {
   },
 };
 
+/** A run tree's model calls, as `run.finished` carries them. */
+export const RunTreeUsageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['calls', 'costUsd', 'tokens'],
+  description:
+    "The model calls of the run tree (this run and every run it started) that the cost ledger had recorded when this run finished: a child run still running then isn't in it. `calls` counts failed calls too. Absent when the runtime records no usage.",
+  properties: {
+    calls: { type: 'integer', minimum: 0 },
+    costUsd: { type: 'number', minimum: 0 },
+    tokens: { $ref: '#/components/schemas/CostTokenTotals' },
+  },
+};
+
 export const FinishedRunSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -5873,6 +6021,7 @@ export const FinishedRunSchema: JsonSchema = {
     },
     createdAt: { type: 'string', format: 'date-time' },
     completedAt: { type: 'string', format: 'date-time' },
+    usage: { $ref: '#/components/schemas/RunTreeUsage' },
   },
 };
 
@@ -6190,6 +6339,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['GetMCPPromptResult', GetMCPPromptResultSchema],
   ['CostGroupDimension', CostGroupDimensionSchema],
   ['CostRecord', CostRecordSchema],
+  ['ModelCallTokens', ModelCallTokensSchema],
+  ['ModelCallError', ModelCallErrorSchema],
+  ['CostTokenTotals', CostTokenTotalsSchema],
   ['CostRecordCollectionPage', CostRecordCollectionPageSchema],
   ['CostAggregateGroup', CostAggregateGroupSchema],
   ['CostAggregateResult', CostAggregateResultSchema],
@@ -6348,6 +6500,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['CreateWebhookEndpointBody', CreateWebhookEndpointBodySchema],
   ['PatchWebhookEndpointBody', PatchWebhookEndpointBodySchema],
   ['WebhookEndpointUnregisterResult', WebhookEndpointUnregisterResultSchema],
+  ['RunTreeUsage', RunTreeUsageSchema],
   ['FinishedRun', FinishedRunSchema],
   ['RunFinishedEvent', RunFinishedEventSchema],
   ['WebhookTestEvent', WebhookTestEventSchema],

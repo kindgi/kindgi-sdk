@@ -12,6 +12,7 @@ import type {
   WebhookEndpointId,
   WebhookEventId,
 } from '@kindgi/types';
+import type { CostTokenTotals } from './cost-binding.js';
 
 /**
  * Outbound webhook endpoints: URLs the platform sends signed events to,
@@ -175,6 +176,16 @@ export interface FinishedRun {
   readonly failureMessage: string | null;
   readonly createdAt: Timestamp;
   readonly completedAt: Timestamp;
+  /**
+   * The model calls of the whole run tree (this run and every run it
+   * started), from the cost ledger, summed when the run ended. Absent
+   * when the runtime records no usage.
+   */
+  readonly usage?: {
+    readonly calls: number;
+    readonly costUsd: number;
+    readonly tokens: CostTokenTotals;
+  };
 }
 
 export interface RunFinishedEvent {

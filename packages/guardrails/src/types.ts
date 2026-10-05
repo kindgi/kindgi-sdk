@@ -6,6 +6,7 @@ import type {
   ModelProvider,
   ProviderRegistry,
   TenantPolicy,
+  UsageSink,
 } from '@kindgi/capabilities';
 import type { ComplianceProvider } from '@kindgi/compliance';
 import type {
@@ -384,6 +385,12 @@ export interface EvaluationBindings {
    * tests + hermetic pinning; production should route through the registry.
    */
   readonly judgeProvider?: ModelProvider;
+  /**
+   * Where llm-judge guardrails record their model calls (the runtime's
+   * cost ledger), with the run's identity from the trace, before the
+   * judgment is used. Absent: judge calls aren't recorded.
+   */
+  readonly usage?: UsageSink;
   /**
    * The tenant's model-routing policy (provider / model allow and deny
    * lists, `regionAllow`, caps). When present, llm-judge models are

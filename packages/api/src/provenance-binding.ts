@@ -166,4 +166,32 @@ export interface ProvenanceBinding {
    * tenant/run pair.
    */
   getByRunId(tenantId: TenantId, runId: RunId): Promise<Result<Provenance, ProvenanceBindingError>>;
+
+  /**
+   * The cost ledger's usage of each model call in the run's provenance,
+   * by the `callId` in its `model-call` node's attributes. Optional: a
+   * deployment without a cost ledger omits it. The routes add it to a
+   * read as `callUsage`, outside the signed DAG; a signed export
+   * includes it as it stood when signed.
+   */
+  getCallUsage?(
+    tenantId: TenantId,
+    runId: RunId,
+  ): Promise<Result<CallUsageByCallId, ProvenanceBindingError>>;
 }
+
+/** One model call's usage, as the cost ledger has it. */
+export interface CallUsage {
+  readonly usage: {
+    readonly promptTokens: number;
+    readonly completionTokens: number;
+    readonly cacheReadTokens?: number;
+    readonly cacheWriteTokens?: number;
+    readonly reasoningTokens?: number;
+  };
+  readonly costUsd?: number;
+  readonly durationMs?: number;
+  readonly servedModel?: string;
+}
+
+export type CallUsageByCallId = Readonly<Record<string, CallUsage>>;

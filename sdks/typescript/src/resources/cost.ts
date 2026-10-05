@@ -4,6 +4,7 @@
 import type { Cursor, Page, Timestamp } from '@kindgi/types';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
+import { scopeToQuery } from '../scope-wire.js';
 import type { Transport } from '../transport.js';
 import type {
   Budgets,
@@ -30,8 +31,10 @@ export interface CostClient {
 
 export interface UsageClient {
   /**
-   * Paginated raw cost records. Filter by run, agent, conversation,
-   * category, provider, and time window.
+   * Paginated raw cost records: one per model call, with its model,
+   * usage and what the vendor said about it. Filter by run (or a run
+   * tree), scope, agent, conversation, category, provider, model and
+   * time window.
    *
    * @wire `GET /v1/cost/records` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1cost~1records/get`.
@@ -44,12 +47,13 @@ export interface UsageClient {
    * @wire `GET /v1/cost/records/{recordId}` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1cost~1records~1{recordId}/get`.
    */
-  get(recordId: string): Promise<CostRecord>;
+  get(recordId: string, options?: { readonly includeRawUsage?: boolean }): Promise<CostRecord>;
 
   /**
-   * Grouped aggregate — totals in USD, bucketed by requested dimensions
-   * over the time window. Cheaper than paginating raw records for
-   * dashboards.
+   * Grouped aggregate — totals in USD and tokens, bucketed by requested
+   * dimensions over the time window. Cheaper than paginating raw records
+   * for dashboards. With `scope: { kind: 'org', orgId }`, one call sums
+   * an org's spend across its projects.
    *
    * @wire `GET /v1/cost/aggregate` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1cost~1aggregate/get`.
@@ -57,15 +61,39 @@ export interface UsageClient {
   summary(input: UsageSummaryInput): Promise<CostAggregateResult>;
 }
 
-export interface UsageSummaryInput {
+export interface UsageSummaryInput
+  extends Omit<CostRecordFilter, 'from' | 'to' | 'limit' | 'cursor' | 'includeRawUsage'> {
   readonly from: Timestamp;
+  /** Exclusive. */
   readonly to: Timestamp;
   readonly groupBy?: readonly CostGroupDimension[];
-  readonly category?: string;
-  readonly providerId?: import('../types.js').ProviderId;
-  readonly agentId?: import('@kindgi/types').AgentId;
-  readonly runId?: import('@kindgi/types').RunId;
-  readonly conversationId?: import('@kindgi/types').ThreadId;
+}
+
+/** The query parameters a cost filter sends. */
+function filterQuery(
+  filter: Omit<CostRecordFilter, 'limit' | 'cursor'>,
+): Record<string, string | number | boolean> {
+  const scope = filter.scope !== undefined ? scopeToQuery(filter.scope) : undefined;
+  return {
+    ...(filter.runId !== undefined && { runId: filter.runId as unknown as string }),
+    ...(filter.includeDescendants === true && { includeDescendants: 'true' }),
+    ...(filter.rootRunId !== undefined && { rootRunId: filter.rootRunId as unknown as string }),
+    ...(filter.agentId !== undefined && { agentId: filter.agentId as unknown as string }),
+    ...(filter.conversationId !== undefined && {
+      conversationId: filter.conversationId as unknown as string,
+    }),
+    ...(filter.category !== undefined && { category: filter.category }),
+    ...(filter.providerId !== undefined && {
+      providerId: filter.providerId as unknown as string,
+    }),
+    ...(filter.model !== undefined && { model: filter.model }),
+    ...(filter.servedModel !== undefined && { servedModel: filter.servedModel }),
+    ...(scope !== undefined && { scopeKind: scope.scopeKind }),
+    ...(scope?.scopeId !== undefined && { scopeId: scope.scopeId }),
+    ...(filter.from !== undefined && { from: filter.from as unknown as string }),
+    ...(filter.to !== undefined && { to: filter.to as unknown as string }),
+    ...(filter.includeRawUsage === true && { include: 'rawUsage' }),
+  };
 }
 
 export interface BudgetsClient {
@@ -99,17 +127,7 @@ export function makeCostClient(transport: Transport): CostClient {
           query: {
             ...(filter?.limit !== undefined && { limit: filter.limit }),
             ...(filter?.cursor !== undefined && { cursor: filter.cursor as unknown as string }),
-            ...(filter?.runId !== undefined && { runId: filter.runId as unknown as string }),
-            ...(filter?.agentId !== undefined && { agentId: filter.agentId as unknown as string }),
-            ...(filter?.conversationId !== undefined && {
-              conversationId: filter.conversationId as unknown as string,
-            }),
-            ...(filter?.category !== undefined && { category: filter.category }),
-            ...(filter?.providerId !== undefined && {
-              providerId: filter.providerId as unknown as string,
-            }),
-            ...(filter?.from !== undefined && { from: filter.from as unknown as string }),
-            ...(filter?.to !== undefined && { to: filter.to as unknown as string }),
+            ...filterQuery(filter ?? {}),
           },
         });
         return {
@@ -120,30 +138,24 @@ export function makeCostClient(transport: Transport): CostClient {
         };
       },
 
-      async get(recordId) {
+      async get(recordId, options) {
         return transport.request<CostRecord>({
           method: 'GET',
           path: `/v1/cost/records/${encodeURIComponent(recordId)}`,
+          ...(options?.includeRawUsage === true && { query: { include: 'rawUsage' } }),
         });
       },
 
       async summary(input) {
+        const { from, to, groupBy, ...filter } = input;
         return transport.request<CostAggregateResult>({
           method: 'GET',
           path: '/v1/cost/aggregate',
           query: {
-            from: input.from as unknown as string,
-            to: input.to as unknown as string,
-            ...(input.groupBy !== undefined && { groupBy: input.groupBy.join(',') }),
-            ...(input.category !== undefined && { category: input.category }),
-            ...(input.providerId !== undefined && {
-              providerId: input.providerId as unknown as string,
-            }),
-            ...(input.agentId !== undefined && { agentId: input.agentId as unknown as string }),
-            ...(input.runId !== undefined && { runId: input.runId as unknown as string }),
-            ...(input.conversationId !== undefined && {
-              conversationId: input.conversationId as unknown as string,
-            }),
+            ...filterQuery(filter),
+            from: from as unknown as string,
+            to: to as unknown as string,
+            ...(groupBy !== undefined && { groupBy: groupBy.join(',') }),
           },
         });
       },

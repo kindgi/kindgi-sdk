@@ -73,6 +73,7 @@ export type {
   GuardrailError,
   JudgeMissingError,
   JudgeRoutingError,
+  JudgeUsageError,
   ScopeMismatchError,
   UnknownActionError,
   UnknownCheckError,

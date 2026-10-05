@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { NodeHandler } from '@kindgi/handler';
+import type { UsageSink } from '@kindgi/capabilities';
+import type { EvaluationOutcome } from '@kindgi/guardrails';
+import type { NodeContext, NodeHandler } from '@kindgi/handler';
 import type { Timestamp } from '@kindgi/types';
 
 import {
@@ -94,7 +96,9 @@ export function buildEvaluateGuardrailsHandler(ctx: TurnContext): NodeHandler {
       ctx.bindings,
       ctx.tenantPolicy,
       ctx.turnAbort.signal,
+      judgeUsageSink(ctx, kctx),
     );
+    throwIfJudgeCallsUnrecorded(outcomes);
     const categorized = categorizeOutcomes(outcomes);
 
     const allViolations = [...categorized.blocking, ...categorized.warnings, ...categorized.other];
@@ -151,4 +155,37 @@ export function buildEvaluateGuardrailsHandler(ctx: TurnContext): NodeHandler {
       other: categorized.other.length,
     };
   };
+}
+
+/**
+ * The turn's usage sink for its llm-judge calls, adding what only the
+ * turn knows: the step that made them and the agent's version.
+ */
+function judgeUsageSink(ctx: TurnContext, kctx: NodeContext): UsageSink | undefined {
+  const sink = ctx.bindings.usage;
+  if (sink === undefined) return undefined;
+  return {
+    record: (call) =>
+      sink.record({
+        nodeId: kctx.nodeId as unknown as string,
+        agentVersion: ctx.input.agent.version,
+        ...call,
+      }),
+  };
+}
+
+/**
+ * A judge call that answered but couldn't be recorded fails the step, as
+ * the turn's own model calls do: no answered call is left unrecorded.
+ */
+function throwIfJudgeCallsUnrecorded(outcomes: readonly EvaluationOutcome[]): void {
+  for (const outcome of outcomes) {
+    if (outcome.kind === 'err' && outcome.error.code === 'judge-usage-unrecorded') {
+      throwAgentTurnFailure({
+        code: 'persistence-error',
+        message: outcome.error.message,
+        cause: outcome.error,
+      });
+    }
+  }
 }
