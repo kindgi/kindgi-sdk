@@ -1386,6 +1386,55 @@
           "expiresAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "decision": {
+            "description": "The reviewer's decision, once one is recorded. Absent while the approval is open, and when it ended without one (it expired, or a timeout escalated it).",
+            "$ref": "#/components/schemas/ApprovalDecisionRecord"
+          }
+        }
+      },
+      "ApprovalDecisionRecord": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "decision",
+          "reviewerId",
+          "reviewerRoleAtDecision",
+          "decidedAt"
+        ],
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "reject",
+              "escalate",
+              "withdraw"
+            ]
+          },
+          "decidedBy": {
+            "type": "string",
+            "description": "Who decided, as an actor: `user:<userId>`, the reviewer's user. The run's journal and provenance name the decider the same way. The Kindgi runtime always records it; a deployment whose HITL binding doesn't leaves it out."
+          },
+          "reviewerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reviewerRoleAtDecision": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "senior",
+              "admin"
+            ],
+            "description": "Reviewer role class. Hierarchy: standard < senior < admin."
+          },
+          "decidedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "rationale": {
+            "type": "string"
           }
         }
       },
@@ -13101,7 +13150,7 @@
             }
           }
         },
-        "description": "Returns 404 for ids that exist but require a higher role than the caller (avoids cross-tier existence leaks — see API-ROUTE-CONVENTIONS.md §2.4).",
+        "description": "Returns 404 for ids that exist but require a higher role than the caller (avoids cross-tier existence leaks — see API-ROUTE-CONVENTIONS.md §2.4). A decided approval carries its `decision`: what the reviewer decided, why, and who (`decidedBy`, `user:<userId>`).",
         "parameters": [
           {
             "name": "approvalId",
@@ -13200,7 +13249,7 @@
             }
           }
         },
-        "description": "Records the decision (`HitlBinding.submitReview`). When the approval carries a `waitTokenId` and the decision is `approve` or `reject`, also completes the waitpoint so the suspended run resumes.",
+        "description": "Records the decision (`HitlBinding.submitReview`). When the approval carries a `waitTokenId` and the decision is `approve` or `reject`, also completes the waitpoint so the suspended run resumes, with `{ decided, rationale?, decidedBy, approvalId }`: the run's journal records who decided which approval (`decidedBy` is `user:<userId>`).",
         "parameters": [
           {
             "name": "approvalId",

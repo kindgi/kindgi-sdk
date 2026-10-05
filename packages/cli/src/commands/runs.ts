@@ -4,7 +4,9 @@
 import type { Run, RunPage } from '@kindgi/client';
 import type { AgentId, FlowId, RunId } from '@kindgi/types';
 
+import type { CommandContext } from '../context.js';
 import { renderJson } from '../output.js';
+import { followRun, runsGetHint } from '../runs/follow.js';
 import {
   type TableSpec,
   readJsonInput,
@@ -146,7 +148,7 @@ const start: LeafCommand = {
   kind: 'leaf',
   name: 'start',
   description:
-    'Start a run for an agent or flow. Waits for it to finish; with --no-wait a flow run prints as soon as it exists and finishes in the background (follow it with `runs get` / `runs stream`). An agent run always answers when its turn ends. --dry-run runs only read-only tools.',
+    'Start a run for an agent or flow. Waits until it finishes or waits on an approval; if the wait is stopped (Ctrl+C), the run goes on and its id is printed. With --no-wait it prints as soon as the run exists (follow it with `runs get` / `runs stream`). --dry-run runs only read-only tools.',
   usage:
     'kindgi runs start (--agent=<agent-id> | --flow=<flow-id>) --input=<json-or-@file> [--no-wait] [--dry-run] [--idempotency-key=<key>]',
   optionSpec: {
@@ -193,29 +195,51 @@ const start: LeafCommand = {
       }
       const input = await readJsonInput(inputSpec);
       const idem = stringFlag(ctx, 'idempotency-key');
+      // Always started in the background, so the run's id is known at once;
+      // without --no-wait the CLI then follows it (`runs/follow.ts`).
       const options = {
-        ...(ctx.options['no-wait'] === true && { wait: false }),
+        wait: false,
         ...(ctx.options['dry-run'] === true && { dryRun: true }),
       };
-      const withOptions = Object.keys(options).length > 0 ? { options } : {};
-      // The run, as `runs get` prints it: its `id` is the run id.
-      const run = await (agent !== undefined
+      const started = await (agent !== undefined
         ? ctx.client().runs.start({
             agent: agent as AgentId,
             input,
-            ...withOptions,
+            options,
             ...(idem !== undefined ? { idempotencyKey: idem } : {}),
           })
         : ctx.client().runs.start({
             flow: flow as FlowId,
             input,
-            ...withOptions,
+            options,
             ...(idem !== undefined ? { idempotencyKey: idem } : {}),
           }));
+      // The run, as `runs get` prints it: its `id` is the run id.
+      const run =
+        ctx.options['no-wait'] === true ? started : await followUntilSettled(ctx, started);
       const rendered = renderJson(run, ctx.globals.format);
       return { stdout: rendered.stdout, stderr: renderTurnWarnings(run.output) };
     }),
 };
+
+/**
+ * Follow a started run until it settles. Ctrl+C stops the wait, not the
+ * run: it says which run goes on, and exits 130.
+ */
+async function followUntilSettled(ctx: CommandContext, started: Run): Promise<Run> {
+  const interrupted = (): void => {
+    process.stderr.write(
+      `\nStopped waiting. Run ${started.id} goes on: ${runsGetHint(started.id)}\n`,
+    );
+    process.exit(130);
+  };
+  process.once('SIGINT', interrupted);
+  try {
+    return await followRun(started, { get: (id) => ctx.client().runs.get(id as RunId) });
+  } finally {
+    process.removeListener('SIGINT', interrupted);
+  }
+}
 
 /**
  * An agent turn's warnings (`AgentTurnResult.warnings`) as stderr lines —

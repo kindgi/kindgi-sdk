@@ -84,6 +84,12 @@ function canonicalStringify(value: unknown): string {
 }
 
 /**
+ * The `NodeContext.record` key of a tool call's gate, before its call id:
+ * the journal names the waitpoint a call parked on under this key.
+ */
+export const TOOL_GATE_RECORD_PREFIX = 'tool-hitl-gate:';
+
+/**
  * Deterministic waitpoint token for a tool-call gate. Includes both
  * the model-generated call id (unique per iteration) AND the args hash
  * so kernel flow replay lands on the same token, and a re-issued

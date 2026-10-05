@@ -1364,7 +1364,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'approvals.get',
     summary: 'Fetch a single approval',
     description:
-      'Returns 404 for ids that exist but require a higher role than the caller (avoids cross-tier existence leaks — see API-ROUTE-CONVENTIONS.md §2.4).',
+      'Returns 404 for ids that exist but require a higher role than the caller (avoids cross-tier existence leaks — see API-ROUTE-CONVENTIONS.md §2.4). A decided approval carries its `decision`: what the reviewer decided, why, and who (`decidedBy`, `user:<userId>`).',
     tags: ['approvals'],
     security: 'bearer',
     parameters: [ApprovalIdPathParam],
@@ -1382,7 +1382,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'approvals.complete',
     summary: 'Submit a decision on an approval',
     description:
-      'Records the decision (`HitlBinding.submitReview`). When the approval carries a `waitTokenId` and the decision is `approve` or `reject`, also completes the waitpoint so the suspended run resumes.',
+      "Records the decision (`HitlBinding.submitReview`). When the approval carries a `waitTokenId` and the decision is `approve` or `reject`, also completes the waitpoint so the suspended run resumes, with `{ decided, rationale?, decidedBy, approvalId }`: the run's journal records who decided which approval (`decidedBy` is `user:<userId>`).",
     tags: ['approvals'],
     security: 'bearer',
     parameters: [ApprovalIdPathParam, IdempotencyKeyParam],
