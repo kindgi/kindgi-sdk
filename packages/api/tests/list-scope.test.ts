@@ -145,9 +145,7 @@ describe.each(LISTS)('GET %s by project', (path, key) => {
   test("an org scope reaches it as the org's", async () => {
     const answer = await call(`${path}?scopeKind=org&scopeId=${orgId}`);
     expect(answer.status).toBe(200);
-    expect(answer.seen[key]).toEqual([
-      expect.objectContaining({ scope: { kind: 'org', orgId } }),
-    ]);
+    expect(answer.seen[key]).toEqual([expect.objectContaining({ scope: { kind: 'org', orgId } })]);
   });
 
   test('no scope, or the tenant: no scope filter', async () => {
