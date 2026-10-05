@@ -61,9 +61,11 @@ import {
   type DockerOutcome,
   IMAGE_API_PORT,
   type RuntimeNetwork,
+  RuntimeStartStopped,
   detectRuntimeNetwork,
   docker,
   ensureRuntimeImage,
+  pauseUnlessStopped,
   startRuntimeContainer,
 } from './runtime-container.js';
 import {
@@ -310,6 +312,7 @@ export async function startApiServerContainerReal(
       publicTokenKey: opts.publicRunTokenKeyPath,
     }),
     onLog: opts.onLog ?? (() => undefined),
+    ...(opts.signal !== undefined && { signal: opts.signal }),
   });
   try {
     const project = await fetch(`${runtime.baseUrl}/v1/projects/default`, {
@@ -381,6 +384,7 @@ export async function attachToRuntimeReal(
   const deadline = Date.now() + 10 * 60_000;
   let project: Response | undefined;
   for (;;) {
+    if (opts.signal?.aborted === true) throw new RuntimeStartStopped();
     const healthy = await fetch(`${baseUrl}/health`, { signal: AbortSignal.timeout(2_000) })
       .then((r) => r.ok)
       .catch(() => false);
@@ -393,7 +397,7 @@ export async function attachToRuntimeReal(
     if (Date.now() > deadline) {
       throw new Error(`nothing served at ${baseUrl} within 10 minutes`);
     }
-    await new Promise((r) => setTimeout(r, 500));
+    await pauseUnlessStopped(500, opts.signal);
   }
   const body = (await project.json().catch(() => ({}))) as { readonly id?: string };
   if (!project.ok || typeof body.id !== 'string') {

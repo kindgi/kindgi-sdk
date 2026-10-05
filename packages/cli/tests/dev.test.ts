@@ -41,6 +41,7 @@ import type {
   StartServicesResult,
   WatchHandle,
 } from '../src/dev/runners.js';
+import { RuntimeStartStopped } from '../src/dev/runtime-container.js';
 import { type RunCliInputs, runCli } from '../src/main.js';
 import { CLI_VERSION } from '../src/version-info.js';
 
@@ -1029,6 +1030,36 @@ describe('kindgi dev — boot flow (no watch)', () => {
   // Since the disk-binding switch, every primitive is served from
   // disk and the CLI never POSTs them — there's no 409 path to test.
   // The fixture's `toolStatus: 409` option is unused.
+});
+
+describe('kindgi dev — a stop before the runtime serves (T176)', () => {
+  test('Ctrl+C while it waits for the runtime: it stops at once, exit 130, not an error', async () => {
+    const controller = new AbortController();
+    const fixtures = makeFixtures();
+    const seen: (AbortSignal | undefined)[] = [];
+    const runners: DevRunners = {
+      ...fixtures.runners,
+      startApiServer: async (opts) => {
+        seen.push(opts.signal);
+        // The runtime never serves: the wait ends only on the stop.
+        await new Promise<void>((resolve) =>
+          opts.signal?.addEventListener('abort', () => resolve()),
+        );
+        throw new RuntimeStartStopped();
+      },
+    };
+    const promise = runCli({
+      ...baseInputs(fixtures, { stopSignal: controller.signal, devRunners: runners }),
+      argv: ['dev', `--path=${packDir}`],
+    });
+    await vi.waitFor(() => expect(seen).toHaveLength(1), WAIT);
+    expect(seen[0]).toBe(controller.signal);
+    controller.abort();
+    const out = await promise;
+    expect(out.exitCode).toBe(130);
+    expect(out.stderr).toContain('kindgi dev stopped before the Kindgi runtime served.');
+    expect(out.stderr).not.toContain("couldn't start the Kindgi runtime");
+  });
 });
 
 describe('kindgi dev — watch flow', () => {

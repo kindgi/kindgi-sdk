@@ -136,6 +136,8 @@ export interface RuntimeContainerOptions {
   readonly publicTokenKey?: string;
   /** Every line the runtime writes. */
   readonly onLog: (line: string) => void;
+  /** A stop while it starts: the container is stopped and removed, and the wait throws `RuntimeStartStopped`. */
+  readonly signal?: AbortSignal;
 }
 
 export interface RunningRuntimeContainer {
@@ -170,6 +172,38 @@ export function runtimeRunArgs(name: string, options: RuntimeContainerOptions): 
   // The image's own argument (its console), then the dev-echo provider.
   args.push(options.image, '--console-static-dir', '/app/console', '--dev-echo-provider');
   return args;
+}
+
+/** The banner ended (its `Env:` line) without the pack line: an image older than the dev settings. */
+function predatesDevSettings(lines: readonly string[]): boolean {
+  return (
+    lines.some((l) => l.startsWith('  Env: ')) && !lines.some((l) => l.startsWith(PACK_DIR_BANNER))
+  );
+}
+
+/** `kindgi dev` was stopped (Ctrl+C, SIGTERM) while it waited for the runtime. */
+export class RuntimeStartStopped extends Error {
+  constructor() {
+    super('stopped while waiting for the Kindgi runtime');
+    this.name = 'RuntimeStartStopped';
+  }
+}
+
+/** Wait `ms`, or less when `signal` aborts first. */
+export function pauseUnlessStopped(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted === true) {
+      resolve();
+      return;
+    }
+    const done = (): void => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal?.addEventListener('abort', done, { once: true });
+  });
 }
 
 /** The line every runtime that runs a `kindgi dev` pack prints. */
@@ -214,6 +248,13 @@ export async function startRuntimeContainer(
   const doFetch = wait.fetch ?? fetch;
   const deadline = Date.now() + (wait.timeoutMs ?? 120_000);
   for (;;) {
+    if (options.signal?.aborted === true) {
+      // It hasn't served anything: removed at once, not stopped gracefully.
+      logs?.kill();
+      logs = undefined;
+      await docker(['rm', '--force', name]);
+      throw new RuntimeStartStopped();
+    }
     const healthy = await doFetch(`${baseUrl}/health`, { signal: AbortSignal.timeout(2_000) })
       .then((r) => r.ok)
       .catch(() => false);
@@ -228,10 +269,7 @@ export async function startRuntimeContainer(
     }
     // The banner ends with the `Env:` line, after the pack line. Without
     // the pack line, the image predates the runtime's development settings.
-    if (
-      lines.some((l) => l.startsWith('  Env: ')) &&
-      !lines.some((l) => l.startsWith(PACK_DIR_BANNER))
-    ) {
+    if (predatesDevSettings(lines)) {
       await stop();
       throw new Error(
         `${options.image} can't run a kindgi dev pack: it predates the runtime's development settings. Use a newer image (--runtime-image).`,
@@ -243,7 +281,7 @@ export async function startRuntimeContainer(
         `the Kindgi runtime didn't start serving in time:\n${lines.slice(-15).join('\n')}`,
       );
     }
-    await new Promise((r) => setTimeout(r, 250));
+    await pauseUnlessStopped(250, options.signal);
   }
   return { name, baseUrl, banner: lines.join('\n'), stop };
 }
