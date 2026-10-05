@@ -13,6 +13,7 @@ import type { CommandContext } from '../context.js';
 import { runInitAugment } from '../init/augment-scaffolder.js';
 import {
   type KindgiDependencySpecs,
+  kindgiCliRequirement,
   kindgiRequirementFor,
   resolveKindgiDependencySpecs,
   resolveKindgiPythonSource,
@@ -26,8 +27,14 @@ import {
   templateTarget,
 } from '../init/template-files.js';
 import { renderJson } from '../output.js';
-import { binDisplay, detectPackageManager, installCommand } from '../package-manager.js';
+import {
+  binDisplay,
+  cliInstall,
+  detectPackageManager,
+  installCommand,
+} from '../package-manager.js';
 import { resolveSdkPackageRoot } from '../sdk-package.js';
+import { CLI_VERSION } from '../version-info.js';
 import { syncSkills } from './skills.js';
 import type { CommandResult, LeafCommand } from './types.js';
 
@@ -159,6 +166,7 @@ export async function runInit(
       ...(skillsRoot !== undefined && { skillsRoot }),
       ...(typeof packIdRaw === 'string' && packIdRaw !== '' && { packIdOverride: packIdRaw }),
       force: ctx.options.force === true,
+      pypi: cliInstall(ctx.env) === 'pypi',
     });
   }
 
@@ -331,6 +339,7 @@ async function runInitPython(
 ): Promise<CommandResult> {
   const source = await resolveKindgiPythonSource();
   if (source.kind === 'error') return { kind: 'error', stderr: `${source.message}\n`, exitCode: 1 };
+  const pypi = cliInstall(ctx.env) === 'pypi';
   const block =
     source.kind === 'local-checkout'
       ? [
@@ -351,6 +360,11 @@ async function runInitPython(
       KINDGI_REQUIREMENT: JSON.stringify(kindgiRequirementFor(source)),
       KINDGI_PYTHON_SOURCE: block,
       UV_REQUIRED_VERSION: PACK_UV_REQUIRED_VERSION,
+      // From the PyPI CLI, the pack lists it too: `uv run kindgi`, no Node.
+      DEV_DEPENDENCIES: [
+        '"pytest>=8"',
+        ...(pypi ? [JSON.stringify(kindgiCliRequirement(CLI_VERSION))] : []),
+      ].join(', '),
     },
   });
   const skillsWritten = await copyClaudeSkills({
@@ -362,9 +376,9 @@ async function runInitPython(
   const displayPath = relative(ctx.cwd, args.targetDir) || '.';
   const nextSteps = [
     `cd ${displayPath}`,
-    'uv sync  # .venv with kindgi',
+    `uv sync  # .venv with kindgi${pypi ? ' and the kindgi CLI' : ''}`,
     'uv run pytest',
-    `${binDisplay('path', 'kindgi', ['dev'])}  # boots Kindgi locally + runs this pack with its .venv, reloading on save`,
+    `${binDisplay(pypi ? 'uv' : 'path', 'kindgi', ['dev'])}  # boots Kindgi locally + runs this pack with its .venv, reloading on save`,
   ];
   const stderr = [
     `✓ Python pack scaffolded at ${args.targetDir}/`,

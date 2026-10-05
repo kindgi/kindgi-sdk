@@ -86,8 +86,9 @@ import type {
 } from '../dev/runners.js';
 import { DEFAULT_RUNTIME_IMAGE } from '../dev/runtime-image.js';
 import { describeEnvDiagnostics, loadLocalEnvSettings } from '../env/project-env.js';
+import { PYPI_NO_BUNDLER } from '../esbuild-loader.js';
 import { renderJson } from '../output.js';
-import { binDisplay, detectBinRunner } from '../package-manager.js';
+import { binDisplay, cliInstall, detectBinRunner } from '../package-manager.js';
 import { loadProviderPresets } from '../providers/preset-loader.js';
 import { CLI_VERSION } from '../version-info.js';
 import { defaultSdkSkillsRoot } from './init.js';
@@ -296,6 +297,10 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   // secret binding.
   const projectEnv = await loadDevProjectEnv(ctx, args.packDir);
   if (projectEnv.kind === 'error') return projectEnv;
+  // The PyPI CLI (kindgi-cli) has no TypeScript bundler: say so before anything starts.
+  if (projectEnv.language === 'node' && cliInstall(ctx.env) === 'pypi') {
+    return { kind: 'error', stderr: `kindgi dev: ${PYPI_NO_BUNDLER}\n`, exitCode: 1 };
+  }
 
   const publicRunTokens = await resolveDevPublicRunTokens(ctx.env, projectEnv.runtime);
   if (publicRunTokens.kind === 'error') return publicRunTokens;
@@ -602,7 +607,7 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
 
   // Hints run the project's own kindgi through its package manager — or,
   // for a Python pack (no npm project), the kindgi on PATH.
-  const runner = await detectBinRunner(args.packDir, code.value.language);
+  const runner = await detectBinRunner(args.packDir, code.value.language, undefined, ctx.env);
   const kindgi = (...a: string[]): string => binDisplay(runner, 'kindgi', a);
   await applyDeclaredProviders({
     client,

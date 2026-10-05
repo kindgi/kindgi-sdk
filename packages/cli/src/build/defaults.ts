@@ -22,6 +22,7 @@ import { readSse } from '@kindgi/sdk/client';
 
 import { runPythonIndexer } from '../dev/defaults.js';
 import { REQUIRE_BANNER, collectPackEntries, nodeModulesExternalPlugin } from './bundle.js';
+import { loadEsbuild } from '../esbuild-loader.js';
 import { renderContainerfile } from './containerfile.js';
 import { installCommands, withoutInstallScripts } from './host-install.js';
 import { renderPythonContainerfile } from './python-image.js';
@@ -142,7 +143,7 @@ export async function runLocalIndexerReal(
 export async function esbuildBundleReal(
   opts: EsbuildBundleOptions,
 ): Promise<EsbuildBundleResult> {
-  const esbuild = await import('esbuild');
+  const esbuild = await loadEsbuild();
   await rm(opts.outputDir, { recursive: true, force: true });
   await mkdir(opts.outputDir, { recursive: true });
   const common = {

@@ -164,6 +164,15 @@ export function kindgiRequirement(cliVersion: string): string | undefined {
     : `kindgi>=${major}.${minor},<${major + 1}`;
 }
 
+/**
+ * The `kindgi-cli` requirement the PyPI CLI writes into a Python pack's dev
+ * group: the same range as `kindgi` (`kindgi-cli` ships with every npm
+ * release, at its version).
+ */
+export function kindgiCliRequirement(cliVersion: string): string {
+  return (kindgiRequirement(cliVersion) ?? 'kindgi').replace(/^kindgi/, 'kindgi-cli');
+}
+
 /** The requirement to write for `source`: the published range, or the bare name a uv source pins. */
 export function kindgiRequirementFor(
   source: Exclude<KindgiPythonSource, { kind: 'error' }>,

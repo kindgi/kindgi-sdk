@@ -227,4 +227,23 @@ describe('the appended tables and next steps', () => {
       'Add the SDK to the app\'s dependencies: pip install "kindgi>=0.1,<0.2" (and list it with the app’s requirements)',
     );
   });
+
+  test("from the PyPI CLI: list the CLI too, and run it from the app's own environment", () => {
+    const published = { kind: 'published', requirement: 'kindgi>=0.1,<0.2' } as const;
+    const uv = pythonAugmentNextSteps('uv', true, published, true);
+    expect(uv[1]).toMatch(
+      /^Add the CLI to the app's dev dependencies: uv add --dev "kindgi-cli>=\d+\.\d+,<\d+\.\d+"$/,
+    );
+    expect(uv).toContain('Boot the dev server: uv run kindgi dev');
+    const poetry = pythonAugmentNextSteps('poetry', true, published, true);
+    expect(poetry[1]).toMatch(/poetry add --group dev "kindgi-cli>=/);
+    expect(poetry).toContain('Boot the dev server: poetry run kindgi dev');
+    const pip = pythonAugmentNextSteps('pip', true, published, true);
+    expect(pip[1]).toMatch(/pip install "kindgi-cli>=/);
+    expect(pip).toContain('Boot the dev server: kindgi dev');
+    // The npm CLI: unchanged, no CLI step.
+    expect(
+      pythonAugmentNextSteps('uv', true, published).some((s) => s.includes('kindgi-cli')),
+    ).toBe(false);
+  });
 });

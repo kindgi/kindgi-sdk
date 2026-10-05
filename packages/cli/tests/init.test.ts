@@ -175,6 +175,29 @@ describe('kindgi init — minimal template', () => {
   });
 });
 
+describe('kindgi init — python template, from the PyPI CLI (kindgi-cli)', () => {
+  test('the pack lists kindgi-cli in its dev group, and the next steps say uv run kindgi', async () => {
+    const out = await runCli(
+      baseInputs({
+        argv: ['init', 'my-pack', '--template=python'],
+        env: { KINDGI_CLI_INSTALL: 'pypi' },
+      }),
+    );
+    expect(out.exitCode).toBe(0);
+    const pyproject = await readFile(join(cwd, 'my-pack', 'pyproject.toml'), 'utf8');
+    expect(pyproject).toMatch(/^dev = \["pytest>=8", "kindgi-cli>=\d+\.\d+,<\d+\.\d+"\]$/m);
+    expect(out.stderr).toContain('uv run kindgi dev');
+    expect(out.stderr).not.toContain('npx');
+  });
+
+  test('from the npm CLI: no kindgi-cli, and the npx line as before', async () => {
+    const out = await runCli(baseInputs({ argv: ['init', 'my-pack', '--template=python'] }));
+    const pyproject = await readFile(join(cwd, 'my-pack', 'pyproject.toml'), 'utf8');
+    expect(pyproject).toMatch(/^dev = \["pytest>=8"\]$/m);
+    expect(out.stderr).toContain('npx --yes @kindgi/cli@');
+  });
+});
+
 describe('kindgi init — python template', () => {
   test('scaffolds a Python pack: pyproject [tool.kindgi], tools, guardrail, agent, flow, tests', async () => {
     const out = await runCli(baseInputs({ argv: ['init', 'my-pack', '--template=python'] }));
