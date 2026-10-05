@@ -93,7 +93,7 @@ const register: LeafCommand = {
   name: 'register',
   description: 'Register a model provider — from a spec, or a preset (`kindgi providers presets`).',
   usage:
-    'kindgi providers register (--spec=<json-or-@file> | --preset=<name> [--models=<a,b>] [--project=<id>] [--secret=<NAME>] [--env=<name>])',
+    'kindgi providers register (--spec=<json-or-@file> | --preset=<name> [--models=<a,b>] [--project=<id>] [--secret=<NAME>] [--env=<name>] [--max-output-tokens=<n>])',
   optionSpec: {
     spec: {
       type: 'string',
@@ -103,6 +103,11 @@ const register: LeafCommand = {
     preset: {
       type: 'string',
       description: 'Register a built-in preset by name; `kindgi providers presets` lists them.',
+    },
+    'max-output-tokens': {
+      type: 'string',
+      description:
+        "With `--preset`, each model's output cap (thinking included), in place of the preset's: the model's own limit.",
     },
     models: {
       type: 'string',
@@ -167,6 +172,10 @@ async function presetInput(ctx: CommandContext, name: string): Promise<RegisterP
   const project = stringFlag(ctx, 'project');
   const secret = stringFlag(ctx, 'secret');
   const envName = stringFlag(ctx, 'env') ?? LOCAL_ENV_NAME;
+  const maxOutput = stringFlag(ctx, 'max-output-tokens');
+  if (maxOutput !== undefined && !/^[1-9]\d*$/.test(maxOutput)) {
+    throw new Error(`--max-output-tokens must be a whole number of at least 1, got "${maxOutput}"`);
+  }
   const built = presetRegistration(preset, {
     ...(modelsFlag !== undefined && {
       models: modelsFlag
@@ -177,6 +186,7 @@ async function presetInput(ctx: CommandContext, name: string): Promise<RegisterP
     ...(secret !== undefined && { secret }),
     envName,
     settings: { project },
+    ...(maxOutput !== undefined && { maxOutputTokens: Number(maxOutput) }),
   });
   if (built.kind === 'err') throw new Error(built.message);
   const ref = built.input.secret_ref;

@@ -6,6 +6,7 @@ import type {
   Provenance,
   ProvenanceBuilder,
   ProvenanceEmitBinding,
+  ProvenanceEmitContext,
 } from '@kindgi/provenance';
 import { signProvenance } from '@kindgi/provenance';
 import type { Result } from '@kindgi/types';
@@ -55,6 +56,8 @@ export interface ProvenanceBindings {
 export async function persistProvenance(
   builder: ProvenanceBuilder,
   bindings: ProvenanceBindings,
+  /** Stored beside the record (the turn's project); see `ProvenanceEmitContext`. */
+  context?: ProvenanceEmitContext,
 ): Promise<Result<Provenance, PersistenceError>> {
   let provenance: Provenance = builder.snapshot();
   if (bindings.keyProvider !== undefined) {
@@ -84,7 +87,7 @@ export async function persistProvenance(
         },
       };
     }
-    const emitted = await bindings.emitBinding.emit(provenance);
+    const emitted = await bindings.emitBinding.emit(provenance, context);
     if (emitted.kind === 'err') {
       return {
         kind: 'err',

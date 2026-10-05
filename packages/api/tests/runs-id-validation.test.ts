@@ -32,7 +32,7 @@ function app() {
       return null;
     },
     listRuns: async (input: { parent?: { runId: string } }) => {
-      if (input.parent !== undefined) reached.push(input.parent.runId);
+      reached.push(input.parent?.runId ?? 'list');
       return { data: [], hasMore: false };
     },
   } as unknown as RunBinding;
@@ -85,6 +85,23 @@ describe("a run id that isn't one", () => {
   test('resume still answers 422 whatever the id', async () => {
     const answer = await call('/v1/runs/not-a-uuid/resume', 'POST');
     expect(answer.status).toBe(422);
+  });
+
+  test.each([
+    ['project', 'scopeId must be a project id (a UUID), got "acme-desk"'],
+    ['org', 'scopeId must be an org id (a UUID), got "acme-desk"'],
+  ])('a %s scopeId that is not a UUID: 400 scope-invalid, and no query', async (kind, message) => {
+    const answer = await call(`/v1/runs?scopeKind=${kind}&scopeId=acme-desk`);
+    expect(answer.status).toBe(400);
+    expect(answer.json.error).toMatchObject({ code: 'scope-invalid' });
+    expect((answer.json.error as { message: string }).message).toContain(message);
+    expect(answer.reached).toEqual([]);
+  });
+
+  test('a project scope that is a UUID still reaches the run list', async () => {
+    const answer = await call(`/v1/runs?scopeKind=project&scopeId=${randomUUID()}`);
+    expect(answer.status).toBe(200);
+    expect(answer.reached).toEqual(['list']);
   });
 
   test('a parentRunId filter that is not a run id: 400, and no query', async () => {

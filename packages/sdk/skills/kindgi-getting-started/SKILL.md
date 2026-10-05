@@ -14,7 +14,7 @@ description: >
   primitive.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.5"
+version: "0.3.7"
 sdk_version: "0.0.0"
 pack_languages: [node]
 ---
@@ -158,8 +158,11 @@ Most of the setup is automatable, but two require your knowledge:
 - **Real LLM provider credentials** — the built-in dev-echo provider
   returns canned responses (great for the loop test, useless for real
   agents). It is a fallback, so it steps aside once a real provider is
-  registered — `kindgi providers register --preset=anthropic` with the
-  key in `.env`; see `kindgi-authoring-providers`.
+  registered. Declare it in `kindgi.config.ts`
+  (`providers: [{ preset: 'anthropic' }]`, the key in `.env`) and `kindgi dev`
+  registers it on every boot, in every worktree and after `--reset`; or once,
+  by hand: `kindgi providers register --preset=anthropic`. See
+  `kindgi-authoring-providers`.
 
 ## Your app and Kindgi's data
 
@@ -189,8 +192,37 @@ const run = await kindgi.runs.start({
   (`GET /v1/provenance/{runId}`). A flow run has none of its own: each agent
   step's `step.completed` entry in the flow's journal names its turn's run
   (`payload.output.runId`).
-- **When a run finished:** the `run.finished` webhook (the run's id and
-  outcome, no output; then `runs.get`), not polling.
+- **What it cost:** `kindgi.cost.usage.query({ rootRunId: runId })`
+  (`GET /v1/cost/records?rootRunId={runId}`): `.items`, one record per model
+  call, with its `model`, `usage` (`promptTokens`, `completionTokens`) and
+  `costUsd` (a number, US dollars), a flow's agent steps included. For one
+  customer's spend, see below.
+- **When a run finished:** the `run.finished` webhook (the run's id, its
+  outcome and its cost in `data.run.usage`; no output, so then `runs.get`),
+  not polling.
+
+**One customer's spend:** give each customer an org, and start their runs in a
+project of that org. Then one call sums their month:
+
+```ts
+import type { Timestamp } from '@kindgi/sdk/types';
+
+// Once per customer. Project slugs are unique across the tenant: put the customer in them.
+const org = await kindgi.orgs.create({ slug: 'acme-customer-one', name: 'Customer one' });
+const project = await kindgi.projects.create({ orgId: org.id, slug: 'acme-customer-one-app', name: 'App' });
+// save org.id and project.id on the customer's row; start their runs with projectId: project.id
+
+const now = new Date();
+const month = await kindgi.cost.usage.summary({
+  scope: { kind: 'org', orgId: org.id },
+  from: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString() as Timestamp,
+  to: now.toISOString() as Timestamp, // exclusive
+  groupBy: ['month'],
+});
+// month.totalUsd; month.groups[i].key ({ month: '2026-10' }), .totalUsd, .tokens
+```
+
+Docs: https://docs.kindgi.com/v0.1/guides/observability/cost-per-run/
 
 Show it in the app's own UI. **Never:**
 

@@ -959,7 +959,7 @@ const planCmd: LeafCommand = {
     format: {
       type: 'string',
       description:
-        'The output: `terraform` (default) for Terraform input, or `gcloud` for `--set-env-vars` / `--set-secrets` flags.',
+        "The output: `terraform` (default) for Terraform input, or `gcloud` for `--update-env-vars` / `--update-secrets` flags (they add or replace the listed names, and leave the service's other variables alone).",
     },
     path: {
       type: 'string',

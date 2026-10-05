@@ -8,7 +8,16 @@
 // touches provenance storage directly.
 //
 
-import type { FlowId, ProvenanceId, Result, RunId, TenantId, Timestamp } from '@kindgi/types';
+import type {
+  FlowId,
+  ListScope,
+  ProjectId,
+  ProvenanceId,
+  Result,
+  RunId,
+  TenantId,
+  Timestamp,
+} from '@kindgi/types';
 
 // ---------- domain type surface ----------
 
@@ -98,6 +107,8 @@ export interface ProvenanceListCursor {
 export interface ListProvenanceRecordsInput {
   readonly tenantId: TenantId;
   readonly limit: number;
+  /** Only one project's records, or every project's in an org. Absent: the tenant's. */
+  readonly scope?: ListScope;
   readonly runId?: RunId;
   readonly agentId?: string;
   readonly createdAfter?: Date;
@@ -117,6 +128,8 @@ export interface ProvenanceRecordSummary {
   readonly createdAt: Timestamp;
   readonly flowRef?: { readonly id: FlowId; readonly version: string };
   readonly signed: boolean;
+  /** The project of the record's run; absent on records from before it was stored. */
+  readonly projectId?: ProjectId;
 }
 
 export interface ListProvenanceRecordsResult {

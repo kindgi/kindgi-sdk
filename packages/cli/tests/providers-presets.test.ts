@@ -89,6 +89,38 @@ describe('the bundled presets', () => {
     });
     expect(vertex.kind === 'ok' && vertex.input.secret_ref).toBeUndefined();
   });
+
+  test("Gemini's models carry their real output limit, and --max-output-tokens replaces it", async () => {
+    const { gemini } = await loadProviderPresets();
+    if (gemini === undefined) throw new Error('preset missing');
+    const caps = (r: ReturnType<typeof presetRegistration>) =>
+      r.kind === 'ok' ? r.input.metadata.models.map((m) => [m.name, m.maxOutputTokens]) : r.message;
+    expect(
+      caps(presetRegistration(gemini, { envName: 'local', settings: { project: 'acme' } })),
+    ).toEqual([
+      ['gemini-2.5-pro', 65_536],
+      ['gemini-2.5-flash', 65_536],
+    ]);
+    expect(
+      caps(
+        presetRegistration(gemini, {
+          envName: 'local',
+          settings: { project: 'acme' },
+          models: ['gemini-2.5-pro'],
+          maxOutputTokens: 16_384,
+        }),
+      ),
+    ).toEqual([['gemini-2.5-pro', 16_384]]);
+    expect(
+      caps(
+        presetRegistration(gemini, {
+          envName: 'local',
+          settings: { project: 'acme' },
+          maxOutputTokens: 0,
+        }),
+      ),
+    ).toBe('--max-output-tokens must be a whole number of at least 1, got 0');
+  });
 });
 
 describe('kindgi providers register --preset', () => {

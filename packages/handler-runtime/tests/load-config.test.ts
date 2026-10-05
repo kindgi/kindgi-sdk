@@ -21,6 +21,7 @@ import {
   resolveDiscovery,
   runIndexer,
 } from '../src/index.js';
+import type { KindgiConfig } from '../src/index.js';
 
 let dir: string;
 
@@ -46,6 +47,21 @@ describe('loadKindgiConfig', () => {
     if (r.kind !== 'ok') return;
     expect(r.value.pack.id).toBe('acme.pack');
     expect(r.value.dev).toEqual({ envFiles: ['.env'] });
+  });
+
+  test('`project` and `providers` come through, typed (KindgiConfig)', async () => {
+    await write(
+      'kindgi.config.mjs',
+      "export default { pack: { id: 'acme.pack', version: '1.0.0' }, project: 'acme-app', providers: [{ preset: 'anthropic' }, { spec: { adapter_id: '@kindgi/adapter-model-openai-compat' } }] };",
+    );
+    const r = await loadKindgiConfig(dir);
+    if (r.kind !== 'ok') throw new Error(r.error.message);
+    const config: KindgiConfig = r.value;
+    expect(config.project).toBe('acme-app');
+    expect(config.providers).toEqual([
+      { preset: 'anthropic' },
+      { spec: { adapter_id: '@kindgi/adapter-model-openai-compat' } },
+    ]);
   });
 
   test('no config file → config-not-found', async () => {
@@ -113,6 +129,37 @@ envFiles = [".env", ".env.local"]
       language: 'python',
     });
     expect(r.kind === 'ok' && packLanguage(r.value)).toBe('python');
+  });
+
+  test('`project` and `[[tool.kindgi.providers]]` load as KindgiConfig.project and .providers', async () => {
+    await write(
+      'pyproject.toml',
+      `[project]
+name = "ledger"
+
+[tool.kindgi]
+project = "acme-app"
+
+[tool.kindgi.pack]
+id = "acme.ledger"
+version = "1.0.0"
+
+[[tool.kindgi.providers]]
+preset = "gemini"
+project = "acme-gcp"
+models = ["gemini-2.5-pro"]
+maxOutputTokens = 16384
+
+[[tool.kindgi.providers]]
+preset = "anthropic"
+`,
+    );
+    const r = await loadKindgiConfig(dir);
+    expect(r.kind === 'ok' && r.value.project).toBe('acme-app');
+    expect(r.kind === 'ok' && r.value.providers).toEqual([
+      { preset: 'gemini', project: 'acme-gcp', models: ['gemini-2.5-pro'], maxOutputTokens: 16384 },
+      { preset: 'anthropic' },
+    ]);
   });
 
   test('a kindgi.config.* wins over pyproject.toml', async () => {

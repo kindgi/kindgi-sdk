@@ -40,6 +40,15 @@ Error: preset "gemini" needs --project=<…> (The Google Cloud project Vertex AI
 kindgi providers register --preset=gemini --project=<gcp-project> --models=gemini-2.5-flash
 ```
 
+The preset's models answer with up to 65,536 tokens, thinking included.
+`--max-output-tokens=<n>` registers them with another limit.
+
+To have `kindgi dev` register it on every boot, declare it in the pack's config
+instead: `{ preset: 'gemini', project: '<gcp-project>' }` in
+`kindgi.config.ts`'s `providers`, or a `[[tool.kindgi.providers]]` table with
+`preset = "gemini"` and `project = "<gcp-project>"` in `pyproject.toml`. See
+[Declare them in your pack's config](../#declare-them-in-your-packs-config).
+
 ```text
 {
   "providerId": "gemini"

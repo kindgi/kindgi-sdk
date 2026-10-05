@@ -1,0 +1,304 @@
+---
+title: Cost per run and per customer
+description: Read what each model call cost, for one run, a flow's whole run, or one customer's month.
+sidebar:
+  order: 2
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Kindgi records every model call a run makes: the model, the tokens, and what
+the call cost at the prices its provider was registered with (see
+[Connect a model](../../models/)). Read the records of one run or of a flow's
+whole run, sum them for one customer's month, or get each run's total when it
+finishes.
+
+## A run's calls
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// run-cost.ts
+import { createClient } from '@kindgi/sdk/client';
+import type { RunId } from '@kindgi/sdk/types';
+
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+const calls = await kindgi.cost.usage.query({ runId: process.argv[2] as RunId });
+for (const call of calls.items) {
+  console.log(call.step, call.model, call.status, call.usage?.promptTokens, call.usage?.completionTokens, call.costUsd);
+}
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# run_cost.py
+import sys
+
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+calls = kindgi.cost.records.list(run_id=sys.argv[1])
+for call in calls.data:
+    usage = call.usage
+    print(call.step, call.model, call.status, usage and usage.prompt_tokens, usage and usage.completion_tokens, call.cost_usd)
+```
+
+</TabItem>
+</Tabs>
+
+For an agent turn that called a tool once, both print two model calls, the
+newest first:
+
+```text
+2 claude-haiku-4-5 ok 885 39 0.00108
+1 claude-haiku-4-5 ok 786 57 0.0010710000000000001
+```
+
+Each record is one model call:
+
+```json
+{
+  "id": "080ccfc0-cdf1-4c1e-87cf-4dfbee234fe1",
+  "tenantId": "9126df1e-094b-496d-9ea8-7daab93c3f4f",
+  "category": "llm.inference",
+  "providerId": "anthropic",
+  "runId": "c53a4eaa-2aee-44de-9546-64c7e710bc21",
+  "agentId": "acme-ops.echo-agent",
+  "conversationId": "dd9c2a5d-fca1-4ce8-9810-b97dd73a70d5",
+  "quantity": 843,
+  "unit": "tokens",
+  "costUsd": 0.0010710000000000001,
+  "occurredAt": "2026-10-05T07:32:07.079Z",
+  "callId": "1d1a29bb-fc04-4e77-a4c9-3dfcb78b8ee9",
+  "projectId": "13b7cfca-8b77-4983-858f-149c16afe56d",
+  "rootRunId": "c53a4eaa-2aee-44de-9546-64c7e710bc21",
+  "agentVersion": "0.1.0",
+  "nodeId": "model-call",
+  "step": 1,
+  "model": "claude-haiku-4-5",
+  "servedModel": "claude-haiku-4-5-20251001",
+  "status": "ok",
+  "usage": { "promptTokens": 786, "completionTokens": 57, "cacheReadTokens": 0, "cacheWriteTokens": 0 },
+  "durationMs": 1043,
+  "finishReason": "tool-use",
+  "providerRequestId": "req_011CfihbPhdHEhT7hauiXwZt",
+  "attempts": 1
+}
+```
+
+| Field | What it is |
+| --- | --- |
+| `model`, `servedModel` | The model the agent asked for, and the exact version the provider answered with. |
+| `usage` | The tokens: `promptTokens`, `completionTokens`, and the cache and reasoning counts. A count the provider reports is there, 0 included; one it doesn't report is absent. |
+| `costUsd` | The call's cost in US dollars. |
+| `status` | `ok`, or `failed` (see [A failed call](#a-failed-call)). |
+| `step` | The model call's number in the turn. |
+| `runId`, `rootRunId` | The run that made the call, and the run at the top of its tree. |
+| `flowId` | For an agent step in a flow, the flow. An agent run on its own has none. |
+| `projectId`, `agentId`, `agentVersion`, `conversationId` | Where the call belongs. |
+| `providerRequestId` | The provider's id for the request, to quote to its support. Not every provider sends one. |
+| `callId` | The call's id. The model call's node in the turn's [provenance](../trace-an-answer/) has the same `callId`. |
+
+To see the usage exactly as the provider sent it, add `includeRawUsage: true`
+(Python: `include="rawUsage"`). Each record then has `rawUsage`:
+
+```json
+"rawUsage": {
+  "provider": "anthropic",
+  "model": "claude-haiku-4-5",
+  "usage": { "input_tokens": 786, "output_tokens": 57, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0, … }
+}
+```
+
+## A flow's whole run
+
+Each agent step of a flow runs as a run of its own, under the flow's run. The
+flow's run makes no model calls itself, so ask for its whole tree with
+`rootRunId`:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+const calls = await kindgi.cost.usage.query({ rootRunId: flowRunId });
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+calls = kindgi.cost.records.list(root_run_id=flow_run_id)
+```
+
+</TabItem>
+</Tabs>
+
+Each record's `runId` is the agent step's run, and its `rootRunId` is the
+flow's run.
+
+## One customer's month
+
+Give each of your customers an org, and run their work in a project of that
+org. One call then sums a customer's spend, here by month and model:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// customer-cost.ts
+import { createClient } from '@kindgi/sdk/client';
+import type { Timestamp } from '@kindgi/sdk/types';
+
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+// Once per customer: an org, and a project in it. Slugs are unique across the tenant.
+const org = await kindgi.orgs.create({ slug: 'acme-customer-one', name: 'Customer one' });
+const project = await kindgi.projects.create({ orgId: org.id, slug: 'acme-customer-one-support', name: 'Support' });
+
+// Each run for that customer names the project.
+await kindgi.runs.start({
+  agent: 'acme-ops.echo-agent',
+  input: { userMessage: 'Echo hello.' },
+  projectId: project.id,
+});
+
+// The customer's month so far, by model.
+const now = new Date();
+const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+const month = await kindgi.cost.usage.summary({
+  scope: { kind: 'org', orgId: org.id },
+  from: monthStart.toISOString() as Timestamp,
+  to: now.toISOString() as Timestamp,
+  groupBy: ['month', 'model'],
+});
+console.log(JSON.stringify(month, null, 2));
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# customer_cost.py
+import json
+from datetime import datetime, timezone
+
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+# Once per customer: an org, and a project in it. Slugs are unique across the tenant.
+org = kindgi.orgs.create(slug="acme-customer-one", name="Customer one")
+project = kindgi.projects.create(org_id=str(org.id), slug="acme-customer-one-support", name="Support")
+
+# Each run for that customer names the project.
+kindgi.runs.start(
+    agent="acme-ops.echo-agent",
+    input={"userMessage": "Echo hello."},
+    project_id=project.id,
+)
+
+# The customer's month so far, by model.
+now = datetime.now(timezone.utc)
+month = kindgi.cost.aggregate(
+    group_by="month,model",
+    scope_kind="org",
+    scope_id=str(org.id),
+    from_=now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat(),
+    to=now.isoformat(),
+)
+print(json.dumps(month.model_dump(mode="json", by_alias=True, exclude_none=True), indent=2))
+```
+
+</TabItem>
+</Tabs>
+
+The sum covers only that customer's runs:
+
+```json
+{
+  "groups": [
+    {
+      "key": { "month": "2026-10", "model": "claude-haiku-4-5" },
+      "count": 2,
+      "totalUsd": 0.0021260000000000003,
+      "tokens": { "prompt": 1671, "completion": 91, "cacheRead": 0, "cacheWrite": 0, "reasoning": 0 }
+    }
+  ],
+  "totalUsd": 0.0021260000000000003,
+  "totalRecords": 2,
+  "tokens": { "prompt": 1671, "completion": 91, "cacheRead": 0, "cacheWrite": 0, "reasoning": 0 },
+  "timeRange": { "from": "2026-10-01T00:00:00.000Z", "to": "2026-10-05T07:35:16.122Z" },
+  "groupBy": ["month", "model"]
+}
+```
+
+- **`scope`** narrows the sum to an org (`{ kind: 'org', orgId }`) or a
+  project (`{ kind: 'project', projectId }`). Python: `scope_kind` and
+  `scope_id`.
+- **`from` and `to`**: the time window; `to` is exclusive.
+- **`groupBy`** splits the sum. Besides `month` and `model`: `day`, `orgId`,
+  `projectId`, `agentId`, `flowId`, `runId`, `rootRunId`, `conversationId`,
+  `providerId`, `servedModel`, `category` and `tenant`. With no `groupBy`,
+  you get the totals only.
+
+A tool can check that a run belongs to the right customer: see
+[Check the run's org](../../tools/write-a-tool/#check-the-runs-org).
+
+## When a run finishes
+
+The [`run.finished` webhook](../../webhooks/receive-run-finished/) carries the
+run's total under `data.run.usage`:
+
+```json
+{
+  "id": "8004eba4-0d7a-4b81-9cd2-9c1884295f9c",
+  "type": "run.finished",
+  "createdAt": "2026-10-05T07:08:42.227Z",
+  "data": {
+    "run": {
+      "id": "695492e1-0569-48cf-bf5b-e92170ebcd38",
+      "projectId": "cb742f19-68f2-4594-9cd6-b555617dc851",
+      "flowId": "acme-ops.echo-flow",
+      "flowVersion": "0.1.0",
+      "status": "completed",
+      "dryRun": false,
+      "failureMessage": null,
+      "createdAt": "2026-10-05T07:08:39.834Z",
+      "completedAt": "2026-10-05T07:08:42.227Z",
+      "usage": {
+        "calls": 2,
+        "costUsd": 0.001994,
+        "tokens": { "prompt": 1669, "completion": 65, "cacheRead": 0, "cacheWrite": 0, "reasoning": 0 }
+      }
+    }
+  }
+}
+```
+
+Only the run at the top of a tree sends `run.finished`, and its `usage` covers
+the whole tree: this flow's two calls were made by its agent step.
+
+## A failed call
+
+A model call that fails is recorded too, at no cost. A turn whose provider key
+was wrong:
+
+```json
+{
+  "runId": "97a6a04b-b6e2-4b14-a682-4dc5f653e075",
+  "model": "claude-haiku-4-5",
+  "status": "failed",
+  "costUsd": 0,
+  "durationMs": 381,
+  "attempts": 1,
+  "error": { "message": "401 {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"API key is invalid.\"},\"request_id\":null}" },
+  …
+}
+```
+
+It has no `usage`, and it counts in `run.finished`'s `calls`.

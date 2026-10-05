@@ -39,7 +39,12 @@ import { checkAptPackages } from '../build/apt.js';
 import { PACK_SERVICE_COMMAND } from '../build/containerfile.js';
 import { collectIncludeFiles, readBundleConfig } from '../build/context-files.js';
 import { buildEnvelope, canonicaliseSignatureBody, sha256Hex } from '../build/envelope.js';
-import { type SkippedScript, devOnlyImports, resolveHostInstall } from '../build/host-install.js';
+import {
+  type HostInstall,
+  type SkippedScript,
+  devOnlyImports,
+  resolveHostInstall,
+} from '../build/host-install.js';
 import { readImageConfig } from '../build/image-config.js';
 import { checkIntegrity } from '../build/integrity.js';
 import { nodeBaseImageFor } from '../build/node-image.js';
@@ -682,6 +687,40 @@ function preparePackContext(
 }
 
 /**
+ * A pnpm install with no `packageManager` gets the host's pnpm version:
+ * the image then installs with the pnpm that wrote the lockfile, not the
+ * newest one corepack would take. When the host's can't be read, the
+ * build is refused rather than left to float.
+ */
+async function withHostPnpm(
+  runners: BuildRunners,
+  install: HostInstall,
+): Promise<
+  | { readonly kind: 'ok'; readonly install: HostInstall }
+  | { readonly kind: 'err'; readonly message: string }
+> {
+  if (install.manager !== 'pnpm' || install.managerSpec !== undefined)
+    return { kind: 'ok', install };
+  const fix = `Add "packageManager": "pnpm@<version>" to ${join(install.root, 'package.json')}, with the pnpm version that writes pnpm-lock.yaml, and run kindgi build again.`;
+  let version: string;
+  try {
+    version = await runners.hostPnpmVersion(install.root);
+  } catch (err) {
+    return {
+      kind: 'err',
+      message: `package.json has no packageManager, and kindgi build couldn't read the pnpm version here (pnpm --version in ${install.root}: ${(err as Error).message}). The image installs with the pnpm that wrote the lockfile, never the newest. ${fix}`,
+    };
+  }
+  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
+    return {
+      kind: 'err',
+      message: `package.json has no packageManager, and pnpm --version in ${install.root} printed "${version}", not a version. ${fix}`,
+    };
+  }
+  return { kind: 'ok', install: { ...install, hostPnpm: version } };
+}
+
+/**
  * A Node pack: how the image installs the app (`host-install.ts`), its
  * base image, the bundles, the local index over them, the Containerfile,
  * and the build context (`<out>/context`).
@@ -694,7 +733,9 @@ async function prepareNodeContext(
 ): Promise<PackContext> {
   const hostInstall = await resolveHostInstall(args.packDir);
   if (hostInstall.kind === 'err') return failure(`${hostInstall.message}\n`);
-  const install = hostInstall.install;
+  const pinned = await withHostPnpm(runners, hostInstall.install);
+  if (pinned.kind === 'err') return failure(`${pinned.message}\n`);
+  const install = pinned.install;
   const base = nodeBaseImageFor(install.enginesNode);
   if (base.kind === 'err') return failure(`${base.message}\n`);
   const configFile = await findKindgiConfig(args.packDir);
@@ -715,7 +756,7 @@ async function prepareNodeContext(
   }
 
   lines(
-    `  Install:     ${install.managerSpec ?? install.manager} from ${install.files.find((f) => /lock|shrinkwrap/.test(f)) ?? 'the lockfile'}${install.packRel === '' ? '' : ` (pack at ${install.packRel}/)`}`,
+    `  Install:     ${install.managerSpec ?? (install.hostPnpm !== undefined ? `pnpm@${install.hostPnpm} (the host's; no packageManager)` : install.manager)} from ${install.files.find((f) => /lock|shrinkwrap/.test(f)) ?? 'the lockfile'}${install.packRel === '' ? '' : ` (pack at ${install.packRel}/)`}`,
   );
   lines(`  Node:        ${base.image.version} (${base.image.ref.split('@')[0]})`);
   if (image.extensions.length > 0 || image.systemPackages.length > 0) {

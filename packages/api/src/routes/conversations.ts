@@ -10,12 +10,16 @@ import type {
   ConversationMessage,
   ConversationPageCursor,
 } from '@kindgi/agents';
+import type { ProjectBinding } from '@kindgi/platform';
 import type { RunBinding } from '@kindgi/runtime';
-import type { AgentId, Semver, TenantId } from '@kindgi/types';
+import type { AgentId, ProjectId, Semver, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit, decodeCursor, encodeCursor } from './pagination.js';
+import { parseListScope } from './scope-params.js';
+
+const PROJECT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Conversations resource routes. All storage access goes through the
@@ -27,6 +31,11 @@ import { clampLimit, decodeCursor, encodeCursor } from './pagination.js';
 export function conversationsRouter(
   conversationBinding: ConversationBinding,
   runBinding: RunBinding,
+  /**
+   * When wired, a `projectId` given to `POST /` must be one of the
+   * tenant's projects, and an omitted one is the tenant's Default project.
+   */
+  projectBinding?: ProjectBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -53,6 +62,14 @@ export function conversationsRouter(
 
     const agentIdRaw = c.req.query('agentId');
 
+    const scopeParsed = parseListScope(c.req.query(), { tenantId });
+    if (scopeParsed.kind === 'err') {
+      c.status(statusFor('scope-invalid') as never);
+      return c.json(
+        toWireError({ code: 'scope-invalid', message: scopeParsed.message }, requestId),
+      );
+    }
+
     let before: ConversationPageCursor | undefined;
     const rawCursor = c.req.query('cursor');
     if (rawCursor !== undefined && rawCursor.length > 0) {
@@ -68,6 +85,7 @@ export function conversationsRouter(
 
     const listResult = await conversationBinding.listConversationsPage({
       tenantId,
+      ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(agentIdRaw !== undefined && agentIdRaw.length > 0 && { agentId: agentIdRaw as AgentId }),
       ...(statusFilter !== undefined && { status: statusFilter }),
       ...(before !== undefined && { before }),
@@ -126,9 +144,30 @@ export function conversationsRouter(
       c.status(statusFor(parsed.error.code) as never);
       return c.json(toWireError(parsed.error, requestId));
     }
+    const supplied = parsed.value.projectId;
+    if (
+      supplied !== undefined &&
+      projectBinding !== undefined &&
+      (await projectBinding.get(tenantId, supplied)) === undefined
+    ) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'bad-input',
+            message: `\`projectId\` "${supplied as unknown as string}" does not resolve to a project in this tenant`,
+          },
+          requestId,
+        ),
+      );
+    }
+    // Omitted: the tenant's Default project, as for a run. No Default (or
+    // no project binding): no project, never a refusal.
+    const projectId = supplied ?? (await projectBinding?.getDefault(tenantId))?.id;
 
     const opened = await conversationBinding.openConversation({
       tenantId,
+      ...(projectId !== undefined && { projectId }),
       agentId: parsed.value.agentId,
       agentVersion: parsed.value.agentVersion,
       title: parsed.value.title,
@@ -232,6 +271,7 @@ function serializeConversation(c: Conversation): Record<string, unknown> {
     agentVersion: c.agentVersion as unknown as string,
     title: c.title,
     ...(c.participantId !== undefined && { participantId: c.participantId }),
+    ...(c.projectId !== undefined && { projectId: c.projectId as unknown as string }),
     scope: c.scope,
     status: (c.closedAt === undefined ? 'open' : 'closed') as 'open' | 'closed',
     openedAt: c.openedAt as unknown as string,
@@ -283,6 +323,7 @@ interface ParsedOpenBody {
   readonly agentVersion: Semver;
   readonly title: string;
   readonly scope: Readonly<Record<string, unknown>>;
+  readonly projectId?: ProjectId;
   readonly participantId?: string;
   readonly metadata?: Readonly<Record<string, unknown>>;
 }
@@ -335,6 +376,20 @@ function parseOpenBody(
     scope = scopeRaw as Readonly<Record<string, unknown>>;
   }
 
+  const projectIdRaw = b.projectId;
+  if (
+    projectIdRaw !== undefined &&
+    (typeof projectIdRaw !== 'string' || !PROJECT_ID_RE.test(projectIdRaw))
+  ) {
+    return {
+      kind: 'err',
+      error: {
+        code: 'bad-input',
+        message: '`projectId` must be a project id (a UUID) when supplied',
+      },
+    };
+  }
+
   const participantIdRaw = b.participantId;
   if (participantIdRaw !== undefined && typeof participantIdRaw !== 'string') {
     return {
@@ -362,6 +417,7 @@ function parseOpenBody(
       agentVersion: agentVersion as Semver,
       title,
       scope,
+      ...(projectIdRaw !== undefined && { projectId: projectIdRaw as ProjectId }),
       ...(participantIdRaw !== undefined && { participantId: participantIdRaw }),
       ...(metadata !== undefined && { metadata }),
     },

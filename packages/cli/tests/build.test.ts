@@ -141,6 +141,10 @@ interface Fixtures {
     dockerBuilds: DockerBuildOptions[];
     pullOptions: { pull?: boolean | undefined; imageRef: string; platform?: string | undefined }[];
     containerfileImages: unknown[];
+    /** The install each Containerfile was written for. */
+    containerfileInstalls: unknown[];
+    /** Roots `hostPnpmVersion` was asked about. */
+    hostPnpmCalls: string[];
     contextExtensionFiles: (readonly string[])[];
     postCalls: number;
     streamCalls: number;
@@ -167,6 +171,8 @@ interface FixtureOptions {
   readonly postReplay?: boolean;
   /** Skip the pull runner slot entirely — simulate CI without Docker. */
   readonly omitPullRunner?: boolean;
+  /** What the host's `pnpm --version` gives (default 10.28.0), or why it fails. */
+  readonly hostPnpm?: string | Error;
 }
 
 function makeFixtures(opts: FixtureOptions = {}): Fixtures {
@@ -178,6 +184,8 @@ function makeFixtures(opts: FixtureOptions = {}): Fixtures {
     dockerBuilds: [],
     pullOptions: [],
     containerfileImages: [],
+    containerfileInstalls: [],
+    hostPnpmCalls: [],
     contextExtensionFiles: [],
     postCalls: 0,
     streamCalls: 0,
@@ -228,6 +236,7 @@ function makeFixtures(opts: FixtureOptions = {}): Fixtures {
     writeContainerfile: async (o) => {
       state.containerfileCalls += 1;
       state.containerfileImages.push(o.image);
+      state.containerfileInstalls.push(o.install);
       // Actually write it — the tarPack step reads the file.
       await writeFile(o.outputPath, '# fake containerfile\n', 'utf8');
     },
@@ -278,6 +287,11 @@ function makeFixtures(opts: FixtureOptions = {}): Fixtures {
       o.onLog('docker buildx running');
       o.onLog('pushing image');
       return defaultTerminal;
+    },
+    hostPnpmVersion: async (root) => {
+      state.hostPnpmCalls.push(root);
+      if (opts.hostPnpm instanceof Error) throw opts.hostPnpm;
+      return opts.hostPnpm ?? '10.28.0';
     },
     signEnvelope: async (o) => {
       state.signCalls += 1;
@@ -904,6 +918,77 @@ describe('kindgi build --local', () => {
     });
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain("Integrity gate FAILED: the image's index isn't the local one");
+  });
+
+  describe('pnpm: the image installs with the pnpm that wrote the lockfile', () => {
+    const usePnpm = async (manifest: Record<string, unknown>): Promise<void> => {
+      await rm(join(packDir, 'package-lock.json'));
+      await writeFile(join(packDir, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n", 'utf8');
+      await writeFile(
+        join(packDir, 'package.json'),
+        `${JSON.stringify({ name: 'test-pack', version: '0.1.0', ...manifest })}\n`,
+        'utf8',
+      );
+    };
+
+    test("no packageManager: the host's pnpm version, named in the plan", async () => {
+      await usePnpm({});
+      const fixtures = makeFixtures({ hostPnpm: '10.28.0' });
+      const out = await runCli({
+        ...baseInputs(fixtures),
+        argv: ['build', '--local', `--path=${packDir}`],
+      });
+      expect(out.exitCode).toBe(0);
+      expect(fixtures.state.hostPnpmCalls).toEqual([packDir]);
+      expect(fixtures.state.containerfileInstalls).toEqual([
+        expect.objectContaining({ manager: 'pnpm', hostPnpm: '10.28.0' }),
+      ]);
+      expect(out.stderr).toContain(
+        "Install:     pnpm@10.28.0 (the host's; no packageManager) from pnpm-lock.yaml",
+      );
+    });
+
+    test('a packageManager wins: the host is not asked', async () => {
+      await usePnpm({ packageManager: 'pnpm@12.9.1' });
+      const fixtures = makeFixtures();
+      const out = await runCli({
+        ...baseInputs(fixtures),
+        argv: ['build', '--local', `--path=${packDir}`],
+      });
+      expect(out.exitCode).toBe(0);
+      expect(fixtures.state.hostPnpmCalls).toEqual([]);
+      expect(fixtures.state.containerfileInstalls).toEqual([
+        expect.not.objectContaining({ hostPnpm: expect.anything() }),
+      ]);
+      expect(out.stderr).toContain('Install:     pnpm@12.9.1 from pnpm-lock.yaml');
+    });
+
+    test("the host's pnpm version can't be read: refused, saying how to pin it", async () => {
+      await usePnpm({});
+      const fixtures = makeFixtures({ hostPnpm: new Error('spawn pnpm ENOENT') });
+      const out = await runCli({
+        ...baseInputs(fixtures),
+        argv: ['build', '--local', `--path=${packDir}`],
+      });
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(
+        `package.json has no packageManager, and kindgi build couldn't read the pnpm version here (pnpm --version in ${packDir}: spawn pnpm ENOENT).`,
+      );
+      expect(out.stderr).toContain('Add "packageManager": "pnpm@<version>"');
+      expect(fixtures.state.esbuildCalls).toBe(0);
+      expect(fixtures.state.dockerBuilds).toEqual([]);
+    });
+
+    test('a version that is not one is refused too', async () => {
+      await usePnpm({});
+      const fixtures = makeFixtures({ hostPnpm: 'command not found' });
+      const out = await runCli({
+        ...baseInputs(fixtures),
+        argv: ['build', '--local', `--path=${packDir}`],
+      });
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain('printed "command not found", not a version');
+    });
   });
 
   test('a pack with no lockfile is refused before anything builds', async () => {

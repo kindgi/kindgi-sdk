@@ -1,5 +1,22 @@
 # @kindgi/env-schema
 
+## 0.1.3
+
+### Patch Changes
+
+- 4ed3d2f: CLI fixes from a pilot's feedback, and the runtime's port order.
+  
+  - **`kindgi runs start` never loses the run.** It starts the run in the background and follows it, rather than holding the start request open. A long agent turn no longer times out the CLI with no run id to look it up by. It still waits until the run finishes or waits on an approval, and prints the same record. A stopped wait (Ctrl+C) prints `Stopped waiting. Run <id> goes on: kindgi runs get <id>`.
+  - **The Gemini preset uses the models' real output limit:** 65,536 tokens for Gemini 2.5 Pro and Flash, thinking included. It used to cap Pro at 8192. `kindgi providers register --preset=<name> --max-output-tokens=<n>` sets another cap.
+  - **`kindgi env plan --format=gcloud` emits `--update-env-vars` / `--update-secrets`.** They add or replace the names listed and leave the service's other variables alone. `--set-*` replaced the whole env.
+  - **`KINDGI_API_PORT`'s description states the port order.** The runtime takes the first that's set: the `--port` flag, `KINDGI_API_PORT`, the platform's `PORT` (Cloud Run, Render, Heroku and Fly set it), the config file's `port`, then 4000.
+- 2c185d8: Fixes from the first Cloud Run deployment.
+  
+  - **The pack service token is read the same way on both sides.** `parsePackServiceToken` (new in `@kindgi/env-schema`) drops surrounding whitespace, so a secret stored with a trailing newline no longer makes every pack call answer 401. A token with whitespace or a control character inside is refused at startup, since an HTTP header can't carry it. The Node pack service and the Python one (`kindgi.pack.serve`) both use the rule, and the pack conformance suite checks it.
+  - **Refusals aren't replayed.** The idempotency middleware stores a response only when the request took effect (a status below 400). A request retried with the same `Idempotency-Key` after a refusal (4xx) or a failure (5xx) runs again, so a deploy retried after trusting its key now goes through.
+  - **`kindgi deploy` says when an answer is a replay** (`X-Idempotent-Replay`) and how to retry: `--idempotency-key <new value>` for a replayed refusal from an older runtime. A refused signing key's hint gives the `kindgi key trust <keyId> --url <endpoint>` command on a line of its own. The retry advice for server errors and network failures is reworded.
+- 66e7ac2: `KINDGI_WEBHOOK_PRIVATE_NETWORKS` (`allow` | `deny`, default `deny`): a self-hosted runtime's webhooks may go to a receiver on its own private network, at an RFC 1918, CGNAT (100.64.0.0/10) or IPv6 unique-local address. Loopback, link-local (the cloud metadata endpoints) and unroutable addresses stay refused, and webhooks stay https only. The runtime reads it from 0.1.3.
+
 ## 0.1.2
 
 ### Patch Changes

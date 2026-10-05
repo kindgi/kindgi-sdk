@@ -279,4 +279,9 @@ export interface BuildRunners {
   readonly signEnvelope: (opts: SignOptions) => Promise<SignResult>;
   /** A Python pack's steps; absent → `kindgi build` refuses a Python pack. */
   readonly python?: PythonBuildRunners;
+  /**
+   * The pnpm version the host runs in `root` (`pnpm --version` there).
+   * Rejects, with the reason, when it can't be read.
+   */
+  readonly hostPnpmVersion: (root: string) => Promise<string>;
 }

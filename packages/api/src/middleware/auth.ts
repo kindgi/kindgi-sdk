@@ -37,8 +37,9 @@ export interface TokenResolution {
    * middleware surfaces it as `c.get('reviewerRole')` and approvals
    * routes gate visibility / decisions on the `standard < senior < admin`
    * hierarchy. Absent for tokens that were never provisioned with a
-   * reviewer role — such tokens can still hit `/v1/runs` etc., but any
-   * approvals route returns `403 permission-denied`.
+   * reviewer role: the approvals routes then take the role the reviewer
+   * roster gives the token's user (`ReviewerBinding.resolveReviewerRole`),
+   * and return `403 permission-denied` when it gives none.
    */
   readonly reviewerRole?: ReviewerRole;
   /**

@@ -172,6 +172,10 @@ pnpm exec kindgi runs start --agent=acme-support.triage --input='{"userMessage":
     },
 ```
 
+To have `kindgi dev` register the model on every boot, in each worktree and
+after `--reset`, declare it in the pack's config:
+[Declare them in your pack's config](../../guides/models/#declare-them-in-your-packs-config).
+
 ### What the pack's image needs
 
 `kindgi build` turns the pack into an image. It installs your app's
@@ -310,8 +314,10 @@ KINDGI_API_TOKEN=kgi_bt_…
 ```
 
 The token stays the same when you restart `kindgi dev`. `kindgi dev --reset`
-starts over with a new tenant and a new token: copy the new token after it
-(the client warns when the token in your env file no longer matches).
+starts the project over, dropping its database
+([after asking](../install/#where-kindgi-dev-keeps-its-data)), with a new
+token: copy the new token after it (the client warns when the token in your
+env file no longer matches).
 In production they're your deployment's URL and API token. To pass them
 yourself instead: `createClient({ apiUrl, auth: { kind: 'apiToken', token } })`,
 or `Kindgi(url, token=…)` in Python.

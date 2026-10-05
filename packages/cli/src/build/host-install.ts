@@ -52,6 +52,14 @@ export interface HostInstall {
   readonly manager: ImagePackageManager;
   /** The root `package.json`'s `packageManager` (`pnpm@11.25.0`): what corepack installs. */
   readonly managerSpec?: string;
+  /**
+   * pnpm with no `packageManager`: the version the host runs at `root`,
+   * the one that wrote the lockfile (`kindgi build` reads it). The image
+   * installs with it, not with the newest pnpm corepack would take, whose
+   * policies (such as pnpm 12's one-day `minimumReleaseAge`) can refuse a
+   * lockfile the host accepted.
+   */
+  readonly hostPnpm?: string;
   /** Yarn 2+ (a `yarn.lock` with `__metadata`), which installs differently. */
   readonly yarnBerry: boolean;
   /**
