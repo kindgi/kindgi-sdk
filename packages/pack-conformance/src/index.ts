@@ -76,6 +76,7 @@ export const FIXTURE_TOOL_IDS = [
   'conformance.context',
   'conformance.defaults',
   'conformance.echo',
+  'conformance.hold',
   'conformance.noisy',
   'conformance.process-env',
   'conformance.sleep',
@@ -208,15 +209,15 @@ function parseEvent(line: string): ServiceEvent | undefined {
   }
 }
 
+/**
+ * The process's exit, once its stdout and stderr are closed too (`close`,
+ * not `exit`): every line it wrote has been read by then.
+ */
 function exitOf(
   child: ChildProcess,
 ): Promise<{ readonly code: number | null; readonly signal: string | null }> {
   return new Promise((resolve) => {
-    if (child.exitCode !== null || child.signalCode !== null) {
-      resolve({ code: child.exitCode, signal: child.signalCode });
-      return;
-    }
-    child.once('exit', (code, signal) => resolve({ code, signal }));
+    child.once('close', (code, signal) => resolve({ code, signal }));
   });
 }
 
@@ -268,10 +269,14 @@ async function runToExit(
 ): Promise<{ readonly code: number | null; readonly events: ServiceEvent[] }> {
   const { child, events } = spawnService(target, indexPath, env);
   const { code } = await exitOf(child);
-  // Let the stderr reader deliver the last line.
-  await new Promise((r) => setTimeout(r, 50));
   return { code, events };
 }
+
+/**
+ * How long to wait for something the service does (a line it writes, an
+ * answer), on a busy machine. A wait ends as soon as it happens.
+ */
+const SERVICE_WAIT_MS = 15_000;
 
 async function waitFor<T>(probe: () => T | undefined, timeoutMs: number, what: string): Promise<T> {
   const deadline = Date.now() + timeoutMs;
@@ -335,6 +340,18 @@ function invoke(
     headers: { 'content-type': 'application/json', ...headers },
     ...(signal !== undefined && { signal }),
   });
+}
+
+/**
+ * Wait until a `conformance.hold` call is running: its handler has printed
+ * its line, so the service took the call. It runs until `release` exists.
+ */
+function untilHeld(service: RunningService, release: string): Promise<string> {
+  return waitFor(
+    () => service.stdout.find((line) => line === `hold: ${release}`),
+    SERVICE_WAIT_MS,
+    `the held call (${release}) to start`,
+  );
 }
 
 function toolCall(
@@ -526,35 +543,51 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         );
       });
 
+      // The in-flight call is one the test holds open: the drain lasts until
+      // the test has checked readyz and a new call, then releases it.
       test('SIGTERM: in-flight calls finish, readyz and new calls answer 503, exit 0', async () => {
         const draining = await startService(target, indexPath);
-        const slow = invoke(draining, toolCall('conformance.sleep', { ms: 800 }));
-        await new Promise((r) => setTimeout(r, 200));
-        const exited = draining.terminate();
-        await waitFor(() => draining.events.find((e) => e.kind === 'draining'), 5_000, 'draining');
-        const ready = await call(draining, '/readyz', { token: null });
-        expect(ready.status).toBe(503);
-        expect(ready.headers.get('retry-after')).not.toBeNull();
-        const refused = await invoke(draining, toolCall('conformance.echo', { message: 'late' }));
-        expect(refused.status).toBe(503);
-        expect(response(await slow).output).toEqual({ slept: 800 });
-        const { code } = await exited;
-        expect(code).toBe(0);
-        expect(draining.events.map((e) => e.kind)).toContain('stopped');
+        const release = join(workDir, 'release-sigterm');
+        try {
+          const held = invoke(draining, toolCall('conformance.hold', { release }));
+          await untilHeld(draining, release);
+          const exited = draining.terminate();
+          await waitFor(
+            () => draining.events.find((e) => e.kind === 'draining'),
+            SERVICE_WAIT_MS,
+            'draining',
+          );
+          const ready = await call(draining, '/readyz', { token: null });
+          expect(ready.status).toBe(503);
+          expect(ready.headers.get('retry-after')).not.toBeNull();
+          const refused = await invoke(draining, toolCall('conformance.echo', { message: 'late' }));
+          expect(refused.status).toBe(503);
+          await writeFile(release, '');
+          expect(response(await held).output).toEqual({ released: true });
+          const { code } = await exited;
+          expect(code).toBe(0);
+          expect(draining.events.map((e) => e.kind)).toContain('stopped');
+        } finally {
+          await writeFile(release, '');
+          await draining.terminate();
+        }
       });
 
       test('at the concurrency cap: 503 with Retry-After (the call did not run)', async () => {
         const capped = await startService(target, indexPath, {
           KINDGI_PACK_SERVICE_MAX_CONCURRENCY: '1',
         });
+        const release = join(workDir, 'release-cap');
         try {
-          const busy = invoke(capped, toolCall('conformance.sleep', { ms: 500 }));
-          await new Promise((r) => setTimeout(r, 150));
+          const busy = invoke(capped, toolCall('conformance.hold', { release }));
+          await untilHeld(capped, release);
           const second = await invoke(capped, toolCall('conformance.echo', { message: 'hi' }));
           expect(second.status).toBe(503);
           expect(second.headers.get('retry-after')).not.toBeNull();
+          await writeFile(release, '');
           expect(response(await busy).kind).toBe('result');
         } finally {
+          await writeFile(release, '');
           await capped.terminate();
         }
       });
@@ -916,23 +949,29 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
 
       test('a caller that disconnects: the call ends as cancelled', async () => {
         const controller = new AbortController();
+        const release = join(workDir, 'release-disconnect');
         const pending = invoke(
           service,
-          toolCall('conformance.sleep', { ms: 5_000 }),
+          toolCall('conformance.hold', { release }),
           {},
           controller.signal,
         ).catch(() => undefined);
-        await new Promise((r) => setTimeout(r, 200));
-        controller.abort();
-        await pending;
-        await waitFor(
-          () =>
-            service.events.find(
-              (e) => e.kind === 'call' && e.id === 'conformance.sleep' && e.outcome === 'cancelled',
-            ),
-          3_000,
-          'a cancelled call line',
-        );
+        try {
+          await untilHeld(service, release);
+          controller.abort();
+          await pending;
+          await waitFor(
+            () =>
+              service.events.find(
+                (e) =>
+                  e.kind === 'call' && e.id === 'conformance.hold' && e.outcome === 'cancelled',
+              ),
+            SERVICE_WAIT_MS,
+            'a cancelled call line',
+          );
+        } finally {
+          await writeFile(release, '');
+        }
       });
     });
 
