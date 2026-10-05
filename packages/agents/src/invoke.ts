@@ -3,7 +3,7 @@
 
 import type { Principal } from '@kindgi/authz';
 import type { KernelError, RunResult } from '@kindgi/runtime';
-import type { Result, RunId, TenantId } from '@kindgi/types';
+import type { OrgId, Result, RunId, TenantId } from '@kindgi/types';
 
 import { AGENT_TURN_FLOW } from './agent-turn-flow.js';
 import { DEFAULT_MAX_WALL_MS } from './handlers/constants.js';
@@ -14,6 +14,7 @@ import type { InvokeAgentBindings, InvokeAgentInput } from './handlers/public-ty
 import { rehydrateTurnContext } from './handlers/rehydrate.js';
 import type { AgentTurnResult } from './handlers/result-shape.js';
 import { projectRunResult } from './project-run-result.js';
+import type { RunSnapshotRecord } from './run-snapshot-binding.js';
 import type { Agent } from './types.js';
 
 /**
@@ -106,6 +107,12 @@ export interface ResumeAgentTurnInput {
    * handler's agent-version-mismatch guard).
    */
   readonly agent: Agent;
+  /**
+   * The org of the run's project (the snapshot's `projectId`), when it has
+   * one. The caller resolves it from the project, as for `invokeAgent`'s
+   * `orgId`, so the resumed turn's tools and guardrails see it too.
+   */
+  readonly orgId?: OrgId;
 }
 
 /**
@@ -203,25 +210,7 @@ export async function resumeAgentTurn(
   }
 
   // 3. Reconstruct the InvokeAgentInput envelope from the snapshot.
-  const reconstructedInput: InvokeAgentInput = {
-    tenantId: snapshot.tenantId,
-    projectId: snapshot.projectId,
-    agent: input.agent,
-    conversationId: snapshot.conversationId,
-    userMessage: snapshot.userMessage,
-    ...(snapshot.parameters !== undefined && { parameters: snapshot.parameters }),
-    ...(snapshot.input !== undefined && { input: snapshot.input }),
-    ...(snapshot.participantId !== undefined && { participantId: snapshot.participantId }),
-    ...(snapshot.dryRun && { dryRun: true }),
-    ...(snapshot.principal !== undefined &&
-      snapshot.principal !== null && {
-        principal: snapshot.principal as Principal,
-      }),
-    ...(snapshot.authz !== undefined &&
-      snapshot.authz !== null && {
-        authz: snapshot.authz as { readonly fgaApiUrl: string },
-      }),
-  };
+  const reconstructedInput = turnInputFromSnapshot(snapshot, input);
 
   // 4. Build the same TurnContext + handlers as invokeAgent().
   const started = Date.now();
@@ -299,3 +288,34 @@ export type {
   InvokeAgentBindings,
   InvokeAgentInput,
 } from './handlers/public-types.js';
+
+/**
+ * The `InvokeAgentInput` a resumed turn runs with: the one captured in its
+ * snapshot at run start, the agent the caller resolved, and the org of the
+ * run's project, which the caller resolves as for `invokeAgent`.
+ */
+export function turnInputFromSnapshot(
+  snapshot: RunSnapshotRecord,
+  input: Pick<ResumeAgentTurnInput, 'agent' | 'orgId'>,
+): InvokeAgentInput {
+  return {
+    tenantId: snapshot.tenantId,
+    projectId: snapshot.projectId,
+    ...(input.orgId !== undefined && { orgId: input.orgId }),
+    agent: input.agent,
+    conversationId: snapshot.conversationId,
+    userMessage: snapshot.userMessage,
+    ...(snapshot.parameters !== undefined && { parameters: snapshot.parameters }),
+    ...(snapshot.input !== undefined && { input: snapshot.input }),
+    ...(snapshot.participantId !== undefined && { participantId: snapshot.participantId }),
+    ...(snapshot.dryRun && { dryRun: true }),
+    ...(snapshot.principal !== undefined &&
+      snapshot.principal !== null && {
+        principal: snapshot.principal as Principal,
+      }),
+    ...(snapshot.authz !== undefined &&
+      snapshot.authz !== null && {
+        authz: snapshot.authz as { readonly fgaApiUrl: string },
+      }),
+  };
+}

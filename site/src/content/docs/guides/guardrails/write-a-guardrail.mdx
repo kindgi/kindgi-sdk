@@ -100,8 +100,11 @@ first parameter's type is the config's schema.
 - **The reason** is what the violation reports. Say what was wrong.
 - **The trace** has the turn's final answer (`output`), its tool calls
   (`toolCalls` / `tool_calls`, each with the tool's name and arguments),
-  their results, its model calls, the user's input and its cost. See
-  `RunTrace` in the [Python reference](../../../reference/python/authoring/#runtrace).
+  their results, its model calls, the user's input and its cost. It also
+  names the run's project (`projectId` / `project_id`) and, when the project
+  has one, its org (`orgId` / `org_id`), set by the runtime, never from the
+  input. See `RunTrace` in the
+  [Python reference](../../../reference/python/authoring/#runtrace).
 
 ## Put it on an agent
 

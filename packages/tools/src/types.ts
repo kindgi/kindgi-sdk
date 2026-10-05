@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { ZodLikeSchema } from '@kindgi/schema';
-import type { TenantId, ToolId, UserId } from '@kindgi/types';
+import type { OrgId, ProjectId, TenantId, ToolId, UserId } from '@kindgi/types';
 
 /**
  * JSON Schema for a tool's input/output. Author-supplied, Draft 2020-12.
@@ -79,6 +79,19 @@ export interface ToolContext {
    * agent turn or a flow step. Stable across every call the run makes.
    */
   readonly runId?: string;
+  /**
+   * The project of the run the call belongs to. The runtime sets it from
+   * the run, never from the run's input or a model's arguments, so a tool
+   * can check an id in its input against it. Absent outside a run (a unit
+   * test passes its own).
+   */
+  readonly projectId?: ProjectId;
+  /**
+   * The org of that project, when the project belongs to one. The runtime
+   * sets it from the project, never from input. Absent when the project
+   * has no org, and outside a run.
+   */
+  readonly orgId?: OrgId;
   /**
    * Correlation id for this individual call (the model's tool-call id,
    * an MCP request id, a webhook id). Opaque to tools; useful for logs,
