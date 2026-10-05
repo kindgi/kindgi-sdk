@@ -11,7 +11,7 @@ import type { Cursor, OrgId, TenantId, UserId } from '@kindgi/types';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
-import { slugConflictError } from './hierarchy-errors.js';
+import { orgDeleteSlugConflictError, slugConflictError } from './hierarchy-errors.js';
 import { clampLimit } from './pagination.js';
 
 /**
@@ -262,9 +262,15 @@ export function orgsRouter(
 
   // ---------- DELETE /:orgId ----------
   r.delete('/:orgId', async (c) => {
+    const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const orgId = c.req.param('orgId') as OrgId;
-    await binding.delete(tenantId, orgId);
+    const outcome = await binding.delete(tenantId, orgId);
+    if (outcome?.kind === 'slug-conflict') {
+      const error = orgDeleteSlugConflictError(outcome.slugs);
+      c.status(statusFor(error.code) as never);
+      return c.json(toWireError(error, requestId));
+    }
     c.status(204);
     return c.body(null);
   });

@@ -3943,7 +3943,7 @@ class OrgsResource:
     ) -> None:
         """Delete an org (idempotent). `DELETE /v1/orgs/{orgId}`
 
-        Idempotent — deleting an unknown or already-deleted org returns 204 per the binding contract.
+        Idempotent — deleting an unknown or already-deleted org returns 204 per the binding contract. The org's projects stay, without an org; when one of them has the slug of a project that has none, nothing is deleted: `409 slug-conflict` names the slugs (rename or move those projects first).
         """
         return self._client._request(
             _OPERATIONS["orgs.delete"],
@@ -4295,7 +4295,10 @@ class ProjectsResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.CreateResourceResult:
-        """Create a project. `POST /v1/projects`"""
+        """Create a project. `POST /v1/projects`
+
+        A project's slug is unique within its org, and a project without an org's among the tenant's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second Default, `409 project-default-already-exists`.
+        """
         return self._client._request(
             _OPERATIONS["projects.create"],
             path={},
@@ -4327,7 +4330,10 @@ class ProjectsResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> None:
-        """Partially update a project. `PATCH /v1/projects/{projectId}`"""
+        """Partially update a project. `PATCH /v1/projects/{projectId}`
+
+        A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up.
+        """
         return self._client._request(
             _OPERATIONS["projects.update"],
             path={"projectId": project_id},
@@ -8775,7 +8781,7 @@ class AsyncOrgsResource:
     ) -> None:
         """Delete an org (idempotent). `DELETE /v1/orgs/{orgId}`
 
-        Idempotent — deleting an unknown or already-deleted org returns 204 per the binding contract.
+        Idempotent — deleting an unknown or already-deleted org returns 204 per the binding contract. The org's projects stay, without an org; when one of them has the slug of a project that has none, nothing is deleted: `409 slug-conflict` names the slugs (rename or move those projects first).
         """
         return await self._client._request(
             _OPERATIONS["orgs.delete"],
@@ -9127,7 +9133,10 @@ class AsyncProjectsResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.CreateResourceResult:
-        """Create a project. `POST /v1/projects`"""
+        """Create a project. `POST /v1/projects`
+
+        A project's slug is unique within its org, and a project without an org's among the tenant's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second Default, `409 project-default-already-exists`.
+        """
         return await self._client._request(
             _OPERATIONS["projects.create"],
             path={},
@@ -9159,7 +9168,10 @@ class AsyncProjectsResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> None:
-        """Partially update a project. `PATCH /v1/projects/{projectId}`"""
+        """Partially update a project. `PATCH /v1/projects/{projectId}`
+
+        A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up.
+        """
         return await self._client._request(
             _OPERATIONS["projects.update"],
             path={"projectId": project_id},

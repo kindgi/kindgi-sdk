@@ -13,8 +13,10 @@
  *   the same tenant resolves to `project-default-already-exists`
  *   (in-memory adapter enforces at write time; Postgres impl enforces
  *   via partial-unique-index).
- * - Slug uniqueness within a tenant: `create` and `update` resolve to
- *   `slug-conflict`; another tenant may reuse the slug.
+ * - Slug uniqueness within an org (and, for projects without an org,
+ *   among those): `create` and `update` (a new slug, or a move to
+ *   another org) resolve to `slug-conflict`; another org, or another
+ *   tenant, may reuse the slug.
  * - `project-not-found` / `project-membership-not-found` outcomes from
  *   writes on a missing row.
  * - `listForUser` aggregates memberships across projects.
@@ -36,6 +38,7 @@ const U2 = 'user-2' as UserId;
 const TEAM_A = 'team-A' as TeamId;
 const TEAM_B = 'team-B' as TeamId;
 const ORG_A = 'org-A' as OrgId;
+const ORG_B = 'org-B' as OrgId;
 
 /** Create a project the test expects to succeed; its id. */
 async function createProject(
@@ -296,7 +299,7 @@ export function runProjectBindingConformance(
   });
 
   describe(`${label} — slug uniqueness`, () => {
-    it('create with a slug the tenant already has → slug-conflict', async () => {
+    it('create with a slug a project without an org already has → slug-conflict', async () => {
       const { projects } = makeBinding();
       await createProject(projects, T1, { name: 'Matter', slug: 'm1' });
       expect(await projects.create(T1, { name: 'Matter again', slug: 'm1' })).toEqual({
@@ -321,6 +324,57 @@ export function runProjectBindingConformance(
         slug: 'a',
       });
       expect((await projects.get(T1, id))?.slug).toBe('b');
+    });
+
+    it('two orgs may each have a project with the same slug', async () => {
+      const { projects } = makeBinding();
+      await createProject(projects, T1, { name: 'A', slug: 'shared', orgId: ORG_A });
+      await createProject(projects, T1, { name: 'B', slug: 'shared', orgId: ORG_B });
+      // And a project without an org may have it too.
+      await createProject(projects, T1, { name: 'C', slug: 'shared' });
+      expect((await projects.list(T1, {})).items.map((p) => p.slug)).toEqual([
+        'shared',
+        'shared',
+        'shared',
+      ]);
+    });
+
+    it("create with a slug the org's project already has → slug-conflict", async () => {
+      const { projects } = makeBinding();
+      await createProject(projects, T1, { name: 'A', slug: 'a', orgId: ORG_A });
+      expect(await projects.create(T1, { name: 'A again', slug: 'a', orgId: ORG_A })).toEqual({
+        kind: 'slug-conflict',
+        slug: 'a',
+      });
+    });
+
+    it('a move to an org that has the slug → slug-conflict; the project stays where it was', async () => {
+      const { projects } = makeBinding();
+      await createProject(projects, T1, { name: 'In A', slug: 's', orgId: ORG_A });
+      const id = await createProject(projects, T1, { name: 'In B', slug: 's', orgId: ORG_B });
+      expect(await projects.update(T1, id, { orgId: ORG_A })).toEqual({
+        kind: 'slug-conflict',
+        slug: 's',
+      });
+      expect((await projects.get(T1, id))?.orgId).toBe(ORG_B);
+    });
+
+    it('a move out of its org, where a project without one has the slug → slug-conflict', async () => {
+      const { projects } = makeBinding();
+      await createProject(projects, T1, { name: 'Org-less', slug: 's' });
+      const id = await createProject(projects, T1, { name: 'In A', slug: 's', orgId: ORG_A });
+      expect(await projects.update(T1, id, { orgId: null })).toEqual({
+        kind: 'slug-conflict',
+        slug: 's',
+      });
+    });
+
+    it('a move to an org without the slug, and a rename to a slug only another org has: ok', async () => {
+      const { projects } = makeBinding();
+      await createProject(projects, T1, { name: 'In A', slug: 'a', orgId: ORG_A });
+      const id = await createProject(projects, T1, { name: 'In B', slug: 'b', orgId: ORG_B });
+      expect(await projects.update(T1, id, { slug: 'a' })).toEqual({ kind: 'ok' });
+      expect(await projects.update(T1, id, { slug: 'c', orgId: ORG_A })).toEqual({ kind: 'ok' });
     });
   });
 }

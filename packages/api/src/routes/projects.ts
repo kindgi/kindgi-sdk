@@ -32,8 +32,9 @@ import { clampLimit } from './pagination.js';
  *   - `POST   /`                         — create; body `{ name, slug,
  *                                          orgId?, description?, isDefault? }`;
  *                                          201 `{ id }`; 409 `slug-conflict`
- *                                          when the tenant has a project with
- *                                          that slug, or
+ *                                          when its org (or, without an org,
+ *                                          the tenant's projects without one)
+ *                                          has a project with that slug, or
  *                                          `project-default-already-exists`
  *                                          for a second Default.
  *   - `GET    /default`                  — returns the tenant's Default
@@ -42,7 +43,8 @@ import { clampLimit } from './pagination.js';
  *   - `GET    /:projectId`               — get; 200 or 404 `project-not-found`.
  *   - `PATCH  /:projectId`               — partial update; 204, 404
  *                                          `project-not-found` or 409
- *                                          `slug-conflict`.
+ *                                          `slug-conflict` (a new slug, or a
+ *                                          move to an org that has it).
  *   - `DELETE /:projectId`               — 204 idempotent.
  *   - `GET    /:projectId/memberships`   — list; cursor-paginated.
  *   - `POST   /:projectId/memberships`   — add member; body `{ userId, role }`;

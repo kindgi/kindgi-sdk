@@ -50,7 +50,13 @@ rejected promise means the backend failed.
 | `ProjectMembershipBinding.add` | `project-not-found` |
 | `ProjectMembershipBinding.updateRole` | `project-not-found`, `project-membership-not-found` |
 
-Slugs are unique within a tenant for orgs, teams and projects. Each
+An org's and a team's slug are unique within the tenant; a project's
+within its org, and a project without an org's among the tenant's
+projects without one (two orgs may each have a project with the same
+slug). `OrgBinding.delete` may answer `slug-conflict` when the org's
+projects, left without an org, would take a slug a project without one
+already has (the Kindgi runtime's storage does; the in-memory adapter
+doesn't detach projects). Each
 `kind` is also the error code the `@kindgi/api` routes answer with: a
 `slug-conflict` or `project-default-already-exists` is a `409`, a
 `*-not-found` a `404`. The conformance suites in `tests/` pin every
