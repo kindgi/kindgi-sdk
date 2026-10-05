@@ -5,11 +5,6 @@ sidebar:
   order: 2
 ---
 
-<!-- DRAFT: written from the verification run on runtime 0.1.1. Before this is
-published: the module merged at deploy/gcp-cloud-run/ (#49), and
-`kindgi key trust`'s output (0.1.2). "Use Gemini" was checked with the
-runtime running as a service account with and without the role. -->
-
 Kindgi's Terraform module runs the runtime and your pack's service as two Cloud
 Run services in one Google Cloud project, with everything around them. Built
 end to end on runtime 0.1.1, the first apply takes about ten minutes (most of
@@ -54,7 +49,7 @@ image from Artifact Registry.
   Secret Manager Admin) to apply the module, and a Cloud Storage bucket for
   Terraform's state.
 - **Terraform** 1.6 or later, **gcloud**, **Docker** with `buildx`, and your
-  pack's `kindgi` CLI.
+  pack's `kindgi` CLI (0.1.2 or later, for `kindgi key trust`).
 - **Runtime 0.1.1 or later.** Cloud SQL has no superuser; 0.1.0 can't start
   on it.
 - **Access to the runtime image** (`kindgi auth registry`; see
@@ -204,10 +199,15 @@ If the pack's service refuses the token, the runtime's startup log says so:
 
 ## 5. Trust your key, and deploy
 
-<!-- TODO 0.1.2: `kindgi key trust <keyId> --url … --token …` (#19), with its output. -->
-
 ```sh
 pnpm exec kindgi key trust acme-prod --url "$(terraform output -raw server_url)" --token "$KINDGI_API_TOKEN"
+```
+
+```text
+  ✓ Trusted acme-prod (sha256:…)
+```
+
+```sh
 pnpm exec kindgi deploy --env prod --endpoint "$(terraform output -raw server_url)" --token "$KINDGI_API_TOKEN"
 ```
 
