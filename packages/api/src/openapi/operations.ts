@@ -140,6 +140,15 @@ const TopLevelQueryParam: ParameterSpec = {
   schema: { type: 'boolean' },
 };
 
+const RunAgentIdQueryParam: ParameterSpec = {
+  name: 'agentId',
+  in: 'query',
+  required: false,
+  description:
+    "Only this agent's turns, at any version. Turns that ran before Kindgi 0.1.3 don't name their agent and aren't matched.",
+  schema: { type: 'string', minLength: 1 },
+};
+
 const RunIncludeQueryParam: ParameterSpec = {
   name: 'include',
   in: 'query',
@@ -998,6 +1007,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ScopeIdQueryParam,
       ParentRunIdQueryParam,
       TopLevelQueryParam,
+      RunAgentIdQueryParam,
       RunIncludeQueryParam,
     ],
     responses: {

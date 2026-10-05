@@ -635,6 +635,7 @@ class RunsResource:
         scope_id: str | None = None,
         parent_run_id: str | None = None,
         top_level: bool | None = None,
+        agent_id: str | None = None,
         include: Literal["output"] | None = None,
         timeout: float | None = None,
     ) -> _models.RunCollectionPage:
@@ -652,6 +653,7 @@ class RunsResource:
                 "scopeId": scope_id,
                 "parentRunId": parent_run_id,
                 "topLevel": top_level,
+                "agentId": agent_id,
                 "include": include,
             },
             headers={},
@@ -5451,6 +5453,7 @@ class AsyncRunsResource:
         scope_id: str | None = None,
         parent_run_id: str | None = None,
         top_level: bool | None = None,
+        agent_id: str | None = None,
         include: Literal["output"] | None = None,
         timeout: float | None = None,
     ) -> _models.RunCollectionPage:
@@ -5468,6 +5471,7 @@ class AsyncRunsResource:
                 "scopeId": scope_id,
                 "parentRunId": parent_run_id,
                 "topLevel": top_level,
+                "agentId": agent_id,
                 "include": include,
             },
             headers={},
