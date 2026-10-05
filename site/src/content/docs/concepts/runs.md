@@ -48,6 +48,30 @@ kindgi approvals complete <approval-id> --decision=approve
 Retries are safe: a start with the same **idempotency key** returns the run
 the first call started.
 
+### If the runtime stops
+
+A runtime that's shut down (a deploy, `docker stop`) gives the runs it's
+executing a few seconds to finish
+([Operate](../../deploy/operate/#restart-the-runtime)). One that stops without
+a shutdown (killed, out of memory, a crash) leaves its runs mid-way. Kindgi
+finds them by their **lease**: the server executing a run renews it while the
+run goes on. Every server sweeps for leases that ran out
+(`KINDGI_RUN_LEASE_MS`, default 5 minutes; `KINDGI_RUN_SWEEP_INTERVAL_MS`,
+default a minute), and within about a lease plus a sweep:
+
+- **A run that was executing fails**, and `run.finished` tells your app.
+- **A run whose wait was resolved** (its approval decided) but that nothing
+  resumed **is resumed**. After three failed attempts it fails:
+  `Interrupted: the run was ready to continue, but every attempt to resume it failed.`
+- **A flow waiting on a child run that already ended is woken**, and goes on.
+- **A run whose parent run ended is ended too:** cancelled when the parent
+  was cancelled, otherwise failed:
+  `Interrupted: its parent run had ended (failed), so nothing waits for it.`
+  So an approval inside a cancelled flow can't run its tools.
+
+A run that was just started gets at least a minute before a sweep can pick
+it up, whatever the lease.
+
 ## Dry runs
 
 A dry run (`--dry-run`) runs a flow without changing anything: only the

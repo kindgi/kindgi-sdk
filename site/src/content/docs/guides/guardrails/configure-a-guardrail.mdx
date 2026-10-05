@@ -20,9 +20,9 @@ them. The [answer-length guardrail](../write-a-guardrail/) has one setting,
 export const check = defineCheck({
   id: 'my-pack.checks.answer-length',
   kind: 'zero-llm',
-  configSchema: z.object({ maxChars: z.number().int().positive().optional() }),
+  configSchema: z.object({ maxChars: z.number().int().positive().default(500) }),
   evaluate: async (config, trace) => {
-    const max = config.maxChars ?? 500;
+    // config.maxChars: 60 here, or 500 when the declaration gives none
     // …
   },
 });
@@ -95,30 +95,39 @@ kindgi guardrails get my-pack.answer-length
 
 ## What the check receives
 
-The two SDKs differ here.
+The check gets `config` resolved by its schema, in both SDKs:
+
+- **Defaults are filled in.** A guardrail without `config` runs with the
+  schema's defaults; here, a limit of 500.
+- **A value that doesn't fit is refused** before any turn runs, and the
+  message names the setting.
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
-`evaluate` gets `config` exactly as the declaration gives it:
+Zod's `.default()` and a JSON Schema's `default` both apply. When the pack is
+indexed, each guardrail's `config` is checked against its `configSchema`, so
+`kindgi dev` reports the file and `kindgi build` refuses the pack. With
+`config: { maxChars: -5 }`:
 
-- **Defaults aren't filled in.** A guardrail without `config` runs its check
-  with `{}`, and a Zod `.default()` doesn't apply. Make settings optional in
-  the schema and fall back in the check, as `config.maxChars ?? 500` does.
-- **Values aren't checked against `configSchema`** in 0.1. With
-  `config: { maxChars: -5 }`, every answer fails:
-  `The answer is 86 characters; the limit is -5.` Check a value in
-  `evaluate` if a wrong one would do harm.
+```text
+guardrails/answer-length/index.ts: guardrail my-pack.answer-length's config doesn't fit its configSchema at /maxChars: must be > 0
+```
+
+A setting the schema requires, with no default, must be in `config`:
+
+```text
+guardrails/answer-length/index.ts: guardrail my-pack.answer-length's config doesn't fit its configSchema: must have required property 'maxChars'
+```
 
 </TabItem>
 <TabItem label="Python">
 
 The check gets `config` parsed into its type:
 
-- **Defaults are filled in.** A guardrail without `config=` runs with the
-  type's defaults; here, a limit of 500. Give every field a default: a
-  required field with no value fails every turn the guardrail checks,
-  whatever its action
+- **Defaults are filled in.** Give every field a default: a required field
+  with no value isn't caught when the pack is indexed, and fails every turn
+  the guardrail checks, whatever its action
   (`input-validation-failed: Check "my-pack.req-cfg" config failed validation`).
 - **Values are checked where they're declared.** A value that doesn't fit is
   a `DefinitionError`, and `python -m kindgi.pack index` (and `kindgi dev`)
