@@ -994,6 +994,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     parameters: [
       LimitQueryParam,
       CursorQueryParam,
+      ScopeKindQueryParam,
+      ScopeIdQueryParam,
       ParentRunIdQueryParam,
       TopLevelQueryParam,
       RunIncludeQueryParam,
@@ -1001,7 +1003,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Page of runs.', schema: ref('RunCollectionPage') },
       ...CommonAuthErrors,
-      '400': ErrorResponse('Malformed cursor or filter.'),
+      '400': ErrorResponse('Malformed cursor, filter or scope.'),
     },
   },
   {
@@ -1014,6 +1016,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     security: 'bearer',
     parameters: [RunIdPathParam],
     responses: {
+      '400': ErrorResponse('`runId` is not a run id (a UUID).'),
       '200': { description: 'Run row.', schema: ref('Run') },
       ...CommonAuthErrors,
       '404': ErrorResponse('No run with that id under this tenant.'),
@@ -1065,6 +1068,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     security: 'bearer',
     parameters: [RunIdPathParam, JournalSinceQueryParam],
     responses: {
+      '400': ErrorResponse('`runId` is not a run id (a UUID).'),
       '200': { description: 'Journal page.', schema: ref('RunJournalPage') },
       ...CommonAuthErrors,
       '404': ErrorResponse('No run with that id under this tenant.'),
@@ -1082,6 +1086,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     security: 'bearer',
     parameters: [RunIdPathParam, LastEventIdParam],
     responses: {
+      '400': ErrorResponse('`runId` is not a run id (a UUID).'),
       '200': {
         description: 'text/event-stream. Each frame is one RunEvent.',
         contentType: 'text/event-stream',
@@ -1103,6 +1108,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     security: 'bearer-or-public-run',
     parameters: [RunIdPathParam],
     responses: {
+      '400': ErrorResponse('`runId` is not a run id (a UUID).'),
       '200': { description: "The run's progress.", schema: ref('RunProgress') },
       ...CommonAuthErrors,
       '404': ErrorResponse('No run with that id that the token may read.'),
@@ -1120,6 +1126,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     security: 'bearer-or-public-run',
     parameters: [RunIdPathParam, LastEventIdParam],
     responses: {
+      '400': ErrorResponse('`runId` is not a run id (a UUID).'),
       '200': {
         description: 'text/event-stream. Each frame is one RunProgressEvent.',
         contentType: 'text/event-stream',
