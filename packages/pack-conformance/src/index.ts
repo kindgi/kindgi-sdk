@@ -807,6 +807,8 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         const ctx = {
           ...CTX,
           requestId: 'req-1',
+          projectId: 'project-1',
+          orgId: 'org-1',
           env: { REGION: 'eu' },
           secrets: { API_KEY: 's3cret' },
           config: { mode: 'fast' },
@@ -815,6 +817,15 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
           await invoke(service, toolCall('conformance.context', {}, { ctx })),
         );
         expect(answer.output).toEqual(ctx);
+      });
+
+      test('a call from a run whose project has no org: the handler gets no org', async () => {
+        const ctx = { ...CTX, projectId: 'project-1' };
+        const answer = response(
+          await invoke(service, toolCall('conformance.context', {}, { ctx })),
+        );
+        expect(answer.output).toMatchObject({ projectId: 'project-1' });
+        expect(answer.output).not.toHaveProperty('orgId');
       });
 
       test("pack code doesn't see the service token", async () => {
@@ -942,6 +953,59 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         });
         expect(String(answer.message)).toContain('check boom');
       });
+    });
+  });
+}
+
+/**
+ * A pack service built with an older SDK, called by a newer runtime: the
+ * call context and the check trace carry fields the older service has no
+ * name for (`projectId`, `orgId`, pack protocol 2.3.0). It answers them as
+ * before. A pack service checks only the envelope's `v` and the context's
+ * `tenantId` and `runId`, so an added optional field never fails a call:
+ * a TypeScript service passes it to the handler, a Python one drops it.
+ * Run it against a released pack service (`target`), with the fixture pack
+ * indexed by that release's indexer.
+ */
+export function describeCallContextCompatibility(target: PackServiceTarget): void {
+  const spec = specValidators();
+  const newer = { ...CTX, projectId: 'project-1', orgId: 'org-1' };
+
+  describe(`an older pack service, called by a newer runtime — ${target.name}`, () => {
+    let workDir = '';
+    let service: RunningService | undefined;
+
+    beforeAll(async () => {
+      workDir = await mkdtemp(join(tmpdir(), 'kindgi-conformance-compat-'));
+      const indexPath = join(workDir, 'index.json');
+      await target.buildIndex(indexPath, PINS);
+      service = await startService(target, indexPath);
+    }, 120_000);
+
+    afterAll(async () => {
+      await service?.terminate();
+      if (workDir !== '') await rm(workDir, { recursive: true, force: true });
+    });
+
+    test('a tool call whose context has the project and org: answered', async () => {
+      if (service === undefined) throw new Error('the service did not start');
+      const answer = await invoke(
+        service,
+        toolCall('conformance.echo', { message: 'hi' }, { ctx: newer }),
+      );
+      expect(answer.status).toBe(200);
+      expectValid(spec.response, answer.json);
+      expect(answer.json).toMatchObject({ kind: 'result', output: { message: 'hi' } });
+    });
+
+    test('a check whose trace has the project and org: answered', async () => {
+      if (service === undefined) throw new Error('the service did not start');
+      const message = checkCall('conformance.checks.min-length', { minLength: 2 }, 'hello');
+      const trace = { ...(message.trace as Record<string, unknown>), ...newer };
+      const answer = await invoke(service, { ...message, trace });
+      expect(answer.status).toBe(200);
+      expectValid(spec.response, answer.json);
+      expect(answer.json).toMatchObject({ kind: 'check-result', result: { passed: true } });
     });
   });
 }
