@@ -145,7 +145,8 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   // ---- core server ------------------------------------------------
   {
     name: 'KINDGI_API_PORT',
-    description: 'HTTP port the Kindgi API server listens on. Default 4000.',
+    description:
+      "HTTP port the Kindgi API server listens on. The first that's set wins: the `--port` flag, `KINDGI_API_PORT`, the platform's `PORT` (Cloud Run, Render, Heroku and Fly set it and send traffic only there), the config file's `port`, then 4000.",
     example: '4000',
     required: false,
     appliesTo: appliesToServer,

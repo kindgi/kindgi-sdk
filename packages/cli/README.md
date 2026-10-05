@@ -263,6 +263,10 @@ A turn the fallback answers carries a `fallback-provider` warning, which
 `kindgi runs start` prints. `kindgi providers unregister dev-echo` removes it
 for good.
 
+A preset's models carry their own output limit (Gemini 2.5: 65,536 tokens,
+thinking included). `--max-output-tokens=<n>` registers them with a lower
+or different cap.
+
 **Any OpenAI-compatible endpoint** — an open-source model you serve yourself
 (vLLM, llama.cpp's `llama-server`, Ollama, LM Studio), OpenRouter, a LiteLLM
 proxy — registers with `--spec`, naming its base URL in `adapter_config`:
@@ -605,7 +609,7 @@ Per-environment values for the pack, in env files next to
   ```
 
   It prints the Terraform input (`env` and `secret_env`), or with
-  `--format=gcloud` the `--set-env-vars` / `--set-secrets` flags. It exits 1
+  `--format=gcloud` the `--update-env-vars` / `--update-secrets` flags (they add or replace the listed names; the service's other variables stay). It exits 1
   when a required name has no source, or when a secret is given as a plain
   value: by its name (`*_KEY`, `*_TOKEN`, …) or by a credential in it (a URL
   with a password). That value is never printed. A reference to version
@@ -701,10 +705,13 @@ Inside a pack that `kindgi dev` runs, they find it on their own (see
 | `version` | The CLI's and SDK's versions, and the API's when it's reachable |
 
 `kindgi runs start` starts a run for an agent (`--agent=<id>`) or a flow
-(`--flow=<id>`) and waits for it to finish. `--no-wait` prints a flow run as
-soon as it exists and lets it finish in the background (follow it with
-`runs get` or `runs stream`); an agent run always answers when its turn ends.
-`--dry-run` runs only the tools declared read-only (`mutating: false`).
+(`--flow=<id>`) and waits until it finishes, or until it waits on an
+approval. It follows the run rather than holding the start request open, so
+a long run doesn't time it out. Stopped (Ctrl+C), the wait ends and the run
+goes on: the CLI prints its id and `kindgi runs get <id>`. `--no-wait`
+prints the run as soon as it exists (follow it with `runs get` or `runs
+stream`). `--dry-run` runs only the tools declared read-only (`mutating:
+false`).
 
 `kindgi <command> --help` prints a command's subcommands and flags.
 

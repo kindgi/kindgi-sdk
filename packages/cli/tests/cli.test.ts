@@ -306,8 +306,45 @@ describe('kindgi runs start', () => {
       }),
     );
     expect(out.exitCode).toBe(0);
-    expect(started).toEqual({ agent: 'pack.agent', input: { x: 1 } });
+    // Started in the background, so its id is known before it finishes.
+    expect(started).toEqual({ agent: 'pack.agent', input: { x: 1 }, options: { wait: false } });
     expect(JSON.parse(out.stdout)).toEqual(run);
+  });
+
+  test('without --no-wait it follows a run still in progress until it settles', async () => {
+    const reads: string[] = [];
+    const states = ['running', 'running', 'completed'];
+    const out = await runCli(
+      baseInputs({
+        argv: [
+          'runs',
+          'start',
+          '--agent=pack.agent',
+          '--input={"x":1}',
+          '--url=https://x',
+          '--token=t',
+        ],
+        clientFactory: () =>
+          ({
+            runs: {
+              start: async () => ({ id: 'run-4', status: 'pending', publicAccessToken: 'pat' }),
+              get: async (id: string) => {
+                reads.push(id);
+                const status = states.shift() ?? 'completed';
+                return { id, status, ...(status === 'completed' && { output: { answer: 42 } }) };
+              },
+            },
+          }) as never,
+      }),
+    );
+    expect(out.exitCode).toBe(0);
+    expect(reads).toEqual(['run-4', 'run-4', 'run-4']);
+    expect(JSON.parse(out.stdout)).toEqual({
+      id: 'run-4',
+      status: 'completed',
+      output: { answer: 42 },
+      publicAccessToken: 'pat',
+    });
   });
 
   test('--no-wait starts it in the background and --dry-run runs only read-only tools', async () => {
