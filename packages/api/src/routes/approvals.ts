@@ -3,6 +3,7 @@
 
 import { Hono } from 'hono';
 
+import { AGENT_GATE_SUBJECTS, TOOL_CALL_GATE_SUBJECT } from '@kindgi/agents';
 import type { ConversationBinding } from '@kindgi/agents';
 import { REVIEWER_ROLE_RANK, type ReviewerRole } from '@kindgi/authz';
 import { serializePublicKeyPem, signEd25519 } from '@kindgi/crypto';
@@ -327,6 +328,22 @@ export function approvalsRouter(
       );
     }
 
+    // An agent's tool-call and session gates resume on the decision alone
+    // (`readGateDecision` fails closed on anything else), so a `value`
+    // can't stand in for it: refused before anything is recorded.
+    if (parsed.value.value !== undefined && AGENT_GATE_SUBJECTS.has(approval.subjectKind)) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'bad-input',
+            message: `An approval of an agent's ${approval.subjectKind === TOOL_CALL_GATE_SUBJECT ? 'tool call' : 'session'} takes a decision (approve or reject) and an optional rationale, not a \`value\`: the turn resumes on the decision alone.`,
+          },
+          requestId,
+        ),
+      );
+    }
+
     const reviewerId = await reviewerBinding.resolveReviewer({
       tenantId,
       userId: userId as UserId,
@@ -363,9 +380,9 @@ export function approvalsRouter(
     // or the run is cancelled explicitly.
     //
     // Resume value shape: `{ decided, rationale? }` — the shape the
-    // agent's approval gate consumes. The caller CAN supply an explicit
-    // `value` in the wire body to override it, when the resume payload
-    // must carry more than the decision.
+    // agent's approval gate consumes. For another subject, the caller CAN
+    // supply an explicit `value` to override it, when the resume payload
+    // must carry more than the decision (an agent gate refuses one, above).
     let waitpointResolved = false;
     if (
       approval.waitTokenId !== undefined &&

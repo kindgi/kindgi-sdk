@@ -11,6 +11,7 @@ import { emitTurnEvent } from '../streaming.js';
 
 import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
+import { SESSION_GATE_SUBJECT, readGateDecision } from './gate-decision.js';
 import { writeRunSnapshot } from './run-snapshot.js';
 import {
   loadTurnConversation,
@@ -49,16 +50,6 @@ interface SessionGateRecord {
   readonly reason: string;
   readonly requiredRole: 'standard' | 'senior' | 'admin';
   readonly timeoutMs: number;
-}
-
-/**
- * Shape the setup handler expects when a session-gate waitpoint
- * resolves. Approvals-complete route materializes this from the
- * reviewer's decision (see packages/api/src/routes/approvals.ts).
- */
-interface SessionGateDecision {
-  readonly decided: 'approve' | 'reject';
-  readonly rationale?: string;
 }
 
 /**
@@ -156,7 +147,7 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
         try {
           await ctx.bindings.hitl.enqueue({
             tenantId: ctx.input.tenantId,
-            subjectKind: 'agent-turn:session-hitl-gate',
+            subjectKind: SESSION_GATE_SUBJECT,
             subjectRef: {
               conversationId: ctx.input.conversationId,
               agentId: ctx.input.agent.id,
@@ -200,9 +191,11 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
       }
 
       try {
-        const decision = await kctx.waitForToken<SessionGateDecision>(waitTokenId, {
-          timeoutMs,
-        });
+        // Fails closed: only an explicit approve lets the turn go on
+        // (`readGateDecision`).
+        const decision = readGateDecision(
+          await kctx.waitForToken<unknown>(waitTokenId, { timeoutMs }),
+        );
         // Post-resume: emit the resume node + resumed-from edge. Only
         // runs on the REPLAY path — the first execution throws
         // SuspensionSignal inside waitForToken and never gets here.
@@ -214,8 +207,13 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
             actor: `agent:${ctx.input.agent.id as unknown as string}`,
             attributes: {
               gate: 'session-hitl',
-              decision: decision.decided,
-              ...(decision.rationale !== undefined && { rationale: decision.rationale }),
+              decision: decision.approved
+                ? 'approve'
+                : decision.reason === 'rejected'
+                  ? 'reject'
+                  : 'unreadable',
+              ...(!decision.approved &&
+                decision.rationale !== undefined && { rationale: decision.rationale }),
             },
           });
           ctx.provenance.addEdge({
@@ -225,7 +223,7 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
           });
         }
 
-        if (decision.decided === 'reject') {
+        if (!decision.approved) {
           throwAgentTurnFailure({
             code: 'hitl-rejected',
             message: `Reviewer rejected the session-HITL gate${
@@ -234,8 +232,7 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
             ...(decision.rationale !== undefined && { rationale: decision.rationale }),
           } as never);
         }
-        // decision.decided === 'approve' → fall through, turn proceeds
-        // normally through the rest of setup.
+        // Approved: the turn proceeds through the rest of setup.
       } catch (cause) {
         if (cause instanceof WaitpointCancelledError) {
           // Emit resume node with cancelled attribute so the DAG still
