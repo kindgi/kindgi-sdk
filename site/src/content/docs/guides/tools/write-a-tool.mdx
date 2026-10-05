@@ -62,7 +62,10 @@ export default defined.value;
 - `defineTool` returns a result instead of throwing. Unwrap it when the file
   loads, so a bad definition fails at once rather than on the first call.
 - `ctx` carries `tenantId`, `runId`, `requestId` and an `abortSignal` that
-  fires when the call is cancelled.
+  fires when the call is cancelled. In a run it also carries `projectId`, the
+  run's project, and `orgId`, the project's org when it has one. The runtime
+  sets both from the run, never from the input, so compare an id in the input
+  with them rather than trusting it.
 
 </TabItem>
 <TabItem label="Python">
@@ -107,9 +110,11 @@ def lookup_order(ref: OrderRef, ctx: ToolContext) -> Order:
   Field aliases are the names on the wire.
 - The docstring is the description. The version is the pack's, unless you
   pass `version=`.
-- `ctx` carries `tenant_id`, `run_id`, `request_id` and `cancellation`. A
-  `def` handler runs in a worker thread, so blocking calls are fine; an
-  `async def` handler runs on the event loop.
+- `ctx` carries `tenant_id`, `run_id`, `request_id` and `cancellation`. In a
+  run it also carries `project_id`, the run's project, and `org_id`, the
+  project's org when it has one (else `None`). The runtime sets both from the
+  run, never from the input. A `def` handler runs in a worker thread, so
+  blocking calls are fine; an `async def` handler runs on the event loop.
 
 </TabItem>
 </Tabs>

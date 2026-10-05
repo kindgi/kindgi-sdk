@@ -39,6 +39,10 @@ import type { Result } from '@kindgi/types';
 export interface HandlerContext {
   readonly tenantId: string;
   readonly runId: string;
+  /** The run's project (protocol 2.3.0); absent from an older runtime. */
+  readonly projectId?: string;
+  /** The project's org, when it has one (2.3.0). */
+  readonly orgId?: string;
   readonly requestId?: string;
   readonly env?: Readonly<Record<string, unknown>>;
   readonly secrets?: Readonly<Record<string, unknown>>;
