@@ -52,9 +52,20 @@ const expired = approval('appr-expired', {
   decidedAt: '2026-10-05T00:02:00.000Z',
 } as unknown as Partial<Approval>);
 const open = approval('appr-open');
+/** From a binding that doesn't record who decided. */
+const undecidedBy = approval('appr-no-decider', {
+  status: 'approved',
+  decidedAt: '2026-10-05T00:03:00.000Z',
+  decision: {
+    decision: 'approve',
+    reviewerId: 'rev-8',
+    reviewerRoleAtDecision: 'standard',
+    decidedAt: '2026-10-05T00:03:00.000Z',
+  },
+} as unknown as Partial<Approval>);
 
 function app() {
-  const all = [rejected, expired, open];
+  const all = [rejected, expired, open, undecidedBy];
   const hitlBinding = {
     getApproval: async (_t: TenantId, id: string) => {
       const found = all.find((a) => (a.id as unknown as string) === id);
@@ -111,6 +122,17 @@ describe('an approval says who decided it', () => {
       ['appr-rejected', decision],
       ['appr-expired', undefined],
       ['appr-open', undefined],
+      ['appr-no-decider', expect.not.objectContaining({ decidedBy: expect.anything() })],
     ]);
+  });
+
+  test("a binding that doesn't record who decided: the decision, without `decidedBy`", async () => {
+    const answer = await get('/v1/approvals/appr-no-decider');
+    expect(answer.json.decision).toEqual({
+      decision: 'approve',
+      reviewerId: 'rev-8',
+      reviewerRoleAtDecision: 'standard',
+      decidedAt: '2026-10-05T00:03:00.000Z',
+    });
   });
 });

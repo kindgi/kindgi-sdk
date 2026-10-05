@@ -123,8 +123,11 @@ export type SubmitReviewBindingResult =
  */
 export interface ReviewDecisionRecord {
   readonly decision: ReviewDecisionKind;
-  /** Who decided, as an actor: `user:<userId>`, the reviewer's user. */
-  readonly decidedBy: string;
+  /**
+   * Who decided, as an actor: `user:<userId>`, the reviewer's user.
+   * Absent from a binding that doesn't record it (the Kindgi runtime does).
+   */
+  readonly decidedBy?: string;
   readonly reviewerId: ReviewerId;
   readonly reviewerRoleAtDecision: ReviewerRole;
   readonly decidedAt: Timestamp;

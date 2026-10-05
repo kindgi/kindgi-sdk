@@ -668,8 +668,8 @@ export interface Approval {
  */
 export interface ApprovalDecisionRecord {
   readonly decision: ApprovalDecision;
-  /** Who decided, as an actor: `user:<userId>`, the reviewer's user. */
-  readonly decidedBy: string;
+  /** Who decided, as an actor: `user:<userId>`, the reviewer's user (the Kindgi runtime always records it). */
+  readonly decidedBy?: string;
   readonly reviewerId: ReviewerId;
   readonly reviewerRoleAtDecision: ReviewerRole;
   readonly decidedAt: import('@kindgi/types').Timestamp;

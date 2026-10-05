@@ -709,9 +709,9 @@ class ApprovalDecisionRecord(BaseModel):
         populate_by_name=True,
     )
     decision: Literal["approve", "reject", "escalate", "withdraw"]
-    decided_by: Annotated[str, Field(alias="decidedBy")]
+    decided_by: Annotated[str | None, Field(alias="decidedBy")] = None
     """
-    Who decided, as an actor: `user:<userId>`, the reviewer's user. The run's journal and provenance name the decider the same way.
+    Who decided, as an actor: `user:<userId>`, the reviewer's user. The run's journal and provenance name the decider the same way. The Kindgi runtime always records it; a deployment whose HITL binding doesn't leaves it out.
     """
     reviewer_id: Annotated[UUID, Field(alias="reviewerId")]
     reviewer_role_at_decision: Annotated[

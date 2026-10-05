@@ -568,13 +568,13 @@ export const ApprovalSchema: JsonSchema = {
 export const ApprovalDecisionRecordSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['decision', 'decidedBy', 'reviewerId', 'reviewerRoleAtDecision', 'decidedAt'],
+  required: ['decision', 'reviewerId', 'reviewerRoleAtDecision', 'decidedAt'],
   properties: {
     decision: ReviewDecisionKindSchema,
     decidedBy: {
       type: 'string',
       description:
-        "Who decided, as an actor: `user:<userId>`, the reviewer's user. The run's journal and provenance name the decider the same way.",
+        "Who decided, as an actor: `user:<userId>`, the reviewer's user. The run's journal and provenance name the decider the same way. The Kindgi runtime always records it; a deployment whose HITL binding doesn't leaves it out.",
     },
     reviewerId: { type: 'string', format: 'uuid' },
     reviewerRoleAtDecision: ReviewerRoleSchema,

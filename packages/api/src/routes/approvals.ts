@@ -693,7 +693,7 @@ function serializeApproval(a: Approval): Record<string, unknown> {
 function serializeApprovalDecision(d: ReviewDecisionRecord): Record<string, unknown> {
   return {
     decision: d.decision,
-    decidedBy: d.decidedBy,
+    ...(d.decidedBy !== undefined && { decidedBy: d.decidedBy }),
     reviewerId: d.reviewerId,
     reviewerRoleAtDecision: d.reviewerRoleAtDecision,
     decidedAt: d.decidedAt,
