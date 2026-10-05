@@ -1,10 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { route } from '@kindgi/capabilities';
-import type { Capability, ModelInfo, ModelProvider } from '@kindgi/capabilities';
+import { randomUUID } from 'node:crypto';
 
-import type { JudgeMissingError, JudgeRoutingError } from './errors.js';
+import { recordModelUsage, route } from '@kindgi/capabilities';
+import type {
+  Capability,
+  ModelCallResult,
+  ModelInfo,
+  ModelProvider,
+  ModelUsageRecord,
+} from '@kindgi/capabilities';
+import { attemptsOf } from '@kindgi/capabilities/attempts';
+import type { GuardrailId } from '@kindgi/types';
+
+import type { JudgeMissingError, JudgeRoutingError, JudgeUsageError } from './errors.js';
 import type { CheckResult, EvaluationBindings, RunTrace } from './types.js';
 
 /**
@@ -30,14 +40,22 @@ export interface LlmJudgeConfig {
  * Invoke an LLM judge to evaluate a guardrail. Resolves a model via
  * the capability router (or uses `bindings.judgeProvider` if set), sends
  * a structured judgment prompt including the run trace + rubric, parses
- * the response.
+ * the response. The call is recorded in `bindings.usage` (the cost
+ * ledger) before its judgment is used, a call that threw included;
+ * `guardrailId` says which guardrail it judged. A sink that fails is
+ * tried again; an answered call it still can't record is a
+ * `judge-usage-unrecorded` error, not a judgment. A call that threw
+ * throws its own error, recorded or not: it was billed nothing.
  */
 export async function invokeJudge(
   config: LlmJudgeConfig,
   capability: Capability,
   trace: RunTrace,
   bindings: EvaluationBindings,
-): Promise<CheckResult | { readonly error: JudgeMissingError | JudgeRoutingError }> {
+  guardrailId?: string,
+): Promise<
+  CheckResult | { readonly error: JudgeMissingError | JudgeRoutingError | JudgeUsageError }
+> {
   const provider = await resolveJudgeProvider(capability, trace, bindings);
   if ('error' in provider) return provider;
 
@@ -45,25 +63,96 @@ export async function invokeJudge(
   const rubric = config.rubric;
   const prompt = buildJudgePrompt(rubric, responseFormat, trace);
 
-  const result = await provider.provider.invoke({
-    model: provider.model.name,
-    messages: [
-      {
-        role: 'system',
-        content:
-          responseFormat === 'pass-fail'
-            ? 'You are an evaluator. Respond starting with PASS or FAIL on the first line, then a brief reason on the next line. No preamble.'
-            : 'You are an evaluator. Respond with a numeric score from 0 to 1 on the first line, then a brief reason on the next line. No preamble.',
+  const record = (call: JudgeCallOutcome): Promise<unknown | undefined> =>
+    recordJudgeCall(bindings, trace, provider, guardrailId, call);
+  const callId = randomUUID();
+  const startedAt = Date.now();
+  let result: ModelCallResult;
+  try {
+    result = await provider.provider.invoke({
+      model: provider.model.name,
+      messages: [
+        {
+          role: 'system',
+          content:
+            responseFormat === 'pass-fail'
+              ? 'You are an evaluator. Respond starting with PASS or FAIL on the first line, then a brief reason on the next line. No preamble.'
+              : 'You are an evaluator. Respond with a numeric score from 0 to 1 on the first line, then a brief reason on the next line. No preamble.',
+        },
+        { role: 'user', content: prompt },
+      ],
+      ...(config.temperature !== undefined && { temperature: config.temperature }),
+      maxOutputTokens: 256,
+      ...(bindings.abortSignal !== undefined && { abortSignal: bindings.abortSignal }),
+    });
+  } catch (cause) {
+    const attempts = attemptsOf(cause);
+    await record({
+      callId,
+      status: 'failed',
+      error: {
+        message: cause instanceof Error ? cause.message : String(cause),
+        ...(attempts !== undefined && { attempts }),
       },
-      { role: 'user', content: prompt },
-    ],
-    ...(config.temperature !== undefined && { temperature: config.temperature }),
-    maxOutputTokens: 256,
-    ...(bindings.abortSignal !== undefined && { abortSignal: bindings.abortSignal }),
+      durationMs: Date.now() - startedAt,
+    });
+    throw cause;
+  }
+  const { message: _answer, ...used } = result;
+  const unrecorded = await record({
+    callId,
+    status: 'ok',
+    result: used,
+    durationMs: result.durationMs,
   });
+  if (unrecorded !== undefined) {
+    return {
+      error: {
+        code: 'judge-usage-unrecorded',
+        message: `The judge's model call couldn't be recorded: ${unrecorded instanceof Error ? unrecorded.message : String(unrecorded)}`,
+        guardrailId: (guardrailId ?? '<unknown>') as GuardrailId,
+        cause: unrecorded,
+      },
+    };
+  }
 
   const text = result.message.content.trim();
   return parseJudgeResponse(text, responseFormat, config.threshold);
+}
+
+/** What a judge call came to, for `recordJudgeCall`. */
+type JudgeCallOutcome = Pick<
+  ModelUsageRecord,
+  'callId' | 'status' | 'result' | 'error' | 'durationMs'
+>;
+
+/**
+ * Record a judge call in the usage sink, with the run's identity from the
+ * trace, trying a failing sink again. Resolves with the sink's last
+ * failure when it couldn't record.
+ */
+async function recordJudgeCall(
+  bindings: EvaluationBindings,
+  trace: RunTrace,
+  provider: ResolvedProvider,
+  guardrailId: string | undefined,
+  call: JudgeCallOutcome,
+): Promise<unknown | undefined> {
+  if (bindings.usage === undefined) return;
+  const recorded = await recordModelUsage(bindings.usage, {
+    ...call,
+    tenantId: trace.tenantId,
+    ...(trace.projectId !== undefined && { projectId: trace.projectId }),
+    runId: trace.runId,
+    ...(trace.agentId !== undefined && { agentId: trace.agentId as unknown as string }),
+    ...(trace.conversationId !== undefined && { conversationId: trace.conversationId }),
+    providerId: provider.provider.metadata.id,
+    model: provider.model.name,
+    ...(provider.provider.metadata.fallback === true && { fallback: true }),
+    purpose: guardrailId !== undefined ? `guardrail-judge:${guardrailId}` : 'guardrail-judge',
+    occurredAt: new Date().toISOString(),
+  });
+  return recorded.kind === 'err' ? (recorded.error ?? new Error('no detail')) : undefined;
 }
 
 interface ResolvedProvider {

@@ -148,6 +148,7 @@ export function makeLlmJudgeStrategy(
     capability: Capability,
     trace: RunTrace,
     bindings: EvaluationBindings,
+    guardrailId?: string,
   ) => Promise<
     CheckResult | { readonly error: { readonly code: string; readonly message: string } }
   >,
@@ -171,6 +172,7 @@ export function makeLlmJudgeStrategy(
         guardrail.judgeCapabilities,
         trace,
         bindings,
+        guardrail.id,
       );
       if ('error' in judged) {
         return {

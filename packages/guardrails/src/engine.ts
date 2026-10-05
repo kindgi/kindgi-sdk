@@ -33,8 +33,8 @@ function getDefaultStrategyRegistry(): ExecutionStrategyRegistry {
   if (defaultRegistry === undefined) {
     defaultRegistry = createExecutionStrategyRegistry([
       zeroLlmStrategy,
-      makeLlmJudgeStrategy((config, capability, trace, bindings) =>
-        invokeJudge(config as LlmJudgeConfig, capability, trace, bindings),
+      makeLlmJudgeStrategy((config, capability, trace, bindings, guardrailId) =>
+        invokeJudge(config as LlmJudgeConfig, capability, trace, bindings, guardrailId),
       ),
       externalStrategy,
     ]);
