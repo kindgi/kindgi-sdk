@@ -910,6 +910,75 @@ const SecretNamePathParam: ParameterSpec = {
   schema: { type: 'string', minLength: 1 },
 };
 
+// ---------------- judgments + judge classes: parameters ----------------
+
+const JudgmentIdPathParam: ParameterSpec = {
+  name: 'judgmentId',
+  in: 'path',
+  required: true,
+  description: 'Judgment id.',
+  schema: { type: 'string', minLength: 1 },
+};
+
+const JudgeClassIdPathParam: ParameterSpec = {
+  name: 'judgeClassId',
+  in: 'path',
+  required: true,
+  description: 'Judge class id.',
+  schema: { type: 'string', minLength: 1 },
+};
+
+const judgmentQuery = (name: string, description: string, schema: JsonSchema): ParameterSpec => ({
+  name,
+  in: 'query',
+  required: false,
+  description,
+  schema,
+});
+
+const JudgmentListQueryParams: readonly ParameterSpec[] = [
+  judgmentQuery('runId', 'Only judgments of this run.', { type: 'string', minLength: 1 }),
+  judgmentQuery('agentId', 'Only judgments of runs of this agent.', {
+    type: 'string',
+    minLength: 1,
+  }),
+  judgmentQuery('agentVersion', 'Only judgments of runs of this agent version. Needs `agentId`.', {
+    type: 'string',
+    minLength: 1,
+  }),
+  judgmentQuery('flowId', 'Only judgments of runs of this flow.', { type: 'string', minLength: 1 }),
+  judgmentQuery('verdict', 'Only judgments with this verdict.', {
+    type: 'string',
+    enum: ['yes', 'no'],
+  }),
+  judgmentQuery('judgeClassId', 'Only judgments recorded under this judge class.', {
+    type: 'string',
+    minLength: 1,
+  }),
+  judgmentQuery('participantId', "Only judgments made for this app end user's opaque id.", {
+    type: 'string',
+    minLength: 1,
+  }),
+];
+
+const JudgeClassScopeKindQueryParam: ParameterSpec = judgmentQuery(
+  'scopeKind',
+  'Only classes of this scope kind. `project` and `agent` need `projectId`; `agent` also needs `agentId`.',
+  { type: 'string', enum: ['tenant', 'project', 'agent'] },
+);
+
+const JudgeClassProjectIdQueryParam: ParameterSpec = judgmentQuery(
+  'projectId',
+  'Project of the scope, for `scopeKind=project|agent`.',
+  { type: 'string', minLength: 1 },
+);
+
+const JudgeClassAgentIdQueryParam: ParameterSpec = judgmentQuery(
+  'agentId',
+  'Agent of the scope, for `scopeKind=agent`.',
+  { type: 'string', minLength: 1 },
+);
+
 // ---------------- shared responses ----------------
 
 const ErrorResponse = (description: string): ResponseSpec => ({
@@ -2660,6 +2729,184 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Unregistered.', schema: ref('UnregisterProviderResult') },
       ...CommonMutationErrors,
       '404': ErrorResponse('No provider with that id under this tenant.'),
+    },
+  },
+
+  // ---------- judgments ----------
+  {
+    method: 'post',
+    honoPath: '/v1/judgments',
+    openapiPath: '/v1/judgments',
+    operationId: 'judgments.create',
+    summary: "Judge an item of a run's output",
+    description:
+      "Records yes or no, with an optional reason, about one item of a finished run's output, optionally under a judge class that applies to the run's project or agent (unclassified judgments count with weight 1). `item.pointer` (a JSON Pointer) must resolve in the run's output; its value is kept as `itemValue`. The first judgment of a run also stores a copy of the run's input and output. `assertedBy` is the authenticated caller, never the body. Judging again as the same caller for the same run, item key and `participantId` supersedes the earlier judgment. Needs `judge` on the run.",
+    tags: ['judgments'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('CreateJudgmentBody') },
+    responses: {
+      '201': { description: 'Judgment recorded.', schema: ref('Judgment') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        'Malformed body, or `item-not-found` (the pointer resolves to nothing in the output), or `judge-class-not-applicable`.',
+      ),
+      '403': ErrorResponse('`permission-denied`: not allowed to judge this run.'),
+      '404': ErrorResponse('`run-not-found`.'),
+      '409': ErrorResponse('`run-not-finished`: the run has no output to judge yet.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/judgments',
+    openapiPath: '/v1/judgments',
+    operationId: 'judgments.list',
+    summary: 'List judgments',
+    description:
+      'Live judgments (not removed or superseded), newest first, cursor-paginated. Filter by run, agent (and version), flow, verdict, judge class or participant; `?scopeKind + ?scopeId` narrow to a project.',
+    tags: ['judgments'],
+    security: 'bearer',
+    parameters: [
+      LimitQueryParam,
+      CursorQueryParam,
+      ...JudgmentListQueryParams,
+      ScopeKindQueryParam,
+      ScopeIdQueryParam,
+    ],
+    responses: {
+      '200': { description: 'Page of judgments.', schema: ref('JudgmentCollectionPage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('Malformed query parameter.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/judgments/:judgmentId',
+    openapiPath: '/v1/judgments/{judgmentId}',
+    operationId: 'judgments.get',
+    summary: 'Fetch a judgment with its copies',
+    description:
+      "Returns the judgment (live or not) with the stored copy of the run's input and output and, when the judgment pointed at an item, its value.",
+    tags: ['judgments'],
+    security: 'bearer',
+    parameters: [JudgmentIdPathParam],
+    responses: {
+      '200': { description: 'Judgment with copies.', schema: ref('JudgmentWithCopies') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No judgment with that id under this tenant.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/judgments/:judgmentId/unregister',
+    openapiPath: '/v1/judgments/{judgmentId}/unregister',
+    operationId: 'judgments.unregister',
+    summary: 'Remove a judgment',
+    description:
+      'Soft delete: the judgment stops listing; retention policy decides when it is purged.',
+    tags: ['judgments'],
+    security: 'bearer',
+    parameters: [JudgmentIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'Removed.', schema: ref('UnregisterJudgmentResult') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('`permission-denied`.'),
+      '404': ErrorResponse('No live judgment with that id under this tenant.'),
+    },
+  },
+
+  // ---------- judge classes ----------
+  {
+    method: 'post',
+    honoPath: '/v1/judge-classes',
+    openapiPath: '/v1/judge-classes',
+    operationId: 'judgeClasses.create',
+    summary: 'Create a judge class',
+    description:
+      'A named kind of judge with a weight, scoped to the tenant, a project, or an agent in a project. Names are unique among the live classes of a scope. Needs `admin` on the tenant (tenant scope) or the project.',
+    tags: ['judge-classes'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('CreateJudgeClassBody') },
+    responses: {
+      '201': { description: 'Judge class created.', schema: ref('JudgeClass') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('`permission-denied`.'),
+      '409': ErrorResponse('`judge-class-name-taken`, or an idempotency conflict.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/judge-classes',
+    openapiPath: '/v1/judge-classes',
+    operationId: 'judgeClasses.list',
+    summary: 'List judge classes',
+    description:
+      'Live classes, newest first, cursor-paginated. `?scopeKind=tenant|project|agent` (with `projectId` / `agentId`) narrows to one scope.',
+    tags: ['judge-classes'],
+    security: 'bearer',
+    parameters: [
+      LimitQueryParam,
+      CursorQueryParam,
+      JudgeClassScopeKindQueryParam,
+      JudgeClassProjectIdQueryParam,
+      JudgeClassAgentIdQueryParam,
+    ],
+    responses: {
+      '200': { description: 'Page of judge classes.', schema: ref('JudgeClassCollectionPage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('Malformed scope parameters.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/judge-classes/:judgeClassId',
+    openapiPath: '/v1/judge-classes/{judgeClassId}',
+    operationId: 'judgeClasses.get',
+    summary: 'Fetch a judge class',
+    description:
+      'Also returns a retired class (`unregisteredAt` set): judgments keep naming theirs.',
+    tags: ['judge-classes'],
+    security: 'bearer',
+    parameters: [JudgeClassIdPathParam],
+    responses: {
+      '200': { description: 'Judge class.', schema: ref('JudgeClass') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No judge class with that id under this tenant.'),
+    },
+  },
+  {
+    method: 'patch',
+    honoPath: '/v1/judge-classes/:judgeClassId',
+    openapiPath: '/v1/judge-classes/{judgeClassId}',
+    operationId: 'judgeClasses.update',
+    summary: "Change a judge class's weight or description",
+    tags: ['judge-classes'],
+    security: 'bearer',
+    parameters: [JudgeClassIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('UpdateJudgeClassBody') },
+    responses: {
+      '200': { description: 'Updated judge class.', schema: ref('JudgeClass') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('`permission-denied`.'),
+      '404': ErrorResponse('No live judge class with that id under this tenant.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/judge-classes/:judgeClassId/unregister',
+    openapiPath: '/v1/judge-classes/{judgeClassId}/unregister',
+    operationId: 'judgeClasses.unregister',
+    summary: 'Retire a judge class',
+    description: 'No new judgments may name it; existing judgments keep it.',
+    tags: ['judge-classes'],
+    security: 'bearer',
+    parameters: [JudgeClassIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'Retired.', schema: ref('UnregisterJudgeClassResult') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('`permission-denied`.'),
+      '404': ErrorResponse('No live judge class with that id under this tenant.'),
     },
   },
 

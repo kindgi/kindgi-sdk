@@ -210,6 +210,29 @@ OPERATIONS: dict[str, Operation] = {
     "providers.unregister": Operation(
         "providers.unregister", "POST", "/v1/providers/{providerId}/unregister", "json", True
     ),
+    "judgments.list": Operation("judgments.list", "GET", "/v1/judgments", "json", False),
+    "judgments.create": Operation("judgments.create", "POST", "/v1/judgments", "json", True),
+    "judgments.get": Operation("judgments.get", "GET", "/v1/judgments/{judgmentId}", "json", False),
+    "judgments.unregister": Operation(
+        "judgments.unregister", "POST", "/v1/judgments/{judgmentId}/unregister", "json", True
+    ),
+    "judgeClasses.list": Operation("judgeClasses.list", "GET", "/v1/judge-classes", "json", False),
+    "judgeClasses.create": Operation(
+        "judgeClasses.create", "POST", "/v1/judge-classes", "json", True
+    ),
+    "judgeClasses.get": Operation(
+        "judgeClasses.get", "GET", "/v1/judge-classes/{judgeClassId}", "json", False
+    ),
+    "judgeClasses.update": Operation(
+        "judgeClasses.update", "PATCH", "/v1/judge-classes/{judgeClassId}", "json", True
+    ),
+    "judgeClasses.unregister": Operation(
+        "judgeClasses.unregister",
+        "POST",
+        "/v1/judge-classes/{judgeClassId}/unregister",
+        "json",
+        True,
+    ),
     "mcp.endpoints.list": Operation(
         "mcp.endpoints.list", "GET", "/v1/mcp/endpoints", "json", False
     ),
@@ -2537,6 +2560,231 @@ class ProvidersResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.UnregisterProviderResult,
+            timeout=timeout,
+        )
+
+
+class JudgmentsResource:
+    """`client.judgments` — the `judgments` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        run_id: str | None = None,
+        agent_id: str | None = None,
+        agent_version: str | None = None,
+        flow_id: str | None = None,
+        verdict: Literal["yes", "no"] | None = None,
+        judge_class_id: str | None = None,
+        participant_id: str | None = None,
+        scope_kind: Literal["tenant", "org", "project"] | None = None,
+        scope_id: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgmentCollectionPage:
+        """List judgments. `GET /v1/judgments`
+
+        Live judgments (not removed or superseded), newest first, cursor-paginated. Filter by run, agent (and version), flow, verdict, judge class or participant; `?scopeKind + ?scopeId` narrow to a project.
+        """
+        return self._client._request(
+            _OPERATIONS["judgments.list"],
+            path={},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "runId": run_id,
+                "agentId": agent_id,
+                "agentVersion": agent_version,
+                "flowId": flow_id,
+                "verdict": verdict,
+                "judgeClassId": judge_class_id,
+                "participantId": participant_id,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+            },
+            headers={},
+            response=_models.JudgmentCollectionPage,
+            timeout=timeout,
+        )
+
+    def create(
+        self,
+        body: _models.CreateJudgmentBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Judgment:
+        """Judge an item of a run's output. `POST /v1/judgments`
+
+        Records yes or no, with an optional reason, about one item of a finished run's output, optionally under a judge class that applies to the run's project or agent (unclassified judgments count with weight 1). `item.pointer` (a JSON Pointer) must resolve in the run's output; its value is kept as `itemValue`. The first judgment of a run also stores a copy of the run's input and output. `assertedBy` is the authenticated caller, never the body. Judging again as the same caller for the same run, item key and `participantId` supersedes the earlier judgment. Needs `judge` on the run.
+        """
+        return self._client._request(
+            _OPERATIONS["judgments.create"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.CreateJudgmentBody, body, fields),
+            response=_models.Judgment,
+            timeout=timeout,
+        )
+
+    def get(
+        self, judgment_id: str, /, *, timeout: float | None = None
+    ) -> _models.JudgmentWithCopies:
+        """Fetch a judgment with its copies. `GET /v1/judgments/{judgmentId}`
+
+        Returns the judgment (live or not) with the stored copy of the run's input and output and, when the judgment pointed at an item, its value.
+        """
+        return self._client._request(
+            _OPERATIONS["judgments.get"],
+            path={"judgmentId": judgment_id},
+            query={},
+            headers={},
+            response=_models.JudgmentWithCopies,
+            timeout=timeout,
+        )
+
+    def unregister(
+        self,
+        judgment_id: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.UnregisterJudgmentResult:
+        """Remove a judgment. `POST /v1/judgments/{judgmentId}/unregister`
+
+        Soft delete: the judgment stops listing; retention policy decides when it is purged.
+        """
+        return self._client._request(
+            _OPERATIONS["judgments.unregister"],
+            path={"judgmentId": judgment_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterJudgmentResult,
+            timeout=timeout,
+        )
+
+
+class JudgeClassesResource:
+    """`client.judge_classes` — the `judgeClasses` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        scope_kind: Literal["tenant", "project", "agent"] | None = None,
+        project_id: str | None = None,
+        agent_id: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgeClassCollectionPage:
+        """List judge classes. `GET /v1/judge-classes`
+
+        Live classes, newest first, cursor-paginated. `?scopeKind=tenant|project|agent` (with `projectId` / `agentId`) narrows to one scope.
+        """
+        return self._client._request(
+            _OPERATIONS["judgeClasses.list"],
+            path={},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "scopeKind": scope_kind,
+                "projectId": project_id,
+                "agentId": agent_id,
+            },
+            headers={},
+            response=_models.JudgeClassCollectionPage,
+            timeout=timeout,
+        )
+
+    def create(
+        self,
+        body: _models.CreateJudgeClassBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JudgeClass:
+        """Create a judge class. `POST /v1/judge-classes`
+
+        A named kind of judge with a weight, scoped to the tenant, a project, or an agent in a project. Names are unique among the live classes of a scope. Needs `admin` on the tenant (tenant scope) or the project.
+        """
+        return self._client._request(
+            _OPERATIONS["judgeClasses.create"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.CreateJudgeClassBody, body, fields),
+            response=_models.JudgeClass,
+            timeout=timeout,
+        )
+
+    def get(self, judge_class_id: str, /, *, timeout: float | None = None) -> _models.JudgeClass:
+        """Fetch a judge class. `GET /v1/judge-classes/{judgeClassId}`
+
+        Also returns a retired class (`unregisteredAt` set): judgments keep naming theirs.
+        """
+        return self._client._request(
+            _OPERATIONS["judgeClasses.get"],
+            path={"judgeClassId": judge_class_id},
+            query={},
+            headers={},
+            response=_models.JudgeClass,
+            timeout=timeout,
+        )
+
+    def update(
+        self,
+        judge_class_id: str,
+        body: _models.UpdateJudgeClassBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JudgeClass:
+        """Change a judge class's weight or description. `PATCH /v1/judge-classes/{judgeClassId}`"""
+        return self._client._request(
+            _OPERATIONS["judgeClasses.update"],
+            path={"judgeClassId": judge_class_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UpdateJudgeClassBody, body, fields),
+            response=_models.JudgeClass,
+            timeout=timeout,
+        )
+
+    def unregister(
+        self,
+        judge_class_id: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.UnregisterJudgeClassResult:
+        """Retire a judge class. `POST /v1/judge-classes/{judgeClassId}/unregister`
+
+        No new judgments may name it; existing judgments keep it.
+        """
+        return self._client._request(
+            _OPERATIONS["judgeClasses.unregister"],
+            path={"judgeClassId": judge_class_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterJudgeClassResult,
             timeout=timeout,
         )
 
@@ -7386,6 +7634,233 @@ class AsyncProvidersResource:
         )
 
 
+class AsyncJudgmentsResource:
+    """`client.judgments` — the `judgments` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        run_id: str | None = None,
+        agent_id: str | None = None,
+        agent_version: str | None = None,
+        flow_id: str | None = None,
+        verdict: Literal["yes", "no"] | None = None,
+        judge_class_id: str | None = None,
+        participant_id: str | None = None,
+        scope_kind: Literal["tenant", "org", "project"] | None = None,
+        scope_id: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgmentCollectionPage:
+        """List judgments. `GET /v1/judgments`
+
+        Live judgments (not removed or superseded), newest first, cursor-paginated. Filter by run, agent (and version), flow, verdict, judge class or participant; `?scopeKind + ?scopeId` narrow to a project.
+        """
+        return await self._client._request(
+            _OPERATIONS["judgments.list"],
+            path={},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "runId": run_id,
+                "agentId": agent_id,
+                "agentVersion": agent_version,
+                "flowId": flow_id,
+                "verdict": verdict,
+                "judgeClassId": judge_class_id,
+                "participantId": participant_id,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+            },
+            headers={},
+            response=_models.JudgmentCollectionPage,
+            timeout=timeout,
+        )
+
+    async def create(
+        self,
+        body: _models.CreateJudgmentBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Judgment:
+        """Judge an item of a run's output. `POST /v1/judgments`
+
+        Records yes or no, with an optional reason, about one item of a finished run's output, optionally under a judge class that applies to the run's project or agent (unclassified judgments count with weight 1). `item.pointer` (a JSON Pointer) must resolve in the run's output; its value is kept as `itemValue`. The first judgment of a run also stores a copy of the run's input and output. `assertedBy` is the authenticated caller, never the body. Judging again as the same caller for the same run, item key and `participantId` supersedes the earlier judgment. Needs `judge` on the run.
+        """
+        return await self._client._request(
+            _OPERATIONS["judgments.create"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.CreateJudgmentBody, body, fields),
+            response=_models.Judgment,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, judgment_id: str, /, *, timeout: float | None = None
+    ) -> _models.JudgmentWithCopies:
+        """Fetch a judgment with its copies. `GET /v1/judgments/{judgmentId}`
+
+        Returns the judgment (live or not) with the stored copy of the run's input and output and, when the judgment pointed at an item, its value.
+        """
+        return await self._client._request(
+            _OPERATIONS["judgments.get"],
+            path={"judgmentId": judgment_id},
+            query={},
+            headers={},
+            response=_models.JudgmentWithCopies,
+            timeout=timeout,
+        )
+
+    async def unregister(
+        self,
+        judgment_id: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.UnregisterJudgmentResult:
+        """Remove a judgment. `POST /v1/judgments/{judgmentId}/unregister`
+
+        Soft delete: the judgment stops listing; retention policy decides when it is purged.
+        """
+        return await self._client._request(
+            _OPERATIONS["judgments.unregister"],
+            path={"judgmentId": judgment_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterJudgmentResult,
+            timeout=timeout,
+        )
+
+
+class AsyncJudgeClassesResource:
+    """`client.judge_classes` — the `judgeClasses` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        scope_kind: Literal["tenant", "project", "agent"] | None = None,
+        project_id: str | None = None,
+        agent_id: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgeClassCollectionPage:
+        """List judge classes. `GET /v1/judge-classes`
+
+        Live classes, newest first, cursor-paginated. `?scopeKind=tenant|project|agent` (with `projectId` / `agentId`) narrows to one scope.
+        """
+        return await self._client._request(
+            _OPERATIONS["judgeClasses.list"],
+            path={},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "scopeKind": scope_kind,
+                "projectId": project_id,
+                "agentId": agent_id,
+            },
+            headers={},
+            response=_models.JudgeClassCollectionPage,
+            timeout=timeout,
+        )
+
+    async def create(
+        self,
+        body: _models.CreateJudgeClassBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JudgeClass:
+        """Create a judge class. `POST /v1/judge-classes`
+
+        A named kind of judge with a weight, scoped to the tenant, a project, or an agent in a project. Names are unique among the live classes of a scope. Needs `admin` on the tenant (tenant scope) or the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["judgeClasses.create"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.CreateJudgeClassBody, body, fields),
+            response=_models.JudgeClass,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, judge_class_id: str, /, *, timeout: float | None = None
+    ) -> _models.JudgeClass:
+        """Fetch a judge class. `GET /v1/judge-classes/{judgeClassId}`
+
+        Also returns a retired class (`unregisteredAt` set): judgments keep naming theirs.
+        """
+        return await self._client._request(
+            _OPERATIONS["judgeClasses.get"],
+            path={"judgeClassId": judge_class_id},
+            query={},
+            headers={},
+            response=_models.JudgeClass,
+            timeout=timeout,
+        )
+
+    async def update(
+        self,
+        judge_class_id: str,
+        body: _models.UpdateJudgeClassBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JudgeClass:
+        """Change a judge class's weight or description. `PATCH /v1/judge-classes/{judgeClassId}`"""
+        return await self._client._request(
+            _OPERATIONS["judgeClasses.update"],
+            path={"judgeClassId": judge_class_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UpdateJudgeClassBody, body, fields),
+            response=_models.JudgeClass,
+            timeout=timeout,
+        )
+
+    async def unregister(
+        self,
+        judge_class_id: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.UnregisterJudgeClassResult:
+        """Retire a judge class. `POST /v1/judge-classes/{judgeClassId}/unregister`
+
+        No new judgments may name it; existing judgments keep it.
+        """
+        return await self._client._request(
+            _OPERATIONS["judgeClasses.unregister"],
+            path={"judgeClassId": judge_class_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterJudgeClassResult,
+            timeout=timeout,
+        )
+
+
 class AsyncMcpEndpointsResourcesResource:
     """`client.mcp.endpoints.resources` — the `mcp.endpoints.resources` operations."""
 
@@ -10294,6 +10769,8 @@ class Resources:
     observations: ObservationsResource
     capabilities: CapabilitiesResource
     providers: ProvidersResource
+    judgments: JudgmentsResource
+    judge_classes: JudgeClassesResource
     mcp: McpResource
     cost: CostResource
     adapters: AdaptersResource
@@ -10335,6 +10812,8 @@ class Resources:
         self.observations = ObservationsResource(client)
         self.capabilities = CapabilitiesResource(client)
         self.providers = ProvidersResource(client)
+        self.judgments = JudgmentsResource(client)
+        self.judge_classes = JudgeClassesResource(client)
         self.mcp = McpResource(client)
         self.cost = CostResource(client)
         self.adapters = AdaptersResource(client)
@@ -10378,6 +10857,8 @@ class AsyncResources:
     observations: AsyncObservationsResource
     capabilities: AsyncCapabilitiesResource
     providers: AsyncProvidersResource
+    judgments: AsyncJudgmentsResource
+    judge_classes: AsyncJudgeClassesResource
     mcp: AsyncMcpResource
     cost: AsyncCostResource
     adapters: AsyncAdaptersResource
@@ -10419,6 +10900,8 @@ class AsyncResources:
         self.observations = AsyncObservationsResource(client)
         self.capabilities = AsyncCapabilitiesResource(client)
         self.providers = AsyncProvidersResource(client)
+        self.judgments = AsyncJudgmentsResource(client)
+        self.judge_classes = AsyncJudgeClassesResource(client)
         self.mcp = AsyncMcpResource(client)
         self.cost = AsyncCostResource(client)
         self.adapters = AsyncAdaptersResource(client)

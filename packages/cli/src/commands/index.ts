@@ -17,6 +17,8 @@ import { flowsCommand } from './flows.js';
 import { guardrailsCommand } from './guardrails.js';
 import { healthCommand } from './health.js';
 import { initCommand } from './init.js';
+import { judgeClassesCommand } from './judge-classes.js';
+import { judgmentsCommand } from './judgments.js';
 import { keyCommand } from './key.js';
 import { mcpCommand, mcpLaunchCommand } from './mcp.js';
 import { memoryCommand } from './memory.js';
@@ -59,6 +61,8 @@ export const ROOT_COMMANDS: readonly Command[] = [
   approvalsCommand,
   reviewersCommand,
   observationsCommand,
+  judgmentsCommand,
+  judgeClassesCommand,
   tokensCommand,
   capabilitiesCommand,
   providersCommand,

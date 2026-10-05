@@ -81,6 +81,14 @@
       "description": "Model-provider catalog (list, get, register, unregister, capabilities sub-resource) — part of the admin control plane. Full CRUD. `ProviderMetadata` is the wire shape; secrets never cross the wire (they live inside `ProviderRegistryBinding`). The capability router picks a best-fit provider from this set per capability requirement at run time."
     },
     {
+      "name": "judgments",
+      "description": "Judgments: yes or no, with an optional reason, about one item of a finished run's output, recorded under a judge class (list, get, create, unregister). Each judgment keeps copies of what was judged (the run's input and output, and the item) so they outlive the run's own retention. Who judged comes from the authenticated caller, never the body; an app judging for one of its users passes that user's opaque id as `participantId`. One live judgment per run, item key, caller and participant: judging again supersedes the earlier one, which stays as history. Caller-plugged via `JudgmentRegistryBinding`."
+    },
+    {
+      "name": "judge-classes",
+      "description": "Judge classes (list, get, create, update, unregister): the deployment's named kinds of judge (\"expert\", \"user\", ...), each with a weight, scoped to the tenant, a project, or an agent in a project. A judgment names the class it is recorded under. Caller-plugged via `JudgmentRegistryBinding`."
+    },
+    {
       "name": "mcp",
       "description": "MCP-endpoint catalog (list, get, register, unregister). Tenants declare the remote MCP servers (`stdio` / `http-sse` / `streamable-http`) they want the runtime to consume. The runtime discovers each endpoint's tools and registers them into `ToolRegistryBinding` under the same tenant — remote MCP tools become native Kindgi tools without a recompile. Secrets never cross the wire: `secretRef` names a secret in the deployment's store, resolved at the endpoint's tenant scope. A deployment refuses `stdio` endpoints unless `KINDGI_TENANT_HOST_ACCESS=local`. Caller-plugged via `MCPEndpointRegistryBinding`."
     },
@@ -1907,6 +1915,461 @@
           },
           "hasMore": {
             "type": "boolean"
+          }
+        }
+      },
+      "JudgeClassScope": {
+        "description": "Where a judge class applies: the whole tenant, one project, or one agent in a project.",
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "tenant"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "projectId"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "project"
+              },
+              "projectId": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "projectId",
+              "agentId"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "agent"
+              },
+              "projectId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "agentId": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        ]
+      },
+      "JudgeClass": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tenantId",
+          "scope",
+          "name",
+          "weight",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/JudgeClassScope"
+          },
+          "name": {
+            "type": "string",
+            "description": "The deployment's own word for the class: \"expert\", \"user\", \"arbitrator\"."
+          },
+          "weight": {
+            "type": "number",
+            "minimum": 0,
+            "description": "How much a judgment of this class counts, relative to the others."
+          },
+          "description": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "unregisteredAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Set when the class was retired."
+          }
+        }
+      },
+      "JudgeClassCollectionPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JudgeClass"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "description": "Opaque cursor. Treat as opaque on the client."
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CreateJudgeClassBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope",
+          "name",
+          "weight"
+        ],
+        "properties": {
+          "scope": {
+            "$ref": "#/components/schemas/JudgeClassScope"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "weight": {
+            "type": "number",
+            "minimum": 0
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      },
+      "UpdateJudgeClassBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "properties": {
+          "weight": {
+            "type": "number",
+            "minimum": 0
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      },
+      "UnregisterJudgeClassResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "judgeClassId",
+          "unregistered"
+        ],
+        "properties": {
+          "judgeClassId": {
+            "type": "string"
+          },
+          "unregistered": {
+            "type": "boolean",
+            "const": true
+          }
+        }
+      },
+      "JudgedSubject": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "id",
+          "version"
+        ],
+        "description": "What a judged run ran: an agent at a version, or a flow at a version.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "agent",
+              "flow"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "JudgedItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key"
+        ],
+        "description": "The judged item of a run's output.",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The caller's stable id for the item."
+          },
+          "pointer": {
+            "type": "string",
+            "description": "Where the item is in the run's output, as a JSON Pointer (RFC 6901), e.g. `/matches/2`. `\"\"` is the whole output."
+          },
+          "rank": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The item's position in a ranked list (0 = first)."
+          }
+        }
+      },
+      "JudgmentAssertedBy": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "id"
+        ],
+        "description": "Who asserted a judgment: the authenticated caller, never a typed name.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "user",
+              "service"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "description": "A user id, or for a service token its token or session id."
+          }
+        }
+      },
+      "Judgment": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tenantId",
+          "projectId",
+          "runId",
+          "subject",
+          "item",
+          "verdict",
+          "assertedBy",
+          "createdAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": "string"
+          },
+          "subject": {
+            "$ref": "#/components/schemas/JudgedSubject"
+          },
+          "item": {
+            "$ref": "#/components/schemas/JudgedItem"
+          },
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "yes",
+              "no"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "judgeClassId": {
+            "type": "string",
+            "description": "The judge class the judgment is recorded under. Absent when unclassified (counts with weight 1)."
+          },
+          "assertedBy": {
+            "$ref": "#/components/schemas/JudgmentAssertedBy"
+          },
+          "participantId": {
+            "type": "string",
+            "description": "The app's opaque id for its end user who judged, when an app judged on their behalf."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "unregisteredAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Set when the judgment was removed or superseded."
+          },
+          "supersededBy": {
+            "type": "string",
+            "description": "The judgment that replaced this one."
+          }
+        }
+      },
+      "JudgedRunCopy": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "runId",
+          "subject",
+          "input",
+          "output",
+          "capturedAt"
+        ],
+        "description": "The stored copy of a judged run's input and output, taken when it was first judged.",
+        "properties": {
+          "runId": {
+            "type": "string"
+          },
+          "subject": {
+            "$ref": "#/components/schemas/JudgedSubject"
+          },
+          "input": {},
+          "output": {},
+          "capturedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "JudgmentWithCopies": {
+        "description": "A judgment with the stored copies of what was judged.",
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Judgment"
+          },
+          {
+            "type": "object",
+            "required": [
+              "run"
+            ],
+            "properties": {
+              "run": {
+                "$ref": "#/components/schemas/JudgedRunCopy"
+              },
+              "itemValue": {
+                "description": "The judged item's value, when the judgment pointed at it."
+              }
+            }
+          }
+        ]
+      },
+      "JudgmentCollectionPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Judgment"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "description": "Opaque cursor. Treat as opaque on the client."
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CreateJudgmentBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "runId",
+          "item",
+          "verdict"
+        ],
+        "properties": {
+          "runId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "item": {
+            "$ref": "#/components/schemas/JudgedItem"
+          },
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "yes",
+              "no"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "judgeClassId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Optional. When given it must exist and apply to the run."
+          },
+          "participantId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "An app's opaque id for its end user, when judging on their behalf."
+          }
+        }
+      },
+      "UnregisterJudgmentResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "judgmentId",
+          "unregistered"
+        ],
+        "properties": {
+          "judgmentId": {
+            "type": "string"
+          },
+          "unregistered": {
+            "type": "boolean",
+            "const": true
           }
         }
       },
@@ -19003,6 +19466,928 @@
             },
             "required": true,
             "description": "ProviderId — opaque string identifier chosen by the deployment."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/judgments": {
+      "post": {
+        "operationId": "judgments.create",
+        "summary": "Judge an item of a run's output",
+        "tags": [
+          "judgments"
+        ],
+        "responses": {
+          "201": {
+            "description": "Judgment recorded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Judgment"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed body, or `item-not-found` (the pointer resolves to nothing in the output), or `judge-class-not-applicable`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: not allowed to judge this run.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`run-not-found`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`run-not-finished`: the run has no output to judge yet.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Records yes or no, with an optional reason, about one item of a finished run's output, optionally under a judge class that applies to the run's project or agent (unclassified judgments count with weight 1). `item.pointer` (a JSON Pointer) must resolve in the run's output; its value is kept as `itemValue`. The first judgment of a run also stores a copy of the run's input and output. `assertedBy` is the authenticated caller, never the body. Judging again as the same caller for the same run, item key and `participantId` supersedes the earlier judgment. Needs `judge` on the run.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateJudgmentBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "judgments.list",
+        "summary": "List judgments",
+        "tags": [
+          "judgments"
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of judgments.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudgmentCollectionPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed query parameter.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Live judgments (not removed or superseded), newest first, cursor-paginated. Filter by run, agent (and version), flow, verdict, judge class or participant; `?scopeKind + ?scopeId` narrow to a project.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Opaque cursor from a prior response. Absent → first page."
+          },
+          {
+            "name": "runId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Only judgments of this run."
+          },
+          {
+            "name": "agentId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Only judgments of runs of this agent."
+          },
+          {
+            "name": "agentVersion",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Only judgments of runs of this agent version. Needs `agentId`."
+          },
+          {
+            "name": "flowId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Only judgments of runs of this flow."
+          },
+          {
+            "name": "verdict",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "yes",
+                "no"
+              ]
+            },
+            "required": false,
+            "description": "Only judgments with this verdict."
+          },
+          {
+            "name": "judgeClassId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Only judgments recorded under this judge class."
+          },
+          {
+            "name": "participantId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Only judgments made for this app end user's opaque id."
+          },
+          {
+            "name": "scopeKind",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/ScopeKind"
+            },
+            "required": false,
+            "description": "Optional scope discriminator. If absent, no scope filter is applied."
+          },
+          {
+            "name": "scopeId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Required IF scopeKind is `org` or `project`. MUST be absent if scopeKind=`tenant` (tenant is implicit from the session). Malformed combinations return 400 scope-invalid."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/judgments/{judgmentId}": {
+      "get": {
+        "operationId": "judgments.get",
+        "summary": "Fetch a judgment with its copies",
+        "tags": [
+          "judgments"
+        ],
+        "responses": {
+          "200": {
+            "description": "Judgment with copies.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudgmentWithCopies"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No judgment with that id under this tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Returns the judgment (live or not) with the stored copy of the run's input and output and, when the judgment pointed at an item, its value.",
+        "parameters": [
+          {
+            "name": "judgmentId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "Judgment id."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/judgments/{judgmentId}/unregister": {
+      "post": {
+        "operationId": "judgments.unregister",
+        "summary": "Remove a judgment",
+        "tags": [
+          "judgments"
+        ],
+        "responses": {
+          "200": {
+            "description": "Removed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnregisterJudgmentResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No live judgment with that id under this tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Soft delete: the judgment stops listing; retention policy decides when it is purged.",
+        "parameters": [
+          {
+            "name": "judgmentId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "Judgment id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/judge-classes": {
+      "post": {
+        "operationId": "judgeClasses.create",
+        "summary": "Create a judge class",
+        "tags": [
+          "judge-classes"
+        ],
+        "responses": {
+          "201": {
+            "description": "Judge class created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudgeClass"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`judge-class-name-taken`, or an idempotency conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A named kind of judge with a weight, scoped to the tenant, a project, or an agent in a project. Names are unique among the live classes of a scope. Needs `admin` on the tenant (tenant scope) or the project.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateJudgeClassBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "judgeClasses.list",
+        "summary": "List judge classes",
+        "tags": [
+          "judge-classes"
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of judge classes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudgeClassCollectionPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed scope parameters.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Live classes, newest first, cursor-paginated. `?scopeKind=tenant|project|agent` (with `projectId` / `agentId`) narrows to one scope.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Opaque cursor from a prior response. Absent → first page."
+          },
+          {
+            "name": "scopeKind",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "tenant",
+                "project",
+                "agent"
+              ]
+            },
+            "required": false,
+            "description": "Only classes of this scope kind. `project` and `agent` need `projectId`; `agent` also needs `agentId`."
+          },
+          {
+            "name": "projectId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Project of the scope, for `scopeKind=project|agent`."
+          },
+          {
+            "name": "agentId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Agent of the scope, for `scopeKind=agent`."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/judge-classes/{judgeClassId}": {
+      "get": {
+        "operationId": "judgeClasses.get",
+        "summary": "Fetch a judge class",
+        "tags": [
+          "judge-classes"
+        ],
+        "responses": {
+          "200": {
+            "description": "Judge class.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudgeClass"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No judge class with that id under this tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Also returns a retired class (`unregisteredAt` set): judgments keep naming theirs.",
+        "parameters": [
+          {
+            "name": "judgeClassId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "Judge class id."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "judgeClasses.update",
+        "summary": "Change a judge class's weight or description",
+        "tags": [
+          "judge-classes"
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated judge class.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudgeClass"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No live judge class with that id under this tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "judgeClassId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "Judge class id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateJudgeClassBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/judge-classes/{judgeClassId}/unregister": {
+      "post": {
+        "operationId": "judgeClasses.unregister",
+        "summary": "Retire a judge class",
+        "tags": [
+          "judge-classes"
+        ],
+        "responses": {
+          "200": {
+            "description": "Retired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnregisterJudgeClassResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No live judge class with that id under this tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "No new judgments may name it; existing judgments keep it.",
+        "parameters": [
+          {
+            "name": "judgeClassId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "Judge class id."
           },
           {
             "name": "Idempotency-Key",

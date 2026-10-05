@@ -164,6 +164,13 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'eval-suite-already-registered': 409,
   // Admin plane — eval-run dispatch.
   'eval-run-not-found': 404,
+  // Judgments (yes/no on a run's output items) and judge classes.
+  'judgment-not-found': 404,
+  'judge-class-not-found': 404,
+  'judge-class-name-taken': 409,
+  'judge-class-not-applicable': 400,
+  'run-not-finished': 409,
+  'item-not-found': 400,
   'eval-run-already-terminal': 409,
   'dispatcher-not-registered': 422,
   'dispatcher-input-invalid': 400,
