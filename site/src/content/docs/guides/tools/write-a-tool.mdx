@@ -262,6 +262,71 @@ kindgi runs start --flow=my-pack.check-order --input='{"orderId":"ord_9999"}'
 What the handler returns is checked against the output schema too; a return
 value that doesn't fit fails with `output-validation-failed`.
 
+## Check the run's org
+
+When your app keeps several customers' data, give each customer its own Kindgi
+org and project, and start that customer's runs there. A tool then checks what
+it reads against the run's org, `ctx.orgId`, which the runtime sets from the
+run. An org id in the input is something a model or a caller wrote, so it
+proves nothing.
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// in tools/lookup-order/index.ts
+// Stands in for your app's database. Each order belongs to one customer's org.
+const ORDERS = new Map([
+  ['ord_1001', { orgId: '1154e250-2a07-491e-b00a-3675b411c411', status: 'shipped', totalCents: 4200 }],
+  ['ord_1002', { orgId: 'feb005e6-6798-47eb-a87a-8feed584d37b', status: 'pending', totalCents: 1250 }],
+]);
+
+// …
+  handler: async ({ orderId }, ctx) => {
+    const order = ORDERS.get(orderId);
+    // Another org's order is as missing as one that doesn't exist.
+    if (order === undefined || order.orgId !== ctx.orgId) throw new Error(`No order ${orderId}`);
+    return { orderId, status: order.status as 'pending' | 'shipped', totalCents: order.totalCents };
+  },
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# in tools/lookup_order.py
+# Stands in for your app's database. Each order belongs to one customer's org.
+ORDERS = {
+    "ord_1001": {"org_id": "1154e250-2a07-491e-b00a-3675b411c411", "status": "shipped", "totalCents": 4200},
+    "ord_1002": {"org_id": "feb005e6-6798-47eb-a87a-8feed584d37b", "status": "pending", "totalCents": 1250},
+}
+
+
+@tool(id="my-pack.lookup-order", mutating=False)
+def lookup_order(ref: OrderRef, ctx: ToolContext) -> Order:
+    """Looks up an order by id. Returns its status and total in cents."""
+    order = ORDERS.get(ref.order_id)
+    # Another org's order is as missing as one that doesn't exist.
+    if order is None or order["org_id"] != ctx.org_id:
+        raise LookupError(f"No order {ref.order_id}")
+    return Order(orderId=ref.order_id, status=order["status"], totalCents=order["totalCents"])
+```
+
+</TabItem>
+</Tabs>
+
+A run in the first org's project finds `ord_1001`. Asking it for the second
+org's order fails as if the order didn't exist:
+
+```json
+  "status": "failed",
+  "failureMessage": "handler-error: Tool \"my-pack.lookup-order\" handler threw: handler-throw: Handler for tool \"my-pack.lookup-order\" threw: Error: No order ord_1002",
+```
+
+A project with no org has no `orgId` (`None` in Python), so in it this tool
+finds no order at all. Start a run in a project with `projectId` on
+`runs.start`.
+
 ## Test it
 
 <Tabs syncKey="lang">
