@@ -63,14 +63,20 @@ NAMES           STATUS
 kindgi-server   Up 34 seconds (healthy)
 ```
 
-`docker ps` shows `(unhealthy)` while the database is down. A route that reads the database answers `500` and names the cause. With Postgres unreachable, `GET /v1/deployments` answers:
+`docker ps` shows `(unhealthy)` while the database is down, and the runtime's log says why:
+
+```text
+[ready] the database doesn't answer: host not found (getaddrinfo ENOTFOUND kindgi-db)
+```
+
+A route that reads the database answers `500` and names the cause. With Postgres unreachable, `GET /v1/deployments` answers:
 
 ```sh
 curl -s http://localhost:4000/v1/deployments -H "authorization: Bearer $KINDGI_API_TOKEN"
 ```
 
 ```text
-{"error":{"code":"internal-server-error","message":"Deployment list failed: deployments: Tenant-scoped query failed: getaddrinfo ENOTFOUND kindgi-db","requestId":"req-…"}}
+{"error":{"code":"internal-server-error","message":"Deployment list failed: deployments: Tenant-scoped query failed: host not found (getaddrinfo ENOTFOUND kindgi-db)","requestId":"req-…"}}
 ```
 
 ### The startup log
@@ -117,7 +123,7 @@ repair is a line in its log:
 
   ```text
   1
-  Can't connect to the database at kindgi-db:5432/kindgi: getaddrinfo ENOTFOUND kindgi-db. Check KINDGI_DATABASE_URL, and that Postgres is up and reachable from here.
+  Can't connect to the database at kindgi-db:5432/kindgi: host not found (getaddrinfo ENOTFOUND kindgi-db). Check KINDGI_DATABASE_URL, and that Postgres is up and reachable from here.
   ```
 
 - **Another failure while starting:** it exits with code 1, and the log's first line starts with `kindgi-runtime: fatal:` and ends with the cause.
