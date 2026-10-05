@@ -267,6 +267,45 @@ A preset's models carry their own output limit (Gemini 2.5: 65,536 tokens,
 thinking included). `--max-output-tokens=<n>` registers them with a lower
 or different cap.
 
+**Declared in the config**, `kindgi dev` registers them itself. Each project
+and git worktree has its own dev database, so this registers them in every
+worktree, after `--reset`, and on a teammate's machine:
+
+```ts
+// kindgi.config.ts
+export default {
+  pack: { id: 'acme', version: '0.1.0' },
+  providers: [
+    { preset: 'anthropic' },                     // its key, ANTHROPIC_API_KEY, in the env files
+    { preset: 'gemini', project: 'acme-gcp', models: ['gemini-2.5-flash'] },
+    { spec: { /* a --spec body */ secret_ref: { name: 'QWEN_API_KEY' } } },
+  ],
+};
+```
+
+In `pyproject.toml`, each one is a `[[tool.kindgi.providers]]` table with
+the same keys. A preset takes:
+- `models`;
+- `project`;
+- `secret`: the key's name, in place of the preset's own;
+- `maxOutputTokens`.
+
+A `spec` is what `--spec` takes. A key is always a secret's name, resolved in
+the env files. A `spec` with a credential in `adapter_config` is refused.
+
+On each boot, `kindgi dev`:
+- registers a declared provider the runtime doesn't have. If its key isn't in
+  the env files, it skips that provider and says so in one line;
+- re-registers a provider it registered whose declaration changed;
+- unregisters a provider it registered that the config no longer declares;
+- leaves alone any provider it didn't register (by hand, or by another pack of
+  the project). If one is registered differently from the config, `kindgi dev`
+  warns and names the `kindgi providers unregister` that lets the config's
+  version apply.
+
+It records which providers it registered in `.kindgi/dev/providers.json`, per
+database and tenant.
+
 **Any OpenAI-compatible endpoint** — an open-source model you serve yourself
 (vLLM, llama.cpp's `llama-server`, Ollama, LM Studio), OpenRouter, a LiteLLM
 proxy — registers with `--spec`, naming its base URL in `adapter_config`:
