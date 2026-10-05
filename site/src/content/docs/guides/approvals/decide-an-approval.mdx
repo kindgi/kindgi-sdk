@@ -66,6 +66,21 @@ approval:
   (the `subjectRef` has the `conversationId` and the `turnCount`).
 - **`requiredRole`** is the lowest role that may decide it.
 - **`provenanceRef.runId`** is the run that waits.
+- **`decision`**, once someone decided it: the decision, the rationale, who
+  (`decidedBy`, as `user:<id>`, and their `reviewerId`), their role then, and
+  when. There's none while it's open, nor when it ended without a decision
+  (it expired, or a timeout escalated it).
+
+```json
+"decision": {
+  "decision": "approve",
+  "decidedBy": "user:26fc414a-b49f-4e1f-a022-162865770178",
+  "reviewerId": "974b5bb3-c690-4886-a609-c7fe0cbd5659",
+  "reviewerRoleAtDecision": "standard",
+  "decidedAt": "2026-10-05T16:25:52.878Z",
+  "rationale": "Confirmed with the on-call engineer"
+}
+```
 
 ## Decide
 

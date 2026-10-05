@@ -18,7 +18,8 @@ The runtime image is in private preview: request access at contact@kindgi.com
 ## What you'll have
 
 - **The runtime** (`kindgi-server`): Kindgi's server, on Cloud Run with its
-  own service account. Public ingress, port 4000, always-allocated CPU (so a
+  own service account. Public ingress, port 4000 (Cloud Run passes it as
+  `PORT`, which the runtime listens on), always-allocated CPU (so a
   run started in the background keeps running after its answer), one
   instance.
 - **Your pack's service** (`kindgi-pack`): your tools' code. Internal ingress,

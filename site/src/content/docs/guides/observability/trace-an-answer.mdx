@@ -65,6 +65,7 @@ the tool call the first model call made (`invoked`) produced.
 | `model-call` | One call to a model: `modelVersion` is `provider/model`; `attributes` has its `step`, `model`, `providerId`, why it stopped (`finishReason`) and its `callId`. |
 | `tool-call`, `tool-result` | A tool the model called, with the exact tool version that ran, and what it returned. |
 | `model-output` | The answer. |
+| `wait`, `resume` | A tool call that waited for an approval: the wait, and the decision that ended it. |
 
 Edges point from an effect to its cause: `caused-by`, `invoked`, `produced`,
 and `influenced-by` from a model call to each tool result it read.
@@ -75,8 +76,18 @@ count the provider reports is there, 0 included (`cacheReadTokens: 0`); one it
 doesn't report is absent.
 
 A turn that waited for an approval is recorded whole, before and after the
-wait. A call a reviewer rejected is there too: its `tool-call`, and its
-`tool-result`, which is the rejection the model read.
+wait. The wait sits between the tool call and its result: the `tool-call`
+`waited-on` a `wait` node, which was `resumed-from` a `resume` node, and the
+`tool-result` was `caused-by` the `resume`. The `resume` node's `actor` is who
+decided, and its `attributes` have the decision, the rationale and the
+approval's id. A call a reviewer rejected:
+
+```json
+{"id": "tool-hitl-gate-resume:toolu_01MAfC8Fb7e24iY12Cenoh11", "kind": "resume", "timestamp": "2026-10-05T16:26:25.504Z", "actor": "user:26fc414a-b49f-4e1f-a022-162865770178", "attributes": {"gate": "tool-call", "decision": "reject", "rationale": "Not confirmed yet", "approvalId": "12c38101-4cac-4241-8fc7-57323e4f63b9"}}
+```
+
+Its `tool-call` is there too, and its `tool-result` is the rejection the model
+read.
 
 `kindgi runs get <run-id>` shows the same graph, under `output.provenance`, without `callUsage`.
 
@@ -191,12 +202,12 @@ Fetch the record for `4bdae2f9-…`.
 Filter by `runId` or by `createdAfter`:
 
 ```sh
-curl "$KINDGI_API_URL/v1/provenance?createdAfter=2026-10-03T20:08:00Z&limit=3" \
+curl "$KINDGI_API_URL/v1/provenance?createdAfter=2026-10-05T16:25:00Z&limit=3" \
   -H "Authorization: Bearer $KINDGI_API_TOKEN"
 ```
 
 ```json
-{"data":[{"id":"8771ea27-dc53-4c55-a799-dc78136182b0","runId":"98d49ad7-fb24-4d0f-a9e0-b5d1743a4392","tenantId":"3a9fb26d-9782-4bdb-a4f9-3c97d2644b72","version":"1.0.0","createdAt":"2026-10-03T20:10:08.430Z","signed":false},…]}
+{"data":[{"id":"e87e13ae-472f-404b-8dfe-94ec738980cd","runId":"f91ff793-b029-48e8-9ce4-f9fa70bd0c40","tenantId":"9126df1e-094b-496d-9ea8-7daab93c3f4f","version":"1.0.0","createdAt":"2026-10-05T16:26:30.533Z","signed":false,"projectId":"13b7cfca-8b77-4983-858f-149c16afe56d"},…]}
 ```
 
 Each record carries its run's `projectId`. `scopeKind=project&scopeId=<id>`

@@ -15,8 +15,14 @@ kindgi runs start --flow=acme.review-order --input=@order.json
 ```
 
 `--input` is the run's input as JSON, or `@` and a file to read it from. The
-command waits for the run to finish and prints it. With `--no-wait`, it
-prints the run as soon as it exists:
+command waits for the run to finish, however long it takes, and prints it.
+Ctrl+C stops the waiting, not the run:
+
+```text
+Stopped waiting. Run f91ff793-b029-48e8-9ce4-f9fa70bd0c40 goes on: kindgi runs get f91ff793-b029-48e8-9ce4-f9fa70bd0c40
+```
+
+With `--no-wait`, it prints the run as soon as it exists:
 
 ```sh
 kindgi runs start --flow=acme.reserve-order --input='{"orderId":"A-300"}' --no-wait

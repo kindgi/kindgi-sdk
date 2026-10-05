@@ -247,7 +247,12 @@ kindgi approvals complete 416c22ba-73f9-45b7-999d-c1d5938758f7 --decision=approv
 ```
 
 The run continues in the same call: the tool runs and the agent finishes its
-turn.
+turn. Its journal (`kindgi runs journal <run-id>`) says who decided which
+approval:
+
+```json
+{"sequence": 27, "kind": "wait.resumed", "nodeId": "agent-loop", "payload": {"value": {"decided": "approve", "decidedBy": "user:26fc414a-b49f-4e1f-a022-162865770178", "rationale": "Confirmed with the on-call engineer", "approvalId": "a281a631-b48b-4868-b138-213a433e8c40"}, …}, …}
+```
 
 ```sh
 kindgi runs get 0c01376f-1566-4a0d-ba6f-95f4efff4758

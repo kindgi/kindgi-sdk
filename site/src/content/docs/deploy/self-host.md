@@ -173,9 +173,10 @@ KINDGI_LICENSE_KEY=<your license key>
 It holds the API token and the license key, so keep it to yourself:
 `chmod 600 kindgi.env`.
 
-Every setting is in the [environment variable reference](../../reference/env-vars/). Two are worth knowing now:
+Every setting is in the [environment variable reference](../../reference/env-vars/). Three are worth knowing now:
 
 - **`KINDGI_ENV`** names the environment your tools' secrets resolve in.
+- **The port** is 4000 unless something sets another. The runtime takes the first that's set: `KINDGI_API_PORT`, then the platform's `PORT` (Cloud Run, Render, Heroku and Fly set it), then 4000 ([`KINDGI_API_PORT`](../../reference/env-vars/#kindgi_api_port) has the whole order).
 - **`KINDGI_TENANT_HOST_ACCESS`** isn't set here, so it's `deployed`, the default outside development. It refuses an MCP endpoint that would run a command on the runtime's host (`stdio`). Run MCP servers over HTTP instead. `local` allows it; set that only on a machine where everyone with an API token may run commands.
 
 Start the runtime:
