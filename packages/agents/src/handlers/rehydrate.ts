@@ -31,16 +31,22 @@
  *     added again from what they left (`turn-provenance.ts`), so a
  *     resumed turn's DAG is whole: its user message, its retrievals, each
  *     model call, and the tool calls of each completed step. The step the
- *     turn parked in adds its own when it runs again.
+ *     turn parked in adds its own when it runs again;
+ *   - the tool-call approvals decided so far come from the journal (the
+ *     waitpoint each gate recorded, when the call parked, the decision
+ *     and when it came), so each call's provenance shows the approval it
+ *     waited on and who decided it.
  */
 
 import type { LoopContext } from '@kindgi/handler';
-import { type JournalEntry, bodyStepKey } from '@kindgi/runtime';
+import { type JournalEntry, type ValueRecordedPayload, bodyStepKey } from '@kindgi/runtime';
 import type { Timestamp } from '@kindgi/types';
 
 import type { ConversationMessage, RetrievedFact } from '../types.js';
 import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
+import { readGateDecision } from './gate-decision.js';
+import { TOOL_GATE_RECORD_PREFIX } from './tool-hitl.js';
 import {
   loadTurnConversation,
   resolveTurnEnvironment,
@@ -52,6 +58,7 @@ import {
   addRetrievalNodes,
   addStepToolNodes,
 } from './turn-provenance.js';
+import type { ToolApproval } from './turn-provenance.js';
 
 interface StepRecord {
   readonly nodeId: string;
@@ -142,8 +149,56 @@ export async function rehydrateTurnContext(
     ctx.usage.totalCostUsd += out.iterationUsage?.costUsd ?? 0;
     if (out.provider !== undefined) ctx.lastProvider = out.provider;
   }
+  ctx.toolApprovals = toolApprovalsOf(journal);
   rebuildProvenance(ctx, steps, retrievals?.retrieved);
   return true;
+}
+
+/**
+ * The tool-call approvals the journal shows decided, by invocation id: the
+ * waitpoint each call's gate recorded (`dispatch-tools`), when the call
+ * parked on it (`wait.suspended`, the first), and the decision that
+ * resolved it (`wait.resumed`).
+ */
+function toolApprovalsOf(journal: readonly JournalEntry[]): ReadonlyMap<string, ToolApproval> {
+  const callOf = new Map<string, string>();
+  const parkedAt = new Map<string, Timestamp>();
+  const resumed = new Map<string, { readonly at: Timestamp; readonly value: unknown }>();
+  for (const e of journal) {
+    const gate = toolGateOf(e);
+    if (gate !== undefined) callOf.set(gate.waitTokenId, gate.invocationId);
+    const p = (e.payload ?? {}) as { readonly tokenId?: unknown; readonly value?: unknown };
+    if (typeof p.tokenId !== 'string') continue;
+    if (e.kind === 'wait.suspended' && !parkedAt.has(p.tokenId)) {
+      parkedAt.set(p.tokenId, e.timestamp);
+    }
+    if (e.kind === 'wait.resumed') resumed.set(p.tokenId, { at: e.timestamp, value: p.value });
+  }
+  const approvals = new Map<string, ToolApproval>();
+  for (const [waitTokenId, decided] of resumed) {
+    const invocationId = callOf.get(waitTokenId);
+    if (invocationId === undefined) continue;
+    approvals.set(invocationId, {
+      waitTokenId,
+      parkedAt: parkedAt.get(waitTokenId) ?? decided.at,
+      decidedAt: decided.at,
+      decision: readGateDecision(decided.value),
+    });
+  }
+  return approvals;
+}
+
+/** The waitpoint a tool call's gate recorded (`dispatch-tools`), if `e` is that record. */
+function toolGateOf(
+  e: JournalEntry,
+): { readonly waitTokenId: string; readonly invocationId: string } | undefined {
+  if (e.kind !== 'value.recorded') return undefined;
+  const p = (e.payload ?? {}) as Partial<ValueRecordedPayload>;
+  if (typeof p.key !== 'string' || !p.key.startsWith(TOOL_GATE_RECORD_PREFIX)) return undefined;
+  const waitTokenId = (p.value as { readonly waitTokenId?: unknown } | undefined)?.waitTokenId;
+  return typeof waitTokenId === 'string'
+    ? { waitTokenId, invocationId: p.key.slice(TOOL_GATE_RECORD_PREFIX.length) }
+    : undefined;
 }
 
 /** A completed model-call step's output, as far as provenance reads it. */

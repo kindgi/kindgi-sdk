@@ -557,6 +557,29 @@ export const ApprovalSchema: JsonSchema = {
     updatedAt: { type: 'string', format: 'date-time' },
     decidedAt: { type: 'string', format: 'date-time' },
     expiresAt: { type: 'string', format: 'date-time' },
+    decision: {
+      description:
+        "The reviewer's decision, once one is recorded. Absent while the approval is open, and when it ended without one (it expired, or a timeout escalated it).",
+      $ref: '#/components/schemas/ApprovalDecisionRecord',
+    },
+  },
+};
+
+export const ApprovalDecisionRecordSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['decision', 'decidedBy', 'reviewerId', 'reviewerRoleAtDecision', 'decidedAt'],
+  properties: {
+    decision: ReviewDecisionKindSchema,
+    decidedBy: {
+      type: 'string',
+      description:
+        "Who decided, as an actor: `user:<userId>`, the reviewer's user. The run's journal and provenance name the decider the same way.",
+    },
+    reviewerId: { type: 'string', format: 'uuid' },
+    reviewerRoleAtDecision: ReviewerRoleSchema,
+    decidedAt: { type: 'string', format: 'date-time' },
+    rationale: { type: 'string' },
   },
 };
 
@@ -6196,6 +6219,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ApprovalStatus', ApprovalStatusSchema],
   ['ReviewDecisionKind', ReviewDecisionKindSchema],
   ['Approval', ApprovalSchema],
+  ['ApprovalDecisionRecord', ApprovalDecisionRecordSchema],
   ['ReviewDecision', ReviewDecisionSchema],
   ['ApprovalCollectionPage', ApprovalCollectionPageSchema],
   ['CompleteApprovalBody', CompleteApprovalBodySchema],

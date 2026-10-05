@@ -703,41 +703,25 @@ class ProvenanceRef(BaseModel):
     provenance_id: Annotated[UUID | None, Field(alias="provenanceId")] = None
 
 
-class Approval(BaseModel):
+class ApprovalDecisionRecord(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    id: UUID
-    tenant_id: Annotated[UUID, Field(alias="tenantId")]
-    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
-    subject_kind: Annotated[str, Field(alias="subjectKind")]
-    subject_ref: Annotated[dict[str, Any], Field(alias="subjectRef")]
-    required_role: Annotated[Literal["standard", "senior", "admin"], Field(alias="requiredRole")]
+    decision: Literal["approve", "reject", "escalate", "withdraw"]
+    decided_by: Annotated[str, Field(alias="decidedBy")]
+    """
+    Who decided, as an actor: `user:<userId>`, the reviewer's user. The run's journal and provenance name the decider the same way.
+    """
+    reviewer_id: Annotated[UUID, Field(alias="reviewerId")]
+    reviewer_role_at_decision: Annotated[
+        Literal["standard", "senior", "admin"], Field(alias="reviewerRoleAtDecision")
+    ]
     """
     Reviewer role class. Hierarchy: standard < senior < admin.
     """
-    status: Literal[
-        "pending",
-        "assigned",
-        "in_review",
-        "approved",
-        "rejected",
-        "escalated",
-        "expired",
-        "withdrawn",
-    ]
-    assigned_to: Annotated[UUID | None, Field(alias="assignedTo")] = None
-    batch_key: Annotated[str | None, Field(alias="batchKey")] = None
-    title: str | None = None
-    description: str | None = None
-    context: dict[str, Any] | None = None
-    provenance_ref: Annotated[ProvenanceRef | None, Field(alias="provenanceRef")] = None
-    wait_token_id: Annotated[str | None, Field(alias="waitTokenId")] = None
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
-    decided_at: Annotated[AwareDatetime | None, Field(alias="decidedAt")] = None
-    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    decided_at: Annotated[AwareDatetime, Field(alias="decidedAt")]
+    rationale: str | None = None
 
 
 class ReviewDecision(BaseModel):
@@ -759,19 +743,6 @@ class ReviewDecision(BaseModel):
     decided_at: Annotated[AwareDatetime, Field(alias="decidedAt")]
 
 
-class ApprovalCollectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[Approval]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    """
-    Opaque cursor for the next page. ISO timestamp of the tail row internally; treat as opaque on the client.
-    """
-    has_more: Annotated[bool, Field(alias="hasMore")]
-
-
 class CompleteApprovalBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -782,24 +753,6 @@ class CompleteApprovalBody(BaseModel):
     value: Any | None = None
     """
     Payload passed to the run waitpoint (`RunBinding.completeToken`) when the approval is linked to a suspended run and the decision is `approve` or `reject`. Refused (400 `bad-input`) for an agent's tool-call or session gate (`tool-call:pending`, `agent-turn:session-hitl-gate`): those resume on the decision alone.
-    """
-
-
-class CompleteApprovalResult(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    kind: Literal["terminal", "escalated"]
-    approval: Approval
-    decision: ReviewDecision
-    next_approval: Annotated[Approval | None, Field(alias="nextApproval")] = None
-    """
-    Present only when `kind === "escalated"`.
-    """
-    waitpoint_resolved: Annotated[bool, Field(alias="waitpointResolved")]
-    """
-    True when the approval had a `waitTokenId` + terminal accept/reject and the run waitpoint was completed as part of this call.
     """
 
 
@@ -6060,6 +6013,78 @@ class AuditAuthzListResponse(BaseModel):
     data: list[Datum4]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class Approval(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: UUID
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    subject_kind: Annotated[str, Field(alias="subjectKind")]
+    subject_ref: Annotated[dict[str, Any], Field(alias="subjectRef")]
+    required_role: Annotated[Literal["standard", "senior", "admin"], Field(alias="requiredRole")]
+    """
+    Reviewer role class. Hierarchy: standard < senior < admin.
+    """
+    status: Literal[
+        "pending",
+        "assigned",
+        "in_review",
+        "approved",
+        "rejected",
+        "escalated",
+        "expired",
+        "withdrawn",
+    ]
+    assigned_to: Annotated[UUID | None, Field(alias="assignedTo")] = None
+    batch_key: Annotated[str | None, Field(alias="batchKey")] = None
+    title: str | None = None
+    description: str | None = None
+    context: dict[str, Any] | None = None
+    provenance_ref: Annotated[ProvenanceRef | None, Field(alias="provenanceRef")] = None
+    wait_token_id: Annotated[str | None, Field(alias="waitTokenId")] = None
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    decided_at: Annotated[AwareDatetime | None, Field(alias="decidedAt")] = None
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    decision: ApprovalDecisionRecord | None = None
+    """
+    The reviewer's decision, once one is recorded. Absent while the approval is open, and when it ended without one (it expired, or a timeout escalated it).
+    """
+
+
+class ApprovalCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Approval]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor for the next page. ISO timestamp of the tail row internally; treat as opaque on the client.
+    """
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class CompleteApprovalResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["terminal", "escalated"]
+    approval: Approval
+    decision: ReviewDecision
+    next_approval: Annotated[Approval | None, Field(alias="nextApproval")] = None
+    """
+    Present only when `kind === "escalated"`.
+    """
+    waitpoint_resolved: Annotated[bool, Field(alias="waitpointResolved")]
+    """
+    True when the approval had a `waitTokenId` + terminal accept/reject and the run waitpoint was completed as part of this call.
+    """
 
 
 class CallUsage(BaseModel):

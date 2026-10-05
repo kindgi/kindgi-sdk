@@ -41,3 +41,33 @@ describe('readGateDecision — fails closed', () => {
     });
   });
 });
+
+describe('readGateDecision — who decided', () => {
+  test('a decision names who decided which approval', () => {
+    expect(
+      readGateDecision({
+        decided: 'approve',
+        decidedBy: 'user:u-1',
+        approvalId: 'appr-1',
+      }),
+    ).toEqual({ approved: true, decidedBy: 'user:u-1', approvalId: 'appr-1' });
+    expect(readGateDecision({ decided: 'reject', rationale: 'no', decidedBy: 'user:u-1' })).toEqual(
+      { approved: false, reason: 'rejected', rationale: 'no', decidedBy: 'user:u-1' },
+    );
+  });
+
+  test("a decision recorded before it named the decider still decides; a malformed decider isn't read", () => {
+    expect(readGateDecision({ decided: 'approve' })).toEqual({ approved: true });
+    expect(readGateDecision({ decided: 'approve', decidedBy: 42, approvalId: {} })).toEqual({
+      approved: true,
+    });
+  });
+
+  test("an answer that isn't a decision names no decider", () => {
+    expect(readGateDecision({ decidedBy: 'user:u-1', approvalId: 'appr-1' })).toEqual({
+      approved: false,
+      reason: 'unreadable',
+      rationale: UNREADABLE_DECISION,
+    });
+  });
+});

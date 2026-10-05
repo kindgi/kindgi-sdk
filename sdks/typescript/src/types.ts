@@ -654,6 +654,26 @@ export interface Approval {
   readonly updatedAt: import('@kindgi/types').Timestamp;
   readonly decidedAt?: import('@kindgi/types').Timestamp;
   readonly expiresAt?: import('@kindgi/types').Timestamp;
+  /**
+   * The reviewer's decision, once one is recorded. Absent while the
+   * approval is open, and when it ended without one (it expired, or a
+   * timeout escalated it).
+   */
+  readonly decision?: ApprovalDecisionRecord;
+}
+
+/**
+ * Wire shape — matches `@kindgi/api/openapi.json#ApprovalDecisionRecord`.
+ * An approval's recorded decision: what the reviewer decided, why, and who.
+ */
+export interface ApprovalDecisionRecord {
+  readonly decision: ApprovalDecision;
+  /** Who decided, as an actor: `user:<userId>`, the reviewer's user. */
+  readonly decidedBy: string;
+  readonly reviewerId: ReviewerId;
+  readonly reviewerRoleAtDecision: ReviewerRole;
+  readonly decidedAt: import('@kindgi/types').Timestamp;
+  readonly rationale?: string;
 }
 
 /**

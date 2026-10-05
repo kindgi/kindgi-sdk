@@ -14,6 +14,7 @@ import type { Timestamp } from '@kindgi/types';
 
 import type { ConversationMessage, RetrievedFact } from '../types.js';
 import type { TurnContext } from './context.js';
+import type { GateDecision } from './gate-decision.js';
 
 /** The turn's user message. */
 export function addInputNode(provenance: ProvenanceBuilder, message: ConversationMessage): void {
@@ -138,12 +139,80 @@ export function addStepToolNodes(
 ): void {
   for (const result of stored) {
     if (result.role !== 'tool' || result.toolCall === undefined) continue;
+    const { invocationId, toolId } = result.toolCall;
     if (ctx.provenance !== undefined) {
-      addToolNodes(ctx.provenance, step, result, versionOf(ctx, result.toolCall.toolId));
+      addToolNodes(ctx.provenance, step, result, versionOf(ctx, toolId));
+      const approval = ctx.toolApprovals?.get(invocationId);
+      if (approval !== undefined) {
+        addToolApprovalNodes(
+          ctx.provenance,
+          invocationId,
+          approval,
+          ctx.input.agent.id as unknown as string,
+        );
+      }
     }
     ctx.toolResultIds ??= [];
-    ctx.toolResultIds.push(result.toolCall.invocationId);
+    ctx.toolResultIds.push(invocationId);
   }
+}
+
+/** A tool call's approval, decided: the wait it parked on and the answer. */
+export interface ToolApproval {
+  readonly waitTokenId: string;
+  /** When the call parked on the approval. */
+  readonly parkedAt: Timestamp;
+  /** When the decision reached the run. */
+  readonly decidedAt: Timestamp;
+  readonly decision: GateDecision;
+}
+
+/**
+ * The approval a tool call waited on, as the session gate records its own:
+ * a `wait` node (the agent parked) `resumed-from` a `resume` node (the
+ * decision, its actor whoever decided). The call `waited-on` the wait, and
+ * its result was `caused-by` the decision: the tool's output when approved,
+ * the rejection when not.
+ */
+export function addToolApprovalNodes(
+  provenance: ProvenanceBuilder,
+  invocationId: string,
+  approval: ToolApproval,
+  agentId: string,
+): void {
+  const waitId = `tool-hitl-gate-wait:${invocationId}`;
+  const resumeId = `tool-hitl-gate-resume:${invocationId}`;
+  const { decision } = approval;
+  provenance.addNode({
+    id: waitId,
+    kind: 'wait',
+    timestamp: approval.parkedAt,
+    actor: `agent:${agentId}`,
+    attributes: { gate: 'tool-call', invocationId, waitTokenId: approval.waitTokenId },
+  });
+  provenance.addNode({
+    id: resumeId,
+    kind: 'resume',
+    timestamp: approval.decidedAt,
+    ...(decision.decidedBy !== undefined && { actor: decision.decidedBy }),
+    attributes: {
+      gate: 'tool-call',
+      decision: decisionOf(decision),
+      ...(!decision.approved &&
+        decision.reason === 'rejected' &&
+        decision.rationale !== undefined && { rationale: decision.rationale }),
+      ...(decision.approvalId !== undefined && { approvalId: decision.approvalId }),
+    },
+  });
+  provenance.addEdge({ from: `tool-call:${invocationId}`, to: waitId, kind: 'waited-on' });
+  provenance.addEdge({ from: waitId, to: resumeId, kind: 'resumed-from' });
+  provenance.addEdge({ from: `tool-result:${invocationId}`, to: resumeId, kind: 'caused-by' });
+}
+
+/** A gate decision as a `resume` node records it. */
+export function decisionOf(decision: GateDecision): 'approve' | 'reject' | 'unreadable' {
+  if (decision.approved) return 'approve';
+  return decision.reason === 'rejected' ? 'reject' : 'unreadable';
 }
 
 /** The version the agent's binding of `toolId` resolved, if it has one. */
