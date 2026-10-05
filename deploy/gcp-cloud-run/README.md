@@ -26,7 +26,7 @@ The `connector` shape is the same resources wired to an existing connector.
 
 ## Before you start
 
-- Terraform ≥ 1.6, `gcloud`, Docker, `openssl`, and your pack's `kindgi` CLI.
+- Terraform ≥ 1.6, `gcloud`, Docker, `openssl`, and your pack's `kindgi` CLI (0.1.2 or later, for `kindgi key trust`).
 - **Permission to create the resources:** an Owner, or Editor plus Security Admin and Secret Manager Admin.
 - **Pull access to the runtime image** `quay.io/kindgi/runtime` (`kindgi auth registry`).
 - **A license key** from Kindgi (`KINDGI_LICENSE_KEY`; a non-production key for a pilot).
@@ -143,9 +143,7 @@ Trust the pack's signing key on the runtime, then deploy:
 
 ```sh
 URL=$(terraform output -raw server_url)
-PUB=$(kindgi key export <key id> --format=raw-hex | xxd -r -p | base64)   # the 32 raw bytes, base64
-curl -sS -X POST "$URL/v1/signing-keys" -H "authorization: Bearer <api token>" \
-  -H 'content-type: application/json' --data "{\"keyId\":\"<key id>\",\"publicKey\":\"$PUB\"}"
+kindgi key trust <key id> --label dev --url "$URL" --token <api token>
 kindgi deploy --env dev --endpoint "$URL" --token <api token>
 ```
 
@@ -158,7 +156,7 @@ Then `kindgi health`, `kindgi tools list` and a run, with `--url "$URL" --token 
 ## Operating it
 
 - **One server instance** (`server_max_instances = 1`) until several replicas are verified. Migrations run at boot and need a direct database connection (the socket or a private IP, not a transaction pooler).
-- **Upgrades roll forward:** migrations only go forward, so an older runtime can break on a database a newer one migrated (from 0.1.2 it refuses to start there, and names the migrations). Deploy a new runtime revision at 100% traffic, keep a database backup from before, and roll back by restoring it.
+- **Upgrades roll forward:** migrations only go forward, so an older runtime can break on a database a newer one migrated. Deploy a new runtime revision at 100% traffic, keep a database backup from before, and roll back by restoring it.
 - **Rotating a secret:** add a version, then roll a new revision of each service that reads it (`gcloud run services update <service> --update-labels=rotated=$(date +%s)`). Never rotate the AAD key this way: every secret stored in Postgres is bound to it.
 - **Slow tools:** the runtime waits `KINDGI_PACK_CALL_TIMEOUT_MS` (default 120 s, `pack_call_timeout_ms`) for a tool call. Keep the pack service's `pack_timeout` above it.
 
@@ -171,4 +169,4 @@ gcloud kms keys versions destroy 1 --key=$N-secrets --keyring=$N --location=<reg
 ```
 
 - Set `database_deletion_protection = false` first, for the instance to go.
-- In the `direct` shape the subnet can't be deleted until Cloud Run releases its `serverless-ipv4-cloudrun-*` addresses, some time after the services are gone. Run `terraform destroy` again later.
+- In the `direct` shape the subnet can't be deleted until Cloud Run releases its `serverless-ipv4-cloudrun-*` addresses, some time after the services are gone (about 3 hours in our run). Run `terraform destroy` again later.
