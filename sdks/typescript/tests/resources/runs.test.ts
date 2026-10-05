@@ -154,6 +154,26 @@ describe('runs.list — filters', () => {
     expect(first.searchParams.get('include')).toBe('output');
     expect(new URL(stub.calls[1]?.url ?? '').searchParams.get('topLevel')).toBe('true');
   });
+
+  it('sends a project or org scope as scopeKind + scopeId', async () => {
+    const stub = recordingFetch([
+      { status: 200, body: JSON.stringify({ data: [], hasMore: false }) },
+      { status: 200, body: JSON.stringify({ data: [], hasMore: false }) },
+    ]);
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    await client.runs.list({
+      scope: { kind: 'project', tenantId: 't-1', projectId: 'p-1' } as never,
+    });
+    await client.runs.list({ scope: { kind: 'org', tenantId: 't-1', orgId: 'o-1' } as never });
+    const project = new URL(stub.calls[0]?.url ?? '').searchParams;
+    expect([project.get('scopeKind'), project.get('scopeId')]).toEqual(['project', 'p-1']);
+    const org = new URL(stub.calls[1]?.url ?? '').searchParams;
+    expect([org.get('scopeKind'), org.get('scopeId')]).toEqual(['org', 'o-1']);
+  });
 });
 
 describe('runs.get', () => {

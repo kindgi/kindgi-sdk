@@ -11394,7 +11394,7 @@
             }
           },
           "400": {
-            "description": "Malformed cursor or filter.",
+            "description": "Malformed cursor, filter or scope.",
             "content": {
               "application/json": {
                 "schema": {
@@ -11436,6 +11436,25 @@
             },
             "required": false,
             "description": "Opaque cursor from a prior response. Absent → first page."
+          },
+          {
+            "name": "scopeKind",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/ScopeKind"
+            },
+            "required": false,
+            "description": "Optional scope discriminator. If absent, no scope filter is applied."
+          },
+          {
+            "name": "scopeId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Required IF scopeKind is `org` or `project`. MUST be absent if scopeKind=`tenant` (tenant is implicit from the session). Malformed combinations return 400 scope-invalid."
           },
           {
             "name": "parentRunId",
@@ -11490,6 +11509,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Run"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`runId` is not a run id (a UUID).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
                 }
               }
             }
@@ -11750,6 +11779,16 @@
               }
             }
           },
+          "400": {
+            "description": "`runId` is not a run id (a UUID).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
             "content": {
@@ -11815,6 +11854,16 @@
               "text/event-stream": {
                 "schema": {
                   "$ref": "#/components/schemas/RunEvent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`runId` is not a run id (a UUID).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
                 }
               }
             }
@@ -11887,6 +11936,16 @@
               }
             }
           },
+          "400": {
+            "description": "`runId` is not a run id (a UUID).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
             "content": {
@@ -11945,6 +12004,16 @@
               "text/event-stream": {
                 "schema": {
                   "$ref": "#/components/schemas/RunProgressEvent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`runId` is not a run id (a UUID).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
                 }
               }
             }

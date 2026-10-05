@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { Hono } from 'hono';
+import type { MiddlewareHandler } from 'hono';
 
 import type { AgentId } from '@kindgi/agents';
 import type { KernelRunRecord, ListRunsInput, RunBinding } from '@kindgi/runtime';
@@ -60,6 +61,24 @@ const MAX_RUN_ANCESTRY = 16;
  * `POST /:runId/cancel`, `POST /:runId/resume`, `GET /:runId/stream`
  * (SSE), `GET /:runId/journal`.
  */
+/** A run id: a UUID. */
+const RUN_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * A `:runId` that isn't a run id is a 400, before it reaches a query (where
+ * Postgres's uuid cast would fail it as a 500).
+ */
+const refuseMalformedRunId: MiddlewareHandler<AppEnv> = async (c, next) => {
+  if (RUN_ID_RE.test(c.req.param('runId') ?? '')) return next();
+  c.status(statusFor('bad-input') as never);
+  return c.json(
+    toWireError(
+      { code: 'bad-input', message: '`runId` must be a run id (a UUID)' },
+      c.get('requestId'),
+    ),
+  );
+};
+
 export function runsRouter(
   binding: RunHandlerBinding,
   runBinding: RunBinding,
@@ -179,7 +198,7 @@ export function runsRouter(
   });
 
   // ---------- GET /:runId ----------
-  r.get('/:runId', async (c) => {
+  r.get('/:runId', refuseMalformedRunId, async (c) => {
     const requestId = c.get('requestId');
     const runId = c.req.param('runId') as RunId;
 
@@ -194,7 +213,7 @@ export function runsRouter(
   });
 
   // ---------- GET /:runId/progress ----------
-  r.get('/:runId/progress', async (c) => {
+  r.get('/:runId/progress', refuseMalformedRunId, async (c) => {
     const requestId = c.get('requestId');
     const runId = c.req.param('runId') as RunId;
     const loaded = await readableRun(runBinding, c, runId);
@@ -263,7 +282,7 @@ export function runsRouter(
   });
 
   // ---------- POST /:runId/cancel ----------
-  r.post('/:runId/cancel', async (c) => {
+  r.post('/:runId/cancel', refuseMalformedRunId, async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const runId = c.req.param('runId') as RunId;
@@ -562,11 +581,11 @@ export function runsRouter(
       },
     });
   };
-  r.get('/:runId/stream', (c) => streamRun(c, 'full'));
-  r.get('/:runId/progress/stream', (c) => streamRun(c, 'progress'));
+  r.get('/:runId/stream', refuseMalformedRunId, (c) => streamRun(c, 'full'));
+  r.get('/:runId/progress/stream', refuseMalformedRunId, (c) => streamRun(c, 'progress'));
 
   // ---------- GET /:runId/journal ----------
-  r.get('/:runId/journal', async (c) => {
+  r.get('/:runId/journal', refuseMalformedRunId, async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const runId = c.req.param('runId') as RunId;
@@ -736,8 +755,8 @@ function parseRunListFilter(
     return { kind: 'err', message: '`topLevel` must be `true` or `false`' };
   }
   const topLevelOnly = topLevel === 'true';
-  if (parentRunId !== undefined && parentRunId.length === 0) {
-    return { kind: 'err', message: '`parentRunId` must be a run id' };
+  if (parentRunId !== undefined && !RUN_ID_RE.test(parentRunId)) {
+    return { kind: 'err', message: '`parentRunId` must be a run id (a UUID)' };
   }
   if (parentRunId !== undefined && topLevelOnly) {
     return { kind: 'err', message: '`parentRunId` and `topLevel=true` cannot be combined' };

@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import type { Scope } from '@kindgi/platform';
 import type { RunStatus } from '@kindgi/runtime';
 import type { AgentId, FlowId, RunId, TenantId, Timestamp } from '@kindgi/types';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
 import type { RunProgress } from '../generated/api.js';
 import { type RunProgressEvent, followRun } from '../run-follow.js';
+import { scopeToQuery } from '../scope-wire.js';
 import type { Transport } from '../transport.js';
 import type { DryRunResult, RunEvent } from '../types.js';
 
@@ -172,6 +174,8 @@ export interface RunJournalPage {
 export interface ListRunsFilter {
   readonly limit?: number;
   readonly cursor?: string;
+  /** Only one project's runs (`kind: 'project'`), or the runs of every project in an org (`kind: 'org'`). */
+  readonly scope?: Scope;
   /** Only the child runs of this run. */
   readonly parentRunId?: RunId;
   /** Only runs that are not a child of another run. */
@@ -385,6 +389,7 @@ export function makeRunsClient(transport: Transport): RunsClient {
         query: {
           ...(filter?.limit !== undefined && { limit: filter.limit }),
           ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
+          ...(filter?.scope !== undefined && scopeToQuery(filter.scope)),
           ...(filter?.parentRunId !== undefined && {
             parentRunId: filter.parentRunId as unknown as string,
           }),
