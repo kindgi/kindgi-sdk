@@ -128,6 +128,23 @@ export const RunStatusSchema: JsonSchema = {
   enum: ['pending', 'running', 'suspended', 'completed', 'failed', 'cancelled'],
 };
 
+/**
+ * The agent a run is a turn of. A component of its own, so generated
+ * clients name it `RunAgent` (not after the `agent` property).
+ */
+export const RunAgentSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'version', 'conversationId'],
+  description:
+    "Set on an agent's turn (an agent run, or the turn a flow's agent step started): the agent, the version that ran and the conversation. Absent on other runs, and on turns that ran before Kindgi 0.1.3.",
+  properties: {
+    id: { type: 'string', description: 'The agent id.' },
+    version: { type: 'string', description: 'The agent version that ran (semver).' },
+    conversationId: { type: 'string', format: 'uuid' },
+  },
+};
+
 export const RunSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -167,6 +184,7 @@ export const RunSchema: JsonSchema = {
       type: 'string',
       description: 'Set on a child run: the node in the parent run that started it.',
     },
+    agent: { $ref: '#/components/schemas/RunAgent' },
     publicAccessToken: {
       type: 'string',
       description:
@@ -6169,6 +6187,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['WireError', WireErrorSchema],
   ['HealthResult', HealthResultSchema],
   ['RunStatus', RunStatusSchema],
+  ['RunAgent', RunAgentSchema],
   ['Run', RunSchema],
   ['StartRunOptions', StartRunOptionsSchema],
   ['StartRunBody', StartRunBodySchema],

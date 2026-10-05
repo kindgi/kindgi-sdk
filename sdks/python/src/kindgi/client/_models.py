@@ -53,6 +53,26 @@ class RunStatus(
     root: Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]
 
 
+class RunAgent(BaseModel):
+    """
+    Set on an agent's turn (an agent run, or the turn a flow's agent step started): the agent, the version that ran and the conversation. Absent on other runs, and on turns that ran before Kindgi 0.1.3.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    The agent id.
+    """
+    version: str
+    """
+    The agent version that ran (semver).
+    """
+    conversation_id: Annotated[UUID, Field(alias="conversationId")]
+
+
 class Run(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -87,6 +107,7 @@ class Run(BaseModel):
     """
     Set on a child run: the node in the parent run that started it.
     """
+    agent: RunAgent | None = None
     public_access_token: Annotated[str | None, Field(alias="publicAccessToken")] = None
     """
     Only in the response to `POST /v1/runs`, when the deployment issues public run tokens: a read-only token for this run (and its descendants) to hand to a browser, for `GET /v1/runs/{runId}/progress` and its stream.
@@ -241,6 +262,7 @@ class Datum(BaseModel):
     """
     Set on a child run: the node in the parent run that started it.
     """
+    agent: RunAgent | None = None
     public_access_token: Annotated[str | None, Field(alias="publicAccessToken")] = None
     """
     Only in the response to `POST /v1/runs`, when the deployment issues public run tokens: a read-only token for this run (and its descendants) to hand to a browser, for `GET /v1/runs/{runId}/progress` and its stream.

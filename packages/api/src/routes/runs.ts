@@ -652,7 +652,8 @@ function invokeFromBody(
 /**
  * Wire row for a run. `output` is the run's output once it completed;
  * single-run responses carry it, lists only with `?include=output`
- * (outputs can be large). Child runs carry their parent's run + node.
+ * (outputs can be large). Child runs carry their parent's run + node;
+ * an agent's turns, the agent, its version and the conversation.
  */
 function serializeRun(
   row: KernelRunRecord,
@@ -673,6 +674,13 @@ function serializeRun(
     ...(opts.output && row.output !== undefined && { output: row.output }),
     ...(row.parentRunId != null && { parentRunId: row.parentRunId as unknown as string }),
     ...(row.parentNodeId != null && { parentNodeId: row.parentNodeId as unknown as string }),
+    ...(row.agent !== undefined && {
+      agent: {
+        id: row.agent.id,
+        version: row.agent.version,
+        conversationId: row.agent.conversationId as unknown as string,
+      },
+    }),
   };
 }
 
@@ -737,20 +745,28 @@ function listRunsInput(input: {
     }),
     ...(filter.parentRunId !== undefined && { parent: { runId: filter.parentRunId } }),
     ...(filter.topLevelOnly && { topLevelOnly: true }),
+    ...(filter.agentId !== undefined && { agentId: filter.agentId }),
   };
 }
 
 interface RunListFilter {
   readonly parentRunId?: RunId;
   readonly topLevelOnly: boolean;
+  readonly agentId?: string;
   readonly includeOutput: boolean;
 }
 
-/** `?parentRunId=` (children of a run), `?topLevel=true`, `?include=output`. */
+/**
+ * `?parentRunId=` (children of a run), `?topLevel=true`, `?agentId=` (an
+ * agent's turns), `?include=output`.
+ */
 function parseRunListFilter(
   query: Readonly<Record<string, string>>,
 ): { kind: 'ok'; value: RunListFilter } | { kind: 'err'; message: string } {
-  const { parentRunId, topLevel, include } = query;
+  const { parentRunId, topLevel, agentId, include } = query;
+  if (agentId !== undefined && agentId.trim() === '') {
+    return { kind: 'err', message: '`agentId` must not be empty' };
+  }
   if (topLevel !== undefined && topLevel !== 'true' && topLevel !== 'false') {
     return { kind: 'err', message: '`topLevel` must be `true` or `false`' };
   }
@@ -771,6 +787,7 @@ function parseRunListFilter(
     value: {
       ...(parentRunId !== undefined && { parentRunId: parentRunId as RunId }),
       topLevelOnly,
+      ...(agentId !== undefined && { agentId }),
       includeOutput: includes.includes('output'),
     },
   };

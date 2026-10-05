@@ -224,6 +224,30 @@
           "cancelled"
         ]
       },
+      "RunAgent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "conversationId"
+        ],
+        "description": "Set on an agent's turn (an agent run, or the turn a flow's agent step started): the agent, the version that ran and the conversation. Absent on other runs, and on turns that ran before Kindgi 0.1.3.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The agent id."
+          },
+          "version": {
+            "type": "string",
+            "description": "The agent version that ran (semver)."
+          },
+          "conversationId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "Run": {
         "type": "object",
         "additionalProperties": false,
@@ -298,6 +322,9 @@
           "parentNodeId": {
             "type": "string",
             "description": "Set on a child run: the node in the parent run that started it."
+          },
+          "agent": {
+            "$ref": "#/components/schemas/RunAgent"
           },
           "publicAccessToken": {
             "type": "string",
@@ -510,6 +537,9 @@
                 "parentNodeId": {
                   "type": "string",
                   "description": "Set on a child run: the node in the parent run that started it."
+                },
+                "agent": {
+                  "$ref": "#/components/schemas/RunAgent"
                 },
                 "publicAccessToken": {
                   "type": "string",
@@ -11474,6 +11504,16 @@
             },
             "required": false,
             "description": "When true, only runs that are not a child of another run."
+          },
+          {
+            "name": "agentId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Only this agent's turns, at any version. Turns that ran before Kindgi 0.1.3 don't name their agent and aren't matched."
           },
           {
             "name": "include",
