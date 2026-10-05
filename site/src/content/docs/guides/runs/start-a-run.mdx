@@ -172,7 +172,8 @@ background. Start an agent with `agent` instead of `flow`, and its input
 | `status` | `pending`, `running`, `suspended`, `completed`, `failed` or `cancelled`. |
 | `output` | What the run returned, once it completed. |
 | `failureMessage` | Why it failed. |
-| `flowId`, `flowVersion` | The flow and the version the run is pinned to. An agent's turn reports `agent.turn`. |
+| `flowId`, `flowVersion` | The flow and the version the run is pinned to. An agent's turn reports `agent.turn`, and its agent is in `agent`. |
+| `agent` | For an agent's turn: the agent's `id`, the `version` that ran, and the `conversationId`. A flow's run has none, nor does a turn from before Kindgi 0.1.3. |
 | `dryRun` | Whether it was a [dry run](../../flows/dry-run-a-flow/). |
 | `publicAccessToken` | A read-only token for this run, for a browser, when the deployment issues them ([details](../follow-from-the-browser/)). Only `start` returns it. |
 

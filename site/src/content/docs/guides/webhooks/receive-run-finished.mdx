@@ -103,7 +103,9 @@ print(endpoint.endpoint_id, endpoint.url)
   network (the same VPC or compose network) sets
   `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow`. That opens RFC 1918, CGNAT and
   IPv6 unique-local addresses, still over https only. Loopback and the cloud
-  metadata addresses stay refused.
+  metadata addresses stay refused. A URL the deployment refuses gets
+  `400 webhook-url-refused`, with the reason: `The deployment refuses this
+  URL: private network addresses are not allowed`.
 - **`events`**: `run.finished`.
 - **`secretRef`** names the secret: the environment it's in (`local` in
   development) and its name. Kindgi checks that it exists and is strong
@@ -174,5 +176,11 @@ webhook-signature: v1,bj8Mj6s7ln2Gd1sDRQi8+Wax2SOFHovsdMIwvNhDrgw=
 Answer with a 2xx status. Any other answer, or none, is retried with backoff
 (a minute later, then five minutes, then longer). A delivery is **at least
 once**: the same event can arrive twice, so deduplicate on `webhook-id`.
+
+Outside development, every attempt checks the receiver's address again, with
+the runtime's settings at that moment. An attempt to an address it refuses
+fails with `lastError: "url-refused"` and is retried like any other: set
+`KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow`, and the queued retries to a private
+receiver go out.
 [Verify a webhook](../verify-a-webhook/) has receivers that check the
 signature and do that.

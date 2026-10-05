@@ -89,7 +89,9 @@ Each event sent to an endpoint is a **delivery**. `listDeliveries`
 - **`status`**: `pending` (waiting for its next attempt), `delivered` (the
   endpoint answered 2xx) or `failed` (every attempt failed).
 - **`lastResponseStatus`** and **`lastError`** say what went wrong:
-  `connection-refused` when nothing listened at the URL, for example.
+  `connection-refused` when nothing listened at the URL, for example, or
+  `url-refused` when the deployment refuses the receiver's address (see
+  [the `url`](../receive-run-finished/#2-register-the-endpoint)).
 - **`nextAttemptAt`** is when a pending delivery is tried again.
 
 Pass `status: 'failed'` (`status="failed"`) to list only the ones that gave up.
