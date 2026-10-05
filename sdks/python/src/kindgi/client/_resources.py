@@ -3074,7 +3074,7 @@ class PoliciesResource:
     ) -> _models.PublishPolicyResult:
         """Publish a policy. `POST /v1/policies`
 
-        Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).
+        Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).
         """
         return self._client._request(
             _OPERATIONS["policies.publish"],
@@ -7921,7 +7921,7 @@ class AsyncPoliciesResource:
     ) -> _models.PublishPolicyResult:
         """Publish a policy. `POST /v1/policies`
 
-        Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).
+        Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).
         """
         return await self._client._request(
             _OPERATIONS["policies.publish"],
