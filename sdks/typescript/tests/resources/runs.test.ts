@@ -165,10 +165,9 @@ describe('runs.list — filters', () => {
       auth: AUTH,
       fetch: stub.fetch,
     });
-    await client.runs.list({
-      scope: { kind: 'project', tenantId: 't-1', projectId: 'p-1' } as never,
-    });
-    await client.runs.list({ scope: { kind: 'org', tenantId: 't-1', orgId: 'o-1' } as never });
+    // No tenant id: the API takes it from the token.
+    await client.runs.list({ scope: { kind: 'project', projectId: 'p-1' } });
+    await client.runs.list({ scope: { kind: 'org', orgId: 'o-1' } });
     const project = new URL(stub.calls[0]?.url ?? '').searchParams;
     expect([project.get('scopeKind'), project.get('scopeId')]).toEqual(['project', 'p-1']);
     const org = new URL(stub.calls[1]?.url ?? '').searchParams;

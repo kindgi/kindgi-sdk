@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Scope } from '@kindgi/platform';
 import type { RunStatus } from '@kindgi/runtime';
 import type { AgentId, FlowId, RunId, TenantId, Timestamp } from '@kindgi/types';
+import type { ScopeRef } from '../scope-wire.js';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
 import type { RunProgress } from '../generated/api.js';
@@ -175,7 +175,7 @@ export interface ListRunsFilter {
   readonly limit?: number;
   readonly cursor?: string;
   /** Only one project's runs (`kind: 'project'`), or the runs of every project in an org (`kind: 'org'`). */
-  readonly scope?: Scope;
+  readonly scope?: ScopeRef;
   /** Only the child runs of this run. */
   readonly parentRunId?: RunId;
   /** Only runs that are not a child of another run. */
