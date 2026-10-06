@@ -1,5 +1,14 @@
 # @kindgi/memory
 
+## 0.1.4-rc.0
+
+### Patch Changes
+
+- Updated dependencies [fac7472]
+- Updated dependencies [26b2a23]
+  - @kindgi/types@0.1.4-rc.0
+  - @kindgi/embedding@0.1.4-rc.0
+
 ## 0.1.3
 
 ### Patch Changes

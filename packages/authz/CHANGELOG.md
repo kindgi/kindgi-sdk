@@ -1,5 +1,15 @@
 # @kindgi/authz
 
+## 0.1.4-rc.0
+
+### Patch Changes
+
+- d9cee7c: Judging a run needs `write` on the run's project, as cancelling one does: a run inherits its permissions from its project. With authorization on, judging was refused for every run, because it asked for a `judge` permission on the run itself, which no run has. The unreleased `judge` action is gone from `@kindgi/authz`.
+- dde7fdb: Judgments and judge classes. A judgment is a yes or no, with an optional reason, about one item of a finished run's output, optionally recorded under a judge class that carries a weight. `@kindgi/api` adds `/v1/judgments` (create, list, get, unregister) and `/v1/judge-classes` (create, list, get, update, unregister), mounted when `createApp` gets a `judgmentRegistry` (`JudgmentRegistryBinding`). A judgment keeps copies of the run's input and output and of the judged item, takes who judged from the caller's token, and judging an item again as the same caller supersedes the earlier judgment. `@kindgi/authz` adds the `judge` action on `run`. `@kindgi/policy-contract` adds the `judgment` and `judge_class` retention domains. `@kindgi/client` adds `client.judgments` and `client.judgeClasses`; the Python client has the same resources. `@kindgi/cli` adds `kindgi judgments add | list | show | remove` and `kindgi judge-classes list | add | set | remove`.
+- Updated dependencies [fac7472]
+- Updated dependencies [26b2a23]
+  - @kindgi/types@0.1.4-rc.0
+
 ## 0.1.3
 
 ### Patch Changes

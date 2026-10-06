@@ -1,5 +1,41 @@
 # @kindgi/types
 
+## 0.1.4-rc.0
+
+### Patch Changes
+
+- fac7472: **Derive an agent version with new data-block pins, with no code change.** An expert edits a prompt or settings block and publishes a new version of it; deriving an agent version is how that edit reaches the agent.
+  
+  - **`POST /v1/agents/{agentId}/versions`** `{ from, pins: { prompts?, settings? }, label?, projectId? }`:
+    - The new version is `from` with the named pins swapped, everything else kept.
+    - It's numbered the next free patch after the agent's highest version (versions never change).
+    - It records `derivedFrom: { version, reason: 'edited', label?, by: 'user:<id>' }`.
+    - Answers `201` with the new agent version.
+    - Needs `publish` on the agent.
+  - **Refusals** (`400 validation-failed`, naming each problem under `details.issues`):
+    - a version published before pins;
+    - a block the version doesn't already reference (adding one is a code change);
+    - a block version that isn't published, is unregistered, is the wrong kind, or isn't model settings for the model-settings block;
+    - swaps that change nothing.
+    - Tool pins can't be swapped: they come from code.
+    - An unknown version answers `404 agent-not-found`.
+  - **Clients:**
+    - TS: `client.agents.versions.derive(agentId, { from, pins, label })`.
+    - Python: `client.agents.derive_version(agent_id, from_=..., pins=...)`.
+    - CLI: `kindgi agents derive <agent-id> --from=<semver> --prompt=<block-id>=<version> --setting=<block-id>=<version> [--label=<text>]`. Repeat `--prompt` and `--setting` for several blocks.
+  - **A taken number is never overwritten.** `POST /v1/agents` with a version that's already registered (a derived version may hold it) still answers `409 agent-already-registered`. It now names the next free version in the message and as `nextFreeVersion`: `… is already registered, and versions never change; publish it as 1.4.2, the next free version`.
+  - **Deploys:** a deploy whose definition and pins match a derived version reuses it, reporting the deploy's own reason (`pins-changed`), not `edited`.
+  - **`VersionDerivation`:** `reason` adds `'edited'`; new optional `label` and `by`.
+- 26b2a23: **A flow version is pinned when it's published, as an agent version is.** `POST /v1/flows` pins each tool the flow runs to its latest active version: tool nodes, fanout branches, and nodes in loop bodies. It also pins each agent the flow runs at no named version (an agent node without `config.version`). The result is stored on the version as `pins` (`{tools, agents}`) with `pinsDigest`, and every run of that flow version uses those versions. A new tool or agent version reaches the flow only through a new flow version. An agent node with its own `config.version` keeps it.
+  
+  - **Refusals:** a tool or agent with no published version refuses the publish (`400 validation-failed`, naming each).
+  - **Deploys** pin flows after agents and follow the same rule as agents, from one shared code path. When pins change, the deploy registers the next free version with `derivedFrom`, and a redeploy is idempotent. So one tool change cascades through an agent into a flow within a single deploy, each derived once. The deployment's `contents.flows` names each flow's registered version (`DeployedVersion`), and `kindgi deploy` prints one line per renumbered flow.
+  - **Unchanged:** a flow version published before pins binds the latest versions per run, as before.
+  - **New exports:**
+    - `@kindgi/flow`: `FlowPins`, `flowPinsDigest()` and `flowRefs()`.
+    - `@kindgi/types`: `VersionDerivation`.
+    - `@kindgi/agents`: `PinChange.kind` adds `agent`, and `pinChanges()` takes any pin set. `withVersions(flow, { tools?, agents? })` (`@kindgi/flow`) runs a flow version with some blocks at other exact versions through the same pins: what a comparison or replay runs, with `pinsDigest` recomputed.
+
 ## 0.1.3
 
 ### Patch Changes
