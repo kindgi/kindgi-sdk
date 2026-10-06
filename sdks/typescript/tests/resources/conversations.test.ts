@@ -107,6 +107,18 @@ describe('conversations.list', () => {
     expect(url.searchParams.get('agentId')).toBe('acme.drafter');
     expect(url.searchParams.get('status')).toBe('open');
     expect(url.searchParams.get('limit')).toBe('5');
+    expect(url.searchParams.has('replays')).toBe(false);
+  });
+
+  it("passes replays (a comparison's replay conversations are left out by default)", async () => {
+    const stub = jsonFetch({ data: [], hasMore: false });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    await client.conversations.list({ replays: 'only' });
+    expect(new URL(stub.calls[0]?.url).searchParams.get('replays')).toBe('only');
   });
 });
 

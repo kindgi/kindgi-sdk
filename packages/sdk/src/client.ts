@@ -175,3 +175,13 @@ export type {
   RunProgressEvent,
   SubscribeToRunOptions,
 } from '@kindgi/client';
+
+// ---- Comparisons (a test set compared with a version): the typed result ----
+export { comparisonOf } from '@kindgi/client';
+export type {
+  ComparisonCandidate,
+  ComparisonCaseResult,
+  ComparisonMetric,
+  JudgedComparisonResult,
+  JudgedComparisonSummary,
+} from '@kindgi/client';

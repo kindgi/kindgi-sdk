@@ -20,6 +20,9 @@ export const LICENSE_KEY_VAR = 'KINDGI_LICENSE_KEY';
 /** The browser origins allowed on the routes a public run token opens. */
 export const CORS_ORIGINS_VAR = 'KINDGI_CORS_ORIGINS';
 
+/** The URL clients reach the runtime at, when it isn't the address it binds. */
+export const PUBLIC_URL_VAR = 'KINDGI_PUBLIC_URL';
+
 /** The shared secret between the server and the pack service. */
 export const PACK_SERVICE_TOKEN_VAR = 'KINDGI_PACK_SERVICE_TOKEN';
 
@@ -64,6 +67,34 @@ export function parseCorsOrigins(raw: string | undefined): readonly string[] {
     );
   }
   return [...new Set(origins)];
+}
+
+/**
+ * `KINDGI_PUBLIC_URL`: an `http(s)` URL with no credentials, query or
+ * fragment, without a trailing slash; `undefined` when unset.
+ */
+export function parsePublicUrl(raw: string | undefined): string | undefined {
+  if (raw === undefined || raw.trim() === '') return undefined;
+  const value = raw.trim();
+  let url: URL | undefined;
+  try {
+    url = new URL(value);
+  } catch {
+    url = undefined;
+  }
+  if (
+    url === undefined ||
+    (url.protocol !== 'https:' && url.protocol !== 'http:') ||
+    url.username !== '' ||
+    url.password !== '' ||
+    url.search !== '' ||
+    url.hash !== ''
+  ) {
+    throw new Error(
+      `${PUBLIC_URL_VAR} must be an http(s) URL like https://kindgi.example.com, with no credentials, query or fragment. Got: ${value}.`,
+    );
+  }
+  return url.href.replace(/\/+$/, '');
 }
 
 function isExactOrigin(value: string): boolean {

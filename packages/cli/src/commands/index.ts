@@ -6,12 +6,14 @@ import { agentsCommand } from './agents.js';
 import { approvalsCommand } from './approvals.js';
 import { artifactsCommand } from './artifacts.js';
 import { authCommand } from './auth.js';
+import { blocksCommand } from './blocks.js';
 import { buildCommand } from './build.js';
 import { capabilitiesCommand } from './capabilities.js';
 import { conversationsCommand } from './conversations.js';
 import { deployCommand } from './deploy.js';
 import { devCommand } from './dev.js';
 import { envCommand } from './env.js';
+import { evalRunsCommand } from './eval-runs.js';
 import { evalSuitesCommand } from './eval-suites.js';
 import { feedbackCommand } from './feedback.js';
 import { flowsCommand } from './flows.js';
@@ -24,6 +26,7 @@ import { keyCommand } from './key.js';
 import { mcpCommand, mcpLaunchCommand } from './mcp.js';
 import { memoryCommand } from './memory.js';
 import { observationsCommand } from './observations.js';
+import { projectsCommand } from './projects.js';
 import { proposalsCommand } from './proposals.js';
 import { provenanceCommand } from './provenance.js';
 import { providersCommand } from './providers.js';
@@ -49,6 +52,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   keyCommand,
   mcpCommand,
   mcpLaunchCommand,
+  projectsCommand,
   runsCommand,
   agentsCommand,
   conversationsCommand,
@@ -64,7 +68,9 @@ export const ROOT_COMMANDS: readonly Command[] = [
   observationsCommand,
   judgmentsCommand,
   judgeClassesCommand,
+  evalRunsCommand,
   evalSuitesCommand,
+  blocksCommand,
   tokensCommand,
   capabilitiesCommand,
   providersCommand,

@@ -522,6 +522,9 @@ importers:
       '@kindgi/env-schema':
         specifier: workspace:*
         version: link:../env-schema
+      '@kindgi/flow':
+        specifier: workspace:*
+        version: link:../flow
       '@kindgi/handler-runtime':
         specifier: workspace:*
         version: link:../handler-runtime

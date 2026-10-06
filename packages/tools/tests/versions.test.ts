@@ -16,7 +16,7 @@ import type { ToolId } from '@kindgi/types';
 import { defineTool } from '../src/define.js';
 import { createToolRegistry } from '../src/registry.js';
 import type { AnyTool } from '../src/types.js';
-import { latestVersion, pickVersion } from '../src/versions.js';
+import { latestVersion, nextVersion, pickVersion } from '../src/versions.js';
 
 const available = ['1.0.0', '1.2.0', '1.3.0-beta.1', '2.0.0', 'not-a-version'];
 
@@ -77,5 +77,14 @@ describe('the in-process registry picks by the same rule', () => {
     expect(resolved.kind === 'ok' ? resolved.value.resolvedVersion : resolved.error.code).toBe(
       picked.kind === 'ok' ? picked.version : 'tool-version-unresolvable',
     );
+  });
+});
+
+describe('nextVersion', () => {
+  test('the next patch, or the next prerelease; never a newer minor or major', () => {
+    expect(nextVersion('1.4.0')).toBe('1.4.1');
+    expect(nextVersion('1.4.9')).toBe('1.4.10');
+    expect(nextVersion('1.4.0-rc.1')).toBe('1.4.0-rc.2');
+    expect(nextVersion('not-a-version')).toBeUndefined();
   });
 });

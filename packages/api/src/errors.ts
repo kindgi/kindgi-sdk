@@ -67,6 +67,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'duplicate-edge-id': 409,
   'agent-version-mismatch': 409,
   'agent-already-registered': 409,
+  'registry-read-only': 409,
   'agent-gone': 410,
   'flow-gone': 410,
   'policy-gone': 410,
@@ -160,7 +161,12 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // Admin plane — policies.
   'policy-not-found': 404,
   'policy-already-registered': 409,
+  'policy-scope-taken': 409,
+  'policy-scope-changed': 409,
   // Admin plane — eval suites.
+  'block-not-found': 404,
+  'block-already-registered': 409,
+  'block-project-mismatch': 409,
   'eval-suite-not-found': 404,
   'eval-suite-already-registered': 409,
   // Admin plane — eval-run dispatch.

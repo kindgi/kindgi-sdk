@@ -9,6 +9,7 @@ import type { Cursor, ProjectId, TenantId, ToolId, UserId } from '@kindgi/types'
 
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
@@ -47,6 +48,12 @@ export function toolsRouter(
   onWrite?: ToolWriteHook,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  // A read-only registry (under `kindgi dev`, the pack's files) refuses
+  // every write before anything else runs.
+  r.use(
+    '*',
+    refuseWritesWhenReadOnly(() => binding.readOnly),
+  );
 
   // Authorization (PEP) — mirrors agents. Cascade via `tool#parent@project`
   // written in-tx by publish; direct check via `ref('tool', businessId)`.

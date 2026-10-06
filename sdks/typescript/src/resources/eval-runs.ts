@@ -13,6 +13,7 @@ import type {
   EvalRun,
   EvalRunCollectionPage,
   EvalRunStatus,
+  JudgedComparisonResult,
   StartEvalRunBody,
   StartEvalRunResult,
 } from '../generated/api.js';
@@ -28,6 +29,26 @@ export type EvalRunPage = EvalRunCollectionPage;
  */
 export type StartEvalRunInput = Omit<StartEvalRunBody, 'projectId'>;
 export type StartEvalRunOutcome = StartEvalRunResult;
+export type {
+  ComparisonCandidate,
+  ComparisonCaseResult,
+  ComparisonMetric,
+  JudgedComparisonResult,
+  JudgedComparisonSummary,
+} from '../generated/api.js';
+
+/**
+ * A comparison's result, typed from the OpenAPI `JudgedComparisonResult`:
+ * its summary and each case. `run` is a `judged` eval run (a test set
+ * compared with a version); `undefined` for another kind of eval run, a
+ * dry run, or one that hasn't finished.
+ */
+export function comparisonOf(run: EvalRunRecord): JudgedComparisonResult | undefined {
+  const result = run.result as Partial<JudgedComparisonResult> | undefined;
+  return run.kind === 'judged' && result?.summary !== undefined && Array.isArray(result.perCase)
+    ? (result as JudgedComparisonResult)
+    : undefined;
+}
 
 export interface StartEvalRunOptions {
   /** Project the eval run belongs to. The route requires it. */

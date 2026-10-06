@@ -1,5 +1,16 @@
 # @kindgi/env-schema
 
+## 0.1.4-rc.1
+
+### Patch Changes
+
+- 846dd9c: `KINDGI_RUN_LEASE_MS` and `KINDGI_RUN_SWEEP_INTERVAL_MS` say they cover eval runs too: a running eval run holds the same executor lease, and when its server stops without a shutdown, the sweep ends it `failed`, interrupted, with its finished cases kept.
+- c0f1b56: `KINDGI_PUBLIC_URL`: the URL clients reach the runtime at, when it isn't the address the server binds (behind a proxy, or a container whose port is published on another one). The runtime's startup banner names it, with its docs and console links. `kindgi dev` sets it, so the banner shows the port `kindgi dev` chose, e.g. 4001 when 4000 was taken, not the container's 4000. `parsePublicUrl` validates it; a runtime that doesn't read it keeps working.
+
+## 0.1.4-rc.0
+
+No changes in this release.
+
 ## 0.1.3
 
 ### Patch Changes

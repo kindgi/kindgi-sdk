@@ -17,6 +17,7 @@ export type { KindgiClient } from './client.js';
 export type {
   AgentsClient,
   DefineAgentOptions,
+  DeriveAgentVersionInput,
   ReinstateAgentVersionResult,
 } from './resources/agents.js';
 export type {
@@ -142,6 +143,11 @@ export type {
   PolicyListFilter,
   PolicyVersionsFilter,
 } from './resources/policies.js';
+export type {
+  RetentionClient,
+  RetentionScheduledFilter,
+  RetentionSweepInput,
+} from './resources/retention.js';
 export type { SessionsClient, UserFilter, UsersClient } from './resources/users.js';
 export type {
   AddMembershipInput,
@@ -187,6 +193,7 @@ export type {
   TokensClient,
 } from './resources/tokens.js';
 export { followRun, subscribeToRun } from './run-follow.js';
+export { comparisonOf } from './resources/eval-runs.js';
 export type { RunProgress } from './generated/api.js';
 export type { FollowRunOptions, RunProgressEvent, SubscribeToRunOptions } from './run-follow.js';
 export type { JudgeClassFilter, JudgeClassesClient } from './resources/judge-classes.js';
@@ -291,10 +298,29 @@ export type {
   UnregisterSuiteVersionResult,
 } from './resources/eval-suites.js';
 export type {
+  Block,
+  BlockKind,
+  BlockPage,
+  BlocksClient,
+  BlockVersionsClient,
+  ListBlocksFilter,
+  ListBlockVersionsFilter,
+  PublishBlockInput,
+  PublishBlockOptions,
+  PublishBlockResult,
+  ReinstateBlockResult,
+  UnregisterBlockResult,
+} from './resources/blocks.js';
+export type {
   EvalRunEvent,
   EvalRunPage,
+  ComparisonCandidate,
+  ComparisonCaseResult,
+  ComparisonMetric,
   EvalRunRecord,
   EvalRunsClient,
+  JudgedComparisonResult,
+  JudgedComparisonSummary,
   ListEvalRunsFilter,
   StartEvalRunInput,
   StartEvalRunOptions,
@@ -457,6 +483,11 @@ export type {
   PolicyId,
   PolicyKind,
   PolicySpec,
+  RetentionDomain,
+  RetentionPolicyConflict,
+  RetentionScheduledItem,
+  RetentionScheduledPage,
+  RetentionSweepResult,
   PolicyStatus,
   PresignedUrl,
   PresignInput,

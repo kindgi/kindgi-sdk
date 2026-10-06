@@ -62,6 +62,23 @@ export function conversationsRouter(
 
     const agentIdRaw = c.req.query('agentId');
 
+    // Replay conversations (a comparison's replays) are left out unless asked for.
+    const replaysRaw = c.req.query('replays');
+    if (
+      replaysRaw !== undefined &&
+      replaysRaw !== 'exclude' &&
+      replaysRaw !== 'include' &&
+      replaysRaw !== 'only'
+    ) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          { code: 'bad-input', message: '`replays` must be `exclude`, `include` or `only`' },
+          requestId,
+        ),
+      );
+    }
+
     const scopeParsed = parseListScope(c.req.query(), { tenantId });
     if (scopeParsed.kind === 'err') {
       c.status(statusFor('scope-invalid') as never);
@@ -88,6 +105,7 @@ export function conversationsRouter(
       ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(agentIdRaw !== undefined && agentIdRaw.length > 0 && { agentId: agentIdRaw as AgentId }),
       ...(statusFilter !== undefined && { status: statusFilter }),
+      replays: replaysRaw ?? 'exclude',
       ...(before !== undefined && { before }),
       limit,
     });

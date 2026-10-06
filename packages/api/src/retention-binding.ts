@@ -57,6 +57,23 @@ export interface RetentionScheduledPage {
   readonly domainsMissingAdapter: readonly RetentionDomain[];
   /** Domains that have an adapter but no matching policy — tombstones sit forever. */
   readonly unpolicedDomains: readonly RetentionDomain[];
+  /** Domains more than one retention policy covers (see `RetentionPolicyConflict`). */
+  readonly conflicts?: readonly RetentionPolicyConflict[];
+}
+
+/**
+ * A domain more than one retention policy covers. Publishing refuses a
+ * second policy for a domain (`409 policy-scope-taken`), so only policies
+ * stored before that rule can do this. The one whose latest version is
+ * highest applies, and on equal versions the lower policy id; unregister
+ * the others.
+ */
+export interface RetentionPolicyConflict {
+  readonly domain: RetentionDomain;
+  /** Every policy id that covers the domain, sorted. */
+  readonly policyIds: readonly string[];
+  /** The one of them that applies. */
+  readonly appliedPolicyId: string;
 }
 
 export interface RetentionSweepInput {
@@ -75,4 +92,6 @@ export interface RetentionSweepResult {
     readonly missingAdapter?: true;
   }[];
   readonly totalPurged: number;
+  /** Domains more than one retention policy covers (see `RetentionPolicyConflict`). */
+  readonly conflicts?: readonly RetentionPolicyConflict[];
 }

@@ -26,6 +26,7 @@ import type {
   AdapterRegistryBinding,
   AgentRegistryBinding,
   BlobStorageBinding,
+  BlockRegistryBinding,
   CapabilityRegistryBinding,
   CostBinding,
   DeploymentBinding,
@@ -46,6 +47,7 @@ import type {
   PolicyRegistryBinding,
   ProviderRegistryBinding,
   PublicRunTokenConfig,
+  RetentionBinding,
   ReviewerBinding,
   ReviewerRegistryBinding,
   RunHandlerBinding,
@@ -310,6 +312,16 @@ const noopEvalSuiteRegistry: EvalSuiteRegistryBinding = {
   reinstateVersion: async ({ suiteId, version }) => ({ kind: 'not-found', suiteId, version }),
 };
 
+const noopBlockRegistry: BlockRegistryBinding = {
+  list: async () => ({ data: [] }),
+  get: async () => null,
+  getVersion: async () => null,
+  listVersions: async () => ({ data: [] }),
+  publish: async ({ block }) => ({ kind: 'ok', blockId: block.id, version: block.version }),
+  unregister: async () => ({ unregistered: false }),
+  reinstateVersion: async ({ blockId, version }) => ({ kind: 'not-found', blockId, version }),
+};
+
 const noopEvalCaseStore: EvalCaseStoreBinding = {
   putCases: async () => undefined,
   listCases: async () => ({ data: [], hasMore: false }),
@@ -334,6 +346,11 @@ const noopEvalRunBinding: EvalRunBinding = {
   get: async () => null,
   list: async () => ({ data: [] }),
   cancel: async () => ({ kind: 'not-found' }),
+};
+
+const noopRetention: RetentionBinding = {
+  scheduled: async () => ({ data: [], domainsMissingAdapter: [], unpolicedDomains: [] }),
+  sweep: async () => ({ perDomain: [], totalPurged: 0 }),
 };
 
 const noopCost: CostBinding = {
@@ -524,7 +541,9 @@ function collectMountedRoutes(): HonoRouteRecord[] {
     webhookEndpoints: noopWebhookEndpoints,
     publicRunTokens: publicRunTokensConfig(),
     policyRegistry: noopPolicyRegistry,
+    retention: noopRetention,
     evalSuiteRegistry: noopEvalSuiteRegistry,
+    blockRegistry: noopBlockRegistry,
     evalRunBinding: noopEvalRunBinding,
     judgmentRegistry: noopJudgmentRegistry,
     evalCaseStore: noopEvalCaseStore,

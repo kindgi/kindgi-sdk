@@ -35,6 +35,8 @@ export interface PackCallContext {
   readonly env?: Readonly<Record<string, unknown>>;
   readonly secrets?: Readonly<Record<string, unknown>>;
   readonly config?: Readonly<Record<string, unknown>>;
+  /** The calling agent version's settings blocks' values, by block id (protocol 2.4.0). */
+  readonly settings?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
 }
 
 export interface ToolRef {

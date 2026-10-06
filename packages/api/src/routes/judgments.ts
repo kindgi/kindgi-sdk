@@ -9,10 +9,12 @@ import type { RunBinding } from '@kindgi/runtime';
 import type { Cursor, ProjectId, RunId, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
+import type { FlowRegistryBinding } from '../flow-binding.js';
 import {
   type JudgeClass,
   type JudgeClassScope,
   type JudgedItem,
+  type JudgedRunContext,
   type JudgedSubject,
   type Judgment,
   type JudgmentAssertedBy,
@@ -25,6 +27,7 @@ import {
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import { captureTurnContext } from './judgment-context.js';
+import { captureFlowContext } from './judgment-flow-context.js';
 import { clampLimit } from './pagination.js';
 import { parseListScope } from './scope-params.js';
 
@@ -38,15 +41,17 @@ import { parseListScope } from './scope-params.js';
  * - `GET /v1/judgments/:id`: one judgment with the stored copies.
  * - `POST /v1/judgments/:id/unregister`: remove a judgment (soft).
  *
- * Authorization: judging needs `judge` on the run. Reading and removing
- * go by the judgment's project (`read` / `write`), since a judgment
- * outlives its run.
+ * Authorization: judging needs `write` on the run's project (a run
+ * inherits its permissions from its project). Reading and removing go by
+ * the judgment's project (`read` / `write`), since a judgment outlives
+ * its run.
  */
 export function judgmentsRouter(
   binding: JudgmentRegistryBinding,
   runBinding: RunBinding,
   authorizer?: Authorizer,
   conversations?: ConversationBinding,
+  flows?: FlowRegistryBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -70,19 +75,18 @@ export function judgmentsRouter(
     const prepared = await prepareJudgment(c, body, runBinding, binding, authorizer);
     if (prepared.kind === 'err') return fail(prepared.code, prepared.message);
     const { run, subject, projectId, itemValue, conversationId } = prepared;
-    // A turn's first judgment also captures what it read (history,
-    // retrieved context), so the turn can be replayed later.
-    const context =
-      subject.kind === 'agent' && (await isFirstJudgment(binding, tenantId, body.runId))
-        ? await captureTurnContext({
-            tenantId,
-            runId: body.runId,
-            output: run.output,
-            conversationId,
-            runBinding,
-            conversations,
-          })
-        : undefined;
+    const context = (await isFirstJudgment(binding, tenantId, body.runId))
+      ? await captureContext({
+          tenantId,
+          runId: body.runId,
+          subject,
+          output: run.output,
+          conversationId,
+          runBinding,
+          conversations,
+          flows,
+        })
+      : undefined;
 
     const judgment = await binding.record({
       tenantId,
@@ -397,7 +401,12 @@ async function prepareJudgment(
   const tenantId = c.get('tenantId') as TenantId;
   const run = await runBinding.getRun(tenantId, body.runId as RunId);
   if (run === null) return err('run-not-found', `No run "${body.runId}".`);
-  if (authorizer !== undefined && !(await authorizer.can(c, 'judge', ref('run', body.runId)))) {
+  // A run inherits its permissions from its project (as cancelling one
+  // does): judging it needs `write` there.
+  if (
+    authorizer !== undefined &&
+    !(await authorizer.can(c, 'write', ref('project', run.projectId as unknown as string)))
+  ) {
     return err('permission-denied', `Not allowed to judge run "${body.runId}".`);
   }
   if (run.status !== 'completed' || run.output === undefined || run.output === null) {
@@ -433,6 +442,39 @@ async function prepareJudgment(
 }
 
 /** Whether the run has no live judgment yet (its copy is stored with the first). */
+/**
+ * What a run's first judgment keeps so the run can be replayed later: a
+ * turn's history and retrieved context; a flow run's tool calls with
+ * their results.
+ */
+function captureContext(input: {
+  readonly tenantId: TenantId;
+  readonly runId: string;
+  readonly subject: JudgedSubject;
+  readonly output: unknown;
+  readonly conversationId: string | undefined;
+  readonly runBinding: RunBinding;
+  readonly conversations: ConversationBinding | undefined;
+  readonly flows: FlowRegistryBinding | undefined;
+}): Promise<JudgedRunContext | undefined> {
+  const { tenantId, runId, subject, runBinding } = input;
+  return subject.kind === 'agent'
+    ? captureTurnContext({
+        tenantId,
+        runId,
+        output: input.output,
+        conversationId: input.conversationId,
+        runBinding,
+        conversations: input.conversations,
+      })
+    : captureFlowContext({
+        tenantId,
+        run: { runId, flowId: subject.id, flowVersion: subject.version },
+        runBinding,
+        flows: input.flows,
+      });
+}
+
 async function isFirstJudgment(
   binding: JudgmentRegistryBinding,
   tenantId: TenantId,

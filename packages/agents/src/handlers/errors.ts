@@ -16,6 +16,7 @@ export type InvokeAgentError =
   | AgentError
   | UnresolvedToolError
   | ToolVersionUnresolvableError
+  | BlockUnresolvableError
   | CapabilityRoutingError
   | ModelInvocationError
   | ToolInvocationError
@@ -73,6 +74,18 @@ export interface ToolVersionUnresolvableError {
   readonly toolId: string;
   readonly requestedRange: string;
   readonly availableVersions?: readonly string[];
+}
+
+/**
+ * A data block the agent references can't be loaded: no version in its
+ * range, a pinned version that's gone, the wrong kind, model settings
+ * that aren't, or a runtime that serves no blocks.
+ */
+export interface BlockUnresolvableError {
+  readonly code: 'block-unresolvable';
+  readonly message: string;
+  readonly blockId: string;
+  readonly requestedRange?: string;
 }
 
 export interface CapabilityRoutingError {
@@ -194,6 +207,17 @@ function serializeError(error: InvokeAgentError): string {
       return value;
     },
   );
+}
+
+/**
+ * A failed turn's error as a run's failure message: the serialized form
+ * `parseFailureMessage` reads back. A runtime that ends a run from
+ * outside its turn (a resume that can't go on, say) records the turn's
+ * error this way, so the run reads as that typed error, as a turn that
+ * failed inside its run does.
+ */
+export function turnFailureMessage(error: InvokeAgentError): string {
+  return serializeError(error);
 }
 
 function stripCauseFunctions(error: InvokeAgentError): InvokeAgentError {

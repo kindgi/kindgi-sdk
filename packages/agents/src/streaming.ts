@@ -86,6 +86,11 @@ export interface ToolCompletedEvent {
   readonly invocationId: string;
   readonly output: unknown;
   readonly durationMs: number;
+  /**
+   * In a replay turn: whether the tool ran (`live`), the past run's result
+   * was used (`recorded`), or the call was refused (`refused`).
+   */
+  readonly replay?: 'live' | 'recorded' | 'refused';
 }
 
 export interface ToolFailedEvent {

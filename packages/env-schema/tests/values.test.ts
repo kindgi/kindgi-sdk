@@ -9,6 +9,7 @@ import {
   PUBLIC_TOKEN_KEY_PATH_VAR,
   parseCorsOrigins,
   parsePackServiceToken,
+  parsePublicUrl,
 } from '../src/index.js';
 
 describe('parsePackServiceToken', () => {
@@ -64,5 +65,30 @@ describe('variable names', () => {
     const names = KINDGI_ENV_SCHEMA.map((v) => v.name);
     expect(names).toContain(PUBLIC_TOKEN_KEY_PATH_VAR);
     expect(names).toContain(CORS_ORIGINS_VAR);
+  });
+});
+
+describe('parsePublicUrl (T219)', () => {
+  test('unset or empty: undefined', () => {
+    expect(parsePublicUrl(undefined)).toBeUndefined();
+    expect(parsePublicUrl('  ')).toBeUndefined();
+  });
+
+  test('an http(s) URL, trimmed, without its trailing slash', () => {
+    expect(parsePublicUrl(' http://127.0.0.1:4001/ ')).toBe('http://127.0.0.1:4001');
+    expect(parsePublicUrl('https://kindgi.example.com')).toBe('https://kindgi.example.com');
+    expect(parsePublicUrl('https://example.com/kindgi/')).toBe('https://example.com/kindgi');
+  });
+
+  test('anything else is refused, naming the variable', () => {
+    for (const bad of [
+      'kindgi.example.com',
+      'ftp://kindgi.example.com',
+      'https://user:pass@kindgi.example.com',
+      'https://kindgi.example.com/?a=1',
+      'https://kindgi.example.com/#top',
+    ]) {
+      expect(() => parsePublicUrl(bad)).toThrow(/^KINDGI_PUBLIC_URL must be an http\(s\) URL/);
+    }
   });
 });

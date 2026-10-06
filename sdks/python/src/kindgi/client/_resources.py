@@ -74,6 +74,9 @@ OPERATIONS: dict[str, Operation] = {
     "agents.listVersions": Operation(
         "agents.listVersions", "GET", "/v1/agents/{agentId}/versions", "json", False
     ),
+    "agents.deriveVersion": Operation(
+        "agents.deriveVersion", "POST", "/v1/agents/{agentId}/versions", "json", True
+    ),
     "agents.getVersion": Operation(
         "agents.getVersion", "GET", "/v1/agents/{agentId}/versions/{version}", "json", False
     ),
@@ -309,6 +312,13 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         True,
     ),
+    "retention.scheduled": Operation(
+        "retention.scheduled", "GET", "/v1/retention/scheduled", "json", False
+    ),
+    "retention.sweep": Operation("retention.sweep", "POST", "/v1/retention/sweep", "json", False),
+    "retention.sweepDomain": Operation(
+        "retention.sweepDomain", "POST", "/v1/retention/sweep/{domain}", "json", False
+    ),
     "evalSuites.list": Operation("evalSuites.list", "GET", "/v1/eval-suites", "json", False),
     "evalSuites.publish": Operation("evalSuites.publish", "POST", "/v1/eval-suites", "json", True),
     "evalSuites.get": Operation(
@@ -349,6 +359,29 @@ OPERATIONS: dict[str, Operation] = {
         "evalSuites.reinstateVersion",
         "POST",
         "/v1/eval-suites/{suiteId}/versions/{version}/reinstate",
+        "json",
+        True,
+    ),
+    "blocks.list": Operation("blocks.list", "GET", "/v1/blocks", "json", False),
+    "blocks.publish": Operation("blocks.publish", "POST", "/v1/blocks", "json", True),
+    "blocks.get": Operation("blocks.get", "GET", "/v1/blocks/{blockId}", "json", False),
+    "blocks.versions.list": Operation(
+        "blocks.versions.list", "GET", "/v1/blocks/{blockId}/versions", "json", False
+    ),
+    "blocks.versions.get": Operation(
+        "blocks.versions.get", "GET", "/v1/blocks/{blockId}/versions/{version}", "json", False
+    ),
+    "blocks.versions.unregister": Operation(
+        "blocks.versions.unregister",
+        "POST",
+        "/v1/blocks/{blockId}/versions/{version}/unregister",
+        "json",
+        True,
+    ),
+    "blocks.versions.reinstate": Operation(
+        "blocks.versions.reinstate",
+        "POST",
+        "/v1/blocks/{blockId}/versions/{version}/reinstate",
         "json",
         True,
     ),
@@ -673,6 +706,8 @@ class RunsResource:
         parent_run_id: str | None = None,
         top_level: bool | None = None,
         agent_id: str | None = None,
+        replays: Literal["exclude", "include", "only"] | None = None,
+        eval_run_id: str | None = None,
         include: Literal["output"] | None = None,
         timeout: float | None = None,
     ) -> _models.RunCollectionPage:
@@ -691,6 +726,8 @@ class RunsResource:
                 "parentRunId": parent_run_id,
                 "topLevel": top_level,
                 "agentId": agent_id,
+                "replays": replays,
+                "evalRunId": eval_run_id,
                 "include": include,
             },
             headers={},
@@ -1326,6 +1363,30 @@ class AgentsResource:
             timeout=timeout,
         )
 
+    def derive_version(
+        self,
+        agent_id: str,
+        body: _models.DeriveAgentVersionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Agent:
+        """Derive an agent version with data-block pins swapped. `POST /v1/agents/{agentId}/versions`
+
+        An expert's edit, without a code change: a new agent version that is `from`'s bag with some prompt or settings pins swapped (`derivedFrom: { version, reason: 'edited', label, by }`), numbered the next free patch after the agent's highest version. Only blocks `from` already references swap, to a published, active version of the right kind (model settings for the model-settings block); tool pins come from code. Needs `publish` on the agent.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.deriveVersion"],
+            path={"agentId": agent_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.DeriveAgentVersionBody, body, fields),
+            response=_models.Agent,
+            timeout=timeout,
+        )
+
     def get_version(
         self, agent_id: str, version: str, /, *, timeout: float | None = None
     ) -> _models.Agent:
@@ -1790,11 +1851,12 @@ class ConversationsResource:
         scope_id: str | None = None,
         agent_id: str | None = None,
         status: Literal["open", "closed"] | None = None,
+        replays: Literal["exclude", "include", "only"] | None = None,
         timeout: float | None = None,
     ) -> _models.ConversationCollectionPage:
         """List conversations. `GET /v1/conversations`
 
-        Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations from before Kindgi 0.1.3 have no project and are listed only without a scope.
+        Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, `?replays=exclude|include|only` (default `exclude`: a comparison's replay conversations are left out), and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations from before Kindgi 0.1.3 have no project and are listed only without a scope.
         """
         return self._client._request(
             _OPERATIONS["conversations.list"],
@@ -1806,6 +1868,7 @@ class ConversationsResource:
                 "scopeId": scope_id,
                 "agentId": agent_id,
                 "status": status,
+                "replays": replays,
             },
             headers={},
             response=_models.ConversationCollectionPage,
@@ -2517,7 +2580,7 @@ class ProvidersResource:
     ) -> _models.RegisterProviderResult:
         """Register a model provider. `POST /v1/providers`
 
-        Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding.
+        Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped; optional `labels` within their limits — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding.
         """
         return self._client._request(
             _OPERATIONS["providers.register"],
@@ -2567,7 +2630,10 @@ class ProvidersResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
     ) -> _models.UnregisterProviderResult:
-        """Unregister a model provider. `POST /v1/providers/{providerId}/unregister`"""
+        """Unregister a model provider. `POST /v1/providers/{providerId}/unregister`
+
+        A tombstone, not an erase: from then on the provider is gone from list, get and capabilities, and the router never picks it. Its id is free to register again. A retention policy on the `provider` domain purges the row.
+        """
         return self._client._request(
             _OPERATIONS["providers.unregister"],
             path={"providerId": provider_id},
@@ -3338,7 +3404,7 @@ class PoliciesResource:
     ) -> _models.PublishPolicyResult:
         """Publish a policy. `POST /v1/policies`
 
-        Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).
+        Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object), and `spec` for `tool-errors`, `hitl` and `retention` (a retention policy with an unknown domain or `mode: archive` is refused with `400 validation-failed`, naming the field). Other kinds' specs are their runtime consumer's to validate. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A tenant has one retention policy per domain, plus one for `*`: a second policy id for a covered domain is refused with `409 policy-scope-taken` (`details.heldBy` names the policy that covers it; publish a new version of that one instead), and a new version can't move a policy to another domain (`409 policy-scope-changed`). A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).
         """
         return self._client._request(
             _OPERATIONS["policies.publish"],
@@ -3380,6 +3446,113 @@ class PoliciesResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.ReinstatePolicyVersionResult,
+            timeout=timeout,
+        )
+
+
+class RetentionResource:
+    """`client.retention` — the `retention` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def scheduled(
+        self,
+        /,
+        *,
+        domain: Literal[
+            "org",
+            "agent",
+            "flow",
+            "tool",
+            "eval_suite",
+            "guardrail",
+            "mcp_endpoint",
+            "env",
+            "secret",
+            "run",
+            "policy",
+            "judgment",
+            "judge_class",
+            "provider",
+            "*",
+        ]
+        | None = None,
+        past_grace_only: bool | None = None,
+        limit: int | None = None,
+        timeout: float | None = None,
+    ) -> _models.RetentionScheduledPage:
+        """List deleted rows scheduled for purging. `GET /v1/retention/scheduled`
+
+        Tombstoned rows in every domain a retention policy covers, with when each is purged (`purgeAt`) and the policy that decides it. `domainsMissingAdapter` names the covered domains this deployment can't purge; `unpolicedDomains` the ones no policy covers, whose tombstones are kept; `conflicts` the domains two policies cover (stored before one policy per domain was enforced). Requires `admin` on the tenant.
+        """
+        return self._client._request(
+            _OPERATIONS["retention.scheduled"],
+            path={},
+            query={"domain": domain, "pastGraceOnly": past_grace_only, "limit": limit},
+            headers={},
+            response=_models.RetentionScheduledPage,
+            timeout=timeout,
+        )
+
+    def sweep(
+        self,
+        body: _models.RetentionSweepBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.RetentionSweepResult:
+        """Purge the deleted rows past their grace. `POST /v1/retention/sweep`
+
+        Purges, for good, every tombstoned row past the grace of the retention policy that covers its domain (or only `domain`'s), up to `maxPerDomain` per domain; `remaining` counts what is left for the next call. Nothing sweeps on its own: call this (or `POST /v1/retention/sweep/{domain}`) from a schedule. A hold (`graceSeconds: -1`) keeps its domain's rows. Idempotent: a second call purges nothing new. Requires `admin` on the tenant.
+        """
+        return self._client._request(
+            _OPERATIONS["retention.sweep"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.RetentionSweepBody, body, fields),
+            response=_models.RetentionSweepResult,
+            timeout=timeout,
+        )
+
+    def sweep_domain(
+        self,
+        domain: Literal[
+            "org",
+            "agent",
+            "flow",
+            "tool",
+            "eval_suite",
+            "guardrail",
+            "mcp_endpoint",
+            "env",
+            "secret",
+            "run",
+            "policy",
+            "judgment",
+            "judge_class",
+            "provider",
+            "*",
+        ],
+        body: _models.RetentionSweepDomainBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.RetentionSweepResult:
+        """Purge one domain's deleted rows past their grace. `POST /v1/retention/sweep/{domain}`
+
+        As `POST /v1/retention/sweep`, for one domain. Requires `admin` on the tenant.
+        """
+        return self._client._request(
+            _OPERATIONS["retention.sweepDomain"],
+            path={"domain": domain},
+            query={},
+            headers={},
+            body=_body(_models.RetentionSweepDomainBody, body, fields),
+            response=_models.RetentionSweepResult,
             timeout=timeout,
         )
 
@@ -3589,6 +3762,168 @@ class EvalSuitesResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.ReinstateEvalSuiteVersionResult,
+            timeout=timeout,
+        )
+
+
+class BlocksVersionsResource:
+    """`client.blocks.versions` — the `blocks.versions` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        block_id: str,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        include_tombstoned: bool | None = None,
+        timeout: float | None = None,
+    ) -> _models.BlockCollectionPage:
+        """List versions of a data block. `GET /v1/blocks/{blockId}/versions`
+
+        Newest published first. `?includeTombstoned=true` includes unregistered versions, each with `unregisteredAt`.
+        """
+        return self._client._request(
+            _OPERATIONS["blocks.versions.list"],
+            path={"blockId": block_id},
+            query={"limit": limit, "cursor": cursor, "includeTombstoned": include_tombstoned},
+            headers={},
+            response=_models.BlockCollectionPage,
+            timeout=timeout,
+        )
+
+    def get(self, block_id: str, version: str, /, *, timeout: float | None = None) -> _models.Block:
+        """Fetch a specific data block version. `GET /v1/blocks/{blockId}/versions/{version}`
+
+        An unregistered version is returned too, with `unregisteredAt`.
+        """
+        return self._client._request(
+            _OPERATIONS["blocks.versions.get"],
+            path={"blockId": block_id, "version": version},
+            query={},
+            headers={},
+            response=_models.Block,
+            timeout=timeout,
+        )
+
+    def unregister(
+        self,
+        block_id: str,
+        version: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.UnregisterBlockResult:
+        """Unregister a data block version. `POST /v1/blocks/{blockId}/versions/{version}/unregister`
+
+        Soft: no range picks it any more, but the agent versions that pin it keep running it, and GET still reads it. Needs `write` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["blocks.versions.unregister"],
+            path={"blockId": block_id, "version": version},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterBlockResult,
+            timeout=timeout,
+        )
+
+    def reinstate(
+        self,
+        block_id: str,
+        version: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ReinstateBlockResult:
+        """Reinstate an unregistered data block version. `POST /v1/blocks/{blockId}/versions/{version}/reinstate`
+
+        Unchanged, as published. Idempotent. Needs `write` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["blocks.versions.reinstate"],
+            path={"blockId": block_id, "version": version},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ReinstateBlockResult,
+            timeout=timeout,
+        )
+
+
+class BlocksResource:
+    """`client.blocks` — the `blocks` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+        self.versions = BlocksVersionsResource(client)
+
+    def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        kind: Literal["prompt", "settings"] | None = None,
+        name: str | None = None,
+        scope_kind: Literal["tenant", "org", "project"] | None = None,
+        scope_id: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.BlockCollectionPage:
+        """List data blocks (latest version of each). `GET /v1/blocks`
+
+        Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, and `?scopeKind=` + `?scopeId=` narrow to a project or an org, as the other lists do.
+        """
+        return self._client._request(
+            _OPERATIONS["blocks.list"],
+            path={},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "kind": kind,
+                "name": name,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+            },
+            headers={},
+            response=_models.BlockCollectionPage,
+            timeout=timeout,
+        )
+
+    def publish(
+        self,
+        body: _models.PublishBlockBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PublishBlockResult:
+        """Publish a data block version. `POST /v1/blocks`
+
+        Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project (`409 block-project-mismatch`). Idempotency-Key applies.
+        """
+        return self._client._request(
+            _OPERATIONS["blocks.publish"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PublishBlockBody, body, fields),
+            response=_models.PublishBlockResult,
+            timeout=timeout,
+        )
+
+    def get(self, block_id: str, /, *, timeout: float | None = None) -> _models.Block:
+        """Fetch a data block (latest version). `GET /v1/blocks/{blockId}`"""
+        return self._client._request(
+            _OPERATIONS["blocks.get"],
+            path={"blockId": block_id},
+            query={},
+            headers={},
+            response=_models.Block,
             timeout=timeout,
         )
 
@@ -5790,6 +6125,8 @@ class AsyncRunsResource:
         parent_run_id: str | None = None,
         top_level: bool | None = None,
         agent_id: str | None = None,
+        replays: Literal["exclude", "include", "only"] | None = None,
+        eval_run_id: str | None = None,
         include: Literal["output"] | None = None,
         timeout: float | None = None,
     ) -> _models.RunCollectionPage:
@@ -5808,6 +6145,8 @@ class AsyncRunsResource:
                 "parentRunId": parent_run_id,
                 "topLevel": top_level,
                 "agentId": agent_id,
+                "replays": replays,
+                "evalRunId": eval_run_id,
                 "include": include,
             },
             headers={},
@@ -6447,6 +6786,30 @@ class AsyncAgentsResource:
             timeout=timeout,
         )
 
+    async def derive_version(
+        self,
+        agent_id: str,
+        body: _models.DeriveAgentVersionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Agent:
+        """Derive an agent version with data-block pins swapped. `POST /v1/agents/{agentId}/versions`
+
+        An expert's edit, without a code change: a new agent version that is `from`'s bag with some prompt or settings pins swapped (`derivedFrom: { version, reason: 'edited', label, by }`), numbered the next free patch after the agent's highest version. Only blocks `from` already references swap, to a published, active version of the right kind (model settings for the model-settings block); tool pins come from code. Needs `publish` on the agent.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.deriveVersion"],
+            path={"agentId": agent_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.DeriveAgentVersionBody, body, fields),
+            response=_models.Agent,
+            timeout=timeout,
+        )
+
     async def get_version(
         self, agent_id: str, version: str, /, *, timeout: float | None = None
     ) -> _models.Agent:
@@ -6911,11 +7274,12 @@ class AsyncConversationsResource:
         scope_id: str | None = None,
         agent_id: str | None = None,
         status: Literal["open", "closed"] | None = None,
+        replays: Literal["exclude", "include", "only"] | None = None,
         timeout: float | None = None,
     ) -> _models.ConversationCollectionPage:
         """List conversations. `GET /v1/conversations`
 
-        Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations from before Kindgi 0.1.3 have no project and are listed only without a scope.
+        Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, `?replays=exclude|include|only` (default `exclude`: a comparison's replay conversations are left out), and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations from before Kindgi 0.1.3 have no project and are listed only without a scope.
         """
         return await self._client._request(
             _OPERATIONS["conversations.list"],
@@ -6927,6 +7291,7 @@ class AsyncConversationsResource:
                 "scopeId": scope_id,
                 "agentId": agent_id,
                 "status": status,
+                "replays": replays,
             },
             headers={},
             response=_models.ConversationCollectionPage,
@@ -7642,7 +8007,7 @@ class AsyncProvidersResource:
     ) -> _models.RegisterProviderResult:
         """Register a model provider. `POST /v1/providers`
 
-        Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding.
+        Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped; optional `labels` within their limits — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding.
         """
         return await self._client._request(
             _OPERATIONS["providers.register"],
@@ -7694,7 +8059,10 @@ class AsyncProvidersResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
     ) -> _models.UnregisterProviderResult:
-        """Unregister a model provider. `POST /v1/providers/{providerId}/unregister`"""
+        """Unregister a model provider. `POST /v1/providers/{providerId}/unregister`
+
+        A tombstone, not an erase: from then on the provider is gone from list, get and capabilities, and the router never picks it. Its id is free to register again. A retention policy on the `provider` domain purges the row.
+        """
         return await self._client._request(
             _OPERATIONS["providers.unregister"],
             path={"providerId": provider_id},
@@ -8469,7 +8837,7 @@ class AsyncPoliciesResource:
     ) -> _models.PublishPolicyResult:
         """Publish a policy. `POST /v1/policies`
 
-        Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).
+        Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object), and `spec` for `tool-errors`, `hitl` and `retention` (a retention policy with an unknown domain or `mode: archive` is refused with `400 validation-failed`, naming the field). Other kinds' specs are their runtime consumer's to validate. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A tenant has one retention policy per domain, plus one for `*`: a second policy id for a covered domain is refused with `409 policy-scope-taken` (`details.heldBy` names the policy that covers it; publish a new version of that one instead), and a new version can't move a policy to another domain (`409 policy-scope-changed`). A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).
         """
         return await self._client._request(
             _OPERATIONS["policies.publish"],
@@ -8511,6 +8879,113 @@ class AsyncPoliciesResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.ReinstatePolicyVersionResult,
+            timeout=timeout,
+        )
+
+
+class AsyncRetentionResource:
+    """`client.retention` — the `retention` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def scheduled(
+        self,
+        /,
+        *,
+        domain: Literal[
+            "org",
+            "agent",
+            "flow",
+            "tool",
+            "eval_suite",
+            "guardrail",
+            "mcp_endpoint",
+            "env",
+            "secret",
+            "run",
+            "policy",
+            "judgment",
+            "judge_class",
+            "provider",
+            "*",
+        ]
+        | None = None,
+        past_grace_only: bool | None = None,
+        limit: int | None = None,
+        timeout: float | None = None,
+    ) -> _models.RetentionScheduledPage:
+        """List deleted rows scheduled for purging. `GET /v1/retention/scheduled`
+
+        Tombstoned rows in every domain a retention policy covers, with when each is purged (`purgeAt`) and the policy that decides it. `domainsMissingAdapter` names the covered domains this deployment can't purge; `unpolicedDomains` the ones no policy covers, whose tombstones are kept; `conflicts` the domains two policies cover (stored before one policy per domain was enforced). Requires `admin` on the tenant.
+        """
+        return await self._client._request(
+            _OPERATIONS["retention.scheduled"],
+            path={},
+            query={"domain": domain, "pastGraceOnly": past_grace_only, "limit": limit},
+            headers={},
+            response=_models.RetentionScheduledPage,
+            timeout=timeout,
+        )
+
+    async def sweep(
+        self,
+        body: _models.RetentionSweepBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.RetentionSweepResult:
+        """Purge the deleted rows past their grace. `POST /v1/retention/sweep`
+
+        Purges, for good, every tombstoned row past the grace of the retention policy that covers its domain (or only `domain`'s), up to `maxPerDomain` per domain; `remaining` counts what is left for the next call. Nothing sweeps on its own: call this (or `POST /v1/retention/sweep/{domain}`) from a schedule. A hold (`graceSeconds: -1`) keeps its domain's rows. Idempotent: a second call purges nothing new. Requires `admin` on the tenant.
+        """
+        return await self._client._request(
+            _OPERATIONS["retention.sweep"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.RetentionSweepBody, body, fields),
+            response=_models.RetentionSweepResult,
+            timeout=timeout,
+        )
+
+    async def sweep_domain(
+        self,
+        domain: Literal[
+            "org",
+            "agent",
+            "flow",
+            "tool",
+            "eval_suite",
+            "guardrail",
+            "mcp_endpoint",
+            "env",
+            "secret",
+            "run",
+            "policy",
+            "judgment",
+            "judge_class",
+            "provider",
+            "*",
+        ],
+        body: _models.RetentionSweepDomainBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.RetentionSweepResult:
+        """Purge one domain's deleted rows past their grace. `POST /v1/retention/sweep/{domain}`
+
+        As `POST /v1/retention/sweep`, for one domain. Requires `admin` on the tenant.
+        """
+        return await self._client._request(
+            _OPERATIONS["retention.sweepDomain"],
+            path={"domain": domain},
+            query={},
+            headers={},
+            body=_body(_models.RetentionSweepDomainBody, body, fields),
+            response=_models.RetentionSweepResult,
             timeout=timeout,
         )
 
@@ -8720,6 +9195,170 @@ class AsyncEvalSuitesResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.ReinstateEvalSuiteVersionResult,
+            timeout=timeout,
+        )
+
+
+class AsyncBlocksVersionsResource:
+    """`client.blocks.versions` — the `blocks.versions` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        block_id: str,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        include_tombstoned: bool | None = None,
+        timeout: float | None = None,
+    ) -> _models.BlockCollectionPage:
+        """List versions of a data block. `GET /v1/blocks/{blockId}/versions`
+
+        Newest published first. `?includeTombstoned=true` includes unregistered versions, each with `unregisteredAt`.
+        """
+        return await self._client._request(
+            _OPERATIONS["blocks.versions.list"],
+            path={"blockId": block_id},
+            query={"limit": limit, "cursor": cursor, "includeTombstoned": include_tombstoned},
+            headers={},
+            response=_models.BlockCollectionPage,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, block_id: str, version: str, /, *, timeout: float | None = None
+    ) -> _models.Block:
+        """Fetch a specific data block version. `GET /v1/blocks/{blockId}/versions/{version}`
+
+        An unregistered version is returned too, with `unregisteredAt`.
+        """
+        return await self._client._request(
+            _OPERATIONS["blocks.versions.get"],
+            path={"blockId": block_id, "version": version},
+            query={},
+            headers={},
+            response=_models.Block,
+            timeout=timeout,
+        )
+
+    async def unregister(
+        self,
+        block_id: str,
+        version: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.UnregisterBlockResult:
+        """Unregister a data block version. `POST /v1/blocks/{blockId}/versions/{version}/unregister`
+
+        Soft: no range picks it any more, but the agent versions that pin it keep running it, and GET still reads it. Needs `write` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["blocks.versions.unregister"],
+            path={"blockId": block_id, "version": version},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterBlockResult,
+            timeout=timeout,
+        )
+
+    async def reinstate(
+        self,
+        block_id: str,
+        version: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ReinstateBlockResult:
+        """Reinstate an unregistered data block version. `POST /v1/blocks/{blockId}/versions/{version}/reinstate`
+
+        Unchanged, as published. Idempotent. Needs `write` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["blocks.versions.reinstate"],
+            path={"blockId": block_id, "version": version},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ReinstateBlockResult,
+            timeout=timeout,
+        )
+
+
+class AsyncBlocksResource:
+    """`client.blocks` — the `blocks` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+        self.versions = AsyncBlocksVersionsResource(client)
+
+    async def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        kind: Literal["prompt", "settings"] | None = None,
+        name: str | None = None,
+        scope_kind: Literal["tenant", "org", "project"] | None = None,
+        scope_id: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.BlockCollectionPage:
+        """List data blocks (latest version of each). `GET /v1/blocks`
+
+        Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, and `?scopeKind=` + `?scopeId=` narrow to a project or an org, as the other lists do.
+        """
+        return await self._client._request(
+            _OPERATIONS["blocks.list"],
+            path={},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "kind": kind,
+                "name": name,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+            },
+            headers={},
+            response=_models.BlockCollectionPage,
+            timeout=timeout,
+        )
+
+    async def publish(
+        self,
+        body: _models.PublishBlockBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PublishBlockResult:
+        """Publish a data block version. `POST /v1/blocks`
+
+        Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project (`409 block-project-mismatch`). Idempotency-Key applies.
+        """
+        return await self._client._request(
+            _OPERATIONS["blocks.publish"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PublishBlockBody, body, fields),
+            response=_models.PublishBlockResult,
+            timeout=timeout,
+        )
+
+    async def get(self, block_id: str, /, *, timeout: float | None = None) -> _models.Block:
+        """Fetch a data block (latest version). `GET /v1/blocks/{blockId}`"""
+        return await self._client._request(
+            _OPERATIONS["blocks.get"],
+            path={"blockId": block_id},
+            query={},
+            headers={},
+            response=_models.Block,
             timeout=timeout,
         )
 
@@ -10903,7 +11542,9 @@ class Resources:
     cost: CostResource
     adapters: AdaptersResource
     policies: PoliciesResource
+    retention: RetentionResource
     eval_suites: EvalSuitesResource
+    blocks: BlocksResource
     eval_runs: EvalRunsResource
     auth: AuthResource
     identity: IdentityResource
@@ -10946,7 +11587,9 @@ class Resources:
         self.cost = CostResource(client)
         self.adapters = AdaptersResource(client)
         self.policies = PoliciesResource(client)
+        self.retention = RetentionResource(client)
         self.eval_suites = EvalSuitesResource(client)
+        self.blocks = BlocksResource(client)
         self.eval_runs = EvalRunsResource(client)
         self.auth = AuthResource(client)
         self.identity = IdentityResource(client)
@@ -10991,7 +11634,9 @@ class AsyncResources:
     cost: AsyncCostResource
     adapters: AsyncAdaptersResource
     policies: AsyncPoliciesResource
+    retention: AsyncRetentionResource
     eval_suites: AsyncEvalSuitesResource
+    blocks: AsyncBlocksResource
     eval_runs: AsyncEvalRunsResource
     auth: AsyncAuthResource
     identity: AsyncIdentityResource
@@ -11034,7 +11679,9 @@ class AsyncResources:
         self.cost = AsyncCostResource(client)
         self.adapters = AsyncAdaptersResource(client)
         self.policies = AsyncPoliciesResource(client)
+        self.retention = AsyncRetentionResource(client)
         self.eval_suites = AsyncEvalSuitesResource(client)
+        self.blocks = AsyncBlocksResource(client)
         self.eval_runs = AsyncEvalRunsResource(client)
         self.auth = AsyncAuthResource(client)
         self.identity = AsyncIdentityResource(client)

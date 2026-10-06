@@ -6,6 +6,8 @@ import type { TupleEnqueueHook } from '@kindgi/authz';
 import type { Scope } from '@kindgi/platform';
 import type { Cursor, ProjectId, Semver, TenantId } from '@kindgi/types';
 
+import type { RegistryReadOnly } from './registry-read-only.js';
+
 /**
  * Caller-plugged surface for the agent catalog. Same shape as
  * `TokenAdmin` / `ReviewerBinding` / `RunHandlerBinding`: the API
@@ -23,6 +25,13 @@ import type { Cursor, ProjectId, Semver, TenantId } from '@kindgi/types';
  */
 export interface AgentRegistryBinding {
   /**
+   * Set when this registry takes no writes (under `kindgi dev`, the
+   * pack's files are the source of its agents): every write is refused
+   * with `409 registry-read-only` and this reason, before the binding is
+   * called. See `RegistryReadOnly`.
+   */
+  readonly readOnly?: RegistryReadOnly;
+  /**
    * Cursor-paginated list of agents (latest version per id, sorted by
    * agent id ascending). Optional `nameFilter` is a prefix match on the
    * agent id — the runtime uses dotted namespaces (`acme.*`), so
@@ -36,11 +45,13 @@ export interface AgentRegistryBinding {
   get(input: AgentGetInput): Promise<Agent | null>;
   /**
    * Specific `(agentId, version)` lookup, or `null` if unknown.
-   * Returns tombstoned versions too (unlike `list` / `get` which
-   * filter them) — the specific-version lookup is used by provenance
-   * paths that need to resolve historical run references.
+   * Returns unregistered (tombstoned) versions too, unlike `list` /
+   * `get` which filter them, with `unregisteredAt` set. Unregister stops
+   * a version being *chosen*, not the pins that hold it: a resumed run,
+   * provenance, and a flow version that pins it read it, while a new run
+   * that names it is refused.
    */
-  getVersion(input: AgentGetVersionInput): Promise<Agent | null>;
+  getVersion(input: AgentGetVersionInput): Promise<AgentVersionRecord | null>;
   /**
    * Head-row existence check. Returns `true` iff the agent id has been
    * registered in the tenant (regardless of whether any versions are
@@ -87,6 +98,14 @@ export interface AgentRegistryBinding {
    */
   reinstateVersion(input: AgentReinstateVersionInput): Promise<AgentReinstateVersionOutcome>;
 }
+
+/** An agent version as `getVersion` reads it: `unregisteredAt` is set when it's unregistered. */
+export type AgentVersionRecord = Agent & {
+  /** ISO-8601; present only on an unregistered version. */
+  readonly unregisteredAt?: string;
+  /** The project the version belongs to, when the store records it (a derived version is published there). */
+  readonly projectId?: ProjectId;
+};
 
 export interface AgentListInput {
   readonly tenantId: TenantId;
@@ -149,6 +168,11 @@ export interface AgentPublishInput {
    * silently falls back to Default.
    */
   readonly projectId: ProjectId;
+  /**
+   * The version to store, as given. When the route pinned it, it
+   * carries `pins` and `pinsDigest` (the exact block versions its runs
+   * use); a binding stores and returns them with the rest.
+   */
   readonly agent: Agent;
   /**
    * REQUIRED. Called inside the binding's write transaction after the

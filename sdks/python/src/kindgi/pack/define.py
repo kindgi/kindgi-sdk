@@ -465,12 +465,19 @@ class Agent:
     refs (`version` a semver range); `guardrails` takes `Guardrail` objects or
     ids; `output` a model class / type / JSON Schema for typed output, or the
     full `{"schema", "name", "maxRepairs"}` object.
+
+    `instructions` is the system prompt, or a prompt block by range
+    (`{"prompt": "acme.intake-prompt", "version": "^1.0.0"}`) whose template
+    and parameters are used instead. `settings` lists settings blocks by range
+    (`{"id", "version"}`), which tools read as `ctx.settings[id]`;
+    `model_settings` names a model-settings block. The block versions are pinned
+    when the agent version is published.
     """
 
     id: str
     version: str
     name: str
-    instructions: str
+    instructions: str | Mapping[str, str]
     capabilities: Sequence[Mapping[str, Any]] = ()
     tools: Sequence[Tool[..., Any] | Mapping[str, Any]] = ()
     retrieval: Sequence[Mapping[str, Any]] = ()
@@ -485,6 +492,10 @@ class Agent:
     output: Any = None
     tool_errors: Mapping[str, Any] | None = None
     """How turns retry failed tool calls: `{"maxRetries": 2, "retryOn": [...]}`."""
+    settings: Sequence[Mapping[str, str]] = ()
+    """Settings blocks by range: `[{"id": "acme.weights", "version": "^1.0.0"}]`."""
+    model_settings: Mapping[str, str] | None = None
+    """A model-settings block by range: `{"id": "acme.model", "version": "^1.0.0"}`."""
     module: str = field(default="", repr=False)
 
     def __post_init__(self) -> None:
@@ -494,6 +505,13 @@ class Agent:
         _require_id(self.id, where)
         if not SEMVER.match(self.version):
             raise DefinitionError(f"{where}: version must be an exact semver, got {self.version!r}")
+        if not isinstance(self.instructions, str):
+            ref: Mapping[str, Any] = self.instructions
+            if not isinstance(ref.get("prompt"), str) or not isinstance(ref.get("version"), str):
+                raise DefinitionError(
+                    f"{where}: instructions must be a string, "
+                    'or a prompt block {"prompt", "version"}'
+                )
 
 
 @dataclass(eq=False)

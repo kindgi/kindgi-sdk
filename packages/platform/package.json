@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/platform",
-  "version": "0.1.3",
+  "version": "0.1.4-rc.1",
   "description": "Multi-tenant hierarchy primitives — the Tenant → Org → Team → Project + User type surface, the `Scope` discriminated access-boundary, binding interfaces for orgs, teams, projects, memberships, team-project grants and the tenant hierarchy, and reference in-memory adapters.",
   "license": "Apache-2.0",
   "repository": {

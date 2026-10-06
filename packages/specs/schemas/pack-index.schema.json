@@ -217,7 +217,19 @@
         "id": { "type": "string", "minLength": 1 },
         "version": { "type": "string", "minLength": 1 },
         "name": { "type": "string" },
-        "instructions": { "type": "string" },
+        "instructions": {
+          "oneOf": [
+            { "type": "string" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["prompt", "version"],
+              "properties": { "prompt": { "type": "string" }, "version": { "type": "string" } }
+            }
+          ]
+        },
+        "settings": { "type": "array" },
+        "modelSettings": { "type": "object" },
         "capabilities": { "type": "array" },
         "tools": {
           "type": "array",

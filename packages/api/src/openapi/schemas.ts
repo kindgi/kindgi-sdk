@@ -64,7 +64,12 @@
  */
 
 import { EVIDENCE_KINDS } from '@kindgi/compliance';
-import { MAX_TOOL_ERROR_RETRIES, POLICY_KINDS, TOOL_ERROR_KINDS } from '@kindgi/policy-contract';
+import {
+  MAX_TOOL_ERROR_RETRIES,
+  POLICY_KINDS,
+  RETENTION_DOMAINS,
+  TOOL_ERROR_KINDS,
+} from '@kindgi/policy-contract';
 
 export type JsonSchema = Record<string, unknown>;
 
@@ -185,6 +190,16 @@ export const RunSchema: JsonSchema = {
       description: 'Set on a child run: the node in the parent run that started it.',
     },
     agent: { $ref: '#/components/schemas/RunAgent' },
+    replayOf: {
+      type: 'string',
+      format: 'uuid',
+      description: 'Set on a replay run (an eval run re-running a past run): the run it replays.',
+    },
+    evalRunId: {
+      type: 'string',
+      description: 'Set on a replay run: the eval run that started it.',
+    },
+    versions: { $ref: '#/components/schemas/FlowVersionOverrides' },
     publicAccessToken: {
       type: 'string',
       description:
@@ -785,6 +800,28 @@ export const CompleteApprovalResultSchema: JsonSchema = {
       description:
         'True when the approval had a `waitTokenId` + terminal accept/reject and the run waitpoint was completed as part of this call.',
     },
+    resume: {
+      description:
+        "How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way.",
+      oneOf: [
+        {
+          type: 'object',
+          additionalProperties: false,
+          required: ['kind'],
+          properties: { kind: { type: 'string', const: 'ok' } },
+        },
+        {
+          type: 'object',
+          additionalProperties: false,
+          required: ['kind', 'code', 'message'],
+          properties: {
+            kind: { type: 'string', const: 'failed' },
+            code: { type: 'string' },
+            message: { type: 'string' },
+          },
+        },
+      ],
+    },
   },
 };
 
@@ -928,8 +965,23 @@ export const AgentSchema: JsonSchema = {
     version: { type: 'string', description: 'Semver.' },
     name: { type: 'string' },
     description: { type: 'string' },
-    instructions: { type: 'string' },
+    instructions: {
+      oneOf: [{ type: 'string', minLength: 1 }, { $ref: '#/components/schemas/PromptRef' }],
+      description:
+        'The system prompt (a Liquid template), or a prompt block by range whose template and parameters are used instead (pinned at publish, `pins.prompts`).',
+    },
     parameters: { type: 'array', items: { $ref: '#/components/schemas/PromptParameter' } },
+    settings: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/BlockRef' },
+      description:
+        'Settings blocks the agent reads, by range: tools read them as `ToolContext.settings[\'<id>\']`, templates as `settings["<id>"]`. Pinned at publish (`pins.settings`).',
+    },
+    modelSettings: {
+      $ref: '#/components/schemas/BlockRef',
+      description:
+        "A model-settings block by range: its `temperature` and `maxOutputTokens` go into the turn's model calls. Pinned at publish.",
+    },
     capabilities: { type: 'array', items: { $ref: '#/components/schemas/Capability' } },
     tools: { type: 'array', items: { $ref: '#/components/schemas/ToolRef' } },
     retrieval: { type: 'array', items: { $ref: '#/components/schemas/RetrievalIntent' } },
@@ -951,6 +1003,108 @@ export const AgentSchema: JsonSchema = {
     tags: { type: 'array', items: { type: 'string' } },
     output: { $ref: '#/components/schemas/AgentOutputSpec' },
     toolErrors: { $ref: '#/components/schemas/ToolErrorsSpec' },
+    pins: { $ref: '#/components/schemas/AgentPins' },
+    derivedFrom: { $ref: '#/components/schemas/VersionDerivation' },
+    unregisteredAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'Present only on an unregistered version (`GET …/versions/{version}` reads those too). Unregister stops a version being chosen, not the pins that hold it: a new run naming it is refused, while a resumed run and a published version that pins it still run it.',
+    },
+    pinsDigest: {
+      type: 'string',
+      pattern: '^sha256:[0-9a-f]{64}$',
+      description:
+        "Set by the runtime with `pins`: `sha256:<hex>` of the pins' canonical JSON (sorted keys, no whitespace). Two agent versions with the same digest run the same blocks.",
+    },
+  },
+};
+
+export const VersionDerivationSchema: JsonSchema = {
+  description:
+    "Set by the runtime on an agent or flow version a deploy registered in place of the definition's version, which was registered already with other pins or content (versions never change). Never in the publish body.",
+  type: 'object',
+  additionalProperties: false,
+  required: ['version', 'reason'],
+  properties: {
+    version: { type: 'string', description: 'The version the definition names.' },
+    reason: {
+      type: 'string',
+      enum: ['pins-changed', 'unpinned', 'version-taken', 'edited'],
+      description:
+        "`pins-changed`: a block it uses has a new version; `unpinned`: the definition's version was published before pins existed; `version-taken`: the definition's version holds another definition; `edited`: derived from `version` with some data-block pins swapped (`POST /v1/agents/{agentId}/versions`).",
+    },
+    label: { type: 'string', description: 'For `edited`: a short label for the version.' },
+    by: { type: 'string', description: 'For `edited`: who derived it (`user:<id>`).' },
+  },
+};
+
+export const DeriveAgentVersionBodySchema: JsonSchema = {
+  description:
+    "Derive a new agent version from a pinned one with some data-block pins swapped: an expert's edit reaching an agent with no code change.",
+  type: 'object',
+  additionalProperties: false,
+  required: ['from', 'pins'],
+  properties: {
+    from: { type: 'string', description: 'The version to derive from (it must be pinned).' },
+    pins: { $ref: '#/components/schemas/AgentPinSwaps' },
+    label: { type: 'string', description: 'A short label for the new version.' },
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description: "The agent's project, when the runtime doesn't record it on the version.",
+    },
+  },
+};
+
+const PinMapSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: { type: 'string' },
+};
+
+export const AgentPinSwapsSchema: JsonSchema = {
+  description:
+    'The data-block pins to swap, by block id → exact version. Only blocks the version already references; tool pins come from code.',
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    prompts: { ...PinMapSchema, description: 'Prompt block id → exact version.' },
+    settings: { ...PinMapSchema, description: 'Settings block id → exact version.' },
+  },
+};
+
+export const AgentPinsSchema: JsonSchema = {
+  description:
+    'The exact block versions an agent version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool range resolves once to the version every run of that agent version uses, so a new tool version reaches the agent only through a new agent version. Absent on a version published before pins existed (its ranges resolve per run).',
+  type: 'object',
+  additionalProperties: false,
+  required: ['tools', 'prompts', 'settings'],
+  properties: {
+    tools: { ...PinMapSchema, description: 'Tool id → exact version.' },
+    prompts: { ...PinMapSchema, description: 'Prompt block id → exact version.' },
+    settings: { ...PinMapSchema, description: 'Settings block id → exact version.' },
+  },
+};
+
+export const PromptRefSchema: JsonSchema = {
+  description: "A prompt block an agent's instructions come from, by id and semver range.",
+  type: 'object',
+  additionalProperties: false,
+  required: ['prompt', 'version'],
+  properties: {
+    prompt: { type: 'string', description: 'The prompt block id.' },
+    version: { type: 'string', description: 'A semver range (`^1.0.0`, `1.2.0`).' },
+  },
+};
+
+export const BlockRefSchema: JsonSchema = {
+  description: 'A settings block an agent reads, by id and semver range.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'version'],
+  properties: {
+    id: { type: 'string', description: 'The settings block id.' },
+    version: { type: 'string', description: 'A semver range (`^1.0.0`, `1.2.0`).' },
   },
 };
 
@@ -976,8 +1130,23 @@ export const PublishAgentBodySchema: JsonSchema = {
     name: { type: 'string' },
     description: { type: 'string' },
     projectId: ContentProjectIdProperty,
-    instructions: { type: 'string' },
+    instructions: {
+      oneOf: [{ type: 'string', minLength: 1 }, { $ref: '#/components/schemas/PromptRef' }],
+      description:
+        'The system prompt (a Liquid template), or a prompt block by range whose template and parameters are used instead (pinned at publish, `pins.prompts`).',
+    },
     parameters: { type: 'array', items: { $ref: '#/components/schemas/PromptParameter' } },
+    settings: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/BlockRef' },
+      description:
+        'Settings blocks the agent reads, by range: tools read them as `ToolContext.settings[\'<id>\']`, templates as `settings["<id>"]`. Pinned at publish (`pins.settings`).',
+    },
+    modelSettings: {
+      $ref: '#/components/schemas/BlockRef',
+      description:
+        "A model-settings block by range: its `temperature` and `maxOutputTokens` go into the turn's model calls. Pinned at publish.",
+    },
     capabilities: { type: 'array', items: { $ref: '#/components/schemas/Capability' } },
     tools: { type: 'array', items: { $ref: '#/components/schemas/ToolRef' } },
     retrieval: { type: 'array', items: { $ref: '#/components/schemas/RetrievalIntent' } },
@@ -1114,6 +1283,50 @@ export const FlowSchema: JsonSchema = {
     edges: { type: 'array', items: { $ref: '#/components/schemas/FlowEdge' } },
     maxParallelism: { type: 'integer', minimum: 1 },
     metadata: { type: 'object', additionalProperties: true },
+    pins: { $ref: '#/components/schemas/FlowPins' },
+    pinsDigest: {
+      type: 'string',
+      pattern: '^sha256:[0-9a-f]{64}$',
+      description:
+        "Set by the runtime with `pins`: `sha256:<hex>` of the pins' canonical JSON (sorted keys, no whitespace).",
+    },
+    derivedFrom: { $ref: '#/components/schemas/VersionDerivation' },
+    unregisteredAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'Present only on an unregistered version (`GET …/versions/{version}` reads those too). Unregister stops a version being chosen, not the pins that hold it: a new run naming it is refused, while a resumed run and a published version that pins it still run it.',
+    },
+  },
+};
+
+export const FlowPinsSchema: JsonSchema = {
+  description:
+    'The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs, and each agent it runs at no named version, resolves once to its latest version then, which every run of that flow version uses. Absent on a version published before pins existed (it binds the latest versions per run).',
+  type: 'object',
+  additionalProperties: false,
+  required: ['tools', 'agents'],
+  properties: {
+    tools: { ...PinMapSchema, description: 'Tool id → exact version.' },
+    agents: {
+      ...PinMapSchema,
+      description: 'Agent id → exact version, for agent nodes that name no version.',
+    },
+  },
+};
+
+export const FlowVersionOverridesSchema: JsonSchema = {
+  description:
+    "Agents and tools a flow runs at other exact versions than the flow version's pins (\"this flow, with `acme.scorer` at 0.4.0\"), without publishing a new flow version: a comparison's flow candidate (`versions` on the start body and the run's `comparison`), and the flow runs that replay it (a run's `versions`). Each id must be an agent or tool the flow uses.",
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    tools: { ...PinMapSchema, description: 'Tool id → exact version.' },
+    agents: {
+      ...PinMapSchema,
+      description:
+        'Agent id → exact version, for agent nodes with or without a version of their own.',
+    },
   },
 };
 
@@ -2081,7 +2294,7 @@ export const JudgedRunContextSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'What a judged agent turn read besides its input, captured when it was first judged: the conversation before it and what its retrievals returned.',
+    'What a judged run needs besides its input to be replayed, captured when it was first judged. For an agent turn: the conversation before it, what its retrievals returned, and the decision at its session approval gate. For a flow run: its tool calls with their results.',
   properties: {
     history: {
       type: 'array',
@@ -2094,6 +2307,66 @@ export const JudgedRunContextSchema: JsonSchema = {
       description: 'Whether older messages were left out of `history`.',
     },
     retrieved: { description: "What the turn's retrievals returned." },
+    sessionApproval: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['approved'],
+      description:
+        "The reviewer's decision at the turn's session approval gate, when the turn waited on one. A replay of the turn follows it.",
+      properties: {
+        approved: { type: 'boolean' },
+        rationale: { type: 'string', description: "The reviewer's reason for a rejection." },
+      },
+    },
+    flow: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['calls', 'steps'],
+      description:
+        "For a flow run: what it did, kept at its first judgment so it can be replayed. Every tool call it made with its result (at its tool nodes, in its agent steps' turns and in its sub-flows), at most 500, and its agent steps.",
+      properties: {
+        calls: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['runId', 'toolId'],
+            properties: {
+              runId: {
+                type: 'string',
+                description:
+                  "The run that made it: the flow run, a sub-flow's, or an agent step's turn.",
+              },
+              nodeId: {
+                type: 'string',
+                description: 'The tool node that made it, or the agent step whose turn did.',
+              },
+              scope: { type: 'string', description: 'The loop iteration, in a loop body.' },
+              toolId: { type: 'string' },
+              arguments: {},
+              result: {},
+            },
+          },
+        },
+        steps: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['runId', 'agentId', 'agentVersion'],
+            properties: {
+              runId: { type: 'string' },
+              nodeId: { type: 'string' },
+              scope: { type: 'string' },
+              agentId: { type: 'string' },
+              agentVersion: { type: 'string' },
+              retrieved: { description: "What the step's turn retrieved." },
+            },
+          },
+        },
+        truncated: { type: 'boolean', description: 'More calls were made than were kept.' },
+      },
+    },
   },
 };
 
@@ -3342,6 +3615,14 @@ export const ProviderMetadataSchema: JsonSchema = {
       description:
         "A fallback serves a capability only when no other provider satisfies it (e.g. `kindgi dev`'s scripted `dev-echo`); an agent turn routed to one carries a `fallback-provider` warning. Absent = `false`.",
     },
+    labels: {
+      type: 'object',
+      maxProperties: 32,
+      propertyNames: { pattern: '^[a-z0-9]([a-z0-9._/-]{0,61}[a-z0-9])?$' },
+      additionalProperties: { type: 'string', maxLength: 256 },
+      description:
+        'Bookkeeping, such as who manages the provider; the router ignores labels. At most 32 keys; a key is 1-63 lowercase letters and digits, with `.`, `-`, `_` or `/` inside; a value is at most 256 characters. The convention key `kindgi.com/managed-by` names the manager (`kindgi-dev`, `kindgi-deploy:<environment>`). Out of bounds: `400 invalid-provider`, reason `invalid-labels`.',
+    },
   },
 };
 
@@ -4104,7 +4385,7 @@ export const PolicySchema: JsonSchema = {
       type: 'object',
       additionalProperties: true,
       description:
-        "Kind-specific policy body. For `access-control`, matches `@kindgi/specs/policy.schema.json` (rules + defaults). For `model-routing`, matches `TenantPolicy` from `@kindgi/capabilities` (providers.allow / providers.deny / models.allow / models.deny / regionAllow / maxCostPerCallUsd / maxTokensPerCall). For `tool-errors`, `ToolErrorsSpec` (maxRetries / retryOn). For `hitl`, `HitlSpec` from `@kindgi/policy-contract` (maxTimeoutMs / minReviewerRole / tools — per tool id a mode or `{ mode, requiredRole }`); it only tightens an agent's approvals. `tool-errors` and `hitl` specs are validated on publish. For other kinds, the shape is defined by the runtime consumer.",
+        "Kind-specific policy body. For `access-control`, matches `@kindgi/specs/policy.schema.json` (rules + defaults). For `model-routing`, matches `TenantPolicy` from `@kindgi/capabilities` (providers.allow / providers.deny / models.allow / models.deny / regionAllow / maxCostPerCallUsd / maxTokensPerCall). For `tool-errors`, `ToolErrorsSpec` (maxRetries / retryOn). For `hitl`, `HitlSpec` from `@kindgi/policy-contract` (maxTimeoutMs / minReviewerRole / tools — per tool id a mode or `{ mode, requiredRole }`); it only tightens an agent's approvals. For `retention`, `{ v: 1, doc: RetentionSpec }` from `@kindgi/policy-contract` (domain / graceSeconds / mode, which must be `purge`); a tenant has one retention policy per domain, plus one for `*`. `tool-errors`, `hitl` and `retention` specs are validated on publish. For other kinds, the shape is defined by the runtime consumer.",
     },
   },
 };
@@ -4207,6 +4488,170 @@ export const ReinstatePolicyVersionResultSchema: JsonSchema = {
     policyId: { type: 'string' },
     version: { type: 'string' },
     wasTombstoned: { type: 'boolean' },
+  },
+};
+
+// ---------------- retention (admin plane) ----------------
+
+/** A tombstoning domain a retention policy can cover; `*` is the tenant-wide default. */
+export const RetentionDomainSchema: JsonSchema = {
+  type: 'string',
+  enum: [...RETENTION_DOMAINS],
+};
+
+/**
+ * A domain more than one retention policy covers. Publishing refuses a
+ * second policy for a domain, so only policies stored before that rule
+ * can do this.
+ */
+export const RetentionPolicyConflictSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['domain', 'policyIds', 'appliedPolicyId'],
+  properties: {
+    domain: { $ref: '#/components/schemas/RetentionDomain' },
+    policyIds: {
+      type: 'array',
+      items: { type: 'string' },
+      minItems: 2,
+      description: 'Every policy id that covers the domain, sorted.',
+    },
+    appliedPolicyId: {
+      type: 'string',
+      description:
+        'The one that applies: the policy whose latest version is highest, and on equal versions the lower policy id. Unregister the others.',
+    },
+  },
+};
+
+export const RetentionScheduledItemSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'domain',
+    'id',
+    'unregisteredAt',
+    'purgeAt',
+    'pastGrace',
+    'policyId',
+    'policyVersion',
+    'graceSeconds',
+  ],
+  properties: {
+    domain: { $ref: '#/components/schemas/RetentionDomain' },
+    id: { type: 'string', description: "The tombstoned row's id in its domain." },
+    unregisteredAt: { type: 'string', format: 'date-time' },
+    purgeAt: {
+      type: 'string',
+      format: 'date-time',
+      description: "`unregisteredAt` plus the policy's grace: when a sweep purges the row.",
+    },
+    pastGrace: {
+      type: 'boolean',
+      description: 'Whether a sweep would purge the row now.',
+    },
+    policyId: { type: 'string', description: 'The retention policy that applies.' },
+    policyVersion: { type: 'string' },
+    graceSeconds: {
+      type: 'integer',
+      description: "The policy's grace, in seconds (`-1`: a hold, never purged).",
+    },
+  },
+};
+
+export const RetentionScheduledPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'domainsMissingAdapter', 'unpolicedDomains'],
+  properties: {
+    data: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/RetentionScheduledItem' },
+    },
+    domainsMissingAdapter: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/RetentionDomain' },
+      description:
+        "Domains a retention policy covers that this deployment can't purge (no adapter is wired).",
+    },
+    unpolicedDomains: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/RetentionDomain' },
+      description: 'Domains no retention policy covers: their tombstones are kept.',
+    },
+    conflicts: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/RetentionPolicyConflict' },
+      description: 'Domains more than one retention policy covers. Absent or empty: none.',
+    },
+  },
+};
+
+export const RetentionSweepBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    domain: {
+      $ref: '#/components/schemas/RetentionDomain',
+      description: 'Sweep only this domain. Absent: every domain.',
+    },
+    maxPerDomain: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 10000,
+      description:
+        'The most rows one call purges per domain (default 500); the rest are `remaining`.',
+    },
+  },
+};
+
+export const RetentionSweepDomainBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    maxPerDomain: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 10000,
+      description: 'The most rows this call purges (default 500); the rest are `remaining`.',
+    },
+  },
+};
+
+export const RetentionSweepResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['perDomain', 'totalPurged'],
+  properties: {
+    perDomain: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['domain', 'purged', 'remaining'],
+        properties: {
+          domain: { $ref: '#/components/schemas/RetentionDomain' },
+          purged: { type: 'integer', minimum: 0 },
+          remaining: {
+            type: 'integer',
+            minimum: 0,
+            description: 'Rows past grace this call left (the `maxPerDomain` cap); sweep again.',
+          },
+          policyId: { type: 'string', description: 'The retention policy that applied.' },
+          missingAdapter: {
+            type: 'boolean',
+            const: true,
+            description: "Present when this deployment can't purge the domain (no adapter).",
+          },
+        },
+      },
+    },
+    totalPurged: { type: 'integer', minimum: 0 },
+    conflicts: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/RetentionPolicyConflict' },
+      description: 'Domains more than one retention policy covers. Absent or empty: none.',
+    },
   },
 };
 
@@ -4320,6 +4765,138 @@ export const ReinstateEvalSuiteVersionResultSchema: JsonSchema = {
   },
 };
 
+// ---------------- data blocks ----------------
+
+export const BlockKindSchema: JsonSchema = {
+  type: 'string',
+  enum: ['prompt', 'settings'],
+  description:
+    '`prompt`: a Liquid template an agent renders as its instructions. `settings`: a JSON object tools and templates read.',
+};
+
+export const PromptBlockContentSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['template'],
+  properties: {
+    template: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "Liquid, rendered as an agent's instructions are (same parameters and auto-injected variables).",
+    },
+    parameters: { type: 'array', items: { $ref: '#/components/schemas/PromptParameter' } },
+  },
+};
+
+export const SettingsBlockContentSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['values'],
+  properties: {
+    values: {
+      type: 'object',
+      additionalProperties: true,
+      description:
+        'What tools read (`ToolContext.settings[<block id>]`) and templates read (`settings.<block id>.<key>`).',
+    },
+    schema: {
+      type: 'object',
+      additionalProperties: true,
+      description:
+        "JSON Schema (draft 2020-12) the values must satisfy. A later version's values must satisfy the latest version's schema too.",
+    },
+  },
+};
+
+export const BlockSchema: JsonSchema = {
+  description:
+    'A data block version: a prompt or settings, versioned like a tool (immutable versions, soft unregister). An agent version pins the block versions it uses when it is published. Belongs to one project and is authorized through it.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'version', 'kind', 'content', 'projectId', 'publishedAt'],
+  properties: {
+    id: { type: 'string', description: 'Dotted lowercase id (e.g. `acme.intake-prompt`).' },
+    version: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' },
+    kind: { $ref: '#/components/schemas/BlockKind' },
+    description: { type: 'string' },
+    content: {
+      oneOf: [
+        { $ref: '#/components/schemas/PromptBlockContent' },
+        { $ref: '#/components/schemas/SettingsBlockContent' },
+      ],
+      description: '`PromptBlockContent` for a prompt, `SettingsBlockContent` for settings.',
+    },
+    projectId: { type: 'string', format: 'uuid' },
+    publishedAt: { type: 'string', format: 'date-time' },
+    unregisteredAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'Present only on an unregistered version; agent versions that pin it still read it.',
+    },
+  },
+};
+
+export const BlockCollectionPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/Block' } },
+    nextCursor: { type: 'string' },
+    hasMore: { type: 'boolean' },
+  },
+};
+
+export const PublishBlockBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectId', 'id', 'version', 'kind', 'content'],
+  properties: {
+    projectId: ContentProjectIdProperty,
+    id: { type: 'string', minLength: 1 },
+    version: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' },
+    kind: { $ref: '#/components/schemas/BlockKind' },
+    description: { type: 'string' },
+    content: {
+      oneOf: [
+        { $ref: '#/components/schemas/PromptBlockContent' },
+        { $ref: '#/components/schemas/SettingsBlockContent' },
+      ],
+    },
+  },
+};
+
+export const PublishBlockResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['blockId', 'version'],
+  properties: { blockId: { type: 'string' }, version: { type: 'string' } },
+};
+
+export const UnregisterBlockResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['blockId', 'version', 'unregistered'],
+  properties: {
+    blockId: { type: 'string' },
+    version: { type: 'string' },
+    unregistered: { type: 'boolean', const: true },
+  },
+};
+
+export const ReinstateBlockResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['blockId', 'version', 'wasTombstoned'],
+  properties: {
+    blockId: { type: 'string' },
+    version: { type: 'string' },
+    wasTombstoned: { type: 'boolean' },
+  },
+};
+
 // ---------------- eval runs (admin plane) ----------------
 
 /**
@@ -4352,6 +4929,389 @@ export const EvalRunFlowRefSchema: JsonSchema = {
   },
 };
 
+export const EvalBaselineSchema: JsonSchema = {
+  description:
+    "What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`). Only `'recorded'` runs today; the others are refused when the run starts.",
+  oneOf: [
+    { type: 'string', enum: ['recorded'] },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['agentId', 'version'],
+      properties: { agentId: { type: 'string' }, version: { type: 'string' } },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['live'],
+      properties: {
+        live: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            projectId: { type: 'string' },
+            segments: { type: 'object', additionalProperties: { type: 'string' } },
+          },
+        },
+      },
+    },
+  ],
+};
+
+export const EvalComparisonSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['baseline', 'reads', 'repetitions', 'k'],
+  description: "A comparison eval run's settings (a `judged` suite).",
+  properties: {
+    baseline: { $ref: '#/components/schemas/EvalBaseline' },
+    reads: {
+      type: 'string',
+      enum: ['recorded', 'live'],
+      description:
+        "Whether replayed reads use the past run's results when it has them (`recorded`), or run live.",
+    },
+    repetitions: { type: 'integer', minimum: 1, maximum: 10 },
+    k: { type: 'integer', minimum: 1, maximum: 100 },
+    versions: { $ref: '#/components/schemas/FlowVersionOverrides' },
+  },
+};
+
+// ---------------- comparison results (a `judged` eval run's `result`) ----------------
+
+const nullableNumber = { type: ['number', 'null'] } as const;
+
+export const ComparisonMetricSchema: JsonSchema = {
+  description:
+    "One metric, the recorded runs beside the candidate. `null` where a side had no judged evidence; `n` / `weight` are the candidate's evidence (cases with judged items, and the judgment weight behind them), `baselineN` / `baselineWeight` the recorded side's.",
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'baseline',
+    'candidate',
+    'delta',
+    'n',
+    'weight',
+    'baselineN',
+    'baselineWeight',
+    'direction',
+  ],
+  properties: {
+    baseline: nullableNumber,
+    candidate: nullableNumber,
+    delta: nullableNumber,
+    n: { type: 'integer', minimum: 0 },
+    weight: { type: 'number', minimum: 0 },
+    baselineN: { type: 'integer', minimum: 0 },
+    baselineWeight: { type: 'number', minimum: 0 },
+    direction: { type: 'string', enum: ['higher'] },
+    k: {
+      type: 'integer',
+      minimum: 1,
+      description: '`weightedPrecisionAtK`: the ranked items it looked at.',
+    },
+    spread: {
+      type: 'number',
+      description: "With more than one repetition: the candidate's max − min across them.",
+    },
+  },
+};
+
+export const ComparisonCandidateSchema: JsonSchema = {
+  description:
+    'What ran on the cases: an agent version, or a flow version (with any versions it swapped in).',
+  oneOf: [
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind', 'agentId', 'version'],
+      properties: {
+        kind: { type: 'string', enum: ['agent'] },
+        agentId: { type: 'string' },
+        version: { type: 'string' },
+      },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind', 'flowId', 'version'],
+      properties: {
+        kind: { type: 'string', enum: ['flow'] },
+        flowId: { type: 'string' },
+        version: { type: 'string' },
+        versions: { $ref: '#/components/schemas/FlowVersionOverrides' },
+      },
+    },
+  ],
+};
+
+export const JudgedComparisonSummarySchema: JsonSchema = {
+  description:
+    'What a comparison concluded: the candidate beside the recorded runs, the case counts, and the metrics. What a promotion gate reads.',
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'evalRunId',
+    'status',
+    'completedAt',
+    'suite',
+    'candidate',
+    'baseline',
+    'scope',
+    'cases',
+    'diverged',
+    'refusedWrites',
+    'errors',
+    'stopped',
+    'reads',
+    'sampling',
+    'repetitions',
+    'metrics',
+  ],
+  properties: {
+    evalRunId: { type: 'string' },
+    status: { type: 'string', enum: ['completed', 'partial', 'failed'] },
+    completedAt: { type: 'string', format: 'date-time' },
+    suite: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['id', 'version'],
+      properties: { id: { type: 'string' }, version: { type: 'string' } },
+    },
+    candidate: { $ref: '#/components/schemas/ComparisonCandidate' },
+    baseline: {
+      description:
+        "What the candidate was compared with: `recorded` (the test set's recorded runs, with the versions that served them), or another version.",
+      oneOf: [
+        {
+          type: 'object',
+          additionalProperties: false,
+          required: ['kind', 'versions'],
+          properties: {
+            kind: { type: 'string', enum: ['recorded'] },
+            versions: {
+              type: 'array',
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['version', 'cases'],
+                properties: {
+                  agentId: { type: 'string' },
+                  flowId: { type: 'string' },
+                  version: { type: 'string' },
+                  cases: { type: 'integer', minimum: 0 },
+                },
+              },
+            },
+          },
+        },
+        {
+          type: 'object',
+          additionalProperties: false,
+          required: ['kind', 'agentId', 'version', 'via'],
+          properties: {
+            kind: { type: 'string', enum: ['version'] },
+            agentId: { type: 'string' },
+            version: { type: 'string' },
+            via: { type: 'string', enum: ['explicit', 'live'] },
+            liveScope: { type: 'object', additionalProperties: true },
+          },
+        },
+      ],
+    },
+    scope: {
+      type: 'object',
+      additionalProperties: false,
+      description: "Where the test set's judgments came from.",
+      properties: { projectId: { type: 'string' } },
+    },
+    cases: { type: 'integer', minimum: 0 },
+    diverged: {
+      type: 'integer',
+      minimum: 0,
+      description: "Cases where a read with no recording ran live under `reads: 'recorded'`.",
+    },
+    refusedWrites: {
+      type: 'integer',
+      minimum: 0,
+      description: 'Tool calls refused across the cases (what the candidate would have done).',
+    },
+    errors: { type: 'integer', minimum: 0, description: 'Cases none of whose repetitions ran.' },
+    stopped: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        "Flow cases that stopped at a write the replay refused: no output to score, so they're left out of the metrics.",
+    },
+    reads: { type: 'string', enum: ['recorded', 'live'] },
+    sampling: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['models'],
+      properties: {
+        models: {
+          type: 'array',
+          description:
+            "The models that answered the candidate's replays, and how many replays each.",
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['providerId', 'model', 'runs'],
+            properties: {
+              providerId: { type: 'string' },
+              model: { type: 'string' },
+              runs: { type: 'integer', minimum: 0 },
+            },
+          },
+        },
+      },
+    },
+    repetitions: { type: 'integer', minimum: 1 },
+    metrics: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['weightedYesShare', 'judgedCoverage', 'weightedPrecisionAtK'],
+      properties: {
+        weightedYesShare: { $ref: '#/components/schemas/ComparisonMetric' },
+        judgedCoverage: { $ref: '#/components/schemas/ComparisonMetric' },
+        weightedPrecisionAtK: { $ref: '#/components/schemas/ComparisonMetric' },
+      },
+    },
+  },
+};
+
+const outputScore = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['yesWeight', 'totalWeight', 'items', 'judgedItems', 'topK'],
+  description:
+    "An output's score: Σ yesWeight and Σ totalWeight over its judged items, and over those among the first `k` ranked items.",
+  properties: {
+    yesWeight: { type: 'number' },
+    totalWeight: { type: 'number' },
+    items: { type: 'integer', minimum: 0 },
+    judgedItems: { type: 'integer', minimum: 0 },
+    topK: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['yesWeight', 'totalWeight'],
+      properties: { yesWeight: { type: 'number' }, totalWeight: { type: 'number' } },
+    },
+  },
+} as const;
+
+export const ComparisonCaseResultSchema: JsonSchema = {
+  description:
+    "One case of a comparison: its replay runs, the scores, the items kept, dropped and new, the tool calls, and why it didn't run when it didn't.",
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'caseId',
+    'runIds',
+    'baseline',
+    'candidate',
+    'diverged',
+    'refusedWrites',
+    'noContext',
+    'approvalSkipped',
+  ],
+  properties: {
+    caseId: { type: 'string' },
+    runIds: {
+      type: 'array',
+      items: { type: 'string' },
+      description: "The candidate's replay runs, one per repetition.",
+    },
+    baseline: outputScore,
+    candidate: { type: 'array', items: outputScore, description: 'One per repetition that ran.' },
+    changes: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kept', 'dropped', 'new'],
+      description: "The first repetition's items against the judged ones.",
+      properties: {
+        kept: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['key'],
+            properties: {
+              key: { type: 'string' },
+              rankBefore: { type: 'integer' },
+              rank: { type: 'integer' },
+            },
+          },
+        },
+        dropped: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['key'],
+            properties: { key: { type: 'string' }, rankBefore: { type: 'integer' } },
+          },
+        },
+        new: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['key', 'pointer'],
+            properties: {
+              key: { type: 'string' },
+              pointer: { type: 'string' },
+              rank: { type: 'integer' },
+            },
+          },
+        },
+      },
+    },
+    tools: {
+      type: 'array',
+      description: "The first repetition's tool calls, and what happened to each.",
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['step', 'callId', 'toolId', 'toolVersion', 'arguments', 'source'],
+        properties: {
+          step: { type: 'integer', minimum: 0 },
+          callId: { type: 'string' },
+          toolId: { type: 'string' },
+          toolVersion: { type: 'string' },
+          arguments: {},
+          source: { type: 'string', enum: ['live', 'recorded', 'refused'] },
+          reason: { type: 'string' },
+        },
+      },
+    },
+    diverged: { type: 'boolean' },
+    refusedWrites: { type: 'integer', minimum: 0 },
+    noContext: { type: 'boolean' },
+    approvalSkipped: { type: 'boolean' },
+    error: { type: 'string' },
+    stopped: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['toolId', 'arguments'],
+      description: 'Set when the replay stopped at a refused write: what it would have done.',
+      properties: { toolId: { type: 'string' }, arguments: {}, reason: { type: 'string' } },
+    },
+  },
+};
+
+export const JudgedComparisonResultSchema: JsonSchema = {
+  description:
+    "A comparison's `result` (a `judged` eval run's): the summary and each case. `EvalRun.result` stays an open object, since each kind has its own; the clients read it as this (TS `comparisonOf(run)`, Python `comparison_of(run)`).",
+  type: 'object',
+  additionalProperties: false,
+  required: ['summary', 'perCase'],
+  properties: {
+    summary: { $ref: '#/components/schemas/JudgedComparisonSummary' },
+    perCase: { type: 'array', items: { $ref: '#/components/schemas/ComparisonCaseResult' } },
+  },
+};
+
 export const EvalRunSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -4381,10 +5341,11 @@ export const EvalRunSchema: JsonSchema = {
       type: 'object',
       additionalProperties: true,
       description:
-        'Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. Other kinds define their own shapes as their dispatchers ship.',
+        'Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a write the replay refused, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.',
     },
     error: { type: 'string' },
     correlationId: { type: 'string' },
+    comparison: { $ref: '#/components/schemas/EvalComparison' },
   },
 };
 
@@ -4409,9 +5370,14 @@ export const StartEvalRunBodySchema: JsonSchema = {
     flowRef: { $ref: '#/components/schemas/EvalRunFlowRef' },
     dryRun: { type: 'boolean' },
     correlationId: { type: 'string' },
+    baseline: { $ref: '#/components/schemas/EvalBaseline' },
+    reads: { type: 'string', enum: ['recorded', 'live'] },
+    repetitions: { type: 'integer', minimum: 1, maximum: 10 },
+    k: { type: 'integer', minimum: 1, maximum: 100 },
+    versions: { $ref: '#/components/schemas/FlowVersionOverrides' },
   },
   description:
-    'Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject.',
+    "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`).",
 };
 
 export const StartEvalRunResultSchema: JsonSchema = {
@@ -4699,6 +5665,49 @@ const DeployedPrimitiveSchema: JsonSchema = {
   },
 };
 
+const DeployedVersionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'version'],
+  properties: {
+    id: { type: 'string' },
+    version: { type: 'string', description: 'The version the agent is registered as.' },
+    authoredVersion: {
+      type: 'string',
+      description:
+        "The version the agent's or flow's definition names, present when it differs from `version`: that version was registered already with other pins or content, and versions never change, so the deploy registered the next free version in its line (or an earlier deploy did).",
+    },
+    reason: {
+      type: 'string',
+      enum: ['pins-changed', 'unpinned', 'version-taken'],
+      description:
+        'Why `version` differs from `authoredVersion`: `pins-changed` (a tool or agent it uses has a new version), `unpinned` (`authoredVersion` was published before pins existed), `version-taken` (`authoredVersion` is registered with other content).',
+    },
+    newVersion: {
+      type: 'boolean',
+      description: '`true`: this deploy registered `version`; `false`: an earlier deploy did.',
+    },
+    pinChanges: {
+      type: 'array',
+      description: "For `pins-changed`: the pins that differ from `authoredVersion`'s.",
+      items: { $ref: '#/components/schemas/PinChange' },
+    },
+  },
+};
+
+export const PinChangeSchema: JsonSchema = {
+  description: 'One pin that differs between two versions of an agent or a flow.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'id'],
+  properties: {
+    kind: { type: 'string', enum: ['tool', 'prompt', 'setting', 'agent'] },
+    id: { type: 'string' },
+    from: { type: 'string', description: "The earlier version's pin; absent when it had none." },
+    to: { type: 'string', description: "The later version's pin; absent when it has none." },
+  },
+};
+
 /**
  * Exactly what a deployment shipped. Versions are immutable, so this
  * says which code the deployment made live.
@@ -4710,8 +5719,8 @@ export const DeploymentContentsSchema: JsonSchema = {
   properties: {
     tools: { type: 'array', items: DeployedPrimitiveSchema },
     guardrails: { type: 'array', items: DeployedPrimitiveSchema },
-    agents: { type: 'array', items: DeployedPrimitiveSchema },
-    flows: { type: 'array', items: DeployedPrimitiveSchema },
+    agents: { type: 'array', items: DeployedVersionSchema },
+    flows: { type: 'array', items: DeployedVersionSchema },
   },
 };
 
@@ -6716,6 +7725,15 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['AgentOutputSpec', AgentOutputSpecSchema],
   ['ToolErrorsSpec', ToolErrorsSpecSchema],
   ['Agent', AgentSchema],
+  ['AgentPins', AgentPinsSchema],
+  ['PromptRef', PromptRefSchema],
+  ['BlockRef', BlockRefSchema],
+  ['PinChange', PinChangeSchema],
+  ['VersionDerivation', VersionDerivationSchema],
+  ['DeriveAgentVersionBody', DeriveAgentVersionBodySchema],
+  ['AgentPinSwaps', AgentPinSwapsSchema],
+  ['FlowPins', FlowPinsSchema],
+  ['FlowVersionOverrides', FlowVersionOverridesSchema],
   ['PublishAgentBody', PublishAgentBodySchema],
   ['PublishAgentResult', PublishAgentResultSchema],
   ['UnregisterAgentResult', UnregisterAgentResultSchema],
@@ -6858,6 +7876,13 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['PublishPolicyResult', PublishPolicyResultSchema],
   ['UnregisterPolicyResult', UnregisterPolicyResultSchema],
   ['ReinstatePolicyVersionResult', ReinstatePolicyVersionResultSchema],
+  ['RetentionDomain', RetentionDomainSchema],
+  ['RetentionPolicyConflict', RetentionPolicyConflictSchema],
+  ['RetentionScheduledItem', RetentionScheduledItemSchema],
+  ['RetentionScheduledPage', RetentionScheduledPageSchema],
+  ['RetentionSweepBody', RetentionSweepBodySchema],
+  ['RetentionSweepDomainBody', RetentionSweepDomainBodySchema],
+  ['RetentionSweepResult', RetentionSweepResultSchema],
   ['EvalKind', EvalKindSchema],
   ['EvalSuite', EvalSuiteSchema],
   ['EvalSuiteCollectionPage', EvalSuiteCollectionPageSchema],
@@ -6865,9 +7890,25 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['PublishEvalSuiteResult', PublishEvalSuiteResultSchema],
   ['UnregisterEvalSuiteResult', UnregisterEvalSuiteResultSchema],
   ['ReinstateEvalSuiteVersionResult', ReinstateEvalSuiteVersionResultSchema],
+  ['BlockKind', BlockKindSchema],
+  ['PromptBlockContent', PromptBlockContentSchema],
+  ['SettingsBlockContent', SettingsBlockContentSchema],
+  ['Block', BlockSchema],
+  ['BlockCollectionPage', BlockCollectionPageSchema],
+  ['PublishBlockBody', PublishBlockBodySchema],
+  ['PublishBlockResult', PublishBlockResultSchema],
+  ['UnregisterBlockResult', UnregisterBlockResultSchema],
+  ['ReinstateBlockResult', ReinstateBlockResultSchema],
   ['EvalRunStatus', EvalRunStatusSchema],
   ['EvalRunAgentRef', EvalRunAgentRefSchema],
   ['EvalRunFlowRef', EvalRunFlowRefSchema],
+  ['EvalBaseline', EvalBaselineSchema],
+  ['EvalComparison', EvalComparisonSchema],
+  ['ComparisonMetric', ComparisonMetricSchema],
+  ['ComparisonCandidate', ComparisonCandidateSchema],
+  ['JudgedComparisonSummary', JudgedComparisonSummarySchema],
+  ['ComparisonCaseResult', ComparisonCaseResultSchema],
+  ['JudgedComparisonResult', JudgedComparisonResultSchema],
   ['EvalRun', EvalRunSchema],
   ['EvalRunCollectionPage', EvalRunCollectionPageSchema],
   ['StartEvalRunBody', StartEvalRunBodySchema],

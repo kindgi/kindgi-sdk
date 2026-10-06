@@ -341,6 +341,15 @@ export interface DevRunners {
    * container is reused as it is — another `kindgi dev` may be using it.
    * Without compose it is always reused; the handle's `notes` say so.
    */
+  /**
+   * Whether the runtime's port on `127.0.0.1` is taken, checked before
+   * anything starts. The pack's own runtime from an earlier boot doesn't
+   * count: starting the runtime replaces it. Missing: not checked.
+   */
+  readonly runtimePortInUse?: (input: {
+    readonly packDir: string;
+    readonly port: number;
+  }) => Promise<boolean>;
   readonly startServices?: (options: {
     readonly recreate: boolean;
   }) => Promise<StartServicesResult>;

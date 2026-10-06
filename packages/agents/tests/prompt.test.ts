@@ -138,6 +138,17 @@ describe('renderInstructions — required + defaults', () => {
     }
   });
 
+  test('an unresolved settings block is named in full, hyphens included', () => {
+    const agent = make('At most {{ settings["acme.reply-style"].maxSentences }} sentences.', []);
+    const r = renderInstructions(agent, { parameters: {}, settings: {}, clock: fixedClock });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error.message).toBe(
+        'Template references an unresolved variable: settings.acme.reply-style',
+      );
+    }
+  });
+
   test('reports all missing required params at once', () => {
     const agent = make('{{ a }} + {{ b }}', [
       { name: 'a', type: 'string' },

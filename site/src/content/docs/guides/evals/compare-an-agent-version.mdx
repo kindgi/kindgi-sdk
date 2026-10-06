@@ -1,0 +1,324 @@
+---
+title: Compare a version on a test set
+description: Replay a new agent or flow version on a test set's cases, without doing anything the past runs didn't, and see whether people's judgments rate it higher.
+sidebar:
+  order: 3
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+:::note[Preview (0.1.4-rc)]
+Comparisons are new in Kindgi 0.1.4, available now in its release candidates:
+`npx @kindgi/cli@next`, and `uv add --prerelease allow kindgi`.
+:::
+
+A **comparison** runs an agent version on each case of a
+[test set](../build-a-test-set/), as a replay of the past run, and rates its
+answers with the judgments people already made. You see, beside the recorded
+runs, whether people would rate the new version higher, before anyone uses
+it.
+
+## Compare a version
+
+Version 0.1.0 of `acme-ops.article-picker` answered with three articles each
+time, and people said no to most of them. Version 0.2.0 changes its
+instructions:
+
+```ts
+instructions:
+  "Call acme-ops.search-articles with the customer's question. Answer with only the articles that answer it, most relevant first: one is often enough.",
+```
+
+Under `kindgi dev`, saving the agent's file with `version: '0.2.0'` is
+enough: the test set keeps its copies of the 0.1.0 runs. On a runtime you
+deploy to, deploy the new version first.
+
+```sh
+kindgi eval-runs start acme.article-picks --project=<project-id> --agent=acme-ops.article-picker --agent-version=0.2.0 --wait
+```
+
+```json
+{
+  "runId": "584dd89f-0828-47bc-9f07-0f5627c35587",
+  "status": "completed",
+  "result": {
+    "summary": {
+      "cases": 3,
+      "candidate": { "kind": "agent", "agentId": "acme-ops.article-picker", "version": "0.2.0" },
+      "baseline": { "kind": "recorded", "versions": [{ "agentId": "acme-ops.article-picker", "version": "0.1.0", "cases": 3 }] },
+      "metrics": {
+        "weightedYesShare": { "baseline": 0.3333333333333333, "candidate": 0.75, "delta": 0.4166666666666667, "n": 3, … },
+        "judgedCoverage": { "baseline": 0.75, "candidate": 0.5714285714285714, "delta": -0.1785714285714286, "n": 3, … },
+        "weightedPrecisionAtK": { "k": 10, "baseline": 0.3333333333333333, "candidate": 0.75, "delta": 0.4166666666666667, "n": 3, … }
+      },
+      "diverged": 3,
+      "refusedWrites": 0,
+      "errors": 0,
+      "sampling": { "models": [{ "providerId": "anthropic", "model": "claude-haiku-4-5", "runs": 3 }] },
+      …
+    },
+    "perCase": [ … ]
+  },
+  …
+}
+```
+
+Without `--wait`, the command returns the run's id at once, and
+`kindgi eval-runs show <run-id>` reads it later. From your code:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// compare.ts
+import { comparisonOf, createClient } from '@kindgi/sdk/client';
+
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+const projectId = process.argv[2];
+
+// Replay version 0.2.0 on each case of the test set.
+const { runId } = await kindgi.evalRuns.start(
+  'acme.article-picks',
+  { agentRef: { agentId: 'acme-ops.article-picker', version: '0.2.0' } },
+  { projectId },
+);
+
+let run = await kindgi.evalRuns.get(runId);
+while (run.status === 'pending' || run.status === 'running') {
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+  run = await kindgi.evalRuns.get(runId);
+}
+
+const comparison = comparisonOf(run); // undefined until it's finished
+for (const [name, metric] of Object.entries(comparison?.summary.metrics ?? {})) {
+  console.log(`${name}: ${metric.baseline} → ${metric.candidate}`);
+}
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# compare.py
+import sys
+import time
+
+from kindgi.client import Kindgi, comparison_of
+
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+project_id = sys.argv[1]
+
+# Replay version 0.2.0 on each case of the test set.
+started = kindgi.eval_runs.start(
+    "acme.article-picks",
+    project_id=project_id,
+    agent_ref={"agent_id": "acme-ops.article-picker", "version": "0.2.0"},
+)
+
+run = kindgi.eval_runs.get(str(started.run_id))
+while run.status in ("pending", "running"):
+    time.sleep(2)
+    run = kindgi.eval_runs.get(str(started.run_id))
+
+comparison = comparison_of(run)  # None until it's finished
+if comparison is not None:
+    metrics = comparison.summary.metrics
+    for name, metric in [
+        ("judgedCoverage", metrics.judged_coverage),
+        ("weightedYesShare", metrics.weighted_yes_share),
+        ("weightedPrecisionAtK", metrics.weighted_precision_at_k),
+    ]:
+        print(f"{name}: {metric.baseline} → {metric.candidate}")
+```
+
+</TabItem>
+</Tabs>
+
+```text
+judgedCoverage: 0.75 → 0.5714285714285714
+weightedYesShare: 0.3333333333333333 → 0.75
+weightedPrecisionAtK: 0.3333333333333333 → 0.75
+```
+
+`comparisonOf` (Python: `comparison_of`) reads a finished comparison's
+result, typed: its `summary` and each case. It returns `undefined` (`None`)
+for a comparison that hasn't finished, or a dry run.
+
+A model doesn't answer the same way every time: run the same comparison
+again, and 0.2.0 may keep only the right article in every case.
+`--repetitions=<n>` (`repetitions` in the clients, up to 10) runs each case
+several times, and each metric gets a `spread`: its highest value minus its
+lowest.
+
+## Read the result
+
+Each metric has its value for the recorded runs (`baseline`) and for the
+version (`candidate`), the `delta`, and `n`, the cases it's based on.
+
+- **`weightedYesShare`** ("Judged yes" in the console): of the items in the
+  answer that people judged, the share they said yes to, weighted by judge
+  class. 0.1.0's answers had 3 yes of 9 judged articles; 0.2.0's had 3 of 4.
+- **`judgedCoverage`** ("Judged items"): the share of the answer's items that
+  people judged. Items no one judged bring it down: here, each answer's text
+  is an item too, and no one judged it.
+- **`weightedPrecisionAtK`** ("Top 10 judged yes"): judged yes among the first
+  `k` items of a ranked list (10 unless you set `--k`).
+
+**How a judgment carries over.** An item with its own id (an `id` or `key`
+field) is the same item when the id matches, at any place in the list: the
+`yes` on `kb-301` counts for 0.2.0 too. The answer's text, and a list element
+without an id, carry a judgment only when they're unchanged; a reworded
+answer is a new item, with no judgments yet.
+
+**Case by case,** `perCase` has, for each case:
+
+```json
+{
+  "caseId": "1b2f8b4c-1c20-4820-8c41-7037138e0396",
+  "runIds": ["5e0f685c-bbd7-4cb3-ac59-d783351f4af4"],
+  "changes": {
+    "kept": [{ "key": "kb-301", "rankBefore": 0, "rank": 0 }],
+    "dropped": [{ "key": "kb-201", "rankBefore": 1 }, { "key": "kb-302", "rankBefore": 2 }],
+    "new": [{ "key": "answer", "pointer": "/appended/3/content" }]
+  },
+  "tools": [
+    {
+      "toolId": "acme-ops.search-articles",
+      "toolVersion": "0.1.0",
+      "arguments": { "question": "package hasn't arrived tracking status" },
+      "source": "live",
+      …
+    }
+  ],
+  "diverged": true,
+  "refusedWrites": 0,
+  …
+}
+```
+
+- **`changes`:** the judged items the version kept (with their place before
+  and now), the ones it dropped, and the new ones, for people to judge.
+- **`tools`:** each tool call, and what happened to it: `live` (it ran),
+  `recorded` (it got the past run's result) or `refused`.
+- **`diverged`:** the version read something the past run didn't, so the
+  read ran live. Here, 0.2.0 searched with other words than 0.1.0 did.
+
+## What a replay does
+
+A replay does nothing the past run didn't do. "The same call" below means
+the same tool with the same arguments.
+
+- **A read-only tool** (`mutating: false`, no effect that changes things, and
+  no approval to ask for) gets the past run's result for the same call, and
+  runs live when the past run didn't make it (the case is then `diverged`).
+  With `--reads=live` (`reads: 'live'` in the clients), it always runs live.
+- **A read that reaches outside** (a `network` or `sensitive-data-egress`
+  effect) only ever gets the past run's result for the same call.
+- **Any other tool** gets the past run's result for the same call, or doesn't
+  run: the model is told
+  `replay: this call changes things and has no recorded result` (or that the
+  call needs an approval, or reaches outside), and the case shows what it
+  would have done. `refusedWrites` counts these calls.
+- **A replay never waits for an approval.** Where the past run's conversation
+  was approved or rejected, the replay follows that decision; where there's
+  no decision, the case says `approvalSkipped`.
+
+**The replay runs** are ordinary runs, marked with `replayOf` (the past run)
+and `evalRunId`. Lists of runs leave them out: `kindgi runs list
+--eval-run=<run-id>` lists one comparison's, and `--replays=include` or
+`--replays=only` adds them to any list. You can [judge](../judge-a-runs-output/)
+them like any run: that's how a version's new items get their judgments.
+
+**A comparison stopped** before it finished, because the runtime stopped,
+ends `failed` with the cases it got through:
+`Interrupted: the eval run's executor stopped before it finished. 2 of 3 cases finished.`
+Start it again.
+
+## Compare a flow version
+
+A test set built from a flow's judged runs
+(`kindgi eval-suites from-judgments … --flow=<flow-id>`) compares a flow
+version. Each case runs the past run's input through that version, as a
+replay, and the flow's whole output is rated: the output itself (the `output`
+item) and each element of a list in it.
+
+To try some of its tools or agents at another version, without publishing a
+new flow version, add `--with=<id>@<version>` (once for each). Here the flow
+`acme-ops.suggest-articles` 0.1.0 runs its `acme-ops.find-articles` tool at
+0.2.0, which matches only the articles a question asks about:
+
+```sh
+kindgi eval-runs start acme.flow-picks --project=<project-id> --flow=acme-ops.suggest-articles --flow-version=0.1.0 --with=acme-ops.find-articles@0.2.0 --reads=live --wait
+```
+
+```json
+"summary": {
+  "candidate": {
+    "kind": "flow",
+    "flowId": "acme-ops.suggest-articles",
+    "version": "0.1.0",
+    "versions": { "tools": { "acme-ops.find-articles": "0.2.0" } }
+  },
+  "metrics": {
+    "weightedYesShare": { "baseline": 0.5, "candidate": 1, … },
+    …
+  },
+  …
+}
+```
+
+- **In the clients:** `flowRef: { flowId, version }` in place of `agentRef`,
+  and `versions: { tools: { 'acme-ops.find-articles': '0.2.0' } }` (agents
+  under `agents`).
+- **A read-only tool's new version shows only with live reads.** With the
+  default, recorded reads, its call gets the past run's result: the same
+  comparison without `--reads=live` rates 50% before and after.
+- **Under `kindgi dev`,** a pack serves two versions of a tool side by side,
+  so a tool swap works there. An agent has one version there, its file's, so
+  swapping an agent needs a runtime you deploy to.
+- **A `--with` the flow doesn't use is refused:**
+  `flow acme-ops.suggest-articles 0.1.0 doesn't use acme-ops.article-picker`.
+
+**A flow stops at a write the replay refuses.** `acme-ops.suggest-and-log`
+also records the articles it suggested. With 0.2.0 of the tool, it would have
+recorded other articles than the past run did for one question, so that case
+stops there:
+
+```json
+"stopped": {
+  "toolId": "acme-ops.log-suggestion",
+  "arguments": {
+    "articles": [{ "id": "kb-201", "title": "Request a refund" }],
+    "question": "I was charged twice for one order. How do I get my money back?"
+  },
+  "reason": "replay: this call changes things and has no recorded result"
+}
+```
+
+A stopped case isn't an error: nothing was written, and it has no output to
+rate, so it's left out of the metrics. The summary counts it in `stopped`
+(and the refused call in `refusedWrites`); the other cases are rated as
+usual. A step's agent turn doesn't stop the flow: its refused calls go back
+to the model, as in an agent comparison.
+
+## In the console
+
+A test set's page has **Compare an agent version**: pick the version, how
+many runs per case, and whether to read live data instead of the past runs'
+results. Its **Comparisons** list links each one to its page, which has:
+
+- a headline in words: "People's judgments rate acme-ops.article-picker 0.2.0
+  better than the recorded runs: 33% yes before, 75% now, on the 3 of 3 cases
+  with answers people judged.";
+- the metrics, for the recorded runs and the version, with the change;
+- **Case by case:** the recorded answer beside the version's, the judged items
+  it kept and the ones no longer there, the new ones, and each tool call;
+- **The raw result**, as JSON.
+
+A flow's test set has **Compare a flow version** instead, with a picker for
+each agent its steps run, to run it at another version; tools are swapped from
+the CLI and the clients. A flow comparison's page shows the recorded output
+beside the version's, and a stopped case says what it would have done: "It
+stopped before a write the recorded run didn't make: it would have called
+acme-ops.log-suggestion with `{"articles":[…],"question":"…"}`. Nothing was
+written, and there's no output to rate."

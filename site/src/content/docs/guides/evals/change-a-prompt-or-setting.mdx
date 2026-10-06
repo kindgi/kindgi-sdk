@@ -1,0 +1,426 @@
+---
+title: Change a prompt or a setting without a deploy
+description: Keep an agent's prompt and settings as data blocks, so an expert changes them and makes a new agent version, with no code change.
+sidebar:
+  order: 4
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+:::note[Preview (0.1.4-rc)]
+Data blocks are new in Kindgi 0.1.4, available now in its release candidates:
+`npx @kindgi/cli@next`, and `uv add --prerelease allow kindgi`.
+:::
+
+A **data block** is a prompt, or a set of settings, kept in the runtime
+instead of in your code. Each change is a new version of the block, and an
+agent version pins the block versions it uses. So the people who know the
+work can change a prompt or a limit and make a new agent version from it:
+no code change, and no deploy.
+
+There are two kinds:
+
+- **A prompt block** is an agent's instructions: a Liquid template, with the
+  parameters it takes, rendered as the agent's
+  [instructions](../../agents/give-an-agent-input/) are.
+- **A settings block** is a JSON object of values, with an optional JSON
+  Schema they must satisfy. The agent's instructions and its tools read them.
+
+## Publish the blocks
+
+The examples on this page move the reply drafter's instructions from
+[Give an agent its input](../../agents/give-an-agent-input/) into a prompt
+block, `acme.reply-prompt`, and add a settings block, `acme.reply-style`:
+how long a reply may be, and up to what amount a refund needs no approval.
+
+A prompt block with parameters is published from a JSON file:
+
+```json
+{
+  "id": "acme.reply-prompt",
+  "version": "1.0.0",
+  "kind": "prompt",
+  "description": "The reply drafter's instructions",
+  "content": {
+    "template": "You draft short replies to Acme customers, in a {{ tone }} tone, in at most {{ settings[\"acme.reply-style\"].maxSentences }} sentences.\nWhen a customer asks for money back, check the amount with the refund check tool, and say whether a person needs to approve the refund.\nSign every reply as {{ signature }}.",
+    "parameters": [
+      { "name": "tone", "type": "string", "description": "friendly, formal, …" },
+      { "name": "signature", "type": "string", "default": "The Acme team" }
+    ]
+  }
+}
+```
+
+```sh
+kindgi blocks publish --project=<project-id> @reply-prompt.json
+kindgi blocks publish acme.reply-style --block-version=1.0.0 --project=<project-id> --settings='{"maxSentences":3,"refundLimit":50}' --schema=@reply-style.schema.json
+```
+
+```json
+{
+  "blockId": "acme.reply-style",
+  "version": "1.0.0"
+}
+```
+
+- **The template reads a settings block** as
+  `{{ settings["acme.reply-style"].maxSentences }}`: the block's id in quotes,
+  then the key.
+- **Blocks live in a project.** `kindgi projects get-default` prints the
+  Default project, with its `id`.
+- **A settings block's schema** (`--schema`, a JSON Schema) checks its values,
+  and later versions' too: a version published without one keeps the latest
+  version's, a version that gives one replaces it, and `--schema='{}'` drops
+  the check on purpose. Values that don't fit are refused:
+
+  ```text
+  Block "acme.reply-style" can't take this version
+    ✗ /content/values/refundLimit: must be >= 0 (the schema of version 1.0.0)
+  ```
+
+`kindgi blocks list`, `show` and `versions` read them; `unregister` and
+`reinstate` retire a version and bring it back.
+
+## Use them in an agent
+
+The agent names its prompt block and its settings blocks by range, as it names
+its tools:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// agents/reply-drafter/index.ts
+import { defineAgent } from '@kindgi/sdk/define';
+import type { AgentId, Semver } from '@kindgi/sdk/types';
+
+const defined = defineAgent({
+  id: 'acme-ops.reply-drafter' as AgentId,
+  version: '1.0.0' as Semver,
+  name: 'Reply drafter',
+  instructions: { prompt: 'acme.reply-prompt', version: '^1.0.0' },
+  settings: [{ id: 'acme.reply-style', version: '^1.0.0' }],
+  capabilities: [{ needs: [{ feature: 'tool-use' as const }] }],
+  tools: [{ id: 'acme-ops.refund-check', version: '^0.1.0' }],
+  retrieval: [],
+  guardrails: [],
+});
+
+if (defined.kind === 'err') throw new Error(defined.error.message);
+export default defined.value;
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# agents/reply_drafter.py
+from kindgi import Agent
+
+from ..tools.refund_check import refund_check
+
+reply_drafter = Agent(
+    id="my-pack.reply-drafter",
+    version="1.0.0",
+    name="Reply drafter",
+    instructions={"prompt": "acme.reply-prompt", "version": "^1.0.0"},
+    settings=[{"id": "acme.reply-style", "version": "^1.0.0"}],
+    capabilities=[{"needs": [{"feature": "tool-use"}]}],
+    tools=[refund_check],
+)
+```
+
+</TabItem>
+</Tabs>
+
+The prompt block brings its parameters, so the agent declares none. A tool
+reads the settings blocks of the agent version that calls it, as
+`ctx.settings`:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// tools/refund-check/index.ts
+import { defineTool } from '@kindgi/sdk/define';
+import type { ToolId } from '@kindgi/sdk/types';
+import { z } from 'zod';
+
+const defined = defineTool({
+  id: 'acme-ops.refund-check' as ToolId,
+  description: 'Says whether a refund of this amount needs a person to approve it.',
+  version: '0.1.0',
+  input: z.object({ amount: z.number().positive() }),
+  output: z.object({ needsApproval: z.boolean(), limit: z.number() }),
+  effects: [],
+  mutating: false,
+  handler: async (input, ctx) => {
+    // The agent version's settings block: an expert changes the limit, not this code.
+    const limit = Number(ctx.settings?.['acme.reply-style']?.refundLimit ?? 0);
+    return { needsApproval: input.amount > limit, limit };
+  },
+});
+
+if (defined.kind === 'err') throw new Error(defined.error.message);
+export default defined.value;
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# tools/refund_check.py
+from pydantic import BaseModel, Field
+
+from kindgi import ToolContext, tool
+
+
+class RefundAmount(BaseModel):
+    amount: float = Field(gt=0)
+
+
+class RefundCheck(BaseModel):
+    needs_approval: bool = Field(alias="needsApproval")
+    limit: float
+
+
+@tool(id="my-pack.refund-check", mutating=False)
+def refund_check(refund: RefundAmount, ctx: ToolContext) -> RefundCheck:
+    """Says whether a refund of this amount needs a person to approve it."""
+    # The agent version's settings block: an expert changes the limit, not this code.
+    limit = float(ctx.settings.get("acme.reply-style", {}).get("refundLimit", 0))
+    return RefundCheck(needsApproval=refund.amount > limit, limit=limit)
+```
+
+</TabItem>
+</Tabs>
+
+A run passes the prompt's parameters as it does an agent's own:
+
+```sh
+kindgi runs start --agent=acme-ops.reply-drafter --input='{"userMessage":"I was charged twice for my $80 order. Can I get my money back?","parameters":{"tone":"friendly"}}'
+```
+
+```json
+"appended": [
+  { "role": "user", "content": "I was charged twice for my $80 order. Can I get my money back?", … },
+  { "role": "agent", "content": { "text": "", "toolCalls": [{ "name": "acme-ops.refund-check", "arguments": { "amount": 80 }, … }] }, … },
+  { "role": "tool", "content": { "limit": 50, "needsApproval": true }, … },
+  { "role": "agent", "content": "We're so sorry you were charged twice—that's definitely a mistake on our end! The good news is we can process your $80 refund, but it will need approval from one of our team members, so you should see it within a couple of business days. Thanks for your patience!\n\nThe Acme team", … }
+]
+```
+
+The run's journal (`kindgi runs journal <run-id>`) has the versions it used,
+in its `setup` step, and the instructions as rendered, in `render-prompt`:
+
+```text
+{ "blockVersions": { "prompts": { "acme.reply-prompt": "1.0.0" }, "settings": { "acme.reply-style": "1.0.0" } } }
+{ "rendered": "You draft short replies to Acme customers, in a friendly tone, in at most 3 sentences.\nWhen a customer asks for money back, check the amount with the refund check tool, and say whether a person needs to approve the refund.\nSign every reply as The Acme team." }
+```
+
+**Under `kindgi dev`,** each run uses the newest block versions in the
+agent's ranges, so a block version you publish is used at the next run.
+
+**A published agent version pins them.** When it's published, by
+`kindgi deploy` or the API, each range resolves once, like its tools'
+([Agent and tool versions](../../agents/agent-and-tool-versions/)):
+
+```json
+{
+  "version": "1.0.0",
+  "pins": {
+    "tools": { "acme-ops.refund-check": "0.1.0" },
+    "prompts": { "acme.reply-prompt": "1.0.0" },
+    "settings": { "acme.reply-style": "1.0.0" }
+  },
+  "pinsDigest": "sha256:3a7b0e31e9b6fb9149ea98dc3d0be451512e9d765f1321a834a5a4fad2fffe09",
+  …
+}
+```
+
+A block version that's missing, of the wrong kind or, for model settings,
+with values a model can't take, refuses the publish, naming each:
+`Agent "acme-ops.reply-drafter" uses tool or data-block versions it can't pin (1 issue)`.
+
+**Model settings** are a settings block the agent names as `modelSettings`:
+`{ "temperature": 0.2, "maxOutputTokens": 400 }` (a temperature from 0 to 2).
+Its model calls use them, and the version pins the block with its other
+settings. A reply that reaches `maxOutputTokens` stops there, mid-sentence if
+need be, and the run still completes.
+
+## Change a block
+
+A change is a new version of the block. With the CLI:
+
+```sh
+kindgi blocks publish acme.reply-style --block-version=1.1.0 --project=<project-id> --settings='{"maxSentences":3,"refundLimit":100}'
+```
+
+From your code, an admin page of your own for example:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// publish-block.ts
+import { createClient } from '@kindgi/sdk/client';
+
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+const project = await kindgi.projects.getDefault();
+
+// The settings block's next version: a higher refund limit, and no code change.
+await kindgi.blocks.publish(
+  {
+    id: 'acme.reply-style',
+    version: '1.1.0',
+    kind: 'settings',
+    content: { values: { maxSentences: 3, refundLimit: 100 } },
+  },
+  { projectId: project.id },
+);
+
+const versions = await kindgi.blocks.versions.list('acme.reply-style');
+console.log(versions.data.map((block) => block.version));
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# publish_block.py
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+project = kindgi.projects.get_default()
+
+# The settings block's next version: a higher refund limit, and no code change.
+kindgi.blocks.publish(
+    project_id=project.id,
+    id="acme.reply-style",
+    version="1.1.0",
+    kind="settings",
+    content={"values": {"maxSentences": 3, "refundLimit": 100}},
+)
+
+versions = kindgi.blocks.versions.list("acme.reply-style")
+print([block.version for block in versions.data])
+```
+
+</TabItem>
+</Tabs>
+
+```text
+[ '1.1.0', '1.0.0' ]
+```
+
+Under `kindgi dev`, that's all: the next run reads 1.1.0, and its tool gets
+`{ "limit": 100, "needsApproval": false }`.
+
+## Make an agent version that runs it
+
+A new block version doesn't change a published agent version: it keeps
+running the versions it pins. To use the new one, **derive** an agent version:
+the same agent, with some of its block pins swapped. It needs no code change
+and no deploy.
+
+```sh
+kindgi agents derive acme-ops.reply-drafter --from=1.0.0 --setting=acme.reply-style=1.1.0 --label="Refund limit 100"
+```
+
+```json
+{
+  "id": "acme-ops.reply-drafter",
+  "version": "1.0.1",
+  …
+  "pins": {
+    "tools": { "acme-ops.refund-check": "0.1.0" },
+    "prompts": { "acme.reply-prompt": "1.0.0" },
+    "settings": { "acme.reply-style": "1.1.0" }
+  },
+  "derivedFrom": {
+    "version": "1.0.0",
+    "reason": "edited",
+    "label": "Refund limit 100",
+    "by": "user:35aa4131-bc65-43c9-80ba-8931a53fafdc"
+  }
+}
+```
+
+From your code:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// derive.ts
+import { createClient } from '@kindgi/sdk/client';
+import type { AgentId } from '@kindgi/sdk/types';
+
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN
+
+// Version 1.0.0 with version 1.1.0 of its settings block: no code change, no deploy.
+const derived = await kindgi.agents.versions.derive('acme-ops.reply-drafter' as AgentId, {
+  from: '1.0.0',
+  pins: { settings: { 'acme.reply-style': '1.1.0' } },
+  label: 'Refund limit 100',
+});
+console.log(derived.version, derived.pins?.settings, derived.derivedFrom);
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# derive.py
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN
+
+# Version 1.0.0 with version 1.1.0 of its settings block: no code change, no deploy.
+derived = kindgi.agents.derive_version(
+    "acme-ops.reply-drafter",
+    from_="1.0.0",
+    pins={"settings": {"acme.reply-style": "1.1.0"}},
+    label="Refund limit 100",
+)
+print(derived.version, derived.pins.settings if derived.pins else None, derived.derived_from)
+```
+
+</TabItem>
+</Tabs>
+
+- **The new version is the next free patch** after the highest one, and
+  `derivedFrom` says where it came from. Runs choose it like any other version.
+  The same swap again returns that version (`200`), not a new one.
+- **Swap prompts with `--prompt=<block-id>=<version>`** (`pins.prompts` in
+  the clients) and settings with `--setting`; repeat either for several.
+- **Only blocks the version already uses** can be swapped, and only on a
+  version that has pins.
+- **Under `kindgi dev`, there's nothing to derive:** each run already uses
+  the newest block versions, and a derive is refused:
+  `Error [registry-read-only]: Under kindgi dev, the pack is the source of agents: change the agent in the pack's files and kindgi dev reloads it.`
+- **Then a developer publishing the next number from code** gets told which
+  one is free:
+  `Agent "acme-ops.reply-drafter" version "1.0.1" is already registered, and versions never change; publish it as 1.0.2, the next free version`.
+
+Before anyone uses the new version,
+[compare it on a test set](../compare-an-agent-version/).
+
+## In the console
+
+A project's **Data blocks** section lists its blocks. A block's page shows its
+template or values, its versions (with **Retire**), and the agents using it.
+
+1. **Edit as a new version** starts from the version you're viewing and
+   proposes the next number, with an optional note for this version.
+   Published versions never change: this publishes a new one.
+2. After it's published, **Derive a version** next to an agent using the
+   block makes the agent version that runs it: "Derive a new version of Reply
+   drafter with acme.reply-prompt 1.0.1?"
+
+An agent's page says where its instructions and settings come from, and where
+a derived version came from: "Derived from 1.0.0 with new data-block versions
+("Refund limit 100")".
+
+Under `kindgi dev`, a block's page says each pack agent "Runs the newest
+version in ^1.0.0 on each run (kindgi dev)", and offers no derive.

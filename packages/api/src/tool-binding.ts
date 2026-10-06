@@ -6,6 +6,8 @@ import type { Scope } from '@kindgi/platform';
 import type { ToolManifest } from '@kindgi/tools';
 import type { Cursor, ProjectId, Semver, TenantId, ToolId } from '@kindgi/types';
 
+import type { RegistryReadOnly } from './registry-read-only.js';
+
 /**
  * Caller-plugged surface for the tool catalog. Versioned CRUD mirroring
  * `AgentRegistryBinding` — the API package does NOT own registry
@@ -30,6 +32,13 @@ import type { Cursor, ProjectId, Semver, TenantId, ToolId } from '@kindgi/types'
  * not-found via `headExists`).
  */
 export interface ToolRegistryBinding {
+  /**
+   * Set when this registry takes no writes (under `kindgi dev`, the
+   * pack's files are the source of its tools): every write is refused
+   * with `409 registry-read-only` and this reason, before the binding is
+   * called. See `RegistryReadOnly`.
+   */
+  readonly readOnly?: RegistryReadOnly;
   /**
    * Cursor-paginated list of tools (latest active version per id).
    * Optional `nameFilter` is a prefix match on the tool id — tools use

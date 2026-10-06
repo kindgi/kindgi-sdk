@@ -654,7 +654,8 @@ function invokeFromBody(
  * Wire row for a run. `output` is the run's output once it completed;
  * single-run responses carry it, lists only with `?include=output`
  * (outputs can be large). Child runs carry their parent's run + node;
- * an agent's turns, the agent, its version and the conversation.
+ * an agent's turns, the agent, its version and the conversation; a
+ * replay run, the run it replays and its eval run.
  */
 function serializeRun(
   row: KernelRunRecord,
@@ -682,6 +683,9 @@ function serializeRun(
         conversationId: row.agent.conversationId as unknown as string,
       },
     }),
+    ...(row.replayOf != null && { replayOf: row.replayOf as unknown as string }),
+    ...(row.evalRunId != null && { evalRunId: row.evalRunId }),
+    ...(row.versions != null && { versions: row.versions }),
   };
 }
 
@@ -742,6 +746,8 @@ function listRunsInput(input: {
     ...(filter.parentRunId !== undefined && { parent: { runId: filter.parentRunId } }),
     ...(filter.topLevelOnly && { topLevelOnly: true }),
     ...(filter.agentId !== undefined && { agentId: filter.agentId }),
+    replays: filter.replays,
+    ...(filter.evalRunId !== undefined && { evalRunId: filter.evalRunId }),
   };
 }
 
@@ -749,17 +755,21 @@ interface RunListFilter {
   readonly parentRunId?: RunId;
   readonly topLevelOnly: boolean;
   readonly agentId?: string;
+  readonly replays: 'exclude' | 'include' | 'only';
+  readonly evalRunId?: string;
   readonly includeOutput: boolean;
 }
 
 /**
  * `?parentRunId=` (children of a run), `?topLevel=true`, `?agentId=` (an
- * agent's turns), `?include=output`.
+ * agent's turns), `?replays=exclude|include|only` (default `exclude`),
+ * `?evalRunId=` (one eval run's replays; implies they are included),
+ * `?include=output`.
  */
 function parseRunListFilter(
   query: Readonly<Record<string, string>>,
 ): { kind: 'ok'; value: RunListFilter } | { kind: 'err'; message: string } {
-  const { parentRunId, topLevel, agentId, include } = query;
+  const { parentRunId, topLevel, agentId, replays, evalRunId, include } = query;
   if (agentId !== undefined && agentId.trim() === '') {
     return { kind: 'err', message: '`agentId` must not be empty' };
   }
@@ -773,6 +783,20 @@ function parseRunListFilter(
   if (parentRunId !== undefined && topLevelOnly) {
     return { kind: 'err', message: '`parentRunId` and `topLevel=true` cannot be combined' };
   }
+  if (
+    replays !== undefined &&
+    replays !== 'exclude' &&
+    replays !== 'include' &&
+    replays !== 'only'
+  ) {
+    return { kind: 'err', message: '`replays` must be `exclude`, `include` or `only`' };
+  }
+  if (evalRunId !== undefined && evalRunId.trim() === '') {
+    return { kind: 'err', message: '`evalRunId` must not be empty' };
+  }
+  if (evalRunId !== undefined && replays === 'exclude') {
+    return { kind: 'err', message: '`evalRunId` and `replays=exclude` cannot be combined' };
+  }
   const includes = include === undefined ? [] : include.split(',').map((i) => i.trim());
   const unknown = includes.filter((i) => i !== 'output');
   if (unknown.length > 0) {
@@ -784,6 +808,8 @@ function parseRunListFilter(
       ...(parentRunId !== undefined && { parentRunId: parentRunId as RunId }),
       topLevelOnly,
       ...(agentId !== undefined && { agentId }),
+      replays: replays ?? (evalRunId !== undefined ? 'include' : 'exclude'),
+      ...(evalRunId !== undefined && { evalRunId }),
       includeOutput: includes.includes('output'),
     },
   };

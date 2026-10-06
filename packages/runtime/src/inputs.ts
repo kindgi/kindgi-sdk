@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { Principal } from '@kindgi/authz';
-import type { Flow } from '@kindgi/flow';
+import type { Flow, FlowVersionOverrides } from '@kindgi/flow';
 import type { HandlerRegistry } from '@kindgi/handler';
 import type { ConversationId, NodeId, ProjectId, Result, RunId, TenantId } from '@kindgi/types';
 
@@ -56,6 +56,12 @@ export interface RunAgentRef {
   readonly conversationId: ConversationId;
 }
 
+/** Marks a run as a replay: an eval run re-running a past run (`of`). */
+export interface RunReplayRef {
+  readonly of: RunId;
+  readonly evalRunId: string;
+}
+
 /**
  * Binds the handlers for a flow the runtime is about to run or resume —
  * the root flow and every child flow a subgraph node starts. Lets a
@@ -101,6 +107,15 @@ export interface RunFlowInput {
   readonly parent?: ParentRunRef;
   /** The agent this run is a turn of; see `RunAgentRef`. */
   readonly agent?: RunAgentRef;
+  /** Set when an eval run is replaying a past run; see `RunReplayRef`. */
+  readonly replay?: RunReplayRef;
+  /**
+   * Agents and tools this run uses at other exact versions than the flow
+   * version's pins (`withVersions`): "this flow, with `acme.scorer` at
+   * 0.4.0". The run keeps them, so a resumed run binds the same. `flow`
+   * is the flow version as published; the caller applies them to bind.
+   */
+  readonly versions?: FlowVersionOverrides;
   /**
    * Run an existing `pending` row (created by `startRun`) instead of
    * inserting a new one — how a caller hands back a run id before the
@@ -170,6 +185,10 @@ export interface StartRunParams {
   readonly parent?: ParentRunRef;
   /** The agent this run is a turn of; see `RunAgentRef`. */
   readonly agent?: RunAgentRef;
+  /** Set when an eval run is replaying a past run; see `RunReplayRef`. */
+  readonly replay?: RunReplayRef;
+  /** The versions the run swaps in over its flow version's pins; see `RunFlowInput.versions`. */
+  readonly versions?: FlowVersionOverrides;
 }
 
 export type StartRunError = { readonly code: 'insert-failed'; readonly message: string };

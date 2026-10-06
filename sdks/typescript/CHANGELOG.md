@@ -1,5 +1,194 @@
 # @kindgi/client
 
+## 0.1.4-rc.1
+
+### Patch Changes
+
+- b8ff156: A flow comparison can run some of the flow's agents or tools at other versions, without publishing a new flow version ("this flow, with `acme.scorer` at 0.4.0"). `POST /v1/eval-suites/{suiteId}/runs` takes `versions: { agents?, tools? }` (id → exact version) with `flowRef`. The run keeps them in `comparison.versions`, each replay runs with them, and the summary's flow `candidate` names them (`versions`).
+  
+  They're checked when the run starts. An id the flow doesn't use, a version that isn't published, or an unregistered agent version is refused with `400 validation-failed`, each one under `details.issues` (for example `{ path: '/versions/agents/acme.x', message: "flow acme.f 1.2.0 doesn't use agent acme.x" }`). `versions` with `agentRef` is refused.
+  
+  A run that ran some blocks at other versions says which: `versions` on `GET /v1/runs/{runId}` (`KernelRunRecord.versions`, set from `RunFlowInput.versions` or `StartRunParams.versions`; `InvokeFlowBindingInput.versions` passes them to a runtime). `@kindgi/flow` adds `overridableRefs(flow)`: every tool and agent the flow runs, including agent steps with a version of their own.
+  
+  The CLI's `kindgi eval-runs start --flow=<id> --flow-version=<v> --with=<id>@<version>` (repeatable) tells agents from tools by the flow version's steps.
+- 8861bf8: **A registry that takes no writes says so: `409 registry-read-only`.** Under `kindgi dev` the pack's files are the source of agents, tools, flows and guardrails. Writing to them used to answer a misleading `already-registered` (for an agent, even naming a "next free version") or `not found`.
+  
+  - **The marker:** `AgentRegistryBinding`, `ToolRegistryBinding`, `FlowRegistryBinding` and `GuardrailRegistryBinding` take an optional `readOnly: { reason }` (`RegistryReadOnly`).
+  - **What's refused:** every write to a registry that sets it, before the binding is called:
+    - publish, unregister and reinstate;
+    - deriving an agent version;
+    - a deployment that would publish into it.
+  - **The refusal:** `409 registry-read-only`, with the binding's reason as the message, e.g. "Under kindgi dev, the pack is the source of agents: edit the pack's file and kindgi dev reloads it." Reads are unchanged.
+  - **Clients:** both read `registry-read-only` as a conflict, its code the reason.
+  - **CLI:** an error line now shows a conflict's own code, so `kindgi agents publish` prints `Error [registry-read-only]: Under kindgi dev, …`.
+- f90c285: A comparison's result is typed in both clients. `openapi.json` names its shape as `JudgedComparisonResult`: the `summary` (`JudgedComparisonSummary`, with `ComparisonCandidate` and each `ComparisonMetric`) and each case (`ComparisonCaseResult`). `EvalRun.result` stays an open object, since each kind of eval run has its own.
+  
+  The TypeScript client exports the types and `comparisonOf(run)` (also from `@kindgi/sdk/client`), which returns a `judged` eval run's result as `JudgedComparisonResult`, or `undefined` for another kind of run, a dry run, or one not finished. The Python client has `comparison_of(run)`, which returns the validated `models.JudgedComparisonResult`, or `None`.
+
+## 0.1.4-rc.0
+
+### Patch Changes
+
+- c313224: **An agent version is pinned when it's published.** `POST /v1/agents` resolves each of the agent's tool ranges once, to the highest active version the range allows (`pickVersion`). It stores the result on the version as `pins` (`{tools, prompts, settings}`: tool id → exact version) with `pinsDigest` (`sha256:<hex>` of the pins' canonical JSON). Every run of that version uses exactly those tool versions. A new tool version reaches the agent only through a new agent version, and two runs of one agent version always run the same tools.
+  
+  - **A range that matches no published version refuses the publish:** `400 validation-failed`, with one issue per tool (`/tools/<i>/version`, "publish the tool first").
+  - **Pins are set by the runtime, never authored.** `defineAgent` doesn't take them, and a publish body's `pins` is ignored.
+  - **`GET /v1/agents/:id/versions/:version` returns `pins` and `pinsDigest`**, as do both clients. Python adds `pins_digest()` in `kindgi.client`, which gives the same string as `pinsDigest()` in `@kindgi/agents`.
+  - **Unchanged:** a version published before pins, or by a runtime without a tool registry, has no pins and resolves its ranges per run. `agentsRouter` takes the tool binding as an optional third argument, and `createApp` passes its `toolRegistry`.
+- 024a47f: **An agent's prompt and settings can come from data blocks, pinned when the agent version is published.**
+  
+  - **References:**
+    - `instructions` is the system prompt, or a prompt block by range: `{ prompt: 'acme.intake-prompt', version: '^1.0.0' }`. Its template and declared parameters are used instead.
+    - `settings: [{ id, version }]` lists settings blocks.
+    - `modelSettings: { id, version }` names a model-settings block (`MODEL_SETTINGS_SCHEMA`: `temperature`, `maxOutputTokens`).
+  - **Pinned at publish:** `POST /v1/agents` and deploys resolve each reference by `pickVersion` into `pins.prompts` / `pins.settings`, alongside the tools.
+  - **Refusals:** a reference that matches no published version, names a block of the other kind, names model settings that aren't, or runs on a runtime with no block registry refuses the publish (`400 validation-failed`).
+  - **At run time:** a turn loads each block at its pinned version. A resumed turn uses the versions its `setup` journaled (`blockVersions`).
+    - The prompt block renders as the instructions.
+    - Settings values reach tools as `ToolContext.settings['<id>']` and templates as `settings["<id>"]`.
+    - Model settings go into the model call.
+    - A block that can't load fails the turn (`block-unresolvable`).
+    - `InvokeAgentBindings` takes an optional `blockReader`.
+  - **Changed elsewhere:** the agent spec, the pack index, both indexers (TS and Python: `Agent(instructions={...}, settings=[...], model_settings={...})`), and both clients.
+  - **Pack protocol 2.4.0:** `callContext` gets optional `settings`, so pack code reads them: `ctx.settings['acme.weights']` in TS, `ctx.settings["acme.weights"]` in Python. Older pack services still answer calls that carry it: a TS one passes it to the handler, a Python one drops it.
+  - **`settings` is now a reserved template name.**
+- 6260a59: **`GET /v1/blocks` narrows by project or org like the other lists:** `?scopeKind=project&scopeId=<id>` or `?scopeKind=org&scopeId=<id>`, in place of `?projectId=`. A malformed scope answers `400 scope-invalid`.
+  
+  - `BlockListInput.scope` (a `Scope`) replaces `projectId`. A block store lists the blocks of the project, of every project in the org, or of the whole tenant.
+  - TS: `client.blocks.list({ scope: { kind: 'project', projectId } })`.
+  - Python: `client.blocks.list(scope_kind='project', scope_id=...)`.
+  - `kindgi blocks list --project=<id>` is unchanged.
+- d0ebeb6: Comparison eval runs: an agent version run on a test set, beside the recorded runs.
+  
+  - **`@kindgi/api`:**
+    - **Starting the run.** `POST /v1/eval-suites/{suiteId}/runs` on a `judged` suite (a test set) is a comparison. `agentRef` with its `version` is the candidate. The new body fields are `baseline` (default `'recorded'`), `reads` (`recorded` or `live`), `repetitions` (1–10) and `k` (1–100), and the run keeps them as `comparison`. Only `baseline: 'recorded'` runs today; `{ agentId, version }` and `{ live: … }` are accepted by the contract and refused when the run starts.
+    - **The dispatcher.** `createJudgedDispatcher({ cases })` replays each case on the candidate. It goes through the subject invoker, with `replay: { of, evalRunId }` and the case's history, so the replay does nothing the past run didn't. It scores the candidate's output items against the judgments.
+    - **Matching items.** A judgment carries over to the same item: the same own id, or, for the answer and elements without an id, the same content.
+    - **The result.** `result.summary` (`JudgedComparisonSummary`) has:
+      - the baseline (the versions behind the recorded runs) and the candidate;
+      - `cases`, `diverged` (a read with no recording ran live), `refusedWrites` and `errors`;
+      - the models that answered;
+      - `metrics`: `weightedYesShare`, `judgedCoverage` and `weightedPrecisionAtK`, each with the baseline, candidate and delta and the evidence on both sides (`n`, `weight`, `baselineN`, `baselineWeight`), plus `k` and `spread`.
+  
+      `result.perCase` has each case's replay runs, the items kept, dropped and new, and its tool calls.
+    - **Exports.** The item functions (`outputItems`, `matchJudged`, `scoreItems`, `itemChanges`) are exported. Test sets record the project their judgments came from (`spec.projectId`).
+  - **`@kindgi/client`:** `evalRuns.start` takes the new fields, and the Python client does too.
+  - **`@kindgi/cli`:** `kindgi eval-runs start | show | list | cancel`. `start` takes `--agent` with `--agent-version` (or `--flow`), `--baseline`, `--reads`, `--repetitions`, `--k`, `--dry-run` and `--wait`.
+- a311b81: `GET /v1/cost/aggregate` returns at most 1000 groups by default: the most expensive ones. `groups` is ordered by `totalUsd`, highest first (ties by key, groups with no value last); before, the order was undefined and every group came back in one response, one per run for `groupBy=runId` over a long window. `?limit=` takes 1 to 10000 (anything else is `400 bad-input`). The response says when groups were left out: `truncated: true` and `totalGroups`, the count before the cap. `totalUsd`, `totalRecords` and `tokens` still cover every record. For every record, page through `/v1/cost/records`. **A caller that gets more than 1000 groups today gets 1000, with `truncated: true`**, unless it passes a larger `limit`. A `CostBinding` may cap in its own query (`CostAggregateInput.limit`, returning `totalGroups`); one that returns every group is capped by the route. `@kindgi/api` exports `COST_AGGREGATE_DEFAULT_LIMIT` and `COST_AGGREGATE_MAX_LIMIT`. The TypeScript and Python clients take `limit`.
+- a0652ac: **Data blocks: versioned prompts and settings an agent version will pin.** A block is published like a tool: immutable versions, soft unregister and reinstate. It belongs to one project.
+  
+  - **Kinds:**
+    - `prompt`: a Liquid template with declared parameters, rendered as an agent's instructions are.
+    - `settings`: a JSON object, optionally with a JSON Schema. Its values must satisfy it, and so must a later version's.
+  - **`@kindgi/api` adds `/v1/blocks`:** list (latest of each; `kind`, `name`, `projectId` filters), get, versions (`includeTombstoned`), a version, publish, unregister and reinstate. It's mounted when `createApp` gets a `blockRegistry` (`BlockRegistryBinding`).
+  - **Authorization goes through the block's project:** `read` to read, `write` to publish, unregister or reinstate. A block the caller can't read answers 404.
+  - **Refusals:**
+    - a block's kind never changes;
+    - a block's versions stay in its first version's project (`409 block-project-mismatch`);
+    - a taken version is `409 block-already-registered`.
+  - **`@kindgi/agents` adds** `validateBlock()`, `settingsSchemaIssues()` and the block types.
+  - **Clients:** `@kindgi/client` adds `client.blocks`, and the Python client has the same resource.
+  - **`@kindgi/cli` adds** `kindgi blocks list | show | versions | publish | unregister | reinstate`. `publish` takes `--prompt=@<file>`, `--settings=<json>|@<file>` with `--schema`, or a full definition as JSON.
+- fa6680c: **A deploy pins its agents and never keeps a version's old pins.** `POST /v1/deployments` pins each agent as `POST /v1/agents` does. A deploy registers an agent under the version its definition names. When that version is already registered with other pins or content (versions never change), the deploy registers the next free version in its line instead (`1.4.0` → `1.4.1`, `1.4.0-rc.1` → `1.4.0-rc.2`). A deploy never refuses a routine deploy over this.
+  
+  - **Why a new version:**
+    - `pins-changed`: a tool the agent uses has a new version in range.
+    - `unpinned`: the version was published before pins existed.
+    - `version-taken`: the number is registered with another definition.
+  - **Redeploys are idempotent.** A redeploy finds the version an earlier deploy registered for the same definition and pins.
+  - **The record:**
+    - The registered version records `derivedFrom: {version, reason}`.
+    - The deployment's `contents.agents` names each agent's registered `version`. Where it differs from the definition's, it also gives `authoredVersion`, `reason`, `newVersion` and `pinChanges`.
+  - **`kindgi deploy` prints one line per such agent:** `agent acme.matcher: registered new version 1.4.1 (1.4.0's pins changed: tool acme.score 1.0.0 → 1.1.0); set version: '1.4.1' in acme.matcher to match`.
+  - **A range that matches no published version refuses the deploy:** `400 validation-failed`, with one issue per tool (`/agents/<i>/tools/<j>/version`), and the deploy's tools are rolled back.
+  - **New exports:**
+    - `@kindgi/agents`: `pinChanges()` and the `AgentDerivation` and `PinChange` types.
+    - `@kindgi/tools`: `nextVersion()`.
+- fac7472: **Derive an agent version with new data-block pins, with no code change.** An expert edits a prompt or settings block and publishes a new version of it; deriving an agent version is how that edit reaches the agent.
+  
+  - **`POST /v1/agents/{agentId}/versions`** `{ from, pins: { prompts?, settings? }, label?, projectId? }`:
+    - The new version is `from` with the named pins swapped, everything else kept.
+    - It's numbered the next free patch after the agent's highest version (versions never change).
+    - It records `derivedFrom: { version, reason: 'edited', label?, by: 'user:<id>' }`.
+    - Answers `201` with the new agent version.
+    - Needs `publish` on the agent.
+  - **Refusals** (`400 validation-failed`, naming each problem under `details.issues`):
+    - a version published before pins;
+    - a block the version doesn't already reference (adding one is a code change);
+    - a block version that isn't published, is unregistered, is the wrong kind, or isn't model settings for the model-settings block;
+    - swaps that change nothing.
+    - Tool pins can't be swapped: they come from code.
+    - An unknown version answers `404 agent-not-found`.
+  - **Clients:**
+    - TS: `client.agents.versions.derive(agentId, { from, pins, label })`.
+    - Python: `client.agents.derive_version(agent_id, from_=..., pins=...)`.
+    - CLI: `kindgi agents derive <agent-id> --from=<semver> --prompt=<block-id>=<version> --setting=<block-id>=<version> [--label=<text>]`. Repeat `--prompt` and `--setting` for several blocks.
+  - **A taken number is never overwritten.** `POST /v1/agents` with a version that's already registered (a derived version may hold it) still answers `409 agent-already-registered`. It now names the next free version in the message and as `nextFreeVersion`: `… is already registered, and versions never change; publish it as 1.4.2, the next free version`.
+  - **Deploys:** a deploy whose definition and pins match a derived version reuses it, reporting the deploy's own reason (`pins-changed`), not `edited`.
+  - **`VersionDerivation`:** `reason` adds `'edited'`; new optional `label` and `by`.
+- d3dffb5: Comparison eval runs take a flow version as the candidate. On a test set built from a flow's judged runs, `POST /v1/eval-suites/{suiteId}/runs` with `flowRef: { flowId, version }` replays each case on that flow version (from the past run's input) and scores the flow's whole output against the judgments.
+  
+  A replayed flow stops at a tool call the replay refuses (a write the past run didn't make), so no made-up value reaches its next step. The case ends `stopped`, with what it would have done. It isn't an error and is left out of the metrics. The summary counts these cases in `stopped`, next to `errors`, and the run's status stays `completed` when cases only stopped.
+  
+  The summary's `candidate` now says what ran, `{ kind: 'agent', agentId, version }` or `{ kind: 'flow', flowId, version }`, and `baseline.versions` names a flow's recorded versions as `{ flowId, version, cases }`. The subject invoker reports a stop through `EvalRunSubjectInvokeOutcome.stopped`.
+- 26b2a23: **A flow version is pinned when it's published, as an agent version is.** `POST /v1/flows` pins each tool the flow runs to its latest active version: tool nodes, fanout branches, and nodes in loop bodies. It also pins each agent the flow runs at no named version (an agent node without `config.version`). The result is stored on the version as `pins` (`{tools, agents}`) with `pinsDigest`, and every run of that flow version uses those versions. A new tool or agent version reaches the flow only through a new flow version. An agent node with its own `config.version` keeps it.
+  
+  - **Refusals:** a tool or agent with no published version refuses the publish (`400 validation-failed`, naming each).
+  - **Deploys** pin flows after agents and follow the same rule as agents, from one shared code path. When pins change, the deploy registers the next free version with `derivedFrom`, and a redeploy is idempotent. So one tool change cascades through an agent into a flow within a single deploy, each derived once. The deployment's `contents.flows` names each flow's registered version (`DeployedVersion`), and `kindgi deploy` prints one line per renumbered flow.
+  - **Unchanged:** a flow version published before pins binds the latest versions per run, as before.
+  - **New exports:**
+    - `@kindgi/flow`: `FlowPins`, `flowPinsDigest()` and `flowRefs()`.
+    - `@kindgi/types`: `VersionDerivation`.
+    - `@kindgi/agents`: `PinChange.kind` adds `agent`, and `pinChanges()` takes any pin set. `withVersions(flow, { tools?, agents? })` (`@kindgi/flow`) runs a flow version with some blocks at other exact versions through the same pins: what a comparison or replay runs, with `pinsDigest` recomputed.
+- b67eee6: A judged flow run keeps what it did, so it can be replayed later. At a flow run's first judgment, its run copy's `context.flow` keeps:
+  - every tool call the run made, with its result: at its tool nodes (per loop iteration), in its agent steps' turns, and in its sub-flows (at most 500, with `truncated`);
+  - its agent steps (each turn's agent, version and what it retrieved).
+  
+  `createApp` passes its `flowRegistry` to the judgments routes to tell tool nodes apart. The capture is best effort: a part that can't be read is left out, and the judgment never fails over it. Judging a run needs `write` on the run's project (the route's own description now says so).
+- 7a8e764: A duplicate org, team or project slug is a `409 slug-conflict`, not a `500`. `POST /v1/orgs`, `/v1/teams` and `/v1/projects` with a slug the tenant already has, and a `PATCH` to one, answered `500`; now `409 slug-conflict` (`Another project in the tenant has the slug "acme"`, with `details: { resource, slug }`), whether or not the deployment enforces authorization. A second Default project is `409 project-default-already-exists`. A `PATCH` of a missing org, team or project, a member added to a team or project deleted mid-request, and a role change for a non-member answer their `404`s from the binding's outcome instead of matching an error message. The TypeScript and Python clients read both new codes as a conflict (`ConflictError` in Python).
+  
+  **Breaking for custom platform bindings.** `OrgBinding`, `TeamBinding`, `ProjectBinding`, `TeamMembershipBinding` and `ProjectMembershipBinding` writes no longer reject for a caller mistake; they resolve to an outcome discriminated on `kind`: `create` to `{ kind: 'ok', orgId | teamId | projectId }`, `slug-conflict` or (projects) `project-default-already-exists`; `update` to `ok`, `*-not-found` or `slug-conflict`; a membership's `add` and `updateRole` to `ok`, `team-not-found` / `project-not-found` or `*-membership-not-found`. The types are exported (`OrgCreateOutcome`, `ProjectUpdateOutcome`, …). The in-memory bindings keep slugs unique within a tenant. `TenantHierarchyBinding.addTeamMember` / `addProjectMember` fail with `AddTeamMemberError` / `AddProjectMemberError` (`team-not-found` / `project-not-found`, or `add-failed`), which replace `MembershipMutationError`. A binding of your own needs the same changes; the conformance suites in `@kindgi/platform`'s `tests/` check them.
+- a0921a1: Test sets built from judgments, and context captured when a run is first judged. `@kindgi/api` adds the `judged` eval kind, `POST /v1/eval-suites/{suiteId}/versions/from-judgments` (publishes a version whose cases are copies of an agent's or flow's judged runs, each item's judgments summed and weighted by judge class) and `GET /v1/eval-suites/{suiteId}/versions/{version}/cases`, mounted when `createApp` gets an `evalCaseStore` (`EvalCaseStoreBinding`) beside `evalSuiteRegistry` and `judgmentRegistry`; a `JudgmentRegistryBinding` adds `listJudgedRuns` to support it. The first judgment of an agent turn also stores `context` on the run copy: the conversation before the turn and what its retrievals returned. `@kindgi/client` adds `evalSuites.buildFromJudgments` and `evalSuites.listCases`; the Python client has the same methods. `@kindgi/cli` adds `kindgi eval-suites list | show | from-judgments | cases`.
+- dde7fdb: Judgments and judge classes. A judgment is a yes or no, with an optional reason, about one item of a finished run's output, optionally recorded under a judge class that carries a weight. `@kindgi/api` adds `/v1/judgments` (create, list, get, unregister) and `/v1/judge-classes` (create, list, get, update, unregister), mounted when `createApp` gets a `judgmentRegistry` (`JudgmentRegistryBinding`). A judgment keeps copies of the run's input and output and of the judged item, takes who judged from the caller's token, and judging an item again as the same caller supersedes the earlier judgment. `@kindgi/authz` adds the `judge` action on `run`. `@kindgi/policy-contract` adds the `judgment` and `judge_class` retention domains. `@kindgi/client` adds `client.judgments` and `client.judgeClasses`; the Python client has the same resources. `@kindgi/cli` adds `kindgi judgments add | list | show | remove` and `kindgi judge-classes list | add | set | remove`.
+- 3d23304: A project's slug is unique within its org, not the whole tenant: two orgs may each have a project called `intake`. A project without an org has a slug unique among the tenant's projects without one. An org's and a team's slug stay unique in the tenant.
+  
+  - **`409 slug-conflict`** on `POST /v1/projects` when the org already has the slug. `PATCH /v1/projects/:id` answers it for a new slug, and now also for a move to another org (`orgId`, or `null` for none) where the slug is taken. The message says where: "Another project in its org has the slug …".
+  - **Deleting an org** leaves its projects without an org. When one of them has the slug of a project that has none, `DELETE /v1/orgs/:id` deletes nothing and answers `409 slug-conflict` naming the slugs (`details.slugs`); rename or move those projects first. `OrgBinding.delete` may return `{ kind: 'slug-conflict', slugs }` (`OrgDeleteConflict`). A binding that returns nothing deletes as before.
+  - The in-memory `ProjectBinding` checks slugs per org, and the binding conformance suite pins the per-org cases.
+- 2923703: A provider can carry labels, and `provider` is a retention domain.
+  
+  - **`ProviderMetadata.labels`**, optional: string keys to string values, for bookkeeping such as who manages the provider. The router ignores them. `POST /v1/providers` stores them, and get and list return them. At most 32 keys; a key is 1-63 lowercase letters and digits, with `.`, `-`, `_` or `/` inside; a value is at most 256 characters. Anything else is `400 invalid-provider` with reason `invalid-labels`, and `createProviderRegistry` refuses the same labels. The convention key `kindgi.com/managed-by` (`PROVIDER_LABEL_MANAGED_BY`) names the manager: `kindgi-dev`, `kindgi-dev:<pack id>` or `kindgi-deploy:<environment>`. `@kindgi/capabilities` exports `validateProviderLabels` and the limits. The TypeScript and Python clients have the field.
+  - **`provider` in `RETENTION_DOMAINS`.** `ProviderRegistryBinding.unregister` is a tombstone, not an erase: the provider is gone from list, get, capabilities and routing at once, its id is free to register again, and a retention policy on `provider` purges the row. A runtime that still erases on unregister behaves the same through the API.
+- bfeabfd: Publishing a policy that nothing applies is refused. `access-control`, `adapter-allowlist`, `rate-limit` and `compliance` are known policy kinds, but no runtime consumer applies them yet, so publishing one changed nothing, silently. `POST /v1/policies` now answers `400 kind-not-applied` for them, naming the kinds it does apply in `details.appliedKinds` (`model-routing`, `retention`, `tool-errors`, `hitl`). Policies of those kinds already stored stay readable, and the list still filters by them. `@kindgi/policy-contract` exports `APPLIED_POLICY_KINDS` and `isAppliedPolicyKind`; `@kindgi/api` re-exports `APPLIED_POLICY_KINDS`.
+- d0ebeb6: Replay turns: an agent turn can re-run a past run for an eval run without doing anything the past run didn't do.
+  
+  - `@kindgi/agents`:
+    - `InvokeAgentInput.replay` (`{ of, evalRunId }`) marks a turn as a replay. It is kept on the turn's run and in its run snapshot (new nullable `agent_run_snapshots.replay` column), so a resumed turn stays a replay.
+    - The new optional `InvokeAgentBindings.replay` (`ReplayBinding`) decides each tool call:
+      - `live`: the tool runs;
+      - `recorded`: the past run's result is used;
+      - `refused`: the model gets the given result.
+    - Whatever the binding says, only a tool declared read-only (`mutating: false`, no writing effect, see `isReadOnlyTool`) with no approval to wait for runs. A replay with no binding refuses every call.
+    - Each decision is journaled, and `AgentTurnResult.replay` lists them. A refused call shows what the turn would have done.
+    - `retrievals` can supply the past run's retrieved facts. `sessionApproval` gives the past run's decision at the session approval gate, which the replay follows (a recorded rejection fails the turn with `hitl-rejected`). Without a recorded decision the gate is skipped, and the result says so.
+    - `tool.completed` events carry `replay: 'live' | 'recorded' | 'refused'`.
+  - `@kindgi/runtime`: `RunReplayRef`; `replay` on `runGraph` and `startRun`; `replayOf` and `evalRunId` on `KernelRunRecord`; `replays` and `evalRunId` on `ListRunsInput`.
+  - `@kindgi/capabilities`: `ModelUsageRecord.replay` tags a replay's model calls with the past run and the eval run.
+  - `@kindgi/api`:
+    - A run carries `replayOf` and `evalRunId`.
+    - `GET /v1/runs` leaves replay runs out unless `replays=include|only`; `evalRunId` lists one eval run's replays.
+    - A judged agent turn's captured `context` also keeps `sessionApproval`, the decision at its session approval gate.
+  - `@kindgi/client`: `runs.list({ replays, evalRunId })`; the Python client too.
+  - `@kindgi/cli`: `kindgi runs list --replays=<exclude|include|only> --eval-run=<id>`.
+- 62608e3: **Unregister stops a version being chosen, not the pins that hold it.**
+  
+  - **Retired tool versions.** `createToolRegistry().register(tool, { retired: true })` keeps an unregistered tool version for the published agent and flow versions that pin it.
+    - Only its exact version (`getVersion`, `hasVersion`) reaches it.
+    - `resolve` (a range), `get` (latest), `list`, `versions`, `has` and `ids` skip it.
+  - **A pinned turn reaches it.** A turn resolves a pinned tool by its exact version, so a published agent version pinned to a retired tool version keeps running it. A range never picks one.
+  - **`getVersion` reads unregistered versions.** `AgentRegistryBinding.getVersion` and `FlowRegistryBinding.getVersion` return them too (`AgentVersionRecord`, `FlowVersionRecord`, with `unregisteredAt`). `GET /v1/agents/:id/versions/:version` and `GET /v1/flows/:id/versions/:version` return `unregisteredAt`.
+  - **Who reads what:** a resumed run, provenance, and a flow version that pins an agent version read unregistered versions. A new run that names one is refused by the runtime.
+
 ## 0.1.3
 
 ### Patch Changes

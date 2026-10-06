@@ -182,6 +182,10 @@ export interface ListRunsFilter {
   readonly topLevel?: boolean;
   /** Only this agent's turns, at any version (turns from before 0.1.3 don't name their agent). */
   readonly agentId?: AgentId | string;
+  /** Replay runs (an eval run re-running a past run): `exclude` (the default) leaves them out, `include` lists them too, `only` lists just them. */
+  readonly replays?: 'exclude' | 'include' | 'only';
+  /** Only the replay runs of this eval run (implies replays are included). */
+  readonly evalRunId?: string;
   /** Include each run's `output` (omitted from lists by default). */
   readonly includeOutput?: boolean;
 }
@@ -412,6 +416,8 @@ export function makeRunsClient(transport: Transport): RunsClient {
           }),
           ...(filter?.topLevel !== undefined && { topLevel: String(filter.topLevel) }),
           ...(filter?.agentId !== undefined && { agentId: filter.agentId as string }),
+          ...(filter?.replays !== undefined && { replays: filter.replays }),
+          ...(filter?.evalRunId !== undefined && { evalRunId: filter.evalRunId }),
           ...(filter?.includeOutput === true && { include: 'output' }),
         },
       });

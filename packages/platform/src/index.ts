@@ -51,6 +51,7 @@ export {
   makeInMemoryTeamBinding,
   makeInMemoryProjectBinding,
 } from './in-memory/index.js';
+export type { InMemoryHierarchyOptions } from './in-memory/index.js';
 
 export type {
   AddProjectMemberError,

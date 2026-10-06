@@ -250,8 +250,10 @@ a semver range: `'^0.1.0'` takes the highest registered version from `0.1.0`
 up to, not including, `0.2.0`. In Python, pass the tool itself to pin it to
 its version, or the same `{"id": …, "version": …}` reference for a range.
 
-The range is resolved when the turn starts. When no registered version is in
-it, the turn fails:
+Under `kindgi dev`, the range is resolved when each turn starts. A published
+agent version resolves it once, when it's published, and keeps that version:
+see [Agent and tool versions](../agent-and-tool-versions/). When no
+registered version is in the range, the turn fails:
 
 ```text
 Error [server]: Tool "acme.lookup-order" has no version satisfying "^0.2.0" (available: 0.1.0)

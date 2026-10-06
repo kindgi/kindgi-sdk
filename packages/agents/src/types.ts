@@ -6,6 +6,8 @@ import type { Fact, MemoryScope } from '@kindgi/memory';
 import type { ToolErrorsSpec, ToolHitlMode, ToolHitlRule } from '@kindgi/policy-contract';
 import type { Brand, ConversationId, ProjectId, Semver, TenantId, Timestamp } from '@kindgi/types';
 
+import type { AgentDerivation, AgentPins } from './pins.js';
+
 /**
  * Branded agent id. Convention: dotted namespace under the tenant's
  * pack — e.g. `acme.citation-verifier`, `acme.drafting`.
@@ -117,6 +119,22 @@ export interface RetrievalIntent {
  *   - `'>=1.0.0 <2.0.0'` — explicit range
  */
 export interface ToolRef {
+  readonly id: string;
+  readonly version: string;
+}
+
+/**
+ * A prompt block an agent's instructions come from: its id and a semver
+ * range, resolved like a tool's (`pickVersion`) and pinned when the
+ * agent version is published.
+ */
+export interface PromptRef {
+  readonly prompt: string;
+  readonly version: string;
+}
+
+/** A settings block an agent reads: its id and a semver range, pinned at publish. */
+export interface BlockRef {
   readonly id: string;
   readonly version: string;
 }
@@ -292,8 +310,13 @@ export interface Agent {
    * unresolved reference fails the turn at invoke time
    * (`model-invocation-failed` whose `cause` is the `missing-parameter`
    * render error), never a silent empty string.
+   *
+   * Or a prompt block, by range (`{ prompt: 'acme.intake-prompt',
+   * version: '^1.0.0' }`): its template renders here instead, with the
+   * parameters it declares, and the version that runs is pinned when the
+   * agent version is published (`pins.prompts`).
    */
-  readonly instructions: string;
+  readonly instructions: string | PromptRef;
   /**
    * Typed parameters the caller supplies at invoke time. The UI reads
    * this to build a "configure agent" form; the runtime validates each
@@ -405,6 +428,35 @@ export interface Agent {
    * A tenant's `tool-errors` policy can lower it. See `ToolErrorsSpec`.
    */
   readonly toolErrors?: ToolErrorsSpec;
+  /**
+   * The exact block versions this agent version runs, resolved by the
+   * runtime when the version was published (see `AgentPins`). Never
+   * authored: `defineAgent` doesn't take it. Absent on an agent defined
+   * in code and on a version published before pins existed; its tool
+   * ranges then resolve per run.
+   */
+  readonly pins?: AgentPins;
+  /**
+   * Settings blocks the agent reads, by range. Each block's values reach
+   * its tools as `ToolContext.settings[<block id>]` and its templates as
+   * `settings.<block id>.<key>`; the versions are pinned at publish
+   * (`pins.settings`).
+   */
+  readonly settings?: readonly BlockRef[];
+  /**
+   * A settings block of model settings (`MODEL_SETTINGS_SCHEMA`:
+   * `temperature`, `maxOutputTokens`) the turn's model calls use. Pinned
+   * at publish with the other settings.
+   */
+  readonly modelSettings?: BlockRef;
+  /** `pinsDigest(pins)`, recorded when the version was published. */
+  readonly pinsDigest?: string;
+  /**
+   * Set by the runtime on a version it registered under another number
+   * than the definition's, when a deploy couldn't register that number
+   * as it was (see `AgentDerivation`). Never authored.
+   */
+  readonly derivedFrom?: AgentDerivation;
 }
 
 /**
