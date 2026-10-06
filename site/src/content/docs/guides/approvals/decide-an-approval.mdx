@@ -121,6 +121,11 @@ An approve or reject resumes the run within the same call, so the run has
 moved on by the time the command returns. A decided approval can't be decided
 again.
 
+Each decision also goes into the audit trail, as an `hitl-decision` event:
+who decided, how it ended and the rationale. It's kept for good, even when the
+runtime purges other audit events (see
+[Audit events](../../../deploy/retention/#audit-events)).
+
 ### Escalate
 
 A `standard` reviewer who wants a second opinion escalates:
