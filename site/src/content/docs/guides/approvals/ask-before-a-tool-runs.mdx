@@ -248,7 +248,8 @@ kindgi approvals complete 416c22ba-73f9-45b7-999d-c1d5938758f7 --decision=approv
 ```
 
 The run continues in the same call: the tool runs and the agent finishes its
-turn. Its journal (`kindgi runs journal <run-id>`) says who decided which
+turn. The tool runs at the version the turn started with, even when a newer
+version in the agent's range appeared while it waited. Its journal (`kindgi runs journal <run-id>`) says who decided which
 approval:
 
 ```json

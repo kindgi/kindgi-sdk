@@ -106,6 +106,12 @@ Anything that isn't a preset registers from a spec: a JSON file you pass with
 - **`metadata.attributes`** (optional) are labels agents can rank by, such as
   `"local"`; **`metadata.fallback: true`** makes the provider a fallback, like
   `dev-echo`.
+- **`metadata.labels`** (optional) are your own key-value notes, such as who
+  manages the registration: `{ "kindgi.com/managed-by": "terraform" }`. Routing
+  ignores them; `kindgi providers get` shows them. Up to 32, each key 1 to 63
+  lowercase letters and digits (with `.`, `-`, `_` or `/` inside), each value up
+  to 256 characters. Another key is refused:
+  `provider "ollama" labels key "Team Name" must be 1-63 lowercase letters and digits, with ".", "-", "_" or "/" inside`.
 
 :::caution[Prices are per thousand tokens]
 `promptUsdPer1kTokens` and `completionUsdPer1kTokens` are per **thousand**

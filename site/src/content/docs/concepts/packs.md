@@ -57,5 +57,16 @@ TypeScript or a Python pack, and the runtime registers what it lists.
 `kindgi dev` re-indexes on every save; `kindgi build` puts the index in the
 image.
 
+Each tool, guardrail, agent and flow version is defined in one file. A second
+file with the same id and version is refused, naming both files, and
+`kindgi dev` loads the rest of the pack:
+
+```text
+✗ indexer: tools/greet/index.ts [manifest-validation-failed] tools/greet/index.ts: duplicate tool 'acme-ops.greet' version 0.1.0 (also defined in tools/greet-copy/index.ts)
+```
+
+Two versions of one id, in two files, are fine: see
+[Agent and tool versions](../../guides/agents/agent-and-tool-versions/).
+
 See the [Packages](../../reference/packages/) and
 [JSON Schemas](../../reference/schemas/) reference for every field.
