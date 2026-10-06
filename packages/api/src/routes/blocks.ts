@@ -18,6 +18,7 @@ import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import { parseScopeParams } from './scope-params.js';
 
 /**
  * Data blocks: versioned prompts and settings that agent versions pin
@@ -73,16 +74,22 @@ export function blocksRouter(binding: BlockRegistryBinding, authorizer?: Authori
         `Unknown block kind "${kind}". Expected one of: ${BLOCK_KINDS.join(', ')}.`,
       );
     }
+    const scope = parseScopeParams(c.req.query(), { tenantId });
+    if (scope.kind === 'err') {
+      c.status(statusFor('scope-invalid') as never);
+      return c.json(
+        toWireError({ code: 'scope-invalid', message: scope.message }, c.get('requestId')),
+      );
+    }
     const cursor = c.req.query('cursor');
     const name = c.req.query('name');
-    const projectId = c.req.query('projectId');
     const page = await binding.list({
       tenantId,
       limit: clampLimit(c.req.query('limit')),
       ...(cursor !== undefined && cursor.length > 0 && { cursor: cursor as Cursor }),
       ...(kind !== undefined && kind.length > 0 && { blockKind: kind as BlockKind }),
       ...(name !== undefined && name.length > 0 && { nameFilter: name }),
-      ...(projectId !== undefined && projectId.length > 0 && { projectId: projectId as ProjectId }),
+      ...(scope.scope !== undefined && { scope: scope.scope }),
     });
     const visible =
       authorizer === undefined

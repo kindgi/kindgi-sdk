@@ -848,14 +848,6 @@ const BlockNameFilterQueryParam: ParameterSpec = {
   schema: { type: 'string' },
 };
 
-const BlockProjectFilterQueryParam: ParameterSpec = {
-  name: 'projectId',
-  in: 'query',
-  required: false,
-  description: "Only this project's blocks.",
-  schema: { type: 'string', format: 'uuid' },
-};
-
 // Admin plane — eval-run data plane.
 
 const EvalRunIdPathParam: ParameterSpec = {
@@ -3615,7 +3607,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'blocks.list',
     summary: 'List data blocks (latest version of each)',
     description:
-      'Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, `?projectId=` narrows to one project.',
+      'Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, and `?scopeKind=` + `?scopeId=` narrow to a project or an org, as the other lists do.',
     tags: ['blocks'],
     security: 'bearer',
     parameters: [
@@ -3623,12 +3615,15 @@ export const OPERATIONS: readonly OperationSpec[] = [
       CursorQueryParam,
       BlockKindFilterQueryParam,
       BlockNameFilterQueryParam,
-      BlockProjectFilterQueryParam,
+      ScopeKindQueryParam,
+      ScopeIdQueryParam,
     ],
     responses: {
       '200': { description: 'Page of blocks.', schema: ref('BlockCollectionPage') },
       ...CommonAuthErrors,
-      '400': ErrorResponse('Malformed query parameter (unknown `kind`).'),
+      '400': ErrorResponse(
+        'Malformed query parameter: an unknown `kind`, or `scope-invalid` for a malformed scope.',
+      ),
     },
   },
   {

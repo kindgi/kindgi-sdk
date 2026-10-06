@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { BlockDefinition, BlockKind } from '@kindgi/agents';
+import type { Scope } from '@kindgi/platform';
 import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
 
 /**
@@ -61,8 +62,14 @@ export interface BlockListInput {
   readonly blockKind?: BlockKind;
   /** Prefix match on the block id. */
   readonly nameFilter?: string;
-  /** Only the blocks of this project. */
-  readonly projectId?: ProjectId;
+  /**
+   * Narrow to a scope, as the other registries' lists do. Absent: every
+   * block in the tenant. A block always belongs to one project:
+   * - `{ kind: 'project', projectId }`: that project's blocks;
+   * - `{ kind: 'org', orgId }`: the blocks of every project in that org;
+   * - `{ kind: 'tenant' }`: every block in the tenant.
+   */
+  readonly scope?: Scope;
 }
 
 export interface BlockGetInput {

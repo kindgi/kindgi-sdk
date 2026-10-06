@@ -24382,7 +24382,7 @@
             }
           },
           "400": {
-            "description": "Malformed query parameter (unknown `kind`).",
+            "description": "Malformed query parameter: an unknown `kind`, or `scope-invalid` for a malformed scope.",
             "content": {
               "application/json": {
                 "schema": {
@@ -24402,7 +24402,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, `?projectId=` narrows to one project.",
+        "description": "Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, and `?scopeKind=` + `?scopeId=` narrow to a project or an org, as the other lists do.",
         "parameters": [
           {
             "name": "limit",
@@ -24444,14 +24444,23 @@
             "description": "Prefix match on the block id."
           },
           {
-            "name": "projectId",
+            "name": "scopeKind",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/ScopeKind"
+            },
+            "required": false,
+            "description": "Optional scope discriminator. If absent, no scope filter is applied."
+          },
+          {
+            "name": "scopeId",
             "in": "query",
             "schema": {
               "type": "string",
-              "format": "uuid"
+              "minLength": 1
             },
             "required": false,
-            "description": "Only this project's blocks."
+            "description": "Required IF scopeKind is `org` or `project`. MUST be absent if scopeKind=`tenant` (tenant is implicit from the session). Malformed combinations return 400 scope-invalid."
           }
         ],
         "security": [
