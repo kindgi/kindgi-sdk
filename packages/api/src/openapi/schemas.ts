@@ -3440,6 +3440,14 @@ export const ProviderMetadataSchema: JsonSchema = {
       description:
         "A fallback serves a capability only when no other provider satisfies it (e.g. `kindgi dev`'s scripted `dev-echo`); an agent turn routed to one carries a `fallback-provider` warning. Absent = `false`.",
     },
+    labels: {
+      type: 'object',
+      maxProperties: 32,
+      propertyNames: { pattern: '^[a-z0-9]([a-z0-9._/-]{0,61}[a-z0-9])?$' },
+      additionalProperties: { type: 'string', maxLength: 256 },
+      description:
+        'Bookkeeping, such as who manages the provider; the router ignores labels. At most 32 keys; a key is 1-63 lowercase letters and digits, with `.`, `-`, `_` or `/` inside; a value is at most 256 characters. The convention key `kindgi.com/managed-by` names the manager (`kindgi-dev`, `kindgi-deploy:<environment>`). Out of bounds: `400 invalid-provider`, reason `invalid-labels`.',
+    },
   },
 };
 
