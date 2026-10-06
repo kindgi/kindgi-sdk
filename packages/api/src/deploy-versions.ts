@@ -93,7 +93,11 @@ export async function deployVersion<T extends PinnedDefinition>(
     return {
       kind: 'reused',
       version: earlier.version,
-      reason: earlier.derivedFrom?.reason ?? reason,
+      // An expert's edit reused by a deploy reports the deploy's own reason.
+      reason:
+        earlier.derivedFrom !== undefined && earlier.derivedFrom.reason !== 'edited'
+          ? earlier.derivedFrom.reason
+          : reason,
       ...changes,
     };
   }

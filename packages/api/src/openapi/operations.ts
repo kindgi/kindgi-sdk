@@ -1674,6 +1674,27 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'post',
+    honoPath: '/v1/agents/:agentId/versions',
+    openapiPath: '/v1/agents/{agentId}/versions',
+    operationId: 'agents.deriveVersion',
+    summary: 'Derive an agent version with data-block pins swapped',
+    description:
+      "An expert's edit, without a code change: a new agent version that is `from`'s bag with some prompt or settings pins swapped (`derivedFrom: { version, reason: 'edited', label, by }`), numbered the next free patch after the agent's highest version. Only blocks `from` already references swap, to a published, active version of the right kind (model settings for the model-settings block); tool pins come from code. Needs `publish` on the agent.",
+    tags: ['agents'],
+    security: 'bearer',
+    parameters: [AgentIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('DeriveAgentVersionBody') },
+    responses: {
+      '201': { description: 'The derived agent version.', schema: ref('Agent') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "`validation-failed`: `from` has no pins, a swap names a block it doesn't reference, or a version that isn't published, active or the right kind (see `details.issues`).",
+      ),
+      '404': ErrorResponse('`agent-not-found`: no agent at `from`.'),
+    },
+  },
+  {
     method: 'get',
     honoPath: '/v1/agents/:agentId/versions/:version',
     openapiPath: '/v1/agents/{agentId}/versions/{version}',

@@ -4,7 +4,12 @@
 import type { DefineAgentSpec } from '@kindgi/agents';
 import type { AgentId, Semver } from '@kindgi/types';
 
-import type { Agent, AgentCollectionPage, UnregisterAgentResult } from '../generated/api.js';
+import type {
+  Agent,
+  AgentCollectionPage,
+  DeriveAgentVersionBody,
+  UnregisterAgentResult,
+} from '../generated/api.js';
 import type { Transport } from '../transport.js';
 
 /**
@@ -70,7 +75,22 @@ export interface AgentVersionsClient {
     version: Semver,
     options?: MutationOptions,
   ): Promise<UnregisterAgentResult>;
+  /**
+   * Derive a new version from a pinned one with some data-block pins
+   * swapped (an expert's edit, no code change). Numbered the next free
+   * patch after the agent's highest version. Needs `publish` on the agent.
+   *
+   * @wire POST /v1/agents/:agentId/versions
+   */
+  derive(
+    agentId: AgentId,
+    input: DeriveAgentVersionInput,
+    options?: MutationOptions,
+  ): Promise<Agent>;
 }
+
+/** Body of `POST /v1/agents/{agentId}/versions`. */
+export type DeriveAgentVersionInput = DeriveAgentVersionBody;
 
 export interface ListAgentsFilter {
   readonly limit?: number;
@@ -162,6 +182,16 @@ export function makeAgentsClient(transport: Transport): AgentsClient {
         return transport.request<UnregisterAgentResult>({
           method: 'POST',
           path: `/v1/agents/${seg(agentId as unknown as string)}/versions/${seg(version as unknown as string)}/unregister`,
+          ...(options?.idempotencyKey !== undefined && {
+            idempotencyKey: options.idempotencyKey,
+          }),
+        });
+      },
+      async derive(agentId, input, options) {
+        return transport.request<Agent>({
+          method: 'POST',
+          path: `/v1/agents/${seg(agentId as unknown as string)}/versions`,
+          body: input,
           ...(options?.idempotencyKey !== undefined && {
             idempotencyKey: options.idempotencyKey,
           }),

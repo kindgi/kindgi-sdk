@@ -50,13 +50,19 @@ export interface VersionedRef<Id extends string> {
  *   pins (a block it uses has a new version);
  * - `unpinned`: the definition's version was published before pins
  *   existed, so it has none;
- * - `version-taken`: the definition's version holds another definition.
+ * - `version-taken`: the definition's version holds another definition;
+ * - `edited`: derived from an existing version with some data-block pins
+ *   swapped (an expert's edit), not from a definition at all.
  */
-export type VersionDerivationReason = 'pins-changed' | 'unpinned' | 'version-taken';
+export type VersionDerivationReason = 'pins-changed' | 'unpinned' | 'version-taken' | 'edited';
 
-/** The version a version was registered in place of, and why. */
+/** The version a version was registered in place of (or derived from), and why. */
 export interface VersionDerivation {
-  /** The version the definition names. */
+  /** The version the definition names, or the one an edit derived from. */
   readonly version: string;
   readonly reason: VersionDerivationReason;
+  /** For an edit: a short label for the version (e.g. "warmer tone"). */
+  readonly label?: string;
+  /** For an edit: who made it (`user:<id>`, or the token for a key). */
+  readonly by?: string;
 }

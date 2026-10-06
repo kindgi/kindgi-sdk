@@ -53,6 +53,6 @@ describe('commands the API does not wire yet', () => {
     const reference = describeCommands();
     expect(reference.map((c) => c.name)).not.toContain('memory');
     const agentsRef = reference.find((c) => c.name === 'agents')!;
-    expect(agentsRef.subcommands.map((s) => s.name)).toEqual(['publish']);
+    expect(agentsRef.subcommands.map((s) => s.name)).toEqual(['publish', 'derive']);
   });
 });

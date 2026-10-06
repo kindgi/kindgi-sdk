@@ -94,6 +94,8 @@ export interface AgentRegistryBinding {
 export type AgentVersionRecord = Agent & {
   /** ISO-8601; present only on an unregistered version. */
   readonly unregisteredAt?: string;
+  /** The project the version belongs to, when the store records it (a derived version is published there). */
+  readonly projectId?: ProjectId;
 };
 
 export interface AgentListInput {

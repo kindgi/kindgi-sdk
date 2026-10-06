@@ -1711,9 +1711,36 @@ class VersionDerivation(BaseModel):
     """
     The version the definition names.
     """
-    reason: Literal["pins-changed", "unpinned", "version-taken"]
+    reason: Literal["pins-changed", "unpinned", "version-taken", "edited"]
     """
-    `pins-changed`: a block it uses has a new version; `unpinned`: the definition's version was published before pins existed; `version-taken`: the definition's version holds another definition.
+    `pins-changed`: a block it uses has a new version; `unpinned`: the definition's version was published before pins existed; `version-taken`: the definition's version holds another definition; `edited`: derived from `version` with some data-block pins swapped (`POST /v1/agents/{agentId}/versions`).
+    """
+    label: str | None = None
+    """
+    For `edited`: a short label for the version.
+    """
+    by: str | None = None
+    """
+    For `edited`: who derived it (`user:<id>`).
+    """
+
+
+class AgentPinSwaps(BaseModel):
+    """
+    The data-block pins to swap, by block id → exact version. Only blocks the version already references; tool pins come from code.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    prompts: dict[str, str] | None = None
+    """
+    Prompt block id → exact version.
+    """
+    settings: dict[str, str] | None = None
+    """
+    Settings block id → exact version.
     """
 
 
@@ -7044,6 +7071,30 @@ class Agent(BaseModel):
     ] = None
     """
     Set by the runtime with `pins`: `sha256:<hex>` of the pins' canonical JSON (sorted keys, no whitespace). Two agent versions with the same digest run the same blocks.
+    """
+
+
+class DeriveAgentVersionBody(BaseModel):
+    """
+    Derive a new agent version from a pinned one with some data-block pins swapped: an expert's edit reaching an agent with no code change.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    from_: Annotated[str, Field(alias="from")]
+    """
+    The version to derive from (it must be pinned).
+    """
+    pins: AgentPinSwaps
+    label: str | None = None
+    """
+    A short label for the new version.
+    """
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The agent's project, when the runtime doesn't record it on the version.
     """
 
 

@@ -74,6 +74,9 @@ OPERATIONS: dict[str, Operation] = {
     "agents.listVersions": Operation(
         "agents.listVersions", "GET", "/v1/agents/{agentId}/versions", "json", False
     ),
+    "agents.deriveVersion": Operation(
+        "agents.deriveVersion", "POST", "/v1/agents/{agentId}/versions", "json", True
+    ),
     "agents.getVersion": Operation(
         "agents.getVersion", "GET", "/v1/agents/{agentId}/versions/{version}", "json", False
     ),
@@ -1350,6 +1353,30 @@ class AgentsResource:
             query={"limit": limit, "cursor": cursor},
             headers={},
             response=_models.AgentCollectionPage,
+            timeout=timeout,
+        )
+
+    def derive_version(
+        self,
+        agent_id: str,
+        body: _models.DeriveAgentVersionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Agent:
+        """Derive an agent version with data-block pins swapped. `POST /v1/agents/{agentId}/versions`
+
+        An expert's edit, without a code change: a new agent version that is `from`'s bag with some prompt or settings pins swapped (`derivedFrom: { version, reason: 'edited', label, by }`), numbered the next free patch after the agent's highest version. Only blocks `from` already references swap, to a published, active version of the right kind (model settings for the model-settings block); tool pins come from code. Needs `publish` on the agent.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.deriveVersion"],
+            path={"agentId": agent_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.DeriveAgentVersionBody, body, fields),
+            response=_models.Agent,
             timeout=timeout,
         )
 
@@ -6640,6 +6667,30 @@ class AsyncAgentsResource:
             query={"limit": limit, "cursor": cursor},
             headers={},
             response=_models.AgentCollectionPage,
+            timeout=timeout,
+        )
+
+    async def derive_version(
+        self,
+        agent_id: str,
+        body: _models.DeriveAgentVersionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Agent:
+        """Derive an agent version with data-block pins swapped. `POST /v1/agents/{agentId}/versions`
+
+        An expert's edit, without a code change: a new agent version that is `from`'s bag with some prompt or settings pins swapped (`derivedFrom: { version, reason: 'edited', label, by }`), numbered the next free patch after the agent's highest version. Only blocks `from` already references swap, to a published, active version of the right kind (model settings for the model-settings block); tool pins come from code. Needs `publish` on the agent.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.deriveVersion"],
+            path={"agentId": agent_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.DeriveAgentVersionBody, body, fields),
+            response=_models.Agent,
             timeout=timeout,
         )
 

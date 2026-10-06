@@ -120,6 +120,28 @@ def test_a_body_as_a_mapping_or_a_model() -> None:
         api.runs.start({"agent": "a", "input": {}}, flow="f")
 
 
+def test_a_field_named_for_a_keyword_takes_a_trailing_underscore() -> None:
+    # `from` is a Python keyword: `from_=` sends it, as does a mapping.
+    derived = {
+        "id": "acme.intake",
+        "version": "1.4.1",
+        "name": "Intake",
+        "instructions": {"prompt": "acme.intake-prompt", "version": "^1.0.0"},
+        "capabilities": [],
+        "tools": [],
+        "retrieval": [],
+        "guardrails": [],
+        "derivedFrom": {"version": "1.4.0", "reason": "edited", "by": "user:u-1"},
+    }
+    api, seen = client(lambda r: httpx.Response(201, json=derived))
+    pins = {"prompts": {"acme.intake-prompt": "1.1.0"}}
+    agent = api.agents.derive_version("acme.intake", from_="1.4.0", pins=pins)
+    api.agents.derive_version("acme.intake", {"from": "1.4.0", "pins": pins})
+    assert agent.derived_from is not None and agent.derived_from.reason == "edited"
+    assert [r.url for r in seen] == ["http://kindgi.test/v1/agents/acme.intake/versions"] * 2
+    assert [json.loads(r.content) for r in seen] == [{"from": "1.4.0", "pins": pins}] * 2
+
+
 def test_path_and_query_parameters() -> None:
     page = {"data": [], "hasMore": False}
     api, seen = client(
