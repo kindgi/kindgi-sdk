@@ -76,13 +76,16 @@ export interface OrgBinding {
    */
   update(tenantId: TenantId, orgId: OrgId, patch: OrgPatch): Promise<OrgUpdateOutcome>;
   /**
-   * Delete an `Org`. Cascade semantics (dependent teams / projects) are
-   * a storage-layer concern — the in-memory adapter does the delete
-   * unconditionally. A storage whose projects leave a deleted org (the
-   * Kindgi runtime's: they become projects without an org) answers
-   * `slug-conflict` instead when one of them has the slug of a project
-   * that has no org, and deletes nothing. Nothing (`void`): the org is
-   * deleted, or wasn't there.
+   * Delete an `Org`: a tombstone, not an erase. From then on `get`,
+   * `list` and `update` treat it as unknown, and its slug is free for a
+   * new org; a retention policy on the `org` domain purges the row.
+   * What happens to dependents (teams, projects, org-scoped config) is
+   * the storage's concern; the in-memory adapter has none. A storage
+   * whose projects leave a deleted org (the Kindgi runtime's: they
+   * become projects without an org) answers `slug-conflict` instead
+   * when one of them has the slug of a project that has no org, and
+   * deletes nothing. Nothing (`void`): the org is deleted, or wasn't
+   * there (or was already deleted).
    */
   // biome-ignore lint/suspicious/noConfusingVoidType: `void`, not `undefined`, so a binding whose `delete` returns `Promise<void>` still conforms.
   delete(tenantId: TenantId, orgId: OrgId): Promise<void | OrgDeleteConflict>;
