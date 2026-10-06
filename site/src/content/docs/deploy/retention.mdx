@@ -59,7 +59,7 @@ import type { PolicyId } from '@kindgi/sdk/types';
 const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
 // Removed model providers are kept 7 days, then the next sweep purges them.
-const published = await kindgi.policies.author({
+const published = await kindgi.policies.publish({
   id: 'acme.keep-providers' as PolicyId,
   version: '1.0.0',
   kind: 'retention',

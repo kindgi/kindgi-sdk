@@ -14,7 +14,7 @@ description: >
   primitive.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.7"
+version: "0.3.8"
 sdk_version: "0.0.0"
 pack_languages: [node]
 ---
@@ -193,7 +193,7 @@ const run = await kindgi.runs.start({
   step's `step.completed` entry in the flow's journal names its turn's run
   (`payload.output.runId`).
 - **What it cost:** `kindgi.cost.usage.query({ rootRunId: runId })`
-  (`GET /v1/cost/records?rootRunId={runId}`): `.items`, one record per model
+  (`GET /v1/cost/records?rootRunId={runId}`): `.data`, one record per model
   call, with its `model`, `usage` (`promptTokens`, `completionTokens`) and
   `costUsd` (a number, US dollars), a flow's agent steps included. For one
   customer's spend, see below.

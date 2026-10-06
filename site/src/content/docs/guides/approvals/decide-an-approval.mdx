@@ -208,11 +208,11 @@ import { createClient } from '@kindgi/sdk/client';
 const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
 const pending = await kindgi.approvals.list({ status: 'pending' });
-for (const approval of pending.items) {
+for (const approval of pending.data) {
   console.log(approval.id, approval.title, approval.subjectRef);
 }
 
-const first = pending.items[0];
+const first = pending.data[0];
 if (first) {
   const result = await kindgi.approvals.decide(first.id, {
     decision: 'approve',

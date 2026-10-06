@@ -132,7 +132,7 @@ const unregistered = await kindgi.agents.versions.get(agent, version);
 console.log(unregistered.unregisteredAt, unregistered.pins?.tools);
 
 // 1.0.0 can be chosen again, unchanged.
-await kindgi.agents.reinstateVersion(agent, version);
+await kindgi.agents.versions.reinstate(agent, version);
 ```
 
 </TabItem>
