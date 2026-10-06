@@ -95,6 +95,7 @@ import { evalRunsRouters } from './routes/eval-runs.js';
 import { evalSuitesRouter } from './routes/eval-suites.js';
 import { eventTriggersRouter } from './routes/event-triggers.js';
 import { flowsRouter } from './routes/flows.js';
+import { gatePoliciesRouter } from './routes/gate-policies.js';
 import { guardrailsRouter } from './routes/guardrails.js';
 import { identityRouter } from './routes/identity.js';
 import { judgedSuitesRouter } from './routes/judged-suites.js';
@@ -1049,8 +1050,15 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.toolRegistry,
         input.blockRegistry,
         input.agentReleases,
+        {
+          ...(input.evalRunBinding !== undefined && { evalRuns: input.evalRunBinding }),
+          ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+        },
       ),
     );
+  }
+  if (input.agentReleases?.gatePolicies !== undefined) {
+    v1.route('/gate-policies', gatePoliciesRouter(input.agentReleases.gatePolicies, authorizer));
   }
   if (input.flowRegistry !== undefined) {
     v1.route(
