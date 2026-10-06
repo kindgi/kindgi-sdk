@@ -172,6 +172,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'judge-class-not-applicable': 400,
   'run-not-finished': 409,
   'item-not-found': 400,
+  // The judgment binding can't list judged runs, so no test sets from judgments.
+  'test-sets-not-supported': 501,
   'eval-run-already-terminal': 409,
   'dispatcher-not-registered': 422,
   'dispatcher-input-invalid': 400,

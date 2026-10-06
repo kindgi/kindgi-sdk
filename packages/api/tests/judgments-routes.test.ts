@@ -16,16 +16,9 @@ import type { ConversationId, ProjectId, RunId, TenantId, Timestamp, UserId } fr
 import { createStubAppBindings } from '@kindgi/testing';
 
 import { createApp } from '../src/index.js';
-import type {
-  JudgeClass,
-  JudgedRunCopy,
-  Judgment,
-  JudgmentRegistryBinding,
-  JudgmentWithCopies,
-  RunHandlerBinding,
-  TokenResolver,
-} from '../src/index.js';
+import type { JudgmentRegistryBinding, RunHandlerBinding, TokenResolver } from '../src/index.js';
 import { judgeClassApplies } from '../src/index.js';
+import { inMemoryJudgments } from './support/in-memory-judgments.js';
 
 const tenantId = randomUUID() as TenantId;
 const projectA = randomUUID() as ProjectId;
@@ -66,172 +59,6 @@ function row(overrides: Partial<KernelRunRecord> = {}): KernelRunRecord {
   };
 }
 
-/** In-memory `JudgmentRegistryBinding` honouring supersede and one run copy per run. */
-function inMemoryBinding(): JudgmentRegistryBinding {
-  const classes: JudgeClass[] = [];
-  const judgments: Judgment[] = [];
-  const copies = new Map<string, JudgedRunCopy>();
-  const itemValues = new Map<string, unknown>();
-  let seq = 0;
-  const now = () => new Date(Date.UTC(2026, 9, 1, 0, 0, seq++)).toISOString();
-  const sameScope = (a: JudgeClass['scope'], b: JudgeClass['scope']) =>
-    JSON.stringify(a) === JSON.stringify(b);
-  const page = <T>(rows: readonly T[], limit: number) => ({
-    data: rows.slice(0, limit),
-    hasMore: rows.length > limit,
-  });
-
-  return {
-    async createClass(input) {
-      const taken = classes.some(
-        (k) =>
-          k.unregisteredAt === undefined &&
-          k.name === input.name &&
-          sameScope(k.scope, input.scope),
-      );
-      if (taken) return { kind: 'name-taken' };
-      const at = now();
-      const judgeClass: JudgeClass = {
-        id: `jc-${classes.length + 1}`,
-        tenantId: input.tenantId,
-        scope: input.scope,
-        name: input.name,
-        weight: input.weight,
-        ...(input.description !== undefined && { description: input.description }),
-        createdAt: at,
-        updatedAt: at,
-      };
-      classes.push(judgeClass);
-      return { kind: 'created', judgeClass };
-    },
-    async listClasses(input) {
-      const rows = classes
-        .filter((k) => k.unregisteredAt === undefined)
-        .filter((k) => input.scope === undefined || sameScope(k.scope, input.scope))
-        .reverse();
-      return page(rows, input.limit);
-    },
-    async getClass(input) {
-      const k = classes.find((c) => c.id === input.judgeClassId) ?? null;
-      if (k === null) return null;
-      return k.unregisteredAt !== undefined && input.includeUnregistered !== true ? null : k;
-    },
-    async updateClass(input) {
-      const i = classes.findIndex(
-        (c) => c.id === input.judgeClassId && c.unregisteredAt === undefined,
-      );
-      const current = classes[i];
-      if (current === undefined) return null;
-      const next: JudgeClass = {
-        ...current,
-        ...(input.weight !== undefined && { weight: input.weight }),
-        ...(input.description !== undefined && { description: input.description }),
-        updatedAt: now(),
-      };
-      classes[i] = next;
-      return next;
-    },
-    async unregisterClass(input) {
-      const i = classes.findIndex(
-        (c) => c.id === input.judgeClassId && c.unregisteredAt === undefined,
-      );
-      const current = classes[i];
-      if (current === undefined) return { unregistered: false };
-      classes[i] = { ...current, unregisteredAt: now() };
-      return { unregistered: true };
-    },
-
-    async record(input) {
-      const id = `j-${judgments.length + 1}`;
-      if (!copies.has(input.runId)) {
-        copies.set(input.runId, {
-          runId: input.runId,
-          subject: input.run.subject,
-          input: input.run.input,
-          output: input.run.output,
-          capturedAt: now(),
-        });
-      }
-      for (let i = 0; i < judgments.length; i++) {
-        const j = judgments[i] as Judgment;
-        if (
-          j.unregisteredAt === undefined &&
-          j.runId === input.runId &&
-          j.item.key === input.item.key &&
-          j.assertedBy.kind === input.assertedBy.kind &&
-          j.assertedBy.id === input.assertedBy.id &&
-          j.participantId === input.participantId
-        ) {
-          judgments[i] = { ...j, unregisteredAt: now(), supersededBy: id };
-        }
-      }
-      const judgment: Judgment = {
-        id,
-        tenantId: input.tenantId,
-        projectId: input.projectId,
-        runId: input.runId,
-        subject: input.run.subject,
-        item: input.item,
-        verdict: input.verdict,
-        ...(input.reason !== undefined && { reason: input.reason }),
-        ...(input.judgeClassId !== undefined && { judgeClassId: input.judgeClassId }),
-        assertedBy: input.assertedBy,
-        ...(input.participantId !== undefined && { participantId: input.participantId }),
-        createdAt: now(),
-      };
-      judgments.push(judgment);
-      if (input.itemValue !== undefined) itemValues.set(id, input.itemValue);
-      return judgment;
-    },
-    async list(input) {
-      const rows = judgments
-        .filter((j) => j.unregisteredAt === undefined)
-        .filter((j) => input.runId === undefined || j.runId === input.runId)
-        .filter(
-          (j) =>
-            input.agentId === undefined ||
-            (j.subject.kind === 'agent' && j.subject.id === input.agentId),
-        )
-        .filter((j) => input.agentVersion === undefined || j.subject.version === input.agentVersion)
-        .filter(
-          (j) =>
-            input.flowId === undefined ||
-            (j.subject.kind === 'flow' && j.subject.id === input.flowId),
-        )
-        .filter((j) => input.verdict === undefined || j.verdict === input.verdict)
-        .filter((j) => input.judgeClassId === undefined || j.judgeClassId === input.judgeClassId)
-        .filter((j) => input.participantId === undefined || j.participantId === input.participantId)
-        .filter(
-          (j) =>
-            input.scope === undefined ||
-            input.scope.kind !== 'project' ||
-            j.projectId === input.scope.projectId,
-        )
-        .reverse();
-      return page(rows, input.limit);
-    },
-    async get(input): Promise<JudgmentWithCopies | null> {
-      const j = judgments.find((x) => x.id === input.judgmentId);
-      if (j === undefined) return null;
-      const run = copies.get(j.runId) as JudgedRunCopy;
-      return {
-        ...j,
-        run,
-        ...(itemValues.has(j.id) && { itemValue: itemValues.get(j.id) }),
-      };
-    },
-    async unregister(input) {
-      const i = judgments.findIndex(
-        (x) => x.id === input.judgmentId && x.unregisteredAt === undefined,
-      );
-      const current = judgments[i];
-      if (current === undefined) return { unregistered: false };
-      judgments[i] = { ...current, unregisteredAt: now() };
-      return { unregistered: true };
-    },
-  };
-}
-
 interface Harness {
   readonly call: (
     method: string,
@@ -242,15 +69,38 @@ interface Harness {
   readonly binding: JudgmentRegistryBinding;
 }
 
-function harness(rows: KernelRunRecord[]): Harness {
-  const binding = inMemoryBinding();
+/** What a harness's stubbed conversation and run journal return, and how often they were read. */
+interface TurnReads {
+  readonly messages?: readonly unknown[];
+  readonly journal?: readonly unknown[];
+}
+
+function harness(
+  rows: KernelRunRecord[],
+  reads: TurnReads = {},
+): Harness & { readonly reads: number[] } {
+  const binding = inMemoryJudgments();
   const stubs = createStubAppBindings();
+  // [readMessages calls, readJournal calls]
+  const counts = [0, 0];
   const run = {
     ...stubs.kernelBinding.run,
     getRun: async (_t: TenantId, id: RunId) => rows.find((r) => r.runId === id) ?? null,
+    readJournal: async () => {
+      counts[1] = (counts[1] as number) + 1;
+      return { kind: 'ok', value: reads.journal ?? [] };
+    },
   } as unknown as RunBinding;
+  const conversationBinding = {
+    ...stubs.conversationBinding,
+    readMessages: async () => {
+      counts[0] = (counts[0] as number) + 1;
+      return { kind: 'ok', value: reads.messages ?? [] };
+    },
+  } as unknown as typeof stubs.conversationBinding;
   const app = createApp({
     ...stubs,
+    conversationBinding,
     kernelBinding: { ...stubs.kernelBinding, run },
     resolveToken,
     runHandler,
@@ -267,7 +117,7 @@ function harness(rows: KernelRunRecord[]): Harness {
     });
     return { status: res.status, body: (await res.json()) as Record<string, any> };
   };
-  return { call, binding };
+  return { call, binding, reads: counts };
 }
 
 async function tenantClass(h: Harness, name = 'expert', weight = 3): Promise<string> {
@@ -463,6 +313,80 @@ describe('POST /v1/judgments', () => {
     expect(asUser.body.assertedBy).toEqual({ kind: 'user', id: 'user-1' });
     const asKey = await h.call('POST', '/v1/judgments', body, KEY_TOKEN);
     expect(asKey.body.assertedBy).toEqual({ kind: 'service', id: 'key-1' });
+  });
+});
+
+describe("the context captured on a turn's first judgment", () => {
+  const messages = [
+    { sequence: 0, role: 'user', content: 'hi' },
+    { sequence: 1, role: 'assistant', content: 'hello' },
+    { sequence: 2, role: 'user', content: 'find acme' },
+    { sequence: 3, role: 'assistant', content: 'found it' },
+  ];
+  const journal = [
+    { kind: 'step.started', nodeId: 'run-retrievals', payload: {} },
+    {
+      kind: 'step.completed',
+      nodeId: 'run-retrievals',
+      payload: { output: { retrieved: [{ source: 'kb', text: 'Acme Corp' }] } },
+    },
+  ];
+  const turn = () =>
+    row({
+      output: {
+        matches: [{ id: 'c1' }, { id: 'c2' }],
+        appended: [
+          { sequence: 2, role: 'user' },
+          { sequence: 3, role: 'assistant' },
+        ],
+      },
+    });
+
+  test('history before the turn and what was retrieved are stored with the run copy', async () => {
+    const run = turn();
+    const h = harness([run], { messages, journal });
+    const first = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { key: 'c1' },
+      verdict: 'yes',
+    });
+    expect(first.status).toBe(201);
+    const got = await h.call('GET', `/v1/judgments/${first.body.id}`);
+    expect(got.body.run.context).toEqual({
+      history: [messages[0], messages[1]],
+      retrieved: [{ source: 'kb', text: 'Acme Corp' }],
+    });
+  });
+
+  test('a second judgment of the run does not read it again', async () => {
+    const run = turn();
+    const h = harness([run], { messages, journal });
+    await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { key: 'c1' },
+      verdict: 'yes',
+    });
+    expect(h.reads).toEqual([1, 1]);
+    const second = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { key: 'c2' },
+      verdict: 'no',
+    });
+    expect(second.status).toBe(201);
+    expect(h.reads).toEqual([1, 1]);
+  });
+
+  test('a flow run has no context and reads nothing', async () => {
+    const { agent: _agent, ...run } = row();
+    const h = harness([run], { messages, journal });
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { key: 'c1' },
+      verdict: 'yes',
+    });
+    const got = await h.call('GET', `/v1/judgments/${res.body.id}`);
+    expect(got.body.run.context).toBeUndefined();
+    expect(h.reads).toEqual([0, 0]);
   });
 });
 

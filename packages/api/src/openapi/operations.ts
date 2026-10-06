@@ -777,7 +777,7 @@ const EvalSuiteKindFilterQueryParam: ParameterSpec = {
   in: 'query',
   required: false,
   description:
-    'Filter to eval suites of a single kind. Values: `accuracy | pairwise | regression | human-review | benchmark | custom`.',
+    'Filter to eval suites of a single kind. Values: `accuracy | pairwise | regression | human-review | benchmark | custom | judged`.',
   schema: { $ref: '#/components/schemas/EvalKind' },
 };
 
@@ -3458,6 +3458,48 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '400': ErrorResponse('Validation failed (see `details.issues`).'),
       '409': ErrorResponse('Eval suite already registered at that (id, version).'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/eval-suites/:suiteId/versions/from-judgments',
+    openapiPath: '/v1/eval-suites/{suiteId}/versions/from-judgments',
+    operationId: 'evalSuites.buildFromJudgments',
+    summary: 'Build a test set from judgments',
+    description:
+      "Publishes a `judged` eval suite version whose cases are copies of judged runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the judged output, and each item's judgments summed up: yes and no counts, the weight behind yes and behind all judgments (an unclassified judgment counts 1), and the reasons. `judgeClassIds` counts only judgments of those classes; `minJudgments` leaves out runs with fewer. Needs `admin` on the project.",
+    tags: ['eval-suites'],
+    security: 'bearer',
+    parameters: [EvalSuiteIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('BuildJudgedSuiteBody') },
+    responses: {
+      '201': { description: 'Version published.', schema: ref('BuildJudgedSuiteResult') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('Malformed body.'),
+      '403': ErrorResponse('`permission-denied`.'),
+      '409': ErrorResponse('Eval suite already registered at that (id, version).'),
+      '501': ErrorResponse('`test-sets-not-supported`: this deployment cannot build test sets.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/eval-suites/:suiteId/versions/:version/cases',
+    openapiPath: '/v1/eval-suites/{suiteId}/versions/{version}/cases',
+    operationId: 'evalSuites.listCases',
+    summary: 'List the cases of a judged eval suite version',
+    description: 'Cursor-paginated, in the order the cases were stored (newest judged run first).',
+    tags: ['eval-suites'],
+    security: 'bearer',
+    parameters: [
+      EvalSuiteIdPathParam,
+      EvalSuiteVersionPathParam,
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
+    responses: {
+      '200': { description: 'Page of cases.', schema: ref('JudgedEvalCaseCollectionPage') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No eval suite with that id.'),
     },
   },
   {
