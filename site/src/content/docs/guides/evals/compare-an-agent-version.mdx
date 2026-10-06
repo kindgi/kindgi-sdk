@@ -1,6 +1,6 @@
 ---
-title: Compare an agent version on a test set
-description: Replay a new agent version on a test set's cases, without doing anything the past runs didn't, and see whether people's judgments rate it higher.
+title: Compare a version on a test set
+description: Replay a new agent or flow version on a test set's cases, without doing anything the past runs didn't, and see whether people's judgments rate it higher.
 sidebar:
   order: 3
 ---
@@ -234,6 +234,73 @@ ends `failed` with the cases it got through:
 `Interrupted: the eval run's executor stopped before it finished. 2 of 3 cases finished.`
 Start it again.
 
+## Compare a flow version
+
+A test set built from a flow's judged runs
+(`kindgi eval-suites from-judgments … --flow=<flow-id>`) compares a flow
+version. Each case runs the past run's input through that version, as a
+replay, and the flow's whole output is rated: the output itself (the `output`
+item) and each element of a list in it.
+
+To try some of its tools or agents at another version, without publishing a
+new flow version, add `--with=<id>@<version>` (once for each). Here the flow
+`acme-ops.suggest-articles` 0.1.0 runs its `acme-ops.find-articles` tool at
+0.2.0, which matches only the articles a question asks about:
+
+```sh
+kindgi eval-runs start acme.flow-picks --project=<project-id> --flow=acme-ops.suggest-articles --flow-version=0.1.0 --with=acme-ops.find-articles@0.2.0 --reads=live --wait
+```
+
+```json
+"summary": {
+  "candidate": {
+    "kind": "flow",
+    "flowId": "acme-ops.suggest-articles",
+    "version": "0.1.0",
+    "versions": { "tools": { "acme-ops.find-articles": "0.2.0" } }
+  },
+  "metrics": {
+    "weightedYesShare": { "baseline": 0.5, "candidate": 1, … },
+    …
+  },
+  …
+}
+```
+
+- **In the clients:** `flowRef: { flowId, version }` in place of `agentRef`,
+  and `versions: { tools: { 'acme-ops.find-articles': '0.2.0' } }` (agents
+  under `agents`).
+- **A read-only tool's new version shows only with live reads.** With the
+  default, recorded reads, its call gets the past run's result: the same
+  comparison without `--reads=live` rates 50% before and after.
+- **Under `kindgi dev`,** a pack serves two versions of a tool side by side,
+  so a tool swap works there. An agent has one version there, its file's, so
+  swapping an agent needs a runtime you deploy to.
+- **A `--with` the flow doesn't use is refused:**
+  `flow acme-ops.suggest-articles 0.1.0 doesn't use acme-ops.article-picker`.
+
+**A flow stops at a write the replay refuses.** `acme-ops.suggest-and-log`
+also records the articles it suggested. With 0.2.0 of the tool, it would have
+recorded other articles than the past run did for one question, so that case
+stops there:
+
+```json
+"stopped": {
+  "toolId": "acme-ops.log-suggestion",
+  "arguments": {
+    "articles": [{ "id": "kb-201", "title": "Request a refund" }],
+    "question": "I was charged twice for one order. How do I get my money back?"
+  },
+  "reason": "replay: this call changes things and has no recorded result"
+}
+```
+
+A stopped case isn't an error: nothing was written, and it has no output to
+rate, so it's left out of the metrics. The summary counts it in `stopped`
+(and the refused call in `refusedWrites`); the other cases are rated as
+usual. A step's agent turn doesn't stop the flow: its refused calls go back
+to the model, as in an agent comparison.
+
 ## In the console
 
 A test set's page has **Compare an agent version**: pick the version, how
@@ -247,3 +314,11 @@ results. Its **Comparisons** list links each one to its page, which has:
 - **Case by case:** the recorded answer beside the version's, the judged items
   it kept and the ones no longer there, the new ones, and each tool call;
 - **The raw result**, as JSON.
+
+A flow's test set has **Compare a flow version** instead, with a picker for
+each agent its steps run, to run it at another version; tools are swapped from
+the CLI and the clients. A flow comparison's page shows the recorded output
+beside the version's, and a stopped case says what it would have done: "It
+stopped before a write the recorded run didn't make: it would have called
+acme-ops.log-suggestion with `{"articles":[…],"question":"…"}`. Nothing was
+written, and there's no output to rate."
