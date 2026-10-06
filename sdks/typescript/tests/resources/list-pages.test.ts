@@ -34,17 +34,14 @@ describe('a list call that answered items', () => {
     const page = await answer({ data: [conversation], hasMore: true, nextCursor: 'c2' }, (c) =>
       c.conversations.list(),
     );
-    expect(page).toEqual({
-      data: [conversation],
-      hasMore: true,
-      nextCursor: 'c2',
-      items: [conversation],
-    });
+    expect(page).toEqual({ data: [conversation], hasMore: true, nextCursor: 'c2' });
+    expect(page.items).toEqual([conversation]);
   });
 
   it('leaves nextCursor out on the last page', async () => {
     const page = await answer({ data: [], hasMore: false }, (c) => c.adapters.list());
-    expect(page).toEqual({ data: [], hasMore: false, items: [] });
+    expect(page).toEqual({ data: [], hasMore: false });
+    expect(page.items).toEqual([]);
   });
 });
 
