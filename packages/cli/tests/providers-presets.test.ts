@@ -15,7 +15,9 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import type { RunCliInputs } from '../src/main.js';
 import { runCli } from '../src/main.js';
+import { publishedCliSpec } from '../src/package-manager.js';
 import { loadProviderPresets, presetRegistration } from '../src/providers/preset-loader.js';
+import { CLI_VERSION } from '../src/version-info.js';
 
 let packDir: string;
 const registered: unknown[] = [];
@@ -141,8 +143,8 @@ describe('kindgi providers register --preset', () => {
     const out = await runCli(inputs(['providers', 'register', '--preset=anthropic']));
     expect(out.exitCode).not.toBe(0);
     expect(out.stderr).toContain('ANTHROPIC_API_KEY (the anthropic key) is not in .env');
-    expect(out.stderr).toMatch(
-      /npx --yes @kindgi\/cli@\d+\.\d+ secrets set ANTHROPIC_API_KEY --env=local --scope=tenant/,
+    expect(out.stderr).toContain(
+      `npx --yes ${publishedCliSpec(CLI_VERSION)} secrets set ANTHROPIC_API_KEY --env=local --scope=tenant`,
     );
     expect(registered).toHaveLength(0);
   });
