@@ -42,6 +42,8 @@ are the same commit:
 ```
 /            the latest release line (the only one search engines index)
 /vX.Y/       every release line
+/next/       the newest release candidate (`@kindgi/sdk@X.Y.Z-rc.N`) while
+             it's newer than every release; gone once its release ships
 /versions.json   what the version menu lists
 ```
 
@@ -51,7 +53,8 @@ pnpm run build && pnpm run docs:preview    # this checkout, a private preview, i
 ```
 
 Only releases are public: readers install a release, so the site describes
-what they have. Each release line builds in a temporary worktree at its tag.
+what they have. A release candidate is the one exception, under `/next/`: its
+pages say so, link to the latest release, and aren't indexed. Each release line builds in a temporary worktree at its tag.
 A page on an older line says so and links to the latest; the version menu
 keeps you on the same page when the other version has it.
 

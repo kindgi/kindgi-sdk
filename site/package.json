@@ -9,6 +9,7 @@
     "dev": "node scripts/generate-reference.mjs && astro dev",
     "site:build": "node scripts/generate-reference.mjs && KINDGI_DOCS_BASE=/v0.0/ astro build && node scripts/check-links.mjs dist /v0.0/ && astro build",
     "site:samples": "node scripts/check-samples.mjs",
+    "site:test-scripts": "node --test scripts/*.test.mjs",
     "site:tutorials": "node scripts/run-tutorials.mjs",
     "preview": "astro preview"
   },

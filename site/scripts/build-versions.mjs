@@ -7,6 +7,9 @@
  *
  *   /            the latest release line (indexed by search engines)
  *   /vX.Y/       every release line, from its newest `@kindgi/sdk@X.Y.*` tag
+ *   /next/       the newest pre-release (`@kindgi/sdk@0.1.4-rc.0`) while it's
+ *                newer than every release: marked as a release candidate,
+ *                never indexed, and gone once its release ships
  *   /versions.json   the list the version menu reads
  *
  * Only releases are public: readers install a release, so the site
@@ -26,6 +29,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { plan } from './versions-plan.mjs';
 
 const args = process.argv.slice(2);
 const option = (name) => {
@@ -46,39 +50,15 @@ function run(command, commandArgs, cwd, env = {}) {
   }
 }
 
-/** `X.Y.Z[-pre]` → comparable parts; prereleases sort before their release. */
-function parse(version) {
-  const m = /^(\d+)\.(\d+)\.(\d+)(?:-(.+))?$/.exec(version);
-  if (!m) return undefined;
-  return { line: `${m[1]}.${m[2]}`, nums: [+m[1], +m[2], +m[3]], pre: m[4] };
-}
-
-function compare(a, b) {
-  for (let i = 0; i < 3; i++) if (a.nums[i] !== b.nums[i]) return a.nums[i] - b.nums[i];
-  if (a.pre === b.pre) return 0;
-  if (a.pre === undefined) return 1;
-  if (b.pre === undefined) return -1;
-  return a.pre.localeCompare(b.pre, undefined, { numeric: true });
-}
-
-/** The newest tag of each release line that contains the site, newest line first. */
-function releaseLines() {
-  const tags = execFileSync('git', ['tag', '--list', '@kindgi/sdk@*'], {
-    cwd: repo,
-    encoding: 'utf8',
-  })
+/** The `@kindgi/sdk@*` tags that contain the site. */
+function siteTags() {
+  return execFileSync('git', ['tag', '--list', '@kindgi/sdk@*'], { cwd: repo, encoding: 'utf8' })
     .split('\n')
-    .filter(Boolean);
-  const newest = new Map();
-  for (const tag of tags) {
-    const parsed = parse(tag.slice('@kindgi/sdk@'.length));
-    if (!parsed) continue;
-    const has = spawnSync('git', ['cat-file', '-e', `${tag}:site/package.json`], { cwd: repo });
-    if (has.status !== 0) continue;
-    const current = newest.get(parsed.line);
-    if (!current || compare(parsed, current.parsed) > 0) newest.set(parsed.line, { tag, parsed });
-  }
-  return [...newest.values()].sort((a, b) => compare(b.parsed, a.parsed));
+    .filter(Boolean)
+    .filter(
+      (tag) =>
+        spawnSync('git', ['cat-file', '-e', `${tag}:site/package.json`], { cwd: repo }).status === 0,
+    );
 }
 
 /** Builds the docs of `dir` (a checkout, its workspace built) under `base`; copies them to `dest`. */
@@ -88,7 +68,7 @@ function buildDocs(dir, base, ref, dest) {
 }
 
 rmSync(out, { recursive: true, force: true });
-const lines = releaseLines();
+const { lines, next } = plan(siteTags());
 const versions = [];
 
 if (lines.length === 0) {
@@ -98,20 +78,31 @@ if (lines.length === 0) {
   process.exit(1);
 }
 const latest = lines[0].parsed.line;
-for (const [i, { tag, parsed }] of lines.entries()) {
-  console.log(`build-versions: v${parsed.line} from ${tag}`);
-  const worktree = mkdtempSync(join(tmpdir(), `kindgi-docs-${parsed.line}-`));
+/** Checks out `tag` in a temporary worktree, builds its workspace, and runs `build` in it. */
+function atTag(tag, name, build) {
+  const worktree = mkdtempSync(join(tmpdir(), `kindgi-docs-${name}-`));
   run('git', ['worktree', 'add', '--detach', worktree, tag], repo);
   try {
     run('pnpm', ['install', '--frozen-lockfile'], worktree);
     run('pnpm', ['run', 'build'], worktree);
-    buildDocs(worktree, `/v${parsed.line}/`, tag, join(out, `v${parsed.line}`));
-    if (i === 0) buildDocs(worktree, '/', tag, out);
+    build(worktree);
   } finally {
     run('git', ['worktree', 'remove', '--force', worktree], repo);
   }
+}
+for (const [i, { tag, parsed }] of lines.entries()) {
+  console.log(`build-versions: v${parsed.line} from ${tag}`);
+  atTag(tag, parsed.line, (worktree) => {
+    buildDocs(worktree, `/v${parsed.line}/`, tag, join(out, `v${parsed.line}`));
+    if (i === 0) buildDocs(worktree, '/', tag, out);
+  });
   versions.push({ version: parsed.line, path: i === 0 ? '/' : `/v${parsed.line}/` });
   if (i === 0) versions.push({ version: parsed.line, path: `/v${parsed.line}/` });
+}
+if (next) {
+  console.log(`build-versions: next (v${next.parsed.version}) from ${next.tag}`);
+  atTag(next.tag, 'next', (worktree) => buildDocs(worktree, '/next/', next.tag, join(out, 'next')));
+  versions.push({ version: next.parsed.version, path: '/next/', next: true });
 }
 writeFileSync(join(out, 'versions.json'), `${JSON.stringify({ latest, versions }, null, 2)}\n`);
 console.log(`build-versions: ${out}`);
