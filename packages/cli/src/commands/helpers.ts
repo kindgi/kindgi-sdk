@@ -123,6 +123,14 @@ export function stringFlag(ctx: CommandContext, name: string): string | undefine
   return typeof raw === 'string' && raw !== '' ? raw : undefined;
 }
 
+/** Every value of a repeatable string flag (`--segment=a --segment=b`), in order. */
+export function stringListFlag(ctx: CommandContext, name: string): readonly string[] {
+  const raw = ctx.options[name];
+  if (typeof raw === 'string') return raw === '' ? [] : [raw];
+  if (Array.isArray(raw)) return raw.filter((v: string) => v !== '');
+  return [];
+}
+
 /**
  * The project a command writes into: `--project=<id>`, or the tenant's
  * Default project when the flag is absent.

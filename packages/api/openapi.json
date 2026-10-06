@@ -261,6 +261,386 @@
           "conversationId": {
             "type": "string",
             "format": "uuid"
+          },
+          "via": {
+            "type": "string",
+            "enum": [
+              "explicit",
+              "conversation",
+              "live",
+              "latest"
+            ],
+            "description": "Why this version ran: named by the caller, the conversation's own, the version live for the run's scope, or the latest (nothing live). Absent on runs from before Kindgi 0.1.4."
+          },
+          "liveScope": {
+            "$ref": "#/components/schemas/LiveScope",
+            "description": "The pin that chose the version, when `via` is `live`."
+          }
+        }
+      },
+      "ScopeSegment": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "value"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+            "description": "Lowercase, like an identifier: `company`, `contact-role`."
+          },
+          "value": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        }
+      },
+      "LiveScopeTenant": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind"
+        ],
+        "description": "The agent's default for the whole tenant.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tenant"
+            ]
+          }
+        }
+      },
+      "LiveScopeOrg": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "orgId"
+        ],
+        "description": "An org's projects.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "org"
+            ]
+          },
+          "orgId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "LiveScopeProject": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "projectId"
+        ],
+        "description": "One project.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "project"
+            ]
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "LiveScopeSegment": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "projectId",
+          "path"
+        ],
+        "description": "A segment path within a project: it covers every run whose path starts with it.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "segment"
+            ]
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "path": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "items": {
+              "$ref": "#/components/schemas/ScopeSegment"
+            }
+          }
+        }
+      },
+      "LiveScope": {
+        "description": "Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/LiveScopeTenant"
+          },
+          {
+            "$ref": "#/components/schemas/LiveScopeOrg"
+          },
+          {
+            "$ref": "#/components/schemas/LiveScopeProject"
+          },
+          {
+            "$ref": "#/components/schemas/LiveScopeSegment"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind"
+        }
+      },
+      "LiveVersionResolution": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "agentId",
+          "version",
+          "via"
+        ],
+        "properties": {
+          "agentId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string",
+            "description": "The version a run would use (semver)."
+          },
+          "via": {
+            "type": "string",
+            "enum": [
+              "live",
+              "latest"
+            ],
+            "description": "A live pin chose it, or nothing is live on the way up and it is the latest."
+          },
+          "liveScope": {
+            "$ref": "#/components/schemas/LiveScope"
+          }
+        }
+      },
+      "LivePin": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "agentId",
+          "scope",
+          "version",
+          "promotionId",
+          "setAt"
+        ],
+        "properties": {
+          "agentId": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/LiveScope"
+          },
+          "version": {
+            "type": "string"
+          },
+          "promotionId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The promotion that set it."
+          },
+          "setAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "LivePinList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LivePin"
+            }
+          }
+        }
+      },
+      "Promotion": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "agentId",
+          "scope",
+          "action",
+          "fromVersion",
+          "toVersion",
+          "requestedBy",
+          "createdAt"
+        ],
+        "description": "One change of a scope's live version, kept for good: what was live before, what is after, who asked and why.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "agentId": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/LiveScope"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "promote",
+              "rollback",
+              "unpin"
+            ]
+          },
+          "fromVersion": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The scope's own pin before; null when it had none."
+          },
+          "toVersion": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The scope's own pin after; null after an unpin."
+          },
+          "requestedBy": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "id"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "user",
+                  "service"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            }
+          },
+          "reason": {
+            "type": "string"
+          },
+          "evalRunId": {
+            "type": "string",
+            "description": "The comparison the change was judged on."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PromotionPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Promotion"
+            }
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        }
+      },
+      "PromoteBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "scope"
+        ],
+        "properties": {
+          "version": {
+            "type": "string",
+            "description": "The agent version to make live (registered, active)."
+          },
+          "scope": {
+            "$ref": "#/components/schemas/LiveScope"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "evalRunId": {
+            "type": "string",
+            "description": "The comparison this promotion was judged on."
+          }
+        }
+      },
+      "RollbackBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope"
+        ],
+        "properties": {
+          "scope": {
+            "$ref": "#/components/schemas/LiveScope"
+          },
+          "toVersion": {
+            "type": "string",
+            "description": "An earlier version to go back to; omit → the scope's previous live version."
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        }
+      },
+      "UnpinBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope"
+        ],
+        "properties": {
+          "scope": {
+            "$ref": "#/components/schemas/LiveScope"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 2000
           }
         }
       },
@@ -396,12 +776,20 @@
               },
               "agentVersion": {
                 "type": "string",
-                "description": "Semver; omit → latest."
+                "description": "Semver. Omit → the conversation's own version for a follow-up turn, else the version live for the run's scope, else the latest."
               },
               "projectId": {
                 "type": "string",
                 "format": "uuid",
                 "description": "Project to run under; omit → the tenant's Default project."
+              },
+              "segments": {
+                "type": "array",
+                "maxItems": 8,
+                "items": {
+                  "$ref": "#/components/schemas/ScopeSegment"
+                },
+                "description": "The run's segment path below its project, coarse to fine (an app-defined finer scope, e.g. company then role). A version live on a prefix of it serves the run."
               },
               "input": {
                 "description": "Opaque payload forwarded to the agent binding."
@@ -442,6 +830,14 @@
                 "type": "string",
                 "format": "uuid",
                 "description": "Project to run under; omit → the tenant's Default project."
+              },
+              "segments": {
+                "type": "array",
+                "maxItems": 8,
+                "items": {
+                  "$ref": "#/components/schemas/ScopeSegment"
+                },
+                "description": "The run's segment path below its project, coarse to fine (an app-defined finer scope, e.g. company then role). A version live on a prefix of it serves the run."
               },
               "input": {
                 "description": "Opaque payload forwarded to the flow runtime."
@@ -10696,7 +11092,10 @@
           "secret-rotation-failed",
           "secret-revoked",
           "secret-hard-revoked",
-          "hitl-decision"
+          "hitl-decision",
+          "agent-promotion",
+          "agent-rollback",
+          "agent-live-unpinned"
         ]
       },
       "EvidenceActor": {
@@ -10843,7 +11242,10 @@
               "secret-rotation-failed",
               "secret-revoked",
               "secret-hard-revoked",
-              "hitl-decision"
+              "hitl-decision",
+              "agent-promotion",
+              "agent-rollback",
+              "agent-live-unpinned"
             ]
           },
           "timestamp": {
@@ -11013,7 +11415,10 @@
               "secret-rotation-failed",
               "secret-revoked",
               "secret-hard-revoked",
-              "hitl-decision"
+              "hitl-decision",
+              "agent-promotion",
+              "agent-rollback",
+              "agent-live-unpinned"
             ]
           },
           "from": {
@@ -11083,7 +11488,10 @@
                   "secret-rotation-failed",
                   "secret-revoked",
                   "secret-hard-revoked",
-                  "hitl-decision"
+                  "hitl-decision",
+                  "agent-promotion",
+                  "agent-rollback",
+                  "agent-live-unpinned"
                 ]
               },
               "from": {
@@ -16967,6 +17375,638 @@
             "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
           }
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/agents/{agentId}/live": {
+      "get": {
+        "operationId": "agents.live.resolve",
+        "summary": "The version a run would use",
+        "tags": [
+          "agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "The resolved version.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveVersionResolution"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A malformed project id or segment, or a segment without a project.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No agent with that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Resolves the version a run of this agent would use for a project and segment path: the most specific live version (segment path, project, org, tenant), else the latest registered. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "AgentId — dotted namespace (`acme.drafting`)."
+          },
+          {
+            "name": "projectId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "description": "The run's project; omit → only the agent's tenant-wide pin applies."
+          },
+          {
+            "name": "segment",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "required": false,
+            "description": "One step of the segment path, `key:value`; repeat it in order, coarse to fine."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/agents/{agentId}/live-versions": {
+      "get": {
+        "operationId": "agents.live.list",
+        "summary": "List an agent's live versions",
+        "tags": [
+          "agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "The pins.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LivePinList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Every scope with a live version pinned, and the promotion that set it.",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "AgentId — dotted namespace (`acme.drafting`)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/agents/{agentId}/promotions": {
+      "post": {
+        "operationId": "agents.promotions.create",
+        "summary": "Make a version live for a scope",
+        "tags": [
+          "agents"
+        ],
+        "responses": {
+          "201": {
+            "description": "Promoted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Promotion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The version is not registered, or was unregistered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Pins `version` live for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every promotion is recorded, with who asked and why. Needs `promote` on the agent.",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "AgentId — dotted namespace (`acme.drafting`)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromoteBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "agents.promotions.list",
+        "summary": "List an agent's promotions",
+        "tags": [
+          "agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of promotions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromotionPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed scope or cursor.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "The history of live-version changes (promotions, rollbacks, unpins), newest first. `scopeKind` (`tenant`, `org`, `project`, `segment`) with `scopeId` and `segment` narrows it to one scope.",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "AgentId — dotted namespace (`acme.drafting`)."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Opaque cursor from a prior response. Absent → first page."
+          },
+          {
+            "name": "scopeKind",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "tenant",
+                "org",
+                "project",
+                "segment"
+              ]
+            },
+            "required": false,
+            "description": "Only one scope: `tenant`, `org` or `project` (with `scopeId`), or `segment` (with `scopeId` and `segment`)."
+          },
+          {
+            "name": "scopeId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Required IF scopeKind is `org` or `project`. MUST be absent if scopeKind=`tenant` (tenant is implicit from the session). Malformed combinations return 400 scope-invalid."
+          },
+          {
+            "name": "segment",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "required": false,
+            "description": "One step of the segment path, `key:value`; repeat it in order, coarse to fine."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/agents/{agentId}/promotions/{promotionId}": {
+      "get": {
+        "operationId": "agents.promotions.get",
+        "summary": "Get a promotion",
+        "tags": [
+          "agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "The promotion.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Promotion"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such promotion for this agent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "AgentId — dotted namespace (`acme.drafting`)."
+          },
+          {
+            "name": "promotionId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/agents/{agentId}/live/rollback": {
+      "post": {
+        "operationId": "agents.live.rollback",
+        "summary": "Roll a scope back to its previous live version",
+        "tags": [
+          "agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "Rolled back.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Promotion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`toVersion` is not registered, or was unregistered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The scope has no pin, or no earlier version to go back to.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Back to the scope's previous live version, or `toVersion`. Recorded like a promotion. Needs `promote` on the agent.",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "AgentId — dotted namespace (`acme.drafting`)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RollbackBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/agents/{agentId}/live/unpin": {
+      "post": {
+        "operationId": "agents.live.unpin",
+        "summary": "Remove a scope's live version",
+        "tags": [
+          "agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "Unpinned.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Promotion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The scope has no pin of its own.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Removes the scope's own pin: its runs use the next scope up (and the latest when nothing is pinned). Recorded like a promotion. Needs `promote` on the agent.",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "AgentId — dotted namespace (`acme.drafting`)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnpinBody"
+              }
+            }
+          }
+        },
         "security": [
           {
             "bearerAuth": []

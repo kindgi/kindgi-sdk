@@ -5,7 +5,15 @@ import { Hono } from 'hono';
 
 import type { AgentId } from '@kindgi/agents';
 import type { KernelRunRecord, ListRunsInput, RunBinding } from '@kindgi/runtime';
-import type { FlowId, ListScope, ProjectId, RunId, Semver, TenantId } from '@kindgi/types';
+import type {
+  FlowId,
+  ListScope,
+  ProjectId,
+  RunId,
+  ScopeSegment,
+  Semver,
+  TenantId,
+} from '@kindgi/types';
 
 import { ref } from '@kindgi/authz';
 
@@ -19,9 +27,11 @@ import type {
 import type { Authorizer } from '../middleware/authorize.js';
 import type { MintPublicRunTokenResult } from '../public-run-token.js';
 import type { AppEnv } from '../types.js';
+import { liveScopeToWire } from './live-scope-wire.js';
 import type { DecodedCursor } from './pagination.js';
 import { clampLimit, decodeCursor } from './pagination.js';
 import { parseListScope } from './scope-params.js';
+import { parseSegmentsBody } from './segments.js';
 import {
   formatSseFrame,
   isTerminalWireKind,
@@ -619,6 +629,7 @@ function invokeFromBody(
     tenantId,
     ...(body.projectId !== undefined && { projectId: body.projectId }),
     input: body.input,
+    ...(body.segments !== undefined && { segments: body.segments }),
     ...(body.dryRun !== undefined && { dryRun: body.dryRun }),
     ...(body.wait !== undefined && { wait: body.wait }),
   };
@@ -666,6 +677,10 @@ function serializeRun(
         id: row.agent.id,
         version: row.agent.version,
         conversationId: row.agent.conversationId as unknown as string,
+        ...(row.agent.via !== undefined && { via: row.agent.via }),
+        ...(row.agent.liveScope !== undefined && {
+          liveScope: liveScopeToWire(row.agent.liveScope),
+        }),
       },
     }),
     ...(row.replayOf != null && { replayOf: row.replayOf as unknown as string }),
@@ -834,6 +849,7 @@ type ParsedStartRunBody =
       readonly agentId: AgentId;
       readonly agentVersion?: Semver;
       readonly projectId?: ProjectId;
+      readonly segments?: readonly ScopeSegment[];
       readonly input: unknown;
       readonly dryRun?: boolean;
       readonly wait?: boolean;
@@ -843,6 +859,7 @@ type ParsedStartRunBody =
       readonly flowId: FlowId;
       readonly flowVersion?: Semver;
       readonly projectId?: ProjectId;
+      readonly segments?: readonly ScopeSegment[];
       readonly input: unknown;
       readonly dryRun?: boolean;
       readonly wait?: boolean;
@@ -878,6 +895,11 @@ function parseStartRunBody(
   const options = parseStartOptions(b.options);
   if (options.kind === 'err') return options;
   const { dryRun, wait } = options.value;
+  const parsedSegments = parseSegmentsBody(b.segments);
+  if (parsedSegments.kind === 'err') {
+    return { kind: 'err', error: { code: 'bad-input', message: parsedSegments.message } };
+  }
+  const { segments } = parsedSegments;
   if (hasAgent) {
     const agentVersion = b.agentVersion;
     if (agentVersion !== undefined && typeof agentVersion !== 'string') {
@@ -900,6 +922,7 @@ function parseStartRunBody(
         agentId: b.agent as AgentId,
         ...(agentVersion !== undefined && { agentVersion: agentVersion as Semver }),
         ...(agentProjectIdRaw !== undefined && { projectId: agentProjectIdRaw as ProjectId }),
+        ...(segments !== undefined && { segments }),
         input: b.input,
         ...(dryRun !== undefined && { dryRun }),
         ...(wait !== undefined && { wait }),
@@ -927,6 +950,7 @@ function parseStartRunBody(
       flowId: b.flow as FlowId,
       ...(flowVersion !== undefined && { flowVersion: flowVersion as Semver }),
       ...(projectId !== undefined && { projectId: projectId as ProjectId }),
+      ...(segments !== undefined && { segments }),
       input: b.input,
       ...(dryRun !== undefined && { dryRun }),
       ...(wait !== undefined && { wait }),

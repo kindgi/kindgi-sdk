@@ -12,7 +12,7 @@ import type { DeployRunners } from './deploy/runners.js';
 import type { DevRunners } from './dev/runners.js';
 import type { EnvRunners } from './env/runners.js';
 import type { KeyRunners } from './key/runners.js';
-import type { GlobalFlags } from './parse.js';
+import type { GlobalFlags, OptionValue } from './parse.js';
 import type { TestRunners } from './test/runners.js';
 
 /**
@@ -32,7 +32,7 @@ export type BuildConfigLoader = (packDir: string) => Promise<unknown>;
 export interface CommandContext {
   readonly globals: GlobalFlags;
   readonly positionals: readonly string[];
-  readonly options: Readonly<Record<string, string | boolean | undefined>>;
+  readonly options: Readonly<Record<string, OptionValue>>;
   readonly config: ResolvedConfig;
   /** Create an SDK client using the resolved config. Throws if apiUrl / token are missing. */
   readonly client: () => KindgiClient;
@@ -153,7 +153,7 @@ export interface InitSeam {
 export interface BuildContextInputs {
   readonly globals: GlobalFlags;
   readonly positionals: readonly string[];
-  readonly options: Readonly<Record<string, string | boolean | undefined>>;
+  readonly options: Readonly<Record<string, OptionValue>>;
   readonly config: ResolvedConfig;
   readonly fetchImpl?: typeof fetch;
   readonly clientFactory?: (apiUrl: string, token: string) => KindgiClient;

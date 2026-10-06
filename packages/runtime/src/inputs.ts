@@ -4,7 +4,16 @@
 import type { Principal } from '@kindgi/authz';
 import type { Flow, FlowVersionOverrides } from '@kindgi/flow';
 import type { HandlerRegistry } from '@kindgi/handler';
-import type { ConversationId, NodeId, ProjectId, Result, RunId, TenantId } from '@kindgi/types';
+import type {
+  AgentVersionVia,
+  ConversationId,
+  LiveScope,
+  NodeId,
+  ProjectId,
+  Result,
+  RunId,
+  TenantId,
+} from '@kindgi/types';
 
 import type { HandlerMissingError } from './errors.js';
 import type { KernelEventBusBinding } from './event-bus.js';
@@ -54,6 +63,10 @@ export interface RunAgentRef {
   readonly id: string;
   readonly version: string;
   readonly conversationId: ConversationId;
+  /** Why this version ran (absent on runs from before it was recorded). */
+  readonly via?: AgentVersionVia;
+  /** The pin that chose it, when `via` is `live`. */
+  readonly liveScope?: LiveScope;
 }
 
 /** Marks a run as a replay: an eval run re-running a past run (`of`). */

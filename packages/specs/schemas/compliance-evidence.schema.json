@@ -53,7 +53,10 @@
         "secret-rotation-failed",
         "secret-revoked",
         "secret-hard-revoked",
-        "hitl-decision"
+        "hitl-decision",
+        "agent-promotion",
+        "agent-rollback",
+        "agent-live-unpinned"
       ]
     },
     "timestamp": {

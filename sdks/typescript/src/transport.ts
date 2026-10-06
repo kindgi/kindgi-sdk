@@ -46,14 +46,17 @@ export interface Transport {
   authHeaders(): Readonly<Record<string, string>>;
 }
 
+/** One query parameter's value: an array repeats the key (`segment=a&segment=b`). */
+export type QueryValue = string | number | boolean | readonly string[] | undefined;
+
 export interface TransportRequest {
   readonly method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   /** Path beginning with `/` (e.g. `/v1/agents`). Combined with `apiUrl`. */
   readonly path: string;
   /** JSON body (serialized here). Omitted for `GET`/`DELETE` without body. */
   readonly body?: unknown;
-  /** Query parameters. `undefined` values are dropped. */
-  readonly query?: Readonly<Record<string, string | number | boolean | undefined>>;
+  /** Query parameters. `undefined` values are dropped; an array repeats its key, in order. */
+  readonly query?: Readonly<Record<string, QueryValue>>;
   /** Extra headers merged after `Authorization` + `Content-Type`. */
   readonly headers?: Readonly<Record<string, string>>;
   /** Overrides the client-level timeout. */
@@ -163,7 +166,7 @@ export function createTransport(options: ClientOptions): Transport {
 function buildUrl(
   apiUrl: string,
   path: string,
-  query?: Readonly<Record<string, string | number | boolean | undefined>>,
+  query?: Readonly<Record<string, QueryValue>>,
 ): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   const base = `${apiUrl}${normalizedPath}`;
@@ -172,7 +175,8 @@ function buildUrl(
   for (const key of Object.keys(query)) {
     const value = query[key];
     if (value === undefined) continue;
-    params.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`);
+    const values = typeof value === 'object' ? value : [String(value)];
+    for (const v of values) params.push(`${encodeURIComponent(key)}=${encodeURIComponent(v)}`);
   }
   return params.length === 0 ? base : `${base}?${params.join('&')}`;
 }
