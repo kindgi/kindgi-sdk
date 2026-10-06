@@ -1,0 +1,132 @@
+---
+title: Judge a run's output
+description: Record a yes or no, with a reason, on each item of a finished run's output, from your app, the CLI or the console, and weight judges by class.
+sidebar:
+  order: 1
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+:::note[Preview (0.1.4-rc)]
+Judgments are new in Kindgi 0.1.4, available now in its release candidates:
+`npx @kindgi/cli@next`, and `uv add --prerelease allow kindgi`.
+:::
+
+A **judgment** is a yes or no, with an optional reason, about one item of a
+finished run's output: the whole answer, or one element of a list it
+returned. People who know the work, your users or your experts, judge; the
+judgments then tell you how an agent or flow version does.
+
+## Judge an item
+
+From the CLI, on the run's answer:
+
+```sh
+kindgi judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --reason="Echoes the message back"
+```
+
+```json
+{
+  "id": "512df8f6-6e27-4c4a-934e-1b345dfc510a",
+  "projectId": "d4910d76-7355-4022-8f3c-514361cfa986",
+  "runId": "bc6d1b53-3562-48c9-9f29-719779e3d110",
+  "subject": { "kind": "agent", "id": "acme-ops.echo-agent", "version": "0.1.0" },
+  "item": { "key": "answer", "pointer": "/response/content" },
+  "verdict": "yes",
+  "reason": "Echoes the message back",
+  "assertedBy": { "kind": "user", "id": "26fc414a-b49f-4e1f-a022-162865770178" },
+  "createdAt": "2026-10-06T04:08:27.667Z",
+  …
+}
+```
+
+From your app, when your users judge in your own UI:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// judge.ts
+import { createClient } from '@kindgi/sdk/client';
+
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+const judgment = await kindgi.judgments.create({
+  runId: process.argv[2],
+  item: { key: 'answer', pointer: '/response/content' },
+  verdict: 'yes',
+  reason: 'Echoes the message back',
+  participantId: 'customer-user-17', // your id for the user who judged, if you judge for your users
+});
+console.log(judgment.id, judgment.verdict, judgment.assertedBy);
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# judge.py
+import sys
+
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+judgment = kindgi.judgments.create(
+    run_id=sys.argv[1],
+    item={"key": "answer", "pointer": "/response/content"},
+    verdict="yes",
+    reason="Echoes the message back",
+    participant_id="customer-user-18",  # your id for the user who judged, if you judge for your users
+)
+print(judgment.id, judgment.verdict, judgment.asserted_by)
+```
+
+</TabItem>
+</Tabs>
+
+- **`item.key`** is your stable id for the item: `answer` for the whole
+  answer, or, for a list, the id of the element (a matched case's id, say).
+- **`item.pointer`** (optional) is where the item is in the run's output, as
+  a JSON Pointer such as `/matches/2`. Its value is kept with the judgment.
+  **`item.rank`** (optional) is its place in a ranked list, 0 first.
+- **Who judged** comes from the token: `assertedBy`. An app that judges for
+  its own users adds `participantId`, its own opaque id for the user.
+- **Judging the same item again,** as the same caller and participant,
+  replaces the earlier judgment; the earlier one stays in the history.
+
+Only a finished run can be judged, and the pointer must find something:
+
+```text
+Run "fc26b436-611b-4962-9913-2f2669ade7e1" has no output to judge yet (status suspended).
+Nothing at "/no/such" in run "bc6d1b53-3562-48c9-9f29-719779e3d110"'s output.
+```
+
+Judging a run takes write access to its project, as cancelling it does.
+
+## See the judgments
+
+```sh
+kindgi judgments list --run=<run-id>      # newest first; replaced and removed ones are left out
+kindgi judgments show <judgment-id>       # with copies of the run's input and output, and the item's value
+kindgi judgments remove <judgment-id>
+```
+
+A judgment keeps copies of the run's input and output, so it outlives the
+run's own retention. `list` also filters by agent and version, flow, verdict,
+judge class and participant, and by project. The clients
+have the same: `judgments.list`, `judgments.get` and `judgments.unregister`.
+
+## Weight judges by class
+
+Without a class, every judgment counts once. To count some judges more, add
+a **judge class**, for the tenant, a project, or an agent in a project:
+
+```sh
+kindgi judge-classes add --name=expert --weight=3 --project=<project-id>
+kindgi judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --class=<judge-class-id>
+```
+
+A judgment made with `--class` (`judgeClassId` in the clients) counts with
+that class's weight.
+
