@@ -12,6 +12,7 @@ import type { UnpinnableRef } from '../agent-pins.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { FlowRegistryBinding, FlowVersionRecord } from '../flow-binding.js';
 import { resolveFlowPins } from '../flow-pins.js';
+import type { LiveVersionBinding } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
@@ -37,16 +38,18 @@ import { parseScopeParams } from './scope-params.js';
  * `/v1/flows/:flowId/run` route is added here.
  *
  * With `pinning` (the tool and agent registries), a published version is
- * pinned: each tool it runs, and each agent it runs at no named version,
- * resolves once, at publish, to the latest version, which every run of
- * that version uses (`pins`, see `resolveFlowPins`); one with no
- * published version refuses the publish. Without it, versions carry no
- * pins and bind the latest versions per run.
+ * pinned: each tool it runs resolves once, at publish, to its latest
+ * version, and each agent it runs at no named version to what a run in
+ * the flow's project would get, its live version there with
+ * `pinning.live`, else its latest. Every run of that version uses those
+ * (`pins`, see `resolveFlowPins`); one with no published version refuses
+ * the publish. Without `pinning`, versions carry no pins and bind the
+ * latest versions per run.
  */
 export function flowsRouter(
   binding: FlowRegistryBinding,
   authorizer?: Authorizer,
-  pinning?: { readonly tools: ToolRegistryBinding; readonly agents: AgentRegistryBinding },
+  pinning?: FlowPinning,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // A read-only registry (under `kindgi dev`, the pack's files) refuses
@@ -300,7 +303,7 @@ export function flowsRouter(
     // Pin the version: every tool and unversioned agent resolves now,
     // once, to the version its runs use. One with no published version
     // refuses the publish rather than store a partly pinned version.
-    const pinned = await pinFlow(pinning, tenantId, loaded.value);
+    const pinned = await pinFlow(pinning, tenantId, projectId, loaded.value);
     if (pinned.kind === 'unpinnable') {
       c.status(statusFor('validation-failed') as never);
       return c.json(toWireError(unpinnableFlow(loaded.value, pinned.issues), requestId));
@@ -415,19 +418,32 @@ export function flowsRouter(
   return r;
 }
 
+/** The registries a published flow version is pinned against. */
+export interface FlowPinning {
+  readonly tools: ToolRegistryBinding;
+  readonly agents: AgentRegistryBinding;
+  /** The agents' live versions: an agent step pins the one live for the flow's project. */
+  readonly live?: LiveVersionBinding;
+}
+
 /** The flow with its pins, or the references with no published version; as it is without `pinning`. */
 async function pinFlow(
-  pinning:
-    | { readonly tools: ToolRegistryBinding; readonly agents: AgentRegistryBinding }
-    | undefined,
+  pinning: FlowPinning | undefined,
   tenantId: TenantId,
+  projectId: ProjectId,
   flow: Flow,
 ): Promise<
   | { readonly kind: 'ok'; readonly flow: Flow }
   | { readonly kind: 'unpinnable'; readonly issues: readonly UnpinnableRef[] }
 > {
   if (pinning === undefined) return { kind: 'ok', flow };
-  const resolved = await resolveFlowPins(pinning.tools, pinning.agents, tenantId, flow);
+  const resolved = await resolveFlowPins(
+    pinning.tools,
+    pinning.agents,
+    tenantId,
+    flow,
+    pinning.live !== undefined ? { binding: pinning.live, projectId } : undefined,
+  );
   if (resolved.kind === 'unpinnable') return resolved;
   return {
     kind: 'ok',

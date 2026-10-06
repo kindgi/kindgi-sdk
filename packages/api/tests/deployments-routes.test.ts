@@ -10,7 +10,7 @@ import { generateEd25519KeyPair, serializePublicKeyPem, signEd25519 } from '@kin
 import { type Flow, type FlowPins, flowPinsDigest } from '@kindgi/flow';
 import type { Project, ProjectBinding } from '@kindgi/platform';
 import { latestVersion } from '@kindgi/tools';
-import type { Cursor, ProjectId, SigningKeyId, TenantId } from '@kindgi/types';
+import type { Cursor, ProjectId, Semver, SigningKeyId, TenantId } from '@kindgi/types';
 
 import type { Scope } from '@kindgi/platform';
 import { createStubAppBindings } from '@kindgi/testing';
@@ -19,12 +19,14 @@ import { makeEnvName } from '@kindgi/types';
 import { createApp } from '../src/index.js';
 import type {
   AgentRegistryBinding,
+  AgentReleaseBindings,
   Deployment,
   DeploymentBinding,
   DeploymentPrimitiveCounts,
   FlowRegistryBinding,
   GuardrailRegistryBinding,
   ImageRegistryBinding,
+  LiveResolveInput,
   RunHandlerBinding,
   SecretBinding,
   SecretRecord,
@@ -581,6 +583,8 @@ function makeApp(opts: {
   agentRegistry?: AgentRegistryBinding;
   toolRegistry?: ToolRegistryBinding;
   flowRegistry?: FlowRegistryBinding;
+  /** More of the app's bindings, as given (e.g. `agentReleases`). */
+  extra?: Partial<Parameters<typeof createApp>[0]>;
   omit?: 'deployment' | 'signing' | 'image';
   omitProjectBinding?: boolean;
   extraTrust?: readonly TrustEntry[];
@@ -631,6 +635,7 @@ function makeApp(opts: {
     guardrailRegistry,
     agentRegistry,
     flowRegistry,
+    ...opts.extra,
     // Content-scope anchor — the deployments router's agents publish
     // loop resolves Default project through this binding. Opt out via
     // `omitProjectBinding: true` for the negative-path test.
@@ -2730,6 +2735,10 @@ describe('POST /v1/deployments — agents are pinned, and a deploy never keeps o
   });
 
   function setup(...packs: SignedDeploy[]) {
+    return setupWith(undefined, ...packs);
+  }
+
+  function setupWith(agentReleases: AgentReleaseBindings | undefined, ...packs: SignedDeploy[]) {
     const tools = makeVersionedToolRegistry();
     const agents = makeVersionedAgentRegistry();
     const flows = makeVersionedFlowRegistry();
@@ -2737,6 +2746,7 @@ describe('POST /v1/deployments — agents are pinned, and a deploy never keeps o
       toolRegistry: tools,
       agentRegistry: agents,
       flowRegistry: flows,
+      ...(agentReleases !== undefined && { extra: { agentReleases } }),
       extraTrust: packs.map(trustOf),
       extraImages: packs.map(imageOf),
     });
@@ -2890,6 +2900,34 @@ describe('POST /v1/deployments — agents are pinned, and a deploy never keeps o
     ]);
     expect(tools.versions('acme.score')).toEqual([]);
     expect(agents.versions()).toEqual([]);
+  });
+
+  test("with live versions, a deployed flow's agent pins to what's live for the project, not the version this deploy registered (T268)", async () => {
+    const pack = pinnedPack({ toolVersion: '1.0.0', agentVersion: '1.4.0', flowVersion: '2.0.0' });
+    const asked: LiveResolveInput[] = [];
+    const releases = {
+      live: {
+        async resolve(input: LiveResolveInput) {
+          asked.push(input);
+          return input.agentId === 'acme.matcher'
+            ? { version: '1.3.0' as Semver, scope: { kind: 'tenant' as const } }
+            : null;
+        },
+        list: async () => [],
+      },
+      promotions: {},
+    } as unknown as AgentReleaseBindings;
+    const { flows, deploy } = setupWith(releases, pack);
+
+    const res = await deploy(pack);
+    expect(res.status).toBe(201);
+    expect(flows.versions()[0]?.pins).toEqual({
+      tools: { 'acme.score': '1.0.0' },
+      agents: { 'acme.matcher': '1.3.0' },
+    });
+    expect(asked).toEqual([
+      { tenantId: expect.any(String), agentId: 'acme.matcher', projectId: DEFAULT_PROJECT_ID },
+    ]);
   });
 
   test('one tool change cascades through an agent into a flow in a single deploy, each derived once', async () => {
