@@ -10,20 +10,19 @@ import { randomUUID } from 'node:crypto';
 
 import { beforeEach, describe, expect, test } from 'vitest';
 
-import type { Cursor, ProjectId, TenantId, UserId } from '@kindgi/types';
+import type { ProjectId, TenantId, UserId } from '@kindgi/types';
 
 import { createStubAppBindings } from '@kindgi/testing';
 
 import { createApp } from '../src/index.js';
 import type {
-  EvalCaseStoreBinding,
   EvalSuite,
   EvalSuiteRegistryBinding,
-  JudgedEvalCase,
   JudgmentRegistryBinding,
   RunHandlerBinding,
   TokenResolver,
 } from '../src/index.js';
+import { inMemoryCaseStore } from './support/in-memory-cases.js';
 import { inMemoryJudgments } from './support/in-memory-judgments.js';
 
 const tenantId = randomUUID() as TenantId;
@@ -48,28 +47,6 @@ function suiteRegistry(): EvalSuiteRegistryBinding & { readonly published: EvalS
       return { kind: 'ok', suiteId: suite.id, version: suite.version };
     },
   } as unknown as EvalSuiteRegistryBinding & { readonly published: EvalSuite[] };
-}
-
-/** An in-memory case store; the cursor is an offset. */
-function caseStore(): EvalCaseStoreBinding {
-  const sets = new Map<string, readonly JudgedEvalCase[]>();
-  const key = (suiteId: string, version: string) => `${suiteId}@${version}`;
-  return {
-    async putCases({ suiteId, version, cases }) {
-      sets.set(key(suiteId, version), cases);
-    },
-    async listCases({ suiteId, version, cursor, limit }) {
-      const all = sets.get(key(suiteId, version)) ?? [];
-      const from = cursor === undefined ? 0 : Number(cursor);
-      const data = all.slice(from, from + limit);
-      const next = from + data.length;
-      return {
-        data,
-        hasMore: next < all.length,
-        ...(next < all.length && { nextCursor: String(next) as Cursor }),
-      };
-    },
-  };
 }
 
 type Call = (
@@ -171,7 +148,7 @@ function makeCall(
     runHandler,
     judgmentRegistry: judgments,
     evalSuiteRegistry: suites,
-    evalCaseStore: caseStore(),
+    evalCaseStore: inMemoryCaseStore(),
   });
   const call: Call = async (method, path, body) => {
     const res = await app.request(path, {

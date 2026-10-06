@@ -185,6 +185,15 @@ export const RunSchema: JsonSchema = {
       description: 'Set on a child run: the node in the parent run that started it.',
     },
     agent: { $ref: '#/components/schemas/RunAgent' },
+    replayOf: {
+      type: 'string',
+      format: 'uuid',
+      description: 'Set on a replay run (an eval run re-running a past run): the run it replays.',
+    },
+    evalRunId: {
+      type: 'string',
+      description: 'Set on a replay run: the eval run that started it.',
+    },
     publicAccessToken: {
       type: 'string',
       description:
@@ -2147,7 +2156,7 @@ export const JudgedRunContextSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'What a judged agent turn read besides its input, captured when it was first judged: the conversation before it and what its retrievals returned.',
+    'What a judged agent turn read besides its input, captured when it was first judged: the conversation before it, what its retrievals returned, and the decision at its session approval gate.',
   properties: {
     history: {
       type: 'array',
@@ -2160,6 +2169,17 @@ export const JudgedRunContextSchema: JsonSchema = {
       description: 'Whether older messages were left out of `history`.',
     },
     retrieved: { description: "What the turn's retrievals returned." },
+    sessionApproval: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['approved'],
+      description:
+        "The reviewer's decision at the turn's session approval gate, when the turn waited on one. A replay of the turn follows it.",
+      properties: {
+        approved: { type: 'boolean' },
+        rationale: { type: 'string', description: "The reviewer's reason for a rejection." },
+      },
+    },
   },
 };
 
@@ -4418,6 +4438,53 @@ export const EvalRunFlowRefSchema: JsonSchema = {
   },
 };
 
+export const EvalBaselineSchema: JsonSchema = {
+  description:
+    "What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`). Only `'recorded'` runs today; the others are refused when the run starts.",
+  oneOf: [
+    { type: 'string', enum: ['recorded'] },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['agentId', 'version'],
+      properties: { agentId: { type: 'string' }, version: { type: 'string' } },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['live'],
+      properties: {
+        live: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            projectId: { type: 'string' },
+            segments: { type: 'object', additionalProperties: { type: 'string' } },
+          },
+        },
+      },
+    },
+  ],
+};
+
+export const EvalComparisonSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['baseline', 'reads', 'repetitions', 'k'],
+  description: "A comparison eval run's settings (a `judged` suite).",
+  properties: {
+    baseline: { $ref: '#/components/schemas/EvalBaseline' },
+    reads: {
+      type: 'string',
+      enum: ['recorded', 'live'],
+      description:
+        "Whether replayed reads use the past run's results when it has them (`recorded`), or run live.",
+    },
+    repetitions: { type: 'integer', minimum: 1, maximum: 10 },
+    k: { type: 'integer', minimum: 1, maximum: 100 },
+  },
+};
+
 export const EvalRunSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -4447,10 +4514,11 @@ export const EvalRunSchema: JsonSchema = {
       type: 'object',
       additionalProperties: true,
       description:
-        'Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. Other kinds define their own shapes as their dispatchers ship.',
+        'Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline and candidate, the case counts (`cases`, `diverged`, `refusedWrites`, `errors`), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, and the tool calls with what happened to each. Other kinds define their own shapes as their dispatchers ship.',
     },
     error: { type: 'string' },
     correlationId: { type: 'string' },
+    comparison: { $ref: '#/components/schemas/EvalComparison' },
   },
 };
 
@@ -4475,9 +4543,13 @@ export const StartEvalRunBodySchema: JsonSchema = {
     flowRef: { $ref: '#/components/schemas/EvalRunFlowRef' },
     dryRun: { type: 'boolean' },
     correlationId: { type: 'string' },
+    baseline: { $ref: '#/components/schemas/EvalBaseline' },
+    reads: { type: 'string', enum: ['recorded', 'live'] },
+    repetitions: { type: 'integer', minimum: 1, maximum: 10 },
+    k: { type: 'integer', minimum: 1, maximum: 100 },
   },
   description:
-    'Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject.',
+    "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't; `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how.",
 };
 
 export const StartEvalRunResultSchema: JsonSchema = {
@@ -6981,6 +7053,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['EvalRunStatus', EvalRunStatusSchema],
   ['EvalRunAgentRef', EvalRunAgentRefSchema],
   ['EvalRunFlowRef', EvalRunFlowRefSchema],
+  ['EvalBaseline', EvalBaselineSchema],
+  ['EvalComparison', EvalComparisonSchema],
   ['EvalRun', EvalRunSchema],
   ['EvalRunCollectionPage', EvalRunCollectionPageSchema],
   ['StartEvalRunBody', StartEvalRunBodySchema],
