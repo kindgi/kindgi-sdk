@@ -41,6 +41,7 @@ import type {
   StartServicesResult,
   WatchHandle,
 } from '../src/dev/runners.js';
+import { RuntimeStartStopped } from '../src/dev/runtime-container.js';
 import { type RunCliInputs, runCli } from '../src/main.js';
 import { CLI_VERSION } from '../src/version-info.js';
 
@@ -1031,6 +1032,36 @@ describe('kindgi dev — boot flow (no watch)', () => {
   // The fixture's `toolStatus: 409` option is unused.
 });
 
+describe('kindgi dev — a stop before the runtime serves (T176)', () => {
+  test('Ctrl+C while it waits for the runtime: it stops at once, exit 130, not an error', async () => {
+    const controller = new AbortController();
+    const fixtures = makeFixtures();
+    const seen: (AbortSignal | undefined)[] = [];
+    const runners: DevRunners = {
+      ...fixtures.runners,
+      startApiServer: async (opts) => {
+        seen.push(opts.signal);
+        // The runtime never serves: the wait ends only on the stop.
+        await new Promise<void>((resolve) =>
+          opts.signal?.addEventListener('abort', () => resolve()),
+        );
+        throw new RuntimeStartStopped();
+      },
+    };
+    const promise = runCli({
+      ...baseInputs(fixtures, { stopSignal: controller.signal, devRunners: runners }),
+      argv: ['dev', `--path=${packDir}`],
+    });
+    await vi.waitFor(() => expect(seen).toHaveLength(1), WAIT);
+    expect(seen[0]).toBe(controller.signal);
+    controller.abort();
+    const out = await promise;
+    expect(out.exitCode).toBe(130);
+    expect(out.stderr).toContain('kindgi dev stopped before the Kindgi runtime served.');
+    expect(out.stderr).not.toContain("couldn't start the Kindgi runtime");
+  });
+});
+
 describe('kindgi dev — watch flow', () => {
   test('boots watcher, fires re-index on onChange, closes on abort signal', async () => {
     const controller = new AbortController();
@@ -1671,14 +1702,18 @@ describe('kindgi dev — a database per project', () => {
       readonly project?: ProjectOutcome;
       readonly interactive?: boolean;
       readonly answer?: boolean;
+      /** The bundled Postgres's host port (it can change between boots). */
+      readonly port?: number;
+      /** Another boot's fixtures: the same runtime, providers and all. */
+      readonly base?: ReturnType<typeof makeFixtures>;
     } = {},
   ) {
-    const fixtures = makeFixtures();
+    const fixtures = options.base ?? makeFixtures();
     const calls: string[] = [];
     const resolveInputs: { packDir: string; configured: unknown }[] = [];
     const questions: string[] = [];
     const projectDatabases: ProjectDatabases = {
-      urlFor: (database) => `postgres://kindgi@127.0.0.1:5432/${database}`,
+      urlFor: (database) => `postgres://kindgi@127.0.0.1:${options.port ?? 5432}/${database}`,
       ensure: async (project, cliVersion) => {
         calls.push(`ensure ${project.database} ${cliVersion}`);
         return options.ensure ?? { kind: 'created' };
@@ -1694,7 +1729,7 @@ describe('kindgi dev — a database per project', () => {
       startServices: async () => ({
         kind: 'ok' as const,
         handle: {
-          databaseUrl: 'postgres://kindgi@127.0.0.1:5432/kindgi',
+          databaseUrl: `postgres://kindgi@127.0.0.1:${options.port ?? 5432}/kindgi`,
           services: ['postgres'],
           startedWith: 'docker compose' as const,
           projectDatabases,
@@ -1731,6 +1766,54 @@ describe('kindgi dev — a database per project', () => {
       restore();
     }
   }
+
+  const GEMINI_CONFIG =
+    "export default { pack: { id: 'my-pack', version: '0.1.0' }, providers: [{ preset: 'gemini', project: 'acme-gcp', models: ['gemini-2.5-flash'] }] };\n";
+  // A provider this pack registered reads `unchanged` next boot; one it
+  // doesn't know as its own reads as someone else's.
+  const OWN = 'gemini (unchanged)';
+  const NOT_OWN = 'not from kindgi.config.ts';
+
+  test("the bundled Postgres on another port next boot: this pack's providers are still its own", async () => {
+    await writeFile(join(packDir, 'kindgi.config.ts'), GEMINI_CONFIG, 'utf8');
+    const base = makeFixtures();
+    const first = await boot(withProjectDatabase({ port: 58091, base }).fixtures);
+    expect(first.log).toContain('  ✓ gemini: registered\n');
+
+    const second = await boot(
+      withProjectDatabase({ port: 62374, base, ensure: { kind: 'exists' } }).fixtures,
+    );
+    expect(second.log).toContain(OWN);
+    expect(second.log).not.toContain(NOT_OWN);
+  });
+
+  test("a 0.1.3 record (keyed on the bundled Postgres's port) is adopted: the provider is still this pack's", async () => {
+    await writeFile(join(packDir, 'kindgi.config.ts'), GEMINI_CONFIG, 'utf8');
+    const base = makeFixtures();
+    await boot(withProjectDatabase({ base }).fixtures);
+    const recordPath = join(packDir, '.kindgi', 'dev', 'providers.json');
+    const record = JSON.parse(await readFile(recordPath, 'utf8')) as {
+      readonly runtimes: Record<string, unknown>;
+    };
+    const tenant = 'tenant-abc'; // the runtime's (the fixtures')
+    const entries = record.runtimes[`bundled kindgi_acme tenant ${tenant}`];
+    expect(entries).toBeDefined();
+    // As 0.1.3 wrote it.
+    await writeFile(
+      recordPath,
+      JSON.stringify({
+        v: 1,
+        runtimes: { [`127.0.0.1:58091/kindgi_acme tenant ${tenant}`]: entries },
+      }),
+    );
+
+    const next = await boot(withProjectDatabase({ base, ensure: { kind: 'exists' } }).fixtures);
+    expect(next.log).toContain(OWN);
+    expect(next.log).not.toContain(NOT_OWN);
+    expect(Object.keys(JSON.parse(await readFile(recordPath, 'utf8')).runtimes)).toEqual([
+      `bundled kindgi_acme tenant ${tenant}`,
+    ]);
+  });
 
   test("the runtime gets the project's database and its dev tenant and user", async () => {
     const { fixtures, calls } = withProjectDatabase();

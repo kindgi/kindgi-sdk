@@ -13,6 +13,7 @@ import {
   detectPackageManager,
   installCommand,
   localLinkProtocol,
+  publishedCliSpec,
 } from '../src/package-manager.js';
 
 function io(files: Record<string, string>): DetectIo {
@@ -100,5 +101,15 @@ describe('detectBinRunner', () => {
 
   test('a Node pack runs it through its package manager', async () => {
     expect(await detectBinRunner('/app', 'node', io({ '/app/pnpm-lock.yaml': '' }))).toBe('pnpm');
+  });
+});
+
+describe('publishedCliSpec', () => {
+  test("a release's hints download its minor; a release candidate's, its exact version", () => {
+    expect(publishedCliSpec('0.1.3')).toBe('@kindgi/cli@0.1');
+    expect(publishedCliSpec('1.2.0')).toBe('@kindgi/cli@1.2');
+    // A range never matches a pre-release: `@0.1` would run the last release.
+    expect(publishedCliSpec('0.1.4-rc.0')).toBe('@kindgi/cli@0.1.4-rc.0');
+    expect(publishedCliSpec('unknown')).toBe('@kindgi/cli');
   });
 });
