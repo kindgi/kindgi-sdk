@@ -169,7 +169,7 @@ const start: LeafCommand = {
   description:
     'Start a run for an agent or flow. Waits until it finishes or waits on an approval; if the wait is stopped (Ctrl+C), the run goes on and its id is printed. With --no-wait it prints as soon as the run exists (follow it with `runs get` / `runs stream`). --dry-run runs only read-only tools.',
   usage:
-    'kindgi runs start (--agent=<agent-id> [--agent-version=<v>] | --flow=<flow-id> [--flow-version=<v>]) --input=<json-or-@file> [--no-wait] [--dry-run] [--idempotency-key=<key>]',
+    'kindgi runs start (--agent=<agent-id> [--agent-version=<v>] | --flow=<flow-id> [--flow-version=<v>]) --input=<json-or-@file> [--project=<project-id>] [--no-wait] [--dry-run] [--idempotency-key=<key>]',
   optionSpec: {
     agent: {
       type: 'string',
@@ -191,6 +191,11 @@ const start: LeafCommand = {
     input: {
       type: 'string',
       description: "The run's input as JSON, or `@<file>` to read it from a file. Required.",
+    },
+    project: {
+      type: 'string',
+      description:
+        "The project to run in (`kindgi projects list`). Default: the tenant's Default project.",
     },
     'idempotency-key': {
       type: 'string',
@@ -218,6 +223,7 @@ const start: LeafCommand = {
       if (agent !== undefined && flow !== undefined) {
         throw new Error('--agent and --flow are mutually exclusive');
       }
+      const projectId = stringFlag(ctx, 'project');
       const agentVersion = stringFlag(ctx, 'agent-version');
       const flowVersion = stringFlag(ctx, 'flow-version');
       if (agentVersion !== undefined && agent === undefined) {
@@ -241,6 +247,7 @@ const start: LeafCommand = {
         ? ctx.client().runs.start({
             agent: agent as AgentId,
             ...(agentVersion !== undefined && { agentVersion }),
+            ...(projectId !== undefined && { projectId }),
             input,
             options,
             ...(idem !== undefined ? { idempotencyKey: idem } : {}),
@@ -248,6 +255,7 @@ const start: LeafCommand = {
         : ctx.client().runs.start({
             flow: flow as FlowId,
             ...(flowVersion !== undefined && { flowVersion }),
+            ...(projectId !== undefined && { projectId }),
             input,
             options,
             ...(idem !== undefined ? { idempotencyKey: idem } : {}),

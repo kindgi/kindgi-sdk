@@ -422,6 +422,18 @@ describe('kindgi runs start', () => {
     ]);
   });
 
+  test('--project runs it in that project, agent or flow', async () => {
+    const agent = await start(['--agent=pack.agent', '--project=p-1']);
+    expect(agent.out.exitCode, agent.out.stderr).toBe(0);
+    expect(agent.started).toEqual([
+      { agent: 'pack.agent', projectId: 'p-1', input: { x: 1 }, options: { wait: false } },
+    ]);
+    const flow = await start(['--flow=pack.flow', '--project=p-2']);
+    expect(flow.started).toEqual([
+      { flow: 'pack.flow', projectId: 'p-2', input: { x: 1 }, options: { wait: false } },
+    ]);
+  });
+
   test('a version for the other kind is refused, and nothing starts (T245)', async () => {
     for (const [flags, message] of [
       [
