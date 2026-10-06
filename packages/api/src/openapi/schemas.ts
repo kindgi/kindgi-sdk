@@ -795,6 +795,28 @@ export const CompleteApprovalResultSchema: JsonSchema = {
       description:
         'True when the approval had a `waitTokenId` + terminal accept/reject and the run waitpoint was completed as part of this call.',
     },
+    resume: {
+      description:
+        "How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way.",
+      oneOf: [
+        {
+          type: 'object',
+          additionalProperties: false,
+          required: ['kind'],
+          properties: { kind: { type: 'string', const: 'ok' } },
+        },
+        {
+          type: 'object',
+          additionalProperties: false,
+          required: ['kind', 'code', 'message'],
+          properties: {
+            kind: { type: 'string', const: 'failed' },
+            code: { type: 'string' },
+            message: { type: 'string' },
+          },
+        },
+      ],
+    },
   },
 };
 

@@ -406,6 +406,7 @@ export function approvalsRouter(
     // override it, when the resume payload must carry more than the
     // decision (an agent gate refuses one, above).
     let waitpointResolved = false;
+    let resume: ResumeReport | undefined;
     if (
       approval.waitTokenId !== undefined &&
       approval.provenanceRef?.runId !== undefined &&
@@ -440,15 +441,12 @@ export function approvalsRouter(
       // journaled `wait.resumed`. The approval-complete surface reports
       // the decision as successful; a run that stayed suspended because
       // the inline resume failed can be resumed later.
+      //
+      // The response says how the resume went (`resume`), so a decision
+      // whose run couldn't go on (a tool version it started with is gone,
+      // say) isn't reported as plain success.
       if (runHandler !== undefined) {
-        try {
-          await runHandler.resumeRun({
-            tenantId,
-            runId: approval.provenanceRef.runId as RunId,
-          });
-        } catch {
-          // Soft-fail — the decision is durable; the run can be resumed later.
-        }
+        resume = await resumeInline(runHandler, tenantId, approval.provenanceRef.runId as RunId);
       }
     }
 
@@ -461,6 +459,7 @@ export function approvalsRouter(
         nextApproval: serializeApproval(result.nextApproval),
       }),
       waitpointResolved,
+      ...(resume !== undefined && { resume }),
     });
   });
 
@@ -807,4 +806,33 @@ function parseAuditBundleBody(
       includeMessages,
     },
   };
+}
+
+/** How the inline resume after a decision went. */
+type ResumeReport =
+  | { readonly kind: 'ok' }
+  | { readonly kind: 'failed'; readonly code: string; readonly message: string };
+
+/**
+ * Resume the run a decision released, in the same request. A resume that
+ * fails is reported, not raised: the decision is durable either way, and
+ * the runtime ends a run that can't go on, or resumes it later.
+ */
+async function resumeInline(
+  runHandler: RunHandlerBinding,
+  tenantId: TenantId,
+  runId: RunId,
+): Promise<ResumeReport> {
+  try {
+    const outcome = await runHandler.resumeRun({ tenantId, runId });
+    return outcome.kind === 'ok'
+      ? { kind: 'ok' }
+      : { kind: 'failed', code: outcome.error.code, message: outcome.error.message };
+  } catch (cause) {
+    return {
+      kind: 'failed',
+      code: 'resume-failed',
+      message: cause instanceof Error ? cause.message : String(cause),
+    };
+  }
 }
