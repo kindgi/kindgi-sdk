@@ -7,6 +7,8 @@ import { pickVersion } from '@kindgi/tools';
 import type { Cursor, ProjectId, TenantId, ToolId } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from './agent-binding.js';
+import type { BlockRegistryBinding } from './block-binding.js';
+import { resolveBlockPins } from './block-pins.js';
 import { type DeployedVersionOutcome, deployVersion } from './deploy-versions.js';
 import type { ToolRegistryBinding } from './tool-binding.js';
 
@@ -39,6 +41,7 @@ export async function resolveAgentPins(
   tools: ToolRegistryBinding,
   tenantId: TenantId,
   agent: Agent,
+  blocks?: BlockRegistryBinding,
 ): Promise<AgentPinsOutcome> {
   const pinned: Record<string, string> = {};
   const issues: UnpinnableRef[] = [];
@@ -62,8 +65,14 @@ export async function resolveAgentPins(
           : `tool "${ref.id}" has no published version in "${ref.version}" (published: ${available.join(', ')}); publish one in range first, or change the range`,
     });
   }
+  // The data blocks it references, by the same rule (`resolveBlockPins`).
+  const blockPins = await resolveBlockPins(blocks, tenantId, agent);
+  issues.push(...blockPins.issues);
   if (issues.length > 0) return { kind: 'unpinnable', issues };
-  return { kind: 'ok', pins: { tools: pinned, prompts: {}, settings: {} } };
+  return {
+    kind: 'ok',
+    pins: { tools: pinned, prompts: blockPins.prompts, settings: blockPins.settings },
+  };
 }
 
 /** Every active version of a tool, newest first; none when it isn't published. */

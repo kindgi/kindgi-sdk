@@ -124,6 +124,22 @@ export interface ToolRef {
 }
 
 /**
+ * A prompt block an agent's instructions come from: its id and a semver
+ * range, resolved like a tool's (`pickVersion`) and pinned when the
+ * agent version is published.
+ */
+export interface PromptRef {
+  readonly prompt: string;
+  readonly version: string;
+}
+
+/** A settings block an agent reads: its id and a semver range, pinned at publish. */
+export interface BlockRef {
+  readonly id: string;
+  readonly version: string;
+}
+
+/**
  * Per-agent behavior for multi-turn conversations. The agent chooses:
  *   - How many prior messages to load (`historyLimit`; unset = all).
  *   - Whether to auto-close a conversation after a period of inactivity
@@ -294,8 +310,13 @@ export interface Agent {
    * unresolved reference fails the turn at invoke time
    * (`model-invocation-failed` whose `cause` is the `missing-parameter`
    * render error), never a silent empty string.
+   *
+   * Or a prompt block, by range (`{ prompt: 'acme.intake-prompt',
+   * version: '^1.0.0' }`): its template renders here instead, with the
+   * parameters it declares, and the version that runs is pinned when the
+   * agent version is published (`pins.prompts`).
    */
-  readonly instructions: string;
+  readonly instructions: string | PromptRef;
   /**
    * Typed parameters the caller supplies at invoke time. The UI reads
    * this to build a "configure agent" form; the runtime validates each
@@ -415,6 +436,19 @@ export interface Agent {
    * ranges then resolve per run.
    */
   readonly pins?: AgentPins;
+  /**
+   * Settings blocks the agent reads, by range. Each block's values reach
+   * its tools as `ToolContext.settings[<block id>]` and its templates as
+   * `settings.<block id>.<key>`; the versions are pinned at publish
+   * (`pins.settings`).
+   */
+  readonly settings?: readonly BlockRef[];
+  /**
+   * A settings block of model settings (`MODEL_SETTINGS_SCHEMA`:
+   * `temperature`, `maxOutputTokens`) the turn's model calls use. Pinned
+   * at publish with the other settings.
+   */
+  readonly modelSettings?: BlockRef;
   /** `pinsDigest(pins)`, recorded when the version was published. */
   readonly pinsDigest?: string;
   /**

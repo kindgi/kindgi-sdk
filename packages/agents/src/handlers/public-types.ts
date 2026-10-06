@@ -10,6 +10,7 @@ import type { ParentRunRef, RunBinding, RunReplayRef } from '@kindgi/runtime';
 import type { ToolRegistry, ToolSecretRef } from '@kindgi/tools';
 import type { OrgId, ProjectId, ProvenanceId, RunId, TenantId, Timestamp } from '@kindgi/types';
 
+import type { BlockReader } from '../blocks.js';
 import type { ConversationBinding } from '../conversation-binding.js';
 import type { GuardrailsBindings } from '../guardrails-gate.js';
 import type { ProvenanceBindings } from '../provenance-emit.js';
@@ -110,6 +111,12 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
    * sees another tenant's tools.
    */
   readonly toolRegistry: ToolRegistry;
+  /**
+   * Data blocks (prompts and settings). Setup loads the blocks the agent
+   * references at their pinned versions. Optional: an agent that
+   * references blocks fails its turn (`block-unresolvable`) without it.
+   */
+  readonly blockReader?: BlockReader;
   /**
    * Caller-plugged data-access surface for memory reads.
    * The Kindgi runtime supplies a Postgres-backed implementation;

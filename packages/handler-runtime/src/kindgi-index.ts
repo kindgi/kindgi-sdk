@@ -246,7 +246,8 @@ export interface IndexedAgent {
   readonly id: string;
   readonly version: string;
   readonly name: string;
-  readonly instructions: string;
+  /** The system prompt, or a prompt block by range. */
+  readonly instructions: string | { readonly prompt: string; readonly version: string };
   readonly capabilities: readonly unknown[];
   /**
    * Typed tool references — `{ id, version }` where `version` is a
@@ -256,6 +257,10 @@ export interface IndexedAgent {
   readonly tools: readonly { readonly id: string; readonly version: string }[];
   readonly retrieval?: readonly unknown[];
   readonly guardrails?: readonly string[];
+  /** Settings blocks by range. */
+  readonly settings?: readonly { readonly id: string; readonly version: string }[];
+  /** A model-settings block by range. */
+  readonly modelSettings?: { readonly id: string; readonly version: string };
   readonly budget?: Readonly<Record<string, unknown>>;
   readonly parameters?: readonly unknown[];
   readonly preferredProvider?: string;
@@ -1305,7 +1310,12 @@ function detectKind(value: unknown): PrimitiveKind | undefined {
     rec.action !== null &&
     'on-violation' in (rec.action as Record<string, unknown>);
   if (isGuardrailAction && 'kind' in rec) return 'guardrail';
-  if (typeof rec.instructions === 'string' && Array.isArray(rec.tools)) return 'agent';
+  if (
+    (typeof rec.instructions === 'string' || isPromptRef(rec.instructions)) &&
+    Array.isArray(rec.tools)
+  ) {
+    return 'agent';
+  }
   if (Array.isArray(rec.nodes) && Array.isArray(rec.edges)) return 'flow';
   return undefined;
 }
@@ -1454,8 +1464,11 @@ function buildAgent(raw: unknown, relPath: string): Result<IndexedAgent, Indexer
   if (typeof rec.name !== 'string') {
     return manifestErr(relPath, `'name' is missing or not a string`);
   }
-  if (typeof rec.instructions !== 'string') {
-    return manifestErr(relPath, `'instructions' is missing or not a string`);
+  if (typeof rec.instructions !== 'string' && !isPromptRef(rec.instructions)) {
+    return manifestErr(
+      relPath,
+      `'instructions' is missing, or neither a string nor a prompt block { prompt, version }`,
+    );
   }
   if (!Array.isArray(rec.capabilities)) {
     return manifestErr(relPath, `'capabilities' is missing or not an array`);
@@ -1467,7 +1480,7 @@ function buildAgent(raw: unknown, relPath: string): Result<IndexedAgent, Indexer
     id: rec.id,
     version: rec.version,
     name: rec.name,
-    instructions: rec.instructions,
+    instructions: rec.instructions as IndexedAgent['instructions'],
     capabilities: rec.capabilities as readonly unknown[],
     tools: rec.tools as readonly { readonly id: string; readonly version: string }[],
     ...optionalAgentFields(rec),
@@ -1476,13 +1489,28 @@ function buildAgent(raw: unknown, relPath: string): Result<IndexedAgent, Indexer
   return { kind: 'ok', value: agent };
 }
 
+/** A prompt block reference: `{ prompt, version }`. */
+function isPromptRef(value: unknown): boolean {
+  return (
+    isObject(value) &&
+    typeof (value as { prompt?: unknown }).prompt === 'string' &&
+    typeof (value as { version?: unknown }).version === 'string'
+  );
+}
+
 /** The agent's optional fields, carried when present with the right shape. */
 function optionalAgentFields(rec: Record<string, unknown>): Partial<IndexedAgent> {
   const out: Record<string, unknown> = {};
-  for (const key of ['retrieval', 'guardrails', 'parameters', 'tags'] as const) {
+  for (const key of ['retrieval', 'guardrails', 'parameters', 'tags', 'settings'] as const) {
     if (Array.isArray(rec[key])) out[key] = rec[key];
   }
-  for (const key of ['budget', 'conversationPolicy', 'output', 'toolErrors'] as const) {
+  for (const key of [
+    'budget',
+    'conversationPolicy',
+    'output',
+    'toolErrors',
+    'modelSettings',
+  ] as const) {
     if (isObject(rec[key])) out[key] = rec[key];
   }
   for (const key of ['preferredProvider', 'preferredModel', 'description'] as const) {

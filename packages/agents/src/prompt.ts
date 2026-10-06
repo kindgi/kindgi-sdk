@@ -3,7 +3,8 @@
 
 import { Liquid } from 'liquidjs';
 
-import type { Agent, PromptParameter } from './types.js';
+import type { PromptBlockContent } from './blocks.js';
+import type { Agent, PromptParameter, PromptRef } from './types.js';
 
 /**
  * Reserved variable namespaces the runtime injects automatically.
@@ -20,8 +21,18 @@ import type { Agent, PromptParameter } from './types.js';
  *   - `input`             — the turn's structured input (`InvokeAgentInput.input`),
  *                           e.g. `{{ input.grievance.summary }}`; unset when
  *                           the turn has none.
+ *   - `settings`          — the agent's settings blocks' values, by block id:
+ *                           `{{ settings["acme.weights"].recency }}` reads
+ *                           block `acme.weights`; unset when it has none.
  */
-export const AUTO_INJECTED_VARS = ['today', 'now', 'agent', 'conversation', 'input'] as const;
+export const AUTO_INJECTED_VARS = [
+  'today',
+  'now',
+  'agent',
+  'conversation',
+  'input',
+  'settings',
+] as const;
 
 /**
  * Shape passed to `renderInstructions`. Framework auto-vars are
@@ -37,6 +48,8 @@ export interface RenderContext {
   };
   /** The turn's structured input, rendered as `{{ input.* }}`. */
   readonly input?: unknown;
+  /** The agent's settings blocks' values, by block id: `{{ settings["<id>"].<key> }}`. */
+  readonly settings?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
   /**
    * Optional clock override — tests inject a fixed date. Defaults to
    * `new Date()`.
@@ -84,14 +97,21 @@ export interface RenderFailureError {
  * Uses `strictVariables: true` so an unresolved `{{ var }}` is an error
  * — never a silent empty string. This is load-bearing for correctness
  * (a system prompt with a missing firm name is worse than a hard fail).
+ *
+ * When the instructions come from a prompt block, `prompt` is the
+ * version the turn runs (its template and declared parameters); an
+ * agent whose instructions are a prompt block can't render without it.
  */
 export function renderInstructions(
   agent: Agent,
   context: RenderContext,
+  prompt?: PromptBlockContent,
 ):
   | { readonly ok: true; readonly value: RenderResult }
   | { readonly ok: false; readonly error: PromptRenderError } {
-  const declared = agent.parameters ?? [];
+  const source = instructionsSource(agent, prompt);
+  if (!source.ok) return source;
+  const { template, declared } = source.value;
   const missing = requiredMissing(declared, context.parameters);
   if (missing.length > 0) {
     return {
@@ -107,7 +127,7 @@ export function renderInstructions(
   const merged = mergeContext(agent, declared, context);
   const liquid = new Liquid({ strictVariables: true, strictFilters: true });
   try {
-    const rendered = liquid.parseAndRenderSync(agent.instructions, merged);
+    const rendered = liquid.parseAndRenderSync(template, merged);
     return { ok: true, value: { rendered, context: merged } };
   } catch (cause) {
     // LiquidJS throws UndefinedVariableError for unresolved refs — surface
@@ -133,6 +153,33 @@ export function renderInstructions(
       },
     };
   }
+}
+
+/** The template to render and the parameters it declares: the prompt block's, or the agent's own. */
+function instructionsSource(
+  agent: Agent,
+  prompt: PromptBlockContent | undefined,
+):
+  | {
+      readonly ok: true;
+      readonly value: { readonly template: string; readonly declared: readonly PromptParameter[] };
+    }
+  | { readonly ok: false; readonly error: PromptRenderError } {
+  if (prompt !== undefined) {
+    return { ok: true, value: { template: prompt.template, declared: prompt.parameters ?? [] } };
+  }
+  if (typeof agent.instructions === 'string') {
+    return { ok: true, value: { template: agent.instructions, declared: agent.parameters ?? [] } };
+  }
+  const ref: PromptRef = agent.instructions;
+  return {
+    ok: false,
+    error: {
+      code: 'render-failure',
+      message: `The instructions come from prompt block "${ref.prompt}" (${ref.version}), which wasn't loaded`,
+      cause: null,
+    },
+  };
 }
 
 function requiredMissing(
@@ -181,5 +228,6 @@ function mergeContext(
     };
   }
   if (context.input !== undefined) values.input = context.input;
+  if (context.settings !== undefined) values.settings = context.settings;
   return values;
 }

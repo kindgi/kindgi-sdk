@@ -16,17 +16,19 @@ import { describe, expect, test } from 'vitest';
 
 import { type Agent, createAgentRegistry, pinsDigest } from '@kindgi/agents';
 import type { ToolManifest } from '@kindgi/tools';
-import type { Cursor, Semver, TenantId } from '@kindgi/types';
+import type { Cursor, ProjectId, Semver, TenantId } from '@kindgi/types';
 
 import { createStubAppBindings } from '@kindgi/testing';
 
 import { createApp } from '../src/index.js';
+import type { BlockRegistryBinding } from '../src/index.js';
 import type {
   AgentRegistryBinding,
   RunHandlerBinding,
   TokenResolver,
   ToolRegistryBinding,
 } from '../src/index.js';
+import { inMemoryBlocks } from './support/in-memory-blocks.js';
 
 const tenantId = randomUUID() as TenantId;
 const TOKEN = 'agents-pins-token';
@@ -118,7 +120,7 @@ function toolBinding(versions: Record<string, readonly string[]>): ToolRegistryB
   } as unknown as ToolRegistryBinding;
 }
 
-function makeApp(tools?: Record<string, readonly string[]>) {
+function makeApp(tools?: Record<string, readonly string[]>, blocks?: BlockRegistryBinding) {
   const agents = agentBinding();
   const app = createApp({
     ...createStubAppBindings(),
@@ -126,6 +128,7 @@ function makeApp(tools?: Record<string, readonly string[]>) {
     runHandler,
     agentRegistry: agents,
     ...(tools !== undefined && { toolRegistry: toolBinding(tools) }),
+    ...(blocks !== undefined && { blockRegistry: blocks }),
   });
   return { app, agents };
 }
@@ -247,5 +250,105 @@ describe('POST /v1/agents pins the version', () => {
       unregisteredAt: '2026-10-05T12:00:00.000Z',
       pins: { tools: { 'acme.lookup': '1.2.0' } },
     });
+  });
+});
+
+describe('POST /v1/agents pins the data blocks an agent references', () => {
+  const projectId = randomUUID() as ProjectId;
+  async function withBlocks() {
+    const blocks = inMemoryBlocks();
+    const put = (block: Parameters<BlockRegistryBinding['publish']>[0]['block']) =>
+      blocks.publish({ tenantId, projectId, block });
+    await put({
+      id: 'acme.intake-prompt',
+      version: '1.0.0',
+      kind: 'prompt',
+      content: { template: 'Sort it.' },
+    });
+    await put({
+      id: 'acme.intake-prompt',
+      version: '1.1.0',
+      kind: 'prompt',
+      content: { template: 'Sort it well.' },
+    });
+    await put({
+      id: 'acme.weights',
+      version: '1.0.0',
+      kind: 'settings',
+      content: { values: { r: 1 } },
+    });
+    await put({
+      id: 'acme.model',
+      version: '1.0.0',
+      kind: 'settings',
+      content: { values: { temperature: 0.2 } },
+    });
+    await put({
+      id: 'acme.loud',
+      version: '1.0.0',
+      kind: 'settings',
+      content: { values: { volume: 11 } },
+    });
+    return blocks;
+  }
+  const refs = {
+    instructions: { prompt: 'acme.intake-prompt', version: '^1.0.0' },
+    settings: [{ id: 'acme.weights', version: '^1.0.0' }],
+    modelSettings: { id: 'acme.model', version: '^1.0.0' },
+  };
+
+  test('each reference pins the highest version in range, next to the tools', async () => {
+    const { app } = makeApp(PUBLISHED, await withBlocks());
+    expect((await publish(app, body([{ id: 'acme.score', version: '0.3.1' }], refs))).status).toBe(
+      201,
+    );
+    const got = await app.request('/v1/agents/acme.intake/versions/1.0.0', { headers: auth });
+    const agent = (await got.json()) as {
+      pins: Agent['pins'];
+      instructions: unknown;
+      settings: unknown;
+    };
+    expect(agent.pins).toEqual({
+      tools: { 'acme.score': '0.3.1' },
+      prompts: { 'acme.intake-prompt': '1.1.0' },
+      settings: { 'acme.weights': '1.0.0', 'acme.model': '1.0.0' },
+    });
+    expect(agent.instructions).toEqual(refs.instructions);
+    expect(agent.settings).toEqual(refs.settings);
+  });
+
+  test("a missing block, the wrong kind, or model settings that aren't refuse the publish", async () => {
+    const { app } = makeApp(PUBLISHED, await withBlocks());
+    const res = await publish(
+      app,
+      body([], {
+        instructions: { prompt: 'acme.weights', version: '^1.0.0' },
+        settings: [{ id: 'acme.nothing', version: '^1.0.0' }],
+        modelSettings: { id: 'acme.loud', version: '^1.0.0' },
+      }),
+    );
+    expect(res.status).toBe(400);
+    const err = (await res.json()) as {
+      error: { details: { issues: { path: string; message: string }[] } };
+    };
+    expect(err.error.details.issues).toEqual([
+      { path: '/instructions/version', message: 'prompt block "acme.weights" is a settings block' },
+      {
+        path: '/settings/0/version',
+        message: 'settings block "acme.nothing" has no published version; publish the block first',
+      },
+      {
+        path: '/modelSettings/version',
+        message: expect.stringContaining(
+          'model-settings block "acme.loud" version 1.0.0 isn\'t model settings',
+        ),
+      },
+    ]);
+  });
+
+  test('a runtime with no block registry refuses an agent that references blocks', async () => {
+    const { app } = makeApp(PUBLISHED);
+    const res = await publish(app, body([], refs));
+    expect(res.status).toBe(400);
   });
 });

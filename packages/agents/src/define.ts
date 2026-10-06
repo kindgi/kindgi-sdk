@@ -9,6 +9,7 @@ import {
   loadZodConverterSync,
   toJSONSchemaSync,
 } from '@kindgi/schema';
+import { pickVersion } from '@kindgi/tools';
 import type { Result, Semver } from '@kindgi/types';
 
 import type { InvalidAgentError } from './errors.js';
@@ -16,8 +17,10 @@ import type {
   Agent,
   AgentId,
   AgentOutputSpec,
+  BlockRef,
   ConversationPolicy,
   PromptParameter,
+  PromptRef,
   RetrievalIntent,
   ToolRef,
   TurnBudget,
@@ -48,6 +51,7 @@ export function defineAgent(spec: DefineAgentSpec): Result<Agent, InvalidAgentEr
   const issues: Issue[] = [
     ...validateIdentity(spec),
     ...validateContent(spec),
+    ...validateBlockRefs(spec),
     ...validateArrays(spec),
     ...validateRetrieval(spec),
     ...validatePromptParameters(spec.parameters),
@@ -126,8 +130,16 @@ export interface DefineAgentSpec {
    * The system prompt. Sent to the model with every turn as the
    * baseline instructions. Load-bearing — this is where you shape
    * the agent's behavior (persona, output format, tool-use policy).
+   *
+   * Or a prompt block by range (`{ prompt: 'acme.intake-prompt',
+   * version: '^1.0.0' }`), whose template and parameters are used
+   * instead; then `parameters` stays unset (the block declares them).
    */
-  readonly instructions: string;
+  readonly instructions: string | PromptRef;
+  /** Settings blocks the agent reads, by range (see `Agent.settings`). */
+  readonly settings?: readonly BlockRef[];
+  /** A model-settings block, by range (see `Agent.modelSettings`). */
+  readonly modelSettings?: BlockRef;
   /**
    * Required capabilities the agent needs from a `ModelProvider`.
    * Typically one entry: `[{ needs: [{ feature: 'tool-use' }] }]`
@@ -248,14 +260,75 @@ function validateIdentity(spec: DefineAgentSpec): Issue[] {
 
 function validateContent(spec: DefineAgentSpec): Issue[] {
   const out: Issue[] = [];
-  if (typeof spec.instructions !== 'string' || spec.instructions.trim().length === 0) {
-    out.push({ path: '/instructions', message: 'instructions must be a non-empty string' });
+  if (typeof spec.instructions === 'object' && spec.instructions !== null) {
+    out.push(...blockRefIssues(spec.instructions, '/instructions', 'prompt'));
+    if (spec.parameters !== undefined) {
+      out.push({
+        path: '/parameters',
+        message: 'the prompt block declares the parameters: leave parameters unset',
+      });
+    }
+  } else if (typeof spec.instructions !== 'string' || spec.instructions.trim().length === 0) {
+    out.push({
+      path: '/instructions',
+      message: 'instructions must be a non-empty string, or a prompt block { prompt, version }',
+    });
   }
   if (!Array.isArray(spec.capabilities) || spec.capabilities.length === 0) {
     out.push({
       path: '/capabilities',
       message: 'capabilities must be a non-empty array of Capability declarations',
     });
+  }
+  return out;
+}
+
+const BLOCK_ID = /^[a-z0-9][a-z0-9-]*(?:\.[a-z0-9][a-z0-9-]*)+$/;
+
+/** A block reference: a dotted block id and a valid semver range. */
+function blockRefIssues(ref: unknown, path: string, idKey: 'prompt' | 'id'): Issue[] {
+  if (ref === null || typeof ref !== 'object') {
+    return [{ path, message: `must be { ${idKey}, version }` }];
+  }
+  const r = ref as Record<string, unknown>;
+  const out: Issue[] = [];
+  if (typeof r[idKey] !== 'string' || !BLOCK_ID.test(r[idKey] as string)) {
+    out.push({
+      path: `${path}/${idKey}`,
+      message: 'must be a dotted lowercase block id, e.g. "acme.weights"',
+    });
+  }
+  if (typeof r.version !== 'string' || pickVersion([], r.version).kind === 'invalid-range') {
+    out.push({
+      path: `${path}/version`,
+      message: 'must be a semver range, e.g. "^1.0.0" or "1.2.0"',
+    });
+  }
+  return out;
+}
+
+/** Settings and model-settings references: valid, and each block named once. */
+function validateBlockRefs(spec: DefineAgentSpec): Issue[] {
+  const out: Issue[] = [];
+  const seen = new Set<string>();
+  const once = (id: unknown, path: string) => {
+    if (typeof id !== 'string') return;
+    if (seen.has(id)) out.push({ path, message: `settings block "${id}" is referenced twice` });
+    seen.add(id);
+  };
+  if (spec.settings !== undefined) {
+    if (!Array.isArray(spec.settings)) {
+      out.push({ path: '/settings', message: 'settings must be an array of { id, version }' });
+    } else {
+      spec.settings.forEach((ref, i) => {
+        out.push(...blockRefIssues(ref, `/settings/${i}`, 'id'));
+        once((ref as { id?: unknown }).id, `/settings/${i}/id`);
+      });
+    }
+  }
+  if (spec.modelSettings !== undefined) {
+    out.push(...blockRefIssues(spec.modelSettings, '/modelSettings', 'id'));
+    once((spec.modelSettings as { id?: unknown }).id, '/modelSettings/id');
   }
   return out;
 }
@@ -334,7 +407,7 @@ function validateIntent(intent: RetrievalIntent, i: number): Issue[] {
 }
 
 const VALID_PARAM_TYPES = new Set(['string', 'number', 'boolean', 'date']);
-const AUTO_INJECTED_NAMES = new Set(['today', 'now', 'agent', 'conversation']);
+const AUTO_INJECTED_NAMES = new Set(['today', 'now', 'agent', 'conversation', 'settings']);
 
 /** An agent's or a prompt block's declared parameters: the problems, none when they're valid. */
 export function validatePromptParameters(parameters?: readonly PromptParameter[]): Issue[] {
@@ -567,7 +640,10 @@ function buildAgent(spec: DefineAgentSpec, output: AgentOutputSpec | undefined):
     version: spec.version as Semver,
     name: spec.name,
     ...(spec.description !== undefined && { description: spec.description }),
-    instructions: spec.instructions,
+    instructions:
+      typeof spec.instructions === 'string' ? spec.instructions : { ...spec.instructions },
+    ...(spec.settings !== undefined && { settings: spec.settings.map((r) => ({ ...r })) }),
+    ...(spec.modelSettings !== undefined && { modelSettings: { ...spec.modelSettings } }),
     capabilities: spec.capabilities.map((c) => ({ ...c })),
     tools: [...spec.tools],
     retrieval: spec.retrieval.map((r) => ({ ...r })),

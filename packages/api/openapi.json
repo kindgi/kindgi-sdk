@@ -2929,13 +2929,33 @@
             "type": "string"
           },
           "instructions": {
-            "type": "string"
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "$ref": "#/components/schemas/PromptRef"
+              }
+            ],
+            "description": "The system prompt (a Liquid template), or a prompt block by range whose template and parameters are used instead (pinned at publish, `pins.prompts`)."
           },
           "parameters": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/PromptParameter"
             }
+          },
+          "settings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BlockRef"
+            },
+            "description": "Settings blocks the agent reads, by range: tools read them as `ToolContext.settings['<id>']`, templates as `settings[\"<id>\"]`. Pinned at publish (`pins.settings`)."
+          },
+          "modelSettings": {
+            "$ref": "#/components/schemas/BlockRef",
+            "description": "A model-settings block by range: its `temperature` and `maxOutputTokens` go into the turn's model calls. Pinned at publish."
           },
           "capabilities": {
             "type": "array",
@@ -3037,6 +3057,44 @@
               "type": "string"
             },
             "description": "Settings block id → exact version."
+          }
+        }
+      },
+      "PromptRef": {
+        "description": "A prompt block an agent's instructions come from, by id and semver range.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "prompt",
+          "version"
+        ],
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "The prompt block id."
+          },
+          "version": {
+            "type": "string",
+            "description": "A semver range (`^1.0.0`, `1.2.0`)."
+          }
+        }
+      },
+      "BlockRef": {
+        "description": "A settings block an agent reads, by id and semver range.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The settings block id."
+          },
+          "version": {
+            "type": "string",
+            "description": "A semver range (`^1.0.0`, `1.2.0`)."
           }
         }
       },
@@ -3154,13 +3212,33 @@
             "description": "Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`."
           },
           "instructions": {
-            "type": "string"
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "$ref": "#/components/schemas/PromptRef"
+              }
+            ],
+            "description": "The system prompt (a Liquid template), or a prompt block by range whose template and parameters are used instead (pinned at publish, `pins.prompts`)."
           },
           "parameters": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/PromptParameter"
             }
+          },
+          "settings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BlockRef"
+            },
+            "description": "Settings blocks the agent reads, by range: tools read them as `ToolContext.settings['<id>']`, templates as `settings[\"<id>\"]`. Pinned at publish (`pins.settings`)."
+          },
+          "modelSettings": {
+            "$ref": "#/components/schemas/BlockRef",
+            "description": "A model-settings block by range: its `temperature` and `maxOutputTokens` go into the turn's model calls. Pinned at publish."
           },
           "capabilities": {
             "type": "array",

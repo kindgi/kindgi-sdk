@@ -608,6 +608,8 @@ async function dispatchOne(
     // secret_refs at invoke time. Present iff the caller wired
     // `bindings.resolveSecret` from a tenant-scoped `SecretBinding`.
     ...(ctx.bindings.resolveSecret !== undefined && { resolveSecret: ctx.bindings.resolveSecret }),
+    // The pinned settings blocks' values, by block id.
+    ...(ctx.blocks !== undefined && { settings: ctx.blocks.settings }),
   };
   const result = await invokeTool(tool, call.arguments, toolCtx);
   if (result.kind === 'err') {
