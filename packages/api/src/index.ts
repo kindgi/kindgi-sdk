@@ -386,6 +386,42 @@ export type {
   BlockReinstateOutcome,
   BlockVersionInput,
 } from './block-binding.js';
+export type {
+  AgentReleaseBindings,
+  ListPromotionsInput,
+  LivePin,
+  LiveResolution,
+  LiveResolveInput,
+  LiveVersionBinding,
+  PromoteInput,
+  Promotion,
+  PromotionAction,
+  PromotionActor,
+  PromotionBinding,
+  PromotionError,
+  PromotionErrorCode,
+  PromotionRequestInput,
+  PromotionStatus,
+  RollbackInput,
+  UnpinInput,
+} from './live-version-binding.js';
+export type {
+  GateMetricName,
+  GateMetricSpec,
+  GatePolicy,
+  GatePolicyBinding,
+  GatePolicyError,
+  GatePolicyErrorCode,
+  GatePolicyListInput,
+  GatePolicyPublishInput,
+  GatePolicyRef,
+  GatePolicySpec,
+  GatePolicyVersionInput,
+} from './gate-policy-binding.js';
+export { GATE_METRICS } from './gate-policy-binding.js';
+export type { GateApproval, GateCheck, GateInput, GateResult } from './gate.js';
+export { evaluateGate, gateApproval } from './gate.js';
+export type { AgentReleaseGateDeps } from './routes/agent-releases.js';
 export { EVAL_KINDS } from './eval-suite-binding.js';
 export type {
   EvalKind,

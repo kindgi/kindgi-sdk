@@ -71,7 +71,9 @@ print(run.status, [str(r.id) for r in runs.data])
 completed [ '68ebe748-4259-4f46-ae21-cf0da3b978c6' ]
 ```
 
-Keep the org's and the project's ids on the customer's row in your app.
+Keep the org's and the project's ids on the customer's row in your app. From
+the CLI, `kindgi runs start … --project=<project-id>` runs in a customer's
+project, and `kindgi projects list` lists the projects with their ids.
 
 **Slugs.** An org's slug is unique in the tenant. A project's slug is unique
 in its org, so every customer can have a `support` project; a project with

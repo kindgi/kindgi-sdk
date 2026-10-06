@@ -37,6 +37,41 @@ describe('createTransport', () => {
     expect(url.searchParams.has('skipped')).toBe(false);
   });
 
+  it('repeats the key for an array value, in order', async () => {
+    const stub = jsonFetch({ ok: true });
+    const transport = createTransport({
+      apiUrl: 'https://api.example.com',
+      auth: { kind: 'apiToken', token: 'tk' },
+      fetch: stub.fetch,
+    });
+    await transport.request({
+      method: 'GET',
+      path: '/v1/agents/a/live',
+      query: { segment: ['company:acme', 'role:counsel'], empty: [] },
+    });
+    const url = new URL(stub.calls[0]?.url);
+    expect(url.searchParams.getAll('segment')).toEqual(['company:acme', 'role:counsel']);
+    expect(url.searchParams.has('empty')).toBe(false);
+  });
+
+  it("an authorizer's 403 is a forbidden auth error", async () => {
+    const stub = errorFetch(403, {
+      code: 'permission-denied',
+      message: 'Permission denied: actor user:u-1 does not have can_read on agent:acme.drafter',
+      details: { action: 'read', resource: 'agent:acme.drafter', reason: 'no can_read' },
+    });
+    const transport = createTransport({
+      apiUrl: 'https://api.example.com',
+      auth: { kind: 'apiToken', token: 'tk' },
+      fetch: stub.fetch,
+    });
+    const thrown = await transport
+      .request({ method: 'GET', path: '/v1/agents/acme.drafter' })
+      .catch((e: unknown) => e);
+    expect(thrown).toBeInstanceOf(KindgiApiError);
+    expect((thrown as KindgiApiError).error).toMatchObject({ code: 'auth', reason: 'forbidden' });
+  });
+
   it('passes Authorization Bearer for oauth kind too', async () => {
     const stub = jsonFetch({ ok: true });
     const transport = createTransport({

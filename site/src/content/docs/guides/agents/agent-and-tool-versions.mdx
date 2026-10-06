@@ -105,8 +105,9 @@ of each agent published before pins:
 agent acme.matcher: registered new version 1.4.1 (1.4.0 was published before pins; 1.4.1 pins its tools); set version: '1.4.1' in acme.matcher to match
 ```
 
-An app that runs an exact version (`agentVersion: '1.4.0'`) keeps running the
-old, unpinned one until you change it; an app that runs the latest gets the
+An app that runs an exact version (`agentVersion: '1.4.0'`, or
+`--agent-version=1.4.0` from the CLI) keeps running the old, unpinned one until
+you change it; an app that runs the latest gets the
 pinned one.
 
 ## What unregistering a version does
@@ -132,7 +133,7 @@ const unregistered = await kindgi.agents.versions.get(agent, version);
 console.log(unregistered.unregisteredAt, unregistered.pins?.tools);
 
 // 1.0.0 can be chosen again, unchanged.
-await kindgi.agents.reinstateVersion(agent, version);
+await kindgi.agents.versions.reinstate(agent, version);
 ```
 
 </TabItem>

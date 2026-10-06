@@ -294,6 +294,37 @@ describe('not-implemented-in-preview SDK errors', () => {
     expect(out.stderr).toContain(`Command 'kindgi ${argv.slice(0, 2).join(' ')}' is not available`);
     expect(out.stderr).toContain(reason);
   });
+
+  test("tokens create and revoke say the runtime doesn't serve them, and call nothing", async () => {
+    for (const argv of [
+      ['tokens', 'create'],
+      ['tokens', 'revoke', 'tok-1'],
+    ]) {
+      let called = false;
+      const out = await runCli(
+        baseInputs({
+          argv: [...argv, '--url=https://x', '--token=t'],
+          clientFactory: () =>
+            ({
+              tokens: {
+                create: async () => {
+                  called = true;
+                },
+                revoke: async () => {
+                  called = true;
+                },
+              },
+            }) as never,
+        }),
+      );
+      expect(out.exitCode).toBe(2);
+      expect(out.stderr).toContain(
+        `Command 'kindgi ${argv.slice(0, 2).join(' ')}' is not available`,
+      );
+      expect(out.stderr).toContain("the Kindgi runtime doesn't serve `/v1/tokens` yet");
+      expect(called).toBe(false);
+    }
+  });
 });
 
 describe('kindgi runs start', () => {
@@ -536,6 +567,59 @@ describe('kindgi runs start — turn warnings', () => {
   test('no warnings, nothing on stderr', async () => {
     const out = await startWith({ response: { content: 'Hello, Ada!' } });
     expect(out.stderr).toBe('');
+  });
+});
+
+describe('kindgi runs start — project and segments', () => {
+  test('sends the project and the segment path, in order', async () => {
+    const started: unknown[] = [];
+    const out = await runCli(
+      baseInputs({
+        argv: [
+          'runs',
+          'start',
+          '--agent=acme.drafter',
+          '--input={"userMessage":"hi"}',
+          '--project=p-1',
+          '--segment=company:acme',
+          '--segment=role:counsel',
+          '--no-wait',
+        ],
+        env: { KINDGI_API_URL: 'https://x', KINDGI_API_TOKEN: 't' },
+        clientFactory: () =>
+          ({
+            runs: {
+              start: async (input: unknown) => {
+                started.push(input);
+                return { id: 'run-1', status: 'pending' };
+              },
+            },
+          }) as never,
+      }),
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(started).toEqual([
+      expect.objectContaining({
+        agent: 'acme.drafter',
+        projectId: 'p-1',
+        segments: [
+          { key: 'company', value: 'acme' },
+          { key: 'role', value: 'counsel' },
+        ],
+      }),
+    ]);
+  });
+
+  test('a segment without a value fails before the run starts', async () => {
+    const out = await runCli(
+      baseInputs({
+        argv: ['runs', 'start', '--agent=a', '--input={}', '--segment=company'],
+        env: { KINDGI_API_URL: 'https://x', KINDGI_API_TOKEN: 't' },
+        clientFactory: () => ({ runs: { start: async () => ({}) } }) as never,
+      }),
+    );
+    expect(out.exitCode).not.toBe(0);
+    expect(out.stderr).toContain('key:value');
   });
 });
 

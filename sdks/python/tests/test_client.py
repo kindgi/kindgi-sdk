@@ -174,6 +174,21 @@ def test_conversations_list_takes_replays() -> None:
     assert dict(seen[1].url.params) == {"replays": "only"}
 
 
+def test_a_list_query_parameter_repeats_its_key_in_order() -> None:
+    project = "0b9f4c1e-1111-4a2b-8c3d-000000000001"
+    api, seen = client(
+        lambda _r: httpx.Response(
+            200, json={"agentId": "acme.drafter", "version": "1.1.0", "via": "latest"}
+        )
+    )
+    resolved = api.agents.live.resolve(
+        "acme.drafter", project_id=project, segment=["company:acme", "role:counsel"]
+    )
+    assert resolved.via == "latest"
+    assert seen[0].url.params.get_list("segment") == ["company:acme", "role:counsel"]
+    assert seen[0].url.params["projectId"] == project
+
+
 @pytest.mark.parametrize(
     ("response", "kind", "check"),
     [
@@ -201,6 +216,21 @@ def test_conversations_list_takes_replays() -> None:
             error(409, "registry-read-only"),
             ConflictError,
             lambda e: e.server_code == "registry-read-only",
+        ),
+        (
+            error(409, "nothing-to-roll-back"),
+            ConflictError,
+            lambda e: e.server_code == "nothing-to-roll-back",
+        ),
+        (
+            error(404, "agent-version-not-found"),
+            NotFoundError,
+            lambda e: e.kind == "agent-version",
+        ),
+        (
+            error(400, "scope-invalid"),
+            InvalidRequestError,
+            lambda e: e.issues == [],
         ),
         (
             error(400, "validation-failed", details={"issues": [{"path": "/x", "message": "bad"}]}),
@@ -452,6 +482,41 @@ def test_retention_scheduled_and_sweep() -> None:
 
     api.retention.sweep_domain("judge_class")
     assert seen[2].url.path == "/v1/retention/sweep/judge_class"
+
+
+def test_retention_scheduled_pages_with_a_cursor() -> None:
+    """T249: `cursor` goes in the query; `has_more` and `next_cursor` come back."""
+
+    def item(n: int) -> dict[str, Any]:
+        return {
+            "domain": "agent",
+            "id": f"agent-{n}",
+            "unregisteredAt": "2026-10-01T00:00:00Z",
+            "purgeAt": "2026-10-02T00:00:00Z",
+            "pastGrace": True,
+            "policyId": "acme.keep-agents",
+            "policyVersion": "1.0.0",
+            "graceSeconds": 86_400,
+        }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        first = "cursor" not in request.url.params
+        return httpx.Response(
+            200,
+            json={
+                "data": [item(1)] if first else [item(2)],
+                "domainsMissingAdapter": [],
+                "unpolicedDomains": [],
+                "hasMore": first,
+                **({"nextCursor": "c-2"} if first else {}),
+            },
+        )
+
+    api, seen = client(handler)
+    page = api.retention.scheduled(limit=1)
+    assert (page.has_more, page.next_cursor) == (True, "c-2")
+    assert [row.id for row in paginate(api.retention.scheduled, limit=1)] == ["agent-1", "agent-2"]
+    assert dict(seen[-1].url.params) == {"limit": "1", "cursor": "c-2"}
 
 
 def test_a_second_retention_policy_for_a_domain_is_a_conflict() -> None:

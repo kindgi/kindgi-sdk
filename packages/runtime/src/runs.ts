@@ -9,7 +9,16 @@
 //
 
 import type { FlowVersionOverrides } from '@kindgi/flow';
-import type { Cursor, NodeId, OrgId, ProjectId, RunId, TenantId, Timestamp } from '@kindgi/types';
+import type {
+  Cursor,
+  NodeId,
+  OrgId,
+  ProjectId,
+  RunId,
+  ScopeSegment,
+  TenantId,
+  Timestamp,
+} from '@kindgi/types';
 
 import type { RunAgentRef } from './inputs.js';
 import type { RunStatus } from './types.js';
@@ -51,6 +60,12 @@ export interface KernelRunRecord {
    * (`RunFlowInput.versions`). Absent on a run that has none.
    */
   readonly versions?: FlowVersionOverrides;
+  /**
+   * The segment path the run was started with (ordered, coarse to fine),
+   * which picks live agent versions: the run's own, and its agent steps'
+   * when it is a flow run. Absent when it was started without one.
+   */
+  readonly segments?: readonly ScopeSegment[];
 }
 
 /**

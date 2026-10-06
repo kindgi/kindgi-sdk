@@ -43,7 +43,7 @@ const turn = second.output as Turn;
 console.log(turn.turnNumber, turn.response.content);
 
 const history = await kindgi.conversations.messages(conversationId);
-for (const m of history.items) console.log(m.sequence, m.role, JSON.stringify(m.content));
+for (const m of history.data) console.log(m.sequence, m.role, JSON.stringify(m.content));
 ```
 
 ```sh
@@ -182,7 +182,7 @@ try {
 }
 
 const list = await kindgi.conversations.list({ agent: 'acme.order-desk' as AgentId, status: 'closed' });
-console.log(list.items.map((c) => c.id));
+console.log(list.data.map((c) => c.id));
 ```
 
 ```text
@@ -263,6 +263,16 @@ conversation-closed Conversation "b3135493-47bd-4f78-90ac-fe0ff3e21e8d" is close
   conversation from before Kindgi 0.1.3 has no project and is listed only
   without a scope.
 
+From the CLI:
+
+```sh
+kindgi conversations open acme.order-desk 0.1.0 --title="Order A-1002" --participant=customer-4411
+kindgi runs start --agent=acme.order-desk --agent-version=0.1.0 --input='{"userMessage":"Where is order A-1002?","conversationId":"<conversation-id>"}'
+kindgi conversations messages <conversation-id>   # oldest first
+kindgi conversations get <conversation-id>
+kindgi conversations close <conversation-id>
+```
+
 Over HTTP, these are `POST /v1/conversations`, `GET /v1/conversations`,
 `GET /v1/conversations/{id}`, `POST /v1/conversations/{id}/close` and
 `GET /v1/conversations/{id}/messages`.
@@ -277,8 +287,11 @@ refused:
 Error [server]: Conversation opened with acme.order-desk@0.1.0; invoked with acme.order-desk@0.2.0
 ```
 
-(Its `serverCode` is `agent-version-mismatch`.) With `kindgi dev`, only the
-current version of an agent is registered, so start a new conversation. Bump
+(Its `serverCode` is `agent-version-mismatch`.) On a runtime you deploy to,
+where both versions are registered, a turn can run the conversation's version
+instead: `agentVersion: '0.1.0'` in `runs.start` (`agent_version` in Python),
+`--agent-version=0.1.0` in the CLI. With `kindgi dev`, only the current version
+of an agent is registered, so start a new conversation. Bump
 the version when a change would break conversations under way, not on every
 edit.
 

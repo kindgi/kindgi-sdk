@@ -67,6 +67,27 @@ describe('retention.scheduled', () => {
     await c.retention.scheduled();
     expect(stub.calls[0]?.url).toBe('https://api.example.com/v1/retention/scheduled');
   });
+
+  it("sends `cursor`, and returns the page's `hasMore` and `nextCursor`", async () => {
+    const { stub, client: c } = client({
+      data: [],
+      domainsMissingAdapter: [],
+      unpolicedDomains: [],
+      hasMore: true,
+      nextCursor: 'c-3',
+    });
+    const page = await c.retention.scheduled({ cursor: 'c-2' });
+    expect(new URL(stub.calls[0]?.url ?? '').searchParams.get('cursor')).toBe('c-2');
+    expect(page).toMatchObject({ hasMore: true, nextCursor: 'c-3' });
+  });
+
+  it('a runtime that sends no `hasMore`: it says whether a `nextCursor` came', async () => {
+    const page = { data: [], domainsMissingAdapter: [], unpolicedDomains: [] };
+    expect(await client(page).client.retention.scheduled()).toMatchObject({ hasMore: false });
+    expect(await client({ ...page, nextCursor: 'c-2' }).client.retention.scheduled()).toMatchObject(
+      { hasMore: true, nextCursor: 'c-2' },
+    );
+  });
 });
 
 describe('retention.sweep', () => {

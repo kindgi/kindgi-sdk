@@ -62,15 +62,21 @@ export function retentionRouter(binding: RetentionBinding, authorizer?: Authoriz
     const limit = clampLimit(url.searchParams.get('limit') ?? undefined);
     const pastGraceRaw = url.searchParams.get('pastGraceOnly');
     const pastGraceOnly = pastGraceRaw === 'true';
+    const cursor = url.searchParams.get('cursor') ?? '';
 
-    const page = await binding.scheduled({
+    const { hasMore, nextCursor, ...page } = await binding.scheduled({
       tenantId,
       limit,
       pastGraceOnly,
       ...(domain !== undefined && { domain }),
+      ...(cursor !== '' && { cursor }),
     });
 
-    return c.json(page);
+    return c.json({
+      ...page,
+      hasMore: hasMore ?? someDomainFilled(page.data, limit),
+      ...(nextCursor !== undefined && { nextCursor }),
+    });
   });
 
   r.post('/sweep', async (c) => {
@@ -151,6 +157,19 @@ export function retentionRouter(binding: RetentionBinding, authorizer?: Authoriz
   });
 
   return r;
+}
+
+/**
+ * A runtime that doesn't report `hasMore`: there may be more when some
+ * domain's rows fill `limit` (each domain is read up to `limit`).
+ */
+function someDomainFilled(
+  data: readonly { readonly domain: RetentionDomain }[],
+  limit: number,
+): boolean {
+  const perDomain = new Map<RetentionDomain, number>();
+  for (const row of data) perDomain.set(row.domain, (perDomain.get(row.domain) ?? 0) + 1);
+  return [...perDomain.values()].some((n) => n >= limit);
 }
 
 function parseDomain(raw: string | null | undefined): RetentionDomain | 'invalid' | undefined {

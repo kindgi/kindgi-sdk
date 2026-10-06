@@ -59,7 +59,7 @@ import type { PolicyId } from '@kindgi/sdk/types';
 const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
 // Removed model providers are kept 7 days, then the next sweep purges them.
-const published = await kindgi.policies.author({
+const published = await kindgi.policies.publish({
   id: 'acme.keep-providers' as PolicyId,
   version: '1.0.0',
   kind: 'retention',
@@ -114,9 +114,11 @@ policy_id='acme.keep-providers' version='1.0.1'
 
 ## See what will be purged, and purge it
 
-Kindgi purges only when you sweep. `retention.scheduled` lists each deleted
-record a policy will purge, and when; `retention.sweep` purges every record
-past its grace, or one domain's. Both take `admin` on the tenant.
+A sweep purges what's due. The runtime sweeps on its own only when you set
+`KINDGI_RETENTION_SWEEP_INTERVAL_MS` (below); otherwise, you sweep.
+`retention.scheduled` lists each deleted record a policy will purge, and when;
+`retention.sweep` purges every record past its grace, or one domain's. Both
+take `admin` on the tenant.
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -180,10 +182,29 @@ purged:
   (`past_grace_only` in Python) the list to what a sweep would purge now.
 - **`unpolicedDomains`**, in the list's answer, names the domains no policy
   covers: their deleted records are kept.
-- **A purged record is gone for good.** To purge on a schedule, run a sweep
-  from a cron job; sweeping again purges nothing new until more records pass
-  their grace. Over HTTP: `GET /v1/retention/scheduled` and
-  `POST /v1/retention/sweep` (or `/v1/retention/sweep/<domain>`).
+- **A purged record is gone for good.** Sweeping again purges nothing new
+  until more records pass their grace. Over HTTP: `GET /v1/retention/scheduled`
+  and `POST /v1/retention/sweep` (or `/v1/retention/sweep/<domain>`).
+
+**To sweep on a schedule,** set `KINDGI_RETENTION_SWEEP_INTERVAL_MS` in
+`kindgi.env`: how often, in milliseconds, at least `60000` (`3600000` is
+hourly). Each pass is the same sweep, for every tenant the runtime serves, and
+purges up to 500 records per domain; the rest wait for the next pass. The
+startup log says which way it runs:
+
+```text
+  Retention: purges deleted rows past their grace every 1 min
+  Retention: manual (POST /v1/retention/sweep; KINDGI_RETENTION_SWEEP_INTERVAL_MS purges on its own)
+```
+
+A pass that purged something logs it, per tenant:
+
+```text
+[retention] tenant e8dd7ea4-2909-41f3-9f99-8f4da875b444: purged 1 (run 1)
+```
+
+A value under `60000` stops the runtime at start:
+`KINDGI_RETENTION_SWEEP_INTERVAL_MS must be at least 60000 milliseconds. Got 59999.`
 
 ## Keep records for good
 

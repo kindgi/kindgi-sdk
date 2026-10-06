@@ -61,6 +61,13 @@ export const EVIDENCE_KINDS = [
   // Human-in-the-loop approval decisions (exportable in the shipped
   // compliance classifier).
   'hitl-decision',
+  // Which agent version is live for a scope: a promotion, a rollback, or
+  // an unpin (the scope falls back to the one above).
+  'agent-promotion',
+  'agent-rollback',
+  'agent-live-unpinned',
+  // A live pin whose version was unregistered: runs use the scope above.
+  'agent-live-pin-inactive',
 ] as const;
 
 /**

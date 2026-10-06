@@ -50,10 +50,13 @@ export interface GlobalFlags {
   readonly formatRequested: boolean;
 }
 
+/** A parsed flag: a string, a boolean, or every value of a repeatable (`multiple`) string flag. */
+export type OptionValue = string | boolean | readonly string[] | undefined;
+
 export interface CommandParse {
   readonly globals: GlobalFlags;
   readonly positionals: readonly string[];
-  readonly options: Readonly<Record<string, string | boolean | undefined>>;
+  readonly options: Readonly<Record<string, OptionValue>>;
 }
 
 /**
@@ -97,7 +100,7 @@ export function parseCommand(
     allowPositionals: true,
     strict: true,
   });
-  const values = parsed.values as Record<string, string | boolean | undefined>;
+  const values = parsed.values as Record<string, OptionValue>;
   const positionals = parsed.positionals ?? [];
 
   const format = pickFormat(
@@ -116,7 +119,7 @@ export function parseCommand(
     ...(typeof values.token === 'string' ? { token: values.token } : {}),
   };
   // Strip global keys from options so command handlers see only their own.
-  const own: Record<string, string | boolean | undefined> = {};
+  const own: Record<string, OptionValue> = {};
   for (const [key, value] of Object.entries(values)) {
     if (key in GLOBAL_OPTION_SPEC) continue;
     own[key] = value;

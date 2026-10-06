@@ -42,17 +42,18 @@ describe('commands the API does not wire yet', () => {
   test('root help and the reference leave them out; a partly wired group lists only what works', () => {
     const root = rootHelpText();
     expect(root).toContain('  runs');
-    expect(root).not.toMatch(/^ {2}memory /m);
+    expect(root).not.toMatch(/^ {2}capabilities /m);
     expect(root).not.toMatch(/^ {2}flows /m);
 
-    const agents = ROOT_COMMANDS.find((c) => c.name === 'agents')!;
-    const help = commandHelpText(agents, ['agents']);
-    expect(help).toContain('publish');
-    expect(help).not.toMatch(/^ {2}list /m);
+    const runs = ROOT_COMMANDS.find((c) => c.name === 'runs')!;
+    const help = commandHelpText(runs, ['runs']);
+    expect(help).toContain('start');
+    expect(help).not.toMatch(/^ {2}resume /m);
 
     const reference = describeCommands();
-    expect(reference.map((c) => c.name)).not.toContain('memory');
-    const agentsRef = reference.find((c) => c.name === 'agents')!;
-    expect(agentsRef.subcommands.map((s) => s.name)).toEqual(['publish', 'derive']);
+    expect(reference.map((c) => c.name)).not.toContain('capabilities');
+    const runsRef = reference.find((c) => c.name === 'runs')!;
+    expect(runsRef.subcommands.map((s) => s.name)).toContain('start');
+    expect(runsRef.subcommands.map((s) => s.name)).not.toContain('resume');
   });
 });

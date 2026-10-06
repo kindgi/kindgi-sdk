@@ -26,7 +26,7 @@ import type { RunId } from '@kindgi/sdk/types';
 const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
 const calls = await kindgi.cost.usage.query({ runId: process.argv[2] as RunId });
-for (const call of calls.items) {
+for (const call of calls.data) {
   console.log(call.step, call.model, call.status, call.usage?.promptTokens, call.usage?.completionTokens, call.costUsd);
 }
 ```

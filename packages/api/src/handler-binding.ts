@@ -3,7 +3,7 @@
 
 import type { AgentId } from '@kindgi/agents';
 import type { FlowVersionOverrides } from '@kindgi/flow';
-import type { FlowId, ProjectId, RunId, Semver, TenantId } from '@kindgi/types';
+import type { FlowId, ProjectId, RunId, ScopeSegment, Semver, TenantId } from '@kindgi/types';
 
 /**
  * Callback the platform HTTP surface hands off to when it receives
@@ -73,8 +73,18 @@ export interface InvokeAgentBindingInput {
    */
   readonly projectId?: ProjectId;
   readonly agentId: AgentId;
-  /** Omit → binding chooses the latest registered version. */
+  /**
+   * Omit → the binding chooses: the conversation's own version for a
+   * follow-up turn, else the version live for the run's scope, else the
+   * latest registered.
+   */
   readonly agentVersion?: Semver;
+  /**
+   * The run's segment path below its project, coarse to fine (an
+   * app-defined finer scope, e.g. company then role): a live version
+   * pinned on a prefix of it serves the run.
+   */
+  readonly segments?: readonly ScopeSegment[];
   /**
    * Opaque payload forwarded from the request body's `input` field.
    * The binding is responsible for coercing this into whatever shape
@@ -98,6 +108,8 @@ export interface InvokeFlowBindingInput {
   readonly projectId?: ProjectId;
   readonly flowId: FlowId;
   readonly flowVersion?: Semver;
+  /** The run's segment path, as for an agent run: its agent steps resolve live versions with it. */
+  readonly segments?: readonly ScopeSegment[];
   readonly input: unknown;
   readonly dryRun?: boolean;
   /**

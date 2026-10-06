@@ -147,6 +147,430 @@ export const RunAgentSchema: JsonSchema = {
     id: { type: 'string', description: 'The agent id.' },
     version: { type: 'string', description: 'The agent version that ran (semver).' },
     conversationId: { type: 'string', format: 'uuid' },
+    via: {
+      type: 'string',
+      enum: ['explicit', 'conversation', 'live', 'latest'],
+      description:
+        "Why this version ran: named by the caller, the conversation's own, the version live for the run's scope, or the latest (nothing live). Absent on runs from before Kindgi 0.1.4.",
+    },
+    liveScope: {
+      $ref: '#/components/schemas/LiveScope',
+      description: 'The pin that chose the version, when `via` is `live`.',
+    },
+  },
+};
+
+export const ScopeSegmentSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['key', 'value'],
+  properties: {
+    key: {
+      type: 'string',
+      pattern: '^[a-z][a-z0-9_-]{0,63}$',
+      description: 'Lowercase, like an identifier: `company`, `contact-role`.',
+    },
+    value: { type: 'string', minLength: 1, maxLength: 256 },
+  },
+};
+
+const liveScopeVariant = (
+  kind: string,
+  description: string,
+  properties: Record<string, JsonSchema>,
+): JsonSchema => ({
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', ...Object.keys(properties)],
+  description,
+  properties: { kind: { type: 'string', enum: [kind] }, ...properties },
+});
+
+export const LiveScopeTenantSchema = liveScopeVariant(
+  'tenant',
+  "The agent's default for the whole tenant.",
+  {},
+);
+export const LiveScopeOrgSchema = liveScopeVariant('org', "An org's projects.", {
+  orgId: { type: 'string', format: 'uuid' },
+});
+export const LiveScopeProjectSchema = liveScopeVariant('project', 'One project.', {
+  projectId: { type: 'string', format: 'uuid' },
+});
+export const LiveScopeSegmentSchema = liveScopeVariant(
+  'segment',
+  'A segment path within a project: it covers every run whose path starts with it.',
+  {
+    projectId: { type: 'string', format: 'uuid' },
+    path: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 8,
+      items: { $ref: '#/components/schemas/ScopeSegment' },
+    },
+  },
+);
+
+export const LiveScopeSchema: JsonSchema = {
+  description:
+    'Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.',
+  oneOf: [
+    { $ref: '#/components/schemas/LiveScopeTenant' },
+    { $ref: '#/components/schemas/LiveScopeOrg' },
+    { $ref: '#/components/schemas/LiveScopeProject' },
+    { $ref: '#/components/schemas/LiveScopeSegment' },
+  ],
+  discriminator: { propertyName: 'kind' },
+};
+
+export const LiveVersionResolutionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['agentId', 'version', 'via'],
+  properties: {
+    agentId: { type: 'string' },
+    version: { type: 'string', description: 'The version a run would use (semver).' },
+    via: {
+      type: 'string',
+      enum: ['live', 'latest'],
+      description: 'A live pin chose it, or nothing is live on the way up and it is the latest.',
+    },
+    liveScope: { $ref: '#/components/schemas/LiveScope' },
+  },
+};
+
+export const LivePinSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['agentId', 'scope', 'version', 'promotionId', 'setAt'],
+  properties: {
+    agentId: { type: 'string' },
+    scope: { $ref: '#/components/schemas/LiveScope' },
+    version: { type: 'string' },
+    promotionId: { type: 'string', format: 'uuid', description: 'The promotion that set it.' },
+    setAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const LivePinListSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: { data: { type: 'array', items: { $ref: '#/components/schemas/LivePin' } } },
+};
+
+export const PromotionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'id',
+    'agentId',
+    'scope',
+    'action',
+    'fromVersion',
+    'toVersion',
+    'requestedBy',
+    'createdAt',
+  ],
+  description:
+    "One change of a scope's live version, kept for good: what was live before, what is after, who asked and why.",
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    agentId: { type: 'string' },
+    scope: { $ref: '#/components/schemas/LiveScope' },
+    action: { type: 'string', enum: ['promote', 'rollback', 'unpin'] },
+    fromVersion: {
+      type: ['string', 'null'],
+      description: "The scope's own pin before; null when it had none.",
+    },
+    toVersion: {
+      type: ['string', 'null'],
+      description: "The scope's own pin after; null after an unpin.",
+    },
+    requestedBy: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind', 'id'],
+      properties: {
+        kind: { type: 'string', enum: ['user', 'service'] },
+        id: { type: 'string' },
+      },
+    },
+    reason: { type: 'string' },
+    evalRunId: { type: 'string', description: 'The comparison the change was judged on.' },
+    createdAt: { type: 'string', format: 'date-time' },
+    status: {
+      type: 'string',
+      enum: ['promoted', 'pending-approval', 'refused', 'superseded', 'rejected', 'expired'],
+      description:
+        "A `promote` row's state: it changes once, from `pending-approval` to its final state. Absent on rollback and unpin rows, and on promotions made before gates (`promoted`).",
+    },
+    policy: {
+      oneOf: [{ $ref: '#/components/schemas/GatePolicyRef' }, { type: 'null' }],
+      description: 'The gate policy that applied; null when none did. Absent before gates.',
+    },
+    checks: { type: 'array', items: { $ref: '#/components/schemas/GateCheck' } },
+    approvalId: {
+      type: 'string',
+      description: 'The approval a `pending-approval` promotion waits on (kept once decided).',
+    },
+    resolvedAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When a `pending-approval` promotion reached its final state.',
+    },
+  },
+};
+
+export const PromotionPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/Promotion' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+  },
+};
+
+// ---------------- the promotion gate (evals step 4b) ----------------
+
+export const GateCheckSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['name', 'passed', 'message'],
+  description: "One of a gate's checks, as the promotion records it.",
+  properties: {
+    name: {
+      type: 'string',
+      description:
+        'Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.suite`, `sameContents`, `baselineIsLive`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`.',
+    },
+    passed: { type: 'boolean' },
+    message: {
+      type: 'string',
+      description: 'A plain sentence: what was found against what the policy asks.',
+    },
+    value: { type: ['number', 'string'] },
+    threshold: { type: ['number', 'string'] },
+  },
+};
+
+export const GatePolicyRefSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'version'],
+  properties: { id: { type: 'string' }, version: { type: 'string' } },
+};
+
+export const GateApprovalSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['role', 'count', 'separateApprover'],
+  description: 'The approval a passing promotion waits for.',
+  properties: {
+    role: { type: 'string', enum: ['standard', 'senior', 'admin'] },
+    count: { type: 'integer', minimum: 1 },
+    separateApprover: {
+      type: 'boolean',
+      description: 'Whoever asked for the promotion may not approve it.',
+    },
+  },
+};
+
+const GateMetricSpecSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['name'],
+  properties: {
+    name: { type: 'string', enum: ['weightedYesShare', 'judgedCoverage', 'weightedPrecisionAtK'] },
+    k: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 100,
+      description: "`weightedPrecisionAtK` only: the summary's `k` must be this.",
+    },
+    minCandidate: { type: 'number', minimum: 0, maximum: 1 },
+    maxDrop: {
+      type: 'number',
+      minimum: 0,
+      maximum: 1,
+      description: 'How far the candidate may fall below the baseline (the live version).',
+    },
+  },
+};
+
+export const GatePolicySpecSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'What a promotion must show. Every part is optional; an empty spec checks nothing. Unknown keys are refused.',
+  properties: {
+    comparison: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        required: {
+          type: 'boolean',
+          description:
+            'Whether the promotion must name a comparison (`evalRunId`). Absent: required when the spec checks anything a comparison shows.',
+        },
+        maxAgeHours: { type: 'number', exclusiveMinimum: 0 },
+        suite: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['id'],
+          properties: { id: { type: 'string' }, version: { type: 'string' } },
+        },
+      },
+    },
+    evidence: {
+      type: 'object',
+      additionalProperties: false,
+      description:
+        "The judged evidence behind each gated metric; for a metric with `maxDrop`, the baseline's too.",
+      properties: {
+        minCases: { type: 'integer', minimum: 0 },
+        minWeight: { type: 'number', minimum: 0 },
+      },
+    },
+    metrics: { type: 'array', items: GateMetricSpecSchema },
+    replay: {
+      type: 'object',
+      additionalProperties: false,
+      description: 'Each knob left out of the block is 0. No block: no replay checks.',
+      properties: {
+        maxDiverged: { type: 'integer', minimum: 0 },
+        maxErrors: { type: 'integer', minimum: 0 },
+        maxRefusedWrites: { type: 'integer', minimum: 0 },
+        maxStopped: { type: 'integer', minimum: 0 },
+      },
+    },
+    approvals: {
+      type: 'object',
+      additionalProperties: false,
+      description: 'A passing promotion waits for a reviewer.',
+      properties: {
+        role: {
+          type: 'string',
+          enum: ['standard', 'senior', 'admin'],
+          description: 'Default `senior`.',
+        },
+        separateApprover: { type: 'boolean', description: 'Default `true`.' },
+      },
+    },
+  },
+};
+
+export const GatePolicySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'version', 'agentId', 'scope', 'spec', 'createdAt'],
+  properties: {
+    id: { type: 'string' },
+    version: { type: 'string' },
+    agentId: { type: 'string' },
+    scope: { $ref: '#/components/schemas/LiveScope' },
+    spec: { $ref: '#/components/schemas/GatePolicySpec' },
+    description: { type: 'string' },
+    createdAt: { type: 'string', format: 'date-time' },
+    unregisteredAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const GatePolicyPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/GatePolicy' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+  },
+};
+
+export const PublishGatePolicyBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'version', 'agentId', 'scope', 'spec'],
+  properties: {
+    id: {
+      type: 'string',
+      pattern: '^[a-z0-9][a-z0-9._-]{0,127}$',
+      description: 'Yours to choose, e.g. `acme.drafting-prod`.',
+    },
+    version: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' },
+    agentId: { type: 'string' },
+    scope: { $ref: '#/components/schemas/LiveScope' },
+    spec: { $ref: '#/components/schemas/GatePolicySpec' },
+    description: { type: 'string' },
+  },
+};
+
+export const GatePolicyResolutionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['policy'],
+  properties: {
+    policy: {
+      oneOf: [{ $ref: '#/components/schemas/GatePolicy' }, { type: 'null' }],
+      description: 'The policy that gates a promotion for the scope; null when none does.',
+    },
+  },
+};
+
+export const PromotionCheckSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['outcome', 'policy', 'checks'],
+  description: 'What the gate would say about a promotion. Nothing is recorded.',
+  properties: {
+    outcome: { type: 'string', enum: ['would-promote', 'needs-approval', 'gate-failed'] },
+    policy: {
+      oneOf: [{ $ref: '#/components/schemas/GatePolicyRef' }, { type: 'null' }],
+      description: 'The policy that applies; null when none does.',
+    },
+    checks: { type: 'array', items: { $ref: '#/components/schemas/GateCheck' } },
+    approval: { $ref: '#/components/schemas/GateApproval' },
+  },
+};
+
+export const PromoteBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['version', 'scope'],
+  properties: {
+    version: {
+      type: 'string',
+      description: 'The agent version to make live (registered, active).',
+    },
+    scope: { $ref: '#/components/schemas/LiveScope' },
+    reason: { type: 'string', maxLength: 2000 },
+    evalRunId: { type: 'string', description: 'The comparison this promotion was judged on.' },
+  },
+};
+
+export const RollbackBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['scope'],
+  properties: {
+    scope: { $ref: '#/components/schemas/LiveScope' },
+    toVersion: {
+      type: 'string',
+      description: "An earlier version to go back to; omit → the scope's previous live version.",
+    },
+    reason: { type: 'string', maxLength: 2000 },
+  },
+};
+
+export const UnpinBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['scope'],
+  properties: {
+    scope: { $ref: '#/components/schemas/LiveScope' },
+    reason: { type: 'string', maxLength: 2000 },
   },
 };
 
@@ -200,6 +624,12 @@ export const RunSchema: JsonSchema = {
       description: 'Set on a replay run: the eval run that started it.',
     },
     versions: { $ref: '#/components/schemas/FlowVersionOverrides' },
+    segments: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/ScopeSegment' },
+      description:
+        "The segment path the run was started with (coarse to fine), which picks live agent versions. A child run has its parent's. Absent when there was none.",
+    },
     publicAccessToken: {
       type: 'string',
       description:
@@ -258,11 +688,22 @@ export const StartRunBodySchema: JsonSchema = {
       required: ['agent', 'input'],
       properties: {
         agent: { type: 'string', description: 'AgentId.' },
-        agentVersion: { type: 'string', description: 'Semver; omit → latest.' },
+        agentVersion: {
+          type: 'string',
+          description:
+            "Semver. Omit → the conversation's own version for a follow-up turn, else the version live for the run's scope, else the latest.",
+        },
         projectId: {
           type: 'string',
           format: 'uuid',
           description: "Project to run under; omit → the tenant's Default project.",
+        },
+        segments: {
+          type: 'array',
+          maxItems: 8,
+          items: { $ref: '#/components/schemas/ScopeSegment' },
+          description:
+            "The run's segment path below its project, coarse to fine (an app-defined finer scope, e.g. company then role). A version live on a prefix of it serves the run.",
         },
         input: {
           description: 'Opaque payload forwarded to the agent binding.',
@@ -281,6 +722,13 @@ export const StartRunBodySchema: JsonSchema = {
           type: 'string',
           format: 'uuid',
           description: "Project to run under; omit → the tenant's Default project.",
+        },
+        segments: {
+          type: 'array',
+          maxItems: 8,
+          items: { $ref: '#/components/schemas/ScopeSegment' },
+          description:
+            "The run's segment path below its project, coarse to fine (an app-defined finer scope, e.g. company then role). A version live on a prefix of it serves the run.",
         },
         input: {
           description: 'Opaque payload forwarded to the flow runtime.',
@@ -4568,6 +5016,16 @@ export const RetentionScheduledPageSchema: JsonSchema = {
       type: 'array',
       items: { $ref: '#/components/schemas/RetentionScheduledItem' },
     },
+    hasMore: {
+      type: 'boolean',
+      description:
+        'Some domain has more scheduled rows than this page returned (`limit` is per domain). Always sent from 0.1.4; a runtime before it sends none.',
+    },
+    nextCursor: {
+      type: 'string',
+      description:
+        'The `cursor` for the next page. Absent when `hasMore: false`, or when the runtime cannot continue a page.',
+    },
     domainsMissingAdapter: {
       type: 'array',
       items: { $ref: '#/components/schemas/RetentionDomain' },
@@ -5029,6 +5487,11 @@ export const ComparisonCandidateSchema: JsonSchema = {
         kind: { type: 'string', enum: ['agent'] },
         agentId: { type: 'string' },
         version: { type: 'string' },
+        pinsDigest: {
+          type: 'string',
+          description:
+            "The version's pinsDigest: what it ran, as a promotion gate checks. Absent for a version published before pins, and from a comparison recorded before it.",
+        },
       },
     },
     {
@@ -7673,6 +8136,29 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['HealthResult', HealthResultSchema],
   ['RunStatus', RunStatusSchema],
   ['RunAgent', RunAgentSchema],
+  ['ScopeSegment', ScopeSegmentSchema],
+  ['LiveScopeTenant', LiveScopeTenantSchema],
+  ['LiveScopeOrg', LiveScopeOrgSchema],
+  ['LiveScopeProject', LiveScopeProjectSchema],
+  ['LiveScopeSegment', LiveScopeSegmentSchema],
+  ['LiveScope', LiveScopeSchema],
+  ['LiveVersionResolution', LiveVersionResolutionSchema],
+  ['LivePin', LivePinSchema],
+  ['LivePinList', LivePinListSchema],
+  ['Promotion', PromotionSchema],
+  ['PromotionPage', PromotionPageSchema],
+  ['GateCheck', GateCheckSchema],
+  ['GatePolicyRef', GatePolicyRefSchema],
+  ['GateApproval', GateApprovalSchema],
+  ['GatePolicySpec', GatePolicySpecSchema],
+  ['GatePolicy', GatePolicySchema],
+  ['GatePolicyPage', GatePolicyPageSchema],
+  ['PublishGatePolicyBody', PublishGatePolicyBodySchema],
+  ['GatePolicyResolution', GatePolicyResolutionSchema],
+  ['PromotionCheck', PromotionCheckSchema],
+  ['PromoteBody', PromoteBodySchema],
+  ['RollbackBody', RollbackBodySchema],
+  ['UnpinBody', UnpinBodySchema],
   ['Run', RunSchema],
   ['StartRunOptions', StartRunOptionsSchema],
   ['StartRunBody', StartRunBodySchema],
