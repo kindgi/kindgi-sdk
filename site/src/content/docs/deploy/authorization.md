@@ -93,11 +93,15 @@ access: requests get `403`, lists come back empty, and the log still says
 
 ## A denied request
 
-A request the check refuses gets `403`:
+A request the check refuses gets `403`, with what was asked, on what, and why
+in `details`:
 
 ```json
-{"code":"permission-denied","action":"admin","resource":"tenant:af0be8c3-f8c2-430a-ba2f-06d3edd574ff","reason":"actor user:3fc3b945-8957-485b-902d-2950ffbe3139 does not have can_admin on tenant:af0be8c3-f8c2-430a-ba2f-06d3edd574ff"}
+{"error":{"code":"permission-denied","message":"Permission denied: actor user:3fc3b945-8957-485b-902d-2950ffbe3139 does not have can_admin on tenant:af0be8c3-f8c2-430a-ba2f-06d3edd574ff","details":{"action":"admin","resource":"tenant:af0be8c3-f8c2-430a-ba2f-06d3edd574ff","reason":"actor user:3fc3b945-8957-485b-902d-2950ffbe3139 does not have can_admin on tenant:af0be8c3-f8c2-430a-ba2f-06d3edd574ff"},"requestId":"req-58c6f372-8da1-45bf-ac11-8159c21fa973"}}
 ```
+
+The TypeScript client gives `{ code: 'auth', reason: 'forbidden' }` with that
+message; Python raises `AuthError`, with `server_code` `permission-denied`.
 
 ## Project memberships
 
