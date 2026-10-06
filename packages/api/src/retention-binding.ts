@@ -35,9 +35,12 @@ export interface RetentionBinding {
 export interface RetentionScheduledInput {
   readonly tenantId: TenantId;
   readonly domain?: RetentionDomain;
+  /** Rows per domain at most: each domain is read up to `limit`. */
   readonly limit: number;
   readonly pastGraceOnly?: boolean;
   readonly now?: Date;
+  /** Where a previous page stopped (its `nextCursor`, the runtime's own encoding). */
+  readonly cursor?: string;
 }
 
 export interface RetentionScheduledItem {
@@ -59,6 +62,14 @@ export interface RetentionScheduledPage {
   readonly unpolicedDomains: readonly RetentionDomain[];
   /** Domains more than one retention policy covers (see `RetentionPolicyConflict`). */
   readonly conflicts?: readonly RetentionPolicyConflict[];
+  /**
+   * More rows are scheduled than this page holds: some domain stopped at
+   * `limit`. A runtime that doesn't say leaves it out, and the route then
+   * reports `true` when some domain's rows fill `limit` (there may be more).
+   */
+  readonly hasMore?: boolean;
+  /** Pass as `cursor` to continue where this page stopped. Absent: nothing more, or no way to continue. */
+  readonly nextCursor?: string;
 }
 
 /**

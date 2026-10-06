@@ -3739,10 +3739,15 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'retention.scheduled',
     summary: 'List deleted rows scheduled for purging',
     description:
-      "Tombstoned rows in every domain a retention policy covers, with when each is purged (`purgeAt`) and the policy that decides it. `domainsMissingAdapter` names the covered domains this deployment can't purge; `unpolicedDomains` the ones no policy covers, whose tombstones are kept; `conflicts` the domains two policies cover (stored before one policy per domain was enforced). Requires `admin` on the tenant.",
+      "Tombstoned rows in every domain a retention policy covers, with when each is purged (`purgeAt`) and the policy that decides it. `domainsMissingAdapter` names the covered domains this deployment can't purge; `unpolicedDomains` the ones no policy covers, whose tombstones are kept; `conflicts` the domains two policies cover (stored before one policy per domain was enforced). `limit` caps the rows **per domain**; `hasMore` says some domain has more than it returned, and `nextCursor` (when the runtime can continue) is the `cursor` for the next page. Requires `admin` on the tenant.",
     tags: ['retention'],
     security: 'bearer',
-    parameters: [RetentionDomainQueryParam, RetentionPastGraceOnlyQueryParam, LimitQueryParam],
+    parameters: [
+      RetentionDomainQueryParam,
+      RetentionPastGraceOnlyQueryParam,
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
     responses: {
       '200': { description: 'Scheduled rows.', schema: ref('RetentionScheduledPage') },
       ...CommonAuthErrors,
