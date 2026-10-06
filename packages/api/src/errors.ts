@@ -176,6 +176,11 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'judge-class-not-found': 404,
   'judge-class-name-taken': 409,
   'judge-class-not-applicable': 400,
+  // Live versions of agents and their promotions.
+  'agent-version-not-found': 404,
+  'promotion-not-found': 404,
+  'nothing-to-roll-back': 409,
+  'not-pinned': 409,
   'run-not-finished': 409,
   'item-not-found': 400,
   // The judgment binding can't list judged runs, so no test sets from judgments.

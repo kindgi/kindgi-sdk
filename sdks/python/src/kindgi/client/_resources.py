@@ -94,6 +94,31 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         True,
     ),
+    "agents.live.resolve": Operation(
+        "agents.live.resolve", "GET", "/v1/agents/{agentId}/live", "json", False
+    ),
+    "agents.live.list": Operation(
+        "agents.live.list", "GET", "/v1/agents/{agentId}/live-versions", "json", False
+    ),
+    "agents.promotions.list": Operation(
+        "agents.promotions.list", "GET", "/v1/agents/{agentId}/promotions", "json", False
+    ),
+    "agents.promotions.create": Operation(
+        "agents.promotions.create", "POST", "/v1/agents/{agentId}/promotions", "json", True
+    ),
+    "agents.promotions.get": Operation(
+        "agents.promotions.get",
+        "GET",
+        "/v1/agents/{agentId}/promotions/{promotionId}",
+        "json",
+        False,
+    ),
+    "agents.live.rollback": Operation(
+        "agents.live.rollback", "POST", "/v1/agents/{agentId}/live/rollback", "json", True
+    ),
+    "agents.live.unpin": Operation(
+        "agents.live.unpin", "POST", "/v1/agents/{agentId}/live/unpin", "json", True
+    ),
     "flows.list": Operation("flows.list", "GET", "/v1/flows", "json", False),
     "flows.publish": Operation("flows.publish", "POST", "/v1/flows", "json", True),
     "flows.get": Operation("flows.get", "GET", "/v1/flows/{flowId}", "json", False),
@@ -1276,11 +1301,179 @@ class ApprovalsResource:
         )
 
 
+class AgentsLiveResource:
+    """`client.agents.live` — the `agents.live` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def resolve(
+        self,
+        agent_id: str,
+        /,
+        *,
+        project_id: str | None = None,
+        segment: list[str] | None = None,
+        timeout: float | None = None,
+    ) -> _models.LiveVersionResolution:
+        """The version a run would use. `GET /v1/agents/{agentId}/live`
+
+        Resolves the version a run of this agent would use for a project and segment path: the most specific live version (segment path, project, org, tenant), else the latest registered. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.live.resolve"],
+            path={"agentId": agent_id},
+            query={"projectId": project_id, "segment": segment},
+            headers={},
+            response=_models.LiveVersionResolution,
+            timeout=timeout,
+        )
+
+    def list(self, agent_id: str, /, *, timeout: float | None = None) -> _models.LivePinList:
+        """List an agent's live versions. `GET /v1/agents/{agentId}/live-versions`
+
+        Every scope with a live version pinned, and the promotion that set it.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.live.list"],
+            path={"agentId": agent_id},
+            query={},
+            headers={},
+            response=_models.LivePinList,
+            timeout=timeout,
+        )
+
+    def rollback(
+        self,
+        agent_id: str,
+        body: _models.RollbackBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Promotion:
+        """Roll a scope back to its previous live version. `POST /v1/agents/{agentId}/live/rollback`
+
+        Back to the scope's previous live version, or `toVersion`. Recorded like a promotion. Needs `promote` on the agent.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.live.rollback"],
+            path={"agentId": agent_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RollbackBody, body, fields),
+            response=_models.Promotion,
+            timeout=timeout,
+        )
+
+    def unpin(
+        self,
+        agent_id: str,
+        body: _models.UnpinBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Promotion:
+        """Remove a scope's live version. `POST /v1/agents/{agentId}/live/unpin`
+
+        Removes the scope's own pin: its runs use the next scope up (and the latest when nothing is pinned). Recorded like a promotion. Needs `promote` on the agent.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.live.unpin"],
+            path={"agentId": agent_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UnpinBody, body, fields),
+            response=_models.Promotion,
+            timeout=timeout,
+        )
+
+
+class AgentsPromotionsResource:
+    """`client.agents.promotions` — the `agents.promotions` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        agent_id: str,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
+        scope_id: str | None = None,
+        segment: list[str] | None = None,
+        timeout: float | None = None,
+    ) -> _models.PromotionPage:
+        """List an agent's promotions. `GET /v1/agents/{agentId}/promotions`
+
+        The history of live-version changes (promotions, rollbacks, unpins), newest first. `scopeKind` (`tenant`, `org`, `project`, `segment`) with `scopeId` and `segment` narrows it to one scope.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.promotions.list"],
+            path={"agentId": agent_id},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+                "segment": segment,
+            },
+            headers={},
+            response=_models.PromotionPage,
+            timeout=timeout,
+        )
+
+    def create(
+        self,
+        agent_id: str,
+        body: _models.PromoteBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Promotion:
+        """Make a version live for a scope. `POST /v1/agents/{agentId}/promotions`
+
+        Pins `version` live for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every promotion is recorded, with who asked and why. Needs `promote` on the agent.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.promotions.create"],
+            path={"agentId": agent_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PromoteBody, body, fields),
+            response=_models.Promotion,
+            timeout=timeout,
+        )
+
+    def get(
+        self, agent_id: str, promotion_id: str, /, *, timeout: float | None = None
+    ) -> _models.Promotion:
+        """Get a promotion. `GET /v1/agents/{agentId}/promotions/{promotionId}`"""
+        return self._client._request(
+            _OPERATIONS["agents.promotions.get"],
+            path={"agentId": agent_id, "promotionId": promotion_id},
+            query={},
+            headers={},
+            response=_models.Promotion,
+            timeout=timeout,
+        )
+
+
 class AgentsResource:
     """`client.agents` — the `agents` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
+        self.live = AgentsLiveResource(client)
+        self.promotions = AgentsPromotionsResource(client)
 
     def list(
         self,
@@ -6718,11 +6911,179 @@ class AsyncApprovalsResource:
         )
 
 
+class AsyncAgentsLiveResource:
+    """`client.agents.live` — the `agents.live` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def resolve(
+        self,
+        agent_id: str,
+        /,
+        *,
+        project_id: str | None = None,
+        segment: list[str] | None = None,
+        timeout: float | None = None,
+    ) -> _models.LiveVersionResolution:
+        """The version a run would use. `GET /v1/agents/{agentId}/live`
+
+        Resolves the version a run of this agent would use for a project and segment path: the most specific live version (segment path, project, org, tenant), else the latest registered. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.live.resolve"],
+            path={"agentId": agent_id},
+            query={"projectId": project_id, "segment": segment},
+            headers={},
+            response=_models.LiveVersionResolution,
+            timeout=timeout,
+        )
+
+    async def list(self, agent_id: str, /, *, timeout: float | None = None) -> _models.LivePinList:
+        """List an agent's live versions. `GET /v1/agents/{agentId}/live-versions`
+
+        Every scope with a live version pinned, and the promotion that set it.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.live.list"],
+            path={"agentId": agent_id},
+            query={},
+            headers={},
+            response=_models.LivePinList,
+            timeout=timeout,
+        )
+
+    async def rollback(
+        self,
+        agent_id: str,
+        body: _models.RollbackBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Promotion:
+        """Roll a scope back to its previous live version. `POST /v1/agents/{agentId}/live/rollback`
+
+        Back to the scope's previous live version, or `toVersion`. Recorded like a promotion. Needs `promote` on the agent.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.live.rollback"],
+            path={"agentId": agent_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RollbackBody, body, fields),
+            response=_models.Promotion,
+            timeout=timeout,
+        )
+
+    async def unpin(
+        self,
+        agent_id: str,
+        body: _models.UnpinBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Promotion:
+        """Remove a scope's live version. `POST /v1/agents/{agentId}/live/unpin`
+
+        Removes the scope's own pin: its runs use the next scope up (and the latest when nothing is pinned). Recorded like a promotion. Needs `promote` on the agent.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.live.unpin"],
+            path={"agentId": agent_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UnpinBody, body, fields),
+            response=_models.Promotion,
+            timeout=timeout,
+        )
+
+
+class AsyncAgentsPromotionsResource:
+    """`client.agents.promotions` — the `agents.promotions` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        agent_id: str,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
+        scope_id: str | None = None,
+        segment: list[str] | None = None,
+        timeout: float | None = None,
+    ) -> _models.PromotionPage:
+        """List an agent's promotions. `GET /v1/agents/{agentId}/promotions`
+
+        The history of live-version changes (promotions, rollbacks, unpins), newest first. `scopeKind` (`tenant`, `org`, `project`, `segment`) with `scopeId` and `segment` narrows it to one scope.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.promotions.list"],
+            path={"agentId": agent_id},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+                "segment": segment,
+            },
+            headers={},
+            response=_models.PromotionPage,
+            timeout=timeout,
+        )
+
+    async def create(
+        self,
+        agent_id: str,
+        body: _models.PromoteBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Promotion:
+        """Make a version live for a scope. `POST /v1/agents/{agentId}/promotions`
+
+        Pins `version` live for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every promotion is recorded, with who asked and why. Needs `promote` on the agent.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.promotions.create"],
+            path={"agentId": agent_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PromoteBody, body, fields),
+            response=_models.Promotion,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, agent_id: str, promotion_id: str, /, *, timeout: float | None = None
+    ) -> _models.Promotion:
+        """Get a promotion. `GET /v1/agents/{agentId}/promotions/{promotionId}`"""
+        return await self._client._request(
+            _OPERATIONS["agents.promotions.get"],
+            path={"agentId": agent_id, "promotionId": promotion_id},
+            query={},
+            headers={},
+            response=_models.Promotion,
+            timeout=timeout,
+        )
+
+
 class AsyncAgentsResource:
     """`client.agents` — the `agents` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
+        self.live = AsyncAgentsLiveResource(client)
+        self.promotions = AsyncAgentsPromotionsResource(client)
 
     async def list(
         self,

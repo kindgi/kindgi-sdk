@@ -15,10 +15,17 @@ export { createClient } from './client.js';
 export type { KindgiClient } from './client.js';
 
 export type {
+  AgentLiveClient,
+  AgentPromotionsClient,
   AgentsClient,
   DefineAgentOptions,
   DeriveAgentVersionInput,
+  ListPromotionsFilter,
+  LiveWhere,
+  PromoteInput,
   ReinstateAgentVersionResult,
+  RollbackLiveInput,
+  UnpinLiveInput,
 } from './resources/agents.js';
 export type {
   Run,
@@ -194,7 +201,16 @@ export type {
 } from './resources/tokens.js';
 export { followRun, subscribeToRun } from './run-follow.js';
 export { comparisonOf } from './resources/eval-runs.js';
-export type { RunProgress } from './generated/api.js';
+export type {
+  LivePin,
+  LivePinList,
+  LiveScope,
+  LiveVersionResolution,
+  Promotion,
+  PromotionPage,
+  RunProgress,
+  ScopeSegment,
+} from './generated/api.js';
 export type { FollowRunOptions, RunProgressEvent, SubscribeToRunOptions } from './run-follow.js';
 export type { JudgeClassFilter, JudgeClassesClient } from './resources/judge-classes.js';
 export type { JudgmentFilter, JudgmentsClient } from './resources/judgments.js';

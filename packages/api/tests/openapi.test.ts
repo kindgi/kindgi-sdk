@@ -25,6 +25,7 @@ import { createApp } from '../src/index.js';
 import type {
   AdapterRegistryBinding,
   AgentRegistryBinding,
+  AgentReleaseBindings,
   BlobStorageBinding,
   BlockRegistryBinding,
   CapabilityRegistryBinding,
@@ -353,6 +354,20 @@ const noopRetention: RetentionBinding = {
   sweep: async () => ({ perDomain: [], totalPurged: 0 }),
 };
 
+const noopAgentReleases: AgentReleaseBindings = {
+  live: { resolve: async () => null, list: async () => [] },
+  promotions: {
+    promote: async () => ({
+      kind: 'err',
+      error: { code: 'agent-version-not-found', message: 'noop' },
+    }),
+    rollback: async () => ({ kind: 'err', error: { code: 'not-pinned', message: 'noop' } }),
+    unpin: async () => ({ kind: 'err', error: { code: 'not-pinned', message: 'noop' } }),
+    list: async () => ({ data: [] }),
+    get: async () => null,
+  },
+};
+
 const noopCost: CostBinding = {
   listRecords: async () => ({ data: [] }),
   getRecord: async () => null,
@@ -526,6 +541,7 @@ function collectMountedRoutes(): HonoRouteRecord[] {
     reviewerRegistry: noopReviewerRegistry,
     enableObservations: true,
     agentRegistry: noopAgentRegistry,
+    agentReleases: noopAgentReleases,
     flowRegistry: noopFlowRegistry,
     toolRegistry: noopToolRegistry,
     guardrailRegistry: noopGuardrailRegistry,

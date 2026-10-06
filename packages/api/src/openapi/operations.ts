@@ -176,6 +176,38 @@ const RunEvalRunIdQueryParam: ParameterSpec = {
   schema: { type: 'string', minLength: 1 },
 };
 
+const LiveProjectQueryParam: ParameterSpec = {
+  name: 'projectId',
+  in: 'query',
+  required: false,
+  description: "The run's project; omit → only the agent's tenant-wide pin applies.",
+  schema: { type: 'string', format: 'uuid' },
+};
+
+const SegmentQueryParam: ParameterSpec = {
+  name: 'segment',
+  in: 'query',
+  required: false,
+  description: 'One step of the segment path, `key:value`; repeat it in order, coarse to fine.',
+  schema: { type: 'array', items: { type: 'string' } },
+};
+
+const PromotionScopeKindQueryParam: ParameterSpec = {
+  name: 'scopeKind',
+  in: 'query',
+  required: false,
+  description:
+    'Only one scope: `tenant`, `org` or `project` (with `scopeId`), or `segment` (with `scopeId` and `segment`).',
+  schema: { type: 'string', enum: ['tenant', 'org', 'project', 'segment'] },
+};
+
+const PromotionIdPathParam: ParameterSpec = {
+  name: 'promotionId',
+  in: 'path',
+  required: true,
+  schema: { type: 'string', format: 'uuid' },
+};
+
 const RunIncludeQueryParam: ParameterSpec = {
   name: 'include',
   in: 'query',
@@ -1833,6 +1865,133 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
       '404': ErrorResponse('No agent at that (id, version) under this tenant.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/agents/:agentId/live',
+    openapiPath: '/v1/agents/{agentId}/live',
+    operationId: 'agents.live.resolve',
+    summary: 'The version a run would use',
+    description:
+      "Resolves the version a run of this agent would use for a project and segment path: the most specific live version (segment path, project, org, tenant), else the latest registered. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.",
+    tags: ['agents'],
+    security: 'bearer',
+    parameters: [AgentIdPathParam, LiveProjectQueryParam, SegmentQueryParam],
+    responses: {
+      '200': { description: 'The resolved version.', schema: ref('LiveVersionResolution') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('A malformed project id or segment, or a segment without a project.'),
+      '404': ErrorResponse('No agent with that id.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/agents/:agentId/live-versions',
+    openapiPath: '/v1/agents/{agentId}/live-versions',
+    operationId: 'agents.live.list',
+    summary: "List an agent's live versions",
+    description: 'Every scope with a live version pinned, and the promotion that set it.',
+    tags: ['agents'],
+    security: 'bearer',
+    parameters: [AgentIdPathParam],
+    responses: {
+      '200': { description: 'The pins.', schema: ref('LivePinList') },
+      ...CommonAuthErrors,
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/agents/:agentId/promotions',
+    openapiPath: '/v1/agents/{agentId}/promotions',
+    operationId: 'agents.promotions.create',
+    summary: 'Make a version live for a scope',
+    description:
+      "Pins `version` live for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every promotion is recorded, with who asked and why. Needs `promote` on the agent.",
+    tags: ['agents'],
+    security: 'bearer',
+    parameters: [AgentIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('PromoteBody') },
+    responses: {
+      '201': { description: 'Promoted.', schema: ref('Promotion') },
+      ...CommonMutationErrors,
+      '404': ErrorResponse('The version is not registered, or was unregistered.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/agents/:agentId/promotions',
+    openapiPath: '/v1/agents/{agentId}/promotions',
+    operationId: 'agents.promotions.list',
+    summary: "List an agent's promotions",
+    description:
+      'The history of live-version changes (promotions, rollbacks, unpins), newest first. `scopeKind` (`tenant`, `org`, `project`, `segment`) with `scopeId` and `segment` narrows it to one scope.',
+    tags: ['agents'],
+    security: 'bearer',
+    parameters: [
+      AgentIdPathParam,
+      LimitQueryParam,
+      CursorQueryParam,
+      PromotionScopeKindQueryParam,
+      ScopeIdQueryParam,
+      SegmentQueryParam,
+    ],
+    responses: {
+      '200': { description: 'Page of promotions.', schema: ref('PromotionPage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('Malformed scope or cursor.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/agents/:agentId/promotions/:promotionId',
+    openapiPath: '/v1/agents/{agentId}/promotions/{promotionId}',
+    operationId: 'agents.promotions.get',
+    summary: 'Get a promotion',
+    tags: ['agents'],
+    security: 'bearer',
+    parameters: [AgentIdPathParam, PromotionIdPathParam],
+    responses: {
+      '200': { description: 'The promotion.', schema: ref('Promotion') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No such promotion for this agent.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/agents/:agentId/live/rollback',
+    openapiPath: '/v1/agents/{agentId}/live/rollback',
+    operationId: 'agents.live.rollback',
+    summary: 'Roll a scope back to its previous live version',
+    description:
+      "Back to the scope's previous live version, or `toVersion`. Recorded like a promotion. Needs `promote` on the agent.",
+    tags: ['agents'],
+    security: 'bearer',
+    parameters: [AgentIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('RollbackBody') },
+    responses: {
+      '200': { description: 'Rolled back.', schema: ref('Promotion') },
+      ...CommonMutationErrors,
+      '404': ErrorResponse('`toVersion` is not registered, or was unregistered.'),
+      '409': ErrorResponse('The scope has no pin, or no earlier version to go back to.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/agents/:agentId/live/unpin',
+    openapiPath: '/v1/agents/{agentId}/live/unpin',
+    operationId: 'agents.live.unpin',
+    summary: "Remove a scope's live version",
+    description:
+      "Removes the scope's own pin: its runs use the next scope up (and the latest when nothing is pinned). Recorded like a promotion. Needs `promote` on the agent.",
+    tags: ['agents'],
+    security: 'bearer',
+    parameters: [AgentIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('UnpinBody') },
+    responses: {
+      '200': { description: 'Unpinned.', schema: ref('Promotion') },
+      ...CommonMutationErrors,
+      '409': ErrorResponse('The scope has no pin of its own.'),
     },
   },
 

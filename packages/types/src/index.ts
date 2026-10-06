@@ -4,6 +4,7 @@
 export type * from './filter.js';
 export type * from './hash.js';
 export type * from './ids.js';
+export type * from './live.js';
 export type * from './refs.js';
 export type * from './result.js';
 export type * from './temporal.js';

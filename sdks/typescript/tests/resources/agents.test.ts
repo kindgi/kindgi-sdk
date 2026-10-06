@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { KindgiApiError, createClient } from '../../src/index.js';
-import { errorFetch, jsonFetch } from '../support/recording-fetch.js';
+import { errorFetch, jsonFetch, recordingFetch } from '../support/recording-fetch.js';
 
 const AUTH = { kind: 'apiToken' as const, token: 'secret-token' };
 const SPEC = {
@@ -145,5 +145,116 @@ describe('agents.versions.derive', () => {
       pins: { prompts: { 'acme.drafter-prompt': '1.1.0' } },
       label: 'tighter tone',
     });
+  });
+});
+
+describe('agents.live and agents.promotions', () => {
+  const PROJECT_ID = '0b9f4c1e-1111-4a2b-8c3d-000000000001';
+  const promotion = {
+    id: 'p-1',
+    agentId: 'acme.drafter',
+    scope: { kind: 'project', projectId: PROJECT_ID },
+    action: 'promote',
+    fromVersion: '1.0.0',
+    toVersion: '1.1.0',
+    requestedBy: { kind: 'user', id: 'u-1' },
+    createdAt: '2026-10-05T12:00:00.000Z',
+  };
+  const client = (stub: ReturnType<typeof jsonFetch>) =>
+    createClient({ apiUrl: 'https://api.example.com', auth: AUTH, fetch: stub.fetch });
+
+  it('live.resolve sends the project and the segment path in order', async () => {
+    const stub = jsonFetch({ agentId: 'acme.drafter', version: '1.1.0', via: 'latest' });
+    await client(stub).agents.live.resolve('acme.drafter', {
+      projectId: PROJECT_ID,
+      segments: [
+        { key: 'company', value: 'acme' },
+        { key: 'role', value: 'counsel' },
+      ],
+    });
+    const url = new URL(stub.calls[0]!.url);
+    expect(url.pathname).toBe('/v1/agents/acme.drafter/live');
+    expect(url.searchParams.get('projectId')).toBe(PROJECT_ID);
+    expect(url.searchParams.getAll('segment')).toEqual(['company:acme', 'role:counsel']);
+  });
+
+  it('live.list GETs /live-versions', async () => {
+    const stub = jsonFetch({ data: [] });
+    await client(stub).agents.live.list('acme.drafter');
+    expect(stub.calls[0]!.url).toBe('https://api.example.com/v1/agents/acme.drafter/live-versions');
+  });
+
+  it('promotions.create POSTs the version and scope, with an idempotency key', async () => {
+    const stub = jsonFetch(promotion, { status: 201 });
+    const made = await client(stub).agents.promotions.create(
+      'acme.drafter',
+      { version: '1.1.0', scope: { kind: 'project', projectId: PROJECT_ID }, reason: 'evals' },
+      { idempotencyKey: 'idem-1' },
+    );
+    expect(made.toVersion).toBe('1.1.0');
+    const req = stub.calls[0]!;
+    expect(req.method).toBe('POST');
+    expect(req.url).toBe('https://api.example.com/v1/agents/acme.drafter/promotions');
+    expect(req.headers['idempotency-key']).toBe('idem-1');
+    expect(JSON.parse(req.body ?? '{}')).toEqual({
+      version: '1.1.0',
+      scope: { kind: 'project', projectId: PROJECT_ID },
+      reason: 'evals',
+    });
+  });
+
+  it('promotions.list turns a segment scope into the query filter', async () => {
+    const stub = jsonFetch({ data: [promotion], hasMore: false });
+    await client(stub).agents.promotions.list('acme.drafter', {
+      scope: { kind: 'segment', projectId: PROJECT_ID, path: [{ key: 'company', value: 'acme' }] },
+      limit: 5,
+    });
+    const url = new URL(stub.calls[0]!.url);
+    expect(url.pathname).toBe('/v1/agents/acme.drafter/promotions');
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      scopeKind: 'segment',
+      scopeId: PROJECT_ID,
+      segment: 'company:acme',
+      limit: '5',
+    });
+  });
+
+  it('promotions.get GETs one promotion', async () => {
+    const stub = jsonFetch(promotion);
+    await client(stub).agents.promotions.get('acme.drafter', 'p-1');
+    expect(stub.calls[0]!.url).toBe(
+      'https://api.example.com/v1/agents/acme.drafter/promotions/p-1',
+    );
+  });
+
+  it('live.rollback and live.unpin POST the scope', async () => {
+    const body = JSON.stringify({ ...promotion, action: 'rollback' });
+    const stub = recordingFetch([
+      { status: 200, body },
+      { status: 200, body },
+    ]);
+    const c = client(stub);
+    await c.agents.live.rollback('acme.drafter', { scope: { kind: 'tenant' }, toVersion: '1.0.0' });
+    await c.agents.live.unpin('acme.drafter', { scope: { kind: 'tenant' }, reason: 'done' });
+    expect(
+      stub.calls.map((r) => [r.method, new URL(r.url).pathname, JSON.parse(r.body ?? '{}')]),
+    ).toEqual([
+      [
+        'POST',
+        '/v1/agents/acme.drafter/live/rollback',
+        { scope: { kind: 'tenant' }, toVersion: '1.0.0' },
+      ],
+      ['POST', '/v1/agents/acme.drafter/live/unpin', { scope: { kind: 'tenant' }, reason: 'done' }],
+    ]);
+  });
+
+  it('a version that is not registered surfaces as KindgiApiError', async () => {
+    const stub = errorFetch(404, { code: 'agent-version-not-found', message: 'no 9.9.9' });
+    await expect(
+      client(stub).agents.promotions.create('acme.drafter', {
+        version: '9.9.9',
+        scope: { kind: 'tenant' },
+      }),
+    ).rejects.toBeInstanceOf(KindgiApiError);
   });
 });
