@@ -103,7 +103,9 @@ and never leave a placeholder.
   `git add -A`. The clone may hold other work.
 - **Every commit you wrote carries your own trailer:**
   `Co-Authored-By: <your agent name> <email>`, as you usually sign commits.
-- **The pull request's body has exactly this shape:**
+- **The pull request's body has exactly this shape.** GitHub pre-fills a new
+  pull request's body from `.github/pull_request_template.md` with these
+  sections: fill them in rather than replace them.
 
   ```text
   ## What and why

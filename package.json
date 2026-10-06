@@ -16,6 +16,7 @@
     "docs:dev": "pnpm --filter kindgi-docs run dev",
     "docs:build": "pnpm --filter kindgi-docs run site:build",
     "docs:samples": "pnpm --filter kindgi-docs run site:samples",
+    "docs:test-scripts": "pnpm --filter kindgi-docs run site:test-scripts",
     "docs:tutorials": "pnpm --filter kindgi-docs run site:tutorials",
     "docs:versions": "node site/scripts/build-versions.mjs",
     "docs:preview": "node site/scripts/build-preview.mjs",
