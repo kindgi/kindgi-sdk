@@ -21,6 +21,8 @@ The runtime image is in private preview: request access at contact@kindgi.com.
   upgrades, and rotating its tokens and keys.
 - **[Keep and purge deleted data](retention/):** how long deleted records
   are kept, and the retention policies and sweeps that purge them.
+- **[Run with authorization](authorization/):** what it gives today and
+  what it doesn't yet, and running OpenFGA next to the runtime.
 - **[Google Cloud Run](cloud-run/):** the runtime and your pack's service as
   two Cloud Run services, with Cloud SQL, from Kindgi's Terraform module.
 - **Kindgi Cloud:** we run it for you. In private preview.
