@@ -397,7 +397,12 @@ async function prepareJudgment(
   const tenantId = c.get('tenantId') as TenantId;
   const run = await runBinding.getRun(tenantId, body.runId as RunId);
   if (run === null) return err('run-not-found', `No run "${body.runId}".`);
-  if (authorizer !== undefined && !(await authorizer.can(c, 'judge', ref('run', body.runId)))) {
+  // A run inherits its permissions from its project (as cancelling one
+  // does): judging it needs `write` there.
+  if (
+    authorizer !== undefined &&
+    !(await authorizer.can(c, 'write', ref('project', run.projectId as unknown as string)))
+  ) {
     return err('permission-denied', `Not allowed to judge run "${body.runId}".`);
   }
   if (run.status !== 'completed' || run.output === undefined || run.output === null) {
