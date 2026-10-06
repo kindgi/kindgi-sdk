@@ -200,6 +200,22 @@ describe('envVarsForTarget — the executor lease', () => {
   });
 });
 
+describe('envVarsForTarget — the retention sweeper (T236)', () => {
+  test("its interval is the server's, optional (unset: no sweeping on its own), in core", () => {
+    const server = new Map(envVarsForTarget({ component: 'server' }).map((v) => [v.name, v]));
+    expect(server.get('KINDGI_RETENTION_SWEEP_INTERVAL_MS')).toMatchObject({
+      required: false,
+      group: 'core',
+      example: '3600000',
+    });
+    expect(server.get('KINDGI_RETENTION_SWEEP_INTERVAL_MS')?.description).toContain(
+      'Unset (the default): nothing purges on its own',
+    );
+    const packService = envVarsForTarget({ component: 'pack-service' }).map((v) => v.name);
+    expect(packService).not.toContain('KINDGI_RETENTION_SWEEP_INTERVAL_MS');
+  });
+});
+
 describe('envVarsForTarget — the pack service', () => {
   const PACK_SERVICE_VARS = [
     'KINDGI_PACK_SERVICE_TOKEN',
