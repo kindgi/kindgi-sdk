@@ -62,15 +62,27 @@ export interface PinnedRoute {
 }
 
 /**
+ * The tool version each of the agent's tool references resolved to, by
+ * tool id, as `setup` journals it: a resumed turn runs these versions,
+ * whatever the registry holds by then.
+ */
+export type PinnedToolVersions = Readonly<Record<string, string>>;
+
+/**
  * Resolve the turn's guardrails, tools, tenant policy, tool-error policy
  * and model onto `ctx`. With `pinned`, the route is that provider and
  * model, still under the tenant's current policy; one no longer
- * registered or allowed fails the turn.
+ * registered or allowed fails the turn. With `pinnedTools`, each tool is
+ * that exact version, not its range resolved again; one no longer
+ * registered fails the turn.
  */
 export async function resolveTurnEnvironment(
   ctx: TurnContext,
   pinned?: PinnedRoute,
-): Promise<PinnedRoute & { readonly toolCount: number }> {
+  pinnedTools?: PinnedToolVersions,
+): Promise<
+  PinnedRoute & { readonly toolCount: number; readonly toolVersions: PinnedToolVersions }
+> {
   const invResolution = resolveGuardrails(ctx.input.agent, ctx.bindings);
   if (invResolution.missing.length > 0) {
     throwAgentTurnFailure({
@@ -84,7 +96,7 @@ export async function resolveTurnEnvironment(
   // This turn's tools come from the tenant's own registry — never a
   // registry shared across concurrent turns of other tenants.
   const tenantTools = await ctx.bindings.toolRegistry.forTenant(ctx.input.tenantId);
-  ctx.tools = resolveTurnTools(tenantTools, ctx.input.agent);
+  ctx.tools = resolveTurnTools(tenantTools, ctx.input.agent, pinnedTools);
 
   const capability = ctx.input.agent.capabilities[0];
   if (capability === undefined) {
@@ -151,6 +163,9 @@ export async function resolveTurnEnvironment(
     providerId: routed.value.provider.metadata.id,
     model: routed.value.model.name,
     toolCount: ctx.tools.definitions.length,
+    toolVersions: Object.fromEntries(
+      [...ctx.tools.byName].map(([id, binding]) => [id, binding.resolvedVersion]),
+    ),
   };
 }
 
