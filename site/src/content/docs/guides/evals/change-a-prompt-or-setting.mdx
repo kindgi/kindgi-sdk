@@ -68,8 +68,10 @@ kindgi blocks publish acme.reply-style --block-version=1.0.0 --project=<project-
   then the key.
 - **Blocks live in a project.** `kindgi projects get-default` prints the
   Default project, with its `id`.
-- **A settings block's schema** (`--schema`, a JSON Schema) checks its values.
-  Values that don't fit are refused:
+- **A settings block's schema** (`--schema`, a JSON Schema) checks its values,
+  and later versions' too: a version published without one keeps the latest
+  version's, a version that gives one replaces it, and `--schema='{}'` drops
+  the check on purpose. Values that don't fit are refused:
 
   ```text
   Block "acme.reply-style" can't take this version
@@ -237,7 +239,8 @@ agent's ranges, so a block version you publish is used at the next run.
 ```
 
 A block version that's missing, of the wrong kind or, for model settings,
-with values a model can't take, refuses the publish, naming each.
+with values a model can't take, refuses the publish, naming each:
+`Agent "acme-ops.reply-drafter" uses tool or data-block versions it can't pin (1 issue)`.
 
 **Model settings** are a settings block the agent names as `modelSettings`:
 `{ "temperature": 0.2, "maxOutputTokens": 400 }` (a temperature from 0 to 2).
@@ -388,6 +391,7 @@ print(derived.version, derived.pins.settings if derived.pins else None, derived.
 
 - **The new version is the next free patch** after the highest one, and
   `derivedFrom` says where it came from. Runs choose it like any other version.
+  The same swap again returns that version (`200`), not a new one.
 - **Swap prompts with `--prompt=<block-id>=<version>`** (`pins.prompts` in
   the clients) and settings with `--setting`; repeat either for several.
 - **Only blocks the version already uses** can be swapped, and only on a
@@ -408,8 +412,8 @@ A project's **Data blocks** section lists its blocks. A block's page shows its
 template or values, its versions (with **Retire**), and the agents using it.
 
 1. **Edit as a new version** starts from the version you're viewing and
-   proposes the next number. Published versions never change: this
-   publishes a new one.
+   proposes the next number, with an optional note for this version.
+   Published versions never change: this publishes a new one.
 2. After it's published, **Derive a version** next to an agent using the
    block makes the agent version that runs it: "Derive a new version of Reply
    drafter with acme.reply-prompt 1.0.1?"
