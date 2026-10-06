@@ -4,6 +4,7 @@
 import { randomUUID } from 'node:crypto';
 
 import type { ReplayTurnReport } from '@kindgi/agents';
+import type { FlowVersionOverrides } from '@kindgi/flow';
 import type { RunReplayRef } from '@kindgi/runtime';
 import type { ProjectId, RunId, TenantId, Timestamp } from '@kindgi/types';
 
@@ -63,6 +64,8 @@ export interface EvalRunSubjectInvokeInput {
   readonly replay?: RunReplayRef;
   /** The conversation before the past turn, oldest first: a replayed turn starts from it. */
   readonly history?: readonly unknown[];
+  /** A flow target's agents and tools at other exact versions (`EvalComparison.versions`). */
+  readonly versions?: FlowVersionOverrides;
 }
 
 export interface EvalRunSubjectInvokeOutcome {

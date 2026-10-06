@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { AgentId } from '@kindgi/agents';
+import type { FlowVersionOverrides } from '@kindgi/flow';
 import type { Scope } from '@kindgi/platform';
 import type { Cursor, FlowId, ProjectId, RunId, Semver, TenantId, Timestamp } from '@kindgi/types';
 
@@ -145,6 +146,12 @@ export interface EvalComparison {
   readonly repetitions: number;
   /** How many ranked items `weightedPrecisionAtK` looks at (1–100). */
   readonly k: number;
+  /**
+   * For a flow candidate: agents and tools its replays run at other exact
+   * versions than the flow version's pins ("this flow, with `acme.scorer`
+   * at 0.4.0"), without publishing a new flow version.
+   */
+  readonly versions?: FlowVersionOverrides;
 }
 
 export interface EvalRunStartInput {

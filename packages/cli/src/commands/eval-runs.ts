@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { type FlowRefs, type FlowVersionOverrides, overridableRefs } from '@kindgi/flow';
+import type { FlowId } from '@kindgi/types';
+
 import type { CommandContext } from '../context.js';
 import { integerFlag, requiredPositional, runSdk, stringFlag } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
@@ -121,6 +124,57 @@ function targetFrom(ctx: CommandContext) {
       };
 }
 
+/** `<id>@<version>`, split on the last `@`. */
+function idAtVersion(entry: string): { readonly id: string; readonly version: string } {
+  const at = entry.lastIndexOf('@');
+  if (at < 1 || at === entry.length - 1) {
+    throw new Error(`--with must be <id>@<version>, got "${entry}"`);
+  }
+  return { id: entry.slice(0, at), version: entry.slice(at + 1) };
+}
+
+/** Each `--with` id as an agent or a tool, by which of the flow's refs it is. */
+function splitVersions(
+  entries: readonly { readonly id: string; readonly version: string }[],
+  refs: FlowRefs,
+  label: string,
+): FlowVersionOverrides {
+  const agents: Record<string, string> = {};
+  const tools: Record<string, string> = {};
+  for (const { id, version } of entries) {
+    if (id in agents || id in tools) throw new Error(`--with names ${id} twice`);
+    const agent = refs.agents.includes(id);
+    const tool = refs.tools.includes(id);
+    if (agent && tool) throw new Error(`${id} is both an agent and a tool in flow ${label}`);
+    if (!agent && !tool) throw new Error(`flow ${label} doesn't use ${id}`);
+    (agent ? agents : tools)[id] = version;
+  }
+  return {
+    ...(Object.keys(agents).length > 0 && { agents }),
+    ...(Object.keys(tools).length > 0 && { tools }),
+  };
+}
+
+/**
+ * `--with <id>@<version> ...` as the request's `versions`: each id is an
+ * agent or a tool of the flow version, told apart by what the flow uses.
+ */
+async function versionsFrom(
+  ctx: CommandContext,
+  target: ReturnType<typeof targetFrom>,
+): Promise<FlowVersionOverrides | undefined> {
+  const entries = listFlag(ctx, 'with').map(idAtVersion);
+  if (entries.length === 0) return undefined;
+  if (!('flowRef' in target) || target.flowRef.version === undefined) {
+    throw new Error(
+      '--with needs --flow and --flow-version: it swaps versions into one flow version',
+    );
+  }
+  const { flowId, version } = target.flowRef;
+  const flow = await ctx.client().flows.getVersion(flowId as FlowId, version);
+  return splitVersions(entries, overridableRefs(flow), `${flowId} ${version}`);
+}
+
 const PAGE_FLAGS = {
   limit: { type: 'string', description: 'The most to return (default 25, at most 100).' },
   cursor: {
@@ -133,9 +187,9 @@ const start: LeafCommand = {
   kind: 'leaf',
   name: 'start',
   description:
-    "Start an eval run. On a test set (a `judged` suite), the run compares the agent version (`--agent` with `--agent-version`) with the recorded runs: each case is replayed without doing anything the past run didn't, and the result's summary has the metrics.",
+    "Start an eval run. On a test set (a `judged` suite), the run compares a version (`--agent` with `--agent-version`, or `--flow` with `--flow-version`) with the recorded runs: each case is replayed without doing anything the past run didn't, and the result's summary has the metrics.",
   usage:
-    'kindgi eval-runs start <suite-id> --project=<id> (--agent=<id> [--agent-version=<v>] | --flow=<id> [--flow-version=<v>]) [--baseline=recorded|<agentId>@<version>|live] [--baseline-project=<id>] [--baseline-segment=<key>=<value> ...] [--reads=recorded|live] [--repetitions=<n>] [--k=<n>] [--dry-run] [--wait]',
+    'kindgi eval-runs start <suite-id> --project=<id> (--agent=<id> [--agent-version=<v>] | --flow=<id> [--flow-version=<v>] [--with=<id>@<version> ...]) [--baseline=recorded|<agentId>@<version>|live] [--baseline-project=<id>] [--baseline-segment=<key>=<value> ...] [--reads=recorded|live] [--repetitions=<n>] [--k=<n>] [--dry-run] [--wait]',
   optionSpec: {
     project: { type: 'string', description: 'The project the run belongs to. Required.' },
     agent: { type: 'string', description: 'Run this agent.' },
@@ -147,6 +201,12 @@ const start: LeafCommand = {
     'flow-version': {
       type: 'string',
       description: 'The flow version to run. Needs `--flow`. Default: the latest.',
+    },
+    with: {
+      type: 'string',
+      multiple: true,
+      description:
+        "With `--flow` and `--flow-version`: run one of the flow's agents or tools at another version, as `<id>@<version>`, without publishing a new flow version. Repeat the flag for several.",
     },
     baseline: {
       type: 'string',
@@ -196,8 +256,10 @@ const start: LeafCommand = {
       const baseline = baselineFrom(ctx);
       const repetitions = integerFlag(ctx, 'repetitions');
       const k = integerFlag(ctx, 'k');
+      const versions = await versionsFrom(ctx, target);
       const input = {
         ...target,
+        ...(versions !== undefined && { versions }),
         ...(baseline !== undefined && { baseline }),
         ...(reads !== undefined && { reads: reads as Reads }),
         ...(repetitions !== undefined && { repetitions }),

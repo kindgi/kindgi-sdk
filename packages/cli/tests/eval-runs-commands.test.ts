@@ -96,6 +96,98 @@ describe('kindgi eval-runs start', () => {
     ]);
   });
 
+  test('--with splits each id into the agents and tools of the flow version', async () => {
+    const { calls, rec } = recorder();
+    const flow = {
+      id: 'acme.intake',
+      version: '1.0.0',
+      nodes: [
+        { id: 'look', kind: 'tool', ref: 'acme.lookup' },
+        { id: 'draft', kind: 'agent', ref: 'acme.drafter' },
+        { id: 'check', kind: 'agent', ref: 'acme.checker', config: { version: '0.1.0' } },
+      ],
+      edges: [],
+    };
+    const out = await run(
+      [
+        'eval-runs',
+        'start',
+        'acme.matches',
+        '--project=p-1',
+        '--flow=acme.intake',
+        '--flow-version=1.0.0',
+        '--with=acme.drafter@0.2.0',
+        '--with=acme.checker@0.3.0',
+        '--with=acme.lookup@2.0.0',
+      ],
+      {
+        evalRuns: { start: rec('start', { runId: 'er-1' }) },
+        flows: { getVersion: rec('getVersion', flow) },
+      },
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      ['getVersion', 'acme.intake', '1.0.0'],
+      [
+        'start',
+        'acme.matches',
+        {
+          flowRef: { flowId: 'acme.intake', version: '1.0.0' },
+          versions: {
+            agents: { 'acme.drafter': '0.2.0', 'acme.checker': '0.3.0' },
+            tools: { 'acme.lookup': '2.0.0' },
+          },
+        },
+        { projectId: 'p-1' },
+      ],
+    ]);
+  });
+
+  test('errors: --with that the flow does not use, names twice, is malformed, or has no flow version', async () => {
+    const flow = {
+      id: 'acme.intake',
+      version: '1.0.0',
+      nodes: [{ id: 'd', kind: 'agent', ref: 'acme.drafter' }],
+      edges: [],
+    };
+    for (const [flags, message] of [
+      [
+        ['--flow=acme.intake', '--flow-version=1.0.0', '--with=acme.x@1.0.0'],
+        "flow acme.intake 1.0.0 doesn't use acme.x",
+      ],
+      [
+        [
+          '--flow=acme.intake',
+          '--flow-version=1.0.0',
+          '--with=acme.drafter@1.0.0',
+          '--with=acme.drafter@2.0.0',
+        ],
+        '--with names acme.drafter twice',
+      ],
+      [
+        ['--flow=acme.intake', '--flow-version=1.0.0', '--with=acme.drafter'],
+        '--with must be <id>@<version>',
+      ],
+      [
+        ['--flow=acme.intake', '--with=acme.drafter@1.0.0'],
+        '--with needs --flow and --flow-version',
+      ],
+      [
+        ['--agent=acme.agent', '--with=acme.drafter@1.0.0'],
+        '--with needs --flow and --flow-version',
+      ],
+    ] as const) {
+      const { calls, rec } = recorder();
+      const out = await run(['eval-runs', 'start', 'acme.matches', '--project=p-1', ...flags], {
+        evalRuns: { start: rec('start', { runId: 'er-1' }) },
+        flows: { getVersion: rec('getVersion', flow) },
+      });
+      expect(out.exitCode).not.toBe(0);
+      expect(out.stderr).toContain(message);
+      expect(calls.filter((c) => c[0] === 'start')).toEqual([]);
+    }
+  });
+
   test('--baseline=recorded', async () => {
     const { calls } = await start(['--agent=a', '--baseline=recorded']);
     expect(calls[0]?.[2]).toEqual({ agentRef: { agentId: 'a' }, baseline: 'recorded' });

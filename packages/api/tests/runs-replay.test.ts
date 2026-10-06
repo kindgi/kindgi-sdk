@@ -39,7 +39,11 @@ function record(overrides: Partial<KernelRunRecord>): KernelRunRecord {
 }
 
 const replayed = randomUUID() as RunId;
-const replay = record({ replayOf: replayed, evalRunId: 'eval-1' });
+const replay = record({
+  replayOf: replayed,
+  evalRunId: 'eval-1',
+  versions: { agents: { 'acme.desk.drafter': '0.2.0' } },
+});
 const plain = record({});
 
 function app() {
@@ -76,10 +80,16 @@ describe('a run names the run it replays', () => {
     expect(answer.json).toMatchObject({ replayOf: replayed, evalRunId: 'eval-1' });
   });
 
+  test('a run that ran some blocks at other versions says which', async () => {
+    const answer = await get(`/v1/runs/${replay.runId}`);
+    expect(answer.json.versions).toEqual({ agents: { 'acme.desk.drafter': '0.2.0' } });
+  });
+
   test('an ordinary run has neither', async () => {
     const answer = await get(`/v1/runs/${plain.runId}`);
     expect(answer.json).not.toHaveProperty('replayOf');
     expect(answer.json).not.toHaveProperty('evalRunId');
+    expect(answer.json).not.toHaveProperty('versions');
   });
 
   test('the list carries them too', async () => {

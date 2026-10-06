@@ -300,6 +300,13 @@ describe('what a comparison takes', () => {
       "Only `baseline: 'recorded'` runs today",
     ],
     ['an empty set', { spec: { caseCount: 0 } }, agent, undefined, 'no cases'],
+    [
+      'versions for an agent',
+      suite,
+      agent,
+      { ...DEFAULT_COMPARISON, versions: { agents: { 'acme.helper': '1.0.0' } } },
+      'it needs `flowRef`',
+    ],
   ])('%s is refused', (_name, s, target, comparison, message) => {
     const v = dispatcher.validate?.(s as never, target as never, comparison as never);
     expect(v?.kind).toBe('err');

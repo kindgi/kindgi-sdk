@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { AgentId } from '@kindgi/agents';
+import type { FlowVersionOverrides } from '@kindgi/flow';
 import type { ProjectId, Semver } from '@kindgi/types';
 
 import type { EvalBaseline, EvalComparison } from '../eval-run-binding.js';
@@ -49,6 +50,34 @@ function parseBaseline(raw: unknown): EvalBaseline | string {
   return { agentId: o.agentId as AgentId, version: o.version as Semver };
 }
 
+/** `{ id: version }` with non-empty strings; an error message otherwise. */
+function versionMap(raw: unknown, name: string): Readonly<Record<string, string>> | string {
+  const o = obj(raw);
+  const valid =
+    o !== undefined &&
+    Object.entries(o).every(([id, v]) => id !== '' && typeof v === 'string' && v !== '');
+  return valid
+    ? (o as Record<string, string>)
+    : `\`${name}\` must be an object of { id: version } with non-empty strings`;
+}
+
+/** `versions: { agents?, tools? }`; `undefined` when it names nothing. */
+function parseVersions(raw: unknown): FlowVersionOverrides | undefined | string {
+  const o = obj(raw);
+  if (o === undefined) return '`versions` must be an object: { agents?, tools? }';
+  const extra = Object.keys(o).filter((key) => key !== 'agents' && key !== 'tools');
+  if (extra.length > 0) return `\`versions\` takes \`agents\` and \`tools\`, not \`${extra[0]}\``;
+  const agents = o.agents === undefined ? {} : versionMap(o.agents, 'versions.agents');
+  if (typeof agents === 'string') return agents;
+  const tools = o.tools === undefined ? {} : versionMap(o.tools, 'versions.tools');
+  if (typeof tools === 'string') return tools;
+  if (Object.keys(agents).length === 0 && Object.keys(tools).length === 0) return undefined;
+  return {
+    ...(Object.keys(agents).length > 0 && { agents }),
+    ...(Object.keys(tools).length > 0 && { tools }),
+  };
+}
+
 function integerIn(raw: unknown, name: string, max: number): number | string {
   return typeof raw === 'number' && Number.isInteger(raw) && raw >= 1 && raw <= max
     ? raw
@@ -57,8 +86,9 @@ function integerIn(raw: unknown, name: string, max: number): number | string {
 
 /**
  * A comparison eval run's settings from the start body: `baseline`,
- * `reads`, `repetitions` and `k`. `undefined` when none is given (the
- * defaults apply); an error message for a bad one.
+ * `reads`, `repetitions`, `k` and a flow candidate's `versions`.
+ * `undefined` when none is given (the defaults apply); an error message
+ * for a bad one.
  */
 export function parseComparison(
   b: Readonly<Record<string, unknown>>,
@@ -66,11 +96,14 @@ export function parseComparison(
   | { readonly kind: 'ok'; readonly value?: EvalComparison }
   | { readonly kind: 'err'; readonly message: string } {
   const { baseline, reads, repetitions, k } = b;
+  const versions = b.versions === undefined ? undefined : parseVersions(b.versions);
+  if (typeof versions === 'string') return { kind: 'err', message: versions };
   if (
     baseline === undefined &&
     reads === undefined &&
     repetitions === undefined &&
-    k === undefined
+    k === undefined &&
+    versions === undefined
   ) {
     return { kind: 'ok' };
   }
@@ -96,6 +129,7 @@ export function parseComparison(
       reads: reads ?? DEFAULT_COMPARISON.reads,
       repetitions: reps,
       k: topK,
+      ...(versions !== undefined && { versions }),
     },
   };
 }

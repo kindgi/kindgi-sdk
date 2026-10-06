@@ -17,8 +17,10 @@ import {
   type EvalRunStatus,
   type FlowRef,
 } from '../eval-run-binding.js';
+import { VERSIONS_NEED_A_FLOW } from '../judged-dispatcher.js';
 import type { AppEnv } from '../types.js';
 import { parseComparison } from './eval-comparison.js';
+import { type FlowVersionsCheck, checkFlowVersions } from './eval-versions.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams } from './scope-params.js';
 import { formatSseFrame } from './sse.js';
@@ -47,16 +49,49 @@ export interface EvalRunsRouters {
   readonly readback: Hono<AppEnv>;
 }
 
-export function evalRunsRouters(binding: EvalRunBinding): EvalRunsRouters {
+/**
+ * `versionsCheck`: where a flow candidate's `versions` are checked
+ * against the flow version at start (without it, they're applied as
+ * given).
+ */
+export function evalRunsRouters(
+  binding: EvalRunBinding,
+  versionsCheck?: FlowVersionsCheck,
+): EvalRunsRouters {
   return {
-    start: startRouter(binding),
+    start: startRouter(binding, versionsCheck),
     readback: readbackRouter(binding),
   };
 }
 
 // ---------- POST /v1/eval-suites/:suiteId/runs ----------
 
-function startRouter(binding: EvalRunBinding): Hono<AppEnv> {
+/** The `validation-failed` error for a flow candidate's `versions` that don't fit the flow; `undefined` when they do. */
+async function versionsRefusal(
+  check: FlowVersionsCheck | undefined,
+  tenantId: TenantId,
+  start: ParsedStartBody,
+) {
+  const versions = start.comparison?.versions;
+  const flowRef = start.flowRef;
+  if (check === undefined || versions === undefined || flowRef?.version === undefined) {
+    return undefined;
+  }
+  const issues = await checkFlowVersions(
+    check,
+    tenantId,
+    { flowId: flowRef.flowId as unknown as string, version: flowRef.version },
+    versions,
+  );
+  if (issues.length === 0) return undefined;
+  return {
+    code: 'validation-failed' as const,
+    message: `The versions don't fit flow ${flowRef.flowId as unknown as string} ${flowRef.version} (${issues.length} issue${issues.length === 1 ? '' : 's'})`,
+    issues: issues as unknown as Record<string, unknown>[],
+  };
+}
+
+function startRouter(binding: EvalRunBinding, versionsCheck?: FlowVersionsCheck): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
   r.post('/:suiteId/runs', async (c) => {
@@ -83,6 +118,11 @@ function startRouter(binding: EvalRunBinding): Hono<AppEnv> {
     if (parsed.kind === 'err') {
       c.status(statusFor(parsed.error.code) as never);
       return c.json(toWireError(parsed.error, requestId));
+    }
+    const refusal = await versionsRefusal(versionsCheck, tenantId, parsed.value);
+    if (refusal !== undefined) {
+      c.status(statusFor(refusal.code) as never);
+      return c.json(toWireError(refusal, requestId));
     }
 
     const outcome = await binding.start({
@@ -626,6 +666,9 @@ function parseStartBody(
   const comparison = parseComparison(b);
   if (comparison.kind === 'err') {
     return { kind: 'err', error: { code: 'bad-input', message: comparison.message } };
+  }
+  if (comparison.value?.versions !== undefined && agentRef !== undefined) {
+    return { kind: 'err', error: { code: 'bad-input', message: VERSIONS_NEED_A_FLOW } };
   }
 
   return {

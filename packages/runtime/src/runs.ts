@@ -8,6 +8,7 @@
 // is not part of this shape.
 //
 
+import type { FlowVersionOverrides } from '@kindgi/flow';
 import type { Cursor, NodeId, OrgId, ProjectId, RunId, TenantId, Timestamp } from '@kindgi/types';
 
 import type { RunAgentRef } from './inputs.js';
@@ -45,6 +46,8 @@ export interface KernelRunRecord {
   /** Set on a replay run: the run it re-ran and the eval run that did so (`RunReplayRef`). */
   readonly replayOf?: RunId | null;
   readonly evalRunId?: string | null;
+  /** The versions the run swapped in over its flow version's pins (`RunFlowInput.versions`). */
+  readonly versions?: FlowVersionOverrides | null;
 }
 
 /**
