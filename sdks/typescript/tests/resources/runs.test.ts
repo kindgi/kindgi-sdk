@@ -193,6 +193,22 @@ describe('runs.list — filters', () => {
     expect(query.get('topLevel')).toBe('true');
   });
 
+  it('sends replays and evalRunId', async () => {
+    const stub = recordingFetch([
+      { status: 200, body: JSON.stringify({ data: [], hasMore: false }) },
+      { status: 200, body: JSON.stringify({ data: [], hasMore: false }) },
+    ]);
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    await client.runs.list({ replays: 'only' });
+    await client.runs.list({ evalRunId: 'eval-1' });
+    expect(new URL(stub.calls[0]?.url ?? '').searchParams.get('replays')).toBe('only');
+    expect(new URL(stub.calls[1]?.url ?? '').searchParams.get('evalRunId')).toBe('eval-1');
+  });
+
   it('sends a project or org scope as scopeKind + scopeId', async () => {
     const stub = recordingFetch([
       { status: 200, body: JSON.stringify({ data: [], hasMore: false }) },

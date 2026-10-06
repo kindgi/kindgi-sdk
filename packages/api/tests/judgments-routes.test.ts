@@ -418,6 +418,48 @@ describe("the context captured on a turn's first judgment", () => {
     });
   });
 
+  test("the decision at the turn's session approval gate is kept", async () => {
+    const gated = (value: unknown) => [
+      ...journal,
+      {
+        kind: 'value.recorded',
+        nodeId: 'setup',
+        payload: { scope: 's', key: 'session-hitl-gate', value: { waitTokenId: 'tok-1' } },
+      },
+      { kind: 'wait.suspended', nodeId: 'setup', payload: { tokenId: 'tok-1' } },
+      { kind: 'wait.resumed', nodeId: 'setup', payload: { tokenId: 'tok-1', value } },
+    ];
+    const contextOf = async (value: unknown) => {
+      const run = turn();
+      const h = harness([run], { messages, journal: gated(value) });
+      const res = await h.call('POST', '/v1/judgments', {
+        runId: run.runId,
+        item: { key: 'c1' },
+        verdict: 'yes',
+      });
+      return (await h.call('GET', `/v1/judgments/${res.body.id}`)).body.run.context;
+    };
+    expect((await contextOf({ decided: 'approve', rationale: 'fine' })).sessionApproval).toEqual({
+      approved: true,
+    });
+    expect((await contextOf({ decided: 'reject', rationale: 'not now' })).sessionApproval).toEqual({
+      approved: false,
+      rationale: 'not now',
+    });
+  });
+
+  test('a turn that never waited at the gate has no decision kept', async () => {
+    const run = turn();
+    const h = harness([run], { messages, journal });
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { key: 'c1' },
+      verdict: 'yes',
+    });
+    const got = await h.call('GET', `/v1/judgments/${res.body.id}`);
+    expect(got.body.run.context).not.toHaveProperty('sessionApproval');
+  });
+
   test('a second judgment of the run does not read it again', async () => {
     const run = turn();
     const h = harness([run], { messages, journal });

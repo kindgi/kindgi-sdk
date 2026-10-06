@@ -479,6 +479,11 @@ export interface ModelUsageRecord {
   readonly error?: { readonly message: string; readonly attempts?: number };
   /** How long the call took, failed or not. */
   readonly durationMs: number;
+  /**
+   * Set on a replay turn's calls: the past run it re-runs (`of`) and the
+   * eval run it's for, so eval spend can be told apart from production.
+   */
+  readonly replay?: { readonly of: string; readonly evalRunId: string };
 }
 
 /**

@@ -3,10 +3,13 @@
 
 import { randomUUID } from 'node:crypto';
 
-import type { RunId, TenantId, Timestamp } from '@kindgi/types';
+import type { ReplayTurnReport } from '@kindgi/agents';
+import type { RunReplayRef } from '@kindgi/runtime';
+import type { ProjectId, RunId, TenantId, Timestamp } from '@kindgi/types';
 
 import type {
   AgentRef,
+  EvalComparison,
   EvalRun,
   EvalRunBinding,
   EvalRunCancelInput,
@@ -50,6 +53,16 @@ export interface EvalRunSubjectInvokeInput {
   readonly input: unknown;
   readonly dryRun: boolean;
   readonly abortSignal: AbortSignal;
+  /** The eval run's project: where the subject runs. */
+  readonly projectId?: ProjectId;
+  /**
+   * Set when the subject re-runs a past run (a comparison eval run): the
+   * run is a replay of `of` for the eval run, under the replay rules
+   * (`InvokeAgentInput.replay`).
+   */
+  readonly replay?: RunReplayRef;
+  /** The conversation before the past turn, oldest first: a replayed turn starts from it. */
+  readonly history?: readonly unknown[];
 }
 
 export interface EvalRunSubjectInvokeOutcome {
@@ -57,6 +70,12 @@ export interface EvalRunSubjectInvokeOutcome {
   readonly error?: string;
   readonly costUsd?: number;
   readonly durationMs?: number;
+  /** The run the subject ran in. */
+  readonly runId?: RunId;
+  /** A replay's report: each tool call and what happened to it (`AgentTurnResult.replay`). */
+  readonly replay?: ReplayTurnReport;
+  /** The provider and model that answered. */
+  readonly provider?: { readonly id: string; readonly model: string };
 }
 
 /**
@@ -100,6 +119,10 @@ export interface DispatchContext {
   readonly dryRun: boolean;
   readonly abortSignal: AbortSignal;
   readonly subject: EvalSubjectInvoker;
+  /** The eval run's project. */
+  readonly projectId?: ProjectId;
+  /** A comparison eval run's baseline, reads and repetitions. */
+  readonly comparison?: EvalComparison;
   onProgress(perCase: Readonly<Record<string, unknown>>): void;
 }
 
@@ -113,6 +136,7 @@ export interface EvalRunDispatcher {
   validate?(
     suite: EvalSuite,
     target: AgentRef | FlowRef,
+    comparison?: EvalComparison,
   ): { kind: 'ok' } | { kind: 'err'; message: string };
   dispatch(ctx: DispatchContext): Promise<DispatchResult>;
 }
@@ -311,26 +335,13 @@ export function createInProcessEvalRunBinding(
         };
       }
       if (dispatcher.validate !== undefined) {
-        const v = dispatcher.validate(suite, target);
+        const v = dispatcher.validate(suite, target, input.comparison);
         if (v.kind === 'err') {
           return { kind: 'dispatcher-input-invalid', message: v.message };
         }
       }
       const runId = randomUUID() as unknown as RunId;
-      const startedAt = now().toISOString() as unknown as Timestamp;
-      const record: EvalRun = {
-        runId,
-        tenantId: input.tenantId,
-        suiteId: suite.id,
-        suiteVersion: suite.version,
-        kind: suite.kind,
-        ...(input.agentRef !== undefined && { agentRef: input.agentRef }),
-        ...(input.flowRef !== undefined && { flowRef: input.flowRef }),
-        status: 'running' as EvalRunStatus,
-        dryRun: input.dryRun === true,
-        startedAt,
-        ...(input.correlationId !== undefined && { correlationId: input.correlationId }),
-      };
+      const record = newRunRecord(input, suite, runId, now());
       setRun(record);
       const controller = new AbortController();
       controllers.set(runId as unknown as string, controller);
@@ -349,6 +360,8 @@ export function createInProcessEvalRunBinding(
             dryRun: input.dryRun === true,
             abortSignal: controller.signal,
             subject: options.subject,
+            projectId: input.projectId,
+            ...(input.comparison !== undefined && { comparison: input.comparison }),
             onProgress: (perCaseEntry: Readonly<Record<string, unknown>>) => {
               const current = runs.get(runId as unknown as string);
               if (current === undefined) return;
@@ -486,6 +499,24 @@ export function createInProcessEvalRunBinding(
       });
       return { kind: 'ok' };
     },
+  };
+}
+
+/** A started run's row: `running`, with what it runs and how. */
+function newRunRecord(input: EvalRunStartInput, suite: EvalSuite, runId: RunId, at: Date): EvalRun {
+  return {
+    runId,
+    tenantId: input.tenantId,
+    suiteId: suite.id,
+    suiteVersion: suite.version,
+    kind: suite.kind,
+    ...(input.agentRef !== undefined && { agentRef: input.agentRef }),
+    ...(input.flowRef !== undefined && { flowRef: input.flowRef }),
+    status: 'running',
+    dryRun: input.dryRun === true,
+    startedAt: at.toISOString() as unknown as Timestamp,
+    ...(input.correlationId !== undefined && { correlationId: input.correlationId }),
+    ...(input.comparison !== undefined && { comparison: input.comparison }),
   };
 }
 

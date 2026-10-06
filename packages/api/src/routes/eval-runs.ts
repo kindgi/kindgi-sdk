@@ -10,6 +10,7 @@ import { statusFor, toWireError } from '../errors.js';
 import {
   type AgentRef,
   EVAL_RUN_STATUSES,
+  type EvalComparison,
   type EvalRun,
   type EvalRunBinding,
   type EvalRunFilter,
@@ -17,6 +18,7 @@ import {
   type FlowRef,
 } from '../eval-run-binding.js';
 import type { AppEnv } from '../types.js';
+import { parseComparison } from './eval-comparison.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams } from './scope-params.js';
 import { formatSseFrame } from './sse.js';
@@ -93,6 +95,7 @@ function startRouter(binding: EvalRunBinding): Hono<AppEnv> {
       ...(parsed.value.correlationId !== undefined && {
         correlationId: parsed.value.correlationId,
       }),
+      ...(parsed.value.comparison !== undefined && { comparison: parsed.value.comparison }),
     });
     if (outcome.kind === 'suite-not-found') {
       c.status(statusFor('eval-suite-not-found') as never);
@@ -454,6 +457,7 @@ function serializeEvalRun(run: EvalRun): Record<string, unknown> {
     ...(run.result !== undefined && { result: run.result }),
     ...(run.error !== undefined && { error: run.error }),
     ...(run.correlationId !== undefined && { correlationId: run.correlationId }),
+    ...(run.comparison !== undefined && { comparison: run.comparison }),
   };
 }
 
@@ -486,6 +490,7 @@ interface ParsedStartBody {
   readonly flowRef?: FlowRef;
   readonly dryRun?: boolean;
   readonly correlationId?: string;
+  readonly comparison?: EvalComparison;
 }
 
 function parseStartBody(
@@ -618,6 +623,11 @@ function parseStartBody(
     };
   }
 
+  const comparison = parseComparison(b);
+  if (comparison.kind === 'err') {
+    return { kind: 'err', error: { code: 'bad-input', message: comparison.message } };
+  }
+
   return {
     kind: 'ok',
     value: {
@@ -626,6 +636,7 @@ function parseStartBody(
       ...(flowRef !== undefined && { flowRef }),
       ...(dryRun !== undefined && { dryRun }),
       ...(correlationId !== undefined && { correlationId: correlationId as string }),
+      ...(comparison.value !== undefined && { comparison: comparison.value }),
     },
   };
 }
