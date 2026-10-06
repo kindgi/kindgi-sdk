@@ -250,33 +250,63 @@ describe('not-implemented-in-preview SDK errors', () => {
     expect(out.stderr).toContain("Command 'kindgi runs get' is not yet wired");
   });
 
-  test('runs resume says why it is not available, and never calls the runtime', async () => {
-    let called = false;
-    const out = await runCli(
-      baseInputs({
-        argv: [
-          'runs',
-          'resume',
-          'run-1',
-          '--waitpoint=wp-1',
-          '--value={"decided":"approve"}',
-          '--url=https://x',
-          '--token=t',
-        ],
-        clientFactory: () =>
-          ({
-            runs: {
-              resume: async () => {
-                called = true;
+  test('runs resume says what a run waits for, with an exit code per answer, and never resumes it', async () => {
+    let resumed = false;
+    const client = (status: string) =>
+      ({
+        runs: {
+          get: async (id: string) => ({ id, status }),
+          journal: async () => ({
+            data: [
+              {
+                sequence: 0,
+                kind: 'wait.suspended',
+                nodeId: 'gate',
+                payload: { tokenId: 'tok-a' },
+                timestamp: '2026-10-06T12:00:00.000Z',
               },
-            },
-          }) as never,
-      }),
-    );
-    expect(out.exitCode).toBe(2);
-    expect(out.stderr).toContain("Command 'kindgi runs resume' is not available");
-    expect(out.stderr).toContain('kindgi approvals complete <approval-id> --decision=approve');
-    expect(called).toBe(false);
+            ],
+            hasMore: false,
+          }),
+          resume: async () => {
+            resumed = true;
+          },
+        },
+        approvals: {
+          list: async () => ({
+            data: [
+              {
+                id: 'ap-1',
+                title: 'Refund order 7',
+                requiredRole: 'senior',
+                status: 'pending',
+                waitTokenId: 'tok-a',
+              },
+            ],
+            hasMore: false,
+          }),
+        },
+      }) as never;
+    const resume = (status: string) =>
+      runCli(
+        baseInputs({
+          argv: ['runs', 'resume', 'run-1', '--url=https://x', '--token=t'],
+          clientFactory: () => client(status),
+        }),
+      );
+
+    const waiting = await resume('suspended');
+    expect(waiting.exitCode).toBe(3);
+    expect(JSON.parse(waiting.stdout)).toMatchObject({
+      kind: 'approval',
+      approvals: [{ id: 'ap-1' }],
+    });
+    expect(waiting.stderr).toContain('kindgi approvals complete ap-1 --decision=approve');
+
+    const done = await resume('completed');
+    expect(done.exitCode).toBe(0);
+    expect(done.stderr).toContain("Run run-1 is completed: it isn't waiting");
+    expect(resumed).toBe(false);
   });
 
   test.each([

@@ -57,6 +57,10 @@ const DECISION_KINDS: ReadonlySet<ReviewDecisionKind> = new Set([
 
 const ROLE_VALUES: ReadonlySet<ReviewerRole> = new Set(['standard', 'senior', 'admin']);
 
+/** How many `waitTokenId` values a list takes, and how long each may be. */
+const MAX_WAIT_TOKEN_IDS = 50;
+const MAX_WAIT_TOKEN_ID_LENGTH = 512;
+
 /**
  * Terminal approval statuses — the ones an audit bundle can be exported for.
  * An `expired` approval has no recorded decision.
@@ -214,6 +218,23 @@ export function approvalsRouter(
       createdAfterIso = parsed.toISOString();
     }
 
+    const waitTokenIds = c.req.queries('waitTokenId') ?? [];
+    if (
+      waitTokenIds.length > MAX_WAIT_TOKEN_IDS ||
+      waitTokenIds.some((t) => t.length === 0 || t.length > MAX_WAIT_TOKEN_ID_LENGTH)
+    ) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'bad-input',
+            message: `\`waitTokenId\` takes at most ${MAX_WAIT_TOKEN_IDS} values, each 1–${MAX_WAIT_TOKEN_ID_LENGTH} characters`,
+          },
+          requestId,
+        ),
+      );
+    }
+
     const cursor = c.req.query('cursor');
     if (cursor !== undefined && cursor.length > 0) {
       const parsed = new Date(cursor);
@@ -238,6 +259,7 @@ export function approvalsRouter(
       ...(requiredRoleFilter !== undefined && { requiredRole: requiredRoleFilter }),
       ...(createdAfterIso !== undefined && { since: createdAfterIso as unknown as Timestamp }),
       ...(cursor !== undefined && cursor.length > 0 && { cursor: cursor as Cursor }),
+      ...(waitTokenIds.length > 0 && { waitTokenIds }),
     };
     const listed = await hitlBinding.listApprovals(listInput);
     if (listed.kind === 'err') {

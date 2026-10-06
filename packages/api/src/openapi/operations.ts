@@ -385,6 +385,15 @@ const ApprovalRequiredRoleQueryParam: ParameterSpec = {
   schema: { $ref: '#/components/schemas/ReviewerRole' },
 };
 
+const WaitTokenIdQueryParam: ParameterSpec = {
+  name: 'waitTokenId',
+  in: 'query',
+  required: false,
+  description:
+    "Only approvals linked to one of these run waits (an approval's `waitTokenId`; a run's journal names its open waits in `wait.suspended` entries). Repeat it for several, at most 50.",
+  schema: { type: 'array', items: { type: 'string', minLength: 1 }, maxItems: 50 },
+};
+
 const CreatedAfterQueryParam: ParameterSpec = {
   name: 'createdAfter',
   in: 'query',
@@ -1612,6 +1621,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ApprovalStatusQueryParam,
       ApprovalRequiredRoleQueryParam,
       CreatedAfterQueryParam,
+      WaitTokenIdQueryParam,
     ],
     responses: {
       '200': { description: 'Page of approvals.', schema: ref('ApprovalCollectionPage') },

@@ -159,6 +159,13 @@ def test_a_field_set_to_none_is_sent_as_null() -> None:
     assert [json.loads(r.content) for r in seen] == [{"assertableBy": None}, {"weight": 2}]
 
 
+def test_approvals_list_takes_wait_token_ids() -> None:
+    # The approvals a run's open waits belong to: `waitTokenId` repeated, in order.
+    api, seen = client(lambda r: httpx.Response(200, json={"data": [], "hasMore": False}))
+    api.approvals.list(wait_token_id=["tok-a", "tok-b"])
+    assert seen[0].url.params.get_list("waitTokenId") == ["tok-a", "tok-b"]
+
+
 def test_path_and_query_parameters() -> None:
     page = {"data": [], "hasMore": False}
     api, seen = client(

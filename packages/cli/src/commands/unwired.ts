@@ -19,7 +19,6 @@ export const UNWIRED_COMMANDS: ReadonlySet<string> = new Set([
   'observations',
   'proposals',
   'tokens',
-  'runs resume',
   'memory facts supersede',
   'memory facts retrieve',
 ]);
@@ -33,10 +32,6 @@ const TOKENS_NOT_SERVED =
  * is unwired, when there's more to say than "not yet wired".
  */
 export const UNWIRED_REASONS: ReadonlyMap<string, string> = new Map([
-  [
-    'runs resume',
-    'resuming a run at a waitpoint is not available in this release: every waitpoint belongs to an approval or to the runtime. A run waiting for an approval continues when a reviewer decides it: `kindgi approvals complete <approval-id> --decision=approve`.',
-  ],
   ['tokens create', TOKENS_NOT_SERVED],
   ['tokens revoke', TOKENS_NOT_SERVED],
   [

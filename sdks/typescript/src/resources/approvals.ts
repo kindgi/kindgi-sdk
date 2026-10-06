@@ -212,6 +212,11 @@ export interface ApprovalFilter extends Omit<Filter<ApprovalStatus>, 'status'> {
   readonly requiredRole?: ReviewerRole;
   /** ISO 8601 timestamp — return approvals created strictly after this. */
   readonly createdAfter?: Timestamp;
+  /**
+   * Only approvals linked to one of these run waits (an approval's
+   * `waitTokenId`; a run's journal names its open waits). At most 50.
+   */
+  readonly waitTokenIds?: readonly string[];
 }
 
 export interface ReviewerFilter extends Filter {
@@ -268,6 +273,8 @@ export function makeApprovalsClient(transport: Transport): ApprovalsClient {
           ...(filter?.createdAfter !== undefined && {
             createdAfter: filter.createdAfter as unknown as string,
           }),
+          ...(filter?.waitTokenIds !== undefined &&
+            filter.waitTokenIds.length > 0 && { waitTokenId: filter.waitTokenIds }),
         },
       });
       return listPage(page);
