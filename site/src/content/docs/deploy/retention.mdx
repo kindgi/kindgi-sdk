@@ -5,6 +5,8 @@ sidebar:
   order: 4
 ---
 
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
 Most deletes in Kindgi are soft. A deleted record drops out of lists and reads
 at once, and stays in the database, marked deleted, until a **retention
 policy** says to purge it and a **sweep** does. Without a policy, it stays for
@@ -46,6 +48,9 @@ A retention policy is a policy of kind `retention`, whose `spec` is
 delete: `0` purges at the next sweep, and `-1` keeps records for good.
 Publishing a policy takes `admin` on the tenant.
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```ts
 // retention-policy.ts
 import { createClient } from '@kindgi/sdk/client';
@@ -63,6 +68,9 @@ const published = await kindgi.policies.author({
 console.log(published);
 ```
 
+</TabItem>
+<TabItem label="Python">
+
 ```python
 # retention_policy.py
 from kindgi.client import Kindgi
@@ -79,69 +87,103 @@ published = kindgi.policies.publish(
 print(published)
 ```
 
+</TabItem>
+</Tabs>
+
 ```text
 { policyId: 'acme.keep-providers', version: '1.0.0' }
 policy_id='acme.keep-providers' version='1.0.1'
 ```
 
-- **Keep one policy per domain,** plus an optional `*` default, and change it
-  by publishing its next version, as the Python example does.
-- **Only `purge` and the domains above apply.** After publishing, the
-  console's Policies list says in a sentence what each policy does.
+- **One policy per domain,** plus one for `*`. To change a domain's grace,
+  publish the next version of its policy, as the Python example does. A
+  second policy for a covered domain is refused (`409 policy-scope-taken`):
 
-## See what will be purged
+  ```text
+  Retention domain "provider" is already covered by policy "acme.keep-providers": a tenant has one retention policy per domain, and one for "*". Publish a new version of "acme.keep-providers" instead, or unregister it first.
+  ```
 
-`GET /v1/retention/scheduled` lists each deleted record a policy will purge,
-and when. It takes `admin` on the tenant, as do the sweeps.
+  A new version can't move a policy to another domain either
+  (`409 policy-scope-changed`): publish a policy for that domain under a new id.
+- **A spec that doesn't fit is refused** (`400 validation-failed`), naming the
+  field: `policy.spec/mode can't be "archive" yet: use "purge"`, or
+  `policy.spec/domain must be one of: org, agent, …, provider, * (got "blocks")`.
+- **Policies published before 0.1.4** can still cover one domain twice. The
+  console warns, and lists, sweeps and the runtime's log say which one
+  applies: unregister the others.
 
-```sh
-curl "$KINDGI_API_URL/v1/retention/scheduled" -H "Authorization: Bearer $KINDGI_API_TOKEN"
+## See what will be purged, and purge it
+
+Kindgi purges only when you sweep. `retention.scheduled` lists each deleted
+record a policy will purge, and when; `retention.sweep` purges every record
+past its grace, or one domain's. Both take `admin` on the tenant.
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// retention-sweep.ts
+import { createClient } from '@kindgi/sdk/client';
+
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+// What a sweep would purge now, then purge it.
+const due = await kindgi.retention.scheduled({ pastGraceOnly: true });
+console.log(due.data.map((row) => `${row.domain} ${row.id} (policy ${row.policyId})`));
+
+const swept = await kindgi.retention.sweep({ domain: 'provider' });
+console.log(`${swept.totalPurged} purged`);
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# retention_sweep.py
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+# What a sweep would purge now, then purge it.
+due = kindgi.retention.scheduled(past_grace_only=True)
+print([f"{row.domain} {row.id} (policy {row.policy_id})" for row in due.data])
+
+swept = kindgi.retention.sweep(domain="provider")
+print(f"{swept.total_purged} purged")
+```
+
+</TabItem>
+</Tabs>
+
+```text
+[ 'provider 01d0afee-d2c1-4532-aa24-1f85b3da395b (policy acme.keep-providers)' ]
+1 purged
+```
+
+Each scheduled record has the policy that decides it and when it will be
+purged:
 
 ```json
 {
-  "data": [
-    {
-      "domain": "provider",
-      "id": "4b8cfaf3-c18a-4afd-b0e4-1574984fa45f",
-      "unregisteredAt": "2026-10-06T11:23:45.358Z",
-      "purgeAt": "2026-10-13T11:23:45.358Z",
-      "pastGrace": false,
-      "policyId": "acme.keep-providers",
-      "policyVersion": "1.0.0",
-      "graceSeconds": 604800
-    }
-  ],
-  "domainsMissingAdapter": [],
-  "unpolicedDomains": ["agent", "flow", "tool", …]
+  "domain": "provider",
+  "id": "4b8cfaf3-c18a-4afd-b0e4-1574984fa45f",
+  "unregisteredAt": "2026-10-06T11:23:45.358Z",
+  "purgeAt": "2026-10-13T11:23:45.358Z",
+  "pastGrace": false,
+  "policyId": "acme.keep-providers",
+  "policyVersion": "1.0.0",
+  "graceSeconds": 604800
 }
 ```
 
-- **`?domain=provider`** narrows it to one domain, and
-  **`?pastGraceOnly=true`** to what a sweep would purge now.
-- **`unpolicedDomains`** lists the domains no policy covers: their deleted
-  records are kept.
-
-## Purge
-
-Kindgi purges only when you sweep. `POST /v1/retention/sweep` purges every
-deleted record past its grace; `POST /v1/retention/sweep/<domain>`, one
-domain's:
-
-```sh
-curl -X POST "$KINDGI_API_URL/v1/retention/sweep/provider" -H "Authorization: Bearer $KINDGI_API_TOKEN"
-```
-
-```json
-{
-  "perDomain": [{ "domain": "provider", "purged": 1, "remaining": 0, "policyId": "acme.keep-providers" }],
-  "totalPurged": 1
-}
-```
-
-A purged record is gone for good. To purge on a schedule, call the sweep from
-a cron job. Sweeping again purges nothing new until more records pass their
-grace.
+- **`domain`** narrows either call to one domain, and **`pastGraceOnly`**
+  (`past_grace_only` in Python) the list to what a sweep would purge now.
+- **`unpolicedDomains`**, in the list's answer, names the domains no policy
+  covers: their deleted records are kept.
+- **A purged record is gone for good.** To purge on a schedule, run a sweep
+  from a cron job; sweeping again purges nothing new until more records pass
+  their grace. Over HTTP: `GET /v1/retention/scheduled` and
+  `POST /v1/retention/sweep` (or `/v1/retention/sweep/<domain>`).
 
 ## Keep records for good
 
@@ -154,8 +196,8 @@ have a policy of their own:
   "spec": { "domain": "*", "graceSeconds": -1, "mode": "purge" } }
 ```
 
-Records kept for good aren't listed by `GET /v1/retention/scheduled`, since
-nothing will purge them.
+Records kept for good aren't listed by `retention.scheduled`, since nothing
+will purge them.
 
 ## In the console
 
