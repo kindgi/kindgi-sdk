@@ -462,6 +462,7 @@ function serializeAgent(a: AgentVersionRecord): Record<string, unknown> {
     ...(a.preferredModel !== undefined && { preferredModel: a.preferredModel }),
     ...(a.pins !== undefined && { pins: a.pins }),
     ...(a.pinsDigest !== undefined && { pinsDigest: a.pinsDigest }),
+    ...(a.derivedFrom !== undefined && { derivedFrom: a.derivedFrom }),
     ...(a.unregisteredAt !== undefined && { unregisteredAt: a.unregisteredAt }),
   };
 }

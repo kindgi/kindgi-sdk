@@ -1,22 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Agent, AgentPins } from '@kindgi/agents';
+import { type Agent, type AgentId, type AgentPins, pinsDigest } from '@kindgi/agents';
+import type { TupleEnqueueHook } from '@kindgi/authz';
 import { pickVersion } from '@kindgi/tools';
-import type { Cursor, TenantId, ToolId } from '@kindgi/types';
+import type { Cursor, ProjectId, TenantId, ToolId } from '@kindgi/types';
 
+import type { AgentRegistryBinding } from './agent-binding.js';
+import { type DeployedVersionOutcome, deployVersion } from './deploy-versions.js';
 import type { ToolRegistryBinding } from './tool-binding.js';
 
-/** One tool range that matched no published version. */
-export interface UnpinnableTool {
-  /** JSON pointer into the agent: `/tools/<i>/version`. */
+/** One block reference that matched no published version. */
+export interface UnpinnableRef {
+  /** JSON pointer into the definition, e.g. `/tools/<i>/version`. */
   readonly path: string;
   readonly message: string;
 }
 
 export type AgentPinsOutcome =
   | { readonly kind: 'ok'; readonly pins: AgentPins }
-  | { readonly kind: 'unpinnable'; readonly issues: readonly UnpinnableTool[] };
+  | { readonly kind: 'unpinnable'; readonly issues: readonly UnpinnableRef[] };
 
 /** Page size for reading a tool's versions. */
 const VERSIONS_PAGE = 200;
@@ -38,12 +41,12 @@ export async function resolveAgentPins(
   agent: Agent,
 ): Promise<AgentPinsOutcome> {
   const pinned: Record<string, string> = {};
-  const issues: UnpinnableTool[] = [];
+  const issues: UnpinnableRef[] = [];
   const versionsOf = new Map<string, readonly string[]>();
   for (const [i, ref] of agent.tools.entries()) {
     let available = versionsOf.get(ref.id);
     if (available === undefined) {
-      available = await activeVersions(tools, tenantId, ref.id as ToolId);
+      available = await activeToolVersions(tools, tenantId, ref.id as ToolId);
       versionsOf.set(ref.id, available);
     }
     const pick = pickVersion(available, ref.version);
@@ -64,7 +67,7 @@ export async function resolveAgentPins(
 }
 
 /** Every active version of a tool, newest first; none when it isn't published. */
-async function activeVersions(
+export async function activeToolVersions(
   tools: ToolRegistryBinding,
   tenantId: TenantId,
   toolId: ToolId,
@@ -79,6 +82,56 @@ async function activeVersions(
       ...(cursor !== undefined && { cursor }),
     });
     for (const manifest of page.data) versions.push(manifest.version as unknown as string);
+    cursor = page.nextCursor;
+  } while (cursor !== undefined);
+  return versions;
+}
+
+export interface PublishDeployedAgentInput {
+  readonly agents: AgentRegistryBinding;
+  readonly tenantId: TenantId;
+  readonly projectId: ProjectId;
+  /** The agent as the pack defines it, with no pins. */
+  readonly agent: Agent;
+  readonly pins: AgentPins;
+  readonly enqueueTuples: TupleEnqueueHook;
+}
+
+/** Register a deployed agent with its pins, by the deploy rule (`deployVersion`). */
+export async function publishDeployedAgent(
+  input: PublishDeployedAgentInput,
+): Promise<DeployedVersionOutcome> {
+  const { agents, tenantId, projectId, agent, pins, enqueueTuples } = input;
+  return deployVersion<Agent>({
+    label: `agent "${agent.id as unknown as string}"`,
+    definition: agent,
+    pins,
+    pinsDigest: pinsDigest(pins),
+    existing: await allVersions(agents, tenantId, agent.id),
+    publish: async (version) => {
+      const outcome = await agents.publish({ tenantId, projectId, agent: version, enqueueTuples });
+      if (outcome.kind === 'ok') return 'ok';
+      return outcome.kind === 'project-not-found' ? 'skipped' : 'taken';
+    },
+  });
+}
+
+/** Every active version of an agent. */
+async function allVersions(
+  agents: AgentRegistryBinding,
+  tenantId: TenantId,
+  agentId: AgentId,
+): Promise<readonly Agent[]> {
+  const versions: Agent[] = [];
+  let cursor: Cursor | undefined;
+  do {
+    const page = await agents.listVersions({
+      tenantId,
+      agentId,
+      limit: VERSIONS_PAGE,
+      ...(cursor !== undefined && { cursor }),
+    });
+    versions.push(...page.data);
     cursor = page.nextCursor;
   } while (cursor !== undefined);
   return versions;

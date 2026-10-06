@@ -1536,6 +1536,65 @@ class AgentPins(BaseModel):
     """
 
 
+class PinChange(BaseModel):
+    """
+    One pin that differs between two versions of an agent or a flow.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["tool", "prompt", "setting", "agent"]
+    id: str
+    from_: Annotated[str | None, Field(alias="from")] = None
+    """
+    The earlier version's pin; absent when it had none.
+    """
+    to: str | None = None
+    """
+    The later version's pin; absent when it has none.
+    """
+
+
+class VersionDerivation(BaseModel):
+    """
+    Set by the runtime on an agent or flow version a deploy registered in place of the definition's version, which was registered already with other pins or content (versions never change). Never in the publish body.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    version: str
+    """
+    The version the definition names.
+    """
+    reason: Literal["pins-changed", "unpinned", "version-taken"]
+    """
+    `pins-changed`: a block it uses has a new version; `unpinned`: the definition's version was published before pins existed; `version-taken`: the definition's version holds another definition.
+    """
+
+
+class FlowPins(BaseModel):
+    """
+    The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs, and each agent it runs at no named version, resolves once to its latest version then, which every run of that flow version uses. Absent on a version published before pins existed (it binds the latest versions per run).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tools: dict[str, str]
+    """
+    Tool id → exact version.
+    """
+    agents: dict[str, str]
+    """
+    Agent id → exact version, for agent nodes that name no version.
+    """
+
+
 class PublishAgentBody(BaseModel):
     """
     Full `defineAgent` spec. Validated server-side via `@kindgi/agents.defineAgent` — validation failures return `400 validation-failed` with the issue list under `details.issues`.
@@ -1665,6 +1724,14 @@ class Flow(BaseModel):
     edges: list[FlowEdge]
     max_parallelism: Annotated[int | None, Field(alias="maxParallelism", ge=1)] = None
     metadata: dict[str, Any] | None = None
+    pins: FlowPins | None = None
+    pins_digest: Annotated[
+        str | None, Field(alias="pinsDigest", pattern="^sha256:[0-9a-f]{64}$")
+    ] = None
+    """
+    Set by the runtime with `pins`: `sha256:<hex>` of the pins' canonical JSON (sorted keys, no whitespace).
+    """
+    derived_from: Annotated[VersionDerivation | None, Field(alias="derivedFrom")] = None
 
 
 class PublishFlowBody(BaseModel):
@@ -4595,9 +4662,25 @@ class Agent1(BaseModel):
         populate_by_name=True,
     )
     id: str
-    version: str | None = None
+    version: str
     """
-    Absent for guardrails, which have no version.
+    The version the agent is registered as.
+    """
+    authored_version: Annotated[str | None, Field(alias="authoredVersion")] = None
+    """
+    The version the agent's or flow's definition names, present when it differs from `version`: that version was registered already with other pins or content, and versions never change, so the deploy registered the next free version in its line (or an earlier deploy did).
+    """
+    reason: Literal["pins-changed", "unpinned", "version-taken"] | None = None
+    """
+    Why `version` differs from `authoredVersion`: `pins-changed` (a tool or agent it uses has a new version), `unpinned` (`authoredVersion` was published before pins existed), `version-taken` (`authoredVersion` is registered with other content).
+    """
+    new_version: Annotated[bool | None, Field(alias="newVersion")] = None
+    """
+    `true`: this deploy registered `version`; `false`: an earlier deploy did.
+    """
+    pin_changes: Annotated[list[PinChange] | None, Field(alias="pinChanges")] = None
+    """
+    For `pins-changed`: the pins that differ from `authoredVersion`'s.
     """
 
 
@@ -4607,9 +4690,25 @@ class Flow1(BaseModel):
         populate_by_name=True,
     )
     id: str
-    version: str | None = None
+    version: str
     """
-    Absent for guardrails, which have no version.
+    The version the agent is registered as.
+    """
+    authored_version: Annotated[str | None, Field(alias="authoredVersion")] = None
+    """
+    The version the agent's or flow's definition names, present when it differs from `version`: that version was registered already with other pins or content, and versions never change, so the deploy registered the next free version in its line (or an earlier deploy did).
+    """
+    reason: Literal["pins-changed", "unpinned", "version-taken"] | None = None
+    """
+    Why `version` differs from `authoredVersion`: `pins-changed` (a tool or agent it uses has a new version), `unpinned` (`authoredVersion` was published before pins existed), `version-taken` (`authoredVersion` is registered with other content).
+    """
+    new_version: Annotated[bool | None, Field(alias="newVersion")] = None
+    """
+    `true`: this deploy registered `version`; `false`: an earlier deploy did.
+    """
+    pin_changes: Annotated[list[PinChange] | None, Field(alias="pinChanges")] = None
+    """
+    For `pins-changed`: the pins that differ from `authoredVersion`'s.
     """
 
 
@@ -6576,6 +6675,7 @@ class Agent(BaseModel):
     output: AgentOutputSpec | None = None
     tool_errors: Annotated[ToolErrorsSpec | None, Field(alias="toolErrors")] = None
     pins: AgentPins | None = None
+    derived_from: Annotated[VersionDerivation | None, Field(alias="derivedFrom")] = None
     pins_digest: Annotated[
         str | None, Field(alias="pinsDigest", pattern="^sha256:[0-9a-f]{64}$")
     ] = None
