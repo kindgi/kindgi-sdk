@@ -9662,7 +9662,7 @@
         }
       },
       "EvalBaseline": {
-        "description": "What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`). Only `'recorded'` runs today; the others are refused when the run starts.",
+        "description": "What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.",
         "oneOf": [
           {
             "type": "string",
@@ -9701,10 +9701,12 @@
                     "type": "string"
                   },
                   "segments": {
-                    "type": "object",
-                    "additionalProperties": {
-                      "type": "string"
-                    }
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/ScopeSegment"
+                    },
+                    "maxItems": 8,
+                    "description": "A segment path in `projectId`, coarse to fine, as live versions resolve it. Needs `projectId`."
                   }
                 }
               }
@@ -11525,7 +11527,6 @@
           "secret-hard-revoked",
           "hitl-decision",
           "agent-promotion",
-          "agent-promotion-refused",
           "agent-rollback",
           "agent-live-unpinned",
           "agent-live-pin-inactive"
@@ -11677,7 +11678,6 @@
               "secret-hard-revoked",
               "hitl-decision",
               "agent-promotion",
-              "agent-promotion-refused",
               "agent-rollback",
               "agent-live-unpinned",
               "agent-live-pin-inactive"
@@ -11852,7 +11852,6 @@
               "secret-hard-revoked",
               "hitl-decision",
               "agent-promotion",
-              "agent-promotion-refused",
               "agent-rollback",
               "agent-live-unpinned",
               "agent-live-pin-inactive"
@@ -11927,7 +11926,6 @@
                   "secret-hard-revoked",
                   "hitl-decision",
                   "agent-promotion",
-                  "agent-promotion-refused",
                   "agent-rollback",
                   "agent-live-unpinned",
                   "agent-live-pin-inactive"

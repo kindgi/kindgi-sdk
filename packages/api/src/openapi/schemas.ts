@@ -5384,7 +5384,7 @@ export const EvalRunFlowRefSchema: JsonSchema = {
 
 export const EvalBaselineSchema: JsonSchema = {
   description:
-    "What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`). Only `'recorded'` runs today; the others are refused when the run starts.",
+    "What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.",
   oneOf: [
     { type: 'string', enum: ['recorded'] },
     {
@@ -5403,7 +5403,13 @@ export const EvalBaselineSchema: JsonSchema = {
           additionalProperties: false,
           properties: {
             projectId: { type: 'string' },
-            segments: { type: 'object', additionalProperties: { type: 'string' } },
+            segments: {
+              type: 'array',
+              items: { $ref: '#/components/schemas/ScopeSegment' },
+              maxItems: 8,
+              description:
+                'A segment path in `projectId`, coarse to fine, as live versions resolve it. Needs `projectId`.',
+            },
           },
         },
       },

@@ -59,8 +59,8 @@ describe('kindgi eval-runs start', () => {
       '--agent-version=2.0.0',
       '--baseline=live',
       '--baseline-project=p-2',
-      '--baseline-segment=region=eu',
-      '--baseline-segment=tier=gold',
+      '--baseline-segment=tier:gold',
+      '--baseline-segment=region:eu',
       '--reads=live',
       '--repetitions=3',
       '--k=5',
@@ -73,7 +73,16 @@ describe('kindgi eval-runs start', () => {
         'acme.matches',
         {
           agentRef: { agentId: 'acme.triage', version: '2.0.0' },
-          baseline: { live: { projectId: 'p-2', segments: { region: 'eu', tier: 'gold' } } },
+          baseline: {
+            live: {
+              projectId: 'p-2',
+              // A path, in the order given: coarse to fine.
+              segments: [
+                { key: 'tier', value: 'gold' },
+                { key: 'region', value: 'eu' },
+              ],
+            },
+          },
           reads: 'live',
           repetitions: 3,
           k: 5,
@@ -243,8 +252,8 @@ describe('kindgi eval-runs start', () => {
 
   test('errors: --baseline-segment or --baseline-project without --baseline=live', async () => {
     for (const extra of [
-      ['--baseline-segment=region=eu'],
-      ['--baseline=recorded', '--baseline-segment=region=eu'],
+      ['--baseline-segment=region:eu'],
+      ['--baseline=recorded', '--baseline-segment=region:eu'],
       ['--baseline-project=p-2'],
     ]) {
       const { out, calls } = await start(['--agent=a', ...extra]);
@@ -254,12 +263,27 @@ describe('kindgi eval-runs start', () => {
     }
   });
 
-  test('errors: a malformed segment', async () => {
-    for (const bad of ['region', 'region=', '=eu']) {
-      const { out } = await start(['--agent=a', '--baseline=live', `--baseline-segment=${bad}`]);
+  test('errors: a malformed segment, or a segment without --baseline-project', async () => {
+    for (const bad of ['region', 'region:', ':eu']) {
+      const { out } = await start([
+        '--agent=a',
+        '--baseline=live',
+        '--baseline-project=p-2',
+        `--baseline-segment=${bad}`,
+      ]);
       expect(out.exitCode).toBe(1);
-      expect(out.stderr).toContain('--baseline-segment must be <key>=<value>');
+      expect(out.stderr).toContain('--baseline-segment must be key:value');
     }
+    const { out, calls } = await start([
+      '--agent=a',
+      '--baseline=live',
+      '--baseline-segment=tier:gold',
+    ]);
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      '--baseline-segment is a segment path in a project: it needs --baseline-project',
+    );
+    expect(calls).toEqual([]);
   });
 
   test('errors: a malformed --baseline', async () => {

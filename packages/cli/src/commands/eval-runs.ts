@@ -5,7 +5,14 @@ import { type FlowRefs, type FlowVersionOverrides, overridableRefs } from '@kind
 import type { FlowId } from '@kindgi/types';
 
 import type { CommandContext } from '../context.js';
-import { integerFlag, listFlag, requiredPositional, runSdk, stringFlag } from './helpers.js';
+import {
+  integerFlag,
+  listFlag,
+  requiredPositional,
+  runSdk,
+  segmentsFlag,
+  stringFlag,
+} from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
 const STATUSES = ['pending', 'running', 'completed', 'failed', 'cancelled'] as const;
@@ -55,36 +62,35 @@ export async function followEvalRun<T extends { readonly status: string }>(
 type Baseline =
   | 'recorded'
   | { agentId: string; version: string }
-  | { live: { projectId?: string; segments?: Record<string, string> } };
-
-/** `--baseline=live` with `--baseline-project` and `--baseline-segment`. */
-function liveBaseline(project: string | undefined, segmentFlags: readonly string[]): Baseline {
-  const segments: Record<string, string> = {};
-  for (const entry of segmentFlags) {
-    const at = entry.indexOf('=');
-    if (at < 1 || at === entry.length - 1) {
-      throw new Error(`--baseline-segment must be <key>=<value>, got "${entry}"`);
-    }
-    segments[entry.slice(0, at)] = entry.slice(at + 1);
-  }
-  return {
-    live: {
-      ...(project !== undefined && { projectId: project }),
-      ...(segmentFlags.length > 0 && { segments }),
-    },
-  };
-}
+  | {
+      live: {
+        projectId?: string;
+        segments?: { key: string; value: string }[];
+      };
+    };
 
 /** `--baseline` with `--baseline-project` and `--baseline-segment`, as the request's `baseline`. */
 function baselineFrom(ctx: CommandContext): Baseline | undefined {
   const baseline = stringFlag(ctx, 'baseline');
   const project = stringFlag(ctx, 'baseline-project');
-  const segmentFlags = listFlag(ctx, 'baseline-segment');
-  if (baseline !== 'live' && (project !== undefined || segmentFlags.length > 0)) {
+  const segments = segmentsFlag(ctx, 'baseline-segment');
+  if (baseline !== 'live' && (project !== undefined || segments.length > 0)) {
     throw new Error('--baseline-project and --baseline-segment need --baseline=live');
   }
+  if (segments.length > 0 && project === undefined) {
+    throw new Error(
+      '--baseline-segment is a segment path in a project: it needs --baseline-project',
+    );
+  }
   if (baseline === undefined || baseline === 'recorded') return baseline;
-  if (baseline === 'live') return liveBaseline(project, segmentFlags);
+  if (baseline === 'live') {
+    return {
+      live: {
+        ...(project !== undefined && { projectId: project }),
+        ...(segments.length > 0 && { segments: [...segments] }),
+      },
+    };
+  }
   const at = baseline.lastIndexOf('@');
   if (at < 1 || at === baseline.length - 1) {
     throw new Error(`--baseline must be recorded, live or <agentId>@<version>, got "${baseline}"`);
@@ -182,7 +188,7 @@ const start: LeafCommand = {
   description:
     "Start an eval run. On a test set (a `judged` suite), the run compares a version (`--agent` with `--agent-version`, or `--flow` with `--flow-version`) with the recorded runs: each case is replayed without doing anything the past run didn't, and the result's summary has the metrics.",
   usage:
-    'kindgi eval-runs start <suite-id> --project=<id> (--agent=<id> [--agent-version=<v>] | --flow=<id> [--flow-version=<v>] [--with=<id>@<version> ...]) [--baseline=recorded|<agentId>@<version>|live] [--baseline-project=<id>] [--baseline-segment=<key>=<value> ...] [--reads=recorded|live] [--repetitions=<n>] [--k=<n>] [--dry-run] [--wait]',
+    'kindgi eval-runs start <suite-id> --project=<id> (--agent=<id> [--agent-version=<v>] | --flow=<id> [--flow-version=<v>] [--with=<id>@<version> ...]) [--baseline=recorded|<agentId>@<version>|live] [--baseline-project=<id>] [--baseline-segment=<key>:<value> ...] [--reads=recorded|live] [--repetitions=<n>] [--k=<n>] [--dry-run] [--wait]',
   optionSpec: {
     project: { type: 'string', description: 'The project the run belongs to. Required.' },
     agent: { type: 'string', description: 'Run this agent.' },
@@ -214,7 +220,7 @@ const start: LeafCommand = {
       type: 'string',
       multiple: true,
       description:
-        'With `--baseline=live`: the version live for this segment, as `<key>=<value>`. Repeat the flag for several.',
+        'With `--baseline=live` and `--baseline-project`: the version live for this segment path, one `<key>:<value>` step per flag, coarse to fine (e.g. `--baseline-segment=company:acme --baseline-segment=role:buyer`).',
     },
     reads: {
       type: 'string',

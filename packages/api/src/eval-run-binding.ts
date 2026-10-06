@@ -4,7 +4,16 @@
 import type { AgentId } from '@kindgi/agents';
 import type { FlowVersionOverrides } from '@kindgi/flow';
 import type { Scope } from '@kindgi/platform';
-import type { Cursor, FlowId, ProjectId, RunId, Semver, TenantId, Timestamp } from '@kindgi/types';
+import type {
+  Cursor,
+  FlowId,
+  ProjectId,
+  RunId,
+  ScopeSegment,
+  Semver,
+  TenantId,
+  Timestamp,
+} from '@kindgi/types';
 
 import type { EvalKind } from './eval-suite-binding.js';
 
@@ -123,7 +132,8 @@ export interface EvalRunFilter {
  * What a comparison eval run compares the candidate against:
  *   - `'recorded'`: the output each case recorded (what was judged);
  *   - `{ agentId, version }`: that version, replayed under the same rules;
- *   - `{ live }`: the version live in a scope (a project, segments).
+ *   - `{ live }`: the version live in a scope: a project, and a segment
+ *     path in it (coarse to fine, as live versions resolve it).
  */
 export type EvalBaseline =
   | 'recorded'
@@ -131,7 +141,8 @@ export type EvalBaseline =
   | {
       readonly live: {
         readonly projectId?: ProjectId;
-        readonly segments?: Readonly<Record<string, string>>;
+        /** A segment path in `projectId`, coarse to fine. */
+        readonly segments?: readonly ScopeSegment[];
       };
     };
 

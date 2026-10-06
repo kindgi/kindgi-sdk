@@ -5212,7 +5212,7 @@ class EvalRunFlowRef(BaseModel):
 
 class EvalBaseline1(BaseModel):
     """
-    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`). Only `'recorded'` runs today; the others are refused when the run starts.
+    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
     """
 
     model_config = ConfigDict(
@@ -5229,12 +5229,15 @@ class Live(BaseModel):
         populate_by_name=True,
     )
     project_id: Annotated[str | None, Field(alias="projectId")] = None
-    segments: dict[str, str] | None = None
+    segments: Annotated[list[ScopeSegment] | None, Field(max_length=8)] = None
+    """
+    A segment path in `projectId`, coarse to fine, as live versions resolve it. Needs `projectId`.
+    """
 
 
 class EvalBaseline2(BaseModel):
     """
-    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`). Only `'recorded'` runs today; the others are refused when the run starts.
+    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
     """
 
     model_config = ConfigDict(
@@ -5255,7 +5258,7 @@ class EvalComparison(BaseModel):
     )
     baseline: Literal["recorded"] | EvalBaseline1 | EvalBaseline2
     """
-    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`). Only `'recorded'` runs today; the others are refused when the run starts.
+    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
     """
     reads: Literal["recorded", "live"]
     """
@@ -5688,7 +5691,7 @@ class StartEvalRunBody(BaseModel):
     correlation_id: Annotated[str | None, Field(alias="correlationId")] = None
     baseline: Literal["recorded"] | EvalBaseline1 | EvalBaseline2 | None = None
     """
-    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`). Only `'recorded'` runs today; the others are refused when the run starts.
+    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
     """
     reads: Literal["recorded", "live"] | None = None
     repetitions: Annotated[int | None, Field(ge=1, le=10)] = None
@@ -6220,7 +6223,6 @@ class EvidenceKind(RootModel[str]):
                 "secret-hard-revoked",
                 "hitl-decision",
                 "agent-promotion",
-                "agent-promotion-refused",
                 "agent-rollback",
                 "agent-live-unpinned",
                 "agent-live-pin-inactive",
@@ -6372,7 +6374,6 @@ class ComplianceEvidence(BaseModel):
                 "secret-hard-revoked",
                 "hitl-decision",
                 "agent-promotion",
-                "agent-promotion-refused",
                 "agent-rollback",
                 "agent-live-unpinned",
                 "agent-live-pin-inactive",
@@ -6449,7 +6450,6 @@ class ExportComplianceEvidenceFilter(BaseModel):
                 "secret-hard-revoked",
                 "hitl-decision",
                 "agent-promotion",
-                "agent-promotion-refused",
                 "agent-rollback",
                 "agent-live-unpinned",
                 "agent-live-pin-inactive",
@@ -6508,7 +6508,6 @@ class Filter(BaseModel):
                 "secret-hard-revoked",
                 "hitl-decision",
                 "agent-promotion",
-                "agent-promotion-refused",
                 "agent-rollback",
                 "agent-live-unpinned",
                 "agent-live-pin-inactive",

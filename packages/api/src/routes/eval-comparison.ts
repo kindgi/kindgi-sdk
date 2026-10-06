@@ -7,6 +7,7 @@ import type { ProjectId, Semver } from '@kindgi/types';
 
 import type { EvalBaseline, EvalComparison } from '../eval-run-binding.js';
 import { DEFAULT_COMPARISON } from '../judged-dispatcher.js';
+import { parseSegmentsBody } from './segments.js';
 
 const MAX_REPETITIONS = 10;
 const MAX_K = 100;
@@ -20,19 +21,18 @@ function obj(value: unknown): Record<string, unknown> | undefined {
 function parseLive(raw: unknown): EvalBaseline | string {
   const live = obj(raw);
   if (live === undefined) return '`baseline.live` must be an object';
-  const segments = live.segments === undefined ? undefined : obj(live.segments);
-  const stringsOnly =
-    segments !== undefined && Object.values(segments).every((v) => typeof v === 'string');
-  if (live.segments !== undefined && !stringsOnly) {
-    return '`baseline.live.segments` must be an object of strings';
-  }
   if (live.projectId !== undefined && typeof live.projectId !== 'string') {
     return '`baseline.live.projectId` must be a string';
+  }
+  const path = parseSegmentsBody(live.segments, 'baseline.live.segments');
+  if (path.kind === 'err') return path.message;
+  if (path.segments !== undefined && live.projectId === undefined) {
+    return '`baseline.live.segments` is a segment path in a project: it needs `baseline.live.projectId`';
   }
   return {
     live: {
       ...(typeof live.projectId === 'string' && { projectId: live.projectId as ProjectId }),
-      ...(segments !== undefined && { segments: segments as Record<string, string> }),
+      ...(path.segments !== undefined && { segments: path.segments }),
     },
   };
 }
