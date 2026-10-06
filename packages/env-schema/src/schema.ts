@@ -162,6 +162,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_PUBLIC_URL',
+    description:
+      "The URL clients reach the API server at, when it isn't the address the server binds: behind a proxy or a load balancer, or in a container whose port is published on another one (`kindgi dev` sets it). The startup banner names it, with the docs and console links. An http(s) URL with no query or fragment. Default: the address the server binds.",
+    example: 'https://kindgi.example.com',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_DATABASE_URL',
     description:
       'Postgres connection string. Default `postgres://localhost:5432/kindgi` (dev only).',

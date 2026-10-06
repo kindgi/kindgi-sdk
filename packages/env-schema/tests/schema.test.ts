@@ -125,10 +125,12 @@ describe('envVarsForTarget', () => {
     ).toBe(false);
   });
 
-  test("the server's bind host and its development settings: optional, server only", () => {
+  test("the server's bind host, its public URL and its development settings: optional, server only", () => {
     const server = envVarsForTarget({});
     const host = server.find((v) => v.name === 'KINDGI_API_HOST');
     expect(host).toMatchObject({ group: 'core', required: false });
+    const publicUrl = server.find((v) => v.name === 'KINDGI_PUBLIC_URL');
+    expect(publicUrl).toMatchObject({ group: 'core', required: false });
     for (const name of ['KINDGI_PACK_DIR', 'KINDGI_DEV_CONSOLE_LOGIN', 'KINDGI_DEV_HOST_ALIAS']) {
       expect(server.find((v) => v.name === name)).toMatchObject({ group: 'dev', required: false });
     }
@@ -141,6 +143,7 @@ describe('envVarsForTarget', () => {
     const packService = envVarsForTarget({ component: 'pack-service' }).map((v) => v.name);
     for (const name of [
       'KINDGI_API_HOST',
+      'KINDGI_PUBLIC_URL',
       'KINDGI_PACK_DIR',
       'KINDGI_DEV_CONSOLE_LOGIN',
       'KINDGI_DEV_HOST_ALIAS',

@@ -31,6 +31,12 @@ export interface RuntimeEnvInput {
   /** `KINDGI_API_HOST`: bind loopback (Linux host networking, or a server on the host). */
   readonly apiHost?: string;
   /**
+   * `KINDGI_PUBLIC_URL`: where the developer reaches the runtime
+   * (`http://127.0.0.1:<port>`), which its banner names. In a container
+   * that's the published port, not the one the runtime binds.
+   */
+  readonly publicUrl: string;
+  /**
    * `KINDGI_DEV_HOST_ALIAS`: where loopback calls go when the runtime
    * can't see the host's loopback (Docker Desktop: `host.docker.internal`).
    */
@@ -70,6 +76,7 @@ export function buildRuntimeEnv(input: RuntimeEnvInput): Record<string, string> 
     KINDGI_ENV: LOCAL_ENV_NAME,
     KINDGI_API_PORT: String(input.apiPort),
     ...(input.apiHost !== undefined && { KINDGI_API_HOST: input.apiHost }),
+    KINDGI_PUBLIC_URL: input.publicUrl,
     ...(input.hostAlias !== undefined && { KINDGI_DEV_HOST_ALIAS: input.hostAlias }),
     KINDGI_DATABASE_URL: input.databaseUrl,
     KINDGI_TENANT_ID: input.tenantId,
