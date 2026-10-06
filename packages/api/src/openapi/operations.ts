@@ -31,6 +31,12 @@ export interface ParameterSpec {
   readonly required?: boolean;
   readonly description?: string;
   readonly schema: JsonSchema;
+  /**
+   * A segment path, one `key:value` per repeated value, coarse to fine.
+   * Emitted as `x-kindgi-segment-path: true`; a generated client takes
+   * `{key, value}` steps and writes the values itself.
+   */
+  readonly segmentPath?: boolean;
 }
 
 export interface ResponseSpec {
@@ -190,6 +196,7 @@ const SegmentQueryParam: ParameterSpec = {
   required: false,
   description: 'One step of the segment path, `key:value`; repeat it in order, coarse to fine.',
   schema: { type: 'array', items: { type: 'string' } },
+  segmentPath: true,
 };
 
 const PromotionScopeKindQueryParam: ParameterSpec = {

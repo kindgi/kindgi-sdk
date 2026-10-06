@@ -18009,7 +18009,8 @@
               }
             },
             "required": false,
-            "description": "One step of the segment path, `key:value`; repeat it in order, coarse to fine."
+            "description": "One step of the segment path, `key:value`; repeat it in order, coarse to fine.",
+            "x-kindgi-segment-path": true
           }
         ],
         "security": [
@@ -18309,7 +18310,8 @@
               }
             },
             "required": false,
-            "description": "One step of the segment path, `key:value`; repeat it in order, coarse to fine."
+            "description": "One step of the segment path, `key:value`; repeat it in order, coarse to fine.",
+            "x-kindgi-segment-path": true
           }
         ],
         "security": [
@@ -18482,7 +18484,8 @@
               }
             },
             "required": false,
-            "description": "One step of the segment path, `key:value`; repeat it in order, coarse to fine."
+            "description": "One step of the segment path, `key:value`; repeat it in order, coarse to fine.",
+            "x-kindgi-segment-path": true
           }
         ],
         "security": [
@@ -18598,7 +18601,8 @@
               }
             },
             "required": false,
-            "description": "One step of the segment path, `key:value`; repeat it in order, coarse to fine."
+            "description": "One step of the segment path, `key:value`; repeat it in order, coarse to fine.",
+            "x-kindgi-segment-path": true
           }
         ],
         "security": [

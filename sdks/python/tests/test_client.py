@@ -191,19 +191,38 @@ def test_conversations_list_takes_replays() -> None:
     assert dict(seen[1].url.params) == {"replays": "only"}
 
 
-def test_a_list_query_parameter_repeats_its_key_in_order() -> None:
+def test_a_segment_path_is_its_steps_written_in_order() -> None:
+    # `{key, value}` steps, as TypeScript and `runs.start` take them; each a
+    # model or a mapping, written as repeated `segment=key:value`.
     project = "0b9f4c1e-1111-4a2b-8c3d-000000000001"
     api, seen = client(
-        lambda _r: httpx.Response(
-            200, json={"agentId": "acme.drafter", "version": "1.1.0", "via": "latest"}
+        lambda r: httpx.Response(
+            200,
+            json={"agentId": "acme.drafter", "version": "1.1.0", "via": "latest"}
+            if r.url.path.endswith("/live")
+            else {"data": [], "hasMore": False},
         )
     )
     resolved = api.agents.live.resolve(
-        "acme.drafter", project_id=project, segment=["company:acme", "role:counsel"]
+        "acme.drafter",
+        project_id=project,
+        segments=[
+            {"key": "company", "value": "acme"},
+            models.ScopeSegment(key="role", value="counsel"),
+        ],
     )
     assert resolved.via == "latest"
     assert seen[0].url.params.get_list("segment") == ["company:acme", "role:counsel"]
     assert seen[0].url.params["projectId"] == project
+    api.agents.promotions.list(
+        "acme.drafter",
+        scope_kind="segment",
+        scope_id=project,
+        segments=[{"key": "company", "value": "acme"}],
+    )
+    assert seen[1].url.params.get_list("segment") == ["company:acme"]
+    api.agents.live.resolve("acme.drafter", project_id=project)
+    assert "segment" not in seen[2].url.params
 
 
 @pytest.mark.parametrize(

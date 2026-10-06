@@ -77,6 +77,7 @@ class Param:
     required: bool
     annotation: str
     description: str
+    encode: str | None = None  # a `_base` helper that writes the wire value
 
 
 @dataclass
@@ -166,6 +167,21 @@ def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]
                 py = {"Idempotency-Key": "idempotency_key", "Last-Event-Id": "last_event_id"}.get(
                     p["name"], snake(p["name"].removeprefix("X-").replace("-", "_"))
                 )
+                if p.get("x-kindgi-segment-path"):
+                    # A segment path: `{key, value}` steps, as TypeScript and
+                    # `runs.start` take it, written as repeated `key:value`.
+                    params.append(
+                        Param(
+                            name=p["name"],
+                            py="segments",
+                            where=p["in"],
+                            required=bool(p.get("required", False)),
+                            annotation="Sequence[_models.ScopeSegment | Mapping[str, str]]",
+                            description=p.get("description", ""),
+                            encode="_segments",
+                        )
+                    )
+                    continue
                 params.append(
                     Param(
                         name=p["name"],
@@ -289,7 +305,11 @@ def signature(op: Operation, asynchronous: bool) -> str:
 
 def call(op: Operation, asynchronous: bool) -> str:
     def mapping(where: str) -> str:
-        items = [f'"{p.name}": {p.py}' for p in op.params if p.where == where]
+        items = [
+            f'"{p.name}": {p.encode}({p.py})' if p.encode else f'"{p.name}": {p.py}'
+            for p in op.params
+            if p.where == where
+        ]
         return "{" + ", ".join(items) + "}"
 
     args = [f'_OPERATIONS["{op.id}"]', f"path={mapping('path')}", f"query={mapping('query')}"]
@@ -344,11 +364,11 @@ def render_resources(root: Resource, ops: list[Operation]) -> str:
         HEADER,
         "from __future__ import annotations",
         "",
-        "from collections.abc import AsyncIterator, Iterator, Mapping",
+        "from collections.abc import AsyncIterator, Iterator, Mapping, Sequence",
         "from typing import Any, Literal, cast",
         "",
         "from . import _models",
-        "from ._base import AsyncClientBase, Operation, SyncClientBase, _body",
+        "from ._base import AsyncClientBase, Operation, SyncClientBase, _body, _segments",
         "",
         '__all__ = ["OPERATIONS", "AsyncResources", "Resources"]',
         "",
