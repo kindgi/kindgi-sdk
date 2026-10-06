@@ -468,21 +468,39 @@ export async function runIndexer(
   const guardrails: IndexedGuardrail[] = [];
   const agents: IndexedAgent[] = [];
   const flows: IndexedFlow[] = [];
-  // Which file defined each `kind:id`. A pack defines a primitive once: the
-  // pack service keys them by id, so a second file's would silently replace
-  // the first's. The first (in discovery order) is kept, the second refused,
-  // as the Python indexer does.
-  const owners = new Map<string, string>();
-  const duplicateOf = (kind: string, id: string, relPath: string): IndexerError | undefined => {
-    const owner = owners.get(`${kind}:${id}`);
+  // Per `kind:id`, the versions defined so far and their files. A pack may
+  // hold several versions of one primitive side by side (the pack service
+  // serves each tool by id and version, as an agent version pins the one it
+  // uses), but defines each version once: a second file's would silently
+  // replace the first's. So the same version twice is an error, and so is
+  // an entry with no version next to any other of its id: nothing would
+  // tell them apart. The first (in discovery order) is kept, the second
+  // refused, as the Python indexer does.
+  const owners = new Map<string, Map<string | undefined, string>>();
+  const duplicateOf = (
+    kind: string,
+    id: string,
+    version: string | undefined,
+    relPath: string,
+  ): IndexerError | undefined => {
+    let defined = owners.get(`${kind}:${id}`);
+    if (defined === undefined) {
+      defined = new Map();
+      owners.set(`${kind}:${id}`, defined);
+    }
+    const owner =
+      version === undefined || defined.has(undefined)
+        ? defined.values().next().value
+        : defined.get(version);
     if (owner !== undefined) {
+      const what = `${kind} '${id}'${version !== undefined ? ` version ${version}` : ''}`;
       return {
         code: 'manifest-validation-failed',
-        message: `${relPath}: duplicate ${kind} id '${id}' (also defined in ${owner})`,
+        message: `${relPath}: duplicate ${what} (also defined in ${owner})`,
         filePath: relPath,
       };
     }
-    owners.set(`${kind}:${id}`, relPath);
+    defined.set(version, relPath);
     return undefined;
   };
   const fileErrors: IndexerError[] = [];
@@ -553,7 +571,7 @@ export async function runIndexer(
           fileErrors.push(built.error);
           continue;
         }
-        const duplicate = duplicateOf('tool', built.value.id, relPath);
+        const duplicate = duplicateOf('tool', built.value.id, built.value.version, relPath);
         if (duplicate !== undefined) {
           fileErrors.push(duplicate);
           continue;
@@ -567,7 +585,7 @@ export async function runIndexer(
           fileErrors.push(built.error);
           continue;
         }
-        const duplicate = duplicateOf('guardrail', built.value.id, relPath);
+        const duplicate = duplicateOf('guardrail', built.value.id, undefined, relPath);
         if (duplicate !== undefined) {
           fileErrors.push(duplicate);
           continue;
@@ -581,7 +599,7 @@ export async function runIndexer(
           fileErrors.push(built.error);
           continue;
         }
-        const duplicate = duplicateOf('agent', built.value.id, relPath);
+        const duplicate = duplicateOf('agent', built.value.id, built.value.version, relPath);
         if (duplicate !== undefined) {
           fileErrors.push(duplicate);
           continue;
@@ -595,7 +613,7 @@ export async function runIndexer(
           fileErrors.push(built.error);
           continue;
         }
-        const duplicate = duplicateOf('flow', built.value.id, relPath);
+        const duplicate = duplicateOf('flow', built.value.id, built.value.version, relPath);
         if (duplicate !== undefined) {
           fileErrors.push(duplicate);
           continue;

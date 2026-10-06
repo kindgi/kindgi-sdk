@@ -95,7 +95,8 @@ def run_indexer(
         "agent": [],
         "flow": [],
     }
-    owners: dict[tuple[PrimitiveKind, str], str] = {}
+    # Per (kind, id), the versions defined so far and their files.
+    owners: dict[tuple[PrimitiveKind, str], dict[str | None, str]] = {}
     file_errors: list[dict[str, Any]] = []
     flow_spec = _spec("flow")
 
@@ -143,15 +144,25 @@ def run_indexer(
             if "error" in built:
                 file_errors.append(built["error"])
                 continue
-            owner = owners.get((kind, primitive.id))
+            # Several versions of one primitive may sit side by side (an agent
+            # version pins the one it uses), keyed by the version the index
+            # records (a tool without its own takes the pack's). The same
+            # version twice is an error, and so is an entry with no version
+            # next to any other of its id: nothing would tell them apart.
+            version = built["entry"].get("version")
+            defined = owners.setdefault((kind, primitive.id), {})
+            owner = (
+                next(iter(defined.values()), None)
+                if version is None or None in defined
+                else defined.get(version)
+            )
             if owner is not None:
+                what = f"{kind} '{primitive.id}'" + (f" version {version}" if version else "")
                 file_errors.append(
-                    _manifest_error(
-                        rel_path, f"duplicate {kind} id '{primitive.id}' (also defined in {owner})"
-                    )
+                    _manifest_error(rel_path, f"duplicate {what} (also defined in {owner})")
                 )
                 continue
-            owners[(kind, primitive.id)] = rel_path
+            defined[version] = rel_path
             entries[kind].append(built["entry"])
 
     output = (output_path or pack_dir / "index.json").resolve()
