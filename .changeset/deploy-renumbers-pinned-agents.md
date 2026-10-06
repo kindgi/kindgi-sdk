@@ -1,9 +1,9 @@
 ---
-"@kindgi/api": minor
-"@kindgi/agents": minor
-"@kindgi/tools": minor
-"@kindgi/cli": minor
-"@kindgi/client": minor
+"@kindgi/api": patch
+"@kindgi/agents": patch
+"@kindgi/tools": patch
+"@kindgi/cli": patch
+"@kindgi/client": patch
 ---
 
 **A deploy pins its agents and never keeps a version's old pins.** `POST /v1/deployments` pins each agent as `POST /v1/agents` does. A deploy registers an agent under the version its definition names. When that version is already registered with other pins or content (versions never change), the deploy registers the next free version in its line instead (`1.4.0` → `1.4.1`, `1.4.0-rc.1` → `1.4.0-rc.2`). A deploy never refuses a routine deploy over this.
