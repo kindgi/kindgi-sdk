@@ -175,7 +175,7 @@ One command runs the whole loop on your machine:
 
 | Flag | Purpose |
 |---|---|
-| `--port=<n>` | The port the API is reached on, on `127.0.0.1`. Default `4000`. |
+| `--port=<n>` | The port the API is reached on, on `127.0.0.1`. Default `4000`, or the next free port when it's taken (another `kindgi dev`, say). A `--port` that's taken is refused. |
 | `--database-url=<url>` | The Postgres to use. Falls back to `KINDGI_DATABASE_URL` (the shell's, then the env files'). Without either, the bundled Postgres. |
 | `--tenant=<id>` | Pin the tenant. Default: the project's dev tenant in the bundled Postgres; with `--database-url`, the previous run's (from `.kindgirc.json`), else a new one. The pack's primitives and registered providers stay with it. |
 | `--dev-token=<token>` | Pin the API token. Default: the previous run's, else a new one. Each flag overrides only its own value: `--dev-token` alone keeps the tenant. |
