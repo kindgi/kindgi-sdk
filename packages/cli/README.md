@@ -746,6 +746,7 @@ Inside a pack that `kindgi dev` runs, they find it on their own (see
 | Command | Subcommands |
 |---|---|
 | `projects` | `list`, `get-default`, `get <project-id>`: the ids the `--project=<id>` flags take |
+| `provenance` | `list`, `get <run-id>`: each run's graph of what ran; `export <run-id> --signing-key=<id>`, signed |
 | `conversations` | `list`, `get`, `open <agent-id> <version>`, `close`, `messages` |
 | `runs` | `list`, `get`, `cancel`, `journal`, `stream` (one JSON event per line), `start`, `resume` |
 | `agents` | `publish` |
@@ -772,7 +773,7 @@ false`).
 
 `kindgi <command> --help` prints a command's subcommands and flags.
 
-More of the API (memory, artifacts, provenance, proposals, observations,
+More of the API (memory, artifacts, proposals, observations,
 tokens, capabilities, and listing agents and flows) has
 commands in progress. They're left out of `--help` until they work; until
 then, use [`@kindgi/client`](../../sdks/typescript) for those resources.
