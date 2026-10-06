@@ -87,7 +87,7 @@ export function evaluateGate(input: GateInput): GateResult {
   const { spec, summary } = input;
   const checks: GateCheck[] = [];
   const approval = gateApproval(spec);
-  const required = spec.comparison?.required ?? needsComparison(spec);
+  const required = needsComparison(spec);
 
   if (summary === null) {
     if (required) {

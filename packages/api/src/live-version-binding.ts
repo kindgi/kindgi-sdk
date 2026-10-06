@@ -128,6 +128,11 @@ export type PromotionErrorCode =
   | 'not-pinned'
   /** The scope's live version changed while the gate ran: check again. */
   | 'promotion-superseded'
+  /**
+   * Unpin or rollback: it would leave a scope a gate policy applies to
+   * resolving to the latest version, where publishing goes live ungated.
+   */
+  | 'gate-policy-needs-pin'
   | 'persistence-error';
 
 export interface PromotionError {
@@ -206,7 +211,11 @@ export interface PromotionBinding {
   request?(input: PromotionRequestInput): Promise<Result<Promotion, PromotionError>>;
   /** Back to the scope's previous live version, or a named earlier one. */
   rollback(input: RollbackInput): Promise<Result<Promotion, PromotionError>>;
-  /** Remove the scope's own pin: it falls back to the next scope up. */
+  /**
+   * Remove the scope's own pin: it falls back to the next scope up. With
+   * gate policies, `gate-policy-needs-pin` when that would leave a gated
+   * scope resolving to the latest version.
+   */
   unpin(input: UnpinInput): Promise<Result<Promotion, PromotionError>>;
   list(input: ListPromotionsInput): Promise<{
     readonly data: readonly Promotion[];

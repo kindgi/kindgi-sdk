@@ -241,10 +241,6 @@ class Comparison(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    required: bool | None = None
-    """
-    Whether the promotion must name a comparison (`evalRunId`). Absent: required when the spec checks anything a comparison shows.
-    """
     max_age_hours: Annotated[float | None, Field(alias="maxAgeHours", gt=0.0)] = None
     suite: Suite | None = None
 
@@ -315,7 +311,7 @@ class Approvals(BaseModel):
 
 class GatePolicySpec(BaseModel):
     """
-    What a promotion must show. Every part is optional; an empty spec checks nothing. Unknown keys are refused.
+    What a promotion must show. Every part is optional; an empty spec checks nothing. A promotion must name a comparison (`evalRunId`) exactly when the spec has `comparison`, `evidence`, `metrics` or `replay`. Unknown keys are refused.
     """
 
     model_config = ConfigDict(

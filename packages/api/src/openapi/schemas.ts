@@ -404,17 +404,12 @@ export const GatePolicySpecSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'What a promotion must show. Every part is optional; an empty spec checks nothing. Unknown keys are refused.',
+    'What a promotion must show. Every part is optional; an empty spec checks nothing. A promotion must name a comparison (`evalRunId`) exactly when the spec has `comparison`, `evidence`, `metrics` or `replay`. Unknown keys are refused.',
   properties: {
     comparison: {
       type: 'object',
       additionalProperties: false,
       properties: {
-        required: {
-          type: 'boolean',
-          description:
-            'Whether the promotion must name a comparison (`evalRunId`). Absent: required when the spec checks anything a comparison shows.',
-        },
         maxAgeHours: { type: 'number', exclusiveMinimum: 0 },
         suite: {
           type: 'object',

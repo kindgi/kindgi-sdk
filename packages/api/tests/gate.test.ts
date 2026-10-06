@@ -106,15 +106,8 @@ describe('the comparison', () => {
     expect(check(r, 'comparison.required')?.message).toContain('`evalRunId`');
   });
 
-  test('`required: false` with metrics: no comparison, no metric checks', () => {
-    const r = gate(
-      {
-        comparison: { required: false },
-        metrics: [{ name: 'weightedYesShare', minCandidate: 0.5 }],
-      },
-      { summary: null },
-    );
-    expect(r).toEqual({ checks: [], passed: true });
+  test('approvals alone need no comparison', () => {
+    expect(gate({ approvals: {} }, { summary: null })).toMatchObject({ checks: [], passed: true });
   });
 
   test('a partial comparison passes only within replay.maxErrors; a failed one never', () => {

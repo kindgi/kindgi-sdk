@@ -2037,7 +2037,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '400': ErrorResponse('Validation failed (see `details.issues`).'),
       '409': ErrorResponse(
-        '`gate-policy-already-registered`: that (id, version) exists. `gate-policy-scope-taken`: another policy gates the agent for the scope (`details.heldBy`). `gate-policy-scope-changed`: the version would change the agent or scope.',
+        '`gate-policy-already-registered`: that (id, version) exists. `gate-policy-scope-taken`: another policy gates the agent for the scope (`details.heldBy`). `gate-policy-scope-changed`: the version would change the agent or scope. `gate-policy-scope-unpinned`: nothing covering the scope is pinned, so a published version would go live there ungated; pin a version for the scope, or one above it, first.',
       ),
     },
   },
@@ -2194,7 +2194,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unpinned.', schema: ref('Promotion') },
       ...CommonMutationErrors,
-      '409': ErrorResponse('The scope has no pin of its own.'),
+      '409': ErrorResponse(
+        '`not-pinned`: the scope has no pin of its own. `gate-policy-needs-pin`: unpinning would leave a scope a gate policy applies to on the latest version, where publishing goes live ungated.',
+      ),
     },
   },
 
