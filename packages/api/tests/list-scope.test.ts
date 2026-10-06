@@ -225,3 +225,29 @@ describe('POST /v1/conversations in a project', () => {
     expect(answer.opened).toEqual([]);
   });
 });
+
+describe("GET /v1/conversations leaves a comparison's replay conversations out", () => {
+  test('by default the binding is asked to exclude them', async () => {
+    const answer = await call('/v1/conversations');
+    expect(answer.status).toBe(200);
+    expect(answer.seen.conversations[0]).toMatchObject({ replays: 'exclude' });
+  });
+
+  test('replays=include or only reaches the binding as asked', async () => {
+    for (const replays of ['include', 'only', 'exclude']) {
+      const answer = await call(`/v1/conversations?replays=${replays}`);
+      expect(answer.status).toBe(200);
+      expect(answer.seen.conversations[0]).toMatchObject({ replays });
+    }
+  });
+
+  test('any other value: 400, and no query', async () => {
+    const answer = await call('/v1/conversations?replays=all');
+    expect(answer.status).toBe(400);
+    expect(answer.json.error).toMatchObject({
+      code: 'bad-input',
+      message: '`replays` must be `exclude`, `include` or `only`',
+    });
+    expect(answer.seen.conversations).toEqual([]);
+  });
+});

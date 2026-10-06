@@ -103,6 +103,12 @@ export interface ConversationFilter extends Omit<Filter<ConversationStatus>, 'st
   readonly scope?: ScopeRef;
   readonly agent?: import('@kindgi/types').AgentId;
   readonly participantId?: string;
+  /**
+   * Replay conversations (a comparison's replays, `metadata.replayOf`):
+   * left out by default (`exclude`); `include` lists them with the
+   * others, `only` lists just them.
+   */
+  readonly replays?: 'exclude' | 'include' | 'only';
 }
 
 export interface MessageFilter extends Filter {
@@ -155,6 +161,7 @@ export function makeConversationsClient(transport: Transport): ConversationsClie
           ...(statusParam !== undefined && { status: statusParam }),
           ...(filter?.scope !== undefined && scopeToQuery(filter.scope)),
           ...(filter?.agent !== undefined && { agentId: filter.agent as unknown as string }),
+          ...(filter?.replays !== undefined && { replays: filter.replays }),
         },
       });
       return {

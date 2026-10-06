@@ -1,18 +1,40 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { requiredPositional, runSdk, throwUnwired } from './helpers.js';
+import { integerFlag, requiredPositional, runSdk, stringFlag, throwUnwired } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
+
+const STATUSES = ['open', 'closed'] as const;
+const REPLAYS = ['exclude', 'include', 'only'] as const;
+
+/** `value` as one of `allowed`, or an error naming the flag. */
+function oneOf<T extends string>(
+  flag: string,
+  value: string | undefined,
+  allowed: readonly T[],
+): T | undefined {
+  if (value === undefined) return undefined;
+  if (!(allowed as readonly string[]).includes(value)) {
+    throw new Error(`--${flag} must be one of ${allowed.join(', ')}, got "${value}"`);
+  }
+  return value as T;
+}
 
 const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
-  description: 'List conversations.',
-  usage: 'kindgi conversations list [--status=<status>] [--limit=<n>] [--cursor=<c>]',
+  description: 'List conversations, newest first.',
+  usage:
+    'kindgi conversations list [--status=open|closed] [--replays=exclude|include|only] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
     status: {
       type: 'string',
       description: 'Only the conversations with this status: `open` or `closed`.',
+    },
+    replays: {
+      type: 'string',
+      description:
+        "Replay conversations (a comparison's replays): `exclude` (the default) leaves them out, `include` lists them too, `only` lists just them.",
     },
     limit: { type: 'string', description: 'The most conversations to return.' },
     cursor: {
@@ -20,7 +42,19 @@ const list: LeafCommand = {
       description: "Resume after this cursor, from the previous page's `nextCursor`.",
     },
   },
-  run: (ctx) => runSdk(ctx, 'conversations list', async () => throwUnwired('conversations.list')),
+  run: (ctx) =>
+    runSdk(ctx, 'conversations list', async () => {
+      const status = oneOf('status', stringFlag(ctx, 'status'), STATUSES);
+      const replays = oneOf('replays', stringFlag(ctx, 'replays'), REPLAYS);
+      const limit = integerFlag(ctx, 'limit');
+      const cursor = stringFlag(ctx, 'cursor');
+      return await ctx.client().conversations.list({
+        ...(status !== undefined && { status }),
+        ...(replays !== undefined && { replays }),
+        ...(limit !== undefined && { limit }),
+        ...(cursor !== undefined && { cursor: cursor as never }),
+      });
+    }),
 };
 
 const get: LeafCommand = {

@@ -153,6 +153,15 @@ def test_path_and_query_parameters() -> None:
     assert dict(seen[1].url.params) == {"limit": "5", "topLevel": "true"}
 
 
+def test_conversations_list_takes_replays() -> None:
+    # A comparison's replay conversations are left out unless asked for.
+    api, seen = client(lambda r: httpx.Response(200, json={"data": [], "hasMore": False}))
+    api.conversations.list()
+    api.conversations.list(replays="only")
+    assert dict(seen[0].url.params) == {}
+    assert dict(seen[1].url.params) == {"replays": "only"}
+
+
 @pytest.mark.parametrize(
     ("response", "kind", "check"),
     [

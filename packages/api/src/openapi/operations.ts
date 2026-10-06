@@ -158,6 +158,15 @@ const RunReplaysQueryParam: ParameterSpec = {
   schema: { type: 'string', enum: ['exclude', 'include', 'only'], default: 'exclude' },
 };
 
+const ConversationReplaysQueryParam: ParameterSpec = {
+  name: 'replays',
+  in: 'query',
+  required: false,
+  description:
+    "Replay conversations (opened by a comparison's replay turn; `metadata.replayOf` names the run it replays). `exclude` (default) leaves them out; `include` lists them with the others; `only` lists just them.",
+  schema: { type: 'string', enum: ['exclude', 'include', 'only'], default: 'exclude' },
+};
+
 const RunEvalRunIdQueryParam: ParameterSpec = {
   name: 'evalRunId',
   in: 'query',
@@ -2157,7 +2166,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'conversations.list',
     summary: 'List conversations',
     description:
-      "Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations from before Kindgi 0.1.3 have no project and are listed only without a scope.",
+      "Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, `?replays=exclude|include|only` (default `exclude`: a comparison's replay conversations are left out), and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations from before Kindgi 0.1.3 have no project and are listed only without a scope.",
     tags: ['conversations'],
     security: 'bearer',
     parameters: [
@@ -2167,6 +2176,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ScopeIdQueryParam,
       AgentIdQueryParam,
       ConversationStatusQueryParam,
+      ConversationReplaysQueryParam,
     ],
     responses: {
       '200': {
