@@ -5,6 +5,7 @@ import { type KindgiClient, createClient } from '@kindgi/client';
 
 import type { BuildRunners } from './build/runners.js';
 import type { RegistryAuthSeam } from './commands/auth.js';
+import type { DoctorSeam } from './commands/doctor.js';
 import type { EnvInitInputSeam } from './commands/env.js';
 import type { SecretsValueInputSeam } from './commands/secrets.js';
 import type { ResolvedConfig } from './config.js';
@@ -144,6 +145,11 @@ export interface CommandContext {
    * the new pack). Tests inject it; production leaves it undefined.
    */
   readonly initSeam: InitSeam | undefined;
+  /**
+   * `kindgi doctor`'s tools, `docker` runner, Node version, image and
+   * presets. Tests inject them; production leaves this undefined.
+   */
+  readonly doctorSeam: DoctorSeam | undefined;
 }
 
 export interface InitSeam {
@@ -172,6 +178,7 @@ export interface BuildContextInputs {
   readonly envInitInputSeam?: EnvInitInputSeam;
   readonly registryAuthSeam?: RegistryAuthSeam;
   readonly initSeam?: InitSeam;
+  readonly doctorSeam?: DoctorSeam;
 }
 
 export function buildContext(inputs: BuildContextInputs): CommandContext {
@@ -220,5 +227,6 @@ export function buildContext(inputs: BuildContextInputs): CommandContext {
     envInitInputSeam: inputs.envInitInputSeam,
     registryAuthSeam: inputs.registryAuthSeam,
     initSeam: inputs.initSeam,
+    doctorSeam: inputs.doctorSeam,
   };
 }

@@ -1,0 +1,404 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Kindgi Inc.
+
+/** `kindgi doctor` (T130): each check, from fakes of the tools, Docker, the runtime and the client. */
+
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+
+import { type DoctorReport, type DoctorSeam, MIN_NODE, atLeast } from '../src/commands/doctor.js';
+import type { DockerRunner } from '../src/dev/runtime-container.js';
+import { runCli } from '../src/main.js';
+
+let dir: string;
+let home: string;
+beforeEach(async () => {
+  dir = await mkdtemp(join(tmpdir(), 'kindgi-doctor-'));
+  home = await mkdtemp(join(tmpdir(), 'kindgi-doctor-home-'));
+});
+afterEach(async () => {
+  await rm(dir, { recursive: true, force: true });
+  await rm(home, { recursive: true, force: true });
+});
+
+const IMAGE = 'quay.io/kindgi/runtime:1.0.0@sha256:abc';
+
+/** Docker that is running and can pull the image, unless told otherwise. */
+const dockerThat =
+  (state: 'ok' | 'missing' | 'stopped' | 'no-access'): DockerRunner =>
+  async (args) => {
+    if (state === 'missing') return { code: null, stdout: '', stderr: 'spawn docker ENOENT' };
+    if (args[0] === 'version') {
+      return state === 'stopped'
+        ? {
+            code: 1,
+            stdout: '',
+            stderr: 'Cannot connect to the Docker daemon. Is the docker daemon running?',
+          }
+        : { code: 0, stdout: '27.3.1\n', stderr: '' };
+    }
+    if (state === 'no-access') {
+      return {
+        code: 1,
+        stdout: '',
+        stderr: 'unauthorized: access to the requested resource is not authorized',
+      };
+    }
+    return { code: 0, stdout: '', stderr: '' };
+  };
+
+const TOOLS: Readonly<Record<string, string | null>> = {
+  npm: '10.9.2',
+  python3: 'Python 3.12.4',
+  uv: 'uv 0.5.11 (Homebrew 2024-12-19)',
+};
+
+function seam(
+  over: Partial<DoctorSeam> & { tools?: Record<string, string | null> } = {},
+): DoctorSeam {
+  const tools = { ...TOOLS, ...over.tools };
+  return {
+    nodeVersion: over.nodeVersion ?? '22.12.0',
+    image: IMAGE,
+    docker: over.docker ?? dockerThat('ok'),
+    presets: async () => ({
+      anthropic: {
+        name: 'anthropic',
+        description: '',
+        adapterId: 'x',
+        secret: 'ANTHROPIC_API_KEY',
+        pricesCheckedAt: '',
+        metadata: {} as never,
+      },
+      gemini: {
+        name: 'gemini',
+        description: '',
+        adapterId: 'y',
+        pricesCheckedAt: '',
+        metadata: {} as never,
+      },
+    }),
+    tool: async (command) => {
+      const out = tools[command];
+      return out === undefined || out === null
+        ? { code: null, stdout: '', stderr: `spawn ${command} ENOENT` }
+        : { code: 0, stdout: `${out}\n`, stderr: '' };
+    },
+  };
+}
+
+async function doctor(
+  options: {
+    seam?: DoctorSeam;
+    env?: Record<string, string>;
+    fetchImpl?: typeof fetch;
+    providers?: unknown[] | Error;
+    json?: boolean;
+  } = {},
+) {
+  const out = await runCli({
+    argv: ['doctor', ...(options.json === false ? [] : ['--json'])],
+    env: options.env ?? {},
+    cwd: dir,
+    home,
+    doctorSeam: options.seam ?? seam(),
+    ...(options.fetchImpl !== undefined && { fetchImpl: options.fetchImpl }),
+    clientFactory: () =>
+      ({
+        providers: {
+          list: async () => {
+            if (options.providers instanceof Error) throw options.providers;
+            return { data: options.providers ?? [], hasMore: false };
+          },
+        },
+      }) as never,
+  });
+  const report = options.json === false ? undefined : (JSON.parse(out.stdout) as DoctorReport);
+  const check = (id: string) => report?.checks.find((c) => c.id === id);
+  return { out, report, check };
+}
+
+async function tsProject(options: { installed?: boolean; rc?: object; envLocal?: string } = {}) {
+  await writeFile(join(dir, 'kindgi.config.ts'), 'export default {};\n');
+  await writeFile(join(dir, 'package.json'), '{"name":"acme-pack"}\n');
+  if (options.installed === true)
+    await mkdir(join(dir, 'node_modules', '@kindgi', 'sdk'), { recursive: true });
+  if (options.rc !== undefined)
+    await writeFile(join(dir, '.kindgirc.json'), JSON.stringify(options.rc));
+  if (options.envLocal !== undefined) await writeFile(join(dir, '.env.local'), options.envLocal);
+}
+
+const SECRET = 'sk-ant-do-not-print-me';
+const RC = { apiUrl: 'http://127.0.0.1:4999', token: 'kgi_bt_test', tenantId: 't-1' };
+const healthy: typeof fetch = async () => new Response('{"status":"ok"}', { status: 200 });
+
+describe('outside a project', () => {
+  test('the machine checks run; the project checks skip, saying why; exit 0', async () => {
+    const { out, report, check } = await doctor();
+    expect(out.exitCode).toBe(0);
+    expect(report?.ok).toBe(true);
+    expect(report?.project).toBeNull();
+    expect(report?.checks.map((c) => c.id)).toEqual([
+      'node',
+      'npm',
+      'python',
+      'uv',
+      'docker',
+      'registry',
+      'project',
+      'dependencies',
+      'model-key',
+      'runtime',
+      'provider',
+    ]);
+    expect(check('node')).toMatchObject({ status: 'pass', message: 'Node 22.12.0.' });
+    expect(check('python')).toMatchObject({ status: 'skip' });
+    expect(check('python')?.message).toContain('Python 3.12.4 is installed');
+    expect(check('uv')?.message).toContain('uv 0.5.11 is installed');
+    expect(check('registry')).toMatchObject({ status: 'pass' });
+    expect(check('project')).toMatchObject({ status: 'skip' });
+    expect(check('project')?.fix).toMatch(/^Create one: npx @kindgi\/cli@\S+ init <name> /);
+    for (const id of ['dependencies', 'model-key', 'runtime', 'provider']) {
+      expect(check(id)).toMatchObject({
+        status: 'skip',
+        message: 'Not checked: it needs a project.',
+      });
+    }
+  });
+
+  test('the human report: ✓, – and the closing line', async () => {
+    const { out } = await doctor({ json: false });
+    expect(out.exitCode).toBe(0);
+    expect(out.stdout).toContain('  ✓ Node.js: Node 22.12.0.');
+    expect(out.stdout).toContain('  – Project: No Kindgi project in');
+    expect(out.stdout).toContain('Everything checked is ready.');
+  });
+});
+
+describe('the machine', () => {
+  test('Docker not installed: ✗ with the fix, the image check skipped, exit 1', async () => {
+    const { out, report, check } = await doctor({ seam: seam({ docker: dockerThat('missing') }) });
+    expect(out.exitCode).toBe(1);
+    expect(report?.ok).toBe(false);
+    expect(check('docker')).toMatchObject({ status: 'fail' });
+    expect(check('docker')?.message).toContain("Docker isn't installed");
+    expect(check('docker')?.fix).toContain('install Docker Desktop');
+    expect(check('registry')).toMatchObject({
+      status: 'skip',
+      message: 'Not checked: it needs Docker running.',
+    });
+  });
+
+  test('Docker not running: the fix says to start it; the human report shows ✗ and Fix', async () => {
+    const json = await doctor({ seam: seam({ docker: dockerThat('stopped') }) });
+    expect(json.check('docker')?.message).toContain("Docker isn't running");
+    expect(json.check('docker')?.fix).toBe(
+      'Start Docker Desktop (or the Docker engine), then run this again.',
+    );
+    const text = await doctor({ seam: seam({ docker: dockerThat('stopped') }), json: false });
+    expect(text.out.exitCode).toBe(1);
+    expect(text.out.stdout).toContain("  ✗ Docker: Docker isn't running");
+    expect(text.out.stdout).toContain('      Fix: Start Docker Desktop');
+    expect(text.out.stdout).toContain('1 problem to fix.');
+  });
+
+  test('no pull access: the fix is the registry login, the token piped in', async () => {
+    const { check } = await doctor({ seam: seam({ docker: dockerThat('no-access') }) });
+    expect(check('registry')).toMatchObject({ status: 'fail' });
+    expect(check('registry')?.fix).toMatch(
+      /npx @kindgi\/cli@\S+ auth registry --username <robot name> --password-stdin/,
+    );
+  });
+
+  test('an old Node, and no npm', async () => {
+    const { check } = await doctor({
+      seam: seam({ nodeVersion: '20.11.1', tools: { npm: null } }),
+    });
+    expect(check('node')).toMatchObject({
+      status: 'fail',
+      message: `Node 20.11.1; Kindgi needs ${MIN_NODE} or later.`,
+    });
+    expect(check('npm')).toMatchObject({ status: 'fail' });
+  });
+});
+
+describe('a TypeScript project', () => {
+  test('without its dependencies, a key or a runtime: what to do, in order', async () => {
+    await tsProject();
+    const { out, report, check } = await doctor();
+    expect(out.exitCode).toBe(1);
+    expect(report?.project).toEqual({ dir, language: 'node' });
+    expect(check('project')).toMatchObject({ status: 'pass' });
+    expect(check('project')?.message).toContain("kindgi dev hasn't run here yet");
+    expect(check('dependencies')).toMatchObject({
+      status: 'fail',
+      fix: 'Install them: npm install',
+    });
+    expect(check('model-key')).toMatchObject({ status: 'fail' });
+    expect(check('model-key')?.message).toContain('looked for ANTHROPIC_API_KEY');
+    expect(check('model-key')?.fix).toContain(
+      'kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant',
+    );
+    expect(check('runtime')).toMatchObject({ status: 'skip' });
+    expect(check('provider')).toMatchObject({ status: 'skip' });
+    expect(check('python')?.message).toContain('Not needed (a TypeScript project)');
+  });
+
+  test('the key is named with its file, never its value', async () => {
+    await tsProject({ installed: true, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+    const { out, check } = await doctor();
+    expect(check('dependencies')).toMatchObject({ status: 'pass' });
+    expect(check('model-key')).toMatchObject({
+      status: 'pass',
+      message: 'ANTHROPIC_API_KEY is set in .env.local.',
+    });
+    expect(out.stdout).not.toContain(SECRET);
+    const text = await doctor({ json: false });
+    expect(text.out.stdout).not.toContain(SECRET);
+  });
+
+  test('a key only in the shell: said so, since kindgi dev reads the env files', async () => {
+    await tsProject({ installed: true });
+    const { out, check } = await doctor({ env: { ANTHROPIC_API_KEY: SECRET } });
+    expect(check('model-key')?.message).toContain('ANTHROPIC_API_KEY is set in your shell');
+    expect(out.stdout).not.toContain(SECRET);
+  });
+
+  test('a running runtime with a provider: everything passes, exit 0', async () => {
+    await tsProject({ installed: true, rc: RC, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+    const { out, report, check } = await doctor({
+      fetchImpl: healthy,
+      providers: [{ id: 'anthropic' }],
+    });
+    expect(out.exitCode).toBe(0);
+    expect(report?.ok).toBe(true);
+    expect(check('project')?.message).toContain('kindgi dev has run here (.kindgirc.json)');
+    expect(check('runtime')).toMatchObject({
+      status: 'pass',
+      message: 'The runtime answers at http://127.0.0.1:4999.',
+    });
+    expect(check('provider')).toMatchObject({
+      status: 'pass',
+      message: 'A provider is registered: anthropic.',
+    });
+  });
+
+  test("only kindgi dev's dev-echo: a failure, since it isn't a model", async () => {
+    await tsProject({ installed: true, rc: RC, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+    const only = await doctor({ fetchImpl: healthy, providers: [{ id: 'dev-echo' }] });
+    expect(only.check('provider')).toMatchObject({
+      status: 'fail',
+      message: "Only dev-echo is registered: agents get its canned replies, not a model's.",
+    });
+    const both = await doctor({
+      fetchImpl: healthy,
+      providers: [{ id: 'dev-echo' }, { id: 'anthropic' }],
+    });
+    expect(both.check('provider')).toMatchObject({
+      status: 'pass',
+      message: 'A provider is registered: anthropic.',
+    });
+  });
+
+  test('no provider registered: the register command', async () => {
+    await tsProject({ installed: true, rc: RC, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+    const { out, check } = await doctor({ fetchImpl: healthy, providers: [] });
+    expect(out.exitCode).toBe(1);
+    expect(check('provider')).toMatchObject({ status: 'fail' });
+    expect(check('provider')?.fix).toContain('kindgi providers register --preset=anthropic');
+  });
+
+  test('the runtime: nothing answering is a skip; a wrong answer or a hang is a failure', async () => {
+    await tsProject({ installed: true, rc: RC });
+    const refused: typeof fetch = async () => {
+      throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } });
+    };
+    expect((await doctor({ fetchImpl: refused })).check('runtime')).toMatchObject({
+      status: 'skip',
+      message: 'Not running: nothing answers at http://127.0.0.1:4999.',
+    });
+    const wrong: typeof fetch = async () => new Response('nope', { status: 502 });
+    expect((await doctor({ fetchImpl: wrong })).check('runtime')).toMatchObject({ status: 'fail' });
+    const hang: typeof fetch = async () => {
+      throw Object.assign(new Error('timed out'), { name: 'TimeoutError' });
+    };
+    expect((await doctor({ fetchImpl: hang })).check('runtime')?.message).toContain(
+      "didn't answer within 5 s",
+    );
+  });
+
+  test('a malformed .kindgirc.json: the project check says to delete it', async () => {
+    await tsProject({ installed: true });
+    await writeFile(join(dir, '.kindgirc.json'), '{not json');
+    const { check } = await doctor();
+    expect(check('project')).toMatchObject({
+      status: 'fail',
+      fix: 'Delete .kindgirc.json: kindgi dev writes a new one on its next start.',
+    });
+  });
+
+  test('a pnpm project: the fixes are its own commands (pnpm install, pnpm exec kindgi …)', async () => {
+    await tsProject();
+    await writeFile(join(dir, 'pnpm-lock.yaml'), '');
+    const { check } = await doctor();
+    expect(check('dependencies')?.fix).toBe('Install them: pnpm install');
+    expect(check('model-key')?.fix).toMatch(
+      /^With kindgi dev running: pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant /,
+    );
+    expect(check('runtime')?.fix).toBe(
+      'Start it: pnpm exec kindgi dev (it keeps running; stop it with Ctrl+C).',
+    );
+  });
+});
+
+describe('a Python project', () => {
+  async function pyProject() {
+    await writeFile(
+      join(dir, 'pyproject.toml'),
+      '[project]\nname = "acme"\n\n[tool.kindgi.pack]\nid = "acme"\n',
+    );
+  }
+
+  test('Python and uv are required; without .venv, uv sync', async () => {
+    await pyProject();
+    const { report, check } = await doctor({ seam: seam({ tools: { python3: null, uv: null } }) });
+    expect(report?.project).toEqual({ dir, language: 'python' });
+    expect(check('python')).toMatchObject({ status: 'fail' });
+    expect(check('uv')).toMatchObject({ status: 'fail' });
+    expect(check('uv')?.fix).toContain('astral.sh/uv/install.sh');
+    expect(check('dependencies')).toMatchObject({
+      status: 'fail',
+      fix: 'Install the dependencies: uv sync',
+    });
+  });
+
+  test('installed: Python, uv and the kindgi package in .venv pass', async () => {
+    await pyProject();
+    await mkdir(join(dir, '.venv', 'lib', 'python3.12', 'site-packages', 'kindgi'), {
+      recursive: true,
+    });
+    const { check } = await doctor();
+    expect(check('python')).toMatchObject({ status: 'pass', message: 'Python 3.12.4.' });
+    expect(check('uv')).toMatchObject({ status: 'pass', message: 'uv 0.5.11.' });
+    expect(check('dependencies')).toMatchObject({ status: 'pass' });
+  });
+
+  test('a Python older than 3.11 fails', async () => {
+    await pyProject();
+    const { check } = await doctor({ seam: seam({ tools: { python3: 'Python 3.10.12' } }) });
+    expect(check('python')).toMatchObject({ status: 'fail' });
+  });
+});
+
+test('MIN_NODE is the CLI package’s engines.node', async () => {
+  const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as {
+    engines: { node: string };
+  };
+  expect(pkg.engines.node).toBe(`>=${MIN_NODE}`);
+  expect(atLeast('22.12.0', MIN_NODE)).toBe(true);
+  expect(atLeast('22.11.9', MIN_NODE)).toBe(false);
+  expect(atLeast('v23.0.0', MIN_NODE)).toBe(true);
+});
