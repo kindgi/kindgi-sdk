@@ -25,7 +25,6 @@ export const UNWIRED_COMMANDS: ReadonlySet<string> = new Set([
   'observations',
   'proposals',
   'provenance',
-  'tokens',
   'agents list',
   'agents get',
   'agents unregister',
