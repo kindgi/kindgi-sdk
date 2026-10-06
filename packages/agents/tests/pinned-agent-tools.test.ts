@@ -79,10 +79,21 @@ describe('a turn of a pinned agent version', () => {
     expect((failure as AgentTurnFailure).payload).toMatchObject({
       code: 'tool-version-unresolvable',
       toolId: 'acme.lookup',
-      message: expect.stringContaining(
-        'agent "acme.intake" version 1.4.0 runs version 1.0.0 (its pins)',
-      ),
+      message:
+        'Tool "acme.lookup": agent "acme.intake" version 1.4.0 runs version 1.0.0 (its pins), which isn\'t registered; it doesn\'t run another version.',
     });
+  });
+
+  test("a pinned tool that's gone entirely says that too", () => {
+    let failure: unknown;
+    try {
+      resolveTurnTools(registry(), agent('1.0.0'));
+    } catch (error) {
+      failure = error;
+    }
+    expect((failure as AgentTurnFailure).payload.message).toBe(
+      'Tool "acme.lookup": agent "acme.intake" version 1.4.0 runs version 1.0.0 (its pins), which isn\'t registered; it doesn\'t run another version. No tool registered with id "acme.lookup"',
+    );
   });
 
   test('a version with no pins resolves its range, as before', () => {

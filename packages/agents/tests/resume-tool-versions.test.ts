@@ -143,7 +143,8 @@ describe('a resumed turn and its tool versions', () => {
     expect((failure as AgentTurnFailure).payload).toMatchObject({
       code: 'tool-version-unresolvable',
       toolId: 'pack.lookup',
-      message: expect.stringContaining('this turn started with version 1.0.0'),
+      message:
+        'Tool "pack.lookup": this turn started with version 1.0.0, which is no longer registered; it doesn\'t run another version mid-turn.',
     });
   });
 

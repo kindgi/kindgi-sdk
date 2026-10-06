@@ -85,12 +85,14 @@ function throwUnresolved(
     availableVersions: err.availableVersions,
   };
   if (pin !== undefined) {
+    // The registry's "has no version … registered" would say it twice.
+    const detail = err.code === 'tool-version-not-found' ? '' : ` ${err.message}`;
     throwAgentTurnFailure({
       code: 'tool-version-unresolvable',
       message:
         pinnedBy === 'turn'
-          ? `Tool "${ref.id}": this turn started with version ${pin}, which is no longer registered; it doesn't run another version mid-turn. ${err.message}`
-          : `Tool "${ref.id}": agent "${agent.id}" version ${agent.version} runs version ${pin} (its pins), which isn't registered; it doesn't run another version. ${err.message}`,
+          ? `Tool "${ref.id}": this turn started with version ${pin}, which is no longer registered; it doesn't run another version mid-turn.${detail}`
+          : `Tool "${ref.id}": agent "${agent.id}" version ${agent.version} runs version ${pin} (its pins), which isn't registered; it doesn't run another version.${detail}`,
       toolId: ref.id,
       requestedRange: ref.version,
       ...available,
