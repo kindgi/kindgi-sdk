@@ -10,7 +10,9 @@
  *
  *   - the environment — conversation, approval rules, guardrails, tools,
  *     policies — is resolved again, routed to the provider and model
- *     `setup` journaled;
+ *     `setup` journaled, with the tool versions it journaled (a range
+ *     isn't resolved again: a version published meanwhile doesn't run
+ *     mid-turn);
  *   - the messages the turn stored come back from the conversation, from
  *     the turn's user message (`persist-user-message` journals its
  *     sequence);
@@ -107,10 +109,11 @@ export async function rehydrateTurnContext(
   journal: readonly JournalEntry[],
 ): Promise<boolean> {
   const steps = completedSteps(journal);
-  const setup = outputOf<{ readonly providerId: string; readonly providerModel: string }>(
-    steps,
-    'setup',
-  );
+  const setup = outputOf<{
+    readonly providerId: string;
+    readonly providerModel: string;
+    readonly toolVersions?: Readonly<Record<string, string>>;
+  }>(steps, 'setup');
   if (setup === undefined) return false;
 
   if (ctx.bindings.provenance?.newBuilder !== undefined) {
@@ -119,7 +122,14 @@ export async function rehydrateTurnContext(
   }
   await loadTurnConversation(ctx);
   ctx.hitlPolicy = await resolveTurnHitlPolicy(ctx);
-  await resolveTurnEnvironment(ctx, { providerId: setup.providerId, model: setup.providerModel });
+  // The route and the tool versions `setup` resolved: a resumed turn
+  // runs those, never a range resolved again (a journal from before
+  // `toolVersions` was recorded resolves the ranges, as it did).
+  await resolveTurnEnvironment(
+    ctx,
+    { providerId: setup.providerId, model: setup.providerModel },
+    setup.toolVersions,
+  );
 
   const userMessage = outputOf<{ readonly sequence: number }>(steps, 'persist-user-message');
   if (userMessage !== undefined) {

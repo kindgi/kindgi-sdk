@@ -2411,11 +2411,26 @@ export interface Judgment {
   readonly supersededBy?: string;
 }
 
+/**
+ * What a judged agent turn read besides its input, captured when it was
+ * first judged: the conversation before it and what its retrievals returned.
+ */
+export interface JudgedRunContext {
+  /** The conversation's messages before the turn, oldest first (at most the last 200). */
+  readonly history?: readonly unknown[];
+  /** Whether older messages were left out of `history`. */
+  readonly historyTruncated?: boolean;
+  /** What the turn's retrievals returned. */
+  readonly retrieved?: unknown;
+}
+
 /** The stored copy of a judged run's input and output. */
 export interface JudgedRunCopy {
   readonly runId: string;
   readonly subject: JudgedSubject;
   readonly input: unknown;
+  /** Absent for runs judged before context was captured, and for flow runs. */
+  readonly context?: JudgedRunContext;
   readonly output: unknown;
   readonly capturedAt: import('@kindgi/types').Timestamp;
 }

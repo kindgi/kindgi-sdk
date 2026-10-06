@@ -761,6 +761,72 @@ describe('runIndexer — error variants', () => {
     expect(outcome.value.fileErrors[0]?.message).toContain("'guardrail'");
   });
 
+  test.each([
+    { kind: 'tool', folder: 'tools', list: 'tools', make: toolModule, id: 'acme.echo' },
+    {
+      kind: 'guardrail',
+      folder: 'guardrails',
+      list: 'guardrails',
+      make: guardrailModule,
+      id: 'acme.grounded',
+    },
+    { kind: 'agent', folder: 'agents', list: 'agents', make: agentModule, id: 'acme.support' },
+    { kind: 'flow', folder: 'flows', list: 'flows', make: flowModule, id: 'acme.flow' },
+  ] as const)(
+    'two files with the same $kind id → the first is kept, the second is an error',
+    async ({ kind, folder, list, make, id }) => {
+      const fixture = await makeFixture({
+        files: {
+          'kindgi.config.mjs': config(),
+          [`${folder}/a.mjs`]: make(),
+          [`${folder}/b.mjs`]: make(),
+        },
+      });
+      const outcome = await runIndexer({
+        packDir: fixture.packDir,
+        publishedAt: FIXED_TIMESTAMP,
+        importModule: fixture.importModule,
+      });
+      expect(outcome.kind).toBe('ok');
+      if (outcome.kind !== 'ok') return;
+      expect(outcome.value.fileErrors).toEqual([
+        {
+          code: 'manifest-validation-failed',
+          message: `${folder}/b.mjs: duplicate ${kind} id '${id}' (also defined in ${folder}/a.mjs)`,
+          filePath: `${folder}/b.mjs`,
+        },
+      ]);
+      expect(outcome.value.counts[list]).toBe(1);
+      const parsed = await readValidIndex(outcome.value.outputPath);
+      const [entry] = parsed[list] as {
+        id: string;
+        modulePath?: string;
+        checkModulePath?: string;
+      }[];
+      expect(entry?.id).toBe(id);
+      expect(entry?.modulePath ?? entry?.checkModulePath).toBe(`${folder}/a.mjs`);
+    },
+  );
+
+  test('the same id on two different kinds is not a duplicate', async () => {
+    const fixture = await makeFixture({
+      files: {
+        'kindgi.config.mjs': config(),
+        'tools/echo.mjs': toolModule({ id: 'acme.shared' }),
+        'flows/flow.mjs': flowModule({ id: 'acme.shared' }),
+      },
+    });
+    const outcome = await runIndexer({
+      packDir: fixture.packDir,
+      publishedAt: FIXED_TIMESTAMP,
+      importModule: fixture.importModule,
+    });
+    expect(outcome.kind).toBe('ok');
+    if (outcome.kind !== 'ok') return;
+    expect(outcome.value.fileErrors).toEqual([]);
+    expect(outcome.value.counts).toMatchObject({ tools: 1, flows: 1 });
+  });
+
   test('Result-wrapped error default export surfaces underlying error', async () => {
     const fixture = await makeFixture({
       files: {

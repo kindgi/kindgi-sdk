@@ -3,6 +3,7 @@
 
 import { type Context, Hono } from 'hono';
 
+import type { ConversationBinding } from '@kindgi/agents';
 import { ref } from '@kindgi/authz';
 import type { RunBinding } from '@kindgi/runtime';
 import type { Cursor, ProjectId, RunId, TenantId } from '@kindgi/types';
@@ -23,6 +24,7 @@ import {
 } from '../judgment-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
+import { captureTurnContext } from './judgment-context.js';
 import { clampLimit } from './pagination.js';
 import { parseListScope } from './scope-params.js';
 
@@ -44,6 +46,7 @@ export function judgmentsRouter(
   binding: JudgmentRegistryBinding,
   runBinding: RunBinding,
   authorizer?: Authorizer,
+  conversations?: ConversationBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -66,13 +69,31 @@ export function judgmentsRouter(
 
     const prepared = await prepareJudgment(c, body, runBinding, binding, authorizer);
     if (prepared.kind === 'err') return fail(prepared.code, prepared.message);
-    const { run, subject, projectId, itemValue } = prepared;
+    const { run, subject, projectId, itemValue, conversationId } = prepared;
+    // A turn's first judgment also captures what it read (history,
+    // retrieved context), so the turn can be replayed later.
+    const context =
+      subject.kind === 'agent' && (await isFirstJudgment(binding, tenantId, body.runId))
+        ? await captureTurnContext({
+            tenantId,
+            runId: body.runId,
+            output: run.output,
+            conversationId,
+            runBinding,
+            conversations,
+          })
+        : undefined;
 
     const judgment = await binding.record({
       tenantId,
       projectId,
       runId: body.runId,
-      run: { subject, input: run.input, output: run.output },
+      run: {
+        subject,
+        input: run.input,
+        output: run.output,
+        ...(context !== undefined && { context }),
+      },
       item: body.item,
       ...(itemValue !== undefined && { itemValue }),
       verdict: body.verdict,
@@ -356,6 +377,7 @@ type Prepared =
       readonly subject: JudgedSubject;
       readonly projectId: ProjectId;
       readonly itemValue?: unknown;
+      readonly conversationId?: string;
     }
   | { readonly kind: 'err'; readonly code: string; readonly message: string };
 
@@ -396,7 +418,10 @@ async function prepareJudgment(
     );
   }
   const copy = { input: run.input, output: run.output };
-  if (body.item.pointer === undefined) return { kind: 'ok', run: copy, subject, projectId };
+  const turn =
+    run.agent !== undefined ? { conversationId: run.agent.conversationId as string } : {};
+  if (body.item.pointer === undefined)
+    return { kind: 'ok', run: copy, subject, projectId, ...turn };
   const found = resolvePointer(run.output, body.item.pointer);
   if (!found.found) {
     return err(
@@ -404,7 +429,17 @@ async function prepareJudgment(
       `Nothing at "${body.item.pointer}" in run "${body.runId}"'s output.`,
     );
   }
-  return { kind: 'ok', run: copy, subject, projectId, itemValue: found.value };
+  return { kind: 'ok', run: copy, subject, projectId, itemValue: found.value, ...turn };
+}
+
+/** Whether the run has no live judgment yet (its copy is stored with the first). */
+async function isFirstJudgment(
+  binding: JudgmentRegistryBinding,
+  tenantId: TenantId,
+  runId: string,
+): Promise<boolean> {
+  const page = await binding.list({ tenantId, runId, limit: 1 });
+  return page.data.length === 0;
 }
 
 /** Whether a live class exists and its scope covers the run. */

@@ -106,7 +106,7 @@
     },
     {
       "name": "eval-suites",
-      "description": "Evaluation suite catalog (list, get, versions, publish, unregister) — part of the admin control plane. Full versioned CRUD, mirrors `policies` 1:1. Registry-only: eval-run execution + per-kind grader dispatch live on the `eval-runs` tag. `evalKind` selects the shape of `spec` — closed enum, extended additively (`accuracy`, `pairwise`, `regression`, `human-review`, `benchmark`, `custom`). Runs against these suites are started through the `eval-runs` tag. Caller-plugged via `EvalSuiteRegistryBinding`."
+      "description": "Evaluation suite catalog (list, get, versions, publish, unregister) — part of the admin control plane. Full versioned CRUD, mirrors `policies` 1:1. Registry-only: eval-run execution + per-kind grader dispatch live on the `eval-runs` tag. `evalKind` selects the shape of `spec` — closed enum, extended additively (`accuracy`, `pairwise`, `regression`, `human-review`, `benchmark`, `custom`, `judged`). The cases of a `judged` suite are copies of judged runs built from judgments (`POST .../versions/from-judgments`, listed at `GET .../versions/{version}/cases`; `EvalCaseStoreBinding`). Runs against these suites are started through the `eval-runs` tag. Caller-plugged via `EvalSuiteRegistryBinding`."
     },
     {
       "name": "eval-runs",
@@ -2246,6 +2246,25 @@
           }
         }
       },
+      "JudgedRunContext": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "What a judged agent turn read besides its input, captured when it was first judged: the conversation before it and what its retrievals returned.",
+        "properties": {
+          "history": {
+            "type": "array",
+            "items": {},
+            "description": "The conversation's messages before the turn, oldest first (at most the last 200)."
+          },
+          "historyTruncated": {
+            "type": "boolean",
+            "description": "Whether older messages were left out of `history`."
+          },
+          "retrieved": {
+            "description": "What the turn's retrievals returned."
+          }
+        }
+      },
       "JudgedRunCopy": {
         "type": "object",
         "additionalProperties": false,
@@ -2265,6 +2284,9 @@
             "$ref": "#/components/schemas/JudgedSubject"
           },
           "input": {},
+          "context": {
+            "$ref": "#/components/schemas/JudgedRunContext"
+          },
           "output": {},
           "capturedAt": {
             "type": "string",
@@ -2370,6 +2392,219 @@
           "unregistered": {
             "type": "boolean",
             "const": true
+          }
+        }
+      },
+      "JudgedItemSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "yes",
+          "no",
+          "yesWeight",
+          "totalWeight",
+          "reasons"
+        ],
+        "description": "The judgments of one item of a case's output, summed up.",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "pointer": {
+            "type": "string"
+          },
+          "rank": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "yes": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "How many judgments said yes."
+          },
+          "no": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "How many judgments said no."
+          },
+          "yesWeight": {
+            "type": "number",
+            "description": "The weight behind \"yes\" (an unclassified judgment counts 1)."
+          },
+          "totalWeight": {
+            "type": "number",
+            "description": "The weight behind all judgments of the item."
+          },
+          "reasons": {
+            "type": "array",
+            "description": "The reasons given, newest first.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "verdict",
+                "reason"
+              ],
+              "properties": {
+                "verdict": {
+                  "type": "string",
+                  "enum": [
+                    "yes",
+                    "no"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "JudgedEvalCase": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "caseId",
+          "subject",
+          "input",
+          "output",
+          "items"
+        ],
+        "description": "One case of a `judged` eval suite: a copy of a judged run with its items' judgments summed up.",
+        "properties": {
+          "caseId": {
+            "type": "string",
+            "description": "The judged run's id."
+          },
+          "subject": {
+            "$ref": "#/components/schemas/JudgedSubject"
+          },
+          "input": {},
+          "context": {
+            "$ref": "#/components/schemas/JudgedRunContext"
+          },
+          "output": {},
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JudgedItemSummary"
+            }
+          }
+        }
+      },
+      "JudgedEvalCaseCollectionPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JudgedEvalCase"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "description": "Opaque cursor. Treat as opaque on the client."
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        }
+      },
+      "BuildJudgedSuiteBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "projectId"
+        ],
+        "description": "Name the agent (`agentId`) or the flow (`flowId`) whose judged runs to use.",
+        "properties": {
+          "version": {
+            "type": "string",
+            "description": "Semver version to publish, e.g. `1.0.0`."
+          },
+          "projectId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "agentId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "agentVersion": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Needs `agentId`."
+          },
+          "flowId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Runs first judged at or after this time."
+          },
+          "until": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Runs first judged before this time."
+          },
+          "judgeClassIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Count only judgments recorded under these judge classes."
+          },
+          "minJudgments": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Leave out runs with fewer counted judgments. Default 1."
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      },
+      "BuildJudgedSuiteResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "suiteId",
+          "version",
+          "kind",
+          "caseCount",
+          "truncated"
+        ],
+        "properties": {
+          "suiteId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "judged"
+            ]
+          },
+          "caseCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "Whether more judged runs matched than the 1000 cases a set holds."
           }
         }
       },
@@ -7570,7 +7805,8 @@
           "regression",
           "human-review",
           "benchmark",
-          "custom"
+          "custom",
+          "judged"
         ]
       },
       "EvalSuite": {
@@ -22701,7 +22937,7 @@
               "$ref": "#/components/schemas/EvalKind"
             },
             "required": false,
-            "description": "Filter to eval suites of a single kind. Values: `accuracy | pairwise | regression | human-review | benchmark | custom`."
+            "description": "Filter to eval suites of a single kind. Values: `accuracy | pairwise | regression | human-review | benchmark | custom | judged`."
           },
           {
             "name": "name",
@@ -23033,6 +23269,215 @@
             },
             "required": true,
             "description": "Semver version string of the eval suite (e.g. `1.2.0`)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/eval-suites/{suiteId}/versions/from-judgments": {
+      "post": {
+        "operationId": "evalSuites.buildFromJudgments",
+        "summary": "Build a test set from judgments",
+        "tags": [
+          "eval-suites"
+        ],
+        "responses": {
+          "201": {
+            "description": "Version published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BuildJudgedSuiteResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Eval suite already registered at that (id, version).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`test-sets-not-supported`: this deployment cannot build test sets.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Publishes a `judged` eval suite version whose cases are copies of judged runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the judged output, and each item's judgments summed up: yes and no counts, the weight behind yes and behind all judgments (an unclassified judgment counts 1), and the reasons. `judgeClassIds` counts only judgments of those classes; `minJudgments` leaves out runs with fewer. Needs `admin` on the project.",
+        "parameters": [
+          {
+            "name": "suiteId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "EvalSuiteId — stable string chosen by the caller (e.g. `acme.drafting-accuracy`)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BuildJudgedSuiteBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/eval-suites/{suiteId}/versions/{version}/cases": {
+      "get": {
+        "operationId": "evalSuites.listCases",
+        "summary": "List the cases of a judged eval suite version",
+        "tags": [
+          "eval-suites"
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of cases.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudgedEvalCaseCollectionPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No eval suite with that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Cursor-paginated, in the order the cases were stored (newest judged run first).",
+        "parameters": [
+          {
+            "name": "suiteId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "EvalSuiteId — stable string chosen by the caller (e.g. `acme.drafting-accuracy`)."
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d+\\.\\d+\\.\\d+$"
+            },
+            "required": true,
+            "description": "Semver version string of the eval suite (e.g. `1.2.0`)."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Opaque cursor from a prior response. Absent → first page."
           }
         ],
         "security": [

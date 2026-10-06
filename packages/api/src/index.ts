@@ -330,6 +330,16 @@ export type {
 } from '@kindgi/policy-contract';
 export { JUDGE_CLASS_SCOPE_KINDS, VERDICTS, judgeClassApplies } from './judgment-binding.js';
 export type {
+  EvalCaseListInput,
+  EvalCasePage,
+  EvalCasePutInput,
+  EvalCaseStoreBinding,
+  JudgedEvalCase,
+  JudgedItemSummary,
+} from './eval-case-binding.js';
+export { MAX_JUDGED_CASES } from './routes/judged-suites.js';
+export { MAX_JUDGED_HISTORY } from './routes/judgment-context.js';
+export type {
   JudgeClass,
   JudgeClassCreateInput,
   JudgeClassCreateOutcome,
@@ -340,7 +350,11 @@ export type {
   JudgeClassScopeKind,
   JudgeClassUpdateInput,
   JudgedItem,
+  JudgedRunContext,
   JudgedRunCopy,
+  JudgedRunListInput,
+  JudgedRunPage,
+  JudgedRunWithJudgments,
   JudgedSubject,
   Judgment,
   JudgmentAssertedBy,

@@ -324,6 +324,20 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         False,
     ),
+    "evalSuites.buildFromJudgments": Operation(
+        "evalSuites.buildFromJudgments",
+        "POST",
+        "/v1/eval-suites/{suiteId}/versions/from-judgments",
+        "json",
+        True,
+    ),
+    "evalSuites.listCases": Operation(
+        "evalSuites.listCases",
+        "GET",
+        "/v1/eval-suites/{suiteId}/versions/{version}/cases",
+        "json",
+        False,
+    ),
     "evalSuites.versions.unregister": Operation(
         "evalSuites.versions.unregister",
         "POST",
@@ -3442,7 +3456,9 @@ class EvalSuitesResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
-        kind: Literal["accuracy", "pairwise", "regression", "human-review", "benchmark", "custom"]
+        kind: Literal[
+            "accuracy", "pairwise", "regression", "human-review", "benchmark", "custom", "judged"
+        ]
         | None = None,
         name: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
@@ -3502,6 +3518,53 @@ class EvalSuitesResource:
             query={},
             headers={},
             response=_models.EvalSuite,
+            timeout=timeout,
+        )
+
+    def build_from_judgments(
+        self,
+        suite_id: str,
+        body: _models.BuildJudgedSuiteBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.BuildJudgedSuiteResult:
+        """Build a test set from judgments. `POST /v1/eval-suites/{suiteId}/versions/from-judgments`
+
+        Publishes a `judged` eval suite version whose cases are copies of judged runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the judged output, and each item's judgments summed up: yes and no counts, the weight behind yes and behind all judgments (an unclassified judgment counts 1), and the reasons. `judgeClassIds` counts only judgments of those classes; `minJudgments` leaves out runs with fewer. Needs `admin` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["evalSuites.buildFromJudgments"],
+            path={"suiteId": suite_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.BuildJudgedSuiteBody, body, fields),
+            response=_models.BuildJudgedSuiteResult,
+            timeout=timeout,
+        )
+
+    def list_cases(
+        self,
+        suite_id: str,
+        version: str,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgedEvalCaseCollectionPage:
+        """List the cases of a judged eval suite version. `GET /v1/eval-suites/{suiteId}/versions/{version}/cases`
+
+        Cursor-paginated, in the order the cases were stored (newest judged run first).
+        """
+        return self._client._request(
+            _OPERATIONS["evalSuites.listCases"],
+            path={"suiteId": suite_id, "version": version},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.JudgedEvalCaseCollectionPage,
             timeout=timeout,
         )
 
@@ -8522,7 +8585,9 @@ class AsyncEvalSuitesResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
-        kind: Literal["accuracy", "pairwise", "regression", "human-review", "benchmark", "custom"]
+        kind: Literal[
+            "accuracy", "pairwise", "regression", "human-review", "benchmark", "custom", "judged"
+        ]
         | None = None,
         name: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
@@ -8582,6 +8647,53 @@ class AsyncEvalSuitesResource:
             query={},
             headers={},
             response=_models.EvalSuite,
+            timeout=timeout,
+        )
+
+    async def build_from_judgments(
+        self,
+        suite_id: str,
+        body: _models.BuildJudgedSuiteBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.BuildJudgedSuiteResult:
+        """Build a test set from judgments. `POST /v1/eval-suites/{suiteId}/versions/from-judgments`
+
+        Publishes a `judged` eval suite version whose cases are copies of judged runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the judged output, and each item's judgments summed up: yes and no counts, the weight behind yes and behind all judgments (an unclassified judgment counts 1), and the reasons. `judgeClassIds` counts only judgments of those classes; `minJudgments` leaves out runs with fewer. Needs `admin` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["evalSuites.buildFromJudgments"],
+            path={"suiteId": suite_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.BuildJudgedSuiteBody, body, fields),
+            response=_models.BuildJudgedSuiteResult,
+            timeout=timeout,
+        )
+
+    async def list_cases(
+        self,
+        suite_id: str,
+        version: str,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgedEvalCaseCollectionPage:
+        """List the cases of a judged eval suite version. `GET /v1/eval-suites/{suiteId}/versions/{version}/cases`
+
+        Cursor-paginated, in the order the cases were stored (newest judged run first).
+        """
+        return await self._client._request(
+            _OPERATIONS["evalSuites.listCases"],
+            path={"suiteId": suite_id, "version": version},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.JudgedEvalCaseCollectionPage,
             timeout=timeout,
         )
 

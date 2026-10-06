@@ -1,7 +1,7 @@
 ---
-"@kindgi/agents": minor
-"@kindgi/api": minor
-"@kindgi/client": minor
+"@kindgi/agents": patch
+"@kindgi/api": patch
+"@kindgi/client": patch
 ---
 
 **An agent version is pinned when it's published.** `POST /v1/agents` resolves each of the agent's tool ranges once, to the highest active version the range allows (`pickVersion`). It stores the result on the version as `pins` (`{tools, prompts, settings}`: tool id → exact version) with `pinsDigest` (`sha256:<hex>` of the pins' canonical JSON). Every run of that version uses exactly those tool versions. A new tool version reaches the agent only through a new agent version, and two runs of one agent version always run the same tools.
