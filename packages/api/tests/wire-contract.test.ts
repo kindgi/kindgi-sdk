@@ -9,15 +9,15 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 
 import { describe, expect, test } from 'vitest';
 
 import type { KernelRunRecord, RunBinding } from '@kindgi/runtime';
-import { compileInlineSchema } from '@kindgi/schema';
 import type { ProjectId, RunId, TenantId, Timestamp, UserId } from '@kindgi/types';
 
 import { createStubAppBindings } from '@kindgi/testing';
+
+import { validateAgainst } from './support/openapi-schema.js';
 
 import { createApp } from '../src/index.js';
 import type {
@@ -43,25 +43,6 @@ const resolveToken: TokenResolver = async (token) =>
   token === TOKEN ? { tenantId, userId } : null;
 
 /** `components.schemas` of the shipped document, refs rewritten to `$defs`. */
-const COMPONENTS = JSON.parse(
-  JSON.stringify(
-    (
-      JSON.parse(readFileSync(new URL('../openapi.json', import.meta.url), 'utf8')) as {
-        components: { schemas: Record<string, unknown> };
-      }
-    ).components.schemas,
-  ).replaceAll('#/components/schemas/', '#/$defs/'),
-) as Record<string, unknown>;
-
-/** Validate `data` against `#/components/schemas/<name>` of `openapi.json`. */
-function validateAgainst(name: string, data: unknown): readonly unknown[] {
-  const defs = COMPONENTS;
-  const compiled = compileInlineSchema({ $defs: defs, $ref: `#/$defs/${name}` });
-  if (compiled.kind === 'err') throw new Error(compiled.error.message);
-  const result = compiled.value.validate(data);
-  return result.kind === 'ok' ? [] : result.error.errors;
-}
-
 function runRow(runId: RunId): KernelRunRecord {
   const at = '2026-09-30T00:00:00.000Z' as Timestamp;
   return {

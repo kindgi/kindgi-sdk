@@ -188,6 +188,7 @@ export type {
   TokensClient,
 } from './resources/tokens.js';
 export { followRun, subscribeToRun } from './run-follow.js';
+export { comparisonOf } from './resources/eval-runs.js';
 export type { RunProgress } from './generated/api.js';
 export type { FollowRunOptions, RunProgressEvent, SubscribeToRunOptions } from './run-follow.js';
 export type { JudgeClassFilter, JudgeClassesClient } from './resources/judge-classes.js';
@@ -308,8 +309,13 @@ export type {
 export type {
   EvalRunEvent,
   EvalRunPage,
+  ComparisonCandidate,
+  ComparisonCaseResult,
+  ComparisonMetric,
   EvalRunRecord,
   EvalRunsClient,
+  JudgedComparisonResult,
+  JudgedComparisonSummary,
   ListEvalRunsFilter,
   StartEvalRunInput,
   StartEvalRunOptions,
