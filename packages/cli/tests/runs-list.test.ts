@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-/** `kindgi runs list`: the replay filters reach the client. */
+/** `kindgi runs list`: the agent and replay filters reach the client. */
 
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -55,6 +55,18 @@ describe('kindgi runs list', () => {
     expect((await run('runs', 'list', '--replays=only')).exitCode).toBe(0);
     expect((await run('runs', 'list', '--eval-run=eval-1')).exitCode).toBe(0);
     expect(seen).toEqual([{ replays: 'only' }, { evalRunId: 'eval-1' }]);
+  });
+
+  test('--agent reaches the client, with the other filters', async () => {
+    expect((await run('runs', 'list', '--agent=acme.drafter')).exitCode).toBe(0);
+    expect(
+      (await run('runs', 'list', '--agent=acme.drafter', '--replays=include', '--limit=5'))
+        .exitCode,
+    ).toBe(0);
+    expect(seen).toEqual([
+      { agentId: 'acme.drafter' },
+      { agentId: 'acme.drafter', replays: 'include', limit: 5 },
+    ]);
   });
 
   test('a --replays value that is not one of the three is refused', async () => {
