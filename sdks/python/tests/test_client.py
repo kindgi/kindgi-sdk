@@ -218,6 +218,21 @@ def test_a_list_query_parameter_repeats_its_key_in_order() -> None:
             lambda e: e.server_code == "registry-read-only",
         ),
         (
+            error(409, "nothing-to-roll-back"),
+            ConflictError,
+            lambda e: e.server_code == "nothing-to-roll-back",
+        ),
+        (
+            error(404, "agent-version-not-found"),
+            NotFoundError,
+            lambda e: e.kind == "agent-version",
+        ),
+        (
+            error(400, "scope-invalid"),
+            InvalidRequestError,
+            lambda e: e.issues == [],
+        ),
+        (
             error(400, "validation-failed", details={"issues": [{"path": "/x", "message": "bad"}]}),
             InvalidRequestError,
             lambda e: e.issues == [{"path": "/x", "message": "bad"}],

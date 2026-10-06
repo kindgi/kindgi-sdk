@@ -13,6 +13,7 @@ import {
   requiredPositional,
   runSdk,
   runSdkRendered,
+  segmentsFlag,
   stringFlag,
   throwUnwired,
 } from './helpers.js';
@@ -169,7 +170,7 @@ const start: LeafCommand = {
   description:
     'Start a run for an agent or flow. Waits until it finishes or waits on an approval; if the wait is stopped (Ctrl+C), the run goes on and its id is printed. With --no-wait it prints as soon as the run exists (follow it with `runs get` / `runs stream`). --dry-run runs only read-only tools.',
   usage:
-    'kindgi runs start (--agent=<agent-id> [--agent-version=<v>] | --flow=<flow-id> [--flow-version=<v>]) --input=<json-or-@file> [--project=<project-id>] [--no-wait] [--dry-run] [--idempotency-key=<key>]',
+    'kindgi runs start (--agent=<agent-id> [--agent-version=<v>] | --flow=<flow-id> [--flow-version=<v>]) --input=<json-or-@file> [--project=<project-id>] [--segment=<key:value>]… [--no-wait] [--dry-run] [--idempotency-key=<key>]',
   optionSpec: {
     agent: {
       type: 'string',
@@ -196,6 +197,12 @@ const start: LeafCommand = {
       type: 'string',
       description:
         "The project to run in (`kindgi projects list`). Default: the tenant's Default project.",
+    },
+    segment: {
+      type: 'string',
+      multiple: true,
+      description:
+        "One step of the run's segment path, `key:value` (e.g. `company:acme`); repeat it in order, coarse to fine. It picks the agent's live version.",
     },
     'idempotency-key': {
       type: 'string',
@@ -243,11 +250,16 @@ const start: LeafCommand = {
         wait: false,
         ...(ctx.options['dry-run'] === true && { dryRun: true }),
       };
+      const segments = segmentsFlag(ctx);
+      const where = {
+        ...(projectId !== undefined && { projectId }),
+        ...(segments.length > 0 && { segments }),
+      };
       const started = await (agent !== undefined
         ? ctx.client().runs.start({
             agent: agent as AgentId,
             ...(agentVersion !== undefined && { agentVersion }),
-            ...(projectId !== undefined && { projectId }),
+            ...where,
             input,
             options,
             ...(idem !== undefined ? { idempotencyKey: idem } : {}),
@@ -255,7 +267,7 @@ const start: LeafCommand = {
         : ctx.client().runs.start({
             flow: flow as FlowId,
             ...(flowVersion !== undefined && { flowVersion }),
-            ...(projectId !== undefined && { projectId }),
+            ...where,
             input,
             options,
             ...(idem !== undefined ? { idempotencyKey: idem } : {}),

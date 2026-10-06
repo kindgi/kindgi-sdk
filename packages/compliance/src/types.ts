@@ -66,6 +66,8 @@ export const EVIDENCE_KINDS = [
   'agent-promotion',
   'agent-rollback',
   'agent-live-unpinned',
+  // A live pin whose version was unregistered: runs use the scope above.
+  'agent-live-pin-inactive',
 ] as const;
 
 /**

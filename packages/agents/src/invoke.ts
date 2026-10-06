@@ -91,6 +91,7 @@ export async function invokeAgent(
         ...(input.versionVia !== undefined && { via: input.versionVia }),
         ...(input.liveScope !== undefined && { liveScope: input.liveScope }),
       },
+      ...(input.segments !== undefined && { segments: input.segments }),
       ...(input.parent !== undefined && { parent: input.parent }),
       // A replay's run says so, and which eval run and past run it is for.
       ...(input.replay !== undefined && { replay: input.replay }),

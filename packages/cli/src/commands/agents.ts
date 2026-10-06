@@ -8,7 +8,6 @@ import type {
   LiveScope,
   Promotion,
   PromotionPage,
-  ScopeSegment,
 } from '@kindgi/client';
 
 import type { AgentId } from '@kindgi/types';
@@ -22,8 +21,8 @@ import {
   readJsonInput,
   requiredPositional,
   runSdk,
+  segmentsFlag,
   stringFlag,
-  stringListFlag,
 } from './helpers.js';
 import type { Command, LeafCommand, ParseArgsOption } from './types.js';
 
@@ -249,16 +248,6 @@ const SCOPE_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
 
 const SCOPE_USAGE = '(--tenant | --org=<org-id> | --project=<project-id> [--segment=<key:value>]…)';
 
-function segmentsFrom(ctx: CommandContext): readonly ScopeSegment[] {
-  return stringListFlag(ctx, 'segment').map((raw) => {
-    const at = raw.indexOf(':');
-    if (at <= 0 || at === raw.length - 1) {
-      throw new Error(`--segment must be key:value, got "${raw}"`);
-    }
-    return { key: raw.slice(0, at), value: raw.slice(at + 1) };
-  });
-}
-
 /** The scope the flags name. Writes need one; a history filter may name none. */
 function scopeFrom(ctx: CommandContext, required: true): LiveScope;
 function scopeFrom(ctx: CommandContext, required: false): LiveScope | undefined;
@@ -266,7 +255,7 @@ function scopeFrom(ctx: CommandContext, required: boolean): LiveScope | undefine
   const tenant = ctx.options.tenant === true;
   const orgId = stringFlag(ctx, 'org');
   const projectId = stringFlag(ctx, 'project');
-  const segments = segmentsFrom(ctx);
+  const segments = segmentsFlag(ctx);
   const named = [tenant, orgId !== undefined, projectId !== undefined].filter(Boolean).length;
   if (named > 1) throw new Error('Give one of --tenant, --org or --project');
   if (segments.length > 0 && projectId === undefined) throw new Error('--segment needs --project');
@@ -327,7 +316,7 @@ const live: LeafCommand = {
     runSdk(ctx, 'agents live', async () => {
       const agentId = requiredPositional(ctx, 0, 'agent-id');
       const projectId = stringFlag(ctx, 'project');
-      const segments = segmentsFrom(ctx);
+      const segments = segmentsFlag(ctx);
       if (segments.length > 0 && projectId === undefined) {
         throw new Error('--segment needs --project');
       }

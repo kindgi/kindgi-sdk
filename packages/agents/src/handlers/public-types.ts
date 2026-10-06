@@ -15,6 +15,7 @@ import type {
   ProjectId,
   ProvenanceId,
   RunId,
+  ScopeSegment,
   TenantId,
   Timestamp,
 } from '@kindgi/types';
@@ -56,6 +57,8 @@ export interface InvokeAgentInput {
   readonly versionVia?: AgentVersionVia;
   /** The live pin that chose it, when `versionVia` is `live`. */
   readonly liveScope?: LiveScope;
+  /** The segment path the turn runs for; recorded on its run (`KernelRunRecord.segments`). */
+  readonly segments?: readonly ScopeSegment[];
   readonly userMessage: string;
   readonly parameters?: Readonly<Record<string, string | number | boolean>>;
   /**

@@ -56,7 +56,8 @@
         "hitl-decision",
         "agent-promotion",
         "agent-rollback",
-        "agent-live-unpinned"
+        "agent-live-unpinned",
+        "agent-live-pin-inactive"
       ]
     },
     "timestamp": {
