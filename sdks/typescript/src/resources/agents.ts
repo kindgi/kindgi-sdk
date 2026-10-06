@@ -49,6 +49,7 @@ export interface AgentsClient {
   /**
    * Un-tombstone a specific previously-unregistered version.
    *
+   * @deprecated Use `agents.versions.reinstate`; removed in 0.2.
    * @wire POST /v1/agents/:agentId/versions/:version/reinstate
    */
   reinstateVersion(
@@ -65,7 +66,7 @@ export interface AgentVersionsClient {
   get(agentId: AgentId, version: Semver): Promise<Agent>;
   /**
    * Tombstone a specific version. Reversible via
-   * `agents.reinstateVersion`. Unregistering an unknown or
+   * `agents.versions.reinstate`. Unregistering an unknown or
    * already-tombstoned version fails with `404 agent-not-found`.
    *
    * @wire POST /v1/agents/:agentId/versions/:version/unregister
@@ -75,6 +76,17 @@ export interface AgentVersionsClient {
     version: Semver,
     options?: MutationOptions,
   ): Promise<UnregisterAgentResult>;
+  /**
+   * Un-tombstone a specific previously-unregistered version. Idempotent:
+   * reinstating an active version returns `wasTombstoned: false`.
+   *
+   * @wire POST /v1/agents/:agentId/versions/:version/reinstate
+   */
+  reinstate(
+    agentId: AgentId,
+    version: Semver,
+    options?: MutationOptions,
+  ): Promise<ReinstateAgentVersionResult>;
   /**
    * Derive a new version from a pinned one with some data-block pins
    * swapped (an expert's edit, no code change). Numbered the next free
@@ -132,6 +144,57 @@ interface ReinstateAgentVersionWire {
 
 export function makeAgentsClient(transport: Transport): AgentsClient {
   const seg = (s: string): string => encodeURIComponent(s);
+  const versions: AgentVersionsClient = {
+    async list(agentId, filter) {
+      return transport.request<AgentCollectionPage>({
+        method: 'GET',
+        path: `/v1/agents/${seg(agentId as unknown as string)}/versions`,
+        query: {
+          ...(filter?.limit !== undefined && { limit: filter.limit }),
+          ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
+        },
+      });
+    },
+    async get(agentId, version) {
+      return transport.request<Agent>({
+        method: 'GET',
+        path: `/v1/agents/${seg(agentId as unknown as string)}/versions/${seg(version as unknown as string)}`,
+      });
+    },
+    async unregister(agentId, version, options) {
+      return transport.request<UnregisterAgentResult>({
+        method: 'POST',
+        path: `/v1/agents/${seg(agentId as unknown as string)}/versions/${seg(version as unknown as string)}/unregister`,
+        ...(options?.idempotencyKey !== undefined && {
+          idempotencyKey: options.idempotencyKey,
+        }),
+      });
+    },
+    async derive(agentId, input, options) {
+      return transport.request<Agent>({
+        method: 'POST',
+        path: `/v1/agents/${seg(agentId as unknown as string)}/versions`,
+        body: input,
+        ...(options?.idempotencyKey !== undefined && {
+          idempotencyKey: options.idempotencyKey,
+        }),
+      });
+    },
+    async reinstate(agentId, version, options) {
+      const wire = await transport.request<ReinstateAgentVersionWire>({
+        method: 'POST',
+        path: `/v1/agents/${seg(agentId as unknown as string)}/versions/${seg(version as unknown as string)}/reinstate`,
+        ...(options?.idempotencyKey !== undefined && {
+          idempotencyKey: options.idempotencyKey,
+        }),
+      });
+      return {
+        agentId: wire.agentId as unknown as AgentId,
+        version: wire.version as unknown as Semver,
+        wasTombstoned: wire.wasTombstoned,
+      };
+    },
+  };
   return {
     async define(spec, options) {
       const result = await transport.request<PublishAgentResult>({
@@ -161,56 +224,7 @@ export function makeAgentsClient(transport: Transport): AgentsClient {
         path: `/v1/agents/${seg(agentId as unknown as string)}`,
       });
     },
-    versions: {
-      async list(agentId, filter) {
-        return transport.request<AgentCollectionPage>({
-          method: 'GET',
-          path: `/v1/agents/${seg(agentId as unknown as string)}/versions`,
-          query: {
-            ...(filter?.limit !== undefined && { limit: filter.limit }),
-            ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
-          },
-        });
-      },
-      async get(agentId, version) {
-        return transport.request<Agent>({
-          method: 'GET',
-          path: `/v1/agents/${seg(agentId as unknown as string)}/versions/${seg(version as unknown as string)}`,
-        });
-      },
-      async unregister(agentId, version, options) {
-        return transport.request<UnregisterAgentResult>({
-          method: 'POST',
-          path: `/v1/agents/${seg(agentId as unknown as string)}/versions/${seg(version as unknown as string)}/unregister`,
-          ...(options?.idempotencyKey !== undefined && {
-            idempotencyKey: options.idempotencyKey,
-          }),
-        });
-      },
-      async derive(agentId, input, options) {
-        return transport.request<Agent>({
-          method: 'POST',
-          path: `/v1/agents/${seg(agentId as unknown as string)}/versions`,
-          body: input,
-          ...(options?.idempotencyKey !== undefined && {
-            idempotencyKey: options.idempotencyKey,
-          }),
-        });
-      },
-    },
-    async reinstateVersion(agentId, version, options) {
-      const wire = await transport.request<ReinstateAgentVersionWire>({
-        method: 'POST',
-        path: `/v1/agents/${seg(agentId as unknown as string)}/versions/${seg(version as unknown as string)}/reinstate`,
-        ...(options?.idempotencyKey !== undefined && {
-          idempotencyKey: options.idempotencyKey,
-        }),
-      });
-      return {
-        agentId: wire.agentId as unknown as AgentId,
-        version: wire.version as unknown as Semver,
-        wasTombstoned: wire.wasTombstoned,
-      };
-    },
+    versions,
+    reinstateVersion: (agentId, version, options) => versions.reinstate(agentId, version, options),
   };
 }

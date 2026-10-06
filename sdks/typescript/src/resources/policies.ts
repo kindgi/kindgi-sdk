@@ -48,6 +48,11 @@ export interface PoliciesClient {
    *
    * The wire action is publish; there is no draft lifecycle.
    */
+  publish(
+    spec: PolicySpec,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<{ readonly policyId: PolicyId; readonly version: string }>;
+  /** @deprecated Use `policies.publish`; removed in 0.2. */
   author(
     spec: PolicySpec,
     options?: { readonly idempotencyKey?: string },
@@ -164,8 +169,9 @@ interface PublishPolicyWire {
 }
 
 export function makePoliciesClient(transport: Transport): PoliciesClient {
-  return {
-    async author(spec, options) {
+  const client: PoliciesClient = {
+    author: (spec, options) => client.publish(spec, options),
+    async publish(spec, options) {
       const result = await transport.request<PublishPolicyWire>({
         method: 'POST',
         path: '/v1/policies',
@@ -290,4 +296,5 @@ export function makePoliciesClient(transport: Transport): PoliciesClient {
       );
     },
   };
+  return client;
 }

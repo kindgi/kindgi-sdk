@@ -105,7 +105,7 @@ const unregister: LeafCommand = {
       const toolId = requiredPositional(ctx, 0, 'tool-id');
       const version = stringFlag(ctx, 'version');
       if (version === undefined) throw new Error('--version=<semver> is required');
-      return await ctx.client().tools.unregisterVersion(toolId as ToolId, version);
+      return await ctx.client().tools.versions.unregister(toolId as ToolId, version);
     }),
 };
 
@@ -138,7 +138,7 @@ const versions: LeafCommand = {
         throw new Error(`--limit must be an integer, got "${limitStr}"`);
       }
       const includeTombstoned = ctx.options['include-tombstoned'] === true;
-      return await ctx.client().tools.listVersions(toolId as ToolId, {
+      return await ctx.client().tools.versions.list(toolId as ToolId, {
         ...(cursor !== undefined && { cursor: cursor as never }),
         ...(limit !== undefined && { limit }),
         ...(includeTombstoned && { includeTombstoned: true }),
@@ -159,7 +159,7 @@ const getVersion: LeafCommand = {
       const toolId = requiredPositional(ctx, 0, 'tool-id');
       const version = stringFlag(ctx, 'version');
       if (version === undefined) throw new Error('--version=<semver> is required');
-      return await ctx.client().tools.getVersion(toolId as ToolId, version);
+      return await ctx.client().tools.versions.get(toolId as ToolId, version);
     }),
 };
 
@@ -179,7 +179,7 @@ const reinstate: LeafCommand = {
       const toolId = requiredPositional(ctx, 0, 'tool-id');
       const version = stringFlag(ctx, 'version');
       if (version === undefined) throw new Error('--version=<semver> is required');
-      return await ctx.client().tools.reinstateVersion(toolId as ToolId, version);
+      return await ctx.client().tools.versions.reinstate(toolId as ToolId, version);
     }),
 };
 

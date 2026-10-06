@@ -650,6 +650,13 @@ OPERATIONS: dict[str, Operation] = {
     "webhookEndpoints.sendTest": Operation(
         "webhookEndpoints.sendTest", "POST", "/v1/webhook-endpoints/{endpointId}/test", "json", True
     ),
+    "evalSuites.unregister": Operation(
+        "evalSuites.unregister",
+        "POST",
+        "/v1/eval-suites/{suiteId}/versions/{version}/unregister",
+        "json",
+        True,
+    ),
 }
 _OPERATIONS = OPERATIONS
 
@@ -3762,6 +3769,25 @@ class EvalSuitesResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.ReinstateEvalSuiteVersionResult,
+            timeout=timeout,
+        )
+
+    def unregister(
+        self,
+        suite_id: str,
+        version: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.UnregisterEvalSuiteResult:
+        """Unregister an eval suite version. `POST /v1/eval-suites/{suiteId}/versions/{version}/unregister`"""
+        return self._client._request(
+            _OPERATIONS["evalSuites.unregister"],
+            path={"suiteId": suite_id, "version": version},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterEvalSuiteResult,
             timeout=timeout,
         )
 
@@ -9195,6 +9221,25 @@ class AsyncEvalSuitesResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.ReinstateEvalSuiteVersionResult,
+            timeout=timeout,
+        )
+
+    async def unregister(
+        self,
+        suite_id: str,
+        version: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.UnregisterEvalSuiteResult:
+        """Unregister an eval suite version. `POST /v1/eval-suites/{suiteId}/versions/{version}/unregister`"""
+        return await self._client._request(
+            _OPERATIONS["evalSuites.unregister"],
+            path={"suiteId": suite_id, "version": version},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterEvalSuiteResult,
             timeout=timeout,
         )
 
