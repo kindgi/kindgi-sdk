@@ -132,7 +132,9 @@ kindgi.orgs.delete(str(org.id))
 - **Its own secrets and their mappings are deleted for good.** Its own
   environments and MCP endpoints are unregistered.
 - **Writes to it are refused:** setting a secret in it, registering an MCP
-  endpoint in it, and creating or moving a project or a team into it.
+  endpoint in it, and creating or moving a project or a team into it. Creating
+  or moving a project or a team there answers `404 org-not-found`, as for an
+  org that never existed: `No org with id "0404cbc2-9612-461d-9997-0cbf1d12341a"`.
 
 Kindgi keeps the deleted org's record until a retention policy on `org`
 purges it, after its environments' and MCP endpoints' own records are purged.
