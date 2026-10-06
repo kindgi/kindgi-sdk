@@ -4,12 +4,24 @@
 import type { Context, Hono } from 'hono';
 
 import type { AgentId } from '@kindgi/agents';
-import type { Cursor, LiveScope, OrgId, ProjectId, Semver, TenantId } from '@kindgi/types';
+import type { Cursor, LiveScope, OrgId, ProjectId, RunId, Semver, TenantId } from '@kindgi/types';
+
+import type { ProjectBinding } from '@kindgi/platform';
 
 import type { AgentRegistryBinding } from '../agent-binding.js';
 import { statusFor, toWireError } from '../errors.js';
-import type { AgentReleaseBindings, Promotion, PromotionActor } from '../live-version-binding.js';
+import type { EvalRun, EvalRunBinding } from '../eval-run-binding.js';
+import type { GatePolicy } from '../gate-policy-binding.js';
+import { type GateResult, evaluateGate } from '../gate.js';
+import type { JudgedComparisonSummary } from '../judged-dispatcher.js';
+import type {
+  AgentReleaseBindings,
+  LiveResolveInput,
+  Promotion,
+  PromotionActor,
+} from '../live-version-binding.js';
 import type { AppEnv } from '../types.js';
+import { serializeGatePolicy } from './gate-policy-wire.js';
 import { liveScopeToWire, parseLiveScopeBody } from './live-scope-wire.js';
 import { clampLimit } from './pagination.js';
 import { parseSegmentsQuery } from './segments.js';
@@ -21,12 +33,26 @@ export function isPromotionWrite(method: string, path: string): boolean {
   return method === 'POST' && /\/(promotions|live\/rollback|live\/unpin)$/.test(path);
 }
 
+/** `POST …/promotions/check` changes nothing: `read` on the agent. */
+export function isPromotionCheck(method: string, path: string): boolean {
+  return method === 'POST' && path.endsWith('/promotions/check');
+}
+
+/** What the gate reads besides the releases: comparisons, and a project's org. */
+export interface AgentReleaseGateDeps {
+  readonly evalRuns?: EvalRunBinding;
+  readonly projects?: ProjectBinding;
+}
+
 /**
  * Live versions of an agent per scope, and the promotions that set them
  * (evals step 4):
  *   GET  /:agentId/live            the version a run would use for a project and segment path
  *   GET  /:agentId/live-versions   every pin
- *   POST /:agentId/promotions      make a version live for a scope
+ *   POST /:agentId/promotions      make a version live for a scope, through its gate
+ *                                    (201 promoted, 202 waiting for approval, 422 gate-failed)
+ *   POST /:agentId/promotions/check  what the gate would say, writing nothing
+ *   GET  /:agentId/gate-policy     the gate policy that applies to a scope
  *   GET  /:agentId/promotions[/:id]  the history
  *   POST /:agentId/live/rollback   back to the scope's previous live version
  *   POST /:agentId/live/unpin      remove the scope's pin (it falls back to the scope above)
@@ -35,6 +61,7 @@ export function mountAgentReleaseRoutes(
   r: Hono<AppEnv>,
   registry: AgentRegistryBinding,
   releases: AgentReleaseBindings,
+  deps: AgentReleaseGateDeps = {},
 ): void {
   r.get('/:agentId/live', async (c) => {
     const requestId = c.get('requestId');
@@ -108,26 +135,124 @@ export function mountAgentReleaseRoutes(
 
   r.post('/:agentId/promotions', async (c) => {
     const requestId = c.get('requestId');
-    const body = await readBody(c);
-    if (body === undefined) return badJson(c, requestId);
-    const scope = parseLiveScopeBody(body.scope);
-    if (scope.kind === 'err') return badInput(c, requestId, scope.message);
-    if (typeof body.version !== 'string' || body.version.length === 0) {
-      return badInput(c, requestId, '`version` is required: the agent version to make live');
-    }
-    const text = optionalText(body, ['reason', 'evalRunId']);
-    if (text.kind === 'err') return badInput(c, requestId, text.message);
-    const outcome = await releases.promotions.promote({
-      tenantId: c.get('tenantId') as TenantId,
-      agentId: c.req.param('agentId'),
-      version: body.version as Semver,
-      scope: scope.scope,
+    const parsed = await readPromotionBody(c);
+    if (parsed.kind === 'err') return badInput(c, requestId, parsed.message);
+    const tenantId = c.get('tenantId') as TenantId;
+    const agentId = c.req.param('agentId');
+    const input = {
+      tenantId,
+      agentId,
+      version: parsed.value.version,
+      scope: parsed.value.scope,
       requestedBy: actorOf(c),
-      ...text.value,
+      ...(parsed.value.reason !== undefined && { reason: parsed.value.reason }),
+      ...(parsed.value.evalRunId !== undefined && { evalRunId: parsed.value.evalRunId }),
+    };
+    const policy = await policyFor(releases, tenantId, agentId, parsed.value.scope);
+    if (releases.promotions.request === undefined) {
+      if (policy !== null) {
+        c.status(statusFor('promotion-gate-unsupported') as never);
+        return c.json(
+          toWireError(
+            {
+              code: 'promotion-gate-unsupported',
+              message: `Gate policy ${policy.id} ${policy.version} applies to this promotion, and this deployment can't record a gated promotion yet.`,
+            },
+            requestId,
+          ),
+        );
+      }
+      // No gate, and a binding from before gates: promote as before.
+      const outcome = await releases.promotions.promote(input);
+      if (outcome.kind === 'err') return failed(c, requestId, outcome.error);
+      c.status(201);
+      return c.json(serializePromotion(outcome.value));
+    }
+    const gate = await runGate(
+      registry,
+      releases,
+      deps,
+      { ...parsed.value, tenantId, agentId },
+      policy,
+    );
+    if (gate.kind === 'err') return failed(c, requestId, gate.error);
+    const outcome = await releases.promotions.request({
+      ...input,
+      gate: {
+        policy: policy === null ? null : { id: policy.id, version: policy.version },
+        checks: gate.result.checks,
+        passed: gate.result.passed,
+        ...(gate.result.approval !== undefined && { approval: gate.result.approval }),
+        servingVersion: gate.servingVersion as Semver,
+      },
     });
     if (outcome.kind === 'err') return failed(c, requestId, outcome.error);
-    c.status(201);
-    return c.json(serializePromotion(outcome.value));
+    const promotion = outcome.value;
+    if (promotion.status === 'refused') {
+      const checks = promotion.checks ?? gate.result.checks;
+      c.status(statusFor('gate-failed') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'gate-failed',
+            message: `The gate refused ${agentId} ${parsed.value.version}: ${checks
+              .filter((check) => !check.passed)
+              .map((check) => check.message)
+              .join(' ')}`,
+            promotionId: promotion.id,
+            policy: promotion.policy ?? null,
+            checks,
+          },
+          requestId,
+        ),
+      );
+    }
+    c.status(promotion.status === 'pending-approval' ? 202 : 201);
+    return c.json(serializePromotion(promotion));
+  });
+
+  r.post('/:agentId/promotions/check', async (c) => {
+    const requestId = c.get('requestId');
+    const parsed = await readPromotionBody(c);
+    if (parsed.kind === 'err') return badInput(c, requestId, parsed.message);
+    const tenantId = c.get('tenantId') as TenantId;
+    const agentId = c.req.param('agentId');
+    const policy = await policyFor(releases, tenantId, agentId, parsed.value.scope);
+    const gate = await runGate(
+      registry,
+      releases,
+      deps,
+      { ...parsed.value, tenantId, agentId },
+      policy,
+    );
+    if (gate.kind === 'err') return failed(c, requestId, gate.error);
+    const { result } = gate;
+    return c.json({
+      outcome: !result.passed
+        ? 'gate-failed'
+        : result.approval !== undefined
+          ? 'needs-approval'
+          : 'would-promote',
+      policy: policy === null ? null : { id: policy.id, version: policy.version },
+      checks: result.checks,
+      ...(result.approval !== undefined && { approval: result.approval }),
+    });
+  });
+
+  r.get('/:agentId/gate-policy', async (c) => {
+    const requestId = c.get('requestId');
+    const scope = scopeFromQuery((n) => c.req.query(n), c.req.queries('segment') ?? []);
+    if (scope.kind === 'err') return badInput(c, requestId, scope.message);
+    if (scope.scope === undefined) {
+      return badInput(c, requestId, '`scopeKind` is required: the scope a promotion would be for');
+    }
+    const policy = await policyFor(
+      releases,
+      c.get('tenantId') as TenantId,
+      c.req.param('agentId'),
+      scope.scope,
+    );
+    return c.json({ policy: policy === null ? null : serializeGatePolicy(policy) });
   });
 
   r.get('/:agentId/promotions', async (c) => {
@@ -259,6 +384,143 @@ function optionalText(
   return { kind: 'ok', value };
 }
 
+/** The promotion body: `{version, scope, evalRunId?, reason?}`. */
+async function readPromotionBody(c: Ctx): Promise<
+  | {
+      kind: 'ok';
+      value: { version: Semver; scope: LiveScope; evalRunId?: string; reason?: string };
+    }
+  | { kind: 'err'; message: string }
+> {
+  const body = await readBody(c);
+  if (body === undefined) return { kind: 'err', message: 'Request body must be a JSON object' };
+  const scope = parseLiveScopeBody(body.scope);
+  if (scope.kind === 'err') return scope;
+  if (typeof body.version !== 'string' || body.version.length === 0) {
+    return { kind: 'err', message: '`version` is required: the agent version to make live' };
+  }
+  const text = optionalText(body, ['reason', 'evalRunId']);
+  if (text.kind === 'err') return text;
+  return {
+    kind: 'ok',
+    value: { version: body.version as Semver, scope: scope.scope, ...text.value },
+  };
+}
+
+/** The gate policy for a promotion of `agentId` for `scope`; `null` when none applies. */
+async function policyFor(
+  releases: AgentReleaseBindings,
+  tenantId: TenantId,
+  agentId: string,
+  scope: LiveScope,
+): Promise<GatePolicy | null> {
+  return releases.gatePolicies === undefined
+    ? null
+    : releases.gatePolicies.resolve({ tenantId, agentId, scope });
+}
+
+/** The scope's coordinates, as a run in it would resolve its version. */
+function coordinatesOf(scope: LiveScope): Omit<LiveResolveInput, 'tenantId' | 'agentId'> {
+  switch (scope.kind) {
+    case 'tenant':
+      return {};
+    case 'org':
+      return { orgId: scope.orgId };
+    case 'project':
+      return { projectId: scope.projectId };
+    case 'segment':
+      return { projectId: scope.projectId, segments: scope.path };
+  }
+}
+
+/** A finished comparison's summary, or `null` for any other eval run. */
+function summaryOf(run: EvalRun): JudgedComparisonSummary | null {
+  const summary = run.result?.summary;
+  return run.kind === 'judged' && summary !== null && typeof summary === 'object'
+    ? (summary as JudgedComparisonSummary)
+    : null;
+}
+
+/**
+ * The gate for a promotion request: what serves the scope now, the
+ * comparison it names, and the policy's checks against them. With no
+ * policy there's nothing to check.
+ */
+async function runGate(
+  registry: AgentRegistryBinding,
+  releases: AgentReleaseBindings,
+  deps: AgentReleaseGateDeps,
+  req: {
+    readonly tenantId: TenantId;
+    readonly agentId: string;
+    readonly version: Semver;
+    readonly scope: LiveScope;
+    readonly evalRunId?: string;
+  },
+  policy: GatePolicy | null,
+): Promise<
+  | { kind: 'ok'; result: GateResult; servingVersion: string }
+  | { kind: 'err'; error: { code: string; message: string } }
+> {
+  const { tenantId, agentId } = req;
+  const err = (code: string, message: string) => ({
+    kind: 'err' as const,
+    error: { code, message },
+  });
+  const promoted = await registry.getVersion({
+    tenantId,
+    agentId: agentId as AgentId,
+    version: req.version,
+  });
+  if (promoted === null || promoted.unregisteredAt !== undefined) {
+    return err('agent-version-not-found', `${agentId} has no active version ${req.version}`);
+  }
+  const live = await releases.live.resolve({ tenantId, agentId, ...coordinatesOf(req.scope) });
+  let servingVersion = live?.version as unknown as string | undefined;
+  if (servingVersion === undefined) {
+    const latest = await registry.get({ tenantId, agentId: agentId as AgentId });
+    if (latest === null) return err('agent-not-found', `No agent "${agentId}" is registered`);
+    servingVersion = latest.version as unknown as string;
+  }
+  if (policy === null) return { kind: 'ok', result: { checks: [], passed: true }, servingVersion };
+
+  let summary: JudgedComparisonSummary | null = null;
+  if (req.evalRunId !== undefined) {
+    const run =
+      deps.evalRuns === undefined
+        ? null
+        : await deps.evalRuns.get({ tenantId, runId: req.evalRunId as RunId });
+    if (run === null) return err('eval-run-not-found', `No eval run ${req.evalRunId}`);
+    summary = summaryOf(run);
+    if (summary === null) {
+      return err(
+        'bad-input',
+        `Eval run ${req.evalRunId} isn't a finished comparison: it has no comparison summary`,
+      );
+    }
+  }
+  let summaryProjectOrgId: string | undefined;
+  const judgedIn = summary?.scope.projectId;
+  if (req.scope.kind === 'org' && judgedIn !== undefined && deps.projects !== undefined) {
+    const project = await deps.projects.get(tenantId, judgedIn as ProjectId);
+    summaryProjectOrgId = project?.orgId as unknown as string | undefined;
+  }
+  const result = evaluateGate({
+    spec: policy.spec,
+    promotion: {
+      agentId,
+      version: req.version as unknown as string,
+      pinsDigest: promoted.pinsDigest ?? null,
+      scope: req.scope,
+    },
+    summary,
+    servingVersion,
+    ...(summaryProjectOrgId !== undefined && { summaryProjectOrgId }),
+    now: new Date(),
+  });
+  return { kind: 'ok', result, servingVersion };
+}
+
 /** Who asked, from the request's principal. */
 function actorOf(c: Ctx): PromotionActor {
   const actor = c.get('principal')?.actor;
@@ -267,7 +529,7 @@ function actorOf(c: Ctx): PromotionActor {
 }
 
 /** `?scopeKind=tenant|org|project|segment&scopeId=…&segment=key:value` for the history filter. */
-function scopeFromQuery(
+export function scopeFromQuery(
   query: (name: string) => string | undefined,
   segmentValues: readonly string[],
 ): { kind: 'ok'; scope?: LiveScope } | { kind: 'err'; message: string } {
@@ -310,5 +572,10 @@ export function serializePromotion(p: Promotion): Record<string, unknown> {
     ...(p.reason !== undefined && { reason: p.reason }),
     ...(p.evalRunId !== undefined && { evalRunId: p.evalRunId }),
     createdAt: p.createdAt as unknown as string,
+    ...(p.status !== undefined && { status: p.status }),
+    ...(p.policy !== undefined && { policy: p.policy }),
+    ...(p.checks !== undefined && { checks: p.checks }),
+    ...(p.approvalId !== undefined && { approvalId: p.approvalId }),
+    ...(p.resolvedAt !== undefined && { resolvedAt: p.resolvedAt as unknown as string }),
   };
 }

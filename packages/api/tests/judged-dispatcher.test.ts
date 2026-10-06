@@ -14,6 +14,7 @@ import type {
   EvalSuite,
   JudgedCaseResult,
   JudgedComparisonSummary,
+  JudgedDispatcherOptions,
   JudgedEvalCase,
 } from '../src/index.js';
 import { DEFAULT_COMPARISON, createJudgedDispatcher } from '../src/index.js';
@@ -90,6 +91,7 @@ const answers: Record<string, EvalRunSubjectInvokeOutcome> = {
 
 async function compare(options: {
   readonly comparison?: EvalComparison;
+  readonly agents?: JudgedDispatcherOptions['agents'];
   readonly answer?: (input: EvalRunSubjectInvokeInput, call: number) => EvalRunSubjectInvokeOutcome;
   readonly dryRun?: boolean;
 }) {
@@ -125,7 +127,10 @@ async function compare(options: {
     },
     onProgress: (entry) => progress.push(entry),
   };
-  const out = await createJudgedDispatcher({ cases }).dispatch(ctx);
+  const out = await createJudgedDispatcher({
+    cases,
+    ...(options.agents !== undefined && { agents: options.agents }),
+  }).dispatch(ctx);
   const result = out.result as { summary: JudgedComparisonSummary; perCase: JudgedCaseResult[] };
   return { ...result, invoked, progress, error: out.error };
 }
@@ -290,6 +295,38 @@ describe('a comparison eval run', () => {
     });
     expect(allFail.summary).toMatchObject({ status: 'failed', errors: 2 });
     expect(allFail.perCase[0]?.error).toBe('boom');
+  });
+
+  test("the candidate's pinsDigest, read from the registry, for the gate", async () => {
+    const asked: unknown[] = [];
+    const { summary } = await compare({
+      agents: {
+        getVersion: async (input) => {
+          asked.push(input);
+          return { id: 'acme.agent', version: '2.0.0', pinsDigest: 'sha-200' } as never;
+        },
+      },
+    });
+    expect(summary.candidate).toEqual({
+      kind: 'agent',
+      agentId: 'acme.agent',
+      version: '2.0.0',
+      pinsDigest: 'sha-200',
+    });
+    expect(asked).toEqual([{ tenantId, agentId: 'acme.agent', version: '2.0.0' }]);
+  });
+
+  test('without a registry, or for a version published before pins: no pinsDigest', async () => {
+    expect((await compare({})).summary.candidate).toEqual({
+      kind: 'agent',
+      agentId: 'acme.agent',
+      version: '2.0.0',
+    });
+    const unpinned = await compare({
+      agents: { getVersion: async () => ({ id: 'acme.agent', version: '2.0.0' }) as never },
+    });
+    expect(unpinned.summary.candidate).not.toHaveProperty('pinsDigest');
+    expect(wireErrors(unpinned)).toEqual([]);
   });
 
   test('a dry run counts the cases and runs nothing', async () => {

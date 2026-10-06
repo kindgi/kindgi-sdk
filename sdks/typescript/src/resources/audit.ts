@@ -48,6 +48,8 @@ export interface ListAuthzDecisionsFilter {
   readonly runId?: string;
   readonly from?: string;
   readonly to?: string;
+  /** `asc` (absent): oldest first. `desc`: newest first. */
+  readonly order?: 'asc' | 'desc';
 }
 
 export interface AuthzAuditClient {
@@ -77,6 +79,7 @@ export function makeAuditClient(transport: Transport): AuditResourceClient {
             ...(filter?.runId !== undefined && { runId: filter.runId }),
             ...(filter?.from !== undefined && { from: filter.from }),
             ...(filter?.to !== undefined && { to: filter.to }),
+            ...(filter?.order !== undefined && { order: filter.order }),
           },
         });
       },

@@ -141,10 +141,12 @@ _CONFLICT = {
     "provider-already-registered", "proposal-invalid-state-transition", "approval-not-decided",
     "slug-conflict", "project-default-already-exists", "registry-read-only",
     "policy-already-registered", "policy-scope-taken", "policy-scope-changed",
-    "nothing-to-roll-back", "not-pinned", "eval-suite-already-registered",
+    "nothing-to-roll-back", "not-pinned", "agent-version-live", "eval-suite-already-registered",
     "mcp-endpoint-already-registered", "identity-provider-already-registered",
     "version-already-exists", "eval-run-already-terminal", "approval-already-decided",
-    "judge-class-name-taken",
+    "judge-class-name-taken", "promotion-superseded", "gate-policy-already-registered",
+    "gate-policy-scope-taken", "gate-policy-scope-changed", "gate-policy-scope-unpinned",
+    "gate-policy-needs-pin",
 }  # fmt: skip
 _INVALID = {
     "invalid-request", "validation-failed", "unknown-field", "bad-input", "unresolved-tool",

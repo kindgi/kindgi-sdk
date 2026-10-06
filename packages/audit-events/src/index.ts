@@ -3,6 +3,7 @@
 
 export type {
   AuditEventBinding,
+  AuditEventOrder,
   AuditEventPurgeInput,
   AuditEventPurgeResult,
   AuditEventQueryInput,

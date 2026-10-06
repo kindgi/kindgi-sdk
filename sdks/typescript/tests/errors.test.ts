@@ -81,6 +81,10 @@ describe('fromWire — conflicts', () => {
     'registry-read-only',
     'nothing-to-roll-back',
     'not-pinned',
+    'agent-version-live',
+    'promotion-superseded',
+    'gate-policy-already-registered',
+    'gate-policy-needs-pin',
   ])('a %s is a conflict, its code the reason', (code) => {
     expect(fromWire({ code, message: 'taken' })).toEqual({
       code: 'conflict',

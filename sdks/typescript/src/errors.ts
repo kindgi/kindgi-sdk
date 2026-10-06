@@ -288,6 +288,7 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'policy-scope-changed':
     case 'nothing-to-roll-back':
     case 'not-pinned':
+    case 'agent-version-live':
     case 'eval-suite-already-registered':
     case 'policy-already-registered':
     case 'mcp-endpoint-already-registered':
@@ -296,6 +297,12 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'eval-run-already-terminal':
     case 'approval-already-decided':
     case 'judge-class-name-taken':
+    case 'promotion-superseded':
+    case 'gate-policy-already-registered':
+    case 'gate-policy-scope-taken':
+    case 'gate-policy-scope-changed':
+    case 'gate-policy-scope-unpinned':
+    case 'gate-policy-needs-pin':
       return { code: 'conflict', message, reason: code };
     case 'invalid-request':
     case 'validation-failed':

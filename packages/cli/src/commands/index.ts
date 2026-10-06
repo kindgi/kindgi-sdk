@@ -17,6 +17,7 @@ import { evalRunsCommand } from './eval-runs.js';
 import { evalSuitesCommand } from './eval-suites.js';
 import { feedbackCommand } from './feedback.js';
 import { flowsCommand } from './flows.js';
+import { gatePoliciesCommand } from './gate-policies.js';
 import { guardrailsCommand } from './guardrails.js';
 import { healthCommand } from './health.js';
 import { initCommand } from './init.js';
@@ -71,6 +72,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   evalRunsCommand,
   evalSuitesCommand,
   blocksCommand,
+  gatePoliciesCommand,
   tokensCommand,
   capabilitiesCommand,
   providersCommand,

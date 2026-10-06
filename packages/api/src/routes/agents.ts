@@ -28,7 +28,13 @@ import type { Authorizer } from '../middleware/authorize.js';
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
-import { isPromotionWrite, mountAgentReleaseRoutes } from './agent-releases.js';
+import {
+  type AgentReleaseGateDeps,
+  isPromotionCheck,
+  isPromotionWrite,
+  mountAgentReleaseRoutes,
+} from './agent-releases.js';
+import { liveScopeToWire } from './live-scope-wire.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams } from './scope-params.js';
 
@@ -56,6 +62,8 @@ export function agentsRouter(
   blockRegistry?: BlockRegistryBinding,
   /** Live versions per scope and promotions (evals step 4); absent → those routes aren't mounted. */
   releases?: AgentReleaseBindings,
+  /** What a promotion's gate reads besides the releases (evals step 4b). */
+  gateDeps?: AgentReleaseGateDeps,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // A read-only registry (under `kindgi dev`, the pack's files) refuses
@@ -76,6 +84,7 @@ export function agentsRouter(
   //   POST /:agentId/versions/:version/unregister    → admin on the agent
   //   POST /:agentId/versions/:version/reinstate     → admin on the agent
   //   POST /:agentId/promotions, /live/rollback, /live/unpin → promote on the agent
+  //   POST /:agentId/promotions/check                → read on the agent (changes nothing)
   //   GET /:agentId/live, /live-versions, /promotions[/…]    → read on the agent
   //   GET / (list)                                   → tenant-scoped fetch;
   //                                                    with a project scope
@@ -117,7 +126,7 @@ export function agentsRouter(
       // changing what's live is its own permission (`promote`, granted to
       // the agent's admins); unregister and reinstate are `admin`.
       const action =
-        c.req.method === 'GET'
+        c.req.method === 'GET' || isPromotionCheck(c.req.method, c.req.path)
           ? 'read'
           : isPromotionWrite(c.req.method, c.req.path)
             ? 'promote'
@@ -447,6 +456,23 @@ export function agentsRouter(
     const version = c.req.param('version') as Semver;
 
     const outcome = await binding.unregister({ tenantId, agentId, version });
+    if (!outcome.unregistered && outcome.live !== undefined && outcome.live.length > 0) {
+      c.status(statusFor('agent-version-live') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'agent-version-live',
+            message: `${agentId as unknown as string} ${version as unknown as string} is live in ${
+              outcome.live.length === 1 ? 'a scope' : `${outcome.live.length} scopes`
+            }: roll back, unpin, or promote another version there first, then unregister it.`,
+            agentId: agentId as unknown as string,
+            version: version as unknown as string,
+            scopes: outcome.live.map(liveScopeToWire),
+          },
+          requestId,
+        ),
+      );
+    }
     if (!outcome.unregistered) {
       c.status(statusFor('agent-not-found') as never);
       return c.json(
@@ -502,7 +528,7 @@ export function agentsRouter(
     });
   });
 
-  if (releases !== undefined) mountAgentReleaseRoutes(r, binding, releases);
+  if (releases !== undefined) mountAgentReleaseRoutes(r, binding, releases, gateDeps);
 
   return r;
 }

@@ -64,6 +64,8 @@ export const EVIDENCE_KINDS = [
   // Which agent version is live for a scope: a promotion, a rollback, or
   // an unpin (the scope falls back to the one above).
   'agent-promotion',
+  // A promotion its gate policy refused (evals step 4b): the checks that failed.
+  'agent-promotion-refused',
   'agent-rollback',
   'agent-live-unpinned',
   // A live pin whose version was unregistered: runs use the scope above.

@@ -16,7 +16,8 @@ import type { AuditEvent, AuditEventFilter, AuditEventPage } from './types.js';
  *     (idempotent — safer than throwing when the caller re-fires
  *     from a retry loop).
  *   - `query` — cursor-paginated read; opaque cursor tokens encode
- *     `(timestamp, id)` for keyset pagination.
+ *     `(timestamp, id)` for keyset pagination, oldest first or, with
+ *     `order: 'desc'`, newest first.
  *   - `purge` — delete rows matching `(tenantId, kind, olderThan)`;
  *     retention cleanup calls this per kind. Legal-hold kinds are
  *     excluded by the caller (the compliance classifier decides).
@@ -44,7 +45,16 @@ export interface AuditEventQueryInput {
   readonly filter?: AuditEventFilter;
   readonly cursor?: string;
   readonly limit?: number;
+  /**
+   * `asc` (absent): oldest first. `desc`: newest first. `nextCursor`
+   * continues in the same order. A binding that predates `order` pages
+   * oldest first.
+   */
+  readonly order?: AuditEventOrder;
 }
+
+/** The order `query` pages in, by `(timestamp, id)`. */
+export type AuditEventOrder = 'asc' | 'desc';
 
 export interface AuditEventPurgeInput {
   readonly tenantId: TenantId;
