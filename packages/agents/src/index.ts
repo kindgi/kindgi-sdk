@@ -93,6 +93,7 @@ export type {
   AgentDerivationReason,
   AgentPins,
   PinChange,
+  PinSet,
 } from './pins.js';
 export { createAgentRegistry } from './registry.js';
 export type { AgentRegistry } from './registry.js';

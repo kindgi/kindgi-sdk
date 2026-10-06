@@ -8,6 +8,7 @@ import { Hono } from 'hono';
 import type { Agent, AgentId, AgentPins } from '@kindgi/agents';
 import { tuplesForCreate } from '@kindgi/authz';
 import { parsePublicKeyPem, verifyEd25519 } from '@kindgi/crypto';
+import type { Flow, FlowPins } from '@kindgi/flow';
 import { type Guardrail, validateGuardrailSpec } from '@kindgi/guardrails';
 import type { ProjectBinding, Scope } from '@kindgi/platform';
 import { validateToolManifest } from '@kindgi/tools';
@@ -23,9 +24,12 @@ import type {
 } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from '../agent-binding.js';
-import { type UnpinnableTool, publishDeployedAgent, resolveAgentPins } from '../agent-pins.js';
+import { type UnpinnableRef, publishDeployedAgent, resolveAgentPins } from '../agent-pins.js';
+import type { DeployedVersionOutcome } from '../deploy-versions.js';
 import type {
   DeployedAgent,
+  DeployedFlow,
+  DeployedVersion,
   Deployment,
   DeploymentBinding,
   DeploymentPrimitiveCounts,
@@ -33,6 +37,7 @@ import type {
 } from '../deployment-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
+import { publishDeployedFlow, resolveFlowPins } from '../flow-pins.js';
 import type { GuardrailRegistryBinding } from '../guardrail-binding.js';
 import type { ImageRegistryBinding } from '../image-registry-binding.js';
 import type { SecretBinding } from '../secrets-binding.js';
@@ -535,6 +540,7 @@ export function deploymentsRouter(bindings: DeploymentsRouterBindings): Hono<App
     // The version each agent is registered under: its definition's, or
     // the one a deploy registered in its place (`publishDeployedAgent`).
     const deployedAgents: DeployedAgent[] = [];
+    const deployedFlows: DeployedFlow[] = [];
     try {
       if (bindings.toolRegistry !== undefined && defaultProjectId !== undefined) {
         for (const tool of validated.tools) {
@@ -595,41 +601,32 @@ export function deploymentsRouter(bindings: DeploymentsRouterBindings): Hono<App
           })),
         );
       } else {
-        deployedAgents.push(...validated.agents.map(deployedAgent));
+        deployedAgents.push(...validated.agents.map(deployedPrimitive));
       }
       if (bindings.flowRegistry !== undefined && defaultProjectId !== undefined) {
-        for (const flow of validated.flows) {
-          const projectIdForGraph = defaultProjectId;
-          const outcome = await bindings.flowRegistry.publish({
+        deployedFlows.push(
+          ...(await registerFlows({
+            flows: bindings.flowRegistry,
+            tools: bindings.toolRegistry,
+            agents: bindings.agentRegistry,
             tenantId,
-            projectId: projectIdForGraph,
-            flow,
-            enqueueTuples: (flowId) =>
-              tuplesForCreate({
-                kind: 'flow',
-                id: flowId as FlowId,
-                tenantId,
-                projectId: projectIdForGraph,
-              }),
-          });
-          if (outcome.kind === 'ok') {
-            const flowId = outcome.flowId;
-            const version = outcome.version;
-            rolled.push(async () => {
-              await bindings.flowRegistry?.unregister({ tenantId, flowId, version });
-            });
-          }
-        }
+            projectId: defaultProjectId,
+            defined: validated.flows,
+            rolled,
+          })),
+        );
+      } else {
+        deployedFlows.push(...validated.flows.map(deployedPrimitive));
       }
     } catch (cause) {
       await rollback(rolled);
-      if (cause instanceof UnpinnableAgents) {
+      if (cause instanceof UnpinnableDeploy) {
         c.status(statusFor('invalid-agent') as never);
         return c.json(
           toWireError(
             {
               code: 'validation-failed',
-              message: `The deployment's agents use tool versions that aren't published (${cause.issues.length} issue${cause.issues.length === 1 ? '' : 's'}); nothing was deployed`,
+              message: `The deployment's agents or flows use tool or agent versions that aren't published (${cause.issues.length} issue${cause.issues.length === 1 ? '' : 's'}); nothing was deployed`,
               issues: cause.issues as unknown as Record<string, unknown>[],
             },
             requestId,
@@ -676,10 +673,7 @@ export function deploymentsRouter(bindings: DeploymentsRouterBindings): Hono<App
           })),
           guardrails: validated.guardrails.map((g) => ({ id: g.id as unknown as string })),
           agents: deployedAgents,
-          flows: validated.flows.map((f) => ({
-            id: f.id as unknown as string,
-            version: f.version as unknown as string,
-          })),
+          flows: deployedFlows,
         },
       });
     } catch (cause) {
@@ -1414,16 +1408,36 @@ function validateFlowIndexShape(
 
 type RollbackAction = () => Promise<void>;
 
-/** A deploy whose agents' tool ranges match no published version. */
-class UnpinnableAgents extends Error {
-  constructor(readonly issues: readonly UnpinnableTool[]) {
-    super('agents use tool versions that are not published');
+/** A deploy whose agents or flows use a tool or agent with no published version in range. */
+class UnpinnableDeploy extends Error {
+  constructor(readonly issues: readonly UnpinnableRef[]) {
+    super('the deployment uses tools or agents that are not published');
   }
 }
 
-/** A deployed agent registered under its definition's version. */
-function deployedAgent(agent: Agent): DeployedAgent {
-  return { id: agent.id as unknown as string, version: agent.version as unknown as string };
+/** A deployed agent or flow registered under its definition's version. */
+function deployedPrimitive(definition: { readonly id: string; readonly version: string }): {
+  id: string;
+  version: string;
+} {
+  return { id: definition.id, version: definition.version };
+}
+
+/** A deployed agent or flow, under the version the deploy rule registered it as. */
+function deployedVersion(
+  definition: { readonly id: string; readonly version: string },
+  outcome: DeployedVersionOutcome,
+): DeployedVersion {
+  return outcome.kind === 'reused' || outcome.kind === 'renumbered'
+    ? {
+        id: definition.id,
+        version: outcome.version,
+        authoredVersion: definition.version,
+        reason: outcome.reason,
+        newVersion: outcome.kind === 'renumbered',
+        ...(outcome.pinChanges !== undefined && { pinChanges: outcome.pinChanges }),
+      }
+    : deployedPrimitive(definition);
 }
 
 /**
@@ -1432,7 +1446,7 @@ function deployedAgent(agent: Agent): DeployedAgent {
  *
  * With a tool registry, every agent is pinned first (the pack's tools
  * are registered by now): one whose range matches no published version
- * throws `UnpinnableAgents` before any agent is written, and the deploy
+ * throws `UnpinnableDeploy` before any agent is written, and the deploy
  * rolls back. Each is then registered by `publishDeployedAgent`, which
  * never keeps a version's old pins. Without one, agents register
  * unpinned, as before pins existed.
@@ -1461,7 +1475,7 @@ async function registerAgents(input: {
       const outcome = await agents.publish({ tenantId, projectId, agent, enqueueTuples });
       if (outcome.kind === 'ok') written(outcome.agentId, outcome.version);
     }
-    return input.defined.map(deployedAgent);
+    return input.defined.map(deployedPrimitive);
   }
 
   const pinsOf = await pinAgents(tools, tenantId, input.defined);
@@ -1479,30 +1493,101 @@ async function registerAgents(input: {
     if (outcome.kind === 'registered' || outcome.kind === 'renumbered') {
       written(agent.id, outcome.version as unknown as Semver);
     }
-    deployed.push(
-      outcome.kind === 'reused' || outcome.kind === 'renumbered'
-        ? {
-            id: agent.id as unknown as string,
-            version: outcome.version,
-            authoredVersion: agent.version as unknown as string,
-            reason: outcome.reason,
-            newVersion: outcome.kind === 'renumbered',
-            ...(outcome.pinChanges !== undefined && { pinChanges: outcome.pinChanges }),
-          }
-        : deployedAgent(agent),
-    );
+    deployed.push(deployedVersion(agent, outcome));
   }
   return deployed;
 }
 
-/** Each agent's pins, in order; throws `UnpinnableAgents` naming every range that matches nothing. */
+/**
+ * Register a deployment's flows, each under the version it's registered
+ * as, pushing a rollback for each version it writes. Runs after the
+ * agents, so a flow's agent pins see the versions this deploy
+ * registered: a tool change cascades through an agent into a flow
+ * within the one deploy, each derived once.
+ *
+ * With the tool and agent registries, every flow is pinned first; one
+ * that runs a tool or agent with no published version throws
+ * `UnpinnableDeploy` before any flow is written, and the deploy rolls
+ * back. Without them, flows register unpinned, as before pins existed.
+ */
+async function registerFlows(input: {
+  readonly flows: FlowRegistryBinding;
+  readonly tools: ToolRegistryBinding | undefined;
+  readonly agents: AgentRegistryBinding | undefined;
+  readonly tenantId: TenantId;
+  readonly projectId: ProjectId;
+  readonly defined: readonly Flow[];
+  readonly rolled: RollbackAction[];
+}): Promise<DeployedFlow[]> {
+  const { flows, tools, agents, tenantId, projectId, rolled } = input;
+  const enqueueTuples = (flowId: string) =>
+    tuplesForCreate({ kind: 'flow', id: flowId as FlowId, tenantId, projectId });
+  const written = (flowId: FlowId, version: string) =>
+    rolled.push(async () => {
+      await flows.unregister({ tenantId, flowId, version: version as never });
+    });
+
+  if (tools === undefined || agents === undefined) {
+    for (const flow of input.defined) {
+      const outcome = await flows.publish({ tenantId, projectId, flow, enqueueTuples });
+      if (outcome.kind === 'ok') written(outcome.flowId, outcome.version as unknown as string);
+    }
+    return input.defined.map(deployedPrimitive);
+  }
+
+  const pinsOf = await pinFlows(tools, agents, tenantId, input.defined);
+  const deployed: DeployedFlow[] = [];
+  for (const [i, flow] of input.defined.entries()) {
+    const outcome = await publishDeployedFlow({
+      flows,
+      tenantId,
+      projectId,
+      flow,
+      pins: pinsOf[i] as FlowPins,
+      enqueueTuples,
+    });
+    if (outcome.kind === 'registered' || outcome.kind === 'renumbered') {
+      written(flow.id, outcome.version);
+    }
+    deployed.push(deployedVersion(flow, outcome));
+  }
+  return deployed;
+}
+
+/** Each flow's pins, in order; throws `UnpinnableDeploy` naming every tool or agent with no published version. */
+async function pinFlows(
+  tools: ToolRegistryBinding,
+  agents: AgentRegistryBinding,
+  tenantId: TenantId,
+  defined: readonly Flow[],
+): Promise<FlowPins[]> {
+  const pins: FlowPins[] = [];
+  const unpinnable: UnpinnableRef[] = [];
+  for (const [i, flow] of defined.entries()) {
+    const resolved = await resolveFlowPins(tools, agents, tenantId, flow);
+    if (resolved.kind === 'ok') {
+      pins.push(resolved.pins);
+      continue;
+    }
+    for (const issue of resolved.issues) {
+      unpinnable.push({
+        path: `/flows/${i}${issue.path}`,
+        message: `flow "${flow.id as unknown as string}": ${issue.message}`,
+      });
+    }
+  }
+  if (unpinnable.length > 0) throw new UnpinnableDeploy(unpinnable);
+  return pins;
+}
+
+/** Each agent's pins, in order; throws `UnpinnableDeploy` naming every range that matches nothing. */
 async function pinAgents(
   tools: ToolRegistryBinding,
   tenantId: TenantId,
   defined: readonly Agent[],
 ): Promise<AgentPins[]> {
   const pins: AgentPins[] = [];
-  const unpinnable: UnpinnableTool[] = [];
+  const unpinnable: UnpinnableRef[] = [];
   for (const [i, agent] of defined.entries()) {
     const resolved = await resolveAgentPins(tools, tenantId, agent);
     if (resolved.kind === 'ok') {
@@ -1516,7 +1601,7 @@ async function pinAgents(
       });
     }
   }
-  if (unpinnable.length > 0) throw new UnpinnableAgents(unpinnable);
+  if (unpinnable.length > 0) throw new UnpinnableDeploy(unpinnable);
   return pins;
 }
 

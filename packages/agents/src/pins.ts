@@ -4,6 +4,7 @@
 import { createHash } from 'node:crypto';
 
 import { canonicalize } from '@kindgi/schema';
+import type { VersionDerivation, VersionDerivationReason } from '@kindgi/types';
 
 /**
  * The exact version of each block an agent version runs: its lockfile.
@@ -43,30 +44,15 @@ export function pinsDigest(pins: AgentPins): string {
   return `sha256:${createHash('sha256').update(canonical, 'utf8').digest('hex')}`;
 }
 
-/**
- * Why the runtime registered an agent version under another number
- * than the one its definition names:
- *
- * - `pins-changed`: the definition's version is registered with other
- *   pins (a tool it uses has a new version in range), and a version's
- *   pins never change;
- * - `unpinned`: the definition's version was published before pins
- *   existed, so it has none;
- * - `version-taken`: the definition's version is registered with other
- *   content.
- */
-export type AgentDerivationReason = 'pins-changed' | 'unpinned' | 'version-taken';
+/** Why a deploy registered an agent version under another number (`VersionDerivationReason`). */
+export type AgentDerivationReason = VersionDerivationReason;
 
 /** The version an agent version was registered in place of, and why. */
-export interface AgentDerivation {
-  /** The version the agent's definition names. */
-  readonly version: string;
-  readonly reason: AgentDerivationReason;
-}
+export type AgentDerivation = VersionDerivation;
 
-/** One pin that differs between two agent versions. */
+/** One pin that differs between two versions of an agent or a flow. */
 export interface PinChange {
-  readonly kind: 'tool' | 'prompt' | 'setting';
+  readonly kind: 'tool' | 'prompt' | 'setting' | 'agent';
   readonly id: string;
   /** The earlier version's pin; absent when it didn't pin this block. */
   readonly from?: string;
@@ -78,18 +64,24 @@ const PIN_KINDS = [
   ['tools', 'tool'],
   ['prompts', 'prompt'],
   ['settings', 'setting'],
+  ['agents', 'agent'],
 ] as const;
+
+/** A version's pins by kind: an agent's (`AgentPins`) or a flow's (`FlowPins`). */
+export type PinSet = Partial<
+  Record<(typeof PIN_KINDS)[number][0], Readonly<Record<string, string>>>
+>;
 
 /**
  * The pins that differ from `before` to `after`, by kind then id. With
  * no `before` (a version published before pins), every pin of `after`
  * is a change.
  */
-export function pinChanges(before: AgentPins | undefined, after: AgentPins): PinChange[] {
+export function pinChanges(before: PinSet | undefined, after: PinSet): PinChange[] {
   const changes: PinChange[] = [];
   for (const [key, kind] of PIN_KINDS) {
     const was = before?.[key] ?? {};
-    const now = after[key];
+    const now = after[key] ?? {};
     for (const id of [...new Set([...Object.keys(was), ...Object.keys(now)])].sort()) {
       const from = was[id];
       const to = now[id];

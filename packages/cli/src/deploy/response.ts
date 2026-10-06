@@ -8,7 +8,7 @@
  * exercising the full runCli path.
  */
 
-import type { DeployedAgentRecord, DeploymentRecord, PostDeploymentResult } from './runners.js';
+import type { DeployedVersionRecord, DeploymentRecord, PostDeploymentResult } from './runners.js';
 
 /**
  * Human-friendly hint text keyed by server wire-error code. Each hint
@@ -89,7 +89,7 @@ export function renderResponse(
     banner.push(`      primitives:      ${primitivesLine(result.record.primitives)}`);
     banner.push(`      activatedAt:     ${result.record.activatedAt}`);
     banner.push('');
-    banner.push(...agentVersionBlock(result.record.contents?.agents));
+    banner.push(...versionBlock(result.record.contents));
     if (result.idempotentReplay === true) {
       banner.push(
         `  Note: answered from the server's record of an earlier request with this Idempotency-Key (${ctx.idempotencyKey}); nothing ran again.`,
@@ -185,38 +185,53 @@ export function renderResponse(
 }
 
 /**
- * One line per agent registered under another version than its
+ * One line per agent or flow registered under another version than its
  * definition names, saying which version runs, why, and how to make the
  * code match so the two don't drift apart:
  *
  *   agent acme.matcher: registered new version 1.4.1 (1.4.0's pins changed: tool acme.score 1.0.0 → 1.1.0); set version: '1.4.1' in acme.matcher to match
  */
-export function agentVersionLines(agents: readonly DeployedAgentRecord[]): string[] {
+export function versionLines(
+  kind: 'agent' | 'flow',
+  entries: readonly DeployedVersionRecord[],
+): string[] {
   const lines: string[] = [];
-  for (const a of agents) {
-    if (a.authoredVersion === undefined || a.authoredVersion === a.version) continue;
-    const why =
-      a.reason === 'pins-changed'
-        ? `${a.authoredVersion}'s pins changed${pinChangesText(a.pinChanges ?? [])}`
-        : a.reason === 'unpinned'
-          ? `${a.authoredVersion} was published before pins; ${a.version} pins its tools`
-          : `${a.authoredVersion} is taken by a different definition`;
+  for (const e of entries) {
+    if (e.authoredVersion === undefined || e.authoredVersion === e.version) continue;
+    const why = whyRenumbered(kind, e);
     const what =
-      a.newVersion === false
-        ? `${a.authoredVersion} runs as ${a.version}, registered by an earlier deploy`
-        : `registered new version ${a.version}`;
-    lines.push(`agent ${a.id}: ${what} (${why}); set version: '${a.version}' in ${a.id} to match`);
+      e.newVersion === false
+        ? `${e.authoredVersion} runs as ${e.version}, registered by an earlier deploy`
+        : `registered new version ${e.version}`;
+    lines.push(
+      `${kind} ${e.id}: ${what} (${why}); set version: '${e.version}' in ${e.id} to match`,
+    );
   }
   return lines;
 }
 
-/** `agentVersionLines` as banner lines, followed by a blank line; none when there are none. */
-function agentVersionBlock(agents: readonly DeployedAgentRecord[] = []): string[] {
-  const lines = agentVersionLines(agents);
+/** Why an agent or flow runs as another version than its definition names. */
+function whyRenumbered(kind: 'agent' | 'flow', e: DeployedVersionRecord): string {
+  if (e.reason === 'pins-changed') {
+    return `${e.authoredVersion}'s pins changed${pinChangesText(e.pinChanges ?? [])}`;
+  }
+  if (e.reason === 'unpinned') {
+    const blocks = kind === 'agent' ? 'tools' : 'tools and agents';
+    return `${e.authoredVersion} was published before pins; ${e.version} pins its ${blocks}`;
+  }
+  return `${e.authoredVersion} is taken by a different definition`;
+}
+
+/** `versionLines` for a deployment's agents then flows, followed by a blank line; none when there are none. */
+function versionBlock(contents: DeploymentRecord['contents']): string[] {
+  const lines = [
+    ...versionLines('agent', contents?.agents ?? []),
+    ...versionLines('flow', contents?.flows ?? []),
+  ];
   return lines.length === 0 ? [] : [...lines.map((line) => `  ${line}`), ''];
 }
 
-function pinChangesText(changes: NonNullable<DeployedAgentRecord['pinChanges']>): string {
+function pinChangesText(changes: NonNullable<DeployedVersionRecord['pinChanges']>): string {
   if (changes.length === 0) return '';
   const parts = changes.map((c) => `${c.kind} ${c.id} ${c.from ?? 'none'} → ${c.to ?? 'none'}`);
   return `: ${parts.join(', ')}`;

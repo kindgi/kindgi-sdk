@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { AgentDerivationReason, PinChange } from '@kindgi/agents';
-import type { Cursor, SigningKeyId, TenantId } from '@kindgi/types';
+import type { PinChange } from '@kindgi/agents';
+import type { Cursor, SigningKeyId, TenantId, VersionDerivationReason } from '@kindgi/types';
 
 /**
  * Caller-plugged surface for the deployment ledger — the audit anchor
@@ -129,27 +129,33 @@ export interface DeployedPrimitive {
 }
 
 /**
- * An agent a deployment shipped, under the version it's registered as.
- * A deploy registers an agent under another version than its
+ * An agent or flow a deployment shipped, under the version it's
+ * registered as. A deploy registers one under another version than its
  * definition's when that version is registered already with other pins
  * or content (versions never change); then `authoredVersion` is the
  * definition's and `reason` says why.
  */
-export interface DeployedAgent extends DeployedPrimitive {
+export interface DeployedVersion extends DeployedPrimitive {
   /** The version the agent's definition names, when it differs from `version`. */
   readonly authoredVersion?: string;
-  readonly reason?: AgentDerivationReason;
+  readonly reason?: VersionDerivationReason;
   /** `true`: this deploy registered `version`; `false`: an earlier deploy did. */
   readonly newVersion?: boolean;
   /** For `pins-changed`: the pins that differ from `authoredVersion`'s. */
   readonly pinChanges?: readonly PinChange[];
 }
 
+/** An agent a deployment shipped (`DeployedVersion`). */
+export type DeployedAgent = DeployedVersion;
+
+/** A flow a deployment shipped (`DeployedVersion`). */
+export type DeployedFlow = DeployedVersion;
+
 export interface DeploymentContents {
   readonly tools: readonly DeployedPrimitive[];
   readonly guardrails: readonly DeployedPrimitive[];
   readonly agents: readonly DeployedAgent[];
-  readonly flows: readonly DeployedPrimitive[];
+  readonly flows: readonly DeployedFlow[];
 }
 
 export interface DeploymentPrimitiveCounts {
