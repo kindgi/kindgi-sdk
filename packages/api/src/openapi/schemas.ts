@@ -5016,6 +5016,16 @@ export const RetentionScheduledPageSchema: JsonSchema = {
       type: 'array',
       items: { $ref: '#/components/schemas/RetentionScheduledItem' },
     },
+    hasMore: {
+      type: 'boolean',
+      description:
+        'Some domain has more scheduled rows than this page returned (`limit` is per domain). Always sent from 0.1.4; a runtime before it sends none.',
+    },
+    nextCursor: {
+      type: 'string',
+      description:
+        'The `cursor` for the next page. Absent when `hasMore: false`, or when the runtime cannot continue a page.',
+    },
     domainsMissingAdapter: {
       type: 'array',
       items: { $ref: '#/components/schemas/RetentionDomain' },

@@ -4835,6 +4835,14 @@ class RetentionScheduledPage(BaseModel):
         populate_by_name=True,
     )
     data: list[RetentionScheduledItem]
+    has_more: Annotated[bool | None, Field(alias="hasMore")] = None
+    """
+    Some domain has more scheduled rows than this page returned (`limit` is per domain). Always sent from 0.1.4; a runtime before it sends none.
+    """
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    The `cursor` for the next page. Absent when `hasMore: false`, or when the runtime cannot continue a page.
+    """
     domains_missing_adapter: Annotated[
         list[
             Literal[

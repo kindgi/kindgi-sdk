@@ -216,6 +216,20 @@ describe('envVarsForTarget — the retention sweeper (T236)', () => {
   });
 });
 
+describe('envVarsForTarget — the compliance classifier (T250)', () => {
+  test("the server's, optional, in core; it says plainly that audit events are purged by kind", () => {
+    const server = new Map(envVarsForTarget({ component: 'server' }).map((v) => [v.name, v]));
+    const setting = server.get('KINDGI_COMPLIANCE_CLASSIFIER');
+    expect(setting).toMatchObject({ required: false, group: 'core', example: 'shipped' });
+    expect(setting?.description).toContain('purges audit events by kind');
+    expect(setting?.description).toContain(
+      'Unset (the default): no `/v1/compliance/*`, and no audit event is ever purged',
+    );
+    const packService = envVarsForTarget({ component: 'pack-service' }).map((v) => v.name);
+    expect(packService).not.toContain('KINDGI_COMPLIANCE_CLASSIFIER');
+  });
+});
+
 describe('envVarsForTarget — the pack service', () => {
   const PACK_SERVICE_VARS = [
     'KINDGI_PACK_SERVICE_TOKEN',

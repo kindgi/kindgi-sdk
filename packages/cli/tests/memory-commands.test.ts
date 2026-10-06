@@ -1,0 +1,159 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Kindgi Inc.
+
+/** `kindgi memory facts list / get / write` (T238), through the client's `memory.facts`. */
+
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+
+import { runCli } from '../src/main.js';
+
+let home: string;
+let cwd: string;
+beforeEach(async () => {
+  home = await mkdtemp(join(tmpdir(), 'kindgi-cli-home-'));
+  cwd = await mkdtemp(join(tmpdir(), 'kindgi-cli-cwd-'));
+});
+afterEach(async () => {
+  await rm(home, { recursive: true, force: true });
+  await rm(cwd, { recursive: true, force: true });
+});
+
+const FACT = {
+  id: 'fact-1',
+  type: 'acme.preference',
+  scope: { tenantId: 't-1', userId: 'u-1' },
+  version: 1,
+  createdAt: '2026-10-06T12:00:00Z',
+  content: { tone: 'brief' },
+};
+
+async function memory(argv: readonly string[]) {
+  const calls: unknown[][] = [];
+  const record =
+    (name: string, result: unknown) =>
+    async (...args: unknown[]) => {
+      calls.push([name, ...args]);
+      return result;
+    };
+  const out = await runCli({
+    argv: ['memory', 'facts', ...argv, '--url=https://x', '--token=t'],
+    env: {},
+    cwd,
+    home,
+    clientFactory: () =>
+      ({
+        identity: { whoami: record('whoami', { tenantId: 't-1', scopes: [] }) },
+        memory: {
+          facts: {
+            list: record('list', { data: [FACT], hasMore: false, items: [FACT] }),
+            read: record('read', FACT),
+            write: record('write', FACT),
+          },
+        },
+      }) as never,
+  });
+  return { out, calls };
+}
+
+describe('kindgi memory facts (T238)', () => {
+  test('list, with every filter', async () => {
+    const { out, calls } = await memory([
+      'list',
+      '--type=acme.preference',
+      '--scope={"userId":"u-1"}',
+      '--limit=5',
+      '--cursor=c-1',
+    ]);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      ['list', { type: 'acme.preference', scope: { userId: 'u-1' }, limit: 5, cursor: 'c-1' }],
+    ]);
+  });
+
+  test('list --table; a --scope that is not an object is refused', async () => {
+    const { out } = await memory(['list', '--table']);
+    expect(out.stdout).toContain('fact-1');
+    expect(out.stdout).toContain('{"tone":"brief"}');
+    const bad = await memory(['list', '--scope=[1]']);
+    expect(bad.out.exitCode).not.toBe(0);
+    expect(bad.out.stderr).toContain('--scope must be a JSON object');
+    expect(bad.calls).toEqual([]);
+  });
+
+  test('get <fact-id>', async () => {
+    const { out, calls } = await memory(['get', 'fact-1']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['read', 'fact-1']]);
+    expect(JSON.parse(out.stdout)).toEqual(FACT);
+  });
+
+  test("write: the scope's tenant is yours when the input leaves it out", async () => {
+    const { out, calls } = await memory([
+      'write',
+      '--input={"type":"acme.preference","scope":{"userId":"u-1"},"content":{"tone":"brief"}}',
+    ]);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      ['whoami'],
+      [
+        'write',
+        {
+          type: 'acme.preference',
+          scope: { userId: 'u-1', tenantId: 't-1' },
+          content: { tone: 'brief' },
+        },
+      ],
+    ]);
+  });
+
+  test('write: no scope is the whole tenant; a given tenant is passed on as is', async () => {
+    const none = await memory(['write', '--input={"type":"acme.note","content":"hi"}']);
+    expect(none.calls).toEqual([
+      ['whoami'],
+      ['write', { type: 'acme.note', content: 'hi', scope: { tenantId: 't-1' } }],
+    ]);
+    const file = join(cwd, 'fact.json');
+    await writeFile(
+      file,
+      JSON.stringify({ type: 'acme.note', scope: { tenantId: 't-2' }, content: 'hi' }),
+    );
+    const given = await memory(['write', `--input=@${file}`]);
+    expect(given.calls).toEqual([
+      ['write', { type: 'acme.note', scope: { tenantId: 't-2' }, content: 'hi' }],
+    ]);
+  });
+
+  test('write needs --input, an object, with an object scope', async () => {
+    const missing = await memory(['write']);
+    expect(missing.out.stderr).toContain('--input=<json-or-@file> is required');
+    const notObject = await memory(['write', '--input="hi"']);
+    expect(notObject.out.stderr).toContain('--input must be a JSON object');
+    const badScope = await memory(['write', '--input={"type":"t","content":1,"scope":"x"}']);
+    expect(badScope.out.stderr).toContain('--input `scope` must be a JSON object');
+    expect([...missing.calls, ...notObject.calls, ...badScope.calls]).toEqual([]);
+  });
+
+  test('help names the whole path and lists only list, get and write', async () => {
+    const { out } = await memory(['--help']);
+    expect(out.exitCode).toBe(0);
+    expect(out.stdout).toContain('Usage: kindgi memory facts <subcommand>');
+    expect(out.stdout).toMatch(/^ {2}write /m);
+    expect(out.stdout).not.toMatch(/^ {2}(supersede|retrieve) /m);
+  });
+
+  test('supersede and retrieve say why they are not available', async () => {
+    const supersede = await memory(['supersede', 'fact-1']);
+    expect(supersede.out.exitCode).toBe(2);
+    expect(supersede.out.stderr).toContain(
+      "Command 'kindgi memory facts supersede' is not available: the Kindgi runtime doesn't supersede memory facts yet",
+    );
+    const retrieve = await memory(['retrieve', '--query={"mode":"list"}']);
+    expect(retrieve.out.exitCode).toBe(2);
+    expect(retrieve.out.stderr).toContain("the Kindgi runtime doesn't search memory yet");
+    expect(retrieve.out.stderr).toContain('kindgi memory facts list --type=<type> --scope=<json>');
+  });
+});
