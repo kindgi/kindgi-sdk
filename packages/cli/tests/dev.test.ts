@@ -2073,3 +2073,116 @@ describe('kindgi dev — flag precedence', () => {
     expect(call?.port).toBe(4500);
   });
 });
+
+describe("kindgi dev — the runtime's port (T218)", () => {
+  /** The fixture's runners, with `taken` ports in use and the bundled Postgres counted. */
+  function withPorts(taken: readonly number[]) {
+    const fixtures = makeFixtures();
+    const asked: { packDir: string; port: number }[] = [];
+    const started: number[] = [];
+    let servicesStarted = 0;
+    const runners: DevRunners = {
+      ...fixtures.runners,
+      runtimePortInUse: async (input) => {
+        asked.push({ ...input });
+        return taken.includes(input.port);
+      },
+      startApiServer: async (opts) => {
+        started.push(opts.port);
+        return fixtures.server;
+      },
+      startServices: async () => {
+        servicesStarted += 1;
+        return {
+          kind: 'ok',
+          handle: {
+            databaseUrl: 'postgres://kindgi@127.0.0.1:5432/kindgi',
+            services: ['postgres'],
+            startedWith: 'docker compose',
+          },
+        };
+      },
+    };
+    return {
+      fixtures: { ...fixtures, runners },
+      asked,
+      started,
+      servicesStarted: () => servicesStarted,
+    };
+  }
+
+  async function dev(fixtures: Fixtures, flags: readonly string[]) {
+    const err = captureStderr();
+    try {
+      const out = await runCli({
+        ...baseInputs(fixtures),
+        argv: ['dev', '--no-watch', `--path=${packDir}`, ...flags],
+      });
+      return { out, live: err.writes.join('') };
+    } finally {
+      err.restore();
+    }
+  }
+
+  test('free: the runtime starts on 4000, and nothing is said', async () => {
+    const ports = withPorts([]);
+    const { out, live } = await dev(ports.fixtures, []);
+    expect(out.exitCode).toBe(0);
+    expect(ports.asked).toEqual([{ packDir, port: 4000 }]);
+    expect(ports.started).toEqual([4000]);
+    expect(live).not.toContain('is in use');
+  });
+
+  test('4000 taken (another kindgi dev): the next free port, named on the way', async () => {
+    const ports = withPorts([4000, 4001]);
+    const { out, live } = await dev(ports.fixtures, []);
+    expect(out.exitCode).toBe(0);
+    expect(ports.started).toEqual([4002]);
+    expect(live).toContain('⚠ port 4000 is in use (another kindgi dev?): using 4002\n');
+  });
+
+  test('a --port that is taken is refused before Postgres starts or the pack is bundled', async () => {
+    const ports = withPorts([4301]);
+    const out = await runCli({
+      ...baseInputs(ports.fixtures),
+      env: {},
+      argv: ['dev', '--no-watch', `--path=${packDir}`, '--port=4301'],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      "kindgi dev: port 4301 is in use. Pick another with --port, or stop what's using it.\n",
+    );
+    expect(ports.servicesStarted()).toBe(0);
+    expect(ports.fixtures.captureIndexerCalls).toEqual([]);
+    expect(ports.started).toEqual([]);
+  });
+
+  test('a free --port is used as given', async () => {
+    const ports = withPorts([4000]);
+    const { out } = await dev(ports.fixtures, ['--port=4301']);
+    expect(out.exitCode).toBe(0);
+    expect(ports.started).toEqual([4301]);
+  });
+
+  test('every port from 4000 on taken: it asks for --port', async () => {
+    const ports = withPorts(Array.from({ length: 200 }, (_, i) => 4000 + i));
+    const { out } = await dev(ports.fixtures, []);
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      'kindgi dev: ports 4000 to 4100 are all in use. Pick a free one with --port.\n',
+    );
+    expect(ports.started).toEqual([]);
+  });
+
+  test('--runtime-url and --port=0: no check (the runtime has its own port; 0 is any)', async () => {
+    const attached = withPorts([4000]);
+    const run = await dev(attached.fixtures, ['--runtime-url=http://127.0.0.1:4000']);
+    expect(run.out.exitCode).toBe(0);
+    expect(attached.asked).toEqual([]);
+
+    const any = withPorts([4000]);
+    expect((await dev(any.fixtures, ['--port=0'])).out.exitCode).toBe(0);
+    expect(any.asked).toEqual([]);
+    expect(any.started).toEqual([0]);
+  });
+});

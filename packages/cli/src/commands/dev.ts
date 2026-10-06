@@ -64,6 +64,7 @@ import { createDevOnlyImportsCheck } from '../dev/dev-only-imports.js';
 import { type PackCode, resolvePackCode } from '../dev/pack-code.js';
 import { devPackEnv, devPackEnvFiles } from '../dev/pack-env.js';
 import { createPackRefresher, describePackEvent } from '../dev/pack-service.js';
+import { PORT_SEARCH_SPAN, firstFreePort } from '../dev/port.js';
 import { type DevProject, resolveDevProject } from '../dev/project.js';
 import {
   type DeclaredProvider,
@@ -107,7 +108,7 @@ export const devCommand: LeafCommand = {
     port: {
       type: 'string',
       description:
-        "The port the runtime's API is reached on, on `127.0.0.1`. Default: `4000`. Not used with `--runtime-url`.",
+        "The port the runtime's API is reached on, on `127.0.0.1`. Default: `4000`, or the next free port when it's taken (another `kindgi dev`, say). A port given here that's taken is refused. Not used with `--runtime-url`.",
     },
     // The Kindgi runtime image to run (default: the one this CLI release pins).
     'runtime-image': {
@@ -251,6 +252,8 @@ function renderMissingDbHint(reason: string): string {
 
 interface ResolvedDevArgs {
   readonly port: number;
+  /** `--port` was given: a taken port is refused, not moved from. */
+  readonly portGiven: boolean;
   /**
    * `undefined` when the caller passed neither `--database-url` nor
    * `KINDGI_DATABASE_URL` — in that case `runDev` tries `startServices` to
@@ -313,6 +316,12 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   if (declared.kind === 'invalid') {
     return { kind: 'error', stderr: `kindgi dev: ${declared.message}\n`, exitCode: 1 };
   }
+
+  // The runtime's port, before anything starts. Taken without `--port`
+  // (another `kindgi dev`, say): the next free one, which `.kindgirc.json`
+  // then records for every client. Taken with `--port`: refused.
+  const port = await pickRuntimePort(dev, args);
+  if (port.kind === 'error') return port;
 
   // Resolve the database URL. Precedence:
   //   1. --database-url, then KINDGI_DATABASE_URL from the shell
@@ -552,7 +561,7 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   try {
     server = await withHeartbeat('still starting the runtime', 3000, () =>
       dev.startApiServer({
-        port: args.port,
+        port: port.port,
         databaseUrl,
         tenantId: effectiveTenantId,
         token: effectiveToken,
@@ -996,6 +1005,39 @@ async function loadDevProjectEnv(ctx: CommandContext, packDir: string): Promise<
   };
 }
 
+type RuntimePortOutcome =
+  | { readonly kind: 'ok'; readonly port: number }
+  | (CommandResult & { readonly kind: 'error' });
+
+async function pickRuntimePort(
+  dev: DevRunners,
+  args: ResolvedDevArgs,
+): Promise<RuntimePortOutcome> {
+  // `--runtime-url`: the developer's runtime has its own port. Port 0: any.
+  if (args.runtimeUrl !== undefined || args.port === 0 || dev.runtimePortInUse === undefined) {
+    return { kind: 'ok', port: args.port };
+  }
+  const inUse = (port: number) => dev.runtimePortInUse!({ packDir: args.packDir, port });
+  if (!(await inUse(args.port))) return { kind: 'ok', port: args.port };
+  if (args.portGiven) {
+    return {
+      kind: 'error',
+      stderr: `kindgi dev: port ${args.port} is in use. Pick another with --port, or stop what's using it.\n`,
+      exitCode: 1,
+    };
+  }
+  const free = await firstFreePort(args.port + 1, inUse);
+  if (free === undefined) {
+    return {
+      kind: 'error',
+      stderr: `kindgi dev: ports ${args.port} to ${args.port + PORT_SEARCH_SPAN} are all in use. Pick a free one with --port.\n`,
+      exitCode: 1,
+    };
+  }
+  emitProgress(`⚠ port ${args.port} is in use (another kindgi dev?): using ${free}`);
+  return { kind: 'ok', port: free };
+}
+
 type DevArgsOutcome =
   | { readonly kind: 'ok'; readonly args: ResolvedDevArgs }
   | (CommandResult & { readonly kind: 'error' });
@@ -1004,7 +1046,8 @@ function resolveDevArgs(ctx: CommandContext): DevArgsOutcome {
   // --port
   const portRaw = ctx.options.port;
   let port = DEFAULT_DEV_PORT;
-  if (typeof portRaw === 'string' && portRaw !== '') {
+  const portGiven = typeof portRaw === 'string' && portRaw !== '';
+  if (portGiven) {
     const parsedPort = Number.parseInt(portRaw, 10);
     if (!Number.isFinite(parsedPort) || parsedPort < 0 || parsedPort > 65535) {
       return {
@@ -1084,6 +1127,7 @@ function resolveDevArgs(ctx: CommandContext): DevArgsOutcome {
     kind: 'ok',
     args: {
       port,
+      portGiven,
       databaseUrl,
       tenantId,
       token,

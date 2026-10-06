@@ -35,6 +35,7 @@ import { createPackServiceSupervisor } from '@kindgi/handler-runtime/pack-servic
 import { createDevPackBuilder } from './bundler.js';
 import { type PackCode, checkPackPython } from './pack-code.js';
 import { devBundleMapPath, devIndexPath } from './paths.js';
+import { runtimePortInUseReal } from './port.js';
 import {
   type DockerRunner,
   type PostgresContainerSpec,
@@ -912,6 +913,7 @@ export const REAL_DEV_RUNNERS: DevRunners = {
   publishIndex: publishIndexReal,
   watchPack: watchPackReal,
   startServices: startServicesReal,
+  runtimePortInUse: runtimePortInUseReal,
 };
 
 // Named re-export for tests that want to poke a single seam.
