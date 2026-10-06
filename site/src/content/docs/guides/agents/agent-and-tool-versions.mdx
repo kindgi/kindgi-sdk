@@ -160,8 +160,7 @@ kindgi.agents.reinstate_version("acme.greeter", "1.0.0")
 2026-10-06T05:42:12.899Z { 'acme.greet': '1.1.0' }
 ```
 
-For a tool version: `kindgi tools unregister <tool-id> --version=<semver>`
-and `kindgi tools reinstate`. Flow versions work like agent versions.
+Tool and flow versions are unregistered and reinstated the same way.
 
 - **No new run gets it:** not by a range, not as the latest, not by its
   exact number. A run that names it is refused:
