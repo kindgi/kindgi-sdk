@@ -245,7 +245,7 @@ describe('logging in', () => {
     const out = await runRegistry(['--password-stdin'], { docker: fake.run });
     expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('Missing --username');
-    expect(out.stderr).toContain('contact@kindgi.com');
+    expect(out.stderr).toContain('https://access.kindgi.com');
     expect(fake.calls).toEqual([]);
   });
 
@@ -264,7 +264,7 @@ describe('logging in', () => {
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain('docker login quay.io failed: Error response from daemon');
     expect(out.stderr).toContain('unauthorized: bad credentials for ***');
-    expect(out.stderr).toContain('contact@kindgi.com');
+    expect(out.stderr).toContain('https://access.kindgi.com');
     expect(out.stderr).not.toContain(TOKEN);
     // No check after a failed login.
     expect(fake.calls.some((c) => c.args[0] === 'buildx')).toBe(false);
@@ -343,7 +343,7 @@ describe('--check', () => {
     expect(fake.calls).toEqual([]);
   });
 
-  test('a refusal is no access: ask for it at contact@kindgi.com', async () => {
+  test('a refusal is no access: get it at access.kindgi.com', async () => {
     const fake = fakeDocker({
       'buildx imagetools inspect': {
         code: 1,
@@ -357,7 +357,7 @@ describe('--check', () => {
     expect(out.stderr).toContain(
       `✗ No access to ${DEFAULT_RUNTIME_IMAGE}: ERROR: unexpected status`,
     );
-    expect(out.stderr).toContain('request access at contact@kindgi.com');
+    expect(out.stderr).toContain('get pull credentials at https://access.kindgi.com');
     expect(out.stderr).toContain(
       'kindgi auth registry --username <the robot name you were given>.',
     );
@@ -376,7 +376,7 @@ describe('--check', () => {
       expect(out.stderr).toContain(
         "Either the image isn't on quay.io, or this machine can't reach quay.io",
       );
-      expect(out.stderr).not.toContain('contact@kindgi.com');
+      expect(out.stderr).not.toContain('access.kindgi.com');
     }
   });
 
@@ -391,7 +391,7 @@ describe('--check', () => {
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain('✓ Logged in to quay.io as robot');
     expect(out.stderr).toContain("robot is logged in to quay.io but can't pull it");
-    expect(out.stderr).toContain('contact@kindgi.com');
+    expect(out.stderr).toContain('https://access.kindgi.com');
   });
 });
 
@@ -460,7 +460,7 @@ describe('without docker buildx', () => {
     const noAccess = await runRegistry(['--check'], { docker: refused.run });
     expect(noAccess.exitCode).toBe(1);
     expect(noAccess.stderr).toContain(`✗ No access to ${DEFAULT_RUNTIME_IMAGE}`);
-    expect(noAccess.stderr).toContain('contact@kindgi.com');
+    expect(noAccess.stderr).toContain('https://access.kindgi.com');
     expect(noAccess.stderr).toContain('Checked with docker manifest inspect');
 
     const missing = fakeDocker({

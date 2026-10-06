@@ -203,8 +203,8 @@ One command runs the whole loop on your machine:
   `gcloud auth application-default login` writes) is mounted read-only.
   Kindgi keeps no key files of its own.
 - **The image:** the runtime image is pulled on first use. It is in
-  private preview: request access at contact@kindgi.com, then log Docker in
-  with the pull credentials you receive:
+  private preview: sign in with GitHub at https://access.kindgi.com for pull
+  credentials, then log Docker in with them:
   `kindgi auth registry --username <robot name>` (see
   [The runtime image's registry](#the-runtime-images-registry)). `kindgi dev`
   says so when a pull is refused.
@@ -797,9 +797,9 @@ with `kindgi auth whoami`.
 
 ### The runtime image's registry
 
-The Kindgi runtime image `kindgi dev` runs is in private preview: request
-access at contact@kindgi.com. With the pull credentials you receive (a robot
-name and a token), log Docker in once:
+The Kindgi runtime image `kindgi dev` runs is in private preview: sign in
+with GitHub at https://access.kindgi.com for pull credentials (a robot name
+and a token). Then log Docker in once:
 
 ```sh
 kindgi auth registry --username <robot name>     # prompts for the token, without echoing it
@@ -812,8 +812,8 @@ so the credential lives in Docker's own credential store: Kindgi stores
 nothing. Then it checks that Docker can pull the exact image this CLI runs
 (pinned by digest; with `docker buildx imagetools inspect`, or
 `docker manifest inspect` by digest where buildx isn't installed), and a
-failure says whether it's access (request it at
-contact@kindgi.com) or the image or the network. `--registry <host>` logs in
+failure says whether it's access (get it at
+https://access.kindgi.com) or the image or the network. `--registry <host>` logs in
 to a mirror instead and checks for the same image there.
 
 ## Output and global flags

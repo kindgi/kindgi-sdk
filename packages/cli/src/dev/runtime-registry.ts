@@ -12,7 +12,7 @@
  */
 
 import type { DockerOutcome, DockerRunner } from './runtime-container.js';
-import { RUNTIME_IMAGE_REGISTRY, registryOf } from './runtime-image.js';
+import { RUNTIME_ACCESS_URL, RUNTIME_IMAGE_REGISTRY, registryOf } from './runtime-image.js';
 
 /** How a registry, or Docker relaying it, refuses credentials or access. */
 const AUTH_FAILURE =
@@ -88,7 +88,7 @@ export async function dockerLogin(
     return { kind: 'ok', notes: notes === '' ? [] : notes.split('\n') };
   }
   const refused = isRegistryAuthFailure(login.stderr)
-    ? `\n  Check the username and the token.${registry === RUNTIME_IMAGE_REGISTRY ? ' For new pull credentials, write to contact@kindgi.com.' : ''}`
+    ? `\n  Check the username and the token.${registry === RUNTIME_IMAGE_REGISTRY ? ` For new pull credentials, sign in at ${RUNTIME_ACCESS_URL}.` : ''}`
     : '';
   return {
     kind: 'error',
