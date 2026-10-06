@@ -209,6 +209,17 @@ function serializeError(error: InvokeAgentError): string {
   );
 }
 
+/**
+ * A failed turn's error as a run's failure message: the serialized form
+ * `parseFailureMessage` reads back. A runtime that ends a run from
+ * outside its turn (a resume that can't go on, say) records the turn's
+ * error this way, so the run reads as that typed error, as a turn that
+ * failed inside its run does.
+ */
+export function turnFailureMessage(error: InvokeAgentError): string {
+  return serializeError(error);
+}
+
 function stripCauseFunctions(error: InvokeAgentError): InvokeAgentError {
   // JSON.stringify replacer above handles Error instances; nothing more
   // to do here. A pass-through hook for error variants that embed

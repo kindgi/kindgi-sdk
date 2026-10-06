@@ -672,6 +672,32 @@ class CompleteApprovalBody(BaseModel):
     """
 
 
+class Resume(BaseModel):
+    """
+    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["ok"]
+
+
+class Resume1(BaseModel):
+    """
+    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["failed"]
+    code: str
+    message: str
+
+
 class Reviewer(BaseModel):
     """
     Reviewer roster row. Deactivation is soft (audit trail survives offboarding). `deactivatedAt` present → reviewer no longer receives approvals.
@@ -7395,6 +7421,10 @@ class CompleteApprovalResult(BaseModel):
     waitpoint_resolved: Annotated[bool, Field(alias="waitpointResolved")]
     """
     True when the approval had a `waitTokenId` + terminal accept/reject and the run waitpoint was completed as part of this call.
+    """
+    resume: Resume | Resume1 | None = None
+    """
+    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way.
     """
 
 
