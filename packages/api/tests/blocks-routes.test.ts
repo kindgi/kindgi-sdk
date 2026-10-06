@@ -181,6 +181,55 @@ describe('/v1/blocks: publish and read', () => {
     ).toBe(201);
   });
 
+  test('a version that gives no schema keeps the latest one, so the check holds for every later version', async () => {
+    const { call } = harness();
+    const limits = (version: string, limit: number, schema?: object) =>
+      call('POST', '/v1/blocks', {
+        projectId: projectA,
+        id: 'acme.limits',
+        version,
+        kind: 'settings',
+        content: { values: { limit }, ...(schema !== undefined && { schema }) },
+      });
+    const nonNegative = {
+      type: 'object',
+      properties: { limit: { type: 'number', minimum: 0 } },
+      required: ['limit'],
+    };
+    expect((await limits('1.0.0', 10, nonNegative)).status).toBe(201);
+    expect((await limits('1.1.0', 20)).status).toBe(201);
+    // 1.1.0 restated nothing, but it keeps the schema, stored on it…
+    const kept = await call('GET', '/v1/blocks/acme.limits/versions/1.1.0');
+    expect(kept.body.content.schema).toEqual(nonNegative);
+    // …so 1.2.0 is still checked.
+    const refused = await limits('1.2.0', -1);
+    expect(refused.status).toBe(400);
+    expect(refused.body.error.details.issues[0].message).toContain('(the schema of version 1.1.0)');
+  });
+
+  test('a version that gives a schema replaces it; {} drops the check on purpose', async () => {
+    const { call } = harness();
+    const limits = (version: string, values: object, schema?: object) =>
+      call('POST', '/v1/blocks', {
+        projectId: projectA,
+        id: 'acme.limits',
+        version,
+        kind: 'settings',
+        content: { values, ...(schema !== undefined && { schema }) },
+      });
+    const closed = {
+      type: 'object',
+      properties: { limit: { type: 'number' } },
+      additionalProperties: false,
+    };
+    expect((await limits('1.0.0', { limit: 10 }, closed)).status).toBe(201);
+    // A new field the old schema forbids: allowed with a schema that names it.
+    const wider = { ...closed, properties: { ...closed.properties, unit: { type: 'string' } } };
+    expect((await limits('1.1.0', { limit: 10, unit: 'eur' }, wider)).status).toBe(201);
+    expect((await limits('1.2.0', { limit: 'x' }, {})).status).toBe(201);
+    expect((await limits('1.3.0', { anything: true })).status).toBe(201);
+  });
+
   test("a version never changes, nor does the block's kind or project", async () => {
     const { call } = harness();
     expect((await call('POST', '/v1/blocks', prompt('1.0.0'))).status).toBe(201);

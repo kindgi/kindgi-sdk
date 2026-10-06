@@ -134,7 +134,7 @@ export function renderInstructions(
     // as missing-parameter so callers get one consistent error code.
     const message = cause instanceof Error ? cause.message : String(cause);
     if (message.includes('undefined variable')) {
-      const nameMatch = /undefined variable: ([\w.]+)/.exec(message);
+      const nameMatch = /undefined variable: ([^,\s]+)/.exec(message);
       return {
         ok: false,
         error: {

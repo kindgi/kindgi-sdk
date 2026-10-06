@@ -34,7 +34,9 @@ export interface PromptBlockContent {
 /**
  * Settings: a JSON object a tool reads (`ToolContext.settings`) and a
  * prompt template reads (`settings.<block id>.<key>`). With `schema`,
- * `values` must satisfy it, and so must a later version's.
+ * `values` must satisfy it. A later version that gives no schema keeps
+ * it (the runtime stores it on that version) and must satisfy it too; a
+ * version that gives a schema replaces it, and `{}` drops the check.
  */
 export interface SettingsBlockContent {
   readonly values: Readonly<Record<string, unknown>>;

@@ -329,8 +329,12 @@ describe('POST /v1/agents pins the data blocks an agent references', () => {
     );
     expect(res.status).toBe(400);
     const err = (await res.json()) as {
-      error: { details: { issues: { path: string; message: string }[] } };
+      error: { message: string; details: { issues: { path: string; message: string }[] } };
     };
+    // The headline names what it is, not only tools.
+    expect(err.error.message).toBe(
+      'Agent "acme.intake" uses tool or data-block versions it can\'t pin (3 issues)',
+    );
     expect(err.error.details.issues).toEqual([
       { path: '/instructions/version', message: 'prompt block "acme.weights" is a settings block' },
       {

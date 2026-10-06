@@ -224,14 +224,28 @@ describe('POST /v1/agents/:agentId/versions derives a version', () => {
     await publishAgent('1.0.0');
     await publishAgent('1.3.0');
     await settings('acme.weights', '1.1.0', { recency: 0.5 });
+    await settings('acme.weights', '1.2.0', { recency: 0.6 });
     const first = await call(
       ...derive({ from: '1.0.0', pins: { settings: { 'acme.weights': '1.1.0' } } }),
     );
     expect(first.body.version).toBe('1.3.1');
     const second = await call(
-      ...derive({ from: '1.0.0', pins: { settings: { 'acme.weights': '1.1.0' } } }),
+      ...derive({ from: '1.0.0', pins: { settings: { 'acme.weights': '1.2.0' } } }),
     );
     expect(second.body.version).toBe('1.3.2');
+  });
+
+  test('the same swap again returns the version that already holds it (200), not a duplicate', async () => {
+    const { call, settings, publishAgent } = await harness();
+    await publishAgent('1.0.0');
+    await settings('acme.weights', '1.1.0', { recency: 0.5 });
+    const swap = { from: '1.0.0', pins: { settings: { 'acme.weights': '1.1.0' } } };
+    const first = await call(...derive({ ...swap, label: 'First' }));
+    expect([first.status, first.body.version]).toEqual([201, '1.0.1']);
+    const again = await call(...derive({ ...swap, label: 'Again' }));
+    expect([again.status, again.body.version]).toEqual([200, '1.0.1']);
+    expect(again.body.derivedFrom).toMatchObject({ version: '1.0.0', label: 'First' });
+    expect(again.body.pinsDigest).toBe(first.body.pinsDigest);
   });
 
   test('a number an unregistered version holds is skipped', async () => {

@@ -1686,6 +1686,11 @@ export const OPERATIONS: readonly OperationSpec[] = [
     parameters: [AgentIdPathParam, IdempotencyKeyParam],
     requestBody: { required: true, schema: ref('DeriveAgentVersionBody') },
     responses: {
+      '200': {
+        description:
+          'An active version already holds this definition and these pins (the same swap derived before, or a deploy that registered it): that version, unchanged.',
+        schema: ref('Agent'),
+      },
       '201': { description: 'The derived agent version.', schema: ref('Agent') },
       ...CommonMutationErrors,
       '409': ErrorResponse(
