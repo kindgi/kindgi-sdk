@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Cursor, Filter, Page, PolicyId } from '@kindgi/types';
+import type { Cursor, Filter, PolicyId } from '@kindgi/types';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
+import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { Transport } from '../transport.js';
 import type {
   Policy,
@@ -68,7 +69,7 @@ export interface PoliciesClient {
    * @wire `GET /v1/policies` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1policies/get`.
    */
-  list(filter?: PolicyListFilter): Promise<Page<Policy>>;
+  list(filter?: PolicyListFilter): Promise<ListPage<Policy>>;
 
   /**
    * Historical versions of a policy.id. Defaults to active-only. Pass
@@ -79,7 +80,7 @@ export interface PoliciesClient {
    * @wire `GET /v1/policies/{policyId}/versions` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1policies~1{policyId}~1versions/get`.
    */
-  versions(id: PolicyId, filter?: PolicyVersionsFilter): Promise<Page<PolicyVersionRow>>;
+  versions(id: PolicyId, filter?: PolicyVersionsFilter): Promise<ListPage<PolicyVersionRow>>;
 
   /**
    * Fetch a specific version of a policy.
@@ -157,12 +158,6 @@ export interface ReinstatePolicyVersionResult {
   readonly wasTombstoned: boolean;
 }
 
-interface WirePage<T> {
-  readonly data: readonly T[];
-  readonly hasMore: boolean;
-  readonly nextCursor?: string;
-}
-
 interface PublishPolicyWire {
   readonly policyId: string;
   readonly version: string;
@@ -210,12 +205,7 @@ export function makePoliciesClient(transport: Transport): PoliciesClient {
           ...(filter?.name !== undefined && { name: filter.name }),
         },
       });
-      return {
-        items: page.data,
-        ...(page.nextCursor !== undefined && {
-          nextCursor: page.nextCursor as unknown as Cursor,
-        }),
-      };
+      return listPage(page);
     },
 
     async versions(id, filter) {
@@ -228,12 +218,7 @@ export function makePoliciesClient(transport: Transport): PoliciesClient {
           ...(filter?.includeTombstoned === true && { includeTombstoned: 'true' }),
         },
       });
-      return {
-        items: page.data,
-        ...(page.nextCursor !== undefined && {
-          nextCursor: page.nextCursor as unknown as Cursor,
-        }),
-      };
+      return listPage(page);
     },
 
     async getVersion(id, version) {

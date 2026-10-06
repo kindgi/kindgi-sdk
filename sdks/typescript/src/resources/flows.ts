@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Cursor, Filter, FlowId, Page } from '@kindgi/types';
+import type { Cursor, Filter, FlowId } from '@kindgi/types';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
+import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { Transport } from '../transport.js';
 import type { Flow } from '../types.js';
 
@@ -63,7 +64,7 @@ export interface FlowsClient {
    * @wire `GET /v1/flows` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1flows/get`.
    */
-  list(filter?: FlowFilter): Promise<Page<Flow>>;
+  list(filter?: FlowFilter): Promise<ListPage<Flow>>;
 
   /**
    * A flow's versions: list, get, unregister and reinstate. Calling it
@@ -88,14 +89,14 @@ export interface FlowsClient {
 
 export interface FlowVersionsClient {
   /** @deprecated Use `flows.versions.list`; removed in 0.2. */
-  (id: FlowId, filter?: PageFilter): Promise<Page<Flow>>;
+  (id: FlowId, filter?: PageFilter): Promise<ListPage<Flow>>;
   /**
    * Historical versions of a flow.id.
    *
    * @wire `GET /v1/flows/{flowId}/versions` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1flows~1{flowId}~1versions/get`.
    */
-  list(id: FlowId, filter?: PageFilter): Promise<Page<Flow>>;
+  list(id: FlowId, filter?: PageFilter): Promise<ListPage<Flow>>;
   /**
    * Fetch a specific version of a flow.
    *
@@ -164,12 +165,6 @@ export interface FlowValidateResult {
   readonly issues?: readonly { readonly path: string; readonly message: string }[];
 }
 
-interface WirePage<T> {
-  readonly data: readonly T[];
-  readonly hasMore: boolean;
-  readonly nextCursor?: string;
-}
-
 interface PublishFlowWire {
   readonly flowId: string;
   readonly version: string;
@@ -185,12 +180,7 @@ export function makeFlowsClient(transport: Transport): FlowsClient {
         ...(filter?.cursor !== undefined && { cursor: filter.cursor as unknown as string }),
       },
     });
-    return {
-      items: page.data,
-      ...(page.nextCursor !== undefined && {
-        nextCursor: page.nextCursor as unknown as Cursor,
-      }),
-    };
+    return listPage(page);
   };
   const versions: FlowVersionsClient = Object.assign(
     (id: FlowId, filter?: PageFilter) => list(id, filter),
@@ -291,12 +281,7 @@ export function makeFlowsClient(transport: Transport): FlowsClient {
           ...(filter?.name !== undefined && { name: filter.name }),
         },
       });
-      return {
-        items: page.data,
-        ...(page.nextCursor !== undefined && {
-          nextCursor: page.nextCursor as unknown as Cursor,
-        }),
-      };
+      return listPage(page);
     },
 
     versions,

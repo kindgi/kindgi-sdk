@@ -33,7 +33,7 @@ async function list(flags: readonly string[]) {
         conversations: {
           list: async (filter: unknown) => {
             calls.push(filter);
-            return { items: [] };
+            return { data: [], hasMore: false };
           },
         },
       }) as never,

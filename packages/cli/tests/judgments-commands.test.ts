@@ -116,7 +116,7 @@ describe('kindgi judgments', () => {
         '--limit=5',
         '--cursor=c1',
       ],
-      { judgments: { list: rec('list', { items: [] }) } },
+      { judgments: { list: rec('list', { data: [], hasMore: false }) } },
     );
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([
@@ -167,7 +167,7 @@ describe('kindgi judgments', () => {
 describe('kindgi judge-classes', () => {
   test('list narrows by scope', async () => {
     const { calls, rec } = recorder();
-    const client = { judgeClasses: { list: rec('list', { items: [] }) } };
+    const client = { judgeClasses: { list: rec('list', { data: [], hasMore: false }) } };
     await run(['judge-classes', 'list'], client);
     await run(['judge-classes', 'list', '--tenant'], client);
     await run(['judge-classes', 'list', '--project=p-1'], client);

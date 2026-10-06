@@ -197,11 +197,15 @@ export interface SecretVersionRecord {
 
 export interface SecretListPage {
   readonly data: readonly SecretRecord[];
+  /** Whether there's another page (`nextCursor` names it). */
+  readonly hasMore: boolean;
   readonly nextCursor?: Cursor;
 }
 
 export interface SecretVersionPage {
   readonly data: readonly SecretVersionRecord[];
+  /** Whether there's another page (`nextCursor` names it). */
+  readonly hasMore: boolean;
   readonly nextCursor?: Cursor;
 }
 
@@ -283,11 +287,15 @@ const defaultSleep = (ms: number): Promise<void> =>
 
 interface WireSecretListPage {
   readonly data: readonly SecretRecord[];
+  /** Absent from older servers. */
+  readonly hasMore?: boolean;
   readonly nextCursor?: string;
 }
 
 interface WireSecretVersionPage {
   readonly data: readonly SecretVersionRecord[];
+  /** Absent from older servers. */
+  readonly hasMore?: boolean;
   readonly nextCursor?: string;
 }
 
@@ -398,6 +406,7 @@ export function makeSecretsClient(transport: Transport): SecretsClient {
       });
       return {
         data: page.data,
+        hasMore: page.hasMore ?? page.nextCursor !== undefined,
         ...(page.nextCursor !== undefined && {
           nextCursor: page.nextCursor as unknown as Cursor,
         }),
@@ -455,6 +464,7 @@ export function makeSecretsClient(transport: Transport): SecretsClient {
       });
       return {
         data: page.data,
+        hasMore: page.hasMore ?? page.nextCursor !== undefined,
         ...(page.nextCursor !== undefined && {
           nextCursor: page.nextCursor as unknown as Cursor,
         }),

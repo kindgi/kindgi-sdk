@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Cursor, Filter, GuardrailId, Page } from '@kindgi/types';
+import type { Filter, GuardrailId } from '@kindgi/types';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
+import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { Transport } from '../transport.js';
 import type { BuiltInGuardrail, EvaluationResult, Guardrail, GuardrailSpec } from '../types.js';
 
@@ -51,7 +52,7 @@ export interface GuardrailsClient {
    * @wire `GET /v1/guardrails` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1guardrails/get`.
    */
-  list(filter?: GuardrailFilter): Promise<Page<Guardrail>>;
+  list(filter?: GuardrailFilter): Promise<ListPage<Guardrail>>;
 
   /**
    * Retire a guardrail. Idempotent on already-unregistered ids —
@@ -72,13 +73,13 @@ export interface GuardrailsClient {
    *   per id; supersession via `unregister` + re-`register`), with no
    *   version history.
    */
-  versions(id: GuardrailId): Promise<Page<Guardrail>>;
+  versions(id: GuardrailId): Promise<ListPage<Guardrail>>;
 
   /**
    * @unwired The API has no `GET /v1/guardrails/built-ins` route for
    *   the built-in check catalog.
    */
-  builtIns(): Promise<Page<BuiltInGuardrail>>;
+  builtIns(): Promise<ListPage<BuiltInGuardrail>>;
 
   /**
    * @unwired The API has no `POST /v1/guardrails/{id}/evaluate`
@@ -98,12 +99,6 @@ export interface AuthorGuardrailOptions {
 export interface GuardrailFilter extends Filter {
   /** Server-side prefix match on `name` (guardrail name, NOT id). */
   readonly name?: string;
-}
-
-interface WirePage<T> {
-  readonly data: readonly T[];
-  readonly hasMore: boolean;
-  readonly nextCursor?: string;
 }
 
 export function makeGuardrailsClient(transport: Transport): GuardrailsClient {
@@ -134,12 +129,7 @@ export function makeGuardrailsClient(transport: Transport): GuardrailsClient {
           ...(filter?.name !== undefined && { name: filter.name }),
         },
       });
-      return {
-        items: page.data,
-        ...(page.nextCursor !== undefined && {
-          nextCursor: page.nextCursor as unknown as Cursor,
-        }),
-      };
+      return listPage(page);
     },
 
     async delete(id, options) {

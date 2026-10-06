@@ -98,18 +98,14 @@ describe('tokens.list / tokens.get', () => {
       fetch: stub.fetch,
     });
     const page = await client.tokens.list({ limit: 1, cursor: 'c0' as never });
-    expect(page).toEqual({
-      items: [
-        {
-          id: 'tok-2',
-          role: 'admin',
-          capabilities: [],
-          createdAt: '2026-10-03T00:00:02Z',
-          revokedAt: '2026-10-03T01:00:00Z',
-        },
-      ],
-      nextCursor: 'next',
-    });
+    const token = {
+      id: 'tok-2',
+      role: 'admin',
+      capabilities: [],
+      createdAt: '2026-10-03T00:00:02Z',
+      revokedAt: '2026-10-03T01:00:00Z',
+    };
+    expect(page).toEqual({ data: [token], hasMore: true, items: [token], nextCursor: 'next' });
     expect(stub.calls[0]?.url).toBe('https://api.example.com/v1/tokens?limit=1&cursor=c0');
   });
 
