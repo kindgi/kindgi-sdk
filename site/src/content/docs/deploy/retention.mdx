@@ -182,6 +182,11 @@ purged:
   (`past_grace_only` in Python) the list to what a sweep would purge now.
 - **`unpolicedDomains`**, in the list's answer, names the domains no policy
   covers: their deleted records are kept.
+- **A long list comes in pages.** `limit` is how many records per domain
+  (25 unless you say, at most 100); `hasMore` says there are more, and
+  `nextCursor`, passed back as `cursor`, gets the next page. In Python,
+  `paginate(kindgi.retention.scheduled, limit=…)` (from `kindgi.client`) walks
+  every page.
 - **A purged record is gone for good.** Sweeping again purges nothing new
   until more records pass their grace. Over HTTP: `GET /v1/retention/scheduled`
   and `POST /v1/retention/sweep` (or `/v1/retention/sweep/<domain>`).
