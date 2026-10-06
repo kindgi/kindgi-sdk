@@ -81,6 +81,10 @@ jobs:
           version-file: sdks/python/pyproject.toml
           python-version: "3.13"
           cache-dependency-glob: sdks/python/uv.lock
+          # With nothing to version (the push right after a Version
+          # Packages merge), uv never runs and there's no cache to save:
+          # not a failure.
+          ignore-nothing-to-cache: true
       - uses: changesets/action@v2
         with:
           version-script: pnpm run version-packages
