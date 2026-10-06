@@ -95,7 +95,9 @@ print(judgment.id, judgment.verdict, judgment.asserted_by)
 - **Who judged** comes from the token: `assertedBy`. An app that judges for
   its own users adds `participantId`, its own opaque id for the user.
 - **Judging the same item again,** as the same caller and participant,
-  replaces the earlier judgment; the earlier one stays in the history.
+  under any class or none, replaces the earlier judgment; the earlier one
+  stays in the history. So each person has one verdict per item, and its
+  class only says how much it counts.
 
 Only a finished run can be judged, and the pointer must find something:
 
@@ -137,4 +139,41 @@ kindgi judgments add --run=<run-id> --item=answer --pointer=/response/content --
 A judgment made with `--class` (`judgeClassId` in the clients) counts with
 that class's weight. The project's id: see
 [Build a test set](../build-a-test-set/#build-the-test-set).
+
+### Restrict who may judge as a class
+
+A class can say who may judge as it, so the people using your app can't move
+the figures that release a version:
+
+```sh
+kindgi judge-classes add --name=expert --weight=3 --tenant --min-reviewer-role=senior --description="Order desk leads"
+```
+
+- **`--min-reviewer-role`**: `standard`, `senior` or `admin`, a
+  [reviewer](../../approvals/decide-an-approval/#reviewers-and-roles) of that
+  role or above;
+- **`--principal-kind`**: `user` (people) or `service` (service tokens);
+- **`--principal-id`**: named users or tokens, by id.
+
+The last two repeat; a caller must meet each one you set (`assertableBy` in
+the API and the clients). Anyone else naming the class is refused with `403`,
+and nothing is recorded:
+
+```text
+Error [auth]: You can't judge as "expert": it needs a senior reviewer or above; you're a standard reviewer.
+Error [auth]: You can't judge as "tokens": only service tokens may assert it.
+```
+
+A judgment made under a restriction carries `"restricted": true` (in
+`kindgi judgments list` too). It's decided when the judgment is made, so:
+
+- **Restrict the class before your reviewers judge.** Judgments recorded
+  before the restriction don't count as restricted.
+- **Lifting a restriction** (`kindgi judge-classes set <judge-class-id> --unrestricted`)
+  keeps the earlier judgments restricted; new ones aren't.
+
+`kindgi judge-classes set` with restriction flags replaces the whole
+restriction. A test set counts restricted judgments apart, and a comparison
+can count only them: see
+[Compare a version on a test set](../compare-an-agent-version/#count-only-restricted-judges).
 
