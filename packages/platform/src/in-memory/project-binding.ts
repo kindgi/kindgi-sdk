@@ -45,10 +45,9 @@ import type {
 
 import { nowTimestamp, paginate } from './util.js';
 
-let projectIdCounter = 0;
+/** A project id is a UUID on the wire (`Project.id`), here too, so routes that check its shape take it. */
 function nextProjectId(): ProjectId {
-  projectIdCounter += 1;
-  return `project-${projectIdCounter}` as ProjectId;
+  return crypto.randomUUID() as ProjectId;
 }
 
 function projMembershipKey(projectId: ProjectId, userId: UserId): string {

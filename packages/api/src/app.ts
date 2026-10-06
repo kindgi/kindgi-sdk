@@ -59,6 +59,7 @@ import {
   idempotencyMiddleware,
 } from './middleware/idempotency.js';
 import { principalMiddleware } from './middleware/principal.js';
+import { PROJECT_REF_ROUTES, refuseBadProjectId } from './middleware/project-ref.js';
 import { publicRunCorsMiddleware, publicRunRouteMatcher } from './middleware/public-run-routes.js';
 import { requestIdMiddleware } from './middleware/request-id.js';
 import { sigv4Middleware } from './middleware/sigv4.js';
@@ -963,6 +964,11 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
 
   const tenantHierarchyBinding: TenantHierarchyBinding = input.tenantHierarchyBinding;
   v1.use('*', idempotencyMiddleware(input.idempotencyStore ?? createInMemoryIdempotencyStore()));
+  // A `projectId` in a write's body that the route can't use is refused
+  // before any binding sees it: a 400 if it isn't a UUID, a 404 if it
+  // names no project (T247).
+  const projectRef = refuseBadProjectId(input.projectBinding);
+  for (const path of PROJECT_REF_ROUTES) v1.use(path, projectRef);
   v1.route(
     '/runs',
     runsRouter(
