@@ -87,3 +87,31 @@ PyPI); the script refuses any other.
 4. Publishing is a manual, approved run of the **Release** workflow
    (npm trusted publishing with provenance, and PyPI trusted publishing
    with attestations — no tokens).
+
+### Release candidates
+
+A release can go out first as release candidates, `X.Y.Z-rc.N`, that no
+one gets without asking for them by version:
+
+- **npm:** they publish under the dist-tag `next`, never `latest`
+  (`scripts/release-dist-tag.mjs`), and the Release workflow checks that
+  `latest` is still a release afterwards.
+- **PyPI:** they're `X.Y.ZrcN`, which pip and uv install only when asked
+  for by version.
+- **The public docs** come from releases only.
+- **An rc CLI keeps its set together:** `kindgi init` pins the rc
+  packages, a Python pack gets `kindgi>=X.Y.ZrcN,<…`, and its hints name
+  `@kindgi/cli@X.Y.Z-rc.N`.
+
+The steps:
+
+1. **Start:** `pnpm changeset pre enter rc` in a pull request
+   (`.changeset/pre.json`). From then on, the "Version Packages" pull
+   request versions `X.Y.Z-rc.0`, then `rc.1`, and so on. Publish each
+   as above.
+2. **Release:** `pnpm changeset pre exit` in a pull request. The next
+   "Version Packages" pull request versions `X.Y.Z`, its changelog
+   gathering every rc's changesets, and that publishes under `latest`.
+
+The runtime image follows the same versions: sovereign's
+`runtime-release` takes `X.Y.Z-rc.N`, and never moves `preview` for one.

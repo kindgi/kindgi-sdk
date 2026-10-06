@@ -572,6 +572,15 @@ const CostGroupByQueryParam: ParameterSpec = {
   schema: { type: 'string' },
 };
 
+const CostAggregateLimitQueryParam: ParameterSpec = {
+  name: 'limit',
+  in: 'query',
+  required: false,
+  description:
+    'The most groups to return: the most expensive ones (`groups` is ordered by `totalUsd`, highest first). 1 to 10000, default 1000. When there were more, `truncated` is `true` and `totalGroups` says how many; the totals still cover every record.',
+  schema: { type: 'integer', minimum: 1, maximum: 10000, default: 1000 },
+};
+
 const CostModelQueryParam: ParameterSpec = {
   name: 'model',
   in: 'query',
@@ -3147,11 +3156,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'cost.aggregate',
     summary: 'Aggregate cost across a time window',
     description:
-      "Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId` narrow the aggregate to a scope: `org` covers every project in the org, so one call sums an org's spend. Each group, and the total, carries its cost and its token sums (`tokens`). `inherit` has no effect on cost records, which always belong to a project.",
+      "Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId` narrow the aggregate to a scope: `org` covers every project in the org, so one call sums an org's spend. Each group, and the total, carries its cost and its token sums (`tokens`). `groups` is ordered by `totalUsd`, highest first (ties by key), and capped at `limit` (default 1000): `truncated` and `totalGroups` say when there were more, and the totals still cover every record. For every record, page through `/v1/cost/records`. `inherit` has no effect on cost records, which always belong to a project.",
     tags: ['cost'],
     security: 'bearer',
     parameters: [
       CostGroupByQueryParam,
+      CostAggregateLimitQueryParam,
       CostFromQueryParam,
       CostToQueryParam,
       CostCategoryQueryParam,
@@ -4364,7 +4374,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'orgs.delete',
     summary: 'Delete an org (idempotent)',
     description:
-      "Idempotent — deleting an unknown or already-deleted org returns 204 per the binding contract. The org's projects stay, without an org; when one of them has the slug of a project that has none, nothing is deleted: `409 slug-conflict` names the slugs (rename or move those projects first).",
+      "A tombstone, not an erase: from then on the org is gone from get and list, and its slug is free for a new org. Its projects and teams stay, without an org; when one of those projects has the slug of a project that has none, nothing is deleted: `409 slug-conflict` names the slugs (rename or move those projects first). In the Kindgi runtime, the org's own secrets and secret mappings are deleted with it, for good, and its own environments and MCP endpoints are unregistered. A retention policy on the `org` domain purges the org's row. Idempotent: deleting an unknown or already-deleted org returns 204.",
     tags: ['orgs'],
     security: 'bearer',
     parameters: [

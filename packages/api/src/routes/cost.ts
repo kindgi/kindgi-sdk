@@ -6,6 +6,8 @@ import { Hono } from 'hono';
 import type { Cursor, TenantId, Timestamp } from '@kindgi/types';
 
 import {
+  COST_AGGREGATE_DEFAULT_LIMIT,
+  COST_AGGREGATE_MAX_LIMIT,
   COST_GROUP_DIMENSIONS,
   type CostAggregateGroup,
   type CostBinding,
@@ -169,6 +171,21 @@ export function costRouter(binding: CostBinding): Hono<AppEnv> {
       }
     }
 
+    // limit — the most groups to return, the most expensive first.
+    const limit = parseAggregateLimit(query.limit);
+    if (limit === null) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'bad-input',
+            message: `\`limit\` must be an integer from 1 to ${COST_AGGREGATE_MAX_LIMIT} (default ${COST_AGGREGATE_DEFAULT_LIMIT})`,
+          },
+          requestId,
+        ),
+      );
+    }
+
     // Time range — required. Default to last 30 days when both absent
     // (documented in the response `timeRange`). If only one endpoint is
     // supplied, reject — half-open defaults invite confusion.
@@ -240,10 +257,18 @@ export function costRouter(binding: CostBinding): Hono<AppEnv> {
       ...(Object.keys(filter.value).length > 0 && { filter: filter.value }),
       ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
+      limit,
     });
 
+    // The most expensive groups, capped here too: a binding may return
+    // every group. The window's totals stay over every record.
+    const groups = [...result.groups].sort((a, b) => compareGroups(a, b, groupBy)).slice(0, limit);
+    const totalGroups = Math.max(result.totalGroups ?? 0, result.groups.length);
+
     return c.json({
-      groups: result.groups.map(serializeGroup),
+      groups: groups.map(serializeGroup),
+      totalGroups,
+      truncated: totalGroups > groups.length,
       totalUsd: result.totalUsd,
       totalRecords: result.totalRecords,
       tokens: serializeTokens(result.tokens),
@@ -386,6 +411,35 @@ function pick(rec: CostRecord, keys: readonly (keyof CostRecord)[]): Record<stri
     if (rec[key] !== undefined) out[key] = rec[key];
   }
   return out;
+}
+
+/** `?limit=` on the aggregate: the default when absent, `null` when it isn't 1..max. */
+function parseAggregateLimit(raw: string | undefined): number | null {
+  if (raw === undefined) return COST_AGGREGATE_DEFAULT_LIMIT;
+  if (!/^\d+$/.test(raw)) return null;
+  const n = Number(raw);
+  return n >= 1 && n <= COST_AGGREGATE_MAX_LIMIT ? n : null;
+}
+
+/**
+ * The aggregate's order: `totalUsd` descending, then the key, dimension
+ * by dimension in `groupBy` order (code-point order; `null` last).
+ */
+function compareGroups(
+  a: CostAggregateGroup,
+  b: CostAggregateGroup,
+  groupBy: readonly CostGroupDimension[],
+): number {
+  if (a.totalUsd !== b.totalUsd) return b.totalUsd - a.totalUsd;
+  for (const dim of groupBy) {
+    const x = a.key[dim] ?? null;
+    const y = b.key[dim] ?? null;
+    if (x === y) continue;
+    if (x === null) return 1;
+    if (y === null) return -1;
+    return x < y ? -1 : 1;
+  }
+  return 0;
 }
 
 function serializeGroup(g: CostAggregateGroup): Record<string, unknown> {
