@@ -1,5 +1,42 @@
 # @kindgi/sdk
 
+## 0.1.4-rc.0
+
+### Patch Changes
+
+- Updated dependencies [c313224]
+- Updated dependencies [024a47f]
+- Updated dependencies [6260a59]
+- Updated dependencies [d0ebeb6]
+- Updated dependencies [a311b81]
+- Updated dependencies [a0652ac]
+- Updated dependencies [fa6680c]
+- Updated dependencies [fac7472]
+- Updated dependencies [e197294]
+- Updated dependencies [d3dffb5]
+- Updated dependencies [26b2a23]
+- Updated dependencies [b67eee6]
+- Updated dependencies [7a8e764]
+- Updated dependencies [a0921a1]
+- Updated dependencies [dde7fdb]
+- Updated dependencies [8b28a25]
+- Updated dependencies [b52d890]
+- Updated dependencies [3d23304]
+- Updated dependencies [2923703]
+- Updated dependencies [bfeabfd]
+- Updated dependencies [d0ebeb6]
+- Updated dependencies [a5560d7]
+- Updated dependencies [62608e3]
+  - @kindgi/agents@0.1.4-rc.0
+  - @kindgi/client@0.1.4-rc.0
+  - @kindgi/tools@0.1.4-rc.0
+  - @kindgi/handler-runtime@0.1.4-rc.0
+  - @kindgi/types@0.1.4-rc.0
+  - @kindgi/flow@0.1.4-rc.0
+  - @kindgi/guardrails@0.1.4-rc.0
+  - @kindgi/schema@0.1.4-rc.0
+  - @kindgi/crypto@0.1.4-rc.0
+
 ## 0.1.3
 
 ### Patch Changes
