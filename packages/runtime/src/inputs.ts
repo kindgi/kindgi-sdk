@@ -187,6 +187,8 @@ export interface StartRunParams {
   readonly agent?: RunAgentRef;
   /** Set when an eval run is replaying a past run; see `RunReplayRef`. */
   readonly replay?: RunReplayRef;
+  /** The versions the run swaps in over its flow version's pins; see `RunFlowInput.versions`. */
+  readonly versions?: FlowVersionOverrides;
 }
 
 export type StartRunError = { readonly code: 'insert-failed'; readonly message: string };
