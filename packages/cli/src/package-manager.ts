@@ -167,11 +167,19 @@ export async function detectBinRunner(
  * refuses to download when the bin is missing. `path` runs the bin on
  * `PATH` (a Python pack's globally installed CLI).
  */
-/** `@kindgi/cli@<major.minor>` of the running CLI (`@kindgi/cli` when unknown). */
-const PUBLISHED_CLI = (() => {
-  const minor = /^(\d+)\.(\d+)\./.exec(CLI_VERSION)?.slice(1, 3).join('.');
-  return minor === undefined ? '@kindgi/cli' : `@kindgi/cli@${minor}`;
-})();
+/**
+ * The published CLI a hint downloads: `@kindgi/cli@<major.minor>` of the
+ * running CLI, its exact version for a release candidate (a range never
+ * matches a pre-release, so `@0.1` would run the last release), and
+ * `@kindgi/cli` when the version is unknown.
+ */
+export function publishedCliSpec(version: string): string {
+  const match = /^(\d+)\.(\d+)\.\d+(-\S+)?/.exec(version);
+  if (match === null) return '@kindgi/cli';
+  return match[3] === undefined ? `@kindgi/cli@${match[1]}.${match[2]}` : `@kindgi/cli@${version}`;
+}
+
+const PUBLISHED_CLI = publishedCliSpec(CLI_VERSION);
 
 export function binCommand(
   runner: BinRunner,

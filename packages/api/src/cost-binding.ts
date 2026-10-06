@@ -44,7 +44,10 @@ export interface CostBinding {
    * Multi-dimensional aggregate rollup. `groupBy` may combine any
    * subset of `COST_GROUP_DIMENSIONS`; the binding returns one group per
    * distinct key tuple within the required `from`..`to` window, with its
-   * cost and token sums.
+   * cost and token sums. With `limit`, a binding may return only the
+   * `limit` most expensive groups (`totalUsd` descending, ties by key)
+   * and the count before the cap in `totalGroups`; one that returns
+   * every group is capped by the route.
    */
   aggregate(input: CostAggregateInput): Promise<CostAggregateResult>;
 }
@@ -195,7 +198,19 @@ export interface CostAggregateInput {
    * shape uniformity.
    */
   readonly inherit?: boolean;
+  /**
+   * The most groups the caller wants (`?limit=`, 1..`COST_AGGREGATE_MAX_LIMIT`,
+   * default `COST_AGGREGATE_DEFAULT_LIMIT`): the most expensive ones. A
+   * binding may cap in its query; the window's totals stay over every
+   * record either way.
+   */
+  readonly limit?: number;
 }
+
+/** `GET /v1/cost/aggregate`'s `?limit=` when absent. */
+export const COST_AGGREGATE_DEFAULT_LIMIT = 1000;
+/** The largest `?limit=` the aggregate takes. */
+export const COST_AGGREGATE_MAX_LIMIT = 10_000;
 
 /**
  * One row of the aggregate result. `key` maps every requested `groupBy`
@@ -226,6 +241,11 @@ export interface CostTokenTotals {
 
 export interface CostAggregateResult {
   readonly groups: readonly CostAggregateGroup[];
+  /**
+   * How many groups there were before a cap: set by a binding that caps
+   * (`CostAggregateInput.limit`). Absent: `groups` is every group.
+   */
+  readonly totalGroups?: number;
   readonly totalUsd: number;
   readonly totalRecords: number;
   readonly tokens: CostTokenTotals;

@@ -3,13 +3,21 @@
 
 import { Hono } from 'hono';
 
-import { type Agent, type AgentId, type DefineAgentSpec, defineAgent } from '@kindgi/agents';
+import {
+  type Agent,
+  type AgentId,
+  type DefineAgentSpec,
+  defineAgent,
+  pinsDigest,
+} from '@kindgi/agents';
 import { type Principal, ref, tuplesForCreate } from '@kindgi/authz';
 import type { Cursor, ProjectId, Semver, TenantId, UserId } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from '../agent-binding.js';
+import { resolveAgentPins } from '../agent-pins.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams } from './scope-params.js';
@@ -24,8 +32,18 @@ import { parseScopeParams } from './scope-params.js';
  *
  * Publish is data-as-code: the body is a full `DefineAgentSpec` (the
  * same value `defineAgent(...)` accepts).
+ *
+ * With `toolRegistry`, a published version is pinned: each tool range
+ * resolves once, at publish, to the exact version every run of that
+ * version uses (`pins`, see `resolveAgentPins`), and a range that
+ * matches no published version refuses the publish. Without it,
+ * versions carry no pins and resolve their ranges per run.
  */
-export function agentsRouter(binding: AgentRegistryBinding, authorizer?: Authorizer): Hono<AppEnv> {
+export function agentsRouter(
+  binding: AgentRegistryBinding,
+  authorizer?: Authorizer,
+  toolRegistry?: ToolRegistryBinding,
+): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
   // Authorization — check the resource directly (ref('agent', businessId));
@@ -281,6 +299,28 @@ export function agentsRouter(binding: AgentRegistryBinding, authorizer?: Authori
       );
     }
 
+    // Pin the version: every tool range resolves now, once, to the
+    // version its runs use. A range nothing satisfies refuses the
+    // publish rather than store a partly pinned version.
+    let agent: Agent = defined.value;
+    if (toolRegistry !== undefined) {
+      const resolved = await resolveAgentPins(toolRegistry, tenantId, defined.value);
+      if (resolved.kind === 'unpinnable') {
+        c.status(statusFor('invalid-agent') as never);
+        return c.json(
+          toWireError(
+            {
+              code: 'validation-failed',
+              message: `Agent "${defined.value.id as unknown as string}" uses tool versions that aren't published (${resolved.issues.length} issue${resolved.issues.length === 1 ? '' : 's'})`,
+              issues: resolved.issues as unknown as Record<string, unknown>[],
+            },
+            requestId,
+          ),
+        );
+      }
+      agent = { ...agent, pins: resolved.pins, pinsDigest: pinsDigest(resolved.pins) };
+    }
+
     const principal = c.get('principal') as Principal | undefined;
     const creatorUserId =
       principal?.actor.kind === 'user'
@@ -289,7 +329,7 @@ export function agentsRouter(binding: AgentRegistryBinding, authorizer?: Authori
     const outcome = await binding.publish({
       tenantId,
       projectId,
-      agent: defined.value,
+      agent,
       // Write the authorization tuples in the same transaction as the
       // registry row. The binding calls this with the business
       // `agentId`.
@@ -420,5 +460,7 @@ function serializeAgent(a: Agent): Record<string, unknown> {
     ...(a.tags !== undefined && { tags: a.tags }),
     ...(a.preferredProvider !== undefined && { preferredProvider: a.preferredProvider }),
     ...(a.preferredModel !== undefined && { preferredModel: a.preferredModel }),
+    ...(a.pins !== undefined && { pins: a.pins }),
+    ...(a.pinsDigest !== undefined && { pinsDigest: a.pinsDigest }),
   };
 }

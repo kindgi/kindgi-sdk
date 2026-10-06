@@ -468,6 +468,23 @@ export async function runIndexer(
   const guardrails: IndexedGuardrail[] = [];
   const agents: IndexedAgent[] = [];
   const flows: IndexedFlow[] = [];
+  // Which file defined each `kind:id`. A pack defines a primitive once: the
+  // pack service keys them by id, so a second file's would silently replace
+  // the first's. The first (in discovery order) is kept, the second refused,
+  // as the Python indexer does.
+  const owners = new Map<string, string>();
+  const duplicateOf = (kind: string, id: string, relPath: string): IndexerError | undefined => {
+    const owner = owners.get(`${kind}:${id}`);
+    if (owner !== undefined) {
+      return {
+        code: 'manifest-validation-failed',
+        message: `${relPath}: duplicate ${kind} id '${id}' (also defined in ${owner})`,
+        filePath: relPath,
+      };
+    }
+    owners.set(`${kind}:${id}`, relPath);
+    return undefined;
+  };
   const fileErrors: IndexerError[] = [];
 
   for (const { relPath, expectedKind } of discovered) {
@@ -536,6 +553,11 @@ export async function runIndexer(
           fileErrors.push(built.error);
           continue;
         }
+        const duplicate = duplicateOf('tool', built.value.id, relPath);
+        if (duplicate !== undefined) {
+          fileErrors.push(duplicate);
+          continue;
+        }
         tools.push(built.value);
         break;
       }
@@ -543,6 +565,11 @@ export async function runIndexer(
         const built = buildGuardrail(unwrapped, relPath, zodConverter);
         if (built.kind === 'err') {
           fileErrors.push(built.error);
+          continue;
+        }
+        const duplicate = duplicateOf('guardrail', built.value.id, relPath);
+        if (duplicate !== undefined) {
+          fileErrors.push(duplicate);
           continue;
         }
         guardrails.push(built.value);
@@ -554,6 +581,11 @@ export async function runIndexer(
           fileErrors.push(built.error);
           continue;
         }
+        const duplicate = duplicateOf('agent', built.value.id, relPath);
+        if (duplicate !== undefined) {
+          fileErrors.push(duplicate);
+          continue;
+        }
         agents.push(built.value);
         break;
       }
@@ -561,6 +593,11 @@ export async function runIndexer(
         const built = buildGraph(unwrapped, relPath);
         if (built.kind === 'err') {
           fileErrors.push(built.error);
+          continue;
+        }
+        const duplicate = duplicateOf('flow', built.value.id, relPath);
+        if (duplicate !== undefined) {
+          fileErrors.push(duplicate);
           continue;
         }
         flows.push(built.value);

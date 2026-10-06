@@ -14,13 +14,14 @@ import type {
   ToolVersionUnresolvableError,
 } from './errors.js';
 import type { AnyTool } from './types.js';
+import { pickVersion } from './versions.js';
 
 /**
  * In-process registry mapping (tool id, version) → tool. Multi-version:
  * a single id may carry multiple compiled implementations at different
  * exact semver strings; agent bindings reference tools by (id, range)
  * and dispatch resolves at run start via `resolve(id, range)` (npm-
- * compatible semver grammar, backed by `semver.maxSatisfying`).
+ * compatible semver grammar, by `pickVersion`'s rule).
  *
  * Not tenant-scoped. Multi-tenant deployments hold one registry per
  * tenant or encode tenancy into tool ids. Cross-tenant tool sharing goes
@@ -44,7 +45,7 @@ export interface ToolRegistry {
   getVersion(id: ToolId, version: string): Result<AnyTool, ToolError>;
   /**
    * Resolve a semver range against the versions registered under `id`.
-   * Uses `semver.maxSatisfying` (npm grammar). Distinct failure modes:
+   * Picks by `pickVersion`'s rule (npm's). Distinct failure modes:
    *   - `tool-not-found`         → id has no versions at all
    *   - `invalid-version-range`  → range string is grammatically broken
    *   - `tool-version-unresolvable` → id is present but no version satisfies
@@ -88,7 +89,7 @@ export interface ToolRegistry {
 export interface ToolResolution {
   readonly tool: AnyTool;
   /**
-   * The exact version picked by `maxSatisfying`. Callers capture this in
+   * The exact version `pickVersion` picked. Callers capture this in
    * provenance + telemetry so a replay can pin against the same version.
    */
   readonly resolvedVersion: string;
@@ -182,7 +183,9 @@ export function createToolRegistry(seed: readonly AnyTool[] = []): ToolRegistry 
         };
         return { kind: 'err', error: err };
       }
-      if (semver.validRange(range) === null) {
+      const available = [...versions.keys()];
+      const pick = pickVersion(available, range);
+      if (pick.kind === 'invalid-range') {
         const err: InvalidVersionRangeError = {
           code: 'invalid-version-range',
           message: `Version range "${range}" for tool "${id}" is not a valid semver range`,
@@ -191,9 +194,7 @@ export function createToolRegistry(seed: readonly AnyTool[] = []): ToolRegistry 
         };
         return { kind: 'err', error: err };
       }
-      const available = [...versions.keys()];
-      const picked = semver.maxSatisfying(available, range);
-      if (picked === null) {
+      if (pick.kind === 'not-satisfiable') {
         const err: ToolVersionUnresolvableError = {
           code: 'tool-version-unresolvable',
           message: `Tool "${id}" has no version satisfying "${range}" (available: ${available
@@ -205,8 +206,9 @@ export function createToolRegistry(seed: readonly AnyTool[] = []): ToolRegistry 
         };
         return { kind: 'err', error: err };
       }
+      const picked = pick.version;
       const tool = versions.get(picked);
-      // maxSatisfying returned a version we just enumerated — guaranteed
+      // pickVersion returned a version we just enumerated — guaranteed
       // to be in the map. The `if (tool === undefined)` branch is a
       // defensive no-op for the type system.
       if (tool === undefined) {

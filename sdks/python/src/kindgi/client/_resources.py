@@ -324,6 +324,20 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         False,
     ),
+    "evalSuites.buildFromJudgments": Operation(
+        "evalSuites.buildFromJudgments",
+        "POST",
+        "/v1/eval-suites/{suiteId}/versions/from-judgments",
+        "json",
+        True,
+    ),
+    "evalSuites.listCases": Operation(
+        "evalSuites.listCases",
+        "GET",
+        "/v1/eval-suites/{suiteId}/versions/{version}/cases",
+        "json",
+        False,
+    ),
     "evalSuites.versions.unregister": Operation(
         "evalSuites.versions.unregister",
         "POST",
@@ -3070,6 +3084,7 @@ class CostResource:
         /,
         *,
         group_by: str,
+        limit: int | None = None,
         from_: str | None = None,
         to: str | None = None,
         category: str | None = None,
@@ -3088,13 +3103,14 @@ class CostResource:
     ) -> _models.CostAggregateResult:
         """Aggregate cost across a time window. `GET /v1/cost/aggregate`
 
-        Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId` narrow the aggregate to a scope: `org` covers every project in the org, so one call sums an org's spend. Each group, and the total, carries its cost and its token sums (`tokens`). `inherit` has no effect on cost records, which always belong to a project.
+        Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId` narrow the aggregate to a scope: `org` covers every project in the org, so one call sums an org's spend. Each group, and the total, carries its cost and its token sums (`tokens`). `groups` is ordered by `totalUsd`, highest first (ties by key), and capped at `limit` (default 1000): `truncated` and `totalGroups` say when there were more, and the totals still cover every record. For every record, page through `/v1/cost/records`. `inherit` has no effect on cost records, which always belong to a project.
         """
         return self._client._request(
             _OPERATIONS["cost.aggregate"],
             path={},
             query={
                 "groupBy": group_by,
+                "limit": limit,
                 "from": from_,
                 "to": to,
                 "category": category,
@@ -3442,7 +3458,9 @@ class EvalSuitesResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
-        kind: Literal["accuracy", "pairwise", "regression", "human-review", "benchmark", "custom"]
+        kind: Literal[
+            "accuracy", "pairwise", "regression", "human-review", "benchmark", "custom", "judged"
+        ]
         | None = None,
         name: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
@@ -3502,6 +3520,53 @@ class EvalSuitesResource:
             query={},
             headers={},
             response=_models.EvalSuite,
+            timeout=timeout,
+        )
+
+    def build_from_judgments(
+        self,
+        suite_id: str,
+        body: _models.BuildJudgedSuiteBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.BuildJudgedSuiteResult:
+        """Build a test set from judgments. `POST /v1/eval-suites/{suiteId}/versions/from-judgments`
+
+        Publishes a `judged` eval suite version whose cases are copies of judged runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the judged output, and each item's judgments summed up: yes and no counts, the weight behind yes and behind all judgments (an unclassified judgment counts 1), and the reasons. `judgeClassIds` counts only judgments of those classes; `minJudgments` leaves out runs with fewer. Needs `admin` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["evalSuites.buildFromJudgments"],
+            path={"suiteId": suite_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.BuildJudgedSuiteBody, body, fields),
+            response=_models.BuildJudgedSuiteResult,
+            timeout=timeout,
+        )
+
+    def list_cases(
+        self,
+        suite_id: str,
+        version: str,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgedEvalCaseCollectionPage:
+        """List the cases of a judged eval suite version. `GET /v1/eval-suites/{suiteId}/versions/{version}/cases`
+
+        Cursor-paginated, in the order the cases were stored (newest judged run first).
+        """
+        return self._client._request(
+            _OPERATIONS["evalSuites.listCases"],
+            path={"suiteId": suite_id, "version": version},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.JudgedEvalCaseCollectionPage,
             timeout=timeout,
         )
 
@@ -4208,7 +4273,7 @@ class OrgsResource:
     ) -> None:
         """Delete an org (idempotent). `DELETE /v1/orgs/{orgId}`
 
-        Idempotent — deleting an unknown or already-deleted org returns 204 per the binding contract. The org's projects stay, without an org; when one of them has the slug of a project that has none, nothing is deleted: `409 slug-conflict` names the slugs (rename or move those projects first).
+        A tombstone, not an erase: from then on the org is gone from get and list, and its slug is free for a new org. Its projects and teams stay, without an org; when one of those projects has the slug of a project that has none, nothing is deleted: `409 slug-conflict` names the slugs (rename or move those projects first). In the Kindgi runtime, the org's own secrets and secret mappings are deleted with it, for good, and its own environments and MCP endpoints are unregistered. A retention policy on the `org` domain purges the org's row. Idempotent: deleting an unknown or already-deleted org returns 204.
         """
         return self._client._request(
             _OPERATIONS["orgs.delete"],
@@ -8150,6 +8215,7 @@ class AsyncCostResource:
         /,
         *,
         group_by: str,
+        limit: int | None = None,
         from_: str | None = None,
         to: str | None = None,
         category: str | None = None,
@@ -8168,13 +8234,14 @@ class AsyncCostResource:
     ) -> _models.CostAggregateResult:
         """Aggregate cost across a time window. `GET /v1/cost/aggregate`
 
-        Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId` narrow the aggregate to a scope: `org` covers every project in the org, so one call sums an org's spend. Each group, and the total, carries its cost and its token sums (`tokens`). `inherit` has no effect on cost records, which always belong to a project.
+        Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId` narrow the aggregate to a scope: `org` covers every project in the org, so one call sums an org's spend. Each group, and the total, carries its cost and its token sums (`tokens`). `groups` is ordered by `totalUsd`, highest first (ties by key), and capped at `limit` (default 1000): `truncated` and `totalGroups` say when there were more, and the totals still cover every record. For every record, page through `/v1/cost/records`. `inherit` has no effect on cost records, which always belong to a project.
         """
         return await self._client._request(
             _OPERATIONS["cost.aggregate"],
             path={},
             query={
                 "groupBy": group_by,
+                "limit": limit,
                 "from": from_,
                 "to": to,
                 "category": category,
@@ -8522,7 +8589,9 @@ class AsyncEvalSuitesResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
-        kind: Literal["accuracy", "pairwise", "regression", "human-review", "benchmark", "custom"]
+        kind: Literal[
+            "accuracy", "pairwise", "regression", "human-review", "benchmark", "custom", "judged"
+        ]
         | None = None,
         name: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
@@ -8582,6 +8651,53 @@ class AsyncEvalSuitesResource:
             query={},
             headers={},
             response=_models.EvalSuite,
+            timeout=timeout,
+        )
+
+    async def build_from_judgments(
+        self,
+        suite_id: str,
+        body: _models.BuildJudgedSuiteBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.BuildJudgedSuiteResult:
+        """Build a test set from judgments. `POST /v1/eval-suites/{suiteId}/versions/from-judgments`
+
+        Publishes a `judged` eval suite version whose cases are copies of judged runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the judged output, and each item's judgments summed up: yes and no counts, the weight behind yes and behind all judgments (an unclassified judgment counts 1), and the reasons. `judgeClassIds` counts only judgments of those classes; `minJudgments` leaves out runs with fewer. Needs `admin` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["evalSuites.buildFromJudgments"],
+            path={"suiteId": suite_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.BuildJudgedSuiteBody, body, fields),
+            response=_models.BuildJudgedSuiteResult,
+            timeout=timeout,
+        )
+
+    async def list_cases(
+        self,
+        suite_id: str,
+        version: str,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgedEvalCaseCollectionPage:
+        """List the cases of a judged eval suite version. `GET /v1/eval-suites/{suiteId}/versions/{version}/cases`
+
+        Cursor-paginated, in the order the cases were stored (newest judged run first).
+        """
+        return await self._client._request(
+            _OPERATIONS["evalSuites.listCases"],
+            path={"suiteId": suite_id, "version": version},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.JudgedEvalCaseCollectionPage,
             timeout=timeout,
         )
 
@@ -9290,7 +9406,7 @@ class AsyncOrgsResource:
     ) -> None:
         """Delete an org (idempotent). `DELETE /v1/orgs/{orgId}`
 
-        Idempotent — deleting an unknown or already-deleted org returns 204 per the binding contract. The org's projects stay, without an org; when one of them has the slug of a project that has none, nothing is deleted: `409 slug-conflict` names the slugs (rename or move those projects first).
+        A tombstone, not an erase: from then on the org is gone from get and list, and its slug is free for a new org. Its projects and teams stay, without an org; when one of those projects has the slug of a project that has none, nothing is deleted: `409 slug-conflict` names the slugs (rename or move those projects first). In the Kindgi runtime, the org's own secrets and secret mappings are deleted with it, for good, and its own environments and MCP endpoints are unregistered. A retention policy on the `org` domain purges the org's row. Idempotent: deleting an unknown or already-deleted org returns 204.
         """
         return await self._client._request(
             _OPERATIONS["orgs.delete"],
