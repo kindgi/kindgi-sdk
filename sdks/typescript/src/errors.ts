@@ -42,12 +42,16 @@ export interface NetworkError {
 
 export interface AuthError {
   readonly code: 'auth';
+  /** The server's own error code (the wire `code`), when the error came from the server. */
+  readonly serverCode?: string;
   readonly message: string;
   readonly reason: 'unauthenticated' | 'forbidden' | 'token-expired';
 }
 
 export interface RateLimitedError {
   readonly code: 'rate-limited';
+  /** The server's own error code (the wire `code`), when the error came from the server. */
+  readonly serverCode?: string;
   readonly message: string;
   /** Suggested seconds to wait before retry (from server `Retry-After`). */
   readonly retryAfterSeconds?: number;
@@ -55,18 +59,24 @@ export interface RateLimitedError {
 
 export interface NotFoundError {
   readonly code: 'not-found';
+  /** The server's own error code (the wire `code`), when the error came from the server. */
+  readonly serverCode?: string;
   readonly message: string;
   readonly resource: { readonly kind: string; readonly id: string };
 }
 
 export interface ConflictError {
   readonly code: 'conflict';
+  /** The server's own error code (the wire `code`), when the error came from the server. */
+  readonly serverCode?: string;
   readonly message: string;
   readonly reason: string;
 }
 
 export interface InvalidRequestError {
   readonly code: 'invalid-request';
+  /** The server's own error code (the wire `code`), when the error came from the server. */
+  readonly serverCode?: string;
   readonly message: string;
   /** JSON-pointer issues, matching the shape used across `packages/*` validators. */
   readonly issues: readonly { readonly path: string; readonly message: string }[];
@@ -79,6 +89,8 @@ export interface InvalidRequestError {
  */
 export interface GuardrailViolationError {
   readonly code: 'guardrail-violation';
+  /** The server's own error code (the wire `code`), when the error came from the server. */
+  readonly serverCode?: string;
   readonly message: string;
   readonly violations: readonly GuardrailViolation[];
   /**
@@ -106,12 +118,14 @@ export interface GuardrailViolation {
 /**
  * Passthrough for server-side errors that have no dedicated SDK
  * variant (for example `KernelError` or `MemoryError` codes). `fromWire`
- * maps any unrecognized wire `code` to `{ code: 'server', serverCode:
- * <wire code>, message, fields: <wire details> }`.
+ * maps a wire `code` it doesn't list to `{ code: 'server', serverCode:
+ * <wire code>, message, fields: <wire details> }` — unless its HTTP
+ * status names a family (404/410 not-found, 401/403 auth, 429
+ * rate-limited, 400 invalid request; 409 and 422 stay `server`).
  *
  * Callers match `err.code === 'server' && err.serverCode === '...'` to
- * handle specific primitive errors. Keeps the SDK's top-level `code`
- * space small while preserving fidelity.
+ * handle specific primitive errors. Every error from the server carries
+ * `serverCode`, so matching on it alone works whatever the family.
  */
 export interface ServerError {
   readonly code: 'server';
@@ -171,13 +185,28 @@ export function notYetWired(method: string, reason: string): NotYetWiredError {
  * `{ code, message, details?, requestId }` inside its `{ error }`
  * envelope, which the transport unwraps before calling this. This
  * function reads `code` and projects the rest of the object (including
- * `details`) into the matching variant. Unknown codes fall back to
- * `ServerError` with the raw code preserved as `serverCode` — later SDK
- * releases can add explicit variants without breaking older consumers.
+ * `details`) into the matching variant. A code this client doesn't list
+ * (a newer server's) is read by the HTTP `status` instead: 404/410 a
+ * not-found, 400 an invalid request, 401/403 an auth error, 429
+ * rate-limited. 409 and 422 stay `ServerError`: the docs match their
+ * codes there (`budget-exceeded`, `agent-version-mismatch`). Every
+ * error from the server keeps the raw code as `serverCode`.
  *
  * `code` is the discriminant.
  */
-export function fromWire(body: unknown): KindgiError {
+export function fromWire(body: unknown, status?: number): KindgiError {
+  const error = classify(body, status);
+  if (error.code === 'server') return error;
+  const code =
+    body !== null &&
+    typeof body === 'object' &&
+    typeof (body as { code?: unknown }).code === 'string'
+      ? (body as { code: string }).code
+      : undefined;
+  return code === undefined ? error : ({ ...error, serverCode: code } as KindgiError);
+}
+
+function classify(body: unknown, status: number | undefined): KindgiError {
   if (!body || typeof body !== 'object') {
     return {
       code: 'server',
@@ -213,13 +242,7 @@ export function fromWire(body: unknown): KindgiError {
       return { code: 'auth', message, reason: 'forbidden' };
     case 'rate-limited':
     case 'rate-limit-exceeded':
-      return {
-        code: 'rate-limited',
-        message,
-        ...(typeof obj.retryAfterSeconds === 'number'
-          ? { retryAfterSeconds: obj.retryAfterSeconds as number }
-          : {}),
-      };
+      return rateLimited(message, obj);
     case 'not-found':
     case 'run-not-found':
     case 'agent-not-found':
@@ -244,28 +267,7 @@ export function fromWire(body: unknown): KindgiError {
     case 'token-not-found':
     case 'agent-version-not-found':
     case 'promotion-not-found':
-      return {
-        code: 'not-found',
-        message,
-        resource: {
-          kind: code.replace(/-not-found$/u, '') || 'unknown',
-          id:
-            readStringField(
-              details,
-              'agentId',
-              'toolId',
-              'runId',
-              'adapterId',
-              'userId',
-              'providerId',
-              'capabilityId',
-              'tokenId',
-              'factId',
-              'guardrailId',
-              'id',
-            ) ?? 'unknown',
-        },
-      };
+      return notFound(code, message, details);
     case 'conflict':
     case 'already-terminal':
     case 'run-already-terminal':
@@ -282,9 +284,25 @@ export function fromWire(body: unknown): KindgiError {
     case 'slug-conflict':
     case 'project-default-already-exists':
     case 'registry-read-only':
+    case 'policy-scope-taken':
+    case 'policy-scope-changed':
     case 'nothing-to-roll-back':
     case 'not-pinned':
     case 'agent-version-live':
+    case 'eval-suite-already-registered':
+    case 'policy-already-registered':
+    case 'mcp-endpoint-already-registered':
+    case 'identity-provider-already-registered':
+    case 'version-already-exists':
+    case 'eval-run-already-terminal':
+    case 'approval-already-decided':
+    case 'judge-class-name-taken':
+    case 'promotion-superseded':
+    case 'gate-policy-already-registered':
+    case 'gate-policy-scope-taken':
+    case 'gate-policy-scope-changed':
+    case 'gate-policy-scope-unpinned':
+    case 'gate-policy-needs-pin':
       return { code: 'conflict', message, reason: code };
     case 'invalid-request':
     case 'validation-failed':
@@ -301,14 +319,7 @@ export function fromWire(body: unknown): KindgiError {
     case 'invalid-provider':
     case 'supervisor-header-missing':
     case 'scope-invalid':
-      return {
-        code: 'invalid-request',
-        message,
-        issues:
-          (obj.issues as InvalidRequestError['issues'] | undefined) ??
-          (details?.issues as InvalidRequestError['issues'] | undefined) ??
-          [],
-      };
+      return invalidRequest(message, obj, details);
     case 'guardrail-violation':
       return {
         code: 'guardrail-violation',
@@ -317,6 +328,33 @@ export function fromWire(body: unknown): KindgiError {
         evaluationErrors: readEvaluationErrors(details?.evaluationErrors),
       };
     default:
+      return byStatus(status, code, message, obj, details);
+  }
+}
+
+type WireFields = Readonly<Record<string, unknown>>;
+
+/** A code this client doesn't list, read by its HTTP status. */
+function byStatus(
+  status: number | undefined,
+  code: string,
+  message: string,
+  obj: WireFields,
+  details: WireFields | undefined,
+): KindgiError {
+  switch (status) {
+    case 404:
+    case 410:
+      return notFound(code, message, details);
+    case 400:
+      return invalidRequest(message, obj, details);
+    case 401:
+      return { code: 'auth', message, reason: 'unauthenticated' };
+    case 403:
+      return { code: 'auth', message, reason: 'forbidden' };
+    case 429:
+      return rateLimited(message, obj);
+    default:
       return {
         code: 'server',
         serverCode: code,
@@ -324,6 +362,56 @@ export function fromWire(body: unknown): KindgiError {
         ...(details !== undefined ? { fields: details } : {}),
       };
   }
+}
+
+function notFound(code: string, message: string, details: WireFields | undefined): KindgiError {
+  return {
+    code: 'not-found',
+    message,
+    resource: {
+      kind: code.replace(/-not-found$/u, '') || 'unknown',
+      id:
+        readStringField(
+          details,
+          'agentId',
+          'toolId',
+          'runId',
+          'adapterId',
+          'userId',
+          'providerId',
+          'capabilityId',
+          'tokenId',
+          'factId',
+          'guardrailId',
+          'id',
+        ) ?? 'unknown',
+    },
+  };
+}
+
+function invalidRequest(
+  message: string,
+  obj: WireFields,
+  details: WireFields | undefined,
+): KindgiError {
+  return {
+    code: 'invalid-request',
+    message,
+    issues:
+      (obj.issues as InvalidRequestError['issues'] | undefined) ??
+      (details?.issues as InvalidRequestError['issues'] | undefined) ??
+      [],
+  };
+}
+
+function rateLimited(message: string, obj: WireFields): KindgiError {
+  return {
+    code: 'rate-limited',
+    message,
+    ...(typeof obj.retryAfterSeconds === 'number'
+      ? { retryAfterSeconds: obj.retryAfterSeconds as number }
+      : {}),
+  };
 }
 
 function readStringField(
