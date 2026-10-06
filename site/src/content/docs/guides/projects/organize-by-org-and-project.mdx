@@ -1,0 +1,138 @@
+---
+title: Organize work by org and project
+description: Give each customer an org with its projects, run and read their work by project or org, and know what deleting an org does.
+sidebar:
+  order: 1
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+A **project** holds runs, conversations, approvals and what they cost. An
+**org** groups projects: one org per customer, for example, with a project
+for each part of their work. Every tenant has a Default project, and a run
+that names no project runs there.
+
+## Give a customer an org and a project
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// customer-org.ts
+import { createClient } from '@kindgi/sdk/client';
+
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+// Once per customer: an org, and a project in it.
+const org = await kindgi.orgs.create({ slug: 'acme-customer-one', name: 'Customer one' });
+const project = await kindgi.projects.create({ orgId: org.id, slug: 'support', name: 'Support' });
+
+// The customer's work runs in its project.
+const run = await kindgi.runs.start({
+  agent: 'acme-ops.echo-agent',
+  input: { userMessage: 'Echo hello.' },
+  projectId: project.id,
+});
+
+// Everything in the customer's org, across its projects.
+const runs = await kindgi.runs.list({ scope: { kind: 'org', orgId: org.id } });
+console.log(run.status, runs.data.map((r) => r.id));
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# customer_org.py
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+# Once per customer: an org, and a project in it.
+org = kindgi.orgs.create(slug="acme-customer-one", name="Customer one")
+project = kindgi.projects.create(org_id=str(org.id), slug="support", name="Support")
+
+# The customer's work runs in its project.
+run = kindgi.runs.start(
+    agent="acme-ops.echo-agent",
+    input={"userMessage": "Echo hello."},
+    project_id=project.id,
+)
+
+# Everything in the customer's org, across its projects.
+runs = kindgi.runs.list(scope_kind="org", scope_id=str(org.id))
+print(run.status, [str(r.id) for r in runs.data])
+```
+
+</TabItem>
+</Tabs>
+
+```text
+completed [ '68ebe748-4259-4f46-ae21-cf0da3b978c6' ]
+```
+
+Keep the org's and the project's ids on the customer's row in your app.
+
+**Slugs.** An org's slug is unique in the tenant. A project's slug is unique
+in its org, so every customer can have a `support` project; a project with
+no org has a slug unique among the projects with none. A taken slug is
+refused with `409 slug-conflict`:
+
+```text
+Another org in the tenant has the slug "acme-customer-one"
+Another project in its org has the slug "support" (for a project without an org: another project without one)
+```
+
+A tenant has one Default project; asking for a second one answers
+`409 project-default-already-exists`, "The tenant already has a Default
+project".
+
+## Read a customer's work
+
+The lists take a `scope`, one project's or every project's in an org:
+`{ kind: 'project', projectId }` or `{ kind: 'org', orgId }` (Python:
+`scope_kind="project", scope_id=…`).
+
+- Runs: [List runs](../../runs/list-runs/).
+- Approvals: [Decide an approval](../../approvals/decide-an-approval/).
+- Conversations: [Conversations](../../agents/conversations/).
+- Where answers came from: [Trace an answer](../../observability/trace-an-answer/).
+- What it cost, by month and model: [Cost per run and per customer](../../observability/cost-per-run/).
+
+Records from before Kindgi 0.1.3 have no project, so only a list without a
+scope shows them.
+
+A tool sees the run's project and org (`ctx.projectId`, `ctx.orgId`), so it
+can check that a record belongs to the customer the run is for:
+[Check the run's org](../../tools/write-a-tool/#check-the-runs-org).
+
+## Delete an org
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+await kindgi.orgs.delete(org.id);
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+kindgi.orgs.delete(str(org.id))
+```
+
+</TabItem>
+</Tabs>
+
+- **The org is gone:** lists leave it out, and fetching it answers
+  `404 org-not-found`. Its slug is free at once. Deleting it again changes
+  nothing.
+- **Its projects and teams stay,** with no org, and so does their work.
+- **Its own secrets and their mappings are deleted for good.** Its own
+  environments and MCP endpoints are unregistered.
+- **Writes to it are refused:** setting a secret in it, registering an MCP
+  endpoint in it, and creating or moving a project or a team into it.
+
+Kindgi keeps the deleted org's record until a retention policy on `org`
+purges it, after its environments' and MCP endpoints' own records are purged.

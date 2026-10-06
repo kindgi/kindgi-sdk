@@ -52,7 +52,7 @@ const list: LeafCommand = {
       const cursor = stringFlag(ctx, 'cursor');
       return await ctx.client().blocks.list({
         ...(kind !== undefined && { kind: kind as Kind }),
-        ...(projectId !== undefined && { projectId }),
+        ...(projectId !== undefined && { scope: { kind: 'project' as const, projectId } }),
         ...(name !== undefined && { name }),
         ...(limit !== undefined && { limit }),
         ...(cursor !== undefined && { cursor }),

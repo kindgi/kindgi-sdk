@@ -43,6 +43,16 @@ function recorder() {
 }
 
 describe('kindgi blocks', () => {
+  test("list --project lists that project's blocks (a project scope)", async () => {
+    const { calls, rec } = recorder();
+    const out = await run(['blocks', 'list', '--project=p-1', '--kind=settings'], {
+      blocks: { list: rec('list', { data: [], hasMore: false }) },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      ['list', { kind: 'settings', scope: { kind: 'project', projectId: 'p-1' } }],
+    ]);
+  });
   test('publish --prompt reads the template from a file', async () => {
     const { calls, rec } = recorder();
     const file = join(cwd, 'intake.liquid');

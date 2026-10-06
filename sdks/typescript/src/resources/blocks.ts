@@ -21,6 +21,7 @@ import type {
   ReinstateBlockResult,
   UnregisterBlockResult,
 } from '../generated/api.js';
+import { type ScopeRef, scopeToQuery } from '../scope-wire.js';
 import type { Transport } from '../transport.js';
 
 export type { Block, BlockKind };
@@ -44,7 +45,8 @@ export interface ListBlocksFilter {
   readonly kind?: BlockKind;
   /** Prefix match on the block id. */
   readonly name?: string;
-  readonly projectId?: string;
+  /** Only the blocks of this project, or of every project in this org. */
+  readonly scope?: ScopeRef;
 }
 
 export interface ListBlockVersionsFilter {
@@ -107,7 +109,7 @@ export function makeBlocksClient(transport: Transport): BlocksClient {
           ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
           ...(filter?.kind !== undefined && { kind: filter.kind }),
           ...(filter?.name !== undefined && { name: filter.name }),
-          ...(filter?.projectId !== undefined && { projectId: filter.projectId }),
+          ...(filter?.scope !== undefined && scopeToQuery(filter.scope)),
         },
       });
     },

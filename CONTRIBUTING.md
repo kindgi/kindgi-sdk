@@ -74,6 +74,9 @@ A check on the pull request asks for any of them that's missing.
   pull request's own text, and runs again when you edit the description.
   Both say where a name is, never which; the list is kept hashed
   (`scripts/forbidden-names.json`, generated outside this repository).
+  The pre-push hook (`scripts/hooks/pre-push`) also runs a local check
+  when the clone names one (`git config kindgi.prePushCheck <program>`),
+  and does nothing otherwise.
 
 ## Releases
 
