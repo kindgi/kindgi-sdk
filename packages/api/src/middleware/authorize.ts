@@ -28,6 +28,7 @@ import {
   denyPayload,
 } from '@kindgi/authz';
 
+import { toWireError } from '../errors.js';
 import type { AppEnv } from '../types.js';
 
 /**
@@ -97,9 +98,24 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
         const resource = await getResource(c);
         const decision = await checkInternal(c, action, resource);
         if (!decision.allowed) {
-          const body = denyPayload(action, resource.type, resource.id, decision.reason);
+          // In the error envelope every route answers in, so clients type it
+          // (`permission-denied` is an auth error, forbidden); what was
+          // denied, and why, is in `details`.
+          const deny = denyPayload(action, resource.type, resource.id, decision.reason);
+          const requestId = c.get('requestId');
           c.status(403);
-          return c.json(body);
+          return c.json(
+            toWireError(
+              {
+                code: deny.code,
+                message: `Permission denied: ${deny.reason}`,
+                action: deny.action,
+                resource: deny.resource,
+                reason: deny.reason,
+              },
+              typeof requestId === 'string' ? requestId : '',
+            ),
+          );
         }
         return next();
       };
