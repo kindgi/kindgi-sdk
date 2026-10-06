@@ -414,7 +414,9 @@ forces the exit. The signal a package manager passes on with the first
 doesn't count as a second: `npx` and `pnpm run` forward SIGINT, and
 `pnpm exec` sends SIGTERM. A SIGTERM never forces the exit. Under
 `pnpm exec`, pnpm exits at once, so the prompt comes back while
-`kindgi dev` finishes stopping and prints `stopped.`. The bundled Postgres
+`kindgi dev` finishes stopping and prints `stopped.`. Closing the terminal
+(SIGHUP) stops it the same way, the runtime container included, even
+mid-stop. The bundled Postgres
 keeps running for the next `kindgi dev`. The exit code is `0` after a clean
 stop and `1` if startup failed.
 

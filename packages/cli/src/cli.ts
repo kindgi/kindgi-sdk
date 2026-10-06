@@ -3,14 +3,15 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { runCli } from './main.js';
-import { createStopSignal } from './stop-signal.js';
+import { createStopSignal, ignoreOutputAfterHangup } from './stop-signal.js';
 import { writeFully } from './write-fully.js';
 
 async function main(): Promise<void> {
-  // SIGINT/SIGTERM → an AbortSignal so long-lived commands (currently
-  // only `kindgi dev` — the watch loop) can shut down cleanly; a second
-  // signal forces the exit. Short-lived commands never observe it.
+  // SIGINT/SIGTERM/SIGHUP → an AbortSignal so long-lived commands
+  // (currently only `kindgi dev` — the watch loop) can shut down cleanly;
+  // a second Ctrl+C forces the exit. Short-lived commands never observe it.
   const stopSignal = createStopSignal(process, (code) => process.exit(code));
+  ignoreOutputAfterHangup(process, [process.stdout, process.stderr]);
 
   const outcome = await runCli({
     argv: process.argv.slice(2),

@@ -2,9 +2,11 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * SIGINT / SIGTERM → an AbortSignal long-lived commands (`kindgi dev`)
- * watch to shut down cleanly: close watchers, stop the api-server, tear
- * down the bundled containers.
+ * SIGINT / SIGTERM / SIGHUP → an AbortSignal long-lived commands
+ * (`kindgi dev`) watch to shut down cleanly: close watchers, stop the
+ * api-server, tear down the bundled containers. SIGHUP is the terminal
+ * closing: without a listener it ended `kindgi dev` at once, leaving its
+ * runtime container running.
  *
  * The listener stays registered (`on`, never `once`), so a dependency
  * that re-raises a signal when it finds itself the only listener left
@@ -19,12 +21,14 @@
  * or before the event loop has turned twice since: a stop step can hold
  * the loop (closing a recursive file watcher takes over a second on
  * macOS), so a signal that came at once can be handled late. A SIGTERM
- * never forces the exit; it asks for the stop already under way. Forcing
- * it left the runtime container running.
+ * or SIGHUP never forces the exit; it asks for the stop already under
+ * way. Forcing it left the runtime container running.
  */
 
+type StopSignalName = 'SIGINT' | 'SIGTERM' | 'SIGHUP';
+
 export interface SignalSource {
-  on(event: 'SIGINT' | 'SIGTERM', listener: () => void): unknown;
+  on(event: StopSignalName, listener: () => void): unknown;
 }
 
 /** Where the stop signal reads the time and the event loop's turns (tests fake it). */
@@ -52,7 +56,7 @@ export function createStopSignal(
   const controller = new AbortController();
   let firstAt = 0;
   let settled = false;
-  const onSignal = (signal: 'SIGINT' | 'SIGTERM'): void => {
+  const onSignal = (signal: StopSignalName): void => {
     if (!controller.signal.aborted) {
       firstAt = clock.now();
       clock.nextTurn(() =>
@@ -69,5 +73,29 @@ export function createStopSignal(
   };
   source.on('SIGINT', () => onSignal('SIGINT'));
   source.on('SIGTERM', () => onSignal('SIGTERM'));
+  source.on('SIGHUP', () => onSignal('SIGHUP'));
   return controller.signal;
+}
+
+/** Where the command's output goes (`process.stdout`, `process.stderr`). */
+export interface OutputStream {
+  on(event: 'error', listener: (error: Error) => void): unknown;
+}
+
+/**
+ * After a hangup (SIGHUP: the terminal closed), writing to the terminal
+ * fails (EIO). Unheard, that error would end the process mid-stop, the
+ * runtime container left behind, so from then on the outputs' errors are
+ * ignored: nobody is left to read them.
+ */
+export function ignoreOutputAfterHangup(
+  source: SignalSource,
+  outputs: readonly OutputStream[],
+): void {
+  let hungUp = false;
+  source.on('SIGHUP', () => {
+    if (hungUp) return;
+    hungUp = true;
+    for (const output of outputs) output.on('error', () => undefined);
+  });
 }
