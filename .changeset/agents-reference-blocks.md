@@ -5,6 +5,7 @@
 "@kindgi/handler-runtime": patch
 "@kindgi/specs": patch
 "@kindgi/client": patch
+"@kindgi/pack-conformance": patch
 ---
 
 **An agent's prompt and settings can come from data blocks, pinned when the agent version is published.**
