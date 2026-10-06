@@ -31,10 +31,6 @@ export const UNWIRED_COMMANDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Why a listed command isn't available, when the reason isn't simply "not
- * wired yet": what the CLI prints instead of the generic message.
- */
-/**
  * Why a command (or a whole group: a command's nearest listed path counts)
  * is unwired, when there's more to say than "not yet wired".
  */
