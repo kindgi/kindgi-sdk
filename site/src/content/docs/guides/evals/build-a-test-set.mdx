@@ -128,10 +128,9 @@ I forgot my password and can't sign in. [ 'kb-101 1 yes, 0 no', 'kb-102 0 yes, 1
 I was charged twice for one order. How do I get my money back? [ 'kb-201 1 yes, 0 no', 'kb-203 0 yes, 1 no', 'kb-302 0 yes, 1 no' ]
 ```
 
-- **The project's id:** the Default project's comes from
-  `kindgi.projects.getDefault()` (Python: `kindgi.projects.get_default()`);
-  a run's `projectId` and the console's address (`…/projects/<id>/…`) show it
-  too.
+- **The project's id:** `kindgi projects get-default` prints the Default
+  project, with its `id`; `kindgi projects list` lists them all. In code:
+  `kindgi.projects.getDefault()` (Python: `kindgi.projects.get_default()`).
 - **Which runs:** every run of the agent in the project with at least one
   judgment. Narrow it with `--agent-version` (one version's runs), `--since`
   and `--until` (when the run was first judged), `--class` (count only
