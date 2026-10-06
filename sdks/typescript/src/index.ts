@@ -273,7 +273,12 @@ export type {
   SyncSecretsResult,
 } from './resources/deployments.js';
 export type {
+  BuildFromJudgmentsInput,
+  BuildFromJudgmentsResult,
   EvalSuitesClient,
+  ListSuiteCasesQuery,
+  SuiteCase,
+  SuiteCasePage,
   EvalSuiteVersionsClient,
   ListSuiteVersionsFilter,
   ListSuitesFilter,
@@ -414,6 +419,7 @@ export type {
   JudgeClass,
   JudgeClassScope,
   JudgedItem,
+  JudgedRunContext,
   JudgedRunCopy,
   JudgedSubject,
   Judgment,
