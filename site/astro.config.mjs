@@ -31,6 +31,7 @@ const guideAreas = [
   ['Approvals', 'approvals'],
   ['Secrets and env', 'secrets'],
   ['Cost and provenance', 'observability'],
+  ['Evals', 'evals'],
 ];
 
 // The HTTP API reference: every route and schema, from the API's own spec.
