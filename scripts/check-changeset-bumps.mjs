@@ -4,7 +4,9 @@
 
 /**
  * A changeset that would move the release to the next minor or major says
- * so: a line `Release-decision: <who decided, and when>` in its body.
+ * so: a line `Release-decision: <the version, who decided, and when>` in
+ * its body. The body becomes the changelog entry, so "who" is a role (the
+ * maintainers), never a person.
  *
  * Every `@kindgi/*` package shares one version (a Changesets fixed group),
  * so one `minor` moves them all. Two cases need the line:
@@ -88,7 +90,7 @@ function main() {
       [
         `${NAME}: ${why}, so a changeset is a patch unless a release decision says otherwise. These would move every @kindgi/* package to the next minor or major:`,
         ...problems.map((p) => `  - ${p}`),
-        'Make them `patch`, or, when the release is meant to move, add a line `Release-decision: <who decided, and when>` to the changeset.',
+        'Make them `patch`, or, when the release is meant to move, add a line `Release-decision: <the version, who decided (a role, not a person), and when>` to the changeset.',
       ].join('\n'),
     );
     process.exit(1);

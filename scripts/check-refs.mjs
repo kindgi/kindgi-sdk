@@ -12,7 +12,8 @@
  *      with that name.
  *   2. No internal process markers (development-phase identifiers,
  *      hand-off notes, scratch paths, internal labels, references to
- *      closed-source code) in tracked files.
+ *      closed-source code) in tracked files, and none of the names the
+ *      repository doesn't use (`text-scan.mjs`), in their text or paths.
  *   3. Every path a skill's frontmatter lists under `sources:` (repository-
  *      relative) is a tracked file or directory.
  *   4. A skill's links to docs.kindgi.com name this release line's docs
@@ -31,23 +32,17 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { basename, dirname, join, normalize } from 'node:path';
 
+import { MARKERS, NAME_HIT, nameHits } from './text-scan.mjs';
+
 const TEXT = /\.(ts|tsx|mts|cts|js|mjs|cjs|md|json|ya?ml)$/;
-const SELF = 'scripts/check-refs.mjs';
+/** The checks themselves: they spell out the markers. */
+const SELF = new Set(['scripts/check-refs.mjs', 'scripts/text-scan.mjs']);
 /** Documents that live outside this repository by design (created in a user's pack). */
 const EXTERNAL_DOCS = new Set(['FEEDBACK.md']);
+/** Changelogs record what releases said; the runtime's own border check skips them too. */
+const NAME_EXEMPT = /(^|\/)CHANGELOG\.md$/;
 // Not preceded by a path/URL character (so URL paths and %-encoded URIs don't match).
 const MD_REF = /(?<![\w/.@%-])((?:\.{1,2}\/)*(?:[\w.-]+\/)*[\w.-]+\.md)\b/g;
-const MARKERS = [
-  [/\bsub-?phase\b/i, 'development-phase identifier'],
-  [/\bphase[ _-]?[0-9]+\b/i, 'development-phase identifier'],
-  [/\bHANDOFF\b/, 'hand-off note'],
-  [/another session/i, 'session narration'],
-  [/(?:^|[\s(`'"])\.scratch\//, 'scratch path'],
-  [/\bclosed[- ](?:runtime|factory|package|repo|impl)/i, 'reference to closed-source code'],
-  [/\bLayer [0-9]\b/, 'internal architecture label'],
-  [/\bMVP\b/, 'internal milestone label'],
-  [/\bTBD\b/, 'unresolved placeholder'],
-];
 
 const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
 const tracked = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8' })
@@ -93,7 +88,8 @@ const DOCS_URL = /https:\/\/docs\.kindgi\.com\/[^\s)>`'"]*/g;
 
 const problems = [];
 for (const file of tracked) {
-  if (!TEXT.test(file) || file === SELF) continue;
+  if (nameHits(file) > 0) problems.push(`${file}: its path holds ${NAME_HIT}`);
+  if (!TEXT.test(file) || SELF.has(file)) continue;
   const text = readFileSync(join(root, file), 'utf8');
   if (basename(file) === 'SKILL.md') {
     for (const source of skillSources(text)) {
@@ -116,6 +112,9 @@ for (const file of tracked) {
     }
     for (const [re, what] of MARKERS) {
       if (re.test(line)) problems.push(`${file}:${i + 1}: ${what}: ${line.trim().slice(0, 120)}`);
+    }
+    if (!NAME_EXEMPT.test(file) && nameHits(line) > 0) {
+      problems.push(`${file}:${i + 1}: ${NAME_HIT}`);
     }
   });
 }
