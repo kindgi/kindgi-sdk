@@ -1,5 +1,43 @@
 # @kindgi/sdk
 
+## 0.1.4-rc.2
+
+### Patch Changes
+
+- 53f87a6: The kindgi-getting-started skill reads a run's cost records from `.data`, as every list call answers now (`items` is deprecated).
+- Updated dependencies [0b1f48d]
+- Updated dependencies [9a7f43b]
+- Updated dependencies [4287798]
+- Updated dependencies [fcc6a97]
+- Updated dependencies [c7e27fb]
+- Updated dependencies [fd011d4]
+- Updated dependencies [e97958c]
+- Updated dependencies [f8deed1]
+- Updated dependencies [f96bd58]
+- Updated dependencies [8491dd8]
+- Updated dependencies [ba55da0]
+- Updated dependencies [933e00a]
+- Updated dependencies [2040daf]
+- Updated dependencies [ba2f212]
+- Updated dependencies [fe0ad36]
+- Updated dependencies [42a2e66]
+- Updated dependencies [dc5cfb1]
+- Updated dependencies [e2ba026]
+- Updated dependencies [1bec998]
+- Updated dependencies [376d9e4]
+- Updated dependencies [cfba46a]
+- Updated dependencies [ffb6096]
+- Updated dependencies [ae417f7]
+  - @kindgi/client@0.1.4-rc.2
+  - @kindgi/agents@0.1.4-rc.2
+  - @kindgi/handler-runtime@0.1.4-rc.2
+  - @kindgi/types@0.1.4-rc.2
+  - @kindgi/guardrails@0.1.4-rc.2
+  - @kindgi/crypto@0.1.4-rc.2
+  - @kindgi/flow@0.1.4-rc.2
+  - @kindgi/schema@0.1.4-rc.2
+  - @kindgi/tools@0.1.4-rc.2
+
 ## 0.1.4-rc.1
 
 ### Patch Changes

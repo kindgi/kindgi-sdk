@@ -1,5 +1,30 @@
 # @kindgi/handler-runtime
 
+## 0.1.4-rc.2
+
+### Patch Changes
+
+- f96bd58: **One Ctrl+C stops `kindgi dev` cleanly, the runtime container included.**
+  
+  - **Under a package manager** (`pnpm exec kindgi dev`, `npx kindgi dev`, a `pnpm run` script), `kindgi dev` no longer exits at once with code 130 and leaves the runtime container running. A terminal's Ctrl+C signals the whole process group, and the wrapper signals its child too: `npx` and `pnpm run` forward SIGINT; `pnpm exec` sends SIGTERM. So one Ctrl+C arrived twice and was read as the second, forced one.
+    - A signal that comes with the first is now the same Ctrl+C. That holds even when it's handled late because the stop held the event loop: closing the file watcher takes over a second on macOS.
+    - A SIGTERM never forces the exit.
+    - Pressing Ctrl+C again later still forces it.
+    - `pnpm exec` itself exits at once, so the prompt returns while `kindgi dev` finishes stopping and prints "stopped.".
+  - **The pack service isn't restarted mid-shutdown.** Its child gets the same Ctrl+C and exits. `kindgi dev` printed "pack service exited (SIGINT) — restarting" and started a new one. It now marks the pack service as closing the moment the stop arrives.
+  - **Every shutdown step runs**, even after one fails, so the runtime container is removed either way.
+  - **`@kindgi/handler-runtime`**: the pack service supervisor has `beginClose()`. From then on a child that exits is expected, not restarted, and `start()` is refused. `close()` does this too.
+- fe0ad36: **A pack service child stopped by the terminal's Ctrl+C isn't reported as a crash while `kindgi dev` stops.** Ctrl+C (or closing the terminal) signals the whole process group, the pack service's child included. Under load, the child's exit could be handled before `kindgi dev`'s own stop, which printed "pack service exited (SIGINT) — restarting" mid-shutdown; nothing actually restarted. A child killed by SIGINT or SIGHUP now gets two event-loop turns for its owner's stop to arrive before it counts as a crash. Every other exit is reported at once, as before.
+- Updated dependencies [149a8c9]
+- Updated dependencies [2040daf]
+- Updated dependencies [7c084e1]
+- Updated dependencies [ae417f7]
+  - @kindgi/env-schema@0.1.4-rc.2
+  - @kindgi/types@0.1.4-rc.2
+  - @kindgi/flow@0.1.4-rc.2
+  - @kindgi/sandbox@0.1.4-rc.2
+  - @kindgi/schema@0.1.4-rc.2
+
 ## 0.1.4-rc.1
 
 ### Patch Changes

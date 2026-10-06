@@ -1,5 +1,94 @@
 # @kindgi/cli
 
+## 0.1.4-rc.2
+
+### Patch Changes
+
+- 9a7f43b: A comparison's live baseline names its segments as a path, the way live versions resolve them: `baseline: { live: { projectId, segments: [{ key, value }, …] } }`, coarse to fine. It was an unordered object (`{ tier: 'gold' }`), so a path's order was lost. `segments` follows the rules of a run's and a pin's segment path (lowercase keys, each key once, at most 8), needs `projectId`, and anything else is `400 bad-input`. The CLI's `eval-runs start --baseline-segment` takes `<key>:<value>` (it took `<key>=<value>`), once per step in order, and needs `--baseline-project`. A live baseline is still refused when the run starts (only `recorded` runs today).
+- 3255928: `kindgi artifacts` and `kindgi capabilities` say why they aren't available: the Kindgi runtime doesn't serve `/v1/artifacts` (no blob storage wired) or `/v1/capabilities` (no capability catalog wired) yet. Before, they said only "not yet wired".
+- 0f413b2: `kindgi conversations get <conversation-id>`, `open <agent-id> <version> [--title] [--project] [--participant]`, `close <conversation-id>` and `messages <conversation-id> [--limit] [--cursor]` work, and are in `--help` and the reference. Before, they failed with "not yet wired". A turn joins a conversation through its input: `kindgi runs start --agent=<agent-id> --input='{"userMessage": "…", "conversationId": "<conversation-id>"}'`.
+- 86538d0: `kindgi flows list [--name] [--limit] [--cursor]` (with `--table`), `get <flow-id> [<version>]`, `publish --spec=<json-or-@file> [--project]`, `versions <flow-id>`, `unregister <flow-id> <version>` and `reinstate <flow-id> <version>` work; before, they failed with "not yet wired". `publish` prints the flow's id and version, the pair `kindgi runs start --flow=<id> --flow-version=<v>` takes.
+- 1328f5c: `kindgi memory facts list [--type] [--scope=<json>] [--limit] [--cursor]` (with `--table`), `get <fact-id>` and `write --input=<json-or-@file>` work; before, they failed with "not yet wired". `write` fills in the scope's `tenantId` with yours when the input leaves it out. `supersede` and `retrieve` say why they aren't available. A nested group's `--help` names its whole path (`Usage: kindgi memory facts <subcommand>`).
+- 09d71f7: `kindgi agents promotions list --table` has a STATUS column, so a refused or pending promotion no longer reads like one that went live. It shows the promotion's `status` (`promoted`, `pending-approval`, `refused`, `superseded`, `rejected`, `expired`). A promotion made before gates shows `promoted`, and a rollback or unpin, which take effect at once, shows `done`.
+- 769444e: `kindgi provenance list [--run] [--agent] [--created-after] [--project | --org] [--limit] [--cursor]` (with `--table`), `get <run-id>` and `export <run-id> --signing-key=<key-id> [--include-messages]` work; before, they failed with "not yet wired". A deployment without a signing key answers `export` with that refusal.
+- 22ab7e6: `kindgi runs list` takes `--agent=<agent-id>`: only that agent's turns, at any version, including the turns its steps start inside flows (`GET /v1/runs?agentId=`, which the clients already take as `agentId` / `agent_id`). It combines with `--replays`, `--eval-run`, `--limit` and `--cursor`.
+- cf2b8c8: `kindgi dev` runs runtime 0.1.4-rc.2.
+- 4f08024: `kindgi tokens create` and `revoke` say why they aren't available instead of "not yet wired": the Kindgi runtime doesn't serve `/v1/tokens` yet, so it has no API keys to mint or revoke; it authenticates with the token it starts with (`KINDGI_API_TOKEN`, or the one `kindgi dev` prints).
+- 4287798: `kindgi tools publish --manifest=<json-or-@file> [--project=<project-id>]` registers a tool manifest (the tool minus its handler, which the runtime must already have) at its version, in the tenant's Default project or the one named. Before, it failed with "not yet wired". The TypeScript client gains `client.tools.register(manifest, { projectId })` (`POST /v1/tools`), as the Python client has.
+- e97958c: Conversation lists leave a comparison's replay conversations out, as run lists leave out replay runs. `GET /v1/conversations` takes `replays=exclude|include|only` (default `exclude`); a replay conversation is one whose `metadata` has `replayOf`. `ListConversationsPageInput.replays` passes it to the binding (absent: include, for internal callers).
+  
+  The TypeScript client's `conversations.list` and the Python client take `replays`. `kindgi conversations list` now lists, with `--status`, `--replays`, `--limit` and `--cursor` (the other `conversations` commands stay unwired).
+- f96bd58: **One Ctrl+C stops `kindgi dev` cleanly, the runtime container included.**
+  
+  - **Under a package manager** (`pnpm exec kindgi dev`, `npx kindgi dev`, a `pnpm run` script), `kindgi dev` no longer exits at once with code 130 and leaves the runtime container running. A terminal's Ctrl+C signals the whole process group, and the wrapper signals its child too: `npx` and `pnpm run` forward SIGINT; `pnpm exec` sends SIGTERM. So one Ctrl+C arrived twice and was read as the second, forced one.
+    - A signal that comes with the first is now the same Ctrl+C. That holds even when it's handled late because the stop held the event loop: closing the file watcher takes over a second on macOS.
+    - A SIGTERM never forces the exit.
+    - Pressing Ctrl+C again later still forces it.
+    - `pnpm exec` itself exits at once, so the prompt returns while `kindgi dev` finishes stopping and prints "stopped.".
+  - **The pack service isn't restarted mid-shutdown.** Its child gets the same Ctrl+C and exits. `kindgi dev` printed "pack service exited (SIGINT) — restarting" and started a new one. It now marks the pack service as closing the moment the stop arrives.
+  - **Every shutdown step runs**, even after one fails, so the runtime container is removed either way.
+  - **`@kindgi/handler-runtime`**: the pack service supervisor has `beginClose()`. From then on a child that exits is expected, not restarted, and `start()` is refused. `close()` does this too.
+- e272d62: **`kindgi dev` stops in about a second on macOS.** It watched a pack with one file watcher per discovery folder, plus one for the env files and one for a Python pack's sources. On macOS those all join one FSEvents stream, which is rebuilt on every close but the last. Closing them took seconds, sometimes over 30, before `stopped.` and the exit. On macOS a pack's watchers now share one watch on its folder, each filtering the events itself, and the stop takes about a second. Linux and Windows keep a watcher per folder. The once-a-second scan behind the watchers is unchanged. When a watch fails (its folder removed, too many open files), `kindgi dev` now says so once: `⚠ file watch failed (…): changes are picked up by the once-a-second scan`.
+- 00a4dca: **`kindgi dev` stops its runtime container about a second after Ctrl+C, without waiting on its file watchers.** On macOS, closing `kindgi dev`'s recursive file watchers holds the process for a second or more (FSEvents), and it was the stop's first step. The runtime container kept serving and holding its port and database connections until that was done. The watchers now close while `docker stop` runs. File changes seen once the stop has begun start no reload.
+- 81eb352: **Closing the terminal stops `kindgi dev` cleanly, its runtime container included.** Before, closing the terminal (SIGHUP) ended `kindgi dev` at once. With no Ctrl+C first, its runtime container kept running, holding its port and database connections. Right after a Ctrl+C, the stop was cut short and the container was left behind. A hangup now starts the same stop as Ctrl+C, and it never forces the exit. Output to the closed terminal is dropped instead of ending the process mid-stop.
+- 8491dd8: A judge class can be restricted to some judges. `assertableBy` on `POST /v1/judge-classes` and `PATCH /v1/judge-classes/{judgeClassId}` (`null` on the PATCH lifts it) takes `minReviewerRole`, `principalKinds` and `principalIds`, and a caller must meet each one given. A judgment that names a restricted class its caller doesn't meet is `403 judge-class-not-allowed`, and the message says why. A judgment recorded under a restricted class carries `restricted: true`; adding or lifting a restriction later doesn't change it. A test set's items carry `restricted`: the yes and total weight of those judgments alone.
+  
+  A comparison takes `classWeights`: `as-recorded` (the default, every judgment at its class's weight) or `restricted-only` (only judgments carrying `restricted` count; an item with none counts as unjudged). The summary records which one it used. A gate policy's spec takes `onlyRestrictedClasses`: the promotion's comparison must be `restricted-only` (check `classWeights.restrictedOnly`), so a class anyone may assert can't move the gate.
+  
+  `@kindgi/api` exports `whyNotAssertable`, `JudgeClassAssertableBy`, `JudgeClassAsserter` and `EvalClassWeights`. The TypeScript client's judge-class types take `assertableBy`, and `evalRuns.start` takes `classWeights`. The Python client sends both (`assertable_by=None` lifts a restriction). The CLI's `judge-classes add` and `set` take `--min-reviewer-role`, `--principal-kind` and `--principal-id`, `set --unrestricted` lifts the restriction, and `eval-runs start` takes `--class-weights`.
+- 2040daf: Live versions and promotions. An agent version can be made live for a scope: the tenant, an org, a project, or a segment path inside a project (an ordered list of `key:value` steps, coarse to fine, such as company then role). A run that doesn't name its version uses the live version of the most specific scope that has one, else the latest registered version, and records how its version was chosen.
+  
+  `@kindgi/api` adds `GET /v1/agents/{agentId}/live` (the version a run would use for a project and segment path, and why), `GET /v1/agents/{agentId}/live-versions` (every pin), `POST /v1/agents/{agentId}/promotions`, `GET /v1/agents/{agentId}/promotions[/{promotionId}]` (the history), and `POST /v1/agents/{agentId}/live/rollback` and `/live/unpin`. They're mounted when `createApp` gets `agentReleases` (`AgentReleaseBindings`: a `LiveVersionBinding` and a `PromotionBinding`). Promoting, rolling back and unpinning need the new `promote` action on the agent (`@kindgi/authz`). `POST /v1/runs` takes `segments`; a run carries them (`segments`, a child run has its parent's), and a run's `agent` carries `via` (`explicit`, `conversation`, `live` or `latest`) and, for a live version, `liveScope`. `@kindgi/types` adds `LiveScope`, `ScopeSegment` and `AgentVersionVia`; `@kindgi/runtime`'s `RunAgentRef` and `@kindgi/agents`' `InvokeAgentInput` carry `via` and `liveScope`, and `InvokeAgentInput` the turn's `segments`; `RunFlowInput`, `StartRunParams` and `KernelRunRecord` carry the run's `segments`, so a flow's agent steps resolve with them after a resume too. `@kindgi/compliance` and `@kindgi/specs` list the evidence kinds `agent-promotion`, `agent-rollback`, `agent-live-unpinned` and `agent-live-pin-inactive` (a live version that was unregistered: runs use the scope above).
+  
+  `@kindgi/client` adds `client.agents.live` (`resolve`, `list`, `rollback`, `unpin`), `client.agents.promotions` (`create`, `list`, `get`) and `segments` on `runs.start`; an array query value now repeats its key; `agent-version-not-found` and `promotion-not-found` read as not-found, `nothing-to-roll-back` and `not-pinned` as conflicts, `scope-invalid` as an invalid request. The Python client has the same resources and errors. `@kindgi/cli` adds `kindgi agents live | live-versions | promote | rollback | unpin` and `kindgi agents promotions list | get`, and wires `kindgi agents list | get | versions | unregister`; `kindgi runs start` takes `--project` and `--segment=key:value` (repeated); `get` and `unregister` take the version as an argument (`kindgi agents unregister <agent-id> <version>`). A command's repeatable flag (`--segment=company:acme --segment=role:counsel`) keeps every value.
+- ba2f212: `GET /v1/observations`'s `agentVersion`, `conversationId`, `since` and `until` filters, which the route already read, are in the OpenAPI spec, so the Python client's `observations.list` takes them. `kindgi observations` and `kindgi proposals` say why they aren't available instead of "not yet wired": the Kindgi runtime doesn't record supervisor observations or draft fix proposals yet. A reason given for a group covers each of its commands.
+- 42a2e66: Promotions go through a gate (evals step 4b). A **gate policy** says what a promotion of an agent for a scope must show: a recent comparison of that exact version against the one live there, with enough judged evidence, metrics that reach a floor or drop no more than allowed, clean replays, and optionally a reviewer's approval.
+  
+  - **`/v1/gate-policies`**: publish (`{id, version, agentId, scope, spec}`), list, get, `versions` list / get / unregister / reinstate. One policy per agent and scope (`409 gate-policy-scope-taken`, `details.heldBy`); the most specific scope with a policy applies. The `spec` is checked strictly. Writes need `admin` on the tenant.
+  - **`POST /v1/agents/{id}/promotions`** checks the scope's policy against the comparison named by `evalRunId`. It answers `201` (`status: 'promoted'`), `202` (`status: 'pending-approval'`, with `approvalId`: a reviewer approves it, and the version goes live if nothing changed meanwhile), or `422 gate-failed` with every check in `details.checks`. The refusal is recorded too. A promotion now carries `status`, `policy`, `checks`, `approvalId` and `resolvedAt`. With no policy for the scope, nothing changes.
+  - **`POST /v1/agents/{id}/promotions/check`** answers what the gate would say (`would-promote`, `needs-approval`, `gate-failed`), recording nothing. **`GET /v1/agents/{id}/gate-policy`** answers the policy that applies to a scope.
+  - **A comparison's summary records the candidate's `pinsDigest`**, so the gate can tell the promoted version ran exactly what was compared. A comparison recorded before this has none, and the gate asks for it to be re-run.
+  - The TypeScript client has `gatePolicies.*`, `agents.promotions.check` and `agents.gatePolicy.resolve`; the Python client has `gate_policies`, `agents.promotions.check` and `agents.gate_policy.resolve`. The CLI has `kindgi gate-policies list | show | versions | publish | unregister | reinstate`, `kindgi agents gate-policy` and `kindgi agents promote --check`.
+- 1a9b8e3: `kindgi runs start --agent-version=<v>` and `--flow-version=<v>` run that version instead of the latest. A turn in a conversation needs the version the conversation was opened with: before, a CLI turn in a conversation opened at an older version failed with `agent-version-mismatch`. A version for the other kind (`--flow-version` with `--agent`) is refused. `--project=<project-id>` runs it in that project instead of the tenant's Default one.
+- e0c1f42: `kindgi tools get-version`, `kindgi tools unregister` and `kindgi tools reinstate` take the version as an argument: `kindgi tools get-version acme.echo 1.2.0`. Their `--version=<semver>` never worked, since the global `--version` flag (print the CLI's version) took it first and refused a value. `kindgi flows unregister` takes it the same way. A test over every command now refuses a command option that shares a global flag's name or short flag.
+- Updated dependencies [0b1f48d]
+- Updated dependencies [9a7f43b]
+- Updated dependencies [4287798]
+- Updated dependencies [fcc6a97]
+- Updated dependencies [c7e27fb]
+- Updated dependencies [fd011d4]
+- Updated dependencies [149a8c9]
+- Updated dependencies [e97958c]
+- Updated dependencies [f8deed1]
+- Updated dependencies [f96bd58]
+- Updated dependencies [8491dd8]
+- Updated dependencies [ba55da0]
+- Updated dependencies [933e00a]
+- Updated dependencies [2040daf]
+- Updated dependencies [71412f6]
+- Updated dependencies [ba2f212]
+- Updated dependencies [fe0ad36]
+- Updated dependencies [e7e2f86]
+- Updated dependencies [42a2e66]
+- Updated dependencies [dc5cfb1]
+- Updated dependencies [e2ba026]
+- Updated dependencies [1bec998]
+- Updated dependencies [7c084e1]
+- Updated dependencies [53f87a6]
+- Updated dependencies [cfba46a]
+- Updated dependencies [ffb6096]
+- Updated dependencies [ae417f7]
+  - @kindgi/client@0.1.4-rc.2
+  - @kindgi/env-schema@0.1.4-rc.2
+  - @kindgi/handler-runtime@0.1.4-rc.2
+  - @kindgi/types@0.1.4-rc.2
+  - @kindgi/platform@0.1.4-rc.2
+  - @kindgi/sdk@0.1.4-rc.2
+  - @kindgi/secrets-dotenv@0.1.4-rc.2
+  - @kindgi/crypto@0.1.4-rc.2
+  - @kindgi/flow@0.1.4-rc.2
+  - @kindgi/dotenv-file@0.1.4-rc.2
+
 ## 0.1.4-rc.1
 
 ### Patch Changes

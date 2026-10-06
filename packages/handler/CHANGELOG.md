@@ -1,5 +1,15 @@
 # @kindgi/handler
 
+## 0.1.4-rc.2
+
+### Patch Changes
+
+- Updated dependencies [2b34f78]
+- Updated dependencies [2040daf]
+- Updated dependencies [ae417f7]
+  - @kindgi/authz@0.1.4-rc.2
+  - @kindgi/types@0.1.4-rc.2
+
 ## 0.1.4-rc.1
 
 ### Patch Changes

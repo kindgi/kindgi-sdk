@@ -1,5 +1,13 @@
 # @kindgi/sandbox
 
+## 0.1.4-rc.2
+
+### Patch Changes
+
+- Updated dependencies [2040daf]
+- Updated dependencies [ae417f7]
+  - @kindgi/types@0.1.4-rc.2
+
 ## 0.1.4-rc.1
 
 ### Patch Changes

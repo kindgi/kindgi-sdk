@@ -1,5 +1,18 @@
 # @kindgi/guardrails
 
+## 0.1.4-rc.2
+
+### Patch Changes
+
+- Updated dependencies [bd3ce67]
+- Updated dependencies [e58e35c]
+- Updated dependencies [2040daf]
+- Updated dependencies [ae417f7]
+  - @kindgi/compliance@0.1.4-rc.2
+  - @kindgi/types@0.1.4-rc.2
+  - @kindgi/capabilities@0.1.4-rc.2
+  - @kindgi/schema@0.1.4-rc.2
+
 ## 0.1.4-rc.1
 
 ### Patch Changes

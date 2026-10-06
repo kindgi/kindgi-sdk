@@ -1,5 +1,40 @@
 # @kindgi/env-inmemory
 
+## 0.1.4-rc.2
+
+### Patch Changes
+
+- Updated dependencies [0b1f48d]
+- Updated dependencies [2b34f78]
+- Updated dependencies [9a7f43b]
+- Updated dependencies [fcc6a97]
+- Updated dependencies [149a8c9]
+- Updated dependencies [86ec2ef]
+- Updated dependencies [e97958c]
+- Updated dependencies [e2ab2ac]
+- Updated dependencies [bd3ce67]
+- Updated dependencies [7528aca]
+- Updated dependencies [e58e35c]
+- Updated dependencies [8491dd8]
+- Updated dependencies [933e00a]
+- Updated dependencies [2040daf]
+- Updated dependencies [71412f6]
+- Updated dependencies [ba2f212]
+- Updated dependencies [e7e2f86]
+- Updated dependencies [42a2e66]
+- Updated dependencies [7155588]
+- Updated dependencies [7471e05]
+- Updated dependencies [dc5cfb1]
+- Updated dependencies [e2ba026]
+- Updated dependencies [1bec998]
+- Updated dependencies [ffb6096]
+- Updated dependencies [ae417f7]
+  - @kindgi/api@0.1.4-rc.2
+  - @kindgi/audit-events@0.1.4-rc.2
+  - @kindgi/compliance@0.1.4-rc.2
+  - @kindgi/types@0.1.4-rc.2
+  - @kindgi/platform@0.1.4-rc.2
+
 ## 0.1.4-rc.1
 
 ### Patch Changes

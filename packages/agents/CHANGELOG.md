@@ -1,5 +1,43 @@
 # @kindgi/agents
 
+## 0.1.4-rc.2
+
+### Patch Changes
+
+- e97958c: Conversation lists leave a comparison's replay conversations out, as run lists leave out replay runs. `GET /v1/conversations` takes `replays=exclude|include|only` (default `exclude`); a replay conversation is one whose `metadata` has `replayOf`. `ListConversationsPageInput.replays` passes it to the binding (absent: include, for internal callers).
+  
+  The TypeScript client's `conversations.list` and the Python client take `replays`. `kindgi conversations list` now lists, with `--status`, `--replays`, `--limit` and `--cursor` (the other `conversations` commands stay unwired).
+- 2040daf: Live versions and promotions. An agent version can be made live for a scope: the tenant, an org, a project, or a segment path inside a project (an ordered list of `key:value` steps, coarse to fine, such as company then role). A run that doesn't name its version uses the live version of the most specific scope that has one, else the latest registered version, and records how its version was chosen.
+  
+  `@kindgi/api` adds `GET /v1/agents/{agentId}/live` (the version a run would use for a project and segment path, and why), `GET /v1/agents/{agentId}/live-versions` (every pin), `POST /v1/agents/{agentId}/promotions`, `GET /v1/agents/{agentId}/promotions[/{promotionId}]` (the history), and `POST /v1/agents/{agentId}/live/rollback` and `/live/unpin`. They're mounted when `createApp` gets `agentReleases` (`AgentReleaseBindings`: a `LiveVersionBinding` and a `PromotionBinding`). Promoting, rolling back and unpinning need the new `promote` action on the agent (`@kindgi/authz`). `POST /v1/runs` takes `segments`; a run carries them (`segments`, a child run has its parent's), and a run's `agent` carries `via` (`explicit`, `conversation`, `live` or `latest`) and, for a live version, `liveScope`. `@kindgi/types` adds `LiveScope`, `ScopeSegment` and `AgentVersionVia`; `@kindgi/runtime`'s `RunAgentRef` and `@kindgi/agents`' `InvokeAgentInput` carry `via` and `liveScope`, and `InvokeAgentInput` the turn's `segments`; `RunFlowInput`, `StartRunParams` and `KernelRunRecord` carry the run's `segments`, so a flow's agent steps resolve with them after a resume too. `@kindgi/compliance` and `@kindgi/specs` list the evidence kinds `agent-promotion`, `agent-rollback`, `agent-live-unpinned` and `agent-live-pin-inactive` (a live version that was unregistered: runs use the scope above).
+  
+  `@kindgi/client` adds `client.agents.live` (`resolve`, `list`, `rollback`, `unpin`), `client.agents.promotions` (`create`, `list`, `get`) and `segments` on `runs.start`; an array query value now repeats its key; `agent-version-not-found` and `promotion-not-found` read as not-found, `nothing-to-roll-back` and `not-pinned` as conflicts, `scope-invalid` as an invalid request. The Python client has the same resources and errors. `@kindgi/cli` adds `kindgi agents live | live-versions | promote | rollback | unpin` and `kindgi agents promotions list | get`, and wires `kindgi agents list | get | versions | unregister`; `kindgi runs start` takes `--project` and `--segment=key:value` (repeated); `get` and `unregister` take the version as an argument (`kindgi agents unregister <agent-id> <version>`). A command's repeatable flag (`--segment=company:acme --segment=role:counsel`) keeps every value.
+- dc5cfb1: **A decision whose run couldn't go on says so.**
+  
+  - **`POST /v1/approvals/{id}/complete`** now reports how the inline resume went, in a new `resume` field: `{ kind: 'ok' }`, or `{ kind: 'failed', code, message }` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way. Before, a failed resume was dropped silently.
+  - **`@kindgi/agents` exports `turnFailureMessage(error)`** (and `parseFailureMessage`). It writes a turn's error as a run's failure message, the form `parseFailureMessage` reads back. A runtime that ends a run from outside its turn uses it, so the run reads as that typed error.
+- 376d9e4: **A turn that fails because a pinned tool version is gone says so once.** The `tool-version-unresolvable` message no longer repeats the registry's own "Tool "…" has no version "…" registered" after its explanation. It reads: `Tool "acme.lookup": this turn started with version 1.0.0, which is no longer registered; it doesn't run another version mid-turn.` The same goes for a version an agent version pins. When the tool has no version registered at all, the message still adds that.
+- Updated dependencies [2b34f78]
+- Updated dependencies [bd3ce67]
+- Updated dependencies [e58e35c]
+- Updated dependencies [2040daf]
+- Updated dependencies [e2ba026]
+- Updated dependencies [ae417f7]
+  - @kindgi/authz@0.1.4-rc.2
+  - @kindgi/compliance@0.1.4-rc.2
+  - @kindgi/types@0.1.4-rc.2
+  - @kindgi/runtime@0.1.4-rc.2
+  - @kindgi/policy-contract@0.1.4-rc.2
+  - @kindgi/handler@0.1.4-rc.2
+  - @kindgi/guardrails@0.1.4-rc.2
+  - @kindgi/capabilities@0.1.4-rc.2
+  - @kindgi/embedding@0.1.4-rc.2
+  - @kindgi/flow@0.1.4-rc.2
+  - @kindgi/memory@0.1.4-rc.2
+  - @kindgi/provenance@0.1.4-rc.2
+  - @kindgi/schema@0.1.4-rc.2
+  - @kindgi/tools@0.1.4-rc.2
+
 ## 0.1.4-rc.1
 
 ### Patch Changes

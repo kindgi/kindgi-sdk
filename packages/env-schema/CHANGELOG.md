@@ -1,5 +1,26 @@
 # @kindgi/env-schema
 
+## 0.1.4-rc.2
+
+### Patch Changes
+
+- 149a8c9: **`KINDGI_COMPLIANCE_CLASSIFIER` turns on the audit trail's compliance features**, off by default. Set it to `shipped` (the classifier the runtime ships) or to the absolute path of your own classifier JSON. When set, the runtime serves `/v1/compliance/*` and **purges audit events by kind, as the classifier says**.
+  
+  With `shipped`:
+  
+  | Audit events | Purged after |
+  |---|---|
+  | Authorization decisions | 90 days |
+  | Authorization denials | 365 days |
+  | Run outcomes and guardrail violations | 730 days |
+  | Secret changes and approval decisions | never (legal hold) |
+  | Kinds the classifier doesn't list | never |
+  
+  Unset: no `/v1/compliance/*`, and no audit event is ever purged.
+  
+  `AuditEventPurgeInput` gains optional `outcome` / `exceptOutcome`, so a kind's denials can be kept longer than the rest (a classifier's `onDenyDays`). The in-memory binding honors both.
+- 7c084e1: New server setting `KINDGI_RETENTION_SWEEP_INTERVAL_MS`, off by default: when set, the runtime purges deleted rows on its own on that interval, in every tenant it serves. It purges the tombstones past their retention policy's grace, as `POST /v1/retention/sweep` does, keeps holds (`graceSeconds: -1`), and logs what it purged. Unset, nothing purges on its own, as before. At least 60000 (one minute).
+
 ## 0.1.4-rc.1
 
 ### Patch Changes
