@@ -37,6 +37,10 @@ jobs:
         if: github.event_name == 'pull_request'
         with:
           node-version: "22"
+          # The check is plain Node, with no dependencies: no install, so
+          # no package-manager cache (on by default when package.json names
+          # one, and it needs pnpm on the runner).
+          package-manager-cache: false
       - name: The title, description and commit messages
         if: github.event_name == 'pull_request'
         run: node scripts/check-pr-text.mjs
