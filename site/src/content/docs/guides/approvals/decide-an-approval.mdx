@@ -103,6 +103,53 @@ approval:
 }
 ```
 
+### What a run waits for
+
+From a run, `kindgi runs resume <run-id>` says what it waits for, and how
+it goes on:
+
+```sh
+kindgi runs resume 5d11e26b-e00a-45d7-bcf1-aee5c1ffd02c
+```
+
+```text
+Run 5d11e26b-e00a-45d7-bcf1-aee5c1ffd02c waits for approval 6a5ffb94-ee5a-41c3-bb96-2c7d08dc3708 ("HITL review required for Chat desk"), for a standard reviewer or above. It continues once the approval is decided: kindgi approvals complete 6a5ffb94-ee5a-41c3-bb96-2c7d08dc3708 --decision=approve (or --decision=reject).
+```
+
+That sentence goes to stderr. Its standard output is the same answer as
+JSON, for a script:
+
+```json
+{
+  "kind": "approval",
+  "runId": "5d11e26b-e00a-45d7-bcf1-aee5c1ffd02c",
+  "status": "suspended",
+  "approvals": [
+    {
+      "id": "6a5ffb94-ee5a-41c3-bb96-2c7d08dc3708",
+      "title": "HITL review required for Chat desk",
+      "requiredRole": "standard",
+      "status": "pending",
+      "waitTokenId": "1eda6406b4ba8739f0c2ebf002e729660d5716c8"
+    }
+  ],
+  "alsoWaitsOn": []
+}
+```
+
+Its exit code says which:
+
+| Exit | The run |
+| --- | --- |
+| `0` | isn't waiting: `Run … is completed: it isn't waiting, so there's nothing to resume.` |
+| `3` | waits for an approval, named as above |
+| `4` | waits on the runtime: a queued start, a child run, a retry, a lease |
+
+Once the approval is decided, the run goes on by itself. In your app,
+`kindgi.approvals.list({ waitTokenIds: [...] })` (`wait_token_id=[...]` in
+Python, `?waitTokenId=` over HTTP) lists the approvals behind a run's
+waits.
+
 ## Decide
 
 ```sh

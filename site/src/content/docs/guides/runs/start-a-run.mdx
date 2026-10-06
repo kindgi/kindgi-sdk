@@ -188,7 +188,7 @@ background. Start an agent with `agent` instead of `flow`, and its input
 | Field | |
 | --- | --- |
 | `id` | The run's id: for `get`, `cancel`, the journal and the event stream. |
-| `status` | `pending`, `running`, `suspended`, `completed`, `failed` or `cancelled`. |
+| `status` | `pending`, `running`, `suspended`, `completed`, `failed` or `cancelled`. `kindgi runs resume <run-id>` says what a `suspended` run waits for ([details](../../approvals/decide-an-approval/#what-a-run-waits-for)). |
 | `output` | What the run returned, once it completed. |
 | `failureMessage` | Why it failed. |
 | `flowId`, `flowVersion` | The flow and the version the run is pinned to. An agent's turn reports `agent.turn`, and its agent is in `agent`. |
