@@ -7,15 +7,16 @@ sidebar:
 
 ## What you need
 
-- **Node 22.12 or later.** The `kindgi` CLI is a Node program, for TypeScript
-  and Python projects alike.
+- **For a TypeScript pack: Node 22.12 or later.** The `kindgi` CLI and the SDK
+  run on Node.
 - **Docker** (Docker Desktop, or the Docker engine on Linux). `kindgi dev`
   runs the Kindgi runtime as a container, and a Postgres container for it:
   with `docker compose` when it's there, with plain `docker` otherwise. With
   your own database (Postgres 16 with pgvector, passed as `--database-url`),
   it starts no Postgres.
 - **For a Python pack:** Python 3.11 or later, and uv (or Poetry, or pip).
-  The CLI still needs Node 22.12.
+  The CLI comes from PyPI as `kindgi-cli`, with its own copy of Node, so you
+  install no Node.
 
 Nothing else: the runtime is a container image that `kindgi dev` pulls and
 runs for you.
@@ -29,6 +30,7 @@ image it runs:
 
 ```sh
 npx --yes @kindgi/cli@0.1 auth registry --username <your robot name>
+# without Node: uvx --from "kindgi-cli>=0.1,<0.2" kindgi auth registry --username <your robot name>
 ```
 
 ```text
@@ -63,23 +65,30 @@ on npm.
 
 ## A Python project
 
-A Python app has no npm project for the CLI, so run it with `npx` (it comes
-with Node 22), pinned to Kindgi's minor version:
+The CLI is the `kindgi-cli` package on PyPI. Start a new pack with it,
+pinned to Kindgi's minor version:
 
 ```sh
-npx --yes @kindgi/cli@0.1 init my-pack --template=python
+uvx --from "kindgi-cli>=0.1,<0.2" kindgi init my-pack --template=python
+cd my-pack
+uv sync
 ```
 
-In a Python project, every `kindgi <command>` in these docs is
-`npx --yes @kindgi/cli@0.1 <command>`. (`--yes` skips npx's install prompt,
-so a coding agent never waits on it.)
+`init` puts the SDK, the `kindgi` package, in the pack's dependencies and
+`kindgi-cli` in its dev group, so `uv sync` installs both and everyone on the
+project runs the CLI it pins. From then on, in a Python project, every
+`kindgi <command>` in these docs is `uv run kindgi <command>` (with Poetry,
+`poetry run kindgi <command>`).
 
-The Python SDK is the `kindgi` package. `kindgi init` adds it to your
-`pyproject.toml`; to add it yourself:
+In an existing app, add both yourself:
 
 ```sh
-uv add kindgi            # or: poetry add kindgi, or: pip install kindgi
+uv add kindgi                          # the SDK
+uv add --dev "kindgi-cli>=0.1,<0.2"    # the CLI
 ```
+
+With Poetry: `poetry add kindgi` and `poetry add --group dev "kindgi-cli>=0.1,<0.2"`.
+With pip: `pip install kindgi "kindgi-cli>=0.1,<0.2"`.
 
 ## Where `kindgi dev` keeps its data
 
@@ -109,6 +118,32 @@ workspace root's or the pack folder's. It says which when it starts:
   ```text
   This project now has its own database, kindgi_acme_desk. The old shared `kindgi` database is left as it is: projects on an older Kindgi still use it. Providers and reviewers are set up once per project: set them up here again.
   ```
+
+### Several worktrees at once
+
+Each git worktree of a project can run its own `kindgi dev` at the same time.
+Give each one its own port: the runtime's API takes 4000 by default, and only
+one can have it.
+
+```sh
+pnpm exec kindgi dev               # in the main checkout
+pnpm exec kindgi dev --port 4001   # in a second worktree
+```
+
+In a Python project, `uv run kindgi dev --port 4001`. The second one says
+which worktree it's for:
+
+```text
+  ✓ Project: acme-wt (the git repository's name; set `project` in the Kindgi config to name it; git worktree acme-wt-review)
+  ✓ Database: kindgi_acme_wt__acme_wt_review (created) in the bundled Postgres; to use your own: --database-url
+```
+
+- **Each worktree has its own** runtime, database, tenant and token (in its
+  `.kindgirc.json`), so a `kindgi runs …` command goes to the runtime of the
+  worktree you run it in.
+- **Stopping and starting over:** Ctrl+C, or `--reset`, in one worktree
+  leaves the others as they are.
+- **Shared:** the bundled Postgres serves them all.
 
 ## Calling Kindgi from an application
 

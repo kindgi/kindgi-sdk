@@ -19,8 +19,10 @@ pnpm exec kindgi dev            # npm: npx --no kindgi dev
 Use the scoped name, `@kindgi/cli`: there is no unscoped `kindgi` package.
 
 **Requirements:** Node 22.12 or later, and Docker for `kindgi dev` (Docker
-Desktop, or a Docker engine on Linux). A Python pack also needs Python and
-the [`kindgi` Python SDK](../../sdks/python).
+Desktop, or a Docker engine on Linux). A Python pack needs Python and the
+[`kindgi` Python SDK](../../sdks/python), and gets this CLI from PyPI as
+`kindgi-cli`, with its own Node: `uv add --dev "kindgi-cli>=0.1,<0.2"`, then
+`uv run kindgi <command>`.
 
 ## The pack lifecycle
 
@@ -401,10 +403,12 @@ data. `kindgi dev` runs it the same way, with the pack's own interpreter:
   it from a Node pack.
 - **Watch:** any `.py` file under the pack root (shared modules included)
   and `pyproject.toml`.
-- **The CLI:** a Python pack has no npm project, so it runs the published
-  CLI through npx (Node 22.12 needed): `npx --yes @kindgi/cli@0.1 <command>`, within
-  the CLI's minor, in the startup hints and in the `.mcp.json` entries
-  `kindgi mcp add` writes.
+- **The CLI:** a Python pack runs `kindgi-cli` from PyPI, the same CLI with
+  its own Node, pinned in its dev group (`kindgi-cli>=0.1,<0.2`), so it needs
+  no Node install. Run as `uv run kindgi <command>` (Poetry: `poetry run kindgi
+  <command>`), which is what the startup hints and the `.mcp.json` entries
+  `kindgi mcp add` writes say. The npm CLI still runs a Python pack:
+  `npx --yes @kindgi/cli@0.1 <command>`.
 
 ### Stopping
 

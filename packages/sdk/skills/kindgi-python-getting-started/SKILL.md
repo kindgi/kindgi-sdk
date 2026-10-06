@@ -14,7 +14,7 @@ description: >
   kindgi-python-authoring-agents; models by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.5"
+version: "0.1.6"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -25,9 +25,11 @@ sources:
 
 # Getting started with Kindgi in Python
 
-> **Running `kindgi`:** a Python pack has no Node project, so the
-> `kindgi` CLI (a Node 22.12+ program) is the one on `PATH`. Python
-> commands run in the pack's environment: `uv run …`.
+> **Running `kindgi`:** the CLI is `kindgi-cli` from PyPI (the Kindgi CLI
+> with its own Node, so no Node install), pinned in the pack's dev group.
+> Every `kindgi <command>` below runs as `uv run kindgi <command>` (Poetry:
+> `poetry run kindgi <command>`). Python commands run in the pack's
+> environment the same way: `uv run …`.
 
 ## What a pack is
 
@@ -52,11 +54,11 @@ primitive; `test_*.py`, `*_test.py` and `conftest.py` are skipped.
 ## Scaffold a new pack
 
 ```sh
-kindgi init my-pack --template=python
+uvx --from "kindgi-cli>=0.1,<0.2" kindgi init my-pack --template=python
 cd my-pack
-uv sync            # .venv with the kindgi package
+uv sync            # .venv with the kindgi package and the kindgi CLI
 uv run pytest
-kindgi dev         # boots Kindgi locally and runs this pack, reloading on save
+uv run kindgi dev  # boots Kindgi locally and runs this pack, reloading on save
 ```
 
 `kindgi dev` needs Postgres: it starts one in Docker unless
@@ -65,14 +67,20 @@ kindgi dev         # boots Kindgi locally and runs this pack, reloading on save
 `["uv", "run", "python"]`), checks that interpreter can import
 `kindgi`, and swaps the code on every save.
 
+Each git worktree of the project can run its own `kindgi dev` at the same
+time, with its own runtime, database, tenant and token. Give each one its
+own port (`uv run kindgi dev --port 4001`): only one can have the default
+4000. Ctrl+C or `--reset` in one leaves the others alone.
+
 ## Add Kindgi to an existing Python app
 
 In the app's directory (where its `pyproject.toml` is):
 
 ```sh
-kindgi init            # --pack-id=<id> if the app's name doesn't make one
+uv add --dev "kindgi-cli>=0.1,<0.2"   # the CLI (Poetry: poetry add --group dev …)
+uv run kindgi init     # --pack-id=<id> if the app's name doesn't make one
 uv sync                # or what it prints for Poetry / pip
-kindgi dev
+uv run kindgi dev
 ```
 
 `kindgi init` edits the app's `pyproject.toml` in place — your layout and
@@ -116,7 +124,7 @@ The `[tool.kindgi]` keys are the ones `kindgi.config.ts` takes —
 With `kindgi dev` running, from another terminal in the pack directory:
 
 ```sh
-kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"Ada"}'
+uv run kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"Ada"}'
 ```
 
 The answer comes from `dev-echo`, a **fallback** provider a new pack
@@ -125,8 +133,8 @@ responded: …", and the turn carries a `fallback-provider` warning. For
 a real model, put the key in `.env` and register a provider:
 
 ```sh
-kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant   # no-echo prompt
-kindgi providers register --preset=anthropic
+uv run kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant   # no-echo prompt
+uv run kindgi providers register --preset=anthropic
 ```
 
 It takes over at the next turn. That registration is in this project's dev
@@ -221,9 +229,9 @@ project of that org. Then one call sums their month:
 ```python
 from datetime import datetime, timezone
 
-# Once per customer. Project slugs are unique across the tenant: put the customer in them.
+# Once per customer. A project's slug is unique in its org, so every customer can have an `app` project.
 org = client.orgs.create(slug="acme-customer-one", name="Customer one")
-project = client.projects.create(org_id=str(org.id), slug="acme-customer-one-app", name="App")
+project = client.projects.create(org_id=str(org.id), slug="app", name="App")
 # save org.id and project.id on the customer's row; start their runs with project_id=project.id
 
 now = datetime.now(timezone.utc)
