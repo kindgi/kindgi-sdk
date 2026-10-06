@@ -5363,6 +5363,10 @@ class IdentityProviderCollectionPage(BaseModel):
         populate_by_name=True,
     )
     data: list[IdentityProviderConfig]
+    has_more: Annotated[bool | None, Field(alias="hasMore")] = None
+    """
+    Always `false`: the list comes whole. Absent from older servers.
+    """
 
 
 class RegisterIdentityProviderResult(BaseModel):
@@ -6776,6 +6780,10 @@ class EnvCollectionPage(BaseModel):
         populate_by_name=True,
     )
     data: list[EnvRecord]
+    has_more: Annotated[bool | None, Field(alias="hasMore")] = None
+    """
+    Whether there's another page. Absent from older servers: there is one when `nextCursor` is set.
+    """
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
@@ -6812,6 +6820,10 @@ class SecretCollectionPage(BaseModel):
         populate_by_name=True,
     )
     data: list[SecretRecord]
+    has_more: Annotated[bool | None, Field(alias="hasMore")] = None
+    """
+    Whether there's another page. Absent from older servers: there is one when `nextCursor` is set.
+    """
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
@@ -6821,6 +6833,10 @@ class SecretVersionCollectionPage(BaseModel):
         populate_by_name=True,
     )
     data: list[SecretVersionRecord]
+    has_more: Annotated[bool | None, Field(alias="hasMore")] = None
+    """
+    Whether there's another page. Absent from older servers: there is one when `nextCursor` is set.
+    """
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 

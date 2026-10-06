@@ -33,7 +33,7 @@ async function list(flags: readonly string[]) {
         conversations: {
           list: async (filter: unknown) => {
             calls.push(filter);
-            return { items: [] };
+            return { data: [], hasMore: false };
           },
         },
       }) as never,
@@ -102,7 +102,7 @@ async function conversations(argv: readonly string[]) {
           get: record('get', CONVERSATION),
           open: record('open', CONVERSATION),
           close: record('close', { ...CONVERSATION, status: 'closed' }),
-          messages: record('messages', { items: [] }),
+          messages: record('messages', { data: [], hasMore: false }),
         },
       }) as never,
   });

@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Cursor, Filter, Page, ThreadId } from '@kindgi/types';
+import type { Filter, ThreadId } from '@kindgi/types';
 
+import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { ScopeRef } from '../scope-wire.js';
 import { scopeToQuery } from '../scope-wire.js';
 import { singleStatusQuery } from '../status-query.js';
@@ -63,7 +64,7 @@ export interface ConversationsClient {
    * @wire `GET /v1/conversations` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1conversations/get`.
    */
-  list(filter?: ConversationFilter): Promise<Page<Conversation>>;
+  list(filter?: ConversationFilter): Promise<ListPage<Conversation>>;
 
   /**
    * Close a conversation. Idempotent on already-closed threads — the
@@ -90,7 +91,7 @@ export interface ConversationsClient {
    * `role` / `sinceTurn` are accepted but have no effect: the SDK does
    * not send them and the API does not filter by them.
    */
-  messages(id: ThreadId, filter?: MessageFilter): Promise<Page<ConversationMessage>>;
+  messages(id: ThreadId, filter?: MessageFilter): Promise<ListPage<ConversationMessage>>;
 }
 
 export interface ConversationFilter extends Omit<Filter<ConversationStatus>, 'status'> {
@@ -114,12 +115,6 @@ export interface ConversationFilter extends Omit<Filter<ConversationStatus>, 'st
 export interface MessageFilter extends Filter {
   readonly role?: import('../types.js').MessageRole;
   readonly sinceTurn?: number;
-}
-
-interface WirePage<T> {
-  readonly data: readonly T[];
-  readonly hasMore: boolean;
-  readonly nextCursor?: string;
 }
 
 export function makeConversationsClient(transport: Transport): ConversationsClient {
@@ -164,10 +159,7 @@ export function makeConversationsClient(transport: Transport): ConversationsClie
           ...(filter?.replays !== undefined && { replays: filter.replays }),
         },
       });
-      return {
-        items: page.data,
-        ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as Cursor }),
-      };
+      return listPage(page);
     },
 
     async close(id, options) {
@@ -190,10 +182,7 @@ export function makeConversationsClient(transport: Transport): ConversationsClie
           ...(filter?.cursor !== undefined && { cursor: filter.cursor as unknown as string }),
         },
       });
-      return {
-        items: page.data,
-        ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as Cursor }),
-      };
+      return listPage(page);
     },
   };
 }

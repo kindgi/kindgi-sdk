@@ -39,7 +39,7 @@ async function run(argv: readonly string[]) {
         projects: {
           list: async (...args: unknown[]) => {
             calls.push(['list', ...args]);
-            return { items: [DEFAULT] };
+            return { data: [DEFAULT], hasMore: false };
           },
           getDefault: async (...args: unknown[]) => {
             calls.push(['getDefault', ...args]);

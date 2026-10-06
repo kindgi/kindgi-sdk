@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Cursor, Page, Timestamp } from '@kindgi/types';
+import type { Timestamp } from '@kindgi/types';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
+import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import { scopeToQuery } from '../scope-wire.js';
 import type { Transport } from '../transport.js';
 import type {
@@ -39,7 +40,7 @@ export interface UsageClient {
    * @wire `GET /v1/cost/records` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1cost~1records/get`.
    */
-  query(filter?: CostRecordFilter): Promise<Page<CostRecord>>;
+  query(filter?: CostRecordFilter): Promise<ListPage<CostRecord>>;
 
   /**
    * Fetch a single cost record.
@@ -118,12 +119,6 @@ export interface BudgetsClient {
   getRemaining(): Promise<BudgetsRemaining>;
 }
 
-interface WirePage<T> {
-  readonly data: readonly T[];
-  readonly hasMore: boolean;
-  readonly nextCursor?: string;
-}
-
 export function makeCostClient(transport: Transport): CostClient {
   return {
     usage: {
@@ -137,12 +132,7 @@ export function makeCostClient(transport: Transport): CostClient {
             ...filterQuery(filter ?? {}),
           },
         });
-        return {
-          items: page.data,
-          ...(page.nextCursor !== undefined && {
-            nextCursor: page.nextCursor as unknown as Cursor,
-          }),
-        };
+        return listPage(page);
       },
 
       async get(recordId, options) {

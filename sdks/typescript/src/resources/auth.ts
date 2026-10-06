@@ -35,7 +35,10 @@ import type {
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
 
-export type IdentityProviderPage = IdentityProviderCollectionPage;
+/** Every identity provider: the list comes whole, so `hasMore` is `false`. */
+export interface IdentityProviderPage extends IdentityProviderCollectionPage {
+  readonly hasMore: boolean;
+}
 export type IdentityProviderRegisterInput = IdentityProviderConfig;
 export type IdentityProviderRegisterOutcome = RegisterIdentityProviderResult;
 export type IdentityProviderUnregisterOutcome = UnregisterIdentityProviderResult;
@@ -99,10 +102,11 @@ export function makeAuthClient(transport: Transport): AuthClient {
   return {
     providers: {
       async list() {
-        return transport.request<IdentityProviderPage>({
+        const page = await transport.request<IdentityProviderCollectionPage>({
           method: 'GET',
           path: '/v1/auth/providers',
         });
+        return { ...page, hasMore: page.hasMore ?? false };
       },
       async register(input, options) {
         return transport.request<IdentityProviderRegisterOutcome>({

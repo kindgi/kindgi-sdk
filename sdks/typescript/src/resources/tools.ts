@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Cursor, Page, ToolId } from '@kindgi/types';
+import type { Cursor, ToolId } from '@kindgi/types';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
+import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { Transport } from '../transport.js';
 import type { Tool } from '../types.js';
 
@@ -30,7 +31,7 @@ export interface ToolsClient {
    * @wire `GET /v1/tools` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1tools/get`.
    */
-  list(filter?: ToolFilter): Promise<Page<Tool>>;
+  list(filter?: ToolFilter): Promise<ListPage<Tool>>;
 
   /**
    * Fetch the latest active version of a tool.
@@ -50,7 +51,7 @@ export interface ToolsClient {
   readonly versions: ToolVersionsClient;
 
   /** @deprecated Use `tools.versions.list`; removed in 0.2. */
-  listVersions(id: ToolId, filter?: ToolVersionFilter): Promise<Page<ToolVersionRow>>;
+  listVersions(id: ToolId, filter?: ToolVersionFilter): Promise<ListPage<ToolVersionRow>>;
   /** @deprecated Use `tools.versions.get`; removed in 0.2. */
   getVersion(id: ToolId, version: string): Promise<Tool>;
   /** @deprecated Use `tools.versions.reinstate`; removed in 0.2. */
@@ -88,7 +89,7 @@ export interface ToolVersionsClient {
    *
    * @wire `GET /v1/tools/{toolId}/versions`
    */
-  list(id: ToolId, filter?: ToolVersionFilter): Promise<Page<ToolVersionRow>>;
+  list(id: ToolId, filter?: ToolVersionFilter): Promise<ListPage<ToolVersionRow>>;
   /**
    * Fetch a specific tool version by exact semver. Returns
    * `404 tool-not-found` when the (id, version) pair isn't registered
@@ -169,12 +170,6 @@ export interface UnregisterToolVersionResult {
   readonly unregistered: boolean;
 }
 
-interface WirePage<T> {
-  readonly data: readonly T[];
-  readonly hasMore: boolean;
-  readonly nextCursor?: string;
-}
-
 interface ReinstateToolVersionWire {
   readonly toolId: string;
   readonly version: string;
@@ -193,10 +188,7 @@ export function makeToolsClient(transport: Transport): ToolsClient {
           ...(filter?.includeTombstoned === true && { includeTombstoned: 'true' }),
         },
       });
-      return {
-        items: page.data,
-        ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as Cursor }),
-      };
+      return listPage(page);
     },
 
     async get(id, version) {
@@ -251,10 +243,7 @@ export function makeToolsClient(transport: Transport): ToolsClient {
           ...(filter?.name !== undefined && { name: filter.name }),
         },
       });
-      return {
-        items: page.data,
-        ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as Cursor }),
-      };
+      return listPage(page);
     },
 
     async get(id) {

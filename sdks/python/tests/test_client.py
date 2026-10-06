@@ -332,6 +332,28 @@ def test_paginate_follows_the_cursor() -> None:
     assert [r.url.params.get("cursor") for r in seen] == [None, "c2"]
 
 
+@pytest.mark.parametrize("has_more", [True, None], ids=["hasMore", "older server"])
+def test_paginate_pages_env_with_or_without_has_more(has_more: bool | None) -> None:
+    entry = {
+        "scope": {"kind": "tenant", "tenantId": "acme"},
+        "envName": "dev",
+        "name": "REGION",
+        "value": "eu",
+        "revision": 1,
+        "createdAt": "2026-10-01T00:00:00Z",
+        "updatedAt": "2026-10-01T00:00:00Z",
+    }
+    first: dict[str, Any] = {"data": [entry], "nextCursor": "c2"}
+    last: dict[str, Any] = {"data": [entry]}
+    if has_more is not None:
+        first["hasMore"], last["hasMore"] = True, False
+    pages = {None: first, "c2": last}
+    api, seen = client(lambda r: httpx.Response(200, json=pages[r.url.params.get("cursor")]))
+    entries = list(paginate(api.env.list, env_name="dev", scope_kind="tenant"))
+    assert len(entries) == 2
+    assert [r.url.params.get("cursor") for r in seen] == [None, "c2"]
+
+
 def test_settings_come_from_the_environment(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

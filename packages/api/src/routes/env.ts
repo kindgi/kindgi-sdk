@@ -87,6 +87,7 @@ export function envRouter(envBinding: EnvBinding, authorizer?: Authorizer): Hono
     });
     return c.json({
       data: page.data.map(serializeEnvRecord),
+      hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
   });

@@ -5467,6 +5467,10 @@ export const IdentityProviderCollectionPageSchema: JsonSchema = {
   required: ['data'],
   properties: {
     data: { type: 'array', items: { $ref: '#/components/schemas/IdentityProviderConfig' } },
+    hasMore: {
+      type: 'boolean',
+      description: 'Always `false`: the list comes whole. Absent from older servers.',
+    },
   },
 };
 
@@ -6842,6 +6846,11 @@ export const EnvCollectionPageSchema: JsonSchema = {
   required: ['data'],
   properties: {
     data: { type: 'array', items: { $ref: '#/components/schemas/EnvRecord' } },
+    hasMore: {
+      type: 'boolean',
+      description:
+        "Whether there's another page. Absent from older servers: there is one when `nextCursor` is set.",
+    },
     nextCursor: { type: 'string' },
   },
 };
@@ -6879,6 +6888,11 @@ export const SecretCollectionPageSchema: JsonSchema = {
   required: ['data'],
   properties: {
     data: { type: 'array', items: { $ref: '#/components/schemas/SecretRecord' } },
+    hasMore: {
+      type: 'boolean',
+      description:
+        "Whether there's another page. Absent from older servers: there is one when `nextCursor` is set.",
+    },
     nextCursor: { type: 'string' },
   },
 };
@@ -6889,6 +6903,11 @@ export const SecretVersionCollectionPageSchema: JsonSchema = {
   required: ['data'],
   properties: {
     data: { type: 'array', items: { $ref: '#/components/schemas/SecretVersionRecord' } },
+    hasMore: {
+      type: 'boolean',
+      description:
+        "Whether there's another page. Absent from older servers: there is one when `nextCursor` is set.",
+    },
     nextCursor: { type: 'string' },
   },
 };

@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Cursor, Page } from '@kindgi/types';
+import type { Cursor } from '@kindgi/types';
 
+import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { Transport } from '../transport.js';
 import type {
   CreateJudgeClassInput,
@@ -35,7 +36,7 @@ export interface JudgeClassesClient {
    * @wire `GET /v1/judge-classes` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1judge-classes/get`.
    */
-  list(filter?: JudgeClassFilter): Promise<Page<JudgeClass>>;
+  list(filter?: JudgeClassFilter): Promise<ListPage<JudgeClass>>;
 
   /**
    * One class, also a retired one (`unregisteredAt` set).
@@ -72,12 +73,6 @@ export interface JudgeClassFilter {
   readonly scope?: JudgeClassScope;
 }
 
-interface WirePage<T> {
-  readonly data: readonly T[];
-  readonly hasMore: boolean;
-  readonly nextCursor?: string;
-}
-
 function scopeQuery(scope: JudgeClassScope): Record<string, string> {
   if (scope.kind === 'tenant') return { scopeKind: 'tenant' };
   if (scope.kind === 'project') return { scopeKind: 'project', projectId: scope.projectId };
@@ -108,10 +103,7 @@ export function makeJudgeClassesClient(transport: Transport): JudgeClassesClient
           ...(filter?.scope !== undefined && scopeQuery(filter.scope)),
         },
       });
-      return {
-        items: page.data,
-        ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as Cursor }),
-      };
+      return listPage(page);
     },
 
     async get(judgeClassId) {
