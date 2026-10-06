@@ -29694,7 +29694,7 @@
             }
           },
           "400": {
-            "description": "Malformed cursor, `from`, `to`, or `outcome`.",
+            "description": "Malformed cursor, `from`, `to`, `outcome`, or `order`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -29714,7 +29714,7 @@
             }
           }
         },
-        "description": "Cursor-paginated read of `authz-decision` audit events for the tenant. Filters (all AND-composed): `?actorSubject=` / `?onBehalfOf=` / `?action=` / `?resource=` / `?outcome=` / `?runId=` / `?from=` / `?to=`. Admin@tenant only. Only mounted when `CreateAppInput.auditEvents` is wired.",
+        "description": "Cursor-paginated read of `authz-decision` audit events for the tenant. Filters (all AND-composed): `?actorSubject=` / `?onBehalfOf=` / `?action=` / `?resource=` / `?outcome=` / `?runId=` / `?from=` / `?to=`. Oldest first; `?order=desc` for newest first. Admin@tenant only. Only mounted when `CreateAppInput.auditEvents` is wired.",
         "parameters": [
           {
             "name": "limit",
@@ -29814,6 +29814,19 @@
             },
             "required": false,
             "description": "ISO 8601 upper bound (inclusive) on `timestamp`."
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ]
+            },
+            "required": false,
+            "description": "`asc` (the default): oldest first. `desc`: newest first. `nextCursor` continues in the same order."
           }
         ],
         "security": [
