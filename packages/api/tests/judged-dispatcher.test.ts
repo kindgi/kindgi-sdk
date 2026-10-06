@@ -284,7 +284,13 @@ describe('what a comparison takes', () => {
   const agent = { agentId: 'acme.agent' as never, version: '2.0.0' as never };
 
   test.each([
-    ['a flow', suite, { flowId: 'acme.flow' }, undefined, 'give `agentRef`'],
+    [
+      'a flow without a version',
+      suite,
+      { flowId: 'acme.flow' },
+      undefined,
+      '`flowRef.version` is required',
+    ],
     ['no version', suite, { agentId: 'acme.agent' }, undefined, '`agentRef.version` is required'],
     [
       'a version baseline',
@@ -302,5 +308,148 @@ describe('what a comparison takes', () => {
 
   test('a version of an agent, against the recording, is fine', () => {
     expect(dispatcher.validate?.(suite, agent)).toEqual({ kind: 'ok' });
+  });
+});
+
+describe('a comparison of a flow version', () => {
+  const flowOutput = (matches: unknown[]) => ({ matches });
+  const flowCase = (caseId: string, matches: unknown[]): JudgedEvalCase => ({
+    caseId,
+    subject: { kind: 'flow', id: 'acme.intake', version: '1.0.0' },
+    input: { ticket: caseId },
+    output: flowOutput(matches),
+    items: [
+      {
+        key: 'm1',
+        pointer: '/matches/0',
+        rank: 0,
+        yes: 1,
+        no: 0,
+        yesWeight: 1,
+        totalWeight: 1,
+        reasons: [],
+      },
+      {
+        key: 'm2',
+        pointer: '/matches/1',
+        rank: 1,
+        yes: 0,
+        no: 1,
+        yesWeight: 0,
+        totalWeight: 1,
+        reasons: [],
+      },
+    ],
+  });
+
+  async function compareFlow(answer: (caseId: string) => EvalRunSubjectInvokeOutcome) {
+    const cases = inMemoryCaseStore();
+    await cases.putCases({
+      tenantId,
+      suiteId: 'acme.flows',
+      version: '1.0.0',
+      cases: [
+        flowCase('run-f1', [{ id: 'm1' }, { id: 'm2' }]),
+        flowCase('run-f2', [{ id: 'm1' }, { id: 'm2' }]),
+      ],
+    });
+    const invoked: EvalRunSubjectInvokeInput[] = [];
+    const out = await createJudgedDispatcher({ cases }).dispatch({
+      tenantId,
+      runId: 'eval-f' as RunId,
+      suite: {
+        id: 'acme.flows',
+        tenantId,
+        version: '1.0.0',
+        kind: 'judged',
+        spec: { caseCount: 2 },
+      },
+      target: { flowId: 'acme.intake' as never, version: '1.1.0' as never },
+      dryRun: false,
+      abortSignal: new AbortController().signal,
+      subject: {
+        invoke: async (input) => {
+          invoked.push(input);
+          return answer(input.replay?.of as unknown as string);
+        },
+      },
+      onProgress: () => {},
+    });
+    const result = out.result as { summary: JudgedComparisonSummary; perCase: JudgedCaseResult[] };
+    return { ...result, invoked };
+  }
+
+  const refusedSend = {
+    step: 0,
+    callId: 'notify',
+    toolId: 'acme.send',
+    toolVersion: '1.0.0',
+    arguments: { to: 'desk' },
+    source: 'refused' as const,
+    reason: 'replay: this call changes things and has no recorded result',
+  };
+
+  test("replays each case with the flow's input and no history; scores the whole output's items", async () => {
+    const { summary, invoked } = await compareFlow(() => ({
+      output: flowOutput([{ id: 'm2' }, { id: 'm1' }]),
+      runId: 'run-x' as RunId,
+    }));
+    expect(invoked[0]?.input).toEqual({ ticket: 'run-f1' });
+    expect(invoked[0]?.target).toEqual({ flowId: 'acme.intake', version: '1.1.0' });
+    expect(invoked[0]).not.toHaveProperty('history');
+    expect(summary.candidate).toEqual({ kind: 'flow', flowId: 'acme.intake', version: '1.1.0' });
+    expect(summary.baseline).toEqual({
+      kind: 'recorded',
+      versions: [{ flowId: 'acme.intake', version: '1.0.0', cases: 2 }],
+    });
+    // Same items, reordered: m1 (1/1) and m2 (0/1) in both.
+    expect(summary.metrics.weightedYesShare).toMatchObject({ baseline: 0.5, candidate: 0.5, n: 2 });
+    expect(summary.metrics.weightedPrecisionAtK.candidate).toBeCloseTo(0.5);
+  });
+
+  test('a case that stopped at a refused write: counted, with what it would have done, and left out of the metrics', async () => {
+    const { summary, perCase } = await compareFlow((caseId) =>
+      caseId === 'run-f2'
+        ? {
+            runId: 'run-stop' as RunId,
+            stopped: { toolId: 'acme.send', arguments: { to: 'desk' }, reason: refusedSend.reason },
+            replay: { of: 'run-f2' as RunId, evalRunId: 'eval-f', tools: [refusedSend] },
+          }
+        : { output: flowOutput([{ id: 'm1' }]), runId: 'run-ok' as RunId },
+    );
+    expect(summary).toMatchObject({
+      status: 'completed',
+      cases: 2,
+      stopped: 1,
+      errors: 0,
+      refusedWrites: 1,
+      diverged: 0,
+    });
+    // Only run-f1 counts, on both sides: m1 kept (1/1).
+    expect(summary.metrics.weightedYesShare).toMatchObject({
+      baseline: 0.5,
+      candidate: 1,
+      n: 1,
+      baselineN: 1,
+    });
+    expect(perCase[1]).toMatchObject({
+      caseId: 'run-f2',
+      runIds: ['run-stop'],
+      stopped: { toolId: 'acme.send', arguments: { to: 'desk' } },
+      refusedWrites: 1,
+      tools: [refusedSend],
+    });
+    expect(perCase[1]).not.toHaveProperty('error');
+  });
+
+  test('stopping is not an error: all stopped is still completed, all errored is failed', async () => {
+    const stoppedAll = await compareFlow(() => ({
+      stopped: { toolId: 'acme.send', arguments: {} },
+      replay: { of: 'x' as RunId, evalRunId: 'eval-f', tools: [refusedSend] },
+    }));
+    expect(stoppedAll.summary).toMatchObject({ status: 'completed', stopped: 2, errors: 0 });
+    expect(stoppedAll.summary.metrics.weightedYesShare).toMatchObject({ candidate: null, n: 0 });
+    const erroredAll = await compareFlow(() => ({ error: 'flow-not-found: no such version' }));
+    expect(erroredAll.summary).toMatchObject({ status: 'failed', stopped: 0, errors: 2 });
   });
 });
