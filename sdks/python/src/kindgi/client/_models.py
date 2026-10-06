@@ -1206,9 +1206,64 @@ class SessionApproval(BaseModel):
     """
 
 
+class Call(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    run_id: Annotated[str, Field(alias="runId")]
+    """
+    The run that made it: the flow run, a sub-flow's, or an agent step's turn.
+    """
+    node_id: Annotated[str | None, Field(alias="nodeId")] = None
+    """
+    The tool node that made it, or the agent step whose turn did.
+    """
+    scope: str | None = None
+    """
+    The loop iteration, in a loop body.
+    """
+    tool_id: Annotated[str, Field(alias="toolId")]
+    arguments: Any | None = None
+    result: Any | None = None
+
+
+class Step(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    run_id: Annotated[str, Field(alias="runId")]
+    node_id: Annotated[str | None, Field(alias="nodeId")] = None
+    scope: str | None = None
+    agent_id: Annotated[str, Field(alias="agentId")]
+    agent_version: Annotated[str, Field(alias="agentVersion")]
+    retrieved: Any | None = None
+    """
+    What the step's turn retrieved.
+    """
+
+
+class Flow(BaseModel):
+    """
+    For a flow run: what it did, kept at its first judgment so it can be replayed. Every tool call it made with its result (at its tool nodes, in its agent steps' turns and in its sub-flows), at most 500, and its agent steps.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    calls: list[Call]
+    steps: list[Step]
+    truncated: bool | None = None
+    """
+    More calls were made than were kept.
+    """
+
+
 class JudgedRunContext(BaseModel):
     """
-    What a judged agent turn read besides its input, captured when it was first judged: the conversation before it, what its retrievals returned, and the decision at its session approval gate.
+    What a judged run needs besides its input to be replayed, captured when it was first judged. For an agent turn: the conversation before it, what its retrievals returned, and the decision at its session approval gate. For a flow run: its tool calls with their results.
     """
 
     model_config = ConfigDict(
@@ -1230,6 +1285,10 @@ class JudgedRunContext(BaseModel):
     session_approval: Annotated[SessionApproval | None, Field(alias="sessionApproval")] = None
     """
     The reviewer's decision at the turn's session approval gate, when the turn waited on one. A replay of the turn follows it.
+    """
+    flow: Flow | None = None
+    """
+    For a flow run: what it did, kept at its first judgment so it can be replayed. Every tool call it made with its result (at its tool nodes, in its agent steps' turns and in its sub-flows), at most 500, and its agent steps.
     """
 
 
@@ -1720,7 +1779,7 @@ class FlowEdge(BaseModel):
     """
 
 
-class Flow(BaseModel):
+class Flow1(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -1801,7 +1860,7 @@ class FlowCollectionPage(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    data: list[Flow]
+    data: list[Flow1]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     """
     Opaque cursor for the next page. Absent when `hasMore: false`.
@@ -4767,7 +4826,7 @@ class Agent1(BaseModel):
     """
 
 
-class Flow1(BaseModel):
+class Flow2(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -4787,7 +4846,7 @@ class DeploymentContents(BaseModel):
     tools: list[Tool1]
     guardrails: list[Guardrail1]
     agents: list[Agent1]
-    flows: list[Flow1]
+    flows: list[Flow2]
 
 
 class DeploymentRecord(BaseModel):

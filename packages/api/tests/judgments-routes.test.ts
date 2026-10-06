@@ -478,7 +478,7 @@ describe("the context captured on a turn's first judgment", () => {
     expect(h.reads).toEqual([1, 1]);
   });
 
-  test('a flow run has no context and reads nothing', async () => {
+  test('a flow run reads no conversation; with no tool calls to keep, it keeps no context', async () => {
     const { agent: _agent, ...run } = row();
     const h = harness([run], { messages, journal });
     const res = await h.call('POST', '/v1/judgments', {
@@ -486,9 +486,11 @@ describe("the context captured on a turn's first judgment", () => {
       item: { key: 'c1' },
       verdict: 'yes',
     });
+    expect(res.status).toBe(201);
     const got = await h.call('GET', `/v1/judgments/${res.body.id}`);
     expect(got.body.run.context).toBeUndefined();
-    expect(h.reads).toEqual([0, 0]);
+    // Its journal was read (for tool calls), its conversation never.
+    expect(h.reads[0]).toBe(0);
   });
 });
 

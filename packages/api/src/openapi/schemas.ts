@@ -2126,7 +2126,7 @@ export const JudgedRunContextSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'What a judged agent turn read besides its input, captured when it was first judged: the conversation before it, what its retrievals returned, and the decision at its session approval gate.',
+    'What a judged run needs besides its input to be replayed, captured when it was first judged. For an agent turn: the conversation before it, what its retrievals returned, and the decision at its session approval gate. For a flow run: its tool calls with their results.',
   properties: {
     history: {
       type: 'array',
@@ -2148,6 +2148,55 @@ export const JudgedRunContextSchema: JsonSchema = {
       properties: {
         approved: { type: 'boolean' },
         rationale: { type: 'string', description: "The reviewer's reason for a rejection." },
+      },
+    },
+    flow: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['calls', 'steps'],
+      description:
+        "For a flow run: what it did, kept at its first judgment so it can be replayed. Every tool call it made with its result (at its tool nodes, in its agent steps' turns and in its sub-flows), at most 500, and its agent steps.",
+      properties: {
+        calls: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['runId', 'toolId'],
+            properties: {
+              runId: {
+                type: 'string',
+                description:
+                  "The run that made it: the flow run, a sub-flow's, or an agent step's turn.",
+              },
+              nodeId: {
+                type: 'string',
+                description: 'The tool node that made it, or the agent step whose turn did.',
+              },
+              scope: { type: 'string', description: 'The loop iteration, in a loop body.' },
+              toolId: { type: 'string' },
+              arguments: {},
+              result: {},
+            },
+          },
+        },
+        steps: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['runId', 'agentId', 'agentVersion'],
+            properties: {
+              runId: { type: 'string' },
+              nodeId: { type: 'string' },
+              scope: { type: 'string' },
+              agentId: { type: 'string' },
+              agentVersion: { type: 'string' },
+              retrieved: { description: "What the step's turn retrieved." },
+            },
+          },
+        },
+        truncated: { type: 'boolean', description: 'More calls were made than were kept.' },
       },
     },
   },

@@ -1120,7 +1120,13 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   if (input.judgmentRegistry !== undefined) {
     v1.route(
       '/judgments',
-      judgmentsRouter(input.judgmentRegistry, runBinding, authorizer, input.conversationBinding),
+      judgmentsRouter(
+        input.judgmentRegistry,
+        runBinding,
+        authorizer,
+        input.conversationBinding,
+        input.flowRegistry,
+      ),
     );
     v1.route('/judge-classes', judgeClassesRouter(input.judgmentRegistry, authorizer));
   }
