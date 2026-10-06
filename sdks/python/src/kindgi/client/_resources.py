@@ -3726,12 +3726,13 @@ class BlocksResource:
         cursor: str | None = None,
         kind: Literal["prompt", "settings"] | None = None,
         name: str | None = None,
-        project_id: str | None = None,
+        scope_kind: Literal["tenant", "org", "project"] | None = None,
+        scope_id: str | None = None,
         timeout: float | None = None,
     ) -> _models.BlockCollectionPage:
         """List data blocks (latest version of each). `GET /v1/blocks`
 
-        Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, `?projectId=` narrows to one project.
+        Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, and `?scopeKind=` + `?scopeId=` narrow to a project or an org, as the other lists do.
         """
         return self._client._request(
             _OPERATIONS["blocks.list"],
@@ -3741,7 +3742,8 @@ class BlocksResource:
                 "cursor": cursor,
                 "kind": kind,
                 "name": name,
-                "projectId": project_id,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
             },
             headers={},
             response=_models.BlockCollectionPage,
@@ -9026,12 +9028,13 @@ class AsyncBlocksResource:
         cursor: str | None = None,
         kind: Literal["prompt", "settings"] | None = None,
         name: str | None = None,
-        project_id: str | None = None,
+        scope_kind: Literal["tenant", "org", "project"] | None = None,
+        scope_id: str | None = None,
         timeout: float | None = None,
     ) -> _models.BlockCollectionPage:
         """List data blocks (latest version of each). `GET /v1/blocks`
 
-        Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, `?projectId=` narrows to one project.
+        Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, and `?scopeKind=` + `?scopeId=` narrow to a project or an org, as the other lists do.
         """
         return await self._client._request(
             _OPERATIONS["blocks.list"],
@@ -9041,7 +9044,8 @@ class AsyncBlocksResource:
                 "cursor": cursor,
                 "kind": kind,
                 "name": name,
-                "projectId": project_id,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
             },
             headers={},
             response=_models.BlockCollectionPage,

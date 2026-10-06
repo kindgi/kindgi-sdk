@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { ProjectId } from '@kindgi/types';
+import type { Scope } from '@kindgi/platform';
+import type { OrgId, ProjectId } from '@kindgi/types';
 
 import type { BlockRecord, BlockRegistryBinding } from '../../src/index.js';
 
@@ -10,10 +11,11 @@ import type { BlockRecord, BlockRegistryBinding } from '../../src/index.js';
  * versions never change, a block's versions share its first version's
  * project, unregister is soft, `getVersion` reads an unregistered
  * version (with `unregisteredAt`), and the latest is the highest active
- * version.
+ * version. `orgs` maps a project to its org, for an org-scoped list.
  */
 export function inMemoryBlocks(
   knownProjects?: readonly ProjectId[],
+  orgs: Readonly<Record<string, OrgId>> = {},
 ): BlockRegistryBinding & { readonly rows: Map<string, BlockRecord> } {
   const rows = new Map<string, BlockRecord>();
   let clock = Date.parse('2026-10-06T00:00:00.000Z');
@@ -29,14 +31,14 @@ export function inMemoryBlocks(
 
   return {
     rows,
-    async list({ blockKind, nameFilter, projectId }) {
+    async list({ blockKind, nameFilter, scope }) {
       const ids = [...new Set([...rows.values()].map((b) => b.id))].sort();
       const data = ids
         .map(latestOf)
         .filter((b): b is BlockRecord => b !== null)
         .filter((b) => blockKind === undefined || b.kind === blockKind)
         .filter((b) => nameFilter === undefined || b.id.startsWith(nameFilter))
-        .filter((b) => projectId === undefined || b.projectId === projectId);
+        .filter((b) => inScope(b.projectId, scope, orgs));
       return { data };
     },
     async get({ blockId }) {
@@ -81,4 +83,14 @@ export function inMemoryBlocks(
       return { kind: 'ok', blockId, version, wasTombstoned: unregisteredAt !== undefined };
     },
   };
+}
+
+function inScope(
+  projectId: ProjectId,
+  scope: Scope | undefined,
+  orgs: Readonly<Record<string, OrgId>>,
+): boolean {
+  if (scope?.kind === 'project') return projectId === scope.projectId;
+  if (scope?.kind === 'org') return orgs[projectId as unknown as string] === scope.orgId;
+  return true;
 }

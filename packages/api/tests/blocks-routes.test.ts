@@ -13,7 +13,7 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
-import type { ProjectId, TenantId, UserId } from '@kindgi/types';
+import type { OrgId, ProjectId, TenantId, UserId } from '@kindgi/types';
 
 import { createStubAppBindings } from '@kindgi/testing';
 
@@ -24,6 +24,7 @@ import { inMemoryBlocks } from './support/in-memory-blocks.js';
 const tenantId = randomUUID() as TenantId;
 const projectA = randomUUID() as ProjectId;
 const projectB = randomUUID() as ProjectId;
+const orgA = randomUUID() as OrgId;
 const TOKEN = 'blocks-user-token';
 
 const resolveToken: TokenResolver = async (token) =>
@@ -48,7 +49,7 @@ function decision(authz: Authz, action: Action, resource: ResourceRef): Decision
 }
 
 function harness(authz?: Authz) {
-  const binding = inMemoryBlocks([projectA, projectB]);
+  const binding = inMemoryBlocks([projectA, projectB], { [projectA]: orgA });
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
@@ -219,6 +220,31 @@ describe('/v1/blocks: publish and read', () => {
       wasTombstoned: true,
     });
     expect((await call('GET', '/v1/blocks/acme.intake-prompt')).body.version).toBe('1.1.0');
+  });
+});
+
+describe('/v1/blocks: list by project or org, as the other lists do', () => {
+  test('?scopeKind=project&scopeId= and ?scopeKind=org&scopeId= narrow the list', async () => {
+    const { call, binding } = harness();
+    await call('POST', '/v1/blocks', prompt('1.0.0'));
+    await binding.publish({
+      tenantId,
+      projectId: projectB,
+      block: { id: 'acme.other', version: '1.0.0', kind: 'settings', content: { values: {} } },
+    });
+    const ids = async (query: string) =>
+      (await call('GET', `/v1/blocks${query}`)).body.data.map((b: { id: string }) => b.id);
+    expect(await ids('')).toEqual(['acme.intake-prompt', 'acme.other']);
+    expect(await ids(`?scopeKind=project&scopeId=${projectB}`)).toEqual(['acme.other']);
+    expect(await ids(`?scopeKind=org&scopeId=${orgA}`)).toEqual(['acme.intake-prompt']);
+    expect(await ids('?scopeKind=tenant')).toEqual(['acme.intake-prompt', 'acme.other']);
+  });
+
+  test('a malformed scope is refused (400 scope-invalid)', async () => {
+    const { call } = harness();
+    const res = await call('GET', '/v1/blocks?scopeKind=project');
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('scope-invalid');
   });
 });
 
