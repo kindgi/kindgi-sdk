@@ -169,15 +169,24 @@ const start: LeafCommand = {
   description:
     'Start a run for an agent or flow. Waits until it finishes or waits on an approval; if the wait is stopped (Ctrl+C), the run goes on and its id is printed. With --no-wait it prints as soon as the run exists (follow it with `runs get` / `runs stream`). --dry-run runs only read-only tools.',
   usage:
-    'kindgi runs start (--agent=<agent-id> | --flow=<flow-id>) --input=<json-or-@file> [--no-wait] [--dry-run] [--idempotency-key=<key>]',
+    'kindgi runs start (--agent=<agent-id> [--agent-version=<v>] | --flow=<flow-id> [--flow-version=<v>]) --input=<json-or-@file> [--no-wait] [--dry-run] [--idempotency-key=<key>]',
   optionSpec: {
     agent: {
       type: 'string',
       description: 'The agent to run, by id (`<pack>.<agent>`). Give `--agent` or `--flow`.',
     },
+    'agent-version': {
+      type: 'string',
+      description:
+        "The agent's version to run (default: its latest). A turn in a conversation needs the version the conversation was opened with.",
+    },
     flow: {
       type: 'string',
       description: 'The flow to run, by id. Give `--flow` or `--agent`, not both.',
+    },
+    'flow-version': {
+      type: 'string',
+      description: "The flow's version to run (default: its latest).",
     },
     input: {
       type: 'string',
@@ -209,6 +218,14 @@ const start: LeafCommand = {
       if (agent !== undefined && flow !== undefined) {
         throw new Error('--agent and --flow are mutually exclusive');
       }
+      const agentVersion = stringFlag(ctx, 'agent-version');
+      const flowVersion = stringFlag(ctx, 'flow-version');
+      if (agentVersion !== undefined && agent === undefined) {
+        throw new Error('--agent-version goes with --agent=<agent-id>');
+      }
+      if (flowVersion !== undefined && flow === undefined) {
+        throw new Error('--flow-version goes with --flow=<flow-id>');
+      }
       if (inputSpec === undefined) {
         throw new Error('--input=<json-or-@file> is required');
       }
@@ -223,12 +240,14 @@ const start: LeafCommand = {
       const started = await (agent !== undefined
         ? ctx.client().runs.start({
             agent: agent as AgentId,
+            ...(agentVersion !== undefined && { agentVersion }),
             input,
             options,
             ...(idem !== undefined ? { idempotencyKey: idem } : {}),
           })
         : ctx.client().runs.start({
             flow: flow as FlowId,
+            ...(flowVersion !== undefined && { flowVersion }),
             input,
             options,
             ...(idem !== undefined ? { idempotencyKey: idem } : {}),

@@ -380,6 +380,62 @@ describe('kindgi runs start', () => {
     });
     expect(JSON.parse(out.stdout)).toEqual({ id: 'run-2', status: 'pending' });
   });
+
+  /** `kindgi runs start <flags>` against a client that records what it started. */
+  async function start(flags: readonly string[]) {
+    const started: unknown[] = [];
+    const out = await runCli(
+      baseInputs({
+        argv: [
+          'runs',
+          'start',
+          ...flags,
+          '--input={"x":1}',
+          '--no-wait',
+          '--url=https://x',
+          '--token=t',
+        ],
+        clientFactory: () =>
+          ({
+            runs: {
+              start: async (input: unknown) => {
+                started.push(input);
+                return { id: 'run-3', status: 'pending' };
+              },
+            },
+          }) as never,
+      }),
+    );
+    return { out, started };
+  }
+
+  test('--agent-version and --flow-version name the version to run (T245)', async () => {
+    const agent = await start(['--agent=pack.agent', '--agent-version=1.0.0']);
+    expect(agent.out.exitCode, agent.out.stderr).toBe(0);
+    expect(agent.started).toEqual([
+      { agent: 'pack.agent', agentVersion: '1.0.0', input: { x: 1 }, options: { wait: false } },
+    ]);
+    const flow = await start(['--flow=pack.flow', '--flow-version=2.1.0']);
+    expect(flow.out.exitCode, flow.out.stderr).toBe(0);
+    expect(flow.started).toEqual([
+      { flow: 'pack.flow', flowVersion: '2.1.0', input: { x: 1 }, options: { wait: false } },
+    ]);
+  });
+
+  test('a version for the other kind is refused, and nothing starts (T245)', async () => {
+    for (const [flags, message] of [
+      [
+        ['--flow=pack.flow', '--agent-version=1.0.0'],
+        '--agent-version goes with --agent=<agent-id>',
+      ],
+      [['--agent=pack.agent', '--flow-version=1.0.0'], '--flow-version goes with --flow=<flow-id>'],
+    ] as const) {
+      const { out, started } = await start(flags);
+      expect(out.exitCode).not.toBe(0);
+      expect(out.stderr).toContain(message);
+      expect(started).toEqual([]);
+    }
+  });
 });
 
 describe('missing required arguments', () => {
