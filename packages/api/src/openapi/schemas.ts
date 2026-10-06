@@ -956,7 +956,7 @@ export const AgentSchema: JsonSchema = {
       type: 'string',
       pattern: '^sha256:[0-9a-f]{64}$',
       description:
-        'Set by the runtime with `pins`: `sha256:<hex>` of the pins\' canonical JSON (sorted keys, no whitespace). Two agent versions with the same digest run the same blocks.',
+        "Set by the runtime with `pins`: `sha256:<hex>` of the pins' canonical JSON (sorted keys, no whitespace). Two agent versions with the same digest run the same blocks.",
     },
   },
 };
@@ -968,7 +968,7 @@ const PinMapSchema: JsonSchema = {
 
 export const AgentPinsSchema: JsonSchema = {
   description:
-    "The exact block versions an agent version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool range resolves once to the version every run of that agent version uses, so a new tool version reaches the agent only through a new agent version. Absent on a version published before pins existed (its ranges resolve per run).",
+    'The exact block versions an agent version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool range resolves once to the version every run of that agent version uses, so a new tool version reaches the agent only through a new agent version. Absent on a version published before pins existed (its ranges resolve per run).',
   type: 'object',
   additionalProperties: false,
   required: ['tools', 'prompts', 'settings'],
