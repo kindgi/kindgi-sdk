@@ -953,6 +953,12 @@ export const AgentSchema: JsonSchema = {
     toolErrors: { $ref: '#/components/schemas/ToolErrorsSpec' },
     pins: { $ref: '#/components/schemas/AgentPins' },
     derivedFrom: { $ref: '#/components/schemas/VersionDerivation' },
+    unregisteredAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'Present only on an unregistered version (`GET …/versions/{version}` reads those too). Unregister stops a version being chosen, not the pins that hold it: a new run naming it is refused, while a resumed run and a published version that pins it still run it.',
+    },
     pinsDigest: {
       type: 'string',
       pattern: '^sha256:[0-9a-f]{64}$',
@@ -1165,6 +1171,12 @@ export const FlowSchema: JsonSchema = {
         "Set by the runtime with `pins`: `sha256:<hex>` of the pins' canonical JSON (sorted keys, no whitespace).",
     },
     derivedFrom: { $ref: '#/components/schemas/VersionDerivation' },
+    unregisteredAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'Present only on an unregistered version (`GET …/versions/{version}` reads those too). Unregister stops a version being chosen, not the pins that hold it: a new run naming it is refused, while a resumed run and a published version that pins it still run it.',
+    },
   },
 };
 

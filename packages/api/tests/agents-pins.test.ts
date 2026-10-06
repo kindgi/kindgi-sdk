@@ -45,10 +45,15 @@ const runHandler: RunHandlerBinding = {
 };
 
 /** The agent registry, storing what the route hands it. */
-function agentBinding(): AgentRegistryBinding & { stored: () => readonly Agent[] } {
+function agentBinding(): AgentRegistryBinding & {
+  stored: () => readonly Agent[];
+  markUnregistered: (version: string, at: string) => void;
+} {
   const registry = createAgentRegistry();
+  const unregisteredAt = new Map<string, string>();
   return {
     stored: () => registry.list(),
+    markUnregistered: (version, at) => unregisteredAt.set(version, at),
     async list() {
       return { data: [] };
     },
@@ -58,7 +63,9 @@ function agentBinding(): AgentRegistryBinding & { stored: () => readonly Agent[]
     },
     async getVersion({ agentId, version }) {
       const got = registry.get(agentId, version as unknown as string);
-      return got.kind === 'ok' ? got.value : null;
+      if (got.kind !== 'ok') return null;
+      const at = unregisteredAt.get(version as unknown as string);
+      return at === undefined ? got.value : { ...got.value, unregisteredAt: at };
     },
     async headExists() {
       return false;
@@ -226,5 +233,19 @@ describe('POST /v1/agents pins the version', () => {
     expect(stored?.pins).toBeUndefined();
     const got = await app.request('/v1/agents/acme.intake/versions/1.0.0', { headers: auth });
     expect(await got.json()).not.toHaveProperty('pins');
+  });
+
+  test('GET reads an unregistered version too, saying so', async () => {
+    const { app, agents } = makeApp(PUBLISHED);
+    const res = await publish(app, body([{ id: 'acme.lookup', version: '^1.0.0' }]));
+    expect(res.status).toBe(201);
+    agents.markUnregistered('1.0.0', '2026-10-05T12:00:00.000Z');
+    const got = await app.request('/v1/agents/acme.intake/versions/1.0.0', { headers: auth });
+    expect(got.status).toBe(200);
+    expect(await got.json()).toMatchObject({
+      version: '1.0.0',
+      unregisteredAt: '2026-10-05T12:00:00.000Z',
+      pins: { tools: { 'acme.lookup': '1.2.0' } },
+    });
   });
 });

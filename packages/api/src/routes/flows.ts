@@ -10,7 +10,7 @@ import type { Cursor, FlowId, ProjectId, TenantId, UserId } from '@kindgi/types'
 import type { AgentRegistryBinding } from '../agent-binding.js';
 import type { UnpinnableRef } from '../agent-pins.js';
 import { statusFor, toWireError } from '../errors.js';
-import type { FlowRegistryBinding } from '../flow-binding.js';
+import type { FlowRegistryBinding, FlowVersionRecord } from '../flow-binding.js';
 import { resolveFlowPins } from '../flow-pins.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
@@ -437,7 +437,7 @@ function unpinnableFlow(flow: Flow, issues: readonly UnpinnableRef[]) {
   };
 }
 
-function serializeGraph(g: Flow): Record<string, unknown> {
+function serializeGraph(g: FlowVersionRecord): Record<string, unknown> {
   return {
     id: g.id as unknown as string,
     version: g.version,
@@ -450,6 +450,7 @@ function serializeGraph(g: Flow): Record<string, unknown> {
     ...(g.pins !== undefined && { pins: g.pins }),
     ...(g.pinsDigest !== undefined && { pinsDigest: g.pinsDigest }),
     ...(g.derivedFrom !== undefined && { derivedFrom: g.derivedFrom }),
+    ...(g.unregisteredAt !== undefined && { unregisteredAt: g.unregisteredAt }),
   };
 }
 

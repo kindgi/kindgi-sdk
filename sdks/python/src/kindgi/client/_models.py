@@ -1732,6 +1732,10 @@ class Flow(BaseModel):
     Set by the runtime with `pins`: `sha256:<hex>` of the pins' canonical JSON (sorted keys, no whitespace).
     """
     derived_from: Annotated[VersionDerivation | None, Field(alias="derivedFrom")] = None
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    Present only on an unregistered version (`GET …/versions/{version}` reads those too). Unregister stops a version being chosen, not the pins that hold it: a new run naming it is refused, while a resumed run and a published version that pins it still run it.
+    """
 
 
 class PublishFlowBody(BaseModel):
@@ -6676,6 +6680,10 @@ class Agent(BaseModel):
     tool_errors: Annotated[ToolErrorsSpec | None, Field(alias="toolErrors")] = None
     pins: AgentPins | None = None
     derived_from: Annotated[VersionDerivation | None, Field(alias="derivedFrom")] = None
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    Present only on an unregistered version (`GET …/versions/{version}` reads those too). Unregister stops a version being chosen, not the pins that hold it: a new run naming it is refused, while a resumed run and a published version that pins it still run it.
+    """
     pins_digest: Annotated[
         str | None, Field(alias="pinsDigest", pattern="^sha256:[0-9a-f]{64}$")
     ] = None
