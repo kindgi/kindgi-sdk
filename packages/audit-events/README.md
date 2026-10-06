@@ -16,10 +16,10 @@ Give the whole system one audit substrate: one record shape, one write surface, 
   - `payload` — versioned envelope `{ v: 1, doc: … }`; the `doc` shape depends on `kind`.
 - **`AuditEventBinding`** — the adapter interface:
   - `append(events)` — batched write. Duplicate `(tenantId, id)` pairs are ignored, so retries are safe. Fails with `PersistenceError` or `AuditEventValidationError`.
-  - `query(input)` — cursor-paginated read ordered by `(timestamp, id)`; the cursor is opaque. Fails with `PersistenceError` or `InvalidCursorError`.
+  - `query(input)` — cursor-paginated read ordered by `(timestamp, id)`, oldest first, or newest first with `order: 'desc'`; the cursor is opaque and continues in the same order. Fails with `PersistenceError` or `InvalidCursorError`.
   - `purge(input)` — delete one kind's events older than a cutoff; returns the deleted count.
   - `describe()` — `{ name, version }`.
-- **`AuditEventQueryInput`** — `tenantId`, `filter?`, `cursor?`, `limit?`.
+- **`AuditEventQueryInput`** — `tenantId`, `filter?`, `cursor?`, `limit?`, `order?` (**`AuditEventOrder`**: `'asc'`, the default, or `'desc'`). A binding that predates `order` pages oldest first.
 - **`AuditEventFilter`** — AND-combined; absent fields match anything. Fields: `id`, `kind`, `kinds` (an empty array matches nothing), `actor`, `onBehalfOf`, `runId`, `agentId`, `flowId`, `correlationId`, `outcome`, `payloadDoc` (every entry must equal the same field of `payload.doc`), and inclusive ISO `from` / `to` bounds.
 - **`AuditEventPage`** — `data` plus `nextCursor` (absent on the last page).
 - **`AuditEventPurgeInput`** (`tenantId`, `kind`, `olderThan`) and **`AuditEventPurgeResult`** (`deleted`).

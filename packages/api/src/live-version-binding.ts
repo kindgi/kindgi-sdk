@@ -28,9 +28,13 @@ import type { GateApproval, GateCheck } from './gate.js';
 export interface LiveResolveInput {
   readonly tenantId: TenantId;
   readonly agentId: string;
-  /** Absent → only the agent's tenant-wide pin applies. */
+  /** Absent → only the org's pin (with `orgId`) and the tenant-wide pin apply. */
   readonly projectId?: ProjectId;
-  /** The project's org, when it has one (the resolver may look it up itself). */
+  /**
+   * The project's org, when it has one (the resolver may look it up from
+   * `projectId` itself). Without `projectId`: an org scope's own
+   * coordinates, as the promotion gate resolves what serves an org.
+   */
   readonly orgId?: OrgId;
   /** Coarse to fine (needs `projectId`); a segment pin covers every path that starts with its own. */
   readonly segments?: readonly ScopeSegment[];

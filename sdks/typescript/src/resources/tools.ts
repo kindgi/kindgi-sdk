@@ -47,6 +47,22 @@ export interface ToolsClient {
    */
   get(id: ToolId): Promise<Tool>;
 
+  /**
+   * Register a tool manifest (the tool minus its handler) at its version,
+   * in a project. Metadata only: the handler isn't uploaded, and must
+   * already be available to the runtime. Registering a version again is
+   * `409 tool-already-registered`; a registry that takes no writes
+   * (under `kindgi dev`, the pack's files are the source) is
+   * `409 registry-read-only`.
+   *
+   * @wire `POST /v1/tools` — see
+   *   `@kindgi/api/openapi.json#/paths/~1v1~1tools/post`.
+   */
+  register(
+    manifest: Tool,
+    options: { readonly projectId: string; readonly idempotencyKey?: string },
+  ): Promise<{ readonly toolId: ToolId }>;
+
   /** A tool's versions: list, get, unregister and reinstate. */
   readonly versions: ToolVersionsClient;
 
@@ -254,6 +270,19 @@ export function makeToolsClient(transport: Transport): ToolsClient {
     },
 
     versions,
+
+    async register(manifest, options) {
+      const result = await transport.request<{ readonly toolId: string }>({
+        method: 'POST',
+        path: '/v1/tools',
+        body: { ...manifest, projectId: options.projectId },
+        ...(options.idempotencyKey !== undefined && {
+          idempotencyKey: options.idempotencyKey,
+        }),
+      });
+      return { toolId: result.toolId as unknown as ToolId };
+    },
+
     listVersions: (id, filter) => versions.list(id, filter),
     getVersion: (id, version) => versions.get(id, version),
     reinstateVersion: (id, version, options) => versions.reinstate(id, version, options),

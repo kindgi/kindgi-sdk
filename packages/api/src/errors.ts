@@ -193,6 +193,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'gate-policy-scope-changed': 409,
   'gate-policy-scope-unpinned': 409,
   'gate-policy-needs-pin': 409,
+  /** Unregister: the version is live in a scope; move that pin first. */
+  'agent-version-live': 409,
   'run-not-finished': 409,
   'item-not-found': 400,
   // The judgment binding can't list judged runs, so no test sets from judgments.

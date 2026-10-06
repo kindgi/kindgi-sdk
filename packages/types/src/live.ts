@@ -30,9 +30,11 @@ export type LiveScope =
     };
 
 /**
- * Why a run used its agent version: named by the caller (`explicit`), the
- * conversation's own (`conversation`), the version live for the run's
- * scope (`live`), or the latest registered, nothing being live
- * (`latest`).
+ * Why a run used its agent version: named by the caller (`explicit`), held
+ * by the flow version a flow's agent step runs in (`flow-pin`: its node's
+ * `config.version`, else the version the flow version pinned when it was
+ * published), the conversation's own (`conversation`), the version live
+ * for the run's scope (`live`), or the latest registered, nothing being
+ * live (`latest`).
  */
-export type AgentVersionVia = 'explicit' | 'conversation' | 'live' | 'latest';
+export type AgentVersionVia = 'explicit' | 'flow-pin' | 'conversation' | 'live' | 'latest';

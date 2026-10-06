@@ -424,6 +424,38 @@ const SupervisorIdQueryParam: ParameterSpec = {
   schema: { type: 'string' },
 };
 
+const ObservationAgentVersionQueryParam: ParameterSpec = {
+  name: 'agentVersion',
+  in: 'query',
+  required: false,
+  description: 'Only the observations of this agent version (with `agentId`).',
+  schema: { type: 'string' },
+};
+
+const ObservationConversationIdQueryParam: ParameterSpec = {
+  name: 'conversationId',
+  in: 'query',
+  required: false,
+  description: 'Only the observations of turns in this conversation.',
+  schema: { type: 'string' },
+};
+
+const ObservationSinceQueryParam: ParameterSpec = {
+  name: 'since',
+  in: 'query',
+  required: false,
+  description: 'Only the observations at or after this time (ISO 8601).',
+  schema: { type: 'string', format: 'date-time' },
+};
+
+const ObservationUntilQueryParam: ParameterSpec = {
+  name: 'until',
+  in: 'query',
+  required: false,
+  description: 'Only the observations at or before this time (ISO 8601).',
+  schema: { type: 'string', format: 'date-time' },
+};
+
 const FactIdPathParam: ParameterSpec = {
   name: 'factId',
   in: 'path',
@@ -513,7 +545,7 @@ const ProvenanceAgentIdQueryParam: ParameterSpec = {
   in: 'query',
   required: false,
   description:
-    'Filter records to those with at least one DAG node whose `actor = <agentId>` (agent-driven turns tag their nodes with the agent id).',
+    "Only the records of this agent's turns, at any version: the agent the record's run names, as `GET /v1/runs?agentId=` matches it. Turns that ran before Kindgi 0.1.3 don't name their agent and aren't matched.",
   schema: { type: 'string' },
 };
 
@@ -1858,7 +1890,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Unregistered.', schema: ref('UnregisterAgentResult') },
       ...CommonMutationErrors,
       '409': ErrorResponse(
-        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead. Or `agent-version-live`: the version is the live version of the scopes in `details.scopes`; roll back, unpin, or promote another version there first.",
       ),
       '404': ErrorResponse('No agent at that (id, version) under this tenant.'),
     },
@@ -3155,7 +3187,11 @@ export const OPERATIONS: readonly OperationSpec[] = [
       CursorQueryParam,
       ObservationStatusQueryParam,
       AgentIdQueryParam,
+      ObservationAgentVersionQueryParam,
       SupervisorIdQueryParam,
+      ObservationConversationIdQueryParam,
+      ObservationSinceQueryParam,
+      ObservationUntilQueryParam,
     ],
     responses: {
       '200': {
@@ -4914,7 +4950,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'audit.authz.list',
     summary: 'List authz decision audit events',
     description:
-      'Cursor-paginated read of `authz-decision` audit events for the tenant. Filters (all AND-composed): `?actorSubject=` / `?onBehalfOf=` / `?action=` / `?resource=` / `?outcome=` / `?runId=` / `?from=` / `?to=`. Admin@tenant only. Only mounted when `CreateAppInput.auditEvents` is wired.',
+      'Cursor-paginated read of `authz-decision` audit events for the tenant. Filters (all AND-composed): `?actorSubject=` / `?onBehalfOf=` / `?action=` / `?resource=` / `?outcome=` / `?runId=` / `?from=` / `?to=`. Oldest first; `?order=desc` for newest first. Admin@tenant only. Only mounted when `CreateAppInput.auditEvents` is wired.',
     tags: ['audit'],
     security: 'bearer',
     parameters: [
@@ -4976,6 +5012,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
         description: 'ISO 8601 upper bound (inclusive) on `timestamp`.',
         schema: { type: 'string', format: 'date-time' },
       },
+      {
+        name: 'order',
+        in: 'query',
+        required: false,
+        description:
+          '`asc` (the default): oldest first. `desc`: newest first. `nextCursor` continues in the same order.',
+        schema: { type: 'string', enum: ['asc', 'desc'] },
+      },
     ],
     responses: {
       '200': {
@@ -5022,7 +5066,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         },
       },
       ...CommonAuthErrors,
-      '400': ErrorResponse('Malformed cursor, `from`, `to`, or `outcome`.'),
+      '400': ErrorResponse('Malformed cursor, `from`, `to`, `outcome`, or `order`.'),
     },
   },
 

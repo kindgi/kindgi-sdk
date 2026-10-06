@@ -751,7 +751,7 @@ Inside a pack that `kindgi dev` runs, they find it on their own (see
 | `conversations` | `list`, `get`, `open <agent-id> <version>`, `close`, `messages` |
 | `runs` | `list`, `get`, `cancel`, `journal`, `stream` (one JSON event per line), `start`, `resume` |
 | `agents` | `list`, `get <agent-id> [<version>]`, `publish`, `derive`, `unregister <agent-id> <version>`, `versions`; which version runs where: `live`, `live-versions`, `promote`, `rollback`, `unpin`, `promotions` |
-| `tools` | `list`, `get`, `unregister`, `versions`, `get-version`, `reinstate` |
+| `tools` | `list`, `get`, `publish`, `unregister`, `versions`, `get-version`, `reinstate` |
 | `flows` | `list`, `get <flow-id> [<version>]`, `publish --spec=<json>`, `versions`, `unregister <flow-id> <version>`, `reinstate <flow-id> <version>` |
 | `guardrails` | `list`, `get`, `register`, `unregister` |
 | `providers` | `list`, `get`, `register`, `presets`, `unregister` |

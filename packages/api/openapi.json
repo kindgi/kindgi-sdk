@@ -270,11 +270,12 @@
             "type": "string",
             "enum": [
               "explicit",
+              "flow-pin",
               "conversation",
               "live",
               "latest"
             ],
-            "description": "Why this version ran: named by the caller, the conversation's own, the version live for the run's scope, or the latest (nothing live). Absent on runs from before Kindgi 0.1.4."
+            "description": "Why this version ran: named by the caller (`explicit`); held by the flow version a flow's agent step runs in (`flow-pin`: the node's `config.version`, else the version the flow version pinned when it was published); the conversation's own (`conversation`); the version live for the run's scope (`live`); or the latest, nothing being live (`latest`). Absent on runs from before Kindgi 0.1.4."
           },
           "liveScope": {
             "$ref": "#/components/schemas/LiveScope",
@@ -11524,6 +11525,7 @@
           "secret-hard-revoked",
           "hitl-decision",
           "agent-promotion",
+          "agent-promotion-refused",
           "agent-rollback",
           "agent-live-unpinned",
           "agent-live-pin-inactive"
@@ -11675,6 +11677,7 @@
               "secret-hard-revoked",
               "hitl-decision",
               "agent-promotion",
+              "agent-promotion-refused",
               "agent-rollback",
               "agent-live-unpinned",
               "agent-live-pin-inactive"
@@ -11849,6 +11852,7 @@
               "secret-hard-revoked",
               "hitl-decision",
               "agent-promotion",
+              "agent-promotion-refused",
               "agent-rollback",
               "agent-live-unpinned",
               "agent-live-pin-inactive"
@@ -11923,6 +11927,7 @@
                   "secret-hard-revoked",
                   "hitl-decision",
                   "agent-promotion",
+                  "agent-promotion-refused",
                   "agent-rollback",
                   "agent-live-unpinned",
                   "agent-live-pin-inactive"
@@ -17652,7 +17657,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead. Or `agent-version-live`: the version is the live version of the scopes in `details.scopes`; roll back, unpin, or promote another version there first.",
             "content": {
               "application/json": {
                 "schema": {
@@ -22796,7 +22801,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Filter records to those with at least one DAG node whose `actor = <agentId>` (agent-driven turns tag their nodes with the agent id)."
+            "description": "Only the records of this agent's turns, at any version: the agent the record's run names, as `GET /v1/runs?agentId=` matches it. Turns that ran before Kindgi 0.1.3 don't name their agent and aren't matched."
           },
           {
             "name": "createdAfter",
@@ -23436,12 +23441,50 @@
             "required": false
           },
           {
+            "name": "agentVersion",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Only the observations of this agent version (with `agentId`)."
+          },
+          {
             "name": "supervisorId",
             "in": "query",
             "schema": {
               "type": "string"
             },
             "required": false
+          },
+          {
+            "name": "conversationId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Only the observations of turns in this conversation."
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "description": "Only the observations at or after this time (ISO 8601)."
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "description": "Only the observations at or before this time (ISO 8601)."
           }
         ],
         "security": [
@@ -30901,7 +30944,7 @@
             }
           },
           "400": {
-            "description": "Malformed cursor, `from`, `to`, or `outcome`.",
+            "description": "Malformed cursor, `from`, `to`, `outcome`, or `order`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -30921,7 +30964,7 @@
             }
           }
         },
-        "description": "Cursor-paginated read of `authz-decision` audit events for the tenant. Filters (all AND-composed): `?actorSubject=` / `?onBehalfOf=` / `?action=` / `?resource=` / `?outcome=` / `?runId=` / `?from=` / `?to=`. Admin@tenant only. Only mounted when `CreateAppInput.auditEvents` is wired.",
+        "description": "Cursor-paginated read of `authz-decision` audit events for the tenant. Filters (all AND-composed): `?actorSubject=` / `?onBehalfOf=` / `?action=` / `?resource=` / `?outcome=` / `?runId=` / `?from=` / `?to=`. Oldest first; `?order=desc` for newest first. Admin@tenant only. Only mounted when `CreateAppInput.auditEvents` is wired.",
         "parameters": [
           {
             "name": "limit",
@@ -31021,6 +31064,19 @@
             },
             "required": false,
             "description": "ISO 8601 upper bound (inclusive) on `timestamp`."
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ]
+            },
+            "required": false,
+            "description": "`asc` (the default): oldest first. `desc`: newest first. `nextCursor` continues in the same order."
           }
         ],
         "security": [

@@ -149,9 +149,9 @@ export const RunAgentSchema: JsonSchema = {
     conversationId: { type: 'string', format: 'uuid' },
     via: {
       type: 'string',
-      enum: ['explicit', 'conversation', 'live', 'latest'],
+      enum: ['explicit', 'flow-pin', 'conversation', 'live', 'latest'],
       description:
-        "Why this version ran: named by the caller, the conversation's own, the version live for the run's scope, or the latest (nothing live). Absent on runs from before Kindgi 0.1.4.",
+        "Why this version ran: named by the caller (`explicit`); held by the flow version a flow's agent step runs in (`flow-pin`: the node's `config.version`, else the version the flow version pinned when it was published); the conversation's own (`conversation`); the version live for the run's scope (`live`); or the latest, nothing being live (`latest`). Absent on runs from before Kindgi 0.1.4.",
     },
     liveScope: {
       $ref: '#/components/schemas/LiveScope',

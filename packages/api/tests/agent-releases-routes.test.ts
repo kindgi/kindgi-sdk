@@ -562,3 +562,51 @@ describe('authorization: changing what is live needs promote; reading needs read
     expect(checked).toEqual([`admin ${on}`]);
   });
 });
+
+describe('POST /v1/agents/:agentId/versions/:version/unregister, a live version', () => {
+  function appWhoseUnregister(outcome: { unregistered: boolean; live?: readonly LiveScope[] }) {
+    return createApp({
+      ...createStubAppBindings(),
+      resolveToken,
+      runHandler,
+      agentRegistry: { ...registryWith(['1.0.0']), unregister: async () => outcome },
+      agentReleases: fakeReleases().bindings,
+    });
+  }
+
+  test('refused with 409 agent-version-live, naming the scopes it serves', async () => {
+    const app = appWhoseUnregister({
+      unregistered: false,
+      live: [
+        { kind: 'tenant' },
+        { kind: 'segment', projectId: PROJECT as never, path: [{ key: 'plan', value: 'pro' }] },
+      ],
+    });
+    const res = await app.request(`/v1/agents/${AGENT}/versions/1.0.0/unregister`, {
+      method: 'POST',
+      headers: auth,
+    });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as {
+      error: { code: string; message: string; details: Record<string, unknown> };
+    };
+    expect(body.error.code).toBe('agent-version-live');
+    expect(body.error.message).toContain('roll back, unpin, or promote another version');
+    expect(body.error.details).toEqual({
+      agentId: AGENT,
+      version: '1.0.0',
+      scopes: [
+        { kind: 'tenant' },
+        { kind: 'segment', projectId: PROJECT, path: [{ key: 'plan', value: 'pro' }] },
+      ],
+    });
+  });
+
+  test('a registry that knows no live versions: 404 as before', async () => {
+    const res = await appWhoseUnregister({ unregistered: false }).request(
+      `/v1/agents/${AGENT}/versions/1.0.0/unregister`,
+      { method: 'POST', headers: auth },
+    );
+    expect(res.status).toBe(404);
+  });
+});
