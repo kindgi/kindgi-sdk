@@ -249,7 +249,12 @@ conversation-closed Conversation "b3135493-47bd-4f78-90ac-fe0ff3e21e8d" is close
   with `participantId` in its input.
 - `close` is safe to repeat: closing a closed conversation returns it as it is.
 - `list` filters by agent and by `status` (`open` or `closed`), newest first;
-  `get` fetches one conversation.
+  `get` fetches one conversation. From the CLI:
+  `kindgi conversations list --status=closed`.
+- **A [comparison](../../evals/compare-an-agent-version/)'s replays** have
+  conversations too, and lists leave them out unless you ask: `replays:
+  'include'` or `'only'` (`--replays=include` or `--replays=only` in the CLI).
+  A replay's conversation has `replayOf` and `evalRunId` in its `metadata`.
 - A conversation is in a project: a run opens it in the run's project, and
   `open` takes a `projectId` (one of your tenant's projects; without one, the
   Default project, as for a run). `list` takes a `scope` for one project's
