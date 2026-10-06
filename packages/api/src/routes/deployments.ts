@@ -551,6 +551,8 @@ export function deploymentsRouter(bindings: DeploymentsRouterBindings): Hono<App
             rolled.push(async () => {
               await bindings.toolRegistry?.unregister({ tenantId, toolId, version });
             });
+          } else if (outcome.kind !== 'already-registered') {
+            throw new PublishRefused('tool', `${tool.id}@${tool.version}`, outcome.kind);
           }
         }
       }
@@ -574,6 +576,8 @@ export function deploymentsRouter(bindings: DeploymentsRouterBindings): Hono<App
             rolled.push(async () => {
               await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
             });
+          } else if (outcome.kind !== 'already-registered') {
+            throw new PublishRefused('guardrail', guardrail.id, outcome.kind);
           }
         }
       }
@@ -601,6 +605,8 @@ export function deploymentsRouter(bindings: DeploymentsRouterBindings): Hono<App
             rolled.push(async () => {
               await bindings.agentRegistry?.unregister({ tenantId, agentId, version });
             });
+          } else if (outcome.kind !== 'already-registered') {
+            throw new PublishRefused('agent', `${agent.id}@${agent.version}`, outcome.kind);
           }
         }
       }
@@ -625,11 +631,29 @@ export function deploymentsRouter(bindings: DeploymentsRouterBindings): Hono<App
             rolled.push(async () => {
               await bindings.flowRegistry?.unregister({ tenantId, flowId, version });
             });
+          } else if (outcome.kind !== 'already-registered') {
+            throw new PublishRefused('flow', `${flow.id}@${flow.version}`, outcome.kind);
           }
         }
       }
     } catch (cause) {
       await rollback(rolled);
+      // A primitive refused with a typed outcome is the caller's to fix:
+      // that outcome's own status and code. Anything thrown is a 500.
+      if (cause instanceof PublishRefused) {
+        c.status(statusFor(cause.code) as never);
+        return c.json(
+          toWireError(
+            {
+              code: cause.code,
+              message: `${cause.message}; nothing was deployed`,
+              primitive: cause.primitive,
+              id: cause.id,
+            },
+            requestId,
+          ),
+        );
+      }
       c.status(statusFor('internal-server-error') as never);
       return c.json(
         toWireError(
@@ -1410,6 +1434,29 @@ function validateFlowIndexShape(
 // ------------------------------------------------------------
 
 type RollbackAction = () => Promise<void>;
+
+/**
+ * A deploy's primitive came back from its registry with an outcome other
+ * than `ok` or `already-registered` (e.g. `project-not-found`): the deploy
+ * stops, and what it published is rolled back. Before, such an outcome
+ * was skipped, and the deployment was recorded without that primitive.
+ */
+class PublishRefused extends Error {
+  constructor(
+    readonly primitive: 'tool' | 'guardrail' | 'agent' | 'flow',
+    readonly id: string,
+    readonly code: Exclude<
+      | Awaited<ReturnType<ToolRegistryBinding['publish']>>['kind']
+      | Awaited<ReturnType<GuardrailRegistryBinding['register']>>['kind']
+      | Awaited<ReturnType<AgentRegistryBinding['publish']>>['kind']
+      | Awaited<ReturnType<FlowRegistryBinding['publish']>>['kind'],
+      'ok' | 'already-registered'
+    >,
+  ) {
+    super(`The ${primitive} ${id} wasn't published: ${code}`);
+    this.name = 'PublishRefused';
+  }
+}
 
 async function rollback(actions: readonly RollbackAction[]): Promise<void> {
   // Reverse order — last-in, first-out — so registrations are undone in

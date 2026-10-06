@@ -324,7 +324,9 @@ function makeInMemoryGuardrailRegistry(): GuardrailRegistryBinding {
 
 let lastAgentPublishProjectId: ProjectId | undefined;
 
-function makeInMemoryAgentRegistry(opts: { failOnAgentId?: string } = {}): AgentRegistryBinding {
+function makeInMemoryAgentRegistry(
+  opts: { failOnAgentId?: string; refuseAgentId?: string } = {},
+): AgentRegistryBinding {
   const store = new Map<string, Map<string, Map<string, unknown>>>();
   return {
     async list() {
@@ -349,6 +351,17 @@ function makeInMemoryAgentRegistry(opts: { failOnAgentId?: string } = {}): Agent
         (agent.id as unknown as string) === opts.failOnAgentId
       ) {
         throw new Error(`forced failure on agent ${opts.failOnAgentId}`);
+      }
+      if (
+        opts.refuseAgentId !== undefined &&
+        (agent.id as unknown as string) === opts.refuseAgentId
+      ) {
+        return {
+          kind: 'project-not-found',
+          agentId: agent.id,
+          version: agent.version,
+          projectId,
+        } as never;
       }
       const key = tenantId as unknown as string;
       let byTenant = store.get(key);
@@ -1188,6 +1201,72 @@ describe('POST /v1/deployments — rollback', () => {
       guardrailId: 'acme.no-fabricated-quotes' as never,
     });
     expect(inv).toBeNull();
+  });
+
+  test("a primitive refused with a typed outcome (project-not-found) → that outcome's 404, rolled back, no deployment (T205)", async () => {
+    const fixture = buildSignedDeploy({
+      index: {
+        v: 1,
+        artifactVersion: '20260920.1',
+        publishedAt: '2026-09-20T14:32:07.104Z',
+        tools: [
+          {
+            id: 'acme.verify-citation',
+            description: 'x',
+            version: '1.0.0',
+            input: { type: 'object' },
+            output: { type: 'object' },
+          },
+        ],
+        guardrails: [
+          {
+            id: 'acme.no-fabricated-quotes',
+            kind: 'zero-llm',
+            check: 'must-cite',
+            action: { 'on-violation': 'halt' },
+          },
+        ],
+        agents: [
+          {
+            id: 'acme.drafting',
+            version: '1.0.0',
+            name: 'Drafting',
+            instructions: 'do it',
+            capabilities: [{ feature: 'model.text.chat' }],
+            tools: [],
+          },
+        ],
+        flows: [],
+      },
+    });
+    const deploymentRegistry = makeInMemoryDeploymentBinding();
+    const { app, toolRegistry, guardrailRegistry } = makeApp({
+      fixture,
+      agentRegistry: makeInMemoryAgentRegistry({ refuseAgentId: 'acme.drafting' }),
+      deploymentRegistry,
+    });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as {
+      error: { code: string; message: string; details?: Record<string, unknown> };
+    };
+    expect(body.error.code).toBe('project-not-found');
+    expect(body.error.message).toBe(
+      "The agent acme.drafting@1.0.0 wasn't published: project-not-found; nothing was deployed",
+    );
+    expect(body.error.details).toEqual({ primitive: 'agent', id: 'acme.drafting@1.0.0' });
+    // Before: skipped, and the deployment recorded without its agent.
+    expect(
+      await toolRegistry.get({ tenantId, toolId: 'acme.verify-citation' as never }),
+    ).toBeNull();
+    expect(
+      await guardrailRegistry.get({ tenantId, guardrailId: 'acme.no-fabricated-quotes' as never }),
+    ).toBeNull();
+    expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
   });
 });
 
