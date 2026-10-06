@@ -144,7 +144,8 @@ flow's run.
 ## One customer's month
 
 Give each of your customers an org, and run their work in a project of that
-org. One call then sums a customer's spend, here by month and model:
+org ([Organize work by org and project](../../projects/organize-by-org-and-project/)).
+One call then sums a customer's spend, here by month and model:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -156,9 +157,9 @@ import type { Timestamp } from '@kindgi/sdk/types';
 
 const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
-// Once per customer: an org, and a project in it. Slugs are unique across the tenant.
+// Once per customer: an org, and a project in it.
 const org = await kindgi.orgs.create({ slug: 'acme-customer-one', name: 'Customer one' });
-const project = await kindgi.projects.create({ orgId: org.id, slug: 'acme-customer-one-support', name: 'Support' });
+const project = await kindgi.projects.create({ orgId: org.id, slug: 'support', name: 'Support' });
 
 // Each run for that customer names the project.
 await kindgi.runs.start({
@@ -191,9 +192,9 @@ from kindgi.client import Kindgi
 
 kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
-# Once per customer: an org, and a project in it. Slugs are unique across the tenant.
+# Once per customer: an org, and a project in it.
 org = kindgi.orgs.create(slug="acme-customer-one", name="Customer one")
-project = kindgi.projects.create(org_id=str(org.id), slug="acme-customer-one-support", name="Support")
+project = kindgi.projects.create(org_id=str(org.id), slug="support", name="Support")
 
 # Each run for that customer names the project.
 kindgi.runs.start(
@@ -223,16 +224,18 @@ The sum covers only that customer's runs:
 {
   "groups": [
     {
-      "key": { "month": "2026-10", "model": "claude-haiku-4-5" },
+      "key": {"month": "2026-10", "model": "claude-haiku-4-5"},
       "count": 2,
       "totalUsd": 0.0021260000000000003,
-      "tokens": { "prompt": 1671, "completion": 91, "cacheRead": 0, "cacheWrite": 0, "reasoning": 0 }
+      "tokens": {"prompt": 1671, "completion": 91, "cacheRead": 0, "cacheWrite": 0, "reasoning": 0}
     }
   ],
+  "totalGroups": 1,
+  "truncated": false,
   "totalUsd": 0.0021260000000000003,
   "totalRecords": 2,
-  "tokens": { "prompt": 1671, "completion": 91, "cacheRead": 0, "cacheWrite": 0, "reasoning": 0 },
-  "timeRange": { "from": "2026-10-01T00:00:00.000Z", "to": "2026-10-05T07:35:16.122Z" },
+  "tokens": {"prompt": 1671, "completion": 91, "cacheRead": 0, "cacheWrite": 0, "reasoning": 0},
+  "timeRange": {"from": "2026-10-01T00:00:00.000Z", "to": "2026-10-06T03:45:51.334Z"},
   "groupBy": ["month", "model"]
 }
 ```
@@ -241,6 +244,11 @@ The sum covers only that customer's runs:
   project (`{ kind: 'project', projectId }`). Python: `scope_kind` and
   `scope_id`.
 - **`from` and `to`**: the time window; `to` is exclusive.
+- **The groups** come most expensive first, at most 1000 of them; `?limit=`
+  on the API (Python: `limit=`), up to 10000, sets another cap. `truncated` says whether some were left
+  out, and `totalGroups` how many there were; the totals always cover every
+  record. To read every record instead, page through
+  [`cost.usage.query`](#a-runs-calls).
 - **`groupBy`** splits the sum. Besides `month` and `model`: `day`, `orgId`,
   `projectId`, `agentId`, `flowId`, `runId`, `rootRunId`, `conversationId`,
   `providerId`, `servedModel`, `category` and `tenant`. With no `groupBy`,
