@@ -22,4 +22,5 @@
   - A block that can't load fails the turn (`block-unresolvable`).
   - `InvokeAgentBindings` takes an optional `blockReader`.
 - **Changed elsewhere:** the agent spec, the pack index, both indexers (TS and Python: `Agent(instructions={...}, settings=[...], model_settings={...})`), and both clients.
+- **Pack protocol 2.4.0:** `callContext` gets optional `settings`, so pack code reads them: `ctx.settings['acme.weights']` in TS, `ctx.settings["acme.weights"]` in Python. Older pack services still answer calls that carry it: a TS one passes it to the handler, a Python one drops it.
 - **`settings` is now a reserved template name.**

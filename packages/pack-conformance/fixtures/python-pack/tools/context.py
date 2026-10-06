@@ -22,4 +22,6 @@ def context(input: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
         out["projectId"] = ctx.project_id
     if ctx.org_id is not None:
         out["orgId"] = ctx.org_id
+    if ctx.settings:
+        out["settings"] = {block: dict(values) for block, values in ctx.settings.items()}
     return out
