@@ -160,7 +160,9 @@ kindgi.agents.reinstate_version("acme.greeter", "1.0.0")
 2026-10-06T05:42:12.899Z { 'acme.greet': '1.1.0' }
 ```
 
-Tool and flow versions are unregistered and reinstated the same way.
+Tool and flow versions are unregistered and reinstated the same way. This
+is for a runtime you deploy to: under `kindgi dev`, the pack's files are the
+agents and tools, so you remove or change the file instead.
 
 - **No new run gets it:** not by a range, not as the latest, not by its
   exact number. A run that names it is refused:
