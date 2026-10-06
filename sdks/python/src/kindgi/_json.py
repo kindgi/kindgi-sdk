@@ -18,13 +18,24 @@ from collections.abc import Mapping, Sequence
 from decimal import Decimal
 from typing import Any
 
-__all__ = ["compact_dumps", "js_number", "stable_dumps"]
+__all__ = ["canonical_dumps", "compact_dumps", "js_number", "stable_dumps"]
 
 
 def stable_dumps(value: Any) -> str:
     """Serialize `value` canonically (no trailing newline)."""
     out: list[str] = []
     _write(value, 0, out)
+    return "".join(out)
+
+
+def canonical_dumps(value: Any) -> str:
+    """Serialize `value` canonically with no whitespace: `canonicalize` in TypeScript.
+
+    Keys sorted at every level (UTF-16 code-unit order), numbers as
+    `JSON.stringify` writes them. The bytes a digest is taken over.
+    """
+    out: list[str] = []
+    _write_canonical(value, out)
     return "".join(out)
 
 
@@ -75,6 +86,29 @@ def _write(value: Any, depth: int, out: list[str]) -> None:
         out.append(f"\n{'  ' * depth}]")
     else:
         raise TypeError(f"{type(value).__name__} is not JSON-serializable")
+
+
+def _write_canonical(value: Any, out: list[str]) -> None:
+    if isinstance(value, Mapping):
+        mapping: Mapping[Any, Any] = value  # pyright: ignore[reportUnknownVariableType]
+        keys = sorted((_key(k) for k in mapping), key=_utf16)
+        out.append("{")
+        for i, key in enumerate(keys):
+            if i:
+                out.append(",")
+            out.append(f"{json.dumps(key, ensure_ascii=False)}:")
+            _write_canonical(mapping[key], out)
+        out.append("}")
+    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        items: Sequence[Any] = value  # pyright: ignore[reportUnknownVariableType]
+        out.append("[")
+        for i, item in enumerate(items):
+            if i:
+                out.append(",")
+            _write_canonical(item, out)
+        out.append("]")
+    else:
+        _write(value, 0, out)
 
 
 def _key(key: Any) -> str:

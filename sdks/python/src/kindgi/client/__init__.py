@@ -38,6 +38,7 @@ from ._errors import (
     RateLimitedError,
     ServerError,
 )
+from ._pins import pins_digest
 from ._runtime_config import KindgiConfigWarning
 
 __all__ = [
@@ -56,4 +57,5 @@ __all__ = [
     "apaginate",
     "models",
     "paginate",
+    "pins_digest",
 ]
