@@ -153,6 +153,18 @@ def test_path_and_query_parameters() -> None:
     assert dict(seen[1].url.params) == {"limit": "5", "topLevel": "true"}
 
 
+def test_eval_suites_unregister_names_the_call_as_the_other_resources_do() -> None:
+    # `eval_suites.unregister`, as `agents.unregister`: the same call as
+    # `eval_suites.versions.unregister`.
+    answer = {"suiteId": "acme.set", "version": "1.0.0", "unregistered": True}
+    api, seen = client(lambda r: httpx.Response(200, json=answer))
+    api.eval_suites.unregister("acme.set", "1.0.0")
+    api.eval_suites.versions.unregister("acme.set", "1.0.0")
+    assert [(r.method, r.url.path) for r in seen] == [
+        ("POST", "/v1/eval-suites/acme.set/versions/1.0.0/unregister"),
+    ] * 2
+
+
 def test_conversations_list_takes_replays() -> None:
     # A comparison's replay conversations are left out unless asked for.
     api, seen = client(lambda r: httpx.Response(200, json={"data": [], "hasMore": False}))
@@ -317,6 +329,28 @@ def test_paginate_follows_the_cursor() -> None:
     }
     api, seen = client(lambda r: httpx.Response(200, json=pages[r.url.params.get("cursor")]))
     assert len(list(paginate(api.runs.list, limit=2))) == 3
+    assert [r.url.params.get("cursor") for r in seen] == [None, "c2"]
+
+
+@pytest.mark.parametrize("has_more", [True, None], ids=["hasMore", "older server"])
+def test_paginate_pages_env_with_or_without_has_more(has_more: bool | None) -> None:
+    entry = {
+        "scope": {"kind": "tenant", "tenantId": "acme"},
+        "envName": "dev",
+        "name": "REGION",
+        "value": "eu",
+        "revision": 1,
+        "createdAt": "2026-10-01T00:00:00Z",
+        "updatedAt": "2026-10-01T00:00:00Z",
+    }
+    first: dict[str, Any] = {"data": [entry], "nextCursor": "c2"}
+    last: dict[str, Any] = {"data": [entry]}
+    if has_more is not None:
+        first["hasMore"], last["hasMore"] = True, False
+    pages = {None: first, "c2": last}
+    api, seen = client(lambda r: httpx.Response(200, json=pages[r.url.params.get("cursor")]))
+    entries = list(paginate(api.env.list, env_name="dev", scope_kind="tenant"))
+    assert len(entries) == 2
     assert [r.url.params.get("cursor") for r in seen] == [None, "c2"]
 
 

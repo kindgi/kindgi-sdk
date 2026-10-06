@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Cursor, FactId, LogEntryId, Page } from '@kindgi/types';
+import type { FactId, LogEntryId } from '@kindgi/types';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
+import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { Transport } from '../transport.js';
 import type {
   AppendLogInput,
@@ -84,7 +85,7 @@ export interface FactsClient {
    * is serialized as a JSON-encoded `?scope=` query param per the
    * server-side parser (`parseScopeParam`).
    */
-  list(filter?: FactFilter): Promise<Page<Fact>>;
+  list(filter?: FactFilter): Promise<ListPage<Fact>>;
 
   /**
    * Soft-delete a fact via supersession. Facts are append-only on the
@@ -109,7 +110,7 @@ export interface LogsClient {
   /**
    * @unwired No `GET /v1/memory/logs` route.
    */
-  list(filter?: LogFilter): Promise<Page<LogEntry>>;
+  list(filter?: LogFilter): Promise<ListPage<LogEntry>>;
 
   /**
    * @unwired No `POST /v1/memory/logs/verify` route. Verifying the
@@ -117,12 +118,6 @@ export interface LogsClient {
    *   expose.
    */
   verify(entries: readonly LogEntry[]): Promise<LogVerifyResult>;
-}
-
-interface WirePage<T> {
-  readonly data: readonly T[];
-  readonly hasMore: boolean;
-  readonly nextCursor?: string;
 }
 
 interface WireRetrieveResult {
@@ -161,12 +156,7 @@ export function makeMemoryClient(transport: Transport): MemoryClient {
             ...(filter?.scope !== undefined && { scope: JSON.stringify(filter.scope) }),
           },
         });
-        return {
-          items: page.data,
-          ...(page.nextCursor !== undefined && {
-            nextCursor: page.nextCursor as unknown as Cursor,
-          }),
-        };
+        return listPage(page);
       },
 
       async delete(id, options) {

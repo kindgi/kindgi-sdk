@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { AgentId, Cursor, Page, RunId, SupervisorId, Timestamp } from '@kindgi/types';
+import type { AgentId, Cursor, RunId, SupervisorId, Timestamp } from '@kindgi/types';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
+import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { Transport } from '../transport.js';
 import type { Observation, ObservationStatus } from '../types.js';
 
@@ -27,7 +28,7 @@ export interface ObservationsClient {
    *
    * @wire `GET /v1/observations` — see `@kindgi/api/openapi.json#/paths/~1v1~1observations/get`.
    */
-  query(filter?: ObservationFilter): Promise<Page<Observation>>;
+  query(filter?: ObservationFilter): Promise<ListPage<Observation>>;
 
   /**
    * @unwired No `/v1/observations/patterns` route.
@@ -53,12 +54,6 @@ export interface PatternsInput {
   readonly until?: Timestamp;
   readonly agent?: AgentId;
   readonly limit?: number;
-}
-
-interface WirePage<T> {
-  readonly data: readonly T[];
-  readonly hasMore: boolean;
-  readonly nextCursor?: string;
 }
 
 export function makeObservationsClient(transport: Transport): ObservationsClient {
@@ -92,10 +87,7 @@ export function makeObservationsClient(transport: Transport): ObservationsClient
           ...(filter?.until !== undefined && { until: filter.until as unknown as string }),
         },
       });
-      return {
-        items: page.data,
-        ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as Cursor }),
-      };
+      return listPage(page);
     },
 
     async patterns(_input) {

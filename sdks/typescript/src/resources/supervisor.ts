@@ -7,11 +7,11 @@ import type {
   DatasetId,
   Filter,
   FixProposalId,
-  Page,
   SupervisorId,
 } from '@kindgi/types';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
+import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { Transport } from '../transport.js';
 import type {
   ApplyProposalResult,
@@ -66,10 +66,10 @@ export interface SupervisorClient {
   get(id: SupervisorId): Promise<Supervisor>;
 
   /** @unwired No `GET /v1/supervisors` route. */
-  list(filter?: Filter): Promise<Page<Supervisor>>;
+  list(filter?: Filter): Promise<ListPage<Supervisor>>;
 
   /** @unwired No `GET /v1/supervisors/{id}/versions` route. */
-  versions(id: SupervisorId): Promise<Page<Supervisor>>;
+  versions(id: SupervisorId): Promise<ListPage<Supervisor>>;
 
   /** @unwired No `DELETE /v1/supervisors/{id}` route. */
   delete(id: SupervisorId): Promise<void>;
@@ -97,7 +97,7 @@ export interface ProposalsClient {
    * @wire `GET /v1/proposals` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1proposals/get`.
    */
-  list(input: ProposalListInput): Promise<Page<FixProposal>>;
+  list(input: ProposalListInput): Promise<ListPage<FixProposal>>;
 
   /**
    * @wire `GET /v1/proposals/{proposalId}` — see
@@ -249,12 +249,6 @@ export interface WithdrawProposalInput {
   readonly idempotencyKey?: string;
 }
 
-interface WirePage<T> {
-  readonly data: readonly T[];
-  readonly hasMore: boolean;
-  readonly nextCursor?: string;
-}
-
 const REASON_NO_SUPERVISOR_CRUD =
   'no /v1/supervisors CRUD routes on the API — supervisor persistence is caller-plugged via SupervisorBinding at deployment boot (framework does NOT own supervisor storage; analogous to the identity-directory pattern for users)';
 
@@ -312,12 +306,7 @@ export function makeSupervisorClient(transport: Transport): SupervisorClient {
             ...(input.tier !== undefined && { tier: input.tier }),
           },
         });
-        return {
-          items: page.data,
-          ...(page.nextCursor !== undefined && {
-            nextCursor: page.nextCursor as unknown as Cursor,
-          }),
-        };
+        return listPage(page);
       },
 
       async get(supervisorId, id) {

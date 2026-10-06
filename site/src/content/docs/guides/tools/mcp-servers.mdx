@@ -78,7 +78,7 @@ await kindgi.mcp.endpoints.register({
 });
 
 const page = await kindgi.mcp.endpoints.list();
-console.log(page.items.map((e) => `${e.endpointId} (${e.transport})`));
+console.log(page.data.map((e) => `${e.endpointId} (${e.transport})`));
 ```
 
 ```text

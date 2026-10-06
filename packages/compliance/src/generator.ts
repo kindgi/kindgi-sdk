@@ -6,7 +6,9 @@ import type { ComplianceEvidenceId, Result, RunId, SigningKeyId, TenantId } from
 
 import type { ComplianceError } from './errors.js';
 import type {
+  ActorKind,
   ComplianceEvidence,
+  EvidenceActor,
   EvidenceFilter,
   EvidenceOutcome,
   EvidencePayload,
@@ -57,7 +59,29 @@ export function auditEventToEvidence(event: AuditEvent): ComplianceEvidence {
     payload: extractDoc(event.payload) as EvidencePayload,
     ...(event.outcome !== undefined && { outcome: event.outcome as EvidenceOutcome }),
     ...(event.runId !== undefined && { provenanceRef: { runId: event.runId as RunId } }),
+    ...actorOf(event.actor),
   };
+}
+
+const ACTOR_KINDS: ReadonlySet<string> = new Set<ActorKind>([
+  'user',
+  'agent',
+  'system',
+  'admin',
+  'external',
+]);
+
+/**
+ * The event's actor, as evidence names one: `<kind>:<id>` (or a bare
+ * `<kind>`, as the evidence generator writes it) is `{ kind, id }`. An
+ * actor of a kind evidence can't name is left out.
+ */
+function actorOf(actor: string): { readonly actor?: EvidenceActor } {
+  const colon = actor.indexOf(':');
+  const kind = colon === -1 ? actor : actor.slice(0, colon);
+  if (!ACTOR_KINDS.has(kind)) return {};
+  const id = colon === -1 ? '' : actor.slice(colon + 1);
+  return { actor: { kind: kind as ActorKind, ...(id.length > 0 && { id }) } };
 }
 
 function extractDoc(payload: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {

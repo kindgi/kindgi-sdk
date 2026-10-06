@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { EventId, Page, SubscriptionId } from '@kindgi/types';
+import type { EventId, SubscriptionId } from '@kindgi/types';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
+import type { ListPage } from '../list-page.js';
 import type { Transport } from '../transport.js';
 import type {
   Event,
@@ -58,14 +59,14 @@ export interface EventsClient {
   /**
    * @unwired The API has no `GET /v1/events` route for event history.
    */
-  query(filter?: EventListFilter): Promise<Page<Event>>;
+  query(filter?: EventListFilter): Promise<ListPage<Event>>;
 }
 
 export interface SubscriptionsClient {
   /**
    * @unwired The API has no `GET /v1/events/subscriptions` route.
    */
-  list(): Promise<Page<Subscription>>;
+  list(): Promise<ListPage<Subscription>>;
 
   /**
    * @unwired The API has no `GET /v1/events/subscriptions/{id}` route.
