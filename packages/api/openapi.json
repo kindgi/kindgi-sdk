@@ -15397,7 +15397,7 @@
             }
           },
           "409": {
-            "description": "Agent already registered at that (id, version).",
+            "description": "Agent already registered at that (id, version). Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -15630,7 +15630,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -15804,7 +15804,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -15910,7 +15910,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16113,7 +16113,7 @@
             }
           },
           "409": {
-            "description": "Flow already registered at that (id, version).",
+            "description": "Flow already registered at that (id, version). Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16414,7 +16414,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16520,7 +16520,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16723,7 +16723,7 @@
             }
           },
           "409": {
-            "description": "Tool already registered at that id.",
+            "description": "Tool already registered at that id. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -17045,7 +17045,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -17151,7 +17151,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -17354,7 +17354,7 @@
             }
           },
           "409": {
-            "description": "Guardrail already registered at that id.",
+            "description": "Guardrail already registered at that id. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -17510,7 +17510,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -26576,7 +26576,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
             "content": {
               "application/json": {
                 "schema": {

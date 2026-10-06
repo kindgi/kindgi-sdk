@@ -6,6 +6,8 @@ import type { TupleEnqueueHook } from '@kindgi/authz';
 import type { Scope } from '@kindgi/platform';
 import type { Cursor, ProjectId, Semver, TenantId } from '@kindgi/types';
 
+import type { RegistryReadOnly } from './registry-read-only.js';
+
 /**
  * Caller-plugged surface for the agent catalog. Same shape as
  * `TokenAdmin` / `ReviewerBinding` / `RunHandlerBinding`: the API
@@ -22,6 +24,13 @@ import type { Cursor, ProjectId, Semver, TenantId } from '@kindgi/types';
  * cursor round-trips as a string; it never inspects the payload.
  */
 export interface AgentRegistryBinding {
+  /**
+   * Set when this registry takes no writes (under `kindgi dev`, the
+   * pack's files are the source of its agents): every write is refused
+   * with `409 registry-read-only` and this reason, before the binding is
+   * called. See `RegistryReadOnly`.
+   */
+  readonly readOnly?: RegistryReadOnly;
   /**
    * Cursor-paginated list of agents (latest version per id, sorted by
    * agent id ascending). Optional `nameFilter` is a prefix match on the

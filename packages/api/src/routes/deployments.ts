@@ -41,6 +41,7 @@ import type { FlowRegistryBinding } from '../flow-binding.js';
 import { publishDeployedFlow, resolveFlowPins } from '../flow-pins.js';
 import type { GuardrailRegistryBinding } from '../guardrail-binding.js';
 import type { ImageRegistryBinding } from '../image-registry-binding.js';
+import { type RegistryReadOnly, refuseReadOnly } from '../registry-read-only.js';
 import type { SecretBinding } from '../secrets-binding.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-key-binding.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
@@ -486,6 +487,11 @@ export function deploymentsRouter(bindings: DeploymentsRouterBindings): Hono<App
       );
     }
     const validated = validation.value;
+
+    // A read-only registry (under `kindgi dev`, the pack's files) takes
+    // nothing a deployment brings: refuse before any write.
+    const readOnly = readOnlyTarget(validated, bindings);
+    if (readOnly !== undefined) return refuseReadOnly(c, readOnly);
 
     // ---- Registry upserts (with rollback tracking) ----
     //
@@ -1700,4 +1706,23 @@ function errMessage(cause: unknown): string {
 export function sha256HexPrefixed(bytes: Uint8Array): string {
   const hex = createHash('sha256').update(bytes).digest('hex');
   return `sha256:${hex}`;
+}
+
+/** The first read-only registry a deployment would publish into, if any. */
+function readOnlyTarget(
+  validated: {
+    readonly tools: readonly unknown[];
+    readonly agents: readonly unknown[];
+    readonly flows: readonly unknown[];
+    readonly guardrails: readonly unknown[];
+  },
+  bindings: DeploymentsRouterBindings,
+): RegistryReadOnly | undefined {
+  const targets = [
+    [validated.tools, bindings.toolRegistry?.readOnly],
+    [validated.agents, bindings.agentRegistry?.readOnly],
+    [validated.flows, bindings.flowRegistry?.readOnly],
+    [validated.guardrails, bindings.guardrailRegistry?.readOnly],
+  ] as const;
+  return targets.find(([brought, readOnly]) => brought.length > 0 && readOnly !== undefined)?.[1];
 }

@@ -1688,6 +1688,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'The derived agent version.', schema: ref('Agent') },
       ...CommonMutationErrors,
+      '409': ErrorResponse(
+        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+      ),
       '400': ErrorResponse(
         "`validation-failed`: `from` has no pins, a swap names a block it doesn't reference, or a version that isn't published, active or the right kind (see `details.issues`).",
       ),
@@ -1725,7 +1728,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Agent published.', schema: ref('PublishAgentResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse('Validation failed (see `details.issues`).'),
-      '409': ErrorResponse('Agent already registered at that (id, version).'),
+      '409': ErrorResponse(
+        "Agent already registered at that (id, version). Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+      ),
     },
   },
   {
@@ -1740,6 +1745,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unregistered.', schema: ref('UnregisterAgentResult') },
       ...CommonMutationErrors,
+      '409': ErrorResponse(
+        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+      ),
       '404': ErrorResponse('No agent at that (id, version) under this tenant.'),
     },
   },
@@ -1757,6 +1765,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Reinstated.', schema: ref('ReinstateAgentVersionResult') },
       ...CommonMutationErrors,
+      '409': ErrorResponse(
+        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+      ),
       '404': ErrorResponse('No agent at that (id, version) under this tenant.'),
     },
   },
@@ -1848,7 +1859,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Flow published.', schema: ref('PublishFlowResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse('Validation failed (see `details.issues`).'),
-      '409': ErrorResponse('Flow already registered at that (id, version).'),
+      '409': ErrorResponse(
+        "Flow already registered at that (id, version). Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+      ),
     },
   },
   {
@@ -1863,6 +1876,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unregistered.', schema: ref('UnregisterFlowResult') },
       ...CommonMutationErrors,
+      '409': ErrorResponse(
+        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+      ),
       '404': ErrorResponse('No flow at that (id, version) under this tenant.'),
     },
   },
@@ -1880,6 +1896,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Reinstated.', schema: ref('ReinstateFlowVersionResult') },
       ...CommonMutationErrors,
+      '409': ErrorResponse(
+        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+      ),
       '404': ErrorResponse('No flow at that (id, version) under this tenant.'),
     },
   },
@@ -1975,7 +1994,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Tool registered.', schema: ref('RegisterToolResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse('Validation failed (see `details.issues`).'),
-      '409': ErrorResponse('Tool already registered at that id.'),
+      '409': ErrorResponse(
+        "Tool already registered at that id. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+      ),
     },
   },
   {
@@ -1990,6 +2011,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unregistered.', schema: ref('UnregisterToolResult') },
       ...CommonMutationErrors,
+      '409': ErrorResponse(
+        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+      ),
       '404': ErrorResponse('No tool at that (id, version) under this tenant.'),
     },
   },
@@ -2007,6 +2031,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Reinstated.', schema: ref('ReinstateToolVersionResult') },
       ...CommonMutationErrors,
+      '409': ErrorResponse(
+        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+      ),
       '404': ErrorResponse('No tool at that (id, version) under this tenant.'),
     },
   },
@@ -2067,7 +2094,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Guardrail registered.', schema: ref('RegisterGuardrailResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse('Validation failed (see `details.issues`).'),
-      '409': ErrorResponse('Guardrail already registered at that id.'),
+      '409': ErrorResponse(
+        "Guardrail already registered at that id. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+      ),
     },
   },
   {
@@ -2082,6 +2111,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unregistered.', schema: ref('UnregisterGuardrailResult') },
       ...CommonMutationErrors,
+      '409': ErrorResponse(
+        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+      ),
       '404': ErrorResponse('No guardrail with that id under this tenant.'),
     },
   },
@@ -4131,6 +4163,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('DeploymentRecord'),
       },
       ...CommonMutationErrors,
+      '409': ErrorResponse(
+        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+      ),
       '400': ErrorResponse(
         'Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`.',
       ),
