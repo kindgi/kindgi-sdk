@@ -3680,16 +3680,22 @@ class RetentionResource:
         | None = None,
         past_grace_only: bool | None = None,
         limit: int | None = None,
+        cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.RetentionScheduledPage:
         """List deleted rows scheduled for purging. `GET /v1/retention/scheduled`
 
-        Tombstoned rows in every domain a retention policy covers, with when each is purged (`purgeAt`) and the policy that decides it. `domainsMissingAdapter` names the covered domains this deployment can't purge; `unpolicedDomains` the ones no policy covers, whose tombstones are kept; `conflicts` the domains two policies cover (stored before one policy per domain was enforced). Requires `admin` on the tenant.
+        Tombstoned rows in every domain a retention policy covers, with when each is purged (`purgeAt`) and the policy that decides it. `domainsMissingAdapter` names the covered domains this deployment can't purge; `unpolicedDomains` the ones no policy covers, whose tombstones are kept; `conflicts` the domains two policies cover (stored before one policy per domain was enforced). `limit` caps the rows **per domain**; `hasMore` says some domain has more than it returned, and `nextCursor` (when the runtime can continue) is the `cursor` for the next page. Requires `admin` on the tenant.
         """
         return self._client._request(
             _OPERATIONS["retention.scheduled"],
             path={},
-            query={"domain": domain, "pastGraceOnly": past_grace_only, "limit": limit},
+            query={
+                "domain": domain,
+                "pastGraceOnly": past_grace_only,
+                "limit": limit,
+                "cursor": cursor,
+            },
             headers={},
             response=_models.RetentionScheduledPage,
             timeout=timeout,
@@ -9300,16 +9306,22 @@ class AsyncRetentionResource:
         | None = None,
         past_grace_only: bool | None = None,
         limit: int | None = None,
+        cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.RetentionScheduledPage:
         """List deleted rows scheduled for purging. `GET /v1/retention/scheduled`
 
-        Tombstoned rows in every domain a retention policy covers, with when each is purged (`purgeAt`) and the policy that decides it. `domainsMissingAdapter` names the covered domains this deployment can't purge; `unpolicedDomains` the ones no policy covers, whose tombstones are kept; `conflicts` the domains two policies cover (stored before one policy per domain was enforced). Requires `admin` on the tenant.
+        Tombstoned rows in every domain a retention policy covers, with when each is purged (`purgeAt`) and the policy that decides it. `domainsMissingAdapter` names the covered domains this deployment can't purge; `unpolicedDomains` the ones no policy covers, whose tombstones are kept; `conflicts` the domains two policies cover (stored before one policy per domain was enforced). `limit` caps the rows **per domain**; `hasMore` says some domain has more than it returned, and `nextCursor` (when the runtime can continue) is the `cursor` for the next page. Requires `admin` on the tenant.
         """
         return await self._client._request(
             _OPERATIONS["retention.scheduled"],
             path={},
-            query={"domain": domain, "pastGraceOnly": past_grace_only, "limit": limit},
+            query={
+                "domain": domain,
+                "pastGraceOnly": past_grace_only,
+                "limit": limit,
+                "cursor": cursor,
+            },
             headers={},
             response=_models.RetentionScheduledPage,
             timeout=timeout,

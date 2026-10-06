@@ -8709,6 +8709,14 @@
               "$ref": "#/components/schemas/RetentionScheduledItem"
             }
           },
+          "hasMore": {
+            "type": "boolean",
+            "description": "Some domain has more scheduled rows than this page returned (`limit` is per domain). Always sent from 0.1.4; a runtime before it sends none."
+          },
+          "nextCursor": {
+            "type": "string",
+            "description": "The `cursor` for the next page. Absent when `hasMore: false`, or when the runtime cannot continue a page."
+          },
           "domainsMissingAdapter": {
             "type": "array",
             "items": {
@@ -25858,7 +25866,7 @@
             }
           }
         },
-        "description": "Tombstoned rows in every domain a retention policy covers, with when each is purged (`purgeAt`) and the policy that decides it. `domainsMissingAdapter` names the covered domains this deployment can't purge; `unpolicedDomains` the ones no policy covers, whose tombstones are kept; `conflicts` the domains two policies cover (stored before one policy per domain was enforced). Requires `admin` on the tenant.",
+        "description": "Tombstoned rows in every domain a retention policy covers, with when each is purged (`purgeAt`) and the policy that decides it. `domainsMissingAdapter` names the covered domains this deployment can't purge; `unpolicedDomains` the ones no policy covers, whose tombstones are kept; `conflicts` the domains two policies cover (stored before one policy per domain was enforced). `limit` caps the rows **per domain**; `hasMore` says some domain has more than it returned, and `nextCursor` (when the runtime can continue) is the `cursor` for the next page. Requires `admin` on the tenant.",
         "parameters": [
           {
             "name": "domain",
@@ -25890,6 +25898,15 @@
             },
             "required": false,
             "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Opaque cursor from a prior response. Absent → first page."
           }
         ],
         "security": [
