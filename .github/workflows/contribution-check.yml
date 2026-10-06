@@ -3,7 +3,9 @@ name: Contribution check
 # An outside contributor's pull request carries what the kindgi-contributing
 # skill asks for: the checks that were run, the supervising person's
 # `Supervised-by:` line and the agent's trailer (scripts/contribution-check.mjs).
-# Maintainers' pull requests aren't checked.
+# Only a fork's pull request is checked: a branch in this repository needs
+# push access, so it's a maintainer's. (`author_association` can't tell: a
+# private member of the org shows as CONTRIBUTOR here.)
 #
 # `pull_request_target` runs with this repository's token, so it never runs
 # the pull request's code: it checks out the base commit's script only, and
@@ -14,9 +16,10 @@ on:
 
 permissions:
   contents: read
-  # The check comments on the pull request (through the issues API).
+  # The check comments on the pull request (through the issues API, which
+  # needs pull-requests: write for a pull request).
   issues: write
-  pull-requests: read
+  pull-requests: write
 
 concurrency:
   group: contribution-check-${{ github.event.pull_request.number }}
@@ -26,10 +29,8 @@ jobs:
   check:
     name: Contribution format
     runs-on: ubuntu-latest
-    if: >-
-      github.event.pull_request.author_association != 'OWNER' &&
-      github.event.pull_request.author_association != 'MEMBER' &&
-      github.event.pull_request.author_association != 'COLLABORATOR'
+    # A fork's pull request; a deleted fork has no head repository.
+    if: github.event.pull_request.head.repo.full_name != github.repository
     steps:
       - uses: actions/checkout@v5
         with:

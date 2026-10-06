@@ -76,6 +76,16 @@ export interface EvalRunSubjectInvokeOutcome {
   readonly replay?: ReplayTurnReport;
   /** The provider and model that answered. */
   readonly provider?: { readonly id: string; readonly model: string };
+  /**
+   * Set when a replayed flow stopped at a tool call the replay refused (a
+   * write the past run didn't make): no output, and what it would have
+   * done. Not an error: the replay did what it's meant to.
+   */
+  readonly stopped?: {
+    readonly toolId: string;
+    readonly arguments: unknown;
+    readonly reason?: string;
+  };
 }
 
 /**
