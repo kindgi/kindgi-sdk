@@ -9,14 +9,20 @@ import { renderJson } from '../output.js';
 import { followRun, runsGetHint } from '../runs/follow.js';
 import {
   type TableSpec,
+  commandResultFromThrown,
   readJsonInput,
   requiredPositional,
   runSdk,
   runSdkRendered,
   segmentsFlag,
   stringFlag,
-  throwUnwired,
 } from './helpers.js';
+import {
+  RESUME_EXIT_CODES,
+  type WaitingApproval,
+  runWaitAnswer,
+  runWaitText,
+} from './run-waits.js';
 import type { Command, LeafCommand } from './types.js';
 
 /** `runs list --table`. */
@@ -323,23 +329,48 @@ function renderTurnWarnings(output: unknown): string {
 const resume: LeafCommand = {
   kind: 'leaf',
   name: 'resume',
-  description: 'Resume a suspended run at a waitpoint.',
-  usage: 'kindgi runs resume <run-id> --waitpoint=<id> --value=<json-or-@file>',
-  optionSpec: {
-    waitpoint: {
-      type: 'string',
-      description: 'The waitpoint to complete, by id. Required.',
-    },
-    value: {
-      type: 'string',
-      description:
-        'The value to resume with, as JSON or `@<file>` to read it from a file. Required.',
-    },
+  description:
+    'Say what a run waits for before it resumes: an approval (named, with the command that decides it), the runtime (a queued start, a child run, a retry, a lease, a timeout), or nothing. Exit 0: not waiting; 3: waits for an approval; 4: waits on the runtime. (5 is reserved for a held run.)',
+  usage: 'kindgi runs resume <run-id>',
+  run: async (ctx) => {
+    try {
+      const runId = requiredPositional(ctx, 0, 'run-id');
+      const client = ctx.client();
+      const answer = await runWaitAnswer(
+        {
+          getRun: async (id) => await client.runs.get(id as RunId),
+          journalPage: async (id, since) =>
+            await client.runs.journal(id as RunId, since !== undefined ? { since } : undefined),
+          approvalsFor: async (tokenIds) => {
+            const page = await client.approvals.list({ waitTokenIds: tokenIds, limit: 100 });
+            return page.data.flatMap((a): WaitingApproval[] =>
+              typeof a.waitTokenId === 'string'
+                ? [
+                    {
+                      id: a.id as unknown as string,
+                      ...(typeof a.title === 'string' && { title: a.title }),
+                      requiredRole: a.requiredRole,
+                      status: a.status,
+                      waitTokenId: a.waitTokenId,
+                    },
+                  ]
+                : [],
+            );
+          },
+        },
+        runId,
+      );
+      const json = renderJson(answer, ctx.globals.format);
+      const quiet = ctx.globals.format === 'quiet';
+      return {
+        kind: 'ok',
+        rendered: { stdout: json.stdout, stderr: quiet ? '' : runWaitText(answer) },
+        exitCode: RESUME_EXIT_CODES[answer.kind],
+      };
+    } catch (err) {
+      return commandResultFromThrown(err, ctx, 'runs resume');
+    }
   },
-  // Not available in this release: listed in `UNWIRED_COMMANDS`, with the
-  // reason the CLI prints. The runtime refuses it too
-  // (`run-resume-not-supported`).
-  run: (ctx) => runSdk(ctx, 'runs resume', async () => throwUnwired('runs.resume')),
 };
 
 export const runsCommand: Command = {

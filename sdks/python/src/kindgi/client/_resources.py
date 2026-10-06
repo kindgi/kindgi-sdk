@@ -1252,6 +1252,7 @@ class ApprovalsResource:
         | None = None,
         required_role: Literal["standard", "senior", "admin"] | None = None,
         created_after: str | None = None,
+        wait_token_id: list[str] | None = None,
         timeout: float | None = None,
     ) -> _models.ApprovalCollectionPage:
         """List approvals visible to the caller. `GET /v1/approvals`
@@ -1269,6 +1270,7 @@ class ApprovalsResource:
                 "status": status,
                 "requiredRole": required_role,
                 "createdAfter": created_after,
+                "waitTokenId": wait_token_id,
             },
             headers={},
             response=_models.ApprovalCollectionPage,
@@ -7075,6 +7077,7 @@ class AsyncApprovalsResource:
         | None = None,
         required_role: Literal["standard", "senior", "admin"] | None = None,
         created_after: str | None = None,
+        wait_token_id: list[str] | None = None,
         timeout: float | None = None,
     ) -> _models.ApprovalCollectionPage:
         """List approvals visible to the caller. `GET /v1/approvals`
@@ -7092,6 +7095,7 @@ class AsyncApprovalsResource:
                 "status": status,
                 "requiredRole": required_role,
                 "createdAfter": created_after,
+                "waitTokenId": wait_token_id,
             },
             headers={},
             response=_models.ApprovalCollectionPage,

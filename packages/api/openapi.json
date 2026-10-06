@@ -16757,6 +16757,20 @@
             },
             "required": false,
             "description": "ISO 8601 timestamp; return approvals created strictly after this."
+          },
+          {
+            "name": "waitTokenId",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "maxItems": 50
+            },
+            "required": false,
+            "description": "Only approvals linked to one of these run waits (an approval's `waitTokenId`; a run's journal names its open waits in `wait.suspended` entries). Repeat it for several, at most 50."
           }
         ],
         "security": [
