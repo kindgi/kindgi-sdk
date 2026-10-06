@@ -19,7 +19,7 @@ import type { ReplayTurnReport } from '@kindgi/agents';
 import type { RunId } from '@kindgi/types';
 
 import type { EvalCaseStoreBinding, JudgedEvalCase } from './eval-case-binding.js';
-import type { AgentRef, EvalComparison } from './eval-run-binding.js';
+import type { AgentRef, EvalComparison, FlowRef } from './eval-run-binding.js';
 import type {
   DispatchContext,
   DispatchResult,
@@ -63,11 +63,7 @@ export type ComparisonBaselineSummary =
   | {
       readonly kind: 'recorded';
       /** The versions that served the recorded runs, with how many cases each. */
-      readonly versions: readonly {
-        readonly agentId: string;
-        readonly version: string;
-        readonly cases: number;
-      }[];
+      readonly versions: readonly RecordedVersion[];
     }
   | {
       readonly kind: 'version';
@@ -77,13 +73,23 @@ export type ComparisonBaselineSummary =
       readonly liveScope?: Readonly<Record<string, unknown>>;
     };
 
+/** A version behind recorded runs: an agent's or a flow's. */
+export type RecordedVersion =
+  | { readonly agentId: string; readonly version: string; readonly cases: number }
+  | { readonly flowId: string; readonly version: string; readonly cases: number };
+
+/** What ran on the cases: an agent version, or a flow version. */
+export type ComparisonCandidate =
+  | { readonly kind: 'agent'; readonly agentId: string; readonly version: string }
+  | { readonly kind: 'flow'; readonly flowId: string; readonly version: string };
+
 /** What a comparison eval run concluded: what a promotion gate reads. */
 export interface JudgedComparisonSummary {
   readonly evalRunId: string;
   readonly status: 'completed' | 'partial' | 'failed';
   readonly completedAt: string;
   readonly suite: { readonly id: string; readonly version: string };
-  readonly candidate: { readonly agentId: string; readonly version: string };
+  readonly candidate: ComparisonCandidate;
   readonly baseline: ComparisonBaselineSummary;
   /** Where the test set's judgments came from. */
   readonly scope: { readonly projectId?: string };
@@ -94,6 +100,11 @@ export interface JudgedComparisonSummary {
   readonly refusedWrites: number;
   /** Cases that errored: none of their repetitions ran. */
   readonly errors: number;
+  /**
+   * Cases that stopped at a refused write (a flow's tool node the replay
+   * refused): no output to score, so they're left out of the metrics.
+   */
+  readonly stopped: number;
   readonly reads: EvalComparison['reads'];
   /** The models that answered the candidate's replays, and how many replays each. */
   readonly sampling: {
@@ -128,6 +139,8 @@ export interface JudgedCaseResult {
   readonly noContext: boolean;
   readonly approvalSkipped: boolean;
   readonly error?: string;
+  /** Set when the replay stopped at a refused write: what it would have done. */
+  readonly stopped?: NonNullable<EvalRunSubjectInvokeOutcome['stopped']>;
 }
 
 export interface JudgedDispatcherOptions {
@@ -139,16 +152,16 @@ const CASE_PAGE = 100;
 
 function validateComparison(
   suite: { readonly spec: Readonly<Record<string, unknown>> },
-  target: AgentRef | { readonly flowId: unknown },
+  target: AgentRef | FlowRef,
   comparison: EvalComparison | undefined,
 ): { kind: 'ok' } | { kind: 'err'; message: string } {
-  if (!('agentId' in target)) {
-    return { kind: 'err', message: 'A test set compares an agent version; give `agentRef`.' };
-  }
   if (target.version === undefined) {
     return {
       kind: 'err',
-      message: '`agentRef.version` is required: the candidate is one version of the agent.',
+      message:
+        'agentId' in target
+          ? '`agentRef.version` is required: the candidate is one version of the agent.'
+          : '`flowRef.version` is required: the candidate is one version of the flow.',
     };
   }
   if (suite.spec.caseCount === 0) {
@@ -208,62 +221,102 @@ async function allCases(
   }
 }
 
+/** One case's repetitions as they come back. */
+class CaseTally {
+  readonly runIds: string[] = [];
+  readonly candidate: OutputScore[] = [];
+  first: { changes: ItemChanges; replay?: ReplayTurnReport } | undefined;
+  error: string | undefined;
+  stopped: JudgedCaseResult['stopped'];
+  diverged = false;
+  refusedWrites = 0;
+  approvalSkipped = false;
+
+  constructor(
+    private readonly judgedCase: JudgedEvalCase,
+    private readonly comparison: EvalComparison,
+    private readonly agentTurn: boolean,
+  ) {}
+
+  add(outcome: EvalRunSubjectInvokeOutcome): 'ran' | 'stopped' | 'error' {
+    if (outcome.runId !== undefined) this.runIds.push(outcome.runId as unknown as string);
+    if (outcome.stopped !== undefined) {
+      this.stopped ??= outcome.stopped;
+      this.refusedWrites = Math.max(this.refusedWrites, refusedCount(outcome));
+      this.first ??= { changes: { kept: [], dropped: [], new: [] }, ...replayOf(outcome) };
+      return 'stopped';
+    }
+    if (outcome.error !== undefined) {
+      this.error ??= outcome.error;
+      return 'error';
+    }
+    this.ran(outcome);
+    return 'ran';
+  }
+
+  private ran(outcome: EvalRunSubjectInvokeOutcome): void {
+    const { judgedCase, comparison } = this;
+    const matched = matchJudged(
+      outputItems(outcome.output, this.agentTurn),
+      judgedCase.items,
+      judgedCase.output,
+    );
+    this.candidate.push(scoreItems(matched, comparison.k));
+    const tools = outcome.replay?.tools ?? [];
+    this.refusedWrites = Math.max(this.refusedWrites, refusedCount(outcome));
+    if (comparison.reads === 'recorded' && tools.some((t) => t.source === 'live')) {
+      this.diverged = true;
+    }
+    if (outcome.replay?.approval === 'skipped') this.approvalSkipped = true;
+    this.first ??= { changes: itemChanges(matched, judgedCase.items), ...replayOf(outcome) };
+  }
+
+  result(baseline: OutputScore): JudgedCaseResult {
+    const none = this.candidate.length === 0;
+    return {
+      caseId: this.judgedCase.caseId,
+      runIds: this.runIds,
+      baseline,
+      candidate: this.candidate,
+      ...(this.first !== undefined && { changes: this.first.changes }),
+      ...(this.first?.replay !== undefined && { tools: this.first.replay.tools }),
+      diverged: this.diverged,
+      refusedWrites: this.refusedWrites,
+      noContext: this.judgedCase.context === undefined,
+      approvalSkipped: this.approvalSkipped,
+      // A case none of whose repetitions ran stopped (at a refused write) or errored.
+      ...(none && this.stopped !== undefined && { stopped: this.stopped }),
+      ...(none && this.stopped === undefined && this.error !== undefined && { error: this.error }),
+    };
+  }
+}
+
 async function runCase(
   ctx: DispatchContext,
   comparison: EvalComparison,
   judgedCase: JudgedEvalCase,
   models: Map<string, { providerId: string; model: string; runs: number }>,
 ): Promise<JudgedCaseResult> {
+  // An agent turn's items are its answer and typed result; a flow run's, its whole output.
+  const agentTurn = judgedCase.subject.kind === 'agent';
   const baseline = scoreItems(
-    matchJudged(outputItems(judgedCase.output, true), judgedCase.items, judgedCase.output),
+    matchJudged(outputItems(judgedCase.output, agentTurn), judgedCase.items, judgedCase.output),
     comparison.k,
   );
-  const runIds: string[] = [];
-  const candidate: OutputScore[] = [];
-  let first: { changes: ItemChanges; replay?: ReplayTurnReport } | undefined;
-  let error: string | undefined;
-  let diverged = false;
-  let refusedWrites = 0;
-  let approvalSkipped = false;
+  const tally = new CaseTally(judgedCase, comparison, agentTurn);
   for (let rep = 0; rep < comparison.repetitions; rep++) {
     const outcome = await invokeCase(ctx, judgedCase);
-    if (outcome.runId !== undefined) runIds.push(outcome.runId as unknown as string);
-    if (outcome.error !== undefined) {
-      error ??= outcome.error;
-      continue;
-    }
-    countModel(models, outcome);
-    const matched = matchJudged(
-      outputItems(outcome.output, true),
-      judgedCase.items,
-      judgedCase.output,
-    );
-    candidate.push(scoreItems(matched, comparison.k));
-    const tools = outcome.replay?.tools ?? [];
-    const refused = tools.filter((t) => t.source === 'refused').length;
-    refusedWrites = Math.max(refusedWrites, refused);
-    if (comparison.reads === 'recorded' && tools.some((t) => t.source === 'live')) {
-      diverged = true;
-    }
-    if (outcome.replay?.approval === 'skipped') approvalSkipped = true;
-    first ??= {
-      changes: itemChanges(matched, judgedCase.items),
-      ...(outcome.replay !== undefined && { replay: outcome.replay }),
-    };
+    if (tally.add(outcome) === 'ran') countModel(models, outcome);
   }
-  return {
-    caseId: judgedCase.caseId,
-    runIds,
-    baseline,
-    candidate,
-    ...(first !== undefined && { changes: first.changes }),
-    ...(first?.replay !== undefined && { tools: first.replay.tools }),
-    diverged,
-    refusedWrites,
-    noContext: judgedCase.context === undefined,
-    approvalSkipped,
-    ...(error !== undefined && { error }),
-  };
+  return tally.result(baseline);
+}
+
+function refusedCount(outcome: EvalRunSubjectInvokeOutcome): number {
+  return (outcome.replay?.tools ?? []).filter((t) => t.source === 'refused').length;
+}
+
+function replayOf(outcome: EvalRunSubjectInvokeOutcome): { replay?: ReplayTurnReport } {
+  return outcome.replay !== undefined ? { replay: outcome.replay } : {};
 }
 
 async function invokeCase(
@@ -283,7 +336,7 @@ async function invokeCase(
         of: judgedCase.caseId as unknown as RunId,
         evalRunId: ctx.runId as unknown as string,
       },
-      history: judgedCase.context?.history ?? [],
+      ...(judgedCase.subject.kind === 'agent' && { history: judgedCase.context?.history ?? [] }),
     });
   } catch (cause) {
     return { error: cause instanceof Error ? cause.message : String(cause) };
@@ -340,7 +393,8 @@ function metric(
   weightOf: (s: OutputScore) => number,
   extra: { readonly k?: number } = {},
 ): ComparisonMetric {
-  const scored = results.filter((r) => r.error === undefined || r.candidate.length > 0);
+  // Only cases the candidate ran: errored and stopped cases leave both sides.
+  const scored = results.filter((r) => r.candidate.length > 0);
   const baseline = pooled(
     scored.map((r) => r.baseline),
     side,
@@ -383,13 +437,14 @@ function summarize(
   results: readonly JudgedCaseResult[],
   models: readonly { providerId: string; model: string; runs: number }[],
 ): JudgedComparisonSummary {
-  const errors = results.filter((r) => r.candidate.length === 0).length;
-  const target = ctx.target as AgentRef;
-  const versions = new Map<string, { agentId: string; version: string; cases: number }>();
+  const errors = results.filter((r) => r.error !== undefined).length;
+  const stopped = results.filter((r) => r.stopped !== undefined).length;
+  const versions = new Map<string, { id: string; flow: boolean; version: string; cases: number }>();
   for (const c of cases) {
-    const key = `${c.subject.id}@${c.subject.version}`;
+    const key = `${c.subject.kind}:${c.subject.id}@${c.subject.version}`;
     const kept = versions.get(key) ?? {
-      agentId: c.subject.id,
+      id: c.subject.id,
+      flow: c.subject.kind === 'flow',
       version: c.subject.version,
       cases: 0,
     };
@@ -412,13 +467,22 @@ function summarize(
           : 'failed',
     completedAt: new Date().toISOString(),
     suite: { id: ctx.suite.id, version: ctx.suite.version },
-    candidate: { agentId: target.agentId as unknown as string, version: target.version ?? '' },
-    baseline: { kind: 'recorded', versions: [...versions.values()] },
+    candidate: candidateOf(ctx.target),
+    baseline: {
+      kind: 'recorded',
+      versions: [...versions.values()].map(
+        (v): RecordedVersion =>
+          v.flow
+            ? { flowId: v.id, version: v.version, cases: v.cases }
+            : { agentId: v.id, version: v.version, cases: v.cases },
+      ),
+    },
     scope: { ...(projectId !== undefined && { projectId }) },
     cases: results.length,
     diverged: results.filter((r) => r.diverged).length,
     refusedWrites: results.reduce((a, r) => a + r.refusedWrites, 0),
     errors,
+    stopped,
     reads: comparison.reads,
     sampling: { models },
     repetitions: comparison.repetitions,
@@ -434,4 +498,10 @@ function summarize(
       ),
     },
   };
+}
+
+function candidateOf(target: AgentRef | FlowRef): ComparisonCandidate {
+  return 'agentId' in target
+    ? { kind: 'agent', agentId: target.agentId as unknown as string, version: target.version ?? '' }
+    : { kind: 'flow', flowId: target.flowId as unknown as string, version: target.version ?? '' };
 }

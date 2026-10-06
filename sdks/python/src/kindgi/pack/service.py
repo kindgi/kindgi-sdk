@@ -128,9 +128,11 @@ class PackService:
         self._max_body_bytes = max_body_bytes
         self._default_timeout_ms = default_timeout_ms
         self._log = logger
-        self._tools: dict[str, Mapping[str, Any]] = {
-            str(t["id"]): t for t in cast("list[Mapping[str, Any]]", index.get("tools", []))
-        }
+        # Every version of a tool the pack holds, side by side: one agent
+        # version may pin tool@1 while another pins tool@2.
+        self._tools: dict[str, list[Mapping[str, Any]]] = {}
+        for t in cast("list[Mapping[str, Any]]", index.get("tools", [])):
+            self._tools.setdefault(str(t["id"]), []).append(t)
         self._checks: dict[str, Mapping[str, Any]] = {
             str(g.get("checkId") or g["id"]): g
             for g in cast("list[Mapping[str, Any]]", index.get("guardrails", []))
@@ -157,7 +159,11 @@ class PackService:
         """Import every tool and check module; the failures (`handler-import-failed`)."""
         mount_pack(self._module_root)
         failures: list[Message] = []
-        targets = [(tool_id, t["modulePath"], "toolId") for tool_id, t in self._tools.items()]
+        targets = [
+            (tool_id, t["modulePath"], "toolId")
+            for tool_id, versions in self._tools.items()
+            for t in versions
+        ]
         targets += [
             (check_id, g["checkModulePath"], "checkId") for check_id, g in self._checks.items()
         ]
@@ -258,7 +264,8 @@ class PackService:
             "artifactVersion": self._index.get("artifactVersion"),
             "tools": [
                 {"id": tool_id, **({"version": t["version"]} if t.get("version") else {})}
-                for tool_id, t in self._tools.items()
+                for tool_id, versions in self._tools.items()
+                for t in versions
             ],
             "checks": list(self._checks),
             "missingEnv": list(self._missing_env),
@@ -384,17 +391,26 @@ class PackService:
 
     async def _run_tool(self, message: ToolInvoke, cancellation: Cancellation) -> Message:
         tool_id = message.tool_id
-        entry = self._tools.get(tool_id)
-        if entry is None:
+        versions = self._tools.get(tool_id, [])
+        if not versions:
             return pack_error(
                 "tool-not-in-pack", f'This pack has no tool "{tool_id}"', toolId=tool_id
             )
-        if message.tool_version is not None and message.tool_version != entry.get("version"):
-            have = entry.get("version") or "unversioned"
+        # The version the call asks for, or, when it names none, the only one.
+        if message.tool_version is None:
+            entry = versions[0] if len(versions) == 1 else None
+        else:
+            entry = next((t for t in versions if t.get("version") == message.tool_version), None)
+        if entry is None:
+            have = ", ".join(str(t.get("version") or "unversioned") for t in versions)
+            asked = (
+                "named none"
+                if message.tool_version is None
+                else f"asked for {message.tool_version}"
+            )
             return pack_error(
                 "tool-version-mismatch",
-                f'Tool "{tool_id}" is {have} in this pack; '
-                f"the caller asked for {message.tool_version}",
+                f'Tool "{tool_id}" is {have} in this pack; the caller {asked}',
                 toolId=tool_id,
             )
         module_path = str(entry["modulePath"])

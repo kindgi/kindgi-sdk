@@ -2220,7 +2220,7 @@ export const JudgedRunContextSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'What a judged agent turn read besides its input, captured when it was first judged: the conversation before it, what its retrievals returned, and the decision at its session approval gate.',
+    'What a judged run needs besides its input to be replayed, captured when it was first judged. For an agent turn: the conversation before it, what its retrievals returned, and the decision at its session approval gate. For a flow run: its tool calls with their results.',
   properties: {
     history: {
       type: 'array',
@@ -2242,6 +2242,55 @@ export const JudgedRunContextSchema: JsonSchema = {
       properties: {
         approved: { type: 'boolean' },
         rationale: { type: 'string', description: "The reviewer's reason for a rejection." },
+      },
+    },
+    flow: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['calls', 'steps'],
+      description:
+        "For a flow run: what it did, kept at its first judgment so it can be replayed. Every tool call it made with its result (at its tool nodes, in its agent steps' turns and in its sub-flows), at most 500, and its agent steps.",
+      properties: {
+        calls: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['runId', 'toolId'],
+            properties: {
+              runId: {
+                type: 'string',
+                description:
+                  "The run that made it: the flow run, a sub-flow's, or an agent step's turn.",
+              },
+              nodeId: {
+                type: 'string',
+                description: 'The tool node that made it, or the agent step whose turn did.',
+              },
+              scope: { type: 'string', description: 'The loop iteration, in a loop body.' },
+              toolId: { type: 'string' },
+              arguments: {},
+              result: {},
+            },
+          },
+        },
+        steps: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['runId', 'agentId', 'agentVersion'],
+            properties: {
+              runId: { type: 'string' },
+              nodeId: { type: 'string' },
+              scope: { type: 'string' },
+              agentId: { type: 'string' },
+              agentVersion: { type: 'string' },
+              retrieved: { description: "What the step's turn retrieved." },
+            },
+          },
+        },
+        truncated: { type: 'boolean', description: 'More calls were made than were kept.' },
       },
     },
   },
@@ -4718,7 +4767,7 @@ export const EvalRunSchema: JsonSchema = {
       type: 'object',
       additionalProperties: true,
       description:
-        'Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline and candidate, the case counts (`cases`, `diverged`, `refusedWrites`, `errors`), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, and the tool calls with what happened to each. Other kinds define their own shapes as their dispatchers ship.',
+        'Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a write the replay refused, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.',
     },
     error: { type: 'string' },
     correlationId: { type: 'string' },
@@ -4753,7 +4802,7 @@ export const StartEvalRunBodySchema: JsonSchema = {
     k: { type: 'integer', minimum: 1, maximum: 100 },
   },
   description:
-    "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't; `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how.",
+    "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how.",
 };
 
 export const StartEvalRunResultSchema: JsonSchema = {

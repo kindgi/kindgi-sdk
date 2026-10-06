@@ -49,6 +49,13 @@ const MODULES: Record<string, string> = {
   return { echoed: 'slow', runId: ctx.runId };
 }`,
   'tools/bad-output.mjs': 'export async function handler() { return { wrong: true }; }',
+  // Two versions of one tool, side by side in the pack.
+  'tools/versioned-v1.mjs': `export async function handler(input) {
+  return { echoed: 'v1:' + input.message };
+}`,
+  'tools/versioned-v2.mjs': `export async function handler(input) {
+  return { echoed: 'v2:' + input.message };
+}`,
   'tools/throws.mjs': "export async function handler() { throw new Error('boom'); }",
   // The sample template's shape: a default guardrail plus the named check.
   'guardrails/ok.mjs': `const check = {
@@ -92,6 +99,8 @@ const INDEX: Index = {
     tool('pack.slow', 'tools/slow.mjs'),
     tool('pack.bad-output', 'tools/bad-output.mjs'),
     tool('pack.throws', 'tools/throws.mjs'),
+    tool('pack.versioned', 'tools/versioned-v1.mjs', '1.0.0'),
+    tool('pack.versioned', 'tools/versioned-v2.mjs', '2.0.0'),
   ],
   guardrails: [
     {
@@ -237,6 +246,42 @@ describe('pack service — running tools and checks', () => {
       trace: {},
     });
     expect(res.body).toEqual({ v: 2, kind: 'check-result', result: { passed: true } });
+  });
+
+  test('several versions of one tool run side by side: each call runs the version it asks for', async () => {
+    for (const [version, echoed] of [
+      ['1.0.0', 'v1:x'],
+      ['2.0.0', 'v2:x'],
+    ]) {
+      const res = await invoke(call('pack.versioned', { message: 'x' }, version));
+      expect(res.body).toEqual({ v: 2, kind: 'result', output: { echoed } });
+    }
+    const info = (await (
+      await fetch(url('/v1/info'), { headers: { 'kindgi-pack-token': TOKEN } })
+    ).json()) as { tools: unknown[] };
+    expect(info.tools).toEqual(
+      expect.arrayContaining([
+        { id: 'pack.versioned', version: '1.0.0' },
+        { id: 'pack.versioned', version: '2.0.0' },
+      ]),
+    );
+  });
+
+  test.each([
+    [
+      'a version the pack lacks',
+      '3.0.0',
+      'is 1.0.0, 2.0.0 in this pack; the caller asked for 3.0.0',
+    ],
+    [
+      'no version, of a tool with several',
+      undefined,
+      'has several versions in this pack (1.0.0, 2.0.0); the caller named none',
+    ],
+  ])('%s → tool-version-mismatch, naming the versions it has', async (_name, version, says) => {
+    const res = await invoke(call('pack.versioned', { message: 'x' }, version));
+    expect(res.body).toMatchObject({ v: 2, kind: 'error', code: 'tool-version-mismatch' });
+    expect((res.body as { message: string }).message).toContain(says);
   });
 
   test('handler console output never reaches the response', async () => {
