@@ -108,7 +108,10 @@ The steps:
 1. **Start:** `pnpm changeset pre enter rc` in a pull request
    (`.changeset/pre.json`). From then on, the "Version Packages" pull
    request versions `X.Y.Z-rc.0`, then `rc.1`, and so on. Publish each
-   as above.
+   as above. While candidates are out, every changeset is a `patch`
+   (`pnpm run check:changeset-bumps`, in CI): a `minor` would move the
+   release itself. One that means to says so, with a line
+   `Release-decision: <who decided, and when>`.
 2. **Release:** `pnpm changeset pre exit` in a pull request. The next
    "Version Packages" pull request versions `X.Y.Z`, its changelog
    gathering every rc's changesets, and that publishes under `latest`.
