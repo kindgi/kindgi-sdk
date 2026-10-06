@@ -5,7 +5,11 @@ import { EventEmitter } from 'node:events';
 
 import { describe, expect, test, vi } from 'vitest';
 
-import { REPEAT_SIGNAL_WINDOW_MS, createStopSignal } from '../src/stop-signal.js';
+import {
+  REPEAT_SIGNAL_WINDOW_MS,
+  createStopSignal,
+  ignoreOutputAfterHangup,
+} from '../src/stop-signal.js';
 import type { StopSignalClock } from '../src/stop-signal.js';
 
 /** A clock the test moves: time, and the event loop's turns. */
@@ -102,5 +106,35 @@ describe('createStopSignal', () => {
     clock.advance(10_000);
     proc.emit('SIGTERM');
     expect(exit).not.toHaveBeenCalled();
+  });
+
+  test('the terminal closing (SIGHUP) stops, and never forces the exit', () => {
+    const proc = new EventEmitter();
+    const exit = vi.fn();
+    const clock = fakeClock();
+    const signal = createStopSignal(proc as never, exit, clock);
+    proc.emit('SIGHUP');
+    expect(signal.aborted).toBe(true);
+    clock.turn();
+    clock.turn();
+    clock.advance(10_000);
+    proc.emit('SIGHUP');
+    expect(exit).not.toHaveBeenCalled();
+  });
+});
+
+describe('ignoreOutputAfterHangup', () => {
+  test("after a hangup, a failed write to the closed terminal doesn't end the process", () => {
+    const proc = new EventEmitter();
+    const stdout = new EventEmitter();
+    const stderr = new EventEmitter();
+    ignoreOutputAfterHangup(proc as never, [stdout, stderr]);
+    // Before a hangup, an output error is still everyone's problem.
+    expect(() => stdout.emit('error', new Error('write EPIPE'))).toThrow('EPIPE');
+    proc.emit('SIGHUP');
+    proc.emit('SIGHUP');
+    expect(() => stderr.emit('error', new Error('write EIO'))).not.toThrow();
+    expect(() => stdout.emit('error', new Error('write EIO'))).not.toThrow();
+    expect(stderr.listenerCount('error')).toBe(1);
   });
 });

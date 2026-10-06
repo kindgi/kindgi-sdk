@@ -4,8 +4,9 @@
 /**
  * A terminal's Ctrl+C, for real: SIGINT to the whole foreground process
  * group (`kindgi dev`, its pack child, and the package manager that may
- * wrap it), plus what the wrapper sends on. One clean stop: no forced
- * exit (that left the runtime's container running), no pack child
+ * wrap it), plus what the wrapper sends on; and the terminal closing
+ * (SIGHUP to the group). One clean stop: no forced exit and no death by
+ * hangup (either left the runtime's container running), no pack child
  * restarted mid-shutdown. Needs the build (the stand-in runs the built CLI).
  */
 
@@ -84,14 +85,24 @@ function alive(pid: number): boolean {
   }
 }
 
-const WRAPPERS = [
-  { name: 'run directly', wrap: [] },
-  { name: 'under a wrapper that forwards SIGINT (npx, pnpm run)', wrap: [WRAPPER, 'forward'] },
-  { name: 'under a wrapper that SIGTERMs it and exits (pnpm exec)', wrap: [WRAPPER, 'exec'] },
+const CASES = [
+  { name: 'run directly', wrap: [], signal: 'SIGINT' },
+  {
+    name: 'under a wrapper that forwards SIGINT (npx, pnpm run)',
+    wrap: [WRAPPER, 'forward'],
+    signal: 'SIGINT',
+  },
+  {
+    name: 'under a wrapper that SIGTERMs it and exits (pnpm exec)',
+    wrap: [WRAPPER, 'exec'],
+    signal: 'SIGINT',
+  },
+  // The terminal closes: SIGHUP to the foreground group, no Ctrl+C.
+  { name: 'the terminal closing', wrap: [], signal: 'SIGHUP' },
 ] as const;
 
 describe.skipIf(process.platform === 'win32')('Ctrl+C in a terminal', () => {
-  test.each(WRAPPERS)('$name: one clean stop', async ({ name, wrap }) => {
+  test.each(CASES)('$name: one clean stop', async ({ name, wrap, signal }) => {
     const report = join(dir, `${name.split(' ').join('-')}.jsonl`);
     const args = [...wrap, ...(wrap.length > 0 ? [process.execPath] : [])];
     // `detached`: its own process group, as a terminal's foreground job.
@@ -102,7 +113,7 @@ describe.skipIf(process.platform === 'win32')('Ctrl+C in a terminal', () => {
     const ready = await until(async () => (await lines(report)).find((l) => l.kind === 'ready'));
     const { pid, packPid } = ready as Line & { pid: number; packPid: number };
 
-    process.kill(-(group.pid as number), 'SIGINT');
+    process.kill(-(group.pid as number), signal);
     await until(async () => (alive(pid) ? undefined : true));
 
     const after = await lines(report);
