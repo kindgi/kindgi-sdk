@@ -18,6 +18,7 @@ import {
   evaluateContribution,
   fromFork,
   renderComment,
+  report,
 } from './contribution-check.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -159,5 +160,38 @@ describe('the workflow', () => {
   test("never checks out the pull request's code", () => {
     assert.match(workflow, /ref: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/);
     assert.match(workflow, /persist-credentials: false/);
+  });
+});
+
+describe('report', () => {
+  const io = (comment) => {
+    const summaries = [];
+    return { summaries, comment, summary: (text) => summaries.push(text) };
+  };
+  const refused = (status) => async () => {
+    const err = new Error(`POST …/comments: ${status}`);
+    err.status = status;
+    throw err;
+  };
+
+  test('commented: the exit code is the result', async () => {
+    const posted = [];
+    const ok = io(async (body) => posted.push(body));
+    assert.equal(await report({ failed: false }, 'thanks', ok), 0);
+    assert.equal(await report({ failed: true }, 'missing', ok), 1);
+    assert.deepEqual(posted, ['thanks', 'missing']);
+    assert.deepEqual(ok.summaries, []);
+  });
+
+  test('may not comment (403): the result goes to the job summary, and it fails', async () => {
+    const denied = io(refused(403));
+    assert.equal(await report({ failed: false }, 'the comment', denied), 1);
+    assert.equal(denied.summaries.length, 1);
+    assert.ok(denied.summaries[0]?.startsWith('the comment\n'));
+    assert.match(denied.summaries[0] ?? '', /couldn't comment on the pull request \(403/);
+  });
+
+  test('any other failure is thrown, not hidden', async () => {
+    await assert.rejects(report({ failed: false }, 'x', io(refused(500))), /500/);
   });
 });

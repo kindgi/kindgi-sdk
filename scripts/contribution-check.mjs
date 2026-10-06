@@ -21,12 +21,14 @@
  * Run by `.github/workflows/contribution-check.yml` (`pull_request_target`):
  * it reads the pull request from the event and its commits through the API,
  * and never runs the pull request's code. It comments once, and updates
- * that comment on every run. Tests: `scripts/contribution-check.test.mjs`.
+ * that comment on every run; when it may not comment, the result goes to
+ * the job summary and the check fails (`report`). Tests:
+ * `scripts/contribution-check.test.mjs`.
  * `CONTRIBUTION_CHECK_DRY_RUN=1` reads through the API but prints the
  * comment instead of posting it (to try it against a real pull request).
  */
 
-import { readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 /** The comment the check owns, found again by this marker. */
@@ -138,6 +140,31 @@ export function renderComment(result) {
   return lines.join('\n');
 }
 
+/**
+ * Comment on the pull request and exit as the result says. When the token
+ * may not comment (403: the workflow's permissions, or the org capping
+ * them), the result goes to the job summary and the check fails, so an
+ * outside contributor's pull request never fails silently.
+ *
+ * @param {{ failed: boolean }} result
+ * @param {string} body the comment
+ * @param {{ comment: (body: string) => Promise<void>, summary: (text: string) => void }} io
+ * @returns {Promise<number>} the exit code
+ */
+export async function report(result, body, io) {
+  try {
+    await io.comment(body);
+  } catch (err) {
+    if (err?.status !== 403) throw err;
+    io.summary(
+      `${body}\n\n---\n\nThis check couldn't comment on the pull request (403: the workflow's token may not), so the result is here, and the check fails until it can.\n`,
+    );
+    console.log("Couldn't comment on the pull request (403): the result is in the job summary.");
+    return 1;
+  }
+  return result.failed ? 1 : 0;
+}
+
 // ---------------------------------------------------------------------------
 // The run, in GitHub Actions
 // ---------------------------------------------------------------------------
@@ -153,7 +180,11 @@ async function api(path, init = {}) {
     },
   });
   if (!response.ok) {
-    throw new Error(`${init.method ?? 'GET'} ${path}: ${response.status} ${await response.text()}`);
+    const err = new Error(
+      `${init.method ?? 'GET'} ${path}: ${response.status} ${await response.text()}`,
+    );
+    err.status = response.status;
+    throw err;
   }
   return response.status === 204 ? undefined : response.json();
 }
@@ -187,28 +218,36 @@ async function main() {
     console.log(`Dry run: the comment would be:\n${body}`);
     return result.failed ? 1 : 0;
   }
-  const comments = await all(`/repos/${repo}/issues/${pr.number}/comments`);
-  const mine = comments.find(
-    (c) => typeof c.body === 'string' && c.body.startsWith(COMMENT_MARKER),
-  );
-  if (mine === undefined) {
-    await api(`/repos/${repo}/issues/${pr.number}/comments`, {
-      method: 'POST',
-      body: JSON.stringify({ body }),
-    });
-  } else if (mine.body !== body) {
-    await api(`/repos/${repo}/issues/comments/${mine.id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ body }),
-    });
-  }
   for (const item of [...result.missing, ...result.notes]) console.log(`- ${item}`);
-  if (result.failed) {
-    console.log('The contribution format is incomplete (see the comment on the pull request).');
-    return 1;
-  }
-  console.log('The contribution format is complete.');
-  return 0;
+  console.log(
+    result.failed
+      ? 'The contribution format is incomplete (see the comment on the pull request).'
+      : 'The contribution format is complete.',
+  );
+  return report(result, body, {
+    comment: async (text) => {
+      const comments = await all(`/repos/${repo}/issues/${pr.number}/comments`);
+      const mine = comments.find(
+        (c) => typeof c.body === 'string' && c.body.startsWith(COMMENT_MARKER),
+      );
+      if (mine === undefined) {
+        await api(`/repos/${repo}/issues/${pr.number}/comments`, {
+          method: 'POST',
+          body: JSON.stringify({ body: text }),
+        });
+      } else if (mine.body !== text) {
+        await api(`/repos/${repo}/issues/comments/${mine.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ body: text }),
+        });
+      }
+    },
+    summary: (text) => {
+      const file = process.env.GITHUB_STEP_SUMMARY;
+      if (file === undefined || file === '') console.log(text);
+      else appendFileSync(file, text);
+    },
+  });
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
