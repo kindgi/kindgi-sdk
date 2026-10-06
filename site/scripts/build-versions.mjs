@@ -55,10 +55,10 @@ function siteTags() {
   return execFileSync('git', ['tag', '--list', '@kindgi/sdk@*'], { cwd: repo, encoding: 'utf8' })
     .split('\n')
     .filter(Boolean)
-    .filter(
-      (tag) =>
-        spawnSync('git', ['cat-file', '-e', `${tag}:site/package.json`], { cwd: repo }).status === 0,
-    );
+    .filter((tag) => {
+      const site = spawnSync('git', ['cat-file', '-e', `${tag}:site/package.json`], { cwd: repo });
+      return site.status === 0;
+    });
 }
 
 /** Builds the docs of `dir` (a checkout, its workspace built) under `base`; copies them to `dest`. */
