@@ -216,6 +216,14 @@ kindgi providers unregister ollama
 registration can't be edited: registering an id that exists is refused, so
 unregister it first, then register the new spec.
 
+Unregistering takes a provider out of `list`, `get` and routing at once, and
+its id is free to register again; Kindgi keeps the record until a retention
+policy on `provider` ("Removed model providers" in the console) purges it:
+
+```text
+Error [not-found]: No provider registered with id "ollama"
+```
+
 ```text
 Error [conflict]: Provider "ollama" is already registered
 ```
