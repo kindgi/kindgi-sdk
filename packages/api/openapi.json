@@ -18754,6 +18754,16 @@
               }
             }
           },
+          "400": {
+            "description": "`conversationId` is not a conversation id (a UUID).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
             "content": {
@@ -18813,7 +18823,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body.",
+            "description": "`conversationId` is not a conversation id (a UUID).",
             "content": {
               "application/json": {
                 "schema": {
@@ -18912,7 +18922,7 @@
             }
           },
           "400": {
-            "description": "Malformed cursor.",
+            "description": "Malformed cursor, or `conversationId` is not a conversation id (a UUID).",
             "content": {
               "application/json": {
                 "schema": {

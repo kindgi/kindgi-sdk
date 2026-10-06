@@ -18,6 +18,7 @@ import { statusFor, toWireError } from '../errors.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit, decodeCursor, encodeCursor } from './pagination.js';
 import { parseListScope } from './scope-params.js';
+import { refuseMalformedUuidParam } from './uuid-param.js';
 
 const PROJECT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -28,6 +29,15 @@ const PROJECT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
  * order); conversation list sort is `openedAt DESC, id DESC`
  * (most-recently-opened first).
  */
+/**
+ * A `:conversationId` that isn't a conversation id is a 400
+ * (`uuid-param.ts`), not a 500 from the uuid cast (as `runs` does).
+ */
+const refuseMalformedConversationId = refuseMalformedUuidParam(
+  'conversationId',
+  'a conversation id',
+);
+
 export function conversationsRouter(
   conversationBinding: ConversationBinding,
   runBinding: RunBinding,
@@ -130,7 +140,7 @@ export function conversationsRouter(
   });
 
   // ---------- GET /:conversationId ----------
-  r.get('/:conversationId', async (c) => {
+  r.get('/:conversationId', refuseMalformedConversationId, async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const conversationId = c.req.param('conversationId') as ConversationId;
@@ -204,7 +214,7 @@ export function conversationsRouter(
   });
 
   // ---------- POST /:conversationId/close (idempotent) ----------
-  r.post('/:conversationId/close', async (c) => {
+  r.post('/:conversationId/close', refuseMalformedConversationId, async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const conversationId = c.req.param('conversationId') as ConversationId;
@@ -232,7 +242,7 @@ export function conversationsRouter(
   });
 
   // ---------- GET /:conversationId/messages (cursor-paginated, sequence asc) ----------
-  r.get('/:conversationId/messages', async (c) => {
+  r.get('/:conversationId/messages', refuseMalformedConversationId, async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const conversationId = c.req.param('conversationId') as ConversationId;
