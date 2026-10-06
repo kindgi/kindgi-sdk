@@ -67,6 +67,13 @@ export interface UsageSummaryInput
   /** Exclusive. */
   readonly to: Timestamp;
   readonly groupBy?: readonly CostGroupDimension[];
+  /**
+   * The most groups to return: the most expensive ones, highest first.
+   * 1 to 10000; the server's default is 1000. When there were more, the
+   * result's `truncated` is `true` and `totalGroups` says how many; the
+   * totals still cover every record.
+   */
+  readonly limit?: number;
 }
 
 /** The query parameters a cost filter sends. */
@@ -147,7 +154,7 @@ export function makeCostClient(transport: Transport): CostClient {
       },
 
       async summary(input) {
-        const { from, to, groupBy, ...filter } = input;
+        const { from, to, groupBy, limit, ...filter } = input;
         return transport.request<CostAggregateResult>({
           method: 'GET',
           path: '/v1/cost/aggregate',
@@ -156,6 +163,7 @@ export function makeCostClient(transport: Transport): CostClient {
             from: from as unknown as string,
             to: to as unknown as string,
             ...(groupBy !== undefined && { groupBy: groupBy.join(',') }),
+            ...(limit !== undefined && { limit }),
           },
         });
       },

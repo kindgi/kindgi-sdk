@@ -93,6 +93,31 @@ describe('cost.usage.summary', () => {
     const url = new URL(stub.calls[0]?.url);
     expect(url.pathname).toBe('/v1/cost/aggregate');
     expect(url.searchParams.get('groupBy')).toBe('agentId,category');
+    expect(url.searchParams.get('limit')).toBeNull();
+  });
+
+  it('sends limit, the most groups to return', async () => {
+    const stub = jsonFetch({
+      groups: [],
+      totalUsd: 0,
+      totalRecords: 0,
+      totalGroups: 12,
+      truncated: true,
+      timeRange: { from: '2026-09-01T00:00:00Z', to: '2026-10-01T00:00:00Z' },
+      groupBy: ['model'],
+    });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    await client.cost.usage.summary({
+      from: '2026-09-01T00:00:00Z' as never,
+      to: '2026-10-01T00:00:00Z' as never,
+      groupBy: ['model'],
+      limit: 10,
+    });
+    expect(new URL(stub.calls[0]?.url).searchParams.get('limit')).toBe('10');
   });
 
   it('maps 401 auth-missing to AuthError', async () => {
