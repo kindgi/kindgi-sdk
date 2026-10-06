@@ -49,6 +49,7 @@ import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
 import { readGateDecision } from './gate-decision.js';
 import { rehydrateReplay } from './replay.js';
+import type { PinnedBlockVersions } from './resolve-blocks.js';
 import { TOOL_GATE_RECORD_PREFIX } from './tool-hitl.js';
 import {
   loadTurnConversation,
@@ -62,7 +63,6 @@ import {
   addStepToolNodes,
 } from './turn-provenance.js';
 import type { ToolApproval } from './turn-provenance.js';
-import type { PinnedBlockVersions } from './resolve-blocks.js';
 
 interface StepRecord {
   readonly nodeId: string;

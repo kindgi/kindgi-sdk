@@ -25,6 +25,7 @@ import type {
 
 import type { AgentRegistryBinding } from '../agent-binding.js';
 import { type UnpinnableRef, publishDeployedAgent, resolveAgentPins } from '../agent-pins.js';
+import type { BlockRegistryBinding } from '../block-binding.js';
 import type { DeployedVersionOutcome } from '../deploy-versions.js';
 import type {
   DeployedAgent,
@@ -120,6 +121,8 @@ export interface DeploymentsRouterBindings {
   readonly guardrailRegistry?: GuardrailRegistryBinding;
   readonly agentRegistry?: AgentRegistryBinding;
   readonly flowRegistry?: FlowRegistryBinding;
+  /** Data blocks: an agent's block references are pinned at deploy with its tools. */
+  readonly blockRegistry?: BlockRegistryBinding;
   /**
    * REQUIRED at runtime for `POST /v1/deployments/:deploymentId/secrets`.
    * Optional at the type level so app compositions without a secrets
@@ -594,6 +597,7 @@ export function deploymentsRouter(bindings: DeploymentsRouterBindings): Hono<App
           ...(await registerAgents({
             agents: bindings.agentRegistry,
             tools: bindings.toolRegistry,
+            blocks: bindings.blockRegistry,
             tenantId,
             projectId: defaultProjectId,
             defined: validated.agents,
@@ -1371,8 +1375,18 @@ function validateAgentIndexShape(
   if (typeof spec.name !== 'string' || (spec.name as string).length === 0) {
     out.push({ path: '/name', message: 'agent.name must be a non-empty string' });
   }
-  if (typeof spec.instructions !== 'string' || (spec.instructions as string).length === 0) {
-    out.push({ path: '/instructions', message: 'agent.instructions must be a non-empty string' });
+  const instructions = spec.instructions as { prompt?: unknown; version?: unknown } | string;
+  const promptRef =
+    typeof instructions === 'object' &&
+    instructions !== null &&
+    typeof instructions.prompt === 'string' &&
+    typeof instructions.version === 'string';
+  if (!promptRef && (typeof instructions !== 'string' || instructions.length === 0)) {
+    out.push({
+      path: '/instructions',
+      message:
+        'agent.instructions must be a non-empty string, or a prompt block { prompt, version }',
+    });
   }
   if (!Array.isArray(spec.capabilities)) {
     out.push({ path: '/capabilities', message: 'agent.capabilities must be an array' });
@@ -1454,12 +1468,13 @@ function deployedVersion(
 async function registerAgents(input: {
   readonly agents: AgentRegistryBinding;
   readonly tools: ToolRegistryBinding | undefined;
+  readonly blocks: BlockRegistryBinding | undefined;
   readonly tenantId: TenantId;
   readonly projectId: ProjectId;
   readonly defined: readonly Agent[];
   readonly rolled: RollbackAction[];
 }): Promise<DeployedAgent[]> {
-  const { agents, tools, tenantId, projectId, rolled } = input;
+  const { agents, tools, blocks, tenantId, projectId, rolled } = input;
   // Signed deploys have no per-request principal — pass parent-only
   // tuples (no owner grant). Tenant admins keep access via
   // `admin from parent` cascade.
@@ -1478,7 +1493,7 @@ async function registerAgents(input: {
     return input.defined.map(deployedPrimitive);
   }
 
-  const pinsOf = await pinAgents(tools, tenantId, input.defined);
+  const pinsOf = await pinAgents(tools, blocks, tenantId, input.defined);
   const deployed: DeployedAgent[] = [];
   for (const [i, agent] of input.defined.entries()) {
     const pins = pinsOf[i] as AgentPins;
@@ -1583,13 +1598,14 @@ async function pinFlows(
 /** Each agent's pins, in order; throws `UnpinnableDeploy` naming every range that matches nothing. */
 async function pinAgents(
   tools: ToolRegistryBinding,
+  blocks: BlockRegistryBinding | undefined,
   tenantId: TenantId,
   defined: readonly Agent[],
 ): Promise<AgentPins[]> {
   const pins: AgentPins[] = [];
   const unpinnable: UnpinnableRef[] = [];
   for (const [i, agent] of defined.entries()) {
-    const resolved = await resolveAgentPins(tools, tenantId, agent);
+    const resolved = await resolveAgentPins(tools, tenantId, agent, blocks);
     if (resolved.kind === 'ok') {
       pins.push(resolved.pins);
       continue;

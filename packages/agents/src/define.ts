@@ -293,10 +293,16 @@ function blockRefIssues(ref: unknown, path: string, idKey: 'prompt' | 'id'): Iss
   const r = ref as Record<string, unknown>;
   const out: Issue[] = [];
   if (typeof r[idKey] !== 'string' || !BLOCK_ID.test(r[idKey] as string)) {
-    out.push({ path: `${path}/${idKey}`, message: 'must be a dotted lowercase block id, e.g. "acme.weights"' });
+    out.push({
+      path: `${path}/${idKey}`,
+      message: 'must be a dotted lowercase block id, e.g. "acme.weights"',
+    });
   }
   if (typeof r.version !== 'string' || pickVersion([], r.version).kind === 'invalid-range') {
-    out.push({ path: `${path}/version`, message: 'must be a semver range, e.g. "^1.0.0" or "1.2.0"' });
+    out.push({
+      path: `${path}/version`,
+      message: 'must be a semver range, e.g. "^1.0.0" or "1.2.0"',
+    });
   }
   return out;
 }

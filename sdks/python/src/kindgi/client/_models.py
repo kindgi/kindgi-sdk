@@ -1550,6 +1550,13 @@ class ToolErrorsSpec(BaseModel):
     """
 
 
+class Instructions(RootModel[str]):
+    root: Annotated[str, Field(min_length=1)]
+    """
+    The system prompt (a Liquid template), or a prompt block by range whose template and parameters are used instead (pinned at publish, `pins.prompts`).
+    """
+
+
 class AgentPins(BaseModel):
     """
     The exact block versions an agent version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool range resolves once to the version every run of that agent version uses, so a new tool version reaches the agent only through a new agent version. Absent on a version published before pins existed (its ranges resolve per run).
@@ -1570,6 +1577,44 @@ class AgentPins(BaseModel):
     settings: dict[str, str]
     """
     Settings block id → exact version.
+    """
+
+
+class PromptRef(BaseModel):
+    """
+    A prompt block an agent's instructions come from, by id and semver range.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    prompt: str
+    """
+    The prompt block id.
+    """
+    version: str
+    """
+    A semver range (`^1.0.0`, `1.2.0`).
+    """
+
+
+class BlockRef(BaseModel):
+    """
+    A settings block an agent reads, by id and semver range.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    The settings block id.
+    """
+    version: str
+    """
+    A semver range (`^1.0.0`, `1.2.0`).
     """
 
 
@@ -1649,8 +1694,19 @@ class PublishAgentBody(BaseModel):
     """
     Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`.
     """
-    instructions: str
+    instructions: Instructions | PromptRef
+    """
+    The system prompt (a Liquid template), or a prompt block by range whose template and parameters are used instead (pinned at publish, `pins.prompts`).
+    """
     parameters: list[PromptParameter] | None = None
+    settings: list[BlockRef] | None = None
+    """
+    Settings blocks the agent reads, by range: tools read them as `ToolContext.settings['<id>']`, templates as `settings["<id>"]`. Pinned at publish (`pins.settings`).
+    """
+    model_settings: Annotated[BlockRef | None, Field(alias="modelSettings")] = None
+    """
+    A model-settings block by range: its `temperature` and `maxOutputTokens` go into the turn's model calls. Pinned at publish.
+    """
     capabilities: list[Capability4]
     tools: list[ToolRef]
     retrieval: list[RetrievalIntent]
@@ -6886,8 +6942,19 @@ class Agent(BaseModel):
     """
     name: str
     description: str | None = None
-    instructions: str
+    instructions: Instructions | PromptRef
+    """
+    The system prompt (a Liquid template), or a prompt block by range whose template and parameters are used instead (pinned at publish, `pins.prompts`).
+    """
     parameters: list[PromptParameter] | None = None
+    settings: list[BlockRef] | None = None
+    """
+    Settings blocks the agent reads, by range: tools read them as `ToolContext.settings['<id>']`, templates as `settings["<id>"]`. Pinned at publish (`pins.settings`).
+    """
+    model_settings: Annotated[BlockRef | None, Field(alias="modelSettings")] = None
+    """
+    A model-settings block by range: its `temperature` and `maxOutputTokens` go into the turn's model calls. Pinned at publish.
+    """
     capabilities: list[Capability4]
     tools: list[ToolRef]
     retrieval: list[RetrievalIntent]

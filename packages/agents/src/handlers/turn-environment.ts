@@ -21,8 +21,8 @@ import { mergeTenantPolicies } from '../tenant-policy.js';
 import type { Conversation } from '../types.js';
 import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
-import { resolveTurnTools } from './resolve-tools.js';
 import { type PinnedBlockVersions, resolveTurnBlocks } from './resolve-blocks.js';
+import { resolveTurnTools } from './resolve-tools.js';
 import { type ToolErrorPolicy, effectiveToolErrorPolicy } from './tool-errors.js';
 
 /** The conversation the turn runs in: open, and opened with this agent version. */

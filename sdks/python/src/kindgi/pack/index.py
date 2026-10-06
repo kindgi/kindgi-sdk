@@ -314,7 +314,11 @@ def _agent_entry(agent: Agent, rel_path: str, config: PackConfig) -> dict[str, A
             "id": agent.id,
             "version": agent.version,
             "name": agent.name,
-            "instructions": agent.instructions,
+            "instructions": (
+                agent.instructions
+                if isinstance(agent.instructions, str)
+                else dict(agent.instructions)
+            ),
             "capabilities": [dict(c) for c in agent.capabilities],
             "tools": tools,
             "retrieval": [dict(r) for r in agent.retrieval],
@@ -328,6 +332,8 @@ def _agent_entry(agent: Agent, rel_path: str, config: PackConfig) -> dict[str, A
             "conversationPolicy": _dict(agent.conversation_policy),
             "output": output,
             "toolErrors": _dict(agent.tool_errors),
+            "settings": [dict(s) for s in agent.settings],
+            "modelSettings": _dict(agent.model_settings),
             "modulePath": rel_path,
         }
     )

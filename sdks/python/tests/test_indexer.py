@@ -173,6 +173,23 @@ def test_a_bare_string_tool_on_an_agent_is_a_file_error(make_pack: Callable[...,
     assert "acme.bad" not in [a["id"] for a in index["agents"]]
 
 
+def test_an_agent_can_reference_data_blocks(make_pack: Callable[..., Path]) -> None:
+    blocks_agent = (
+        "from kindgi import Agent\n"
+        'blocks = Agent(id="acme.blocks", version="1.0.0", name="Blocks",'
+        ' instructions={"prompt": "acme.intake-prompt", "version": "^1.0.0"},'
+        ' settings=[{"id": "acme.weights", "version": "^1.0.0"}],'
+        ' model_settings={"id": "acme.model", "version": "^1.0.0"})\n'
+    )
+    root = full_pack(make_pack, **{"agents/blocks.py": blocks_agent})
+    report, index = index_of(root)
+    assert report["fileErrors"] == []
+    (entry,) = [a for a in index["agents"] if a["id"] == "acme.blocks"]
+    assert entry["instructions"] == {"prompt": "acme.intake-prompt", "version": "^1.0.0"}
+    assert entry["settings"] == [{"id": "acme.weights", "version": "^1.0.0"}]
+    assert entry["modelSettings"] == {"id": "acme.model", "version": "^1.0.0"}
+
+
 def test_an_invalid_flow_is_a_file_error(make_pack: Callable[..., Path]) -> None:
     root = full_pack(
         make_pack, **{"flows/flow.py": FLOW.replace('"to": "shout"', '"too": "shout"')}

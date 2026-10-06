@@ -937,8 +937,23 @@ export const AgentSchema: JsonSchema = {
     version: { type: 'string', description: 'Semver.' },
     name: { type: 'string' },
     description: { type: 'string' },
-    instructions: { type: 'string' },
+    instructions: {
+      oneOf: [{ type: 'string', minLength: 1 }, { $ref: '#/components/schemas/PromptRef' }],
+      description:
+        'The system prompt (a Liquid template), or a prompt block by range whose template and parameters are used instead (pinned at publish, `pins.prompts`).',
+    },
     parameters: { type: 'array', items: { $ref: '#/components/schemas/PromptParameter' } },
+    settings: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/BlockRef' },
+      description:
+        'Settings blocks the agent reads, by range: tools read them as `ToolContext.settings[\'<id>\']`, templates as `settings["<id>"]`. Pinned at publish (`pins.settings`).',
+    },
+    modelSettings: {
+      $ref: '#/components/schemas/BlockRef',
+      description:
+        "A model-settings block by range: its `temperature` and `maxOutputTokens` go into the turn's model calls. Pinned at publish.",
+    },
     capabilities: { type: 'array', items: { $ref: '#/components/schemas/Capability' } },
     tools: { type: 'array', items: { $ref: '#/components/schemas/ToolRef' } },
     retrieval: { type: 'array', items: { $ref: '#/components/schemas/RetrievalIntent' } },
@@ -1012,6 +1027,28 @@ export const AgentPinsSchema: JsonSchema = {
   },
 };
 
+export const PromptRefSchema: JsonSchema = {
+  description: "A prompt block an agent's instructions come from, by id and semver range.",
+  type: 'object',
+  additionalProperties: false,
+  required: ['prompt', 'version'],
+  properties: {
+    prompt: { type: 'string', description: 'The prompt block id.' },
+    version: { type: 'string', description: 'A semver range (`^1.0.0`, `1.2.0`).' },
+  },
+};
+
+export const BlockRefSchema: JsonSchema = {
+  description: 'A settings block an agent reads, by id and semver range.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'version'],
+  properties: {
+    id: { type: 'string', description: 'The settings block id.' },
+    version: { type: 'string', description: 'A semver range (`^1.0.0`, `1.2.0`).' },
+  },
+};
+
 export const PublishAgentBodySchema: JsonSchema = {
   description:
     'Full `defineAgent` spec. Validated server-side via `@kindgi/agents.defineAgent` — validation failures return `400 validation-failed` with the issue list under `details.issues`.',
@@ -1034,8 +1071,23 @@ export const PublishAgentBodySchema: JsonSchema = {
     name: { type: 'string' },
     description: { type: 'string' },
     projectId: ContentProjectIdProperty,
-    instructions: { type: 'string' },
+    instructions: {
+      oneOf: [{ type: 'string', minLength: 1 }, { $ref: '#/components/schemas/PromptRef' }],
+      description:
+        'The system prompt (a Liquid template), or a prompt block by range whose template and parameters are used instead (pinned at publish, `pins.prompts`).',
+    },
     parameters: { type: 'array', items: { $ref: '#/components/schemas/PromptParameter' } },
+    settings: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/BlockRef' },
+      description:
+        'Settings blocks the agent reads, by range: tools read them as `ToolContext.settings[\'<id>\']`, templates as `settings["<id>"]`. Pinned at publish (`pins.settings`).',
+    },
+    modelSettings: {
+      $ref: '#/components/schemas/BlockRef',
+      description:
+        "A model-settings block by range: its `temperature` and `maxOutputTokens` go into the turn's model calls. Pinned at publish.",
+    },
     capabilities: { type: 'array', items: { $ref: '#/components/schemas/Capability' } },
     tools: { type: 'array', items: { $ref: '#/components/schemas/ToolRef' } },
     retrieval: { type: 'array', items: { $ref: '#/components/schemas/RetrievalIntent' } },
@@ -7050,6 +7102,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ToolErrorsSpec', ToolErrorsSpecSchema],
   ['Agent', AgentSchema],
   ['AgentPins', AgentPinsSchema],
+  ['PromptRef', PromptRefSchema],
+  ['BlockRef', BlockRefSchema],
   ['PinChange', PinChangeSchema],
   ['VersionDerivation', VersionDerivationSchema],
   ['FlowPins', FlowPinsSchema],

@@ -84,13 +84,7 @@ export function buildModelCallHandler(ctx: TurnContext): NodeHandler {
         ...(ctx.tools.definitions.length > 0 && {
           tools: ctx.tools.definitions,
         }),
-        // The pinned model-settings block's values.
-        ...(ctx.blocks?.modelSettings?.temperature !== undefined && {
-          temperature: ctx.blocks.modelSettings.temperature,
-        }),
-        ...(ctx.blocks?.modelSettings?.maxOutputTokens !== undefined && {
-          maxOutputTokens: ctx.blocks.modelSettings.maxOutputTokens,
-        }),
+        ...modelSettingsOf(ctx),
         abortSignal: ctx.turnAbort.signal,
       };
 
@@ -273,4 +267,15 @@ function describeCause(cause: unknown): string {
   const text = (cause instanceof Error ? cause.message : String(cause)).replace(/\s+/g, ' ').trim();
   if (text.length === 0) return cause instanceof Error ? cause.name : 'no detail';
   return text.length > MAX_CAUSE_CHARS ? `${text.slice(0, MAX_CAUSE_CHARS - 1)}…` : text;
+}
+
+/** The pinned model-settings block's values, as model-call fields; none when it has none. */
+function modelSettingsOf(
+  ctx: TurnContext,
+): Pick<ModelCallInput, 'temperature' | 'maxOutputTokens'> {
+  const settings = ctx.blocks?.modelSettings;
+  return {
+    ...(settings?.temperature !== undefined && { temperature: settings.temperature }),
+    ...(settings?.maxOutputTokens !== undefined && { maxOutputTokens: settings.maxOutputTokens }),
+  };
 }

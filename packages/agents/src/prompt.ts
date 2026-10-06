@@ -109,19 +109,9 @@ export function renderInstructions(
 ):
   | { readonly ok: true; readonly value: RenderResult }
   | { readonly ok: false; readonly error: PromptRenderError } {
-  const template = prompt?.template ?? (typeof agent.instructions === 'string' ? agent.instructions : undefined);
-  if (template === undefined) {
-    const ref = agent.instructions as PromptRef;
-    return {
-      ok: false,
-      error: {
-        code: 'render-failure',
-        message: `The instructions come from prompt block "${ref.prompt}" (${ref.version}), which wasn't loaded`,
-        cause: null,
-      },
-    };
-  }
-  const declared = prompt !== undefined ? (prompt.parameters ?? []) : (agent.parameters ?? []);
+  const source = instructionsSource(agent, prompt);
+  if (!source.ok) return source;
+  const { template, declared } = source.value;
   const missing = requiredMissing(declared, context.parameters);
   if (missing.length > 0) {
     return {
@@ -163,6 +153,33 @@ export function renderInstructions(
       },
     };
   }
+}
+
+/** The template to render and the parameters it declares: the prompt block's, or the agent's own. */
+function instructionsSource(
+  agent: Agent,
+  prompt: PromptBlockContent | undefined,
+):
+  | {
+      readonly ok: true;
+      readonly value: { readonly template: string; readonly declared: readonly PromptParameter[] };
+    }
+  | { readonly ok: false; readonly error: PromptRenderError } {
+  if (prompt !== undefined) {
+    return { ok: true, value: { template: prompt.template, declared: prompt.parameters ?? [] } };
+  }
+  if (typeof agent.instructions === 'string') {
+    return { ok: true, value: { template: agent.instructions, declared: agent.parameters ?? [] } };
+  }
+  const ref: PromptRef = agent.instructions;
+  return {
+    ok: false,
+    error: {
+      code: 'render-failure',
+      message: `The instructions come from prompt block "${ref.prompt}" (${ref.version}), which wasn't loaded`,
+      cause: null,
+    },
+  };
 }
 
 function requiredMissing(

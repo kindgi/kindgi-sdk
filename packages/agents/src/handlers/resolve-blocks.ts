@@ -60,14 +60,22 @@ export async function resolveTurnBlocks(
   if (refs.length === 0) return undefined;
   const reader = ctx.bindings.blockReader;
   if (reader === undefined) {
-    fail(refs[0] as Ref, `agent "${agent.id}" references data blocks, but this runtime serves none`);
+    fail(
+      refs[0] as Ref,
+      `agent "${agent.id}" references data blocks, but this runtime serves none`,
+    );
   }
 
-  const versions = { prompts: {} as Record<string, string>, settings: {} as Record<string, string> };
+  const versions = {
+    prompts: {} as Record<string, string>,
+    settings: {} as Record<string, string>,
+  };
   const loaded = new Map<Ref, BlockDefinition>();
   for (const ref of refs) {
     const version =
-      pinned?.[ref.kind][ref.id] ?? agent.pins?.[ref.kind][ref.id] ?? (await resolveRange(ctx, ref));
+      pinned?.[ref.kind][ref.id] ??
+      agent.pins?.[ref.kind][ref.id] ??
+      (await resolveRange(ctx, ref));
     const block = await reader.getVersion({
       tenantId: ctx.input.tenantId,
       blockId: ref.id,
@@ -161,7 +169,12 @@ function turnBlocks(
 }
 
 function describe(ref: Ref): string {
-  const what = ref.role === 'prompt' ? 'prompt' : ref.role === 'model-settings' ? 'model-settings' : 'settings';
+  const what =
+    ref.role === 'prompt'
+      ? 'prompt'
+      : ref.role === 'model-settings'
+        ? 'model-settings'
+        : 'settings';
   return `${what} block "${ref.id}"`;
 }
 

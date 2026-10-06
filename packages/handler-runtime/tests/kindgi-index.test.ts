@@ -808,6 +808,27 @@ describe('runIndexer — error variants', () => {
     },
   );
 
+  test('an agent whose instructions are a prompt block, with settings blocks, is indexed as one', async () => {
+    const refs = {
+      instructions: { prompt: 'acme.support-prompt', version: '^1.0.0' },
+      settings: [{ id: 'acme.weights', version: '^1.0.0' }],
+      modelSettings: { id: 'acme.model', version: '^1.0.0' },
+    };
+    const fixture = await makeFixture({
+      files: { 'kindgi.config.mjs': config(), 'agents/support.mjs': agentModule(refs) },
+    });
+    const outcome = await runIndexer({
+      packDir: fixture.packDir,
+      publishedAt: FIXED_TIMESTAMP,
+      importModule: fixture.importModule,
+    });
+    expect(outcome.kind).toBe('ok');
+    if (outcome.kind !== 'ok') return;
+    expect(outcome.value.fileErrors).toEqual([]);
+    const parsed = await readValidIndex(outcome.value.outputPath);
+    expect((parsed.agents as unknown[])[0]).toMatchObject(refs);
+  });
+
   test('the same id on two different kinds is not a duplicate', async () => {
     const fixture = await makeFixture({
       files: {

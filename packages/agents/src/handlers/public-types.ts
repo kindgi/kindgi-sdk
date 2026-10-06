@@ -10,13 +10,13 @@ import type { ParentRunRef, RunBinding, RunReplayRef } from '@kindgi/runtime';
 import type { ToolRegistry, ToolSecretRef } from '@kindgi/tools';
 import type { OrgId, ProjectId, ProvenanceId, RunId, TenantId, Timestamp } from '@kindgi/types';
 
+import type { BlockReader } from '../blocks.js';
 import type { ConversationBinding } from '../conversation-binding.js';
 import type { GuardrailsBindings } from '../guardrails-gate.js';
 import type { ProvenanceBindings } from '../provenance-emit.js';
 import type { RunSnapshotBinding } from '../run-snapshot-binding.js';
 import type { OnTurnEvent } from '../streaming.js';
 import type { Agent, ConversationId } from '../types.js';
-import type { BlockReader } from '../blocks.js';
 
 import type { ReplayBinding } from './replay.js';
 

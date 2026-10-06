@@ -15,6 +15,7 @@ import type { Cursor, ProjectId, Semver, TenantId, UserId } from '@kindgi/types'
 
 import type { AgentRegistryBinding, AgentVersionRecord } from '../agent-binding.js';
 import { resolveAgentPins } from '../agent-pins.js';
+import type { BlockRegistryBinding } from '../block-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
@@ -43,6 +44,7 @@ export function agentsRouter(
   binding: AgentRegistryBinding,
   authorizer?: Authorizer,
   toolRegistry?: ToolRegistryBinding,
+  blockRegistry?: BlockRegistryBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -304,7 +306,7 @@ export function agentsRouter(
     // publish rather than store a partly pinned version.
     let agent: Agent = defined.value;
     if (toolRegistry !== undefined) {
-      const resolved = await resolveAgentPins(toolRegistry, tenantId, defined.value);
+      const resolved = await resolveAgentPins(toolRegistry, tenantId, defined.value, blockRegistry);
       if (resolved.kind === 'unpinnable') {
         c.status(statusFor('invalid-agent') as never);
         return c.json(
@@ -451,6 +453,8 @@ function serializeAgent(a: AgentVersionRecord): Record<string, unknown> {
     ...(a.description !== undefined && { description: a.description }),
     instructions: a.instructions,
     ...(a.parameters !== undefined && { parameters: a.parameters }),
+    ...(a.settings !== undefined && { settings: a.settings }),
+    ...(a.modelSettings !== undefined && { modelSettings: a.modelSettings }),
     capabilities: a.capabilities,
     tools: a.tools,
     retrieval: a.retrieval,

@@ -1027,7 +1027,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     v1.route('/observations', observationsRouter(input.supervisor));
   }
   if (input.agentRegistry !== undefined) {
-    v1.route('/agents', agentsRouter(input.agentRegistry, authorizer, input.toolRegistry));
+    v1.route(
+      '/agents',
+      agentsRouter(input.agentRegistry, authorizer, input.toolRegistry, input.blockRegistry),
+    );
   }
   if (input.flowRegistry !== undefined) {
     v1.route(
@@ -1250,6 +1253,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         signingKeyRegistry: input.signingKeyRegistry,
         imageRegistry: input.imageRegistry,
         ...(input.toolRegistry !== undefined && { toolRegistry: input.toolRegistry }),
+        ...(input.blockRegistry !== undefined && { blockRegistry: input.blockRegistry }),
         ...(input.guardrailRegistry !== undefined && {
           guardrailRegistry: input.guardrailRegistry,
         }),
