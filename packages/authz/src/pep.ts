@@ -9,7 +9,7 @@
 // Two exports:
 //   - `principalFromToken`   — TokenResolution → Principal, honoring
 //                              service-account vs user semantics
-//   - `denyPayload`          — canonical structured 403 body shape
+//   - `denyPayload`          — what a 403 denial names (its envelope's `details`)
 //
 
 import type { TenantId, UserId } from '@kindgi/types';
@@ -59,11 +59,12 @@ export function principalFromToken(token: TokenLike): Principal {
 }
 
 /**
- * Canonical 403 body shape. Structured so clients can distinguish
- * "you didn't have permission" from "your input was invalid" —
- * different remediation flows. Avoids leaking full evidence (that
- * belongs in the audit trail); reason is a human-readable summary
- * safe to return.
+ * What a denial names: the action, the resource and a reason. The API
+ * answers a denial as a 403 in its error envelope, `{ error: { code:
+ * 'permission-denied', message, details: { action, resource, reason },
+ * requestId } }`, so clients can tell "you didn't have permission" from
+ * "your input was invalid". Avoids leaking full evidence (that belongs in
+ * the audit trail); `reason` is a human-readable summary safe to return.
  */
 export interface DenyPayload {
   readonly code: 'permission-denied';

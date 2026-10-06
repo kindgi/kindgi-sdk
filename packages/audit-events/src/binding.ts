@@ -56,6 +56,13 @@ export interface AuditEventPurgeInput {
   readonly kind: string;
   /** ISO timestamp cutoff. Rows with `timestamp < olderThan` are deleted. */
   readonly olderThan: string;
+  /**
+   * Only rows with this outcome, e.g. a kind's denials kept longer than the
+   * rest (a classifier's `onDenyDays`). Absent: any outcome.
+   */
+  readonly outcome?: string;
+  /** Only rows whose outcome isn't this one (rows with no outcome included). */
+  readonly exceptOutcome?: string;
 }
 
 export interface AuditEventPurgeResult {

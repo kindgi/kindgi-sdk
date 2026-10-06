@@ -16,12 +16,13 @@ import type { Command } from './types.js';
 export const UNWIRED_COMMANDS: ReadonlySet<string> = new Set([
   'artifacts',
   'capabilities',
-  'memory',
   'observations',
   'proposals',
   'tokens',
   'tools publish',
   'runs resume',
+  'memory facts supersede',
+  'memory facts retrieve',
 ]);
 
 /** Why `kindgi tokens` is unwired: the runtime wires no `tokenAdmin`, so `/v1/tokens` isn't mounted (T243). */
@@ -39,6 +40,14 @@ export const UNWIRED_REASONS: ReadonlyMap<string, string> = new Map([
   ],
   ['tokens create', TOKENS_NOT_SERVED],
   ['tokens revoke', TOKENS_NOT_SERVED],
+  [
+    'memory facts supersede',
+    "the Kindgi runtime doesn't supersede memory facts yet: it would answer that no such fact exists, even for one that does.",
+  ],
+  [
+    'memory facts retrieve',
+    "the Kindgi runtime doesn't search memory yet (keyword or semantic): a retrieval would find nothing. To list facts by type or scope: `kindgi memory facts list --type=<type> --scope=<json>`.",
+  ],
 ]);
 
 /** Whether the command at `path` (its words, from the root) is wired. */

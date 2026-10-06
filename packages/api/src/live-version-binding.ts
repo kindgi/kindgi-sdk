@@ -13,6 +13,9 @@ import type {
   Timestamp,
 } from '@kindgi/types';
 
+import type { GatePolicyBinding, GatePolicyRef } from './gate-policy-binding.js';
+import type { GateApproval, GateCheck } from './gate.js';
+
 /**
  * Live versions of agents: which version serves a scope, and the
  * promotions that put it there (evals step 4). A run that names no
@@ -66,6 +69,25 @@ export interface PromotionActor {
 export type PromotionAction = 'promote' | 'rollback' | 'unpin';
 
 /**
+ * Where a promotion request stands. Only `promote` rows have one; rollback
+ * and unpin are immediate. A request's status changes once, from
+ * `pending-approval` to its final state.
+ */
+export type PromotionStatus =
+  /** The version is live for the scope. */
+  | 'promoted'
+  /** The gate passed; a reviewer's approval is open. The live version is unchanged. */
+  | 'pending-approval'
+  /** The gate failed (`checks` say why). The live version is unchanged. */
+  | 'refused'
+  /** Approved, but the scope's live version or policy changed meanwhile: check again. */
+  | 'superseded'
+  /** The reviewer rejected it. */
+  | 'rejected'
+  /** The approval expired undecided. */
+  | 'expired';
+
+/**
  * One change of a scope's live version, kept for good (the audit trail):
  * what was live before, what is after, who asked and why.
  */
@@ -83,6 +105,16 @@ export interface Promotion {
   /** The comparison the change was judged on, when there was one. */
   readonly evalRunId?: string;
   readonly createdAt: Timestamp;
+  /** A `promote` row's state; absent on a promotion made before gates (`promoted`). */
+  readonly status?: PromotionStatus;
+  /** The gate policy that applied; `null` when none did. Absent before gates. */
+  readonly policy?: GatePolicyRef | null;
+  /** The gate's checks, as they ran. */
+  readonly checks?: readonly GateCheck[];
+  /** The approval a `pending-approval` promotion waits on (kept once decided). */
+  readonly approvalId?: string;
+  /** When a `pending-approval` promotion reached its final state. */
+  readonly resolvedAt?: Timestamp;
 }
 
 export type PromotionErrorCode =
@@ -94,6 +126,13 @@ export type PromotionErrorCode =
   | 'nothing-to-roll-back'
   /** Unpin or rollback: the scope has no pin of its own. */
   | 'not-pinned'
+  /** The scope's live version changed while the gate ran: check again. */
+  | 'promotion-superseded'
+  /**
+   * Unpin or rollback: it would leave a scope a gate policy applies to
+   * resolving to the latest version, where publishing goes live ungated.
+   */
+  | 'gate-policy-needs-pin'
   | 'persistence-error';
 
 export interface PromotionError {
@@ -109,6 +148,27 @@ export interface PromoteInput {
   readonly requestedBy: PromotionActor;
   readonly reason?: string;
   readonly evalRunId?: string;
+}
+
+/**
+ * A promotion with the gate's verdict, recorded as one request: refused,
+ * waiting for approval, or promoted. The route runs the gate; the
+ * binding records the outcome atomically.
+ */
+export interface PromotionRequestInput extends PromoteInput {
+  readonly gate: {
+    readonly policy: GatePolicyRef | null;
+    readonly checks: readonly GateCheck[];
+    readonly passed: boolean;
+    /** A passing promotion waits for this approval instead of going live. */
+    readonly approval?: GateApproval;
+    /**
+     * What served the scope when the gate ran. A binding refuses with
+     * `promotion-superseded` when it no longer does, and an approved
+     * promotion whose scope moved on becomes `superseded`.
+     */
+    readonly servingVersion: Semver;
+  };
 }
 
 export interface RollbackInput {
@@ -141,9 +201,21 @@ export interface ListPromotionsInput {
 export interface PromotionBinding {
   /** Make `version` live for `scope`. The version must be registered and active. */
   promote(input: PromoteInput): Promise<Result<Promotion, PromotionError>>;
+  /**
+   * Record a gated promotion request (evals step 4b): `refused` when the
+   * gate failed, `pending-approval` (opening a HITL approval, subject
+   * `agent-promotion`) when it passed and the policy wants an approval,
+   * else `promoted`. Optional: without it, the route refuses a promotion
+   * a gate policy applies to (`501`), rather than promoting ungated.
+   */
+  request?(input: PromotionRequestInput): Promise<Result<Promotion, PromotionError>>;
   /** Back to the scope's previous live version, or a named earlier one. */
   rollback(input: RollbackInput): Promise<Result<Promotion, PromotionError>>;
-  /** Remove the scope's own pin: it falls back to the next scope up. */
+  /**
+   * Remove the scope's own pin: it falls back to the next scope up. With
+   * gate policies, `gate-policy-needs-pin` when that would leave a gated
+   * scope resolving to the latest version.
+   */
   unpin(input: UnpinInput): Promise<Result<Promotion, PromotionError>>;
   list(input: ListPromotionsInput): Promise<{
     readonly data: readonly Promotion[];
@@ -156,4 +228,6 @@ export interface PromotionBinding {
 export interface AgentReleaseBindings {
   readonly live: LiveVersionBinding;
   readonly promotions: PromotionBinding;
+  /** Gate policies (evals step 4b). Absent: no gates, every promotion goes through as before. */
+  readonly gatePolicies?: GatePolicyBinding;
 }

@@ -242,6 +242,22 @@ const LastEventIdParam: ParameterSpec = {
   schema: { type: 'string' },
 };
 
+const GatePolicyIdPathParam: ParameterSpec = {
+  name: 'policyId',
+  in: 'path',
+  required: true,
+  description: 'The gate policy id.',
+  schema: { type: 'string' },
+};
+
+const GatePolicyVersionPathParam: ParameterSpec = {
+  name: 'version',
+  in: 'path',
+  required: true,
+  description: 'A semver version of the gate policy.',
+  schema: { type: 'string' },
+};
+
 const AgentIdPathParam: ParameterSpec = {
   name: 'agentId',
   in: 'path',
@@ -1907,15 +1923,202 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'agents.promotions.create',
     summary: 'Make a version live for a scope',
     description:
-      "Pins `version` live for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every promotion is recorded, with who asked and why. Needs `promote` on the agent.",
+      "Pins `version` live for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every promotion is recorded, with who asked and why. Needs `promote` on the agent.\n\nWith a gate policy for the scope (`GET …/gate-policy`), the promotion is checked first against the comparison named by `evalRunId`: `201` promoted; `202` the gate passed and the policy wants a reviewer's approval (a HITL approval, subject `agent-promotion`; the live version moves once it's approved, if nothing changed meanwhile); `422 gate-failed` with `details.promotionId`, `details.policy` and every check in `details.checks`. A refused promotion is recorded too.",
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam, IdempotencyKeyParam],
     requestBody: { required: true, schema: ref('PromoteBody') },
     responses: {
       '201': { description: 'Promoted.', schema: ref('Promotion') },
+      '202': {
+        description: 'The gate passed; the promotion waits for an approval (`approvalId`).',
+        schema: ref('Promotion'),
+      },
       ...CommonMutationErrors,
-      '404': ErrorResponse('The version is not registered, or was unregistered.'),
+      '404': ErrorResponse(
+        'The version is not registered, or was unregistered; or the eval run is not found.',
+      ),
+      '409': ErrorResponse(
+        "`promotion-superseded`: the scope's live version changed while the gate ran; check again.",
+      ),
+      '422': ErrorResponse(
+        '`gate-failed`: the gate refused it. `details.checks` has every check; the refusal is recorded (`details.promotionId`).',
+      ),
+      '501': ErrorResponse(
+        "`promotion-gate-unsupported`: a gate policy applies, and the deployment can't record a gated promotion.",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/agents/:agentId/promotions/check',
+    openapiPath: '/v1/agents/{agentId}/promotions/check',
+    operationId: 'agents.promotions.check',
+    summary: 'Check a promotion against its gate',
+    description:
+      'What `POST …/promotions` with the same body would do, with nothing recorded: `would-promote`, `needs-approval` (with the approval it needs) or `gate-failed`, with every check. For a pipeline: evaluate, check, promote. Needs `read` on the agent.',
+    tags: ['agents'],
+    security: 'bearer',
+    parameters: [AgentIdPathParam],
+    requestBody: { required: true, schema: ref('PromoteBody') },
+    responses: {
+      '200': { description: "The gate's answer.", schema: ref('PromotionCheck') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('Malformed body, or the eval run is not a finished comparison.'),
+      '404': ErrorResponse('The version, the agent or the eval run is not found.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/agents/:agentId/gate-policy',
+    openapiPath: '/v1/agents/{agentId}/gate-policy',
+    operationId: 'agents.gatePolicy.resolve',
+    summary: 'The gate policy for a scope',
+    description:
+      "The gate policy a promotion of the agent for the scope would be checked against: the most specific scope with an active policy (a segment path's longer prefixes first, then its project, the project's org, the tenant), at its latest active version. `policy: null` when none applies.",
+    tags: ['agents'],
+    security: 'bearer',
+    parameters: [
+      AgentIdPathParam,
+      PromotionScopeKindQueryParam,
+      ScopeIdQueryParam,
+      SegmentQueryParam,
+    ],
+    responses: {
+      '200': { description: 'The policy, or null.', schema: ref('GatePolicyResolution') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('Missing or malformed scope.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/gate-policies',
+    openapiPath: '/v1/gate-policies',
+    operationId: 'gatePolicies.list',
+    summary: 'List gate policies',
+    description:
+      "Each gate policy's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's.",
+    tags: ['gate-policies'],
+    security: 'bearer',
+    parameters: [
+      LimitQueryParam,
+      CursorQueryParam,
+      {
+        name: 'agentId',
+        in: 'query',
+        required: false,
+        description: 'Only the policies gating this agent.',
+        schema: { type: 'string' },
+      },
+      PromotionScopeKindQueryParam,
+      ScopeIdQueryParam,
+      SegmentQueryParam,
+    ],
+    responses: {
+      '200': { description: 'Page of gate policies.', schema: ref('GatePolicyPage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('Malformed scope or cursor.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/gate-policies',
+    openapiPath: '/v1/gate-policies',
+    operationId: 'gatePolicies.publish',
+    summary: 'Publish a gate policy',
+    description:
+      "Registers a gate policy, or a new version of one: what a promotion of `agentId` for `scope` must show. One policy per agent and scope: another policy id for a scope that has one is refused with `409 gate-policy-scope-taken` (`details.heldBy` names it; publish a new version of that one instead), and a new version can't change the agent or scope (`409 gate-policy-scope-changed`). The `spec` is checked strictly: an unknown key is refused (`400 validation-failed`, `details.issues`). Needs `admin` on the tenant: whoever may promote can't loosen their own gate.",
+    tags: ['gate-policies'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('PublishGatePolicyBody') },
+    responses: {
+      '201': { description: 'Gate policy published.', schema: ref('GatePolicy') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('Validation failed (see `details.issues`).'),
+      '409': ErrorResponse(
+        '`gate-policy-already-registered`: that (id, version) exists. `gate-policy-scope-taken`: another policy gates the agent for the scope (`details.heldBy`). `gate-policy-scope-changed`: the version would change the agent or scope. `gate-policy-scope-unpinned`: nothing covering the scope is pinned, so a published version would go live there ungated; pin a version for the scope, or one above it, first.',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/gate-policies/:policyId',
+    openapiPath: '/v1/gate-policies/{policyId}',
+    operationId: 'gatePolicies.get',
+    summary: 'Get a gate policy',
+    description: "The policy's latest active version.",
+    tags: ['gate-policies'],
+    security: 'bearer',
+    parameters: [GatePolicyIdPathParam],
+    responses: {
+      '200': { description: 'The gate policy.', schema: ref('GatePolicy') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No active gate policy with that id.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/gate-policies/:policyId/versions',
+    openapiPath: '/v1/gate-policies/{policyId}/versions',
+    operationId: 'gatePolicies.versions.list',
+    summary: "List a gate policy's versions",
+    description: 'Every version, oldest first, unregistered ones too (with `unregisteredAt`).',
+    tags: ['gate-policies'],
+    security: 'bearer',
+    parameters: [GatePolicyIdPathParam],
+    responses: {
+      '200': { description: 'The versions.', schema: ref('GatePolicyPage') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No gate policy with that id.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/gate-policies/:policyId/versions/:version',
+    openapiPath: '/v1/gate-policies/{policyId}/versions/{version}',
+    operationId: 'gatePolicies.versions.get',
+    summary: 'Get a gate policy version',
+    tags: ['gate-policies'],
+    security: 'bearer',
+    parameters: [GatePolicyIdPathParam, GatePolicyVersionPathParam],
+    responses: {
+      '200': { description: 'The version.', schema: ref('GatePolicy') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No such version.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/gate-policies/:policyId/versions/:version/unregister',
+    openapiPath: '/v1/gate-policies/{policyId}/versions/{version}/unregister',
+    operationId: 'gatePolicies.versions.unregister',
+    summary: 'Unregister a gate policy version',
+    description:
+      "The version stops applying; the policy's latest remaining active version applies, or, with none, the scope above's policy. Promotions keep the version they were checked against. Needs `admin` on the tenant.",
+    tags: ['gate-policies'],
+    security: 'bearer',
+    parameters: [GatePolicyIdPathParam, GatePolicyVersionPathParam],
+    responses: {
+      '200': { description: 'The unregistered version.', schema: ref('GatePolicy') },
+      ...CommonMutationErrors,
+      '404': ErrorResponse('No such version.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/gate-policies/:policyId/versions/:version/reinstate',
+    openapiPath: '/v1/gate-policies/{policyId}/versions/{version}/reinstate',
+    operationId: 'gatePolicies.versions.reinstate',
+    summary: 'Reinstate a gate policy version',
+    description: 'Needs `admin` on the tenant.',
+    tags: ['gate-policies'],
+    security: 'bearer',
+    parameters: [GatePolicyIdPathParam, GatePolicyVersionPathParam],
+    responses: {
+      '200': { description: 'The reinstated version.', schema: ref('GatePolicy') },
+      ...CommonMutationErrors,
+      '404': ErrorResponse('No such version.'),
     },
   },
   {
@@ -1991,7 +2194,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unpinned.', schema: ref('Promotion') },
       ...CommonMutationErrors,
-      '409': ErrorResponse('The scope has no pin of its own.'),
+      '409': ErrorResponse(
+        '`not-pinned`: the scope has no pin of its own. `gate-policy-needs-pin`: unpinning would leave a scope a gate policy applies to on the latest version, where publishing goes live ungated.',
+      ),
     },
   },
 
@@ -3739,10 +3944,15 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'retention.scheduled',
     summary: 'List deleted rows scheduled for purging',
     description:
-      "Tombstoned rows in every domain a retention policy covers, with when each is purged (`purgeAt`) and the policy that decides it. `domainsMissingAdapter` names the covered domains this deployment can't purge; `unpolicedDomains` the ones no policy covers, whose tombstones are kept; `conflicts` the domains two policies cover (stored before one policy per domain was enforced). Requires `admin` on the tenant.",
+      "Tombstoned rows in every domain a retention policy covers, with when each is purged (`purgeAt`) and the policy that decides it. `domainsMissingAdapter` names the covered domains this deployment can't purge; `unpolicedDomains` the ones no policy covers, whose tombstones are kept; `conflicts` the domains two policies cover (stored before one policy per domain was enforced). `limit` caps the rows **per domain**; `hasMore` says some domain has more than it returned, and `nextCursor` (when the runtime can continue) is the `cursor` for the next page. Requires `admin` on the tenant.",
     tags: ['retention'],
     security: 'bearer',
-    parameters: [RetentionDomainQueryParam, RetentionPastGraceOnlyQueryParam, LimitQueryParam],
+    parameters: [
+      RetentionDomainQueryParam,
+      RetentionPastGraceOnlyQueryParam,
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
     responses: {
       '200': { description: 'Scheduled rows.', schema: ref('RetentionScheduledPage') },
       ...CommonAuthErrors,

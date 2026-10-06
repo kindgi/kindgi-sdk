@@ -18,6 +18,8 @@ import { writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { namesExportedTwice, unexportNamesakes } from './dts-namesakes.mjs';
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = resolve(__dirname, '..');
 const ENTRY = join(PKG_ROOT, 'src', 'index.ts');
@@ -54,9 +56,17 @@ if (result.status !== 0) {
   process.exit(result.status ?? 1);
 }
 
-// Prepend an SPDX header to the emitted file.
+// Each name exported once, meaning the client's own type (dts-namesakes.mjs).
 const { readFile } = await import('node:fs/promises');
-const body = await readFile(OUT_TS, 'utf8');
+const body = unexportNamesakes(await readFile(OUT_TS, 'utf8'));
+const twice = namesExportedTwice(body);
+if (twice.length > 0) {
+  console.error(`dist/index.d.ts exports these names twice: ${twice.join(', ')}`);
+  process.exit(1);
+}
+await writeFile(OUT_TS, body, 'utf8');
+
+// Prepend an SPDX header to the emitted file.
 if (!body.startsWith('// SPDX-License-Identifier')) {
   const header = [
     '// SPDX-License-Identifier: Apache-2.0',

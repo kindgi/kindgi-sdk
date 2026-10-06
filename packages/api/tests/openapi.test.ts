@@ -366,6 +366,22 @@ const noopAgentReleases: AgentReleaseBindings = {
     list: async () => ({ data: [] }),
     get: async () => null,
   },
+  gatePolicies: {
+    publish: async () => ({ kind: 'err', error: { code: 'persistence-error', message: 'noop' } }),
+    get: async () => null,
+    getVersion: async () => null,
+    listVersions: async () => [],
+    list: async () => ({ data: [] }),
+    unregister: async () => ({
+      kind: 'err',
+      error: { code: 'gate-policy-not-found', message: 'noop' },
+    }),
+    reinstate: async () => ({
+      kind: 'err',
+      error: { code: 'gate-policy-not-found', message: 'noop' },
+    }),
+    resolve: async () => null,
+  },
 };
 
 const noopCost: CostBinding = {

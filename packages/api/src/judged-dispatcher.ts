@@ -19,6 +19,7 @@ import type { ReplayTurnReport } from '@kindgi/agents';
 import type { FlowVersionOverrides } from '@kindgi/flow';
 import type { RunId } from '@kindgi/types';
 
+import type { AgentRegistryBinding } from './agent-binding.js';
 import type { EvalCaseStoreBinding, JudgedEvalCase } from './eval-case-binding.js';
 import type { AgentRef, EvalComparison, FlowRef } from './eval-run-binding.js';
 import type {
@@ -81,7 +82,17 @@ export type RecordedVersion =
 
 /** What ran on the cases: an agent version, or a flow version. */
 export type ComparisonCandidate =
-  | { readonly kind: 'agent'; readonly agentId: string; readonly version: string }
+  | {
+      readonly kind: 'agent';
+      readonly agentId: string;
+      readonly version: string;
+      /**
+       * The version's `pinsDigest`: what it ran, as a promotion gate checks.
+       * Absent for a version published before pins, and from a dispatcher
+       * without an agent registry.
+       */
+      readonly pinsDigest?: string;
+    }
   | {
       readonly kind: 'flow';
       readonly flowId: string;
@@ -152,6 +163,8 @@ export interface JudgedCaseResult {
 
 export interface JudgedDispatcherOptions {
   readonly cases: EvalCaseStoreBinding;
+  /** Where the candidate's `pinsDigest` is read, for the summary. */
+  readonly agents?: Pick<AgentRegistryBinding, 'getVersion'>;
 }
 
 /** Cases read per page. */
@@ -205,7 +218,8 @@ export function createJudgedDispatcher(options: JudgedDispatcherOptions): EvalRu
         results.push(result);
         ctx.onProgress(result as unknown as Readonly<Record<string, unknown>>);
       }
-      const summary = summarize(ctx, comparison, all, results, [...models.values()]);
+      const pinsDigest = await candidatePins(options.agents, ctx);
+      const summary = summarize(ctx, comparison, all, results, [...models.values()], pinsDigest);
       return {
         result: { summary, perCase: results },
         ...(ctx.abortSignal.aborted && { error: 'cancelled' }),
@@ -451,6 +465,7 @@ function summarize(
   cases: readonly JudgedEvalCase[],
   results: readonly JudgedCaseResult[],
   models: readonly { providerId: string; model: string; runs: number }[],
+  pinsDigest: string | undefined,
 ): JudgedComparisonSummary {
   const errors = results.filter((r) => r.error !== undefined).length;
   const stopped = results.filter((r) => r.stopped !== undefined).length;
@@ -482,7 +497,7 @@ function summarize(
           : 'failed',
     completedAt: new Date().toISOString(),
     suite: { id: ctx.suite.id, version: ctx.suite.version },
-    candidate: candidateOf(ctx.target, ctx.comparison?.versions),
+    candidate: candidateOf(ctx.target, ctx.comparison?.versions, pinsDigest),
     baseline: {
       kind: 'recorded',
       versions: [...versions.values()].map(
@@ -515,12 +530,34 @@ function summarize(
   };
 }
 
+/** The agent candidate's `pinsDigest`, from the registry. */
+async function candidatePins(
+  agents: JudgedDispatcherOptions['agents'],
+  ctx: DispatchContext,
+): Promise<string | undefined> {
+  if (agents === undefined || !('agentId' in ctx.target) || ctx.target.version === undefined) {
+    return undefined;
+  }
+  const found = await agents.getVersion({
+    tenantId: ctx.tenantId,
+    agentId: ctx.target.agentId,
+    version: ctx.target.version,
+  });
+  return found?.pinsDigest;
+}
+
 function candidateOf(
   target: AgentRef | FlowRef,
   versions: FlowVersionOverrides | undefined,
+  pinsDigest?: string,
 ): ComparisonCandidate {
   return 'agentId' in target
-    ? { kind: 'agent', agentId: target.agentId as unknown as string, version: target.version ?? '' }
+    ? {
+        kind: 'agent',
+        agentId: target.agentId as unknown as string,
+        version: target.version ?? '',
+        ...(pinsDigest !== undefined && { pinsDigest }),
+      }
     : {
         kind: 'flow',
         flowId: target.flowId as unknown as string,

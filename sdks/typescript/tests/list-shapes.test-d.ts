@@ -96,6 +96,14 @@ describe('every list call answers with data, hasMore and nextCursor', () => {
   test('evalSuites.listCases', () => {
     expectTypeOf<Answer<KindgiClient['evalSuites']['listCases']>>().toMatchTypeOf<WirePage>();
   });
+  test('gatePolicies.list', () => {
+    expectTypeOf<Answer<KindgiClient['gatePolicies']['list']>>().toMatchTypeOf<WirePage>();
+  });
+  test('gatePolicies.versions.list', () => {
+    expectTypeOf<
+      Answer<KindgiClient['gatePolicies']['versions']['list']>
+    >().toMatchTypeOf<WirePage>();
+  });
   test('evalSuites.versions.list', () => {
     expectTypeOf<
       Answer<KindgiClient['evalSuites']['versions']['list']>

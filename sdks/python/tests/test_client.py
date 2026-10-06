@@ -484,6 +484,41 @@ def test_retention_scheduled_and_sweep() -> None:
     assert seen[2].url.path == "/v1/retention/sweep/judge_class"
 
 
+def test_retention_scheduled_pages_with_a_cursor() -> None:
+    """T249: `cursor` goes in the query; `has_more` and `next_cursor` come back."""
+
+    def item(n: int) -> dict[str, Any]:
+        return {
+            "domain": "agent",
+            "id": f"agent-{n}",
+            "unregisteredAt": "2026-10-01T00:00:00Z",
+            "purgeAt": "2026-10-02T00:00:00Z",
+            "pastGrace": True,
+            "policyId": "acme.keep-agents",
+            "policyVersion": "1.0.0",
+            "graceSeconds": 86_400,
+        }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        first = "cursor" not in request.url.params
+        return httpx.Response(
+            200,
+            json={
+                "data": [item(1)] if first else [item(2)],
+                "domainsMissingAdapter": [],
+                "unpolicedDomains": [],
+                "hasMore": first,
+                **({"nextCursor": "c-2"} if first else {}),
+            },
+        )
+
+    api, seen = client(handler)
+    page = api.retention.scheduled(limit=1)
+    assert (page.has_more, page.next_cursor) == (True, "c-2")
+    assert [row.id for row in paginate(api.retention.scheduled, limit=1)] == ["agent-1", "agent-2"]
+    assert dict(seen[-1].url.params) == {"limit": "1", "cursor": "c-2"}
+
+
 def test_a_second_retention_policy_for_a_domain_is_a_conflict() -> None:
     """T236: `409 policy-scope-taken` names the policy that covers the domain."""
     response = error(409, "policy-scope-taken", details={"heldBy": "acme.keep-providers"})
