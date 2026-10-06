@@ -497,7 +497,7 @@ const ProvenanceAgentIdQueryParam: ParameterSpec = {
   in: 'query',
   required: false,
   description:
-    'Filter records to those with at least one DAG node whose `actor = <agentId>` (agent-driven turns tag their nodes with the agent id).',
+    "Only the records of this agent's turns, at any version: the agent the record's run names, as `GET /v1/runs?agentId=` matches it. Turns that ran before Kindgi 0.1.3 don't name their agent and aren't matched.",
   schema: { type: 'string' },
 };
 
