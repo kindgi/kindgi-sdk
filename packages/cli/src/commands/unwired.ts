@@ -34,12 +34,30 @@ export const UNWIRED_COMMANDS: ReadonlySet<string> = new Set([
  * Why a listed command isn't available, when the reason isn't simply "not
  * wired yet": what the CLI prints instead of the generic message.
  */
+/**
+ * Why a command (or a whole group: a command's nearest listed path counts)
+ * is unwired, when there's more to say than "not yet wired".
+ */
 export const UNWIRED_REASONS: ReadonlyMap<string, string> = new Map([
   [
     'runs resume',
     'resuming a run at a waitpoint is not available in this release: every waitpoint belongs to an approval or to the runtime. A run waiting for an approval continues when a reviewer decides it: `kindgi approvals complete <approval-id> --decision=approve`.',
   ],
+  [
+    'observations',
+    "the Kindgi runtime doesn't record supervisor observations yet, so there's nothing to list; how a run went is in `kindgi runs get <run-id>` and `kindgi runs journal <run-id>`.",
+  ],
+  ['proposals', "the Kindgi runtime doesn't draft or apply supervisor fix proposals yet."],
 ]);
+
+/** The reason a command at `path` (its words) is unwired, from its nearest listed path. */
+export function unwiredReason(path: readonly string[]): string | undefined {
+  for (let i = path.length; i >= 1; i -= 1) {
+    const reason = UNWIRED_REASONS.get(path.slice(0, i).join(' '));
+    if (reason !== undefined) return reason;
+  }
+  return undefined;
+}
 
 /** Whether the command at `path` (its words, from the root) is wired. */
 export function isWired(path: readonly string[]): boolean {
