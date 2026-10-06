@@ -43,7 +43,7 @@ const turn = second.output as Turn;
 console.log(turn.turnNumber, turn.response.content);
 
 const history = await kindgi.conversations.messages(conversationId);
-for (const m of history.items) console.log(m.sequence, m.role, JSON.stringify(m.content));
+for (const m of history.data) console.log(m.sequence, m.role, JSON.stringify(m.content));
 ```
 
 ```sh
@@ -182,7 +182,7 @@ try {
 }
 
 const list = await kindgi.conversations.list({ agent: 'acme.order-desk' as AgentId, status: 'closed' });
-console.log(list.items.map((c) => c.id));
+console.log(list.data.map((c) => c.id));
 ```
 
 ```text
