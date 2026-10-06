@@ -42,6 +42,14 @@ kindgi runs start --flow=acme.reserve-order --input='{"orderId":"A-300"}' --no-w
 
 `kindgi runs get <run-id>` shows it again, with its output once it's done.
 
+`--agent-version=<version>` (or `--flow-version`) runs that version instead of
+the latest, and `--project=<project-id>` runs in that project instead of the
+Default one (`kindgi projects list` lists the projects with their ids):
+
+```sh
+kindgi runs start --agent=acme.order-desk --agent-version=0.1.0 --project=<project-id> --input='{"userMessage":"Where is order A-1002?"}'
+```
+
 ## From your app
 
 Create a client. With no arguments it reads the API's URL and a token from
