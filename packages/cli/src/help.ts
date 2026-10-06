@@ -45,7 +45,7 @@ export function commandHelpText(
     lines.push('');
     lines.push('Global flags (--json, --url, --token, …): kindgi --help');
   } else {
-    lines.push(`Usage: kindgi ${command.name} <subcommand> [args] [flags]`);
+    lines.push(`Usage: kindgi ${path.join(' ')} <subcommand> [args] [flags]`);
     lines.push('');
     lines.push('Subcommands:');
     for (const sub of wiredCommands(command.subcommands, path)) {
