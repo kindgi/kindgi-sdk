@@ -10,7 +10,7 @@
 
 import { describe, expect, test } from 'vitest';
 
-import { flowPinsDigest, flowRefs, loadFlow } from '../src/index.js';
+import { type Flow, flowPinsDigest, flowRefs, loadFlow, withVersions } from '../src/index.js';
 
 const anySchema = { type: 'object' };
 
@@ -85,5 +85,47 @@ describe('flowPinsDigest', () => {
     expect(flowPinsDigest({ ...pins, agents: { 'acme.matcher': '1.4.2' } })).not.toBe(
       flowPinsDigest(pins),
     );
+  });
+});
+
+describe('withVersions', () => {
+  const published = (): Flow => {
+    if (flow.kind === 'err') throw new Error(flow.error.message);
+    const pins = {
+      tools: { 'acme.score': '1.1.0', 'acme.rank': '0.2.0', 'acme.lookup': '0.2.0' },
+      agents: { 'acme.matcher': '1.4.1', 'acme.helper': '0.3.0' },
+    };
+    return { ...flow.value, pins, pinsDigest: flowPinsDigest(pins) };
+  };
+  const nodeVersion = (f: Flow, id: string) =>
+    (f.nodes.find((n) => n.id === id) as { config?: { version?: string } } | undefined)?.config
+      ?.version;
+
+  test('runs blocks at other versions through the pins, and recomputes the digest', () => {
+    const base = published();
+    const swapped = withVersions(base, {
+      tools: { 'acme.score': '2.0.0' },
+      agents: { 'acme.matcher': '1.5.0' },
+    });
+    expect(swapped.pins).toEqual({
+      tools: { 'acme.score': '2.0.0', 'acme.rank': '0.2.0', 'acme.lookup': '0.2.0' },
+      agents: { 'acme.matcher': '1.5.0', 'acme.helper': '0.3.0' },
+    });
+    expect(swapped.pinsDigest).toBe(flowPinsDigest(swapped.pins as NonNullable<Flow['pins']>));
+    expect(swapped.pinsDigest).not.toBe(base.pinsDigest);
+    expect(base.pins?.agents['acme.matcher']).toBe('1.4.1');
+  });
+
+  test("an agent node's own config.version takes the override, since it wins over a pin", () => {
+    const swapped = withVersions(published(), { agents: { 'acme.auditor': '1.0.0' } });
+    expect(nodeVersion(swapped, 'audit')).toBe('1.0.0');
+    expect(nodeVersion(published(), 'audit')).toBe('0.9.0');
+    expect(swapped.pins?.agents['acme.auditor']).toBe('1.0.0');
+  });
+
+  test('a flow version published before pins gets pins of the overrides only', () => {
+    if (flow.kind === 'err') throw new Error(flow.error.message);
+    const swapped = withVersions(flow.value, { agents: { 'acme.matcher': '1.5.0' } });
+    expect(swapped.pins).toEqual({ tools: {}, agents: { 'acme.matcher': '1.5.0' } });
   });
 });

@@ -64,3 +64,54 @@ function collectRefs(nodes: readonly FlowNode[], tools: Set<string>, agents: Set
     else if (node.kind === 'agent' && node.config?.version === undefined) agents.add(node.ref);
   }
 }
+
+/** Exact versions to run a flow version with, over its pins: the shape of a comparison's override. */
+export interface FlowVersionOverrides {
+  readonly tools?: Readonly<Record<string, string>>;
+  readonly agents?: Readonly<Record<string, string>>;
+}
+
+/**
+ * The flow version with some of its blocks run at other exact versions,
+ * without publishing a new flow version: what a comparison or a replay
+ * runs ("this flow, but `acme.scorer` at 0.4.0").
+ *
+ * One mechanism with the pins: the overrides go into `pins` (over the
+ * version's own), and an agent node that names its own `config.version`
+ * gets the override there too, since a node's own version wins over a
+ * pin. `pinsDigest` is recomputed, so it names what runs. A flow version
+ * published before pins gets pins of the overrides only; its other
+ * blocks bind their latest versions, as before.
+ */
+export function withVersions(flow: Flow, overrides: FlowVersionOverrides): Flow {
+  const pins: FlowPins = {
+    tools: { ...(flow.pins?.tools ?? {}), ...(overrides.tools ?? {}) },
+    agents: { ...(flow.pins?.agents ?? {}), ...(overrides.agents ?? {}) },
+  };
+  const agents = overrides.agents ?? {};
+  return {
+    ...flow,
+    nodes: overrideNamedAgentVersions(flow.nodes, agents),
+    pins,
+    pinsDigest: flowPinsDigest(pins),
+  };
+}
+
+function overrideNamedAgentVersions(
+  nodes: readonly FlowNode[],
+  agents: Readonly<Record<string, string>>,
+): readonly FlowNode[] {
+  return nodes.map((node) => {
+    if (isLoopNode(node)) {
+      return {
+        ...node,
+        body: { ...node.body, nodes: overrideNamedAgentVersions(node.body.nodes, agents) },
+      };
+    }
+    const version = node.kind === 'agent' ? agents[node.ref] : undefined;
+    if (node.kind !== 'agent' || version === undefined || node.config?.version === undefined) {
+      return node;
+    }
+    return { ...node, config: { ...node.config, version } };
+  });
+}

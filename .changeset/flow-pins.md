@@ -15,4 +15,4 @@
 - **New exports:**
   - `@kindgi/flow`: `FlowPins`, `flowPinsDigest()` and `flowRefs()`.
   - `@kindgi/types`: `VersionDerivation`.
-  - `@kindgi/agents`: `PinChange.kind` adds `agent`, and `pinChanges()` takes any pin set.
+  - `@kindgi/agents`: `PinChange.kind` adds `agent`, and `pinChanges()` takes any pin set. `withVersions(flow, { tools?, agents? })` (`@kindgi/flow`) runs a flow version with some blocks at other exact versions through the same pins: what a comparison or replay runs, with `pinsDigest` recomputed.
