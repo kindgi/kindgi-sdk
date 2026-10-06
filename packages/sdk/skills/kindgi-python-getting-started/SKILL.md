@@ -229,9 +229,9 @@ project of that org. Then one call sums their month:
 ```python
 from datetime import datetime, timezone
 
-# Once per customer. Project slugs are unique across the tenant: put the customer in them.
+# Once per customer. A project's slug is unique in its org, so every customer can have an `app` project.
 org = client.orgs.create(slug="acme-customer-one", name="Customer one")
-project = client.projects.create(org_id=str(org.id), slug="acme-customer-one-app", name="App")
+project = client.projects.create(org_id=str(org.id), slug="app", name="App")
 # save org.id and project.id on the customer's row; start their runs with project_id=project.id
 
 now = datetime.now(timezone.utc)

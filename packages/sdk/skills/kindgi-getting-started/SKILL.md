@@ -212,9 +212,9 @@ project of that org. Then one call sums their month:
 ```ts
 import type { Timestamp } from '@kindgi/sdk/types';
 
-// Once per customer. Project slugs are unique across the tenant: put the customer in them.
+// Once per customer. A project's slug is unique in its org, so every customer can have an `app` project.
 const org = await kindgi.orgs.create({ slug: 'acme-customer-one', name: 'Customer one' });
-const project = await kindgi.projects.create({ orgId: org.id, slug: 'acme-customer-one-app', name: 'App' });
+const project = await kindgi.projects.create({ orgId: org.id, slug: 'app', name: 'App' });
 // save org.id and project.id on the customer's row; start their runs with projectId: project.id
 
 const now = new Date();
