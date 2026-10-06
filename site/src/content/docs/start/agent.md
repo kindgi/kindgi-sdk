@@ -41,9 +41,16 @@ Work out the clipboard command for this OS:
 | OS | Read the clipboard | Clear it |
 | --- | --- | --- |
 | macOS | `pbpaste` | `pbcopy < /dev/null` |
-| Linux (Wayland) | `wl-paste` | `wl-copy --clear` |
+| Linux (Wayland) | `wl-paste --no-newline` | `wl-copy --clear` |
 | Linux (X11) | `xclip -o -selection clipboard` | `xclip -selection clipboard < /dev/null` |
-| Windows | `powershell -NoProfile -Command Get-Clipboard` | `powershell -NoProfile -Command Set-Clipboard -Value $null` |
+| Windows | use the fallback below | |
+
+Before you pipe the clipboard, check it isn't empty, without printing it:
+`[ -n "$(pbpaste)" ]` (with this OS's command). If the clipboard command
+fails (on a server, over SSH or in a container there's no clipboard) or the
+clipboard is empty, use the fallback: the person runs the command in their
+own terminal, where it asks for the value without showing it. On Windows,
+always use the fallback.
 
 Then run doctor:
 
@@ -52,17 +59,20 @@ npx --yes @kindgi/cli@next doctor --json
 ```
 
 It prints one JSON object and exits `0` when nothing fails, `1` when a check
-fails (and `2` on a usage error):
+fails (and `2` on a usage error). Here, in a project with `kindgi dev`
+running and no model key yet:
 
 ```json
 {
   "ok": false,
-  "cliVersion": "0.1.4-rc.3",
-  "project": null,
+  "cliVersion": "0.1.4-rc.2",
+  "project": { "dir": "/Users/you/my-agents", "language": "node" },
   "checks": [
-    { "id": "node", "status": "pass", "message": "…" },
-    { "id": "docker", "status": "fail", "message": "…", "fix": "…" },
-    …
+    {"id": "node", "status": "pass", "message": "Node 22.21.1."},
+    …,
+    {"id": "model-key", "status": "fail", "message": "No model key in .env or .env.local (looked for ANTHROPIC_API_KEY).", "fix": "With kindgi dev running: pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant (it prompts without echoing; or pipe it in with --from-stdin). Never paste a key into a chat."},
+    {"id": "runtime", "status": "pass", "message": "The runtime answers at http://127.0.0.1:63421."},
+    {"id": "provider", "status": "fail", "message": "No provider is registered, so an agent has no model to call.", "fix": "Register one: pnpm exec kindgi providers register --preset=anthropic (its key must be set first; see Model key)."}
   ]
 }
 ```
@@ -70,8 +80,9 @@ fails (and `2` on a usage error):
 The checks come in this order: `node`, `npm`, `python`, `uv`, `docker`,
 `registry`, `project`, `dependencies`, `model-key`, `runtime`, `provider`.
 
-- **`fail`:** run its `fix`. When the fix needs the person (start Docker
-  Desktop, sign in, copy a key), ask them, then run doctor again.
+- **`fail`:** run its `fix`, as written: it names the CLI to use in that
+  folder. When the fix needs the person (start Docker Desktop, sign in, copy
+  a key), ask them, then run doctor again.
 - **`skip`:** not applicable yet. Outside a project, `project` and every
   check after it skip; `runtime` skips while `kindgi dev` isn't running.
 
@@ -79,6 +90,9 @@ Fix every `fail` up to and including `docker` before you go on. `registry` is
 step 1.
 
 ## Step 1: access to the runtime image
+
+If doctor's `registry` check passes, this machine can already pull the
+runtime: skip this step.
 
 1. Ask the person: "Sign in at https://access.kindgi.com with GitHub, click
    **Copy** next to the pull token, and tell me when you're done. Also tell
@@ -130,9 +144,9 @@ as the project runs it (`.kindgi/` is git-ignored). It starts the
 runtime in Docker and answers with a stand-in model, `dev-echo`, until step 4
 adds a real one.
 
-Run doctor every few seconds until `runtime` passes. Then tell the person
-it's running, and how to stop it: stop the process you started (or press
-Ctrl+C where it runs).
+Run doctor every few seconds until `runtime` passes. `model-key` and
+`provider` still fail: that's expected until step 4. Then tell the person it's running, and how to stop it: stop the
+process you started (or press Ctrl+C where it runs).
 
 ## Step 4: the model key
 
