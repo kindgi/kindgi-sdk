@@ -131,9 +131,8 @@ kindgi.orgs.delete(str(org.id))
 - **Its projects and teams stay,** with no org, and so does their work.
 - **Its own secrets and their mappings are deleted for good.** Its own
   environments and MCP endpoints are unregistered.
-- **Writes to it are refused:** setting an env value or a secret in it,
-  registering an MCP endpoint in it, and creating or moving a project or a
-  team into it.
+- **Writes to it are refused:** setting a secret in it, registering an MCP
+  endpoint in it, and creating or moving a project or a team into it.
 
 Kindgi keeps the deleted org's record until a retention policy on `org`
 purges it, after its environments' and MCP endpoints' own records are purged.
