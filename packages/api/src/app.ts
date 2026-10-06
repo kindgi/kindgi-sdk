@@ -1067,7 +1067,11 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.flowRegistry,
         authorizer,
         input.toolRegistry !== undefined && input.agentRegistry !== undefined
-          ? { tools: input.toolRegistry, agents: input.agentRegistry }
+          ? {
+              tools: input.toolRegistry,
+              agents: input.agentRegistry,
+              ...(input.agentReleases !== undefined && { live: input.agentReleases.live }),
+            }
           : undefined,
       ),
     );
@@ -1294,6 +1298,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         }),
         ...(input.agentRegistry !== undefined && { agentRegistry: input.agentRegistry }),
         ...(input.flowRegistry !== undefined && { flowRegistry: input.flowRegistry }),
+        ...(input.agentReleases !== undefined && { liveVersions: input.agentReleases.live }),
         // The deployments router's agents publish loop resolves the
         // Default project through this binding. Optional at wiring so
         // app compositions without a project binding still boot; the loop

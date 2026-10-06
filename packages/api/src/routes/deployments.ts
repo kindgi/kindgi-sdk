@@ -38,9 +38,10 @@ import type {
 } from '../deployment-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
-import { publishDeployedFlow, resolveFlowPins } from '../flow-pins.js';
+import { type FlowPinsLive, publishDeployedFlow, resolveFlowPins } from '../flow-pins.js';
 import type { GuardrailRegistryBinding } from '../guardrail-binding.js';
 import type { ImageRegistryBinding } from '../image-registry-binding.js';
+import type { LiveVersionBinding } from '../live-version-binding.js';
 import { PublishRefused } from '../publish-refused.js';
 import { type RegistryReadOnly, refuseReadOnly } from '../registry-read-only.js';
 import type { SecretBinding } from '../secrets-binding.js';
@@ -123,6 +124,11 @@ export interface DeploymentsRouterBindings {
   readonly guardrailRegistry?: GuardrailRegistryBinding;
   readonly agentRegistry?: AgentRegistryBinding;
   readonly flowRegistry?: FlowRegistryBinding;
+  /**
+   * The agents' live versions: a deployed flow's agent step that names no
+   * version pins the one live for the deploy's project, else the latest.
+   */
+  readonly liveVersions?: LiveVersionBinding;
   /** Data blocks: an agent's block references are pinned at deploy with its tools. */
   readonly blockRegistry?: BlockRegistryBinding;
   /**
@@ -624,6 +630,7 @@ export function deploymentsRouter(bindings: DeploymentsRouterBindings): Hono<App
             flows: bindings.flowRegistry,
             tools: bindings.toolRegistry,
             agents: bindings.agentRegistry,
+            ...(bindings.liveVersions !== undefined && { live: bindings.liveVersions }),
             tenantId,
             projectId: defaultProjectId,
             defined: validated.flows,
@@ -1548,7 +1555,10 @@ async function registerAgents(input: {
  * as, pushing a rollback for each version it writes. Runs after the
  * agents, so a flow's agent pins see the versions this deploy
  * registered: a tool change cascades through an agent into a flow
- * within the one deploy, each derived once.
+ * within the one deploy, each derived once. An agent step that names no
+ * version pins what a run in the project gets: the agent's live version
+ * there, with `live`, else the latest (this deploy's, when it registered
+ * one).
  *
  * With the tool and agent registries, every flow is pinned first; one
  * that runs a tool or agent with no published version throws
@@ -1559,12 +1569,13 @@ async function registerFlows(input: {
   readonly flows: FlowRegistryBinding;
   readonly tools: ToolRegistryBinding | undefined;
   readonly agents: AgentRegistryBinding | undefined;
+  readonly live?: LiveVersionBinding;
   readonly tenantId: TenantId;
   readonly projectId: ProjectId;
   readonly defined: readonly Flow[];
   readonly rolled: RollbackAction[];
 }): Promise<DeployedFlow[]> {
-  const { flows, tools, agents, tenantId, projectId, rolled } = input;
+  const { flows, tools, agents, live, tenantId, projectId, rolled } = input;
   const enqueueTuples = (flowId: string) =>
     tuplesForCreate({ kind: 'flow', id: flowId as FlowId, tenantId, projectId });
   const written = (flowId: FlowId, version: string) =>
@@ -1583,7 +1594,13 @@ async function registerFlows(input: {
     return input.defined.map(deployedPrimitive);
   }
 
-  const pinsOf = await pinFlows(tools, agents, tenantId, input.defined);
+  const pinsOf = await pinFlows(
+    tools,
+    agents,
+    tenantId,
+    input.defined,
+    live !== undefined ? { binding: live, projectId } : undefined,
+  );
   const deployed: DeployedFlow[] = [];
   for (const [i, flow] of input.defined.entries()) {
     const outcome = await publishDeployedFlow({
@@ -1608,11 +1625,12 @@ async function pinFlows(
   agents: AgentRegistryBinding,
   tenantId: TenantId,
   defined: readonly Flow[],
+  live: FlowPinsLive | undefined,
 ): Promise<FlowPins[]> {
   const pins: FlowPins[] = [];
   const unpinnable: UnpinnableRef[] = [];
   for (const [i, flow] of defined.entries()) {
-    const resolved = await resolveFlowPins(tools, agents, tenantId, flow);
+    const resolved = await resolveFlowPins(tools, agents, tenantId, flow, live);
     if (resolved.kind === 'ok') {
       pins.push(resolved.pins);
       continue;
