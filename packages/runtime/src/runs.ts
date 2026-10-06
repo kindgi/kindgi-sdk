@@ -42,6 +42,9 @@ export interface KernelRunRecord {
    * every other run, and on agent runs started before runs recorded it.
    */
   readonly agent?: RunAgentRef;
+  /** Set on a replay run: the run it re-ran and the eval run that did so (`RunReplayRef`). */
+  readonly replayOf?: RunId | null;
+  readonly evalRunId?: string | null;
 }
 
 /**
@@ -84,6 +87,10 @@ export interface ListRunsInput {
   readonly topLevelOnly?: boolean;
   /** Only the turns of this agent (`RunAgentRef.id`), at any version. */
   readonly agentId?: string;
+  /** Replay runs: `exclude` leaves them out, `only` returns just them. Absent = include, so internal callers see every run. */
+  readonly replays?: 'exclude' | 'include' | 'only';
+  /** Only the replays of this eval run. */
+  readonly evalRunId?: string;
 }
 
 export interface ListRunsPage {

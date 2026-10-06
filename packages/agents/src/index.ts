@@ -28,6 +28,17 @@ export {
 export type { GateDecision, GateDecisionValue } from './handlers/gate-decision.js';
 export type { EffectiveHitlPolicy } from './hitl-policy.js';
 export { agentStepOutput, invokeAgent, resumeAgentTurn } from './invoke.js';
+export { isReadOnlyTool } from './handlers/replay.js';
+export { SESSION_GATE_RECORD } from './handlers/setup.js';
+export type {
+  ReplayApproval,
+  ReplayBinding,
+  ReplayToolDecision,
+  ReplayToolInput,
+  ReplayToolTrace,
+  ReplayTurnRef,
+  ReplayTurnReport,
+} from './handlers/replay.js';
 export type {
   AgentStepOutput,
   AgentTurnAbortedError,
