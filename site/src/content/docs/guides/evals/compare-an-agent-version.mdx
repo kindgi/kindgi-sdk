@@ -323,13 +323,16 @@ When a version does better, make it live where you choose: see
 ## In the console
 
 A test set's page has **Compare an agent version**: pick the version, how
-many runs per case, and whether to read live data instead of the past runs'
-results. Its **Comparisons** list links each one to its page, which has:
+many runs per case, whether to read live data instead of the past runs'
+results, and **Count only restricted judge classes**. Its **Comparisons** list links each one to its page, which has:
 
 - a headline in words: "People's judgments rate acme-ops.article-picker 0.2.0
   better than the recorded runs: 33% yes before, 75% now, on the 3 of 3 cases
   with answers people judged.";
-- the metrics, for the recorded runs and the version, with the change;
+- the metrics, for the recorded runs and the version, with the change (a
+  comparison that counted only restricted classes says so: "Only judgments
+  in judge classes restricted to some judges counted; the others weighed
+  0.", and lists mark it "restricted classes only");
 - **Case by case:** the recorded answer beside the version's, the judged items
   it kept and the ones no longer there, the new ones, and each tool call;
 - **The raw result**, as JSON.
