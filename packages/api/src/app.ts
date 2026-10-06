@@ -1289,7 +1289,16 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     // `evalSuiteRegistry` binding: the dispatcher itself surfaces
     // `suite-not-found` when the caller-plugged binding can't resolve
     // the suite id, so the API layer stays consumer-neutral.
-    const evalRuns = evalRunsRouters(input.evalRunBinding);
+    const evalRuns = evalRunsRouters(
+      input.evalRunBinding,
+      input.flowRegistry !== undefined
+        ? {
+            flows: input.flowRegistry,
+            ...(input.agentRegistry !== undefined && { agents: input.agentRegistry }),
+            ...(input.toolRegistry !== undefined && { tools: input.toolRegistry }),
+          }
+        : undefined,
+    );
     v1.route('/eval-suites', evalRuns.start);
     v1.route('/eval-runs', evalRuns.readback);
   }

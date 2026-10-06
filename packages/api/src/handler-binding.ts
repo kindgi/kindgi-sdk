@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { AgentId } from '@kindgi/agents';
+import type { FlowVersionOverrides } from '@kindgi/flow';
 import type { FlowId, ProjectId, RunId, Semver, TenantId } from '@kindgi/types';
 
 /**
@@ -107,6 +108,8 @@ export interface InvokeFlowBindingInput {
    * can't run in the background may treat `false` like `true`.
    */
   readonly wait?: boolean;
+  /** Agents and tools to run at other exact versions than the flow version's pins (`RunFlowInput.versions`). */
+  readonly versions?: FlowVersionOverrides;
 }
 
 export type RunHandlerOutcome =

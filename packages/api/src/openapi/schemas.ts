@@ -194,6 +194,7 @@ export const RunSchema: JsonSchema = {
       type: 'string',
       description: 'Set on a replay run: the eval run that started it.',
     },
+    versions: { $ref: '#/components/schemas/FlowVersionOverrides' },
     publicAccessToken: {
       type: 'string',
       description:
@@ -1283,6 +1284,21 @@ export const FlowPinsSchema: JsonSchema = {
     agents: {
       ...PinMapSchema,
       description: 'Agent id → exact version, for agent nodes that name no version.',
+    },
+  },
+};
+
+export const FlowVersionOverridesSchema: JsonSchema = {
+  description:
+    "Agents and tools a flow runs at other exact versions than the flow version's pins (\"this flow, with `acme.scorer` at 0.4.0\"), without publishing a new flow version: a comparison's flow candidate (`versions` on the start body and the run's `comparison`), and the flow runs that replay it (a run's `versions`). Each id must be an agent or tool the flow uses.",
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    tools: { ...PinMapSchema, description: 'Tool id → exact version.' },
+    agents: {
+      ...PinMapSchema,
+      description:
+        'Agent id → exact version, for agent nodes with or without a version of their own.',
     },
   },
 };
@@ -4766,6 +4782,7 @@ export const EvalComparisonSchema: JsonSchema = {
     },
     repetitions: { type: 'integer', minimum: 1, maximum: 10 },
     k: { type: 'integer', minimum: 1, maximum: 100 },
+    versions: { $ref: '#/components/schemas/FlowVersionOverrides' },
   },
 };
 
@@ -4798,7 +4815,7 @@ export const EvalRunSchema: JsonSchema = {
       type: 'object',
       additionalProperties: true,
       description:
-        'Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a write the replay refused, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.',
+        'Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a write the replay refused, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.',
     },
     error: { type: 'string' },
     correlationId: { type: 'string' },
@@ -4831,9 +4848,10 @@ export const StartEvalRunBodySchema: JsonSchema = {
     reads: { type: 'string', enum: ['recorded', 'live'] },
     repetitions: { type: 'integer', minimum: 1, maximum: 10 },
     k: { type: 'integer', minimum: 1, maximum: 100 },
+    versions: { $ref: '#/components/schemas/FlowVersionOverrides' },
   },
   description:
-    "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how.",
+    "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`).",
 };
 
 export const StartEvalRunResultSchema: JsonSchema = {
@@ -7189,6 +7207,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['DeriveAgentVersionBody', DeriveAgentVersionBodySchema],
   ['AgentPinSwaps', AgentPinSwapsSchema],
   ['FlowPins', FlowPinsSchema],
+  ['FlowVersionOverrides', FlowVersionOverridesSchema],
   ['PublishAgentBody', PublishAgentBodySchema],
   ['PublishAgentResult', PublishAgentResultSchema],
   ['UnregisterAgentResult', UnregisterAgentResultSchema],

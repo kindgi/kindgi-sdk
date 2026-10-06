@@ -16,6 +16,7 @@
  */
 
 import type { ReplayTurnReport } from '@kindgi/agents';
+import type { FlowVersionOverrides } from '@kindgi/flow';
 import type { RunId } from '@kindgi/types';
 
 import type { EvalCaseStoreBinding, JudgedEvalCase } from './eval-case-binding.js';
@@ -81,7 +82,13 @@ export type RecordedVersion =
 /** What ran on the cases: an agent version, or a flow version. */
 export type ComparisonCandidate =
   | { readonly kind: 'agent'; readonly agentId: string; readonly version: string }
-  | { readonly kind: 'flow'; readonly flowId: string; readonly version: string };
+  | {
+      readonly kind: 'flow';
+      readonly flowId: string;
+      readonly version: string;
+      /** Agents and tools its replays ran at other versions than the flow version's pins. */
+      readonly versions?: FlowVersionOverrides;
+    };
 
 /** What a comparison eval run concluded: what a promotion gate reads. */
 export interface JudgedComparisonSummary {
@@ -150,6 +157,9 @@ export interface JudgedDispatcherOptions {
 /** Cases read per page. */
 const CASE_PAGE = 100;
 
+export const VERSIONS_NEED_A_FLOW =
+  '`versions` runs a flow with some of its agents or tools at other versions: it needs `flowRef`.';
+
 function validateComparison(
   suite: { readonly spec: Readonly<Record<string, unknown>> },
   target: AgentRef | FlowRef,
@@ -168,6 +178,9 @@ function validateComparison(
     return { kind: 'err', message: 'The test set has no cases.' };
   }
   const c = comparison ?? DEFAULT_COMPARISON;
+  if (c.versions !== undefined && 'agentId' in target) {
+    return { kind: 'err', message: VERSIONS_NEED_A_FLOW };
+  }
   if (c.baseline !== 'recorded') {
     return { kind: 'err', message: "Only `baseline: 'recorded'` runs today." };
   }
@@ -337,6 +350,8 @@ async function invokeCase(
         evalRunId: ctx.runId as unknown as string,
       },
       ...(judgedCase.subject.kind === 'agent' && { history: judgedCase.context?.history ?? [] }),
+      ...(!('agentId' in ctx.target) &&
+        ctx.comparison?.versions !== undefined && { versions: ctx.comparison.versions }),
     });
   } catch (cause) {
     return { error: cause instanceof Error ? cause.message : String(cause) };
@@ -467,7 +482,7 @@ function summarize(
           : 'failed',
     completedAt: new Date().toISOString(),
     suite: { id: ctx.suite.id, version: ctx.suite.version },
-    candidate: candidateOf(ctx.target),
+    candidate: candidateOf(ctx.target, ctx.comparison?.versions),
     baseline: {
       kind: 'recorded',
       versions: [...versions.values()].map(
@@ -500,8 +515,16 @@ function summarize(
   };
 }
 
-function candidateOf(target: AgentRef | FlowRef): ComparisonCandidate {
+function candidateOf(
+  target: AgentRef | FlowRef,
+  versions: FlowVersionOverrides | undefined,
+): ComparisonCandidate {
   return 'agentId' in target
     ? { kind: 'agent', agentId: target.agentId as unknown as string, version: target.version ?? '' }
-    : { kind: 'flow', flowId: target.flowId as unknown as string, version: target.version ?? '' };
+    : {
+        kind: 'flow',
+        flowId: target.flowId as unknown as string,
+        version: target.version ?? '',
+        ...(versions !== undefined && { versions }),
+      };
 }

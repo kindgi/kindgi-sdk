@@ -74,7 +74,7 @@ export type {
 } from './errors.js';
 
 export { GRAPH_SCHEMA_URI, loadFlow } from './loader.js';
-export { flowPinsDigest, flowRefs, withVersions } from './pins.js';
+export { flowPinsDigest, flowRefs, overridableRefs, withVersions } from './pins.js';
 export type { FlowPins, FlowRefs, FlowVersionOverrides } from './pins.js';
 
 export { defineFlow } from './define.js';

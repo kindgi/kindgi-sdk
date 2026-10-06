@@ -50,18 +50,38 @@ export interface FlowRefs {
  * version, each id once, sorted.
  */
 export function flowRefs(flow: Flow): FlowRefs {
+  return collectedRefs(flow, false);
+}
+
+/**
+ * What `withVersions` can run at other versions: every tool the flow runs
+ * and every agent, at a named version or not (an override replaces
+ * either), each id once, sorted.
+ */
+export function overridableRefs(flow: Flow): FlowRefs {
+  return collectedRefs(flow, true);
+}
+
+function collectedRefs(flow: Flow, namedAgents: boolean): FlowRefs {
   const tools = new Set<string>();
   const agents = new Set<string>();
-  collectRefs(flow.nodes, tools, agents);
+  collectRefs(flow.nodes, tools, agents, namedAgents);
   return { tools: [...tools].sort(), agents: [...agents].sort() };
 }
 
-function collectRefs(nodes: readonly FlowNode[], tools: Set<string>, agents: Set<string>): void {
+function collectRefs(
+  nodes: readonly FlowNode[],
+  tools: Set<string>,
+  agents: Set<string>,
+  namedAgents: boolean,
+): void {
   for (const node of nodes) {
-    if (isLoopNode(node)) collectRefs(node.body.nodes, tools, agents);
+    if (isLoopNode(node)) collectRefs(node.body.nodes, tools, agents, namedAgents);
     else if (isFanoutNode(node)) for (const branch of node.branches) tools.add(branch.handler);
     else if (node.kind === 'tool') tools.add(node.ref);
-    else if (node.kind === 'agent' && node.config?.version === undefined) agents.add(node.ref);
+    else if (node.kind === 'agent' && (namedAgents || node.config?.version === undefined)) {
+      agents.add(node.ref);
+    }
   }
 }
 

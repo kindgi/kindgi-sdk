@@ -44,6 +44,7 @@
     "@kindgi/dotenv-file": "workspace:*",
     "@kindgi/crypto": "workspace:*",
     "@kindgi/env-schema": "workspace:*",
+    "@kindgi/flow": "workspace:*",
     "@kindgi/handler-runtime": "workspace:*",
     "@kindgi/secrets-dotenv": "workspace:*",
     "@kindgi/platform": "workspace:*",

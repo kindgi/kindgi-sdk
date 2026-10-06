@@ -74,61 +74,6 @@ class RunAgent(BaseModel):
     conversation_id: Annotated[UUID, Field(alias="conversationId")]
 
 
-class Run(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    id: UUID
-    """
-    RunId.
-    """
-    tenant_id: Annotated[UUID, Field(alias="tenantId")]
-    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
-    flow_id: Annotated[str, Field(alias="flowId")]
-    flow_version: Annotated[str, Field(alias="flowVersion")]
-    """
-    Semver.
-    """
-    status: Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]
-    dry_run: Annotated[bool, Field(alias="dryRun")]
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
-    completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
-    failure_message: Annotated[str | None, Field(alias="failureMessage")] = None
-    output: Any | None = None
-    """
-    The run's output once it completed. Present on single-run responses; on lists only with `?include=output`.
-    """
-    parent_run_id: Annotated[UUID | None, Field(alias="parentRunId")] = None
-    """
-    Set on a child run (a sub-flow run, or the agent turn an agent step started): the run that started it.
-    """
-    parent_node_id: Annotated[str | None, Field(alias="parentNodeId")] = None
-    """
-    Set on a child run: the node in the parent run that started it.
-    """
-    agent: RunAgent | None = None
-    replay_of: Annotated[UUID | None, Field(alias="replayOf")] = None
-    """
-    Set on a replay run (an eval run re-running a past run): the run it replays.
-    """
-    eval_run_id: Annotated[str | None, Field(alias="evalRunId")] = None
-    """
-    Set on a replay run: the eval run that started it.
-    """
-    public_access_token: Annotated[str | None, Field(alias="publicAccessToken")] = None
-    """
-    Only in the response to `POST /v1/runs`, when the deployment issues public run tokens: a read-only token for this run (and its descendants) to hand to a browser, for `GET /v1/runs/{runId}/progress` and its stream.
-    """
-    public_access_token_expires_at: Annotated[
-        AwareDatetime | None, Field(alias="publicAccessTokenExpiresAt")
-    ] = None
-    """
-    When `publicAccessToken` stops working.
-    """
-
-
 class StartRunOptions(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -235,74 +180,6 @@ class ResumeRunBody(BaseModel):
     """
     Resolved value passed back into the flow handler that suspended.
     """
-
-
-class Datum(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    id: UUID
-    """
-    RunId.
-    """
-    tenant_id: Annotated[UUID, Field(alias="tenantId")]
-    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
-    flow_id: Annotated[str, Field(alias="flowId")]
-    flow_version: Annotated[str, Field(alias="flowVersion")]
-    """
-    Semver.
-    """
-    status: Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]
-    dry_run: Annotated[bool, Field(alias="dryRun")]
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
-    completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
-    failure_message: Annotated[str | None, Field(alias="failureMessage")] = None
-    output: Any | None = None
-    """
-    The run's output once it completed. Present on single-run responses; on lists only with `?include=output`.
-    """
-    parent_run_id: Annotated[UUID | None, Field(alias="parentRunId")] = None
-    """
-    Set on a child run (a sub-flow run, or the agent turn an agent step started): the run that started it.
-    """
-    parent_node_id: Annotated[str | None, Field(alias="parentNodeId")] = None
-    """
-    Set on a child run: the node in the parent run that started it.
-    """
-    agent: RunAgent | None = None
-    replay_of: Annotated[UUID | None, Field(alias="replayOf")] = None
-    """
-    Set on a replay run (an eval run re-running a past run): the run it replays.
-    """
-    eval_run_id: Annotated[str | None, Field(alias="evalRunId")] = None
-    """
-    Set on a replay run: the eval run that started it.
-    """
-    public_access_token: Annotated[str | None, Field(alias="publicAccessToken")] = None
-    """
-    Only in the response to `POST /v1/runs`, when the deployment issues public run tokens: a read-only token for this run (and its descendants) to hand to a browser, for `GET /v1/runs/{runId}/progress` and its stream.
-    """
-    public_access_token_expires_at: Annotated[
-        AwareDatetime | None, Field(alias="publicAccessTokenExpiresAt")
-    ] = None
-    """
-    When `publicAccessToken` stops working.
-    """
-
-
-class RunCollectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[Datum]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    """
-    Opaque cursor for the next page. Absent when `hasMore: false`. See `docs/API-ROUTE-CONVENTIONS.md` §5.
-    """
-    has_more: Annotated[bool, Field(alias="hasMore")]
 
 
 class JournalKind(RootModel[str]):
@@ -1760,6 +1637,25 @@ class FlowPins(BaseModel):
     agents: dict[str, str]
     """
     Agent id → exact version, for agent nodes that name no version.
+    """
+
+
+class FlowVersionOverrides(BaseModel):
+    """
+    Agents and tools a flow runs at other exact versions than the flow version's pins ("this flow, with `acme.scorer` at 0.4.0"), without publishing a new flow version: a comparison's flow candidate (`versions` on the start body and the run's `comparison`), and the flow runs that replay it (a run's `versions`). Each id must be an agent or tool the flow uses.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tools: dict[str, str] | None = None
+    """
+    Tool id → exact version.
+    """
+    agents: dict[str, str] | None = None
+    """
+    Agent id → exact version, for agent nodes with or without a version of their own.
     """
 
 
@@ -4691,6 +4587,7 @@ class EvalComparison(BaseModel):
     """
     repetitions: Annotated[int, Field(ge=1, le=10)]
     k: Annotated[int, Field(ge=1, le=100)]
+    versions: FlowVersionOverrides | None = None
 
 
 class EvalRun(BaseModel):
@@ -4713,7 +4610,7 @@ class EvalRun(BaseModel):
     completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
     result: dict[str, Any] | None = None
     """
-    Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a write the replay refused, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.
+    Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a write the replay refused, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.
     """
     error: str | None = None
     correlation_id: Annotated[str | None, Field(alias="correlationId")] = None
@@ -4732,7 +4629,7 @@ class EvalRunCollectionPage(BaseModel):
 
 class StartEvalRunBody(BaseModel):
     """
-    Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how.
+    Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`).
     """
 
     model_config = ConfigDict(
@@ -4754,6 +4651,7 @@ class StartEvalRunBody(BaseModel):
     reads: Literal["recorded", "live"] | None = None
     repetitions: Annotated[int | None, Field(ge=1, le=10)] = None
     k: Annotated[int | None, Field(ge=1, le=100)] = None
+    versions: FlowVersionOverrides | None = None
 
 
 class StartEvalRunResult(BaseModel):
@@ -6939,6 +6837,131 @@ class AuditAuthzListResponse(BaseModel):
     data: list[Datum4]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class Run(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: UUID
+    """
+    RunId.
+    """
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    flow_id: Annotated[str, Field(alias="flowId")]
+    flow_version: Annotated[str, Field(alias="flowVersion")]
+    """
+    Semver.
+    """
+    status: Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]
+    dry_run: Annotated[bool, Field(alias="dryRun")]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
+    failure_message: Annotated[str | None, Field(alias="failureMessage")] = None
+    output: Any | None = None
+    """
+    The run's output once it completed. Present on single-run responses; on lists only with `?include=output`.
+    """
+    parent_run_id: Annotated[UUID | None, Field(alias="parentRunId")] = None
+    """
+    Set on a child run (a sub-flow run, or the agent turn an agent step started): the run that started it.
+    """
+    parent_node_id: Annotated[str | None, Field(alias="parentNodeId")] = None
+    """
+    Set on a child run: the node in the parent run that started it.
+    """
+    agent: RunAgent | None = None
+    replay_of: Annotated[UUID | None, Field(alias="replayOf")] = None
+    """
+    Set on a replay run (an eval run re-running a past run): the run it replays.
+    """
+    eval_run_id: Annotated[str | None, Field(alias="evalRunId")] = None
+    """
+    Set on a replay run: the eval run that started it.
+    """
+    versions: FlowVersionOverrides | None = None
+    public_access_token: Annotated[str | None, Field(alias="publicAccessToken")] = None
+    """
+    Only in the response to `POST /v1/runs`, when the deployment issues public run tokens: a read-only token for this run (and its descendants) to hand to a browser, for `GET /v1/runs/{runId}/progress` and its stream.
+    """
+    public_access_token_expires_at: Annotated[
+        AwareDatetime | None, Field(alias="publicAccessTokenExpiresAt")
+    ] = None
+    """
+    When `publicAccessToken` stops working.
+    """
+
+
+class Datum(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: UUID
+    """
+    RunId.
+    """
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    flow_id: Annotated[str, Field(alias="flowId")]
+    flow_version: Annotated[str, Field(alias="flowVersion")]
+    """
+    Semver.
+    """
+    status: Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]
+    dry_run: Annotated[bool, Field(alias="dryRun")]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
+    failure_message: Annotated[str | None, Field(alias="failureMessage")] = None
+    output: Any | None = None
+    """
+    The run's output once it completed. Present on single-run responses; on lists only with `?include=output`.
+    """
+    parent_run_id: Annotated[UUID | None, Field(alias="parentRunId")] = None
+    """
+    Set on a child run (a sub-flow run, or the agent turn an agent step started): the run that started it.
+    """
+    parent_node_id: Annotated[str | None, Field(alias="parentNodeId")] = None
+    """
+    Set on a child run: the node in the parent run that started it.
+    """
+    agent: RunAgent | None = None
+    replay_of: Annotated[UUID | None, Field(alias="replayOf")] = None
+    """
+    Set on a replay run (an eval run re-running a past run): the run it replays.
+    """
+    eval_run_id: Annotated[str | None, Field(alias="evalRunId")] = None
+    """
+    Set on a replay run: the eval run that started it.
+    """
+    versions: FlowVersionOverrides | None = None
+    public_access_token: Annotated[str | None, Field(alias="publicAccessToken")] = None
+    """
+    Only in the response to `POST /v1/runs`, when the deployment issues public run tokens: a read-only token for this run (and its descendants) to hand to a browser, for `GET /v1/runs/{runId}/progress` and its stream.
+    """
+    public_access_token_expires_at: Annotated[
+        AwareDatetime | None, Field(alias="publicAccessTokenExpiresAt")
+    ] = None
+    """
+    When `publicAccessToken` stops working.
+    """
+
+
+class RunCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Datum]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor for the next page. Absent when `hasMore: false`. See `docs/API-ROUTE-CONVENTIONS.md` §5.
+    """
+    has_more: Annotated[bool, Field(alias="hasMore")]
 
 
 class Approval(BaseModel):

@@ -10,7 +10,14 @@
 
 import { describe, expect, test } from 'vitest';
 
-import { type Flow, flowPinsDigest, flowRefs, loadFlow, withVersions } from '../src/index.js';
+import {
+  type Flow,
+  flowPinsDigest,
+  flowRefs,
+  loadFlow,
+  overridableRefs,
+  withVersions,
+} from '../src/index.js';
 
 const anySchema = { type: 'object' };
 
@@ -66,6 +73,16 @@ describe('flowRefs', () => {
     expect(flowRefs(flow.value)).toEqual({
       tools: ['acme.lookup', 'acme.rank', 'acme.score'],
       agents: ['acme.helper', 'acme.matcher'],
+    });
+  });
+});
+
+describe('overridableRefs', () => {
+  test('every tool, and every agent at a named version or not: what withVersions can override', () => {
+    if (flow.kind === 'err') throw new Error(flow.error.message);
+    expect(overridableRefs(flow.value)).toEqual({
+      tools: ['acme.lookup', 'acme.rank', 'acme.score'],
+      agents: ['acme.auditor', 'acme.helper', 'acme.matcher'],
     });
   });
 });
