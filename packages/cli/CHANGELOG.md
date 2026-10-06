@@ -1,5 +1,47 @@
 # @kindgi/cli
 
+## 0.1.4-rc.1
+
+### Patch Changes
+
+- 3694313: `kindgi projects list`, `kindgi projects get-default` and `kindgi projects get <project-id>`: find the project ids that `--project=<id>` takes (blocks, eval suites and runs, judge classes, agents derive), as the clients' `projects.list`, `getDefault` and `get` do.
+- eec9748: `kindgi dev` runs runtime 0.1.4-rc.1.
+- 0bfd27b: `kindgi dev` checks the runtime's port before it starts anything. When `4000` is taken (another `kindgi dev`, in another worktree say), it takes the next free port and says so; `.kindgirc.json` records the URL, so clients follow. A `--port` that's taken is refused at once: "port 4301 is in use. Pick another with --port, or stop what's using it." Before, the boot created the database and bundled the pack, then failed on Docker's "port is already allocated".
+- b8ff156: A flow comparison can run some of the flow's agents or tools at other versions, without publishing a new flow version ("this flow, with `acme.scorer` at 0.4.0"). `POST /v1/eval-suites/{suiteId}/runs` takes `versions: { agents?, tools? }` (id → exact version) with `flowRef`. The run keeps them in `comparison.versions`, each replay runs with them, and the summary's flow `candidate` names them (`versions`).
+  
+  They're checked when the run starts. An id the flow doesn't use, a version that isn't published, or an unregistered agent version is refused with `400 validation-failed`, each one under `details.issues` (for example `{ path: '/versions/agents/acme.x', message: "flow acme.f 1.2.0 doesn't use agent acme.x" }`). `versions` with `agentRef` is refused.
+  
+  A run that ran some blocks at other versions says which: `versions` on `GET /v1/runs/{runId}` (`KernelRunRecord.versions`, set from `RunFlowInput.versions` or `StartRunParams.versions`; `InvokeFlowBindingInput.versions` passes them to a runtime). `@kindgi/flow` adds `overridableRefs(flow)`: every tool and agent the flow runs, including agent steps with a version of their own.
+  
+  The CLI's `kindgi eval-runs start --flow=<id> --flow-version=<v> --with=<id>@<version>` (repeatable) tells agents from tools by the flow version's steps.
+- c0f1b56: `KINDGI_PUBLIC_URL`: the URL clients reach the runtime at, when it isn't the address the server binds (behind a proxy, or a container whose port is published on another one). The runtime's startup banner names it, with its docs and console links. `kindgi dev` sets it, so the banner shows the port `kindgi dev` chose, e.g. 4001 when 4000 was taken, not the container's 4000. `parsePublicUrl` validates it; a runtime that doesn't read it keeps working.
+- 8861bf8: **A registry that takes no writes says so: `409 registry-read-only`.** Under `kindgi dev` the pack's files are the source of agents, tools, flows and guardrails. Writing to them used to answer a misleading `already-registered` (for an agent, even naming a "next free version") or `not found`.
+  
+  - **The marker:** `AgentRegistryBinding`, `ToolRegistryBinding`, `FlowRegistryBinding` and `GuardrailRegistryBinding` take an optional `readOnly: { reason }` (`RegistryReadOnly`).
+  - **What's refused:** every write to a registry that sets it, before the binding is called:
+    - publish, unregister and reinstate;
+    - deriving an agent version;
+    - a deployment that would publish into it.
+  - **The refusal:** `409 registry-read-only`, with the binding's reason as the message, e.g. "Under kindgi dev, the pack is the source of agents: edit the pack's file and kindgi dev reloads it." Reads are unchanged.
+  - **Clients:** both read `registry-read-only` as a conflict, its code the reason.
+  - **CLI:** an error line now shows a conflict's own code, so `kindgi agents publish` prints `Error [registry-read-only]: Under kindgi dev, …`.
+- Updated dependencies [846dd9c]
+- Updated dependencies [b8ff156]
+- Updated dependencies [06b5fc0]
+- Updated dependencies [c0f1b56]
+- Updated dependencies [8861bf8]
+- Updated dependencies [f90c285]
+  - @kindgi/env-schema@0.1.4-rc.1
+  - @kindgi/flow@0.1.4-rc.1
+  - @kindgi/client@0.1.4-rc.1
+  - @kindgi/platform@0.1.4-rc.1
+  - @kindgi/sdk@0.1.4-rc.1
+  - @kindgi/secrets-dotenv@0.1.4-rc.1
+  - @kindgi/handler-runtime@0.1.4-rc.1
+  - @kindgi/crypto@0.1.4-rc.1
+  - @kindgi/dotenv-file@0.1.4-rc.1
+  - @kindgi/types@0.1.4-rc.1
+
 ## 0.1.4-rc.0
 
 ### Patch Changes

@@ -1,5 +1,30 @@
 # @kindgi/client
 
+## 0.1.4-rc.1
+
+### Patch Changes
+
+- b8ff156: A flow comparison can run some of the flow's agents or tools at other versions, without publishing a new flow version ("this flow, with `acme.scorer` at 0.4.0"). `POST /v1/eval-suites/{suiteId}/runs` takes `versions: { agents?, tools? }` (id → exact version) with `flowRef`. The run keeps them in `comparison.versions`, each replay runs with them, and the summary's flow `candidate` names them (`versions`).
+  
+  They're checked when the run starts. An id the flow doesn't use, a version that isn't published, or an unregistered agent version is refused with `400 validation-failed`, each one under `details.issues` (for example `{ path: '/versions/agents/acme.x', message: "flow acme.f 1.2.0 doesn't use agent acme.x" }`). `versions` with `agentRef` is refused.
+  
+  A run that ran some blocks at other versions says which: `versions` on `GET /v1/runs/{runId}` (`KernelRunRecord.versions`, set from `RunFlowInput.versions` or `StartRunParams.versions`; `InvokeFlowBindingInput.versions` passes them to a runtime). `@kindgi/flow` adds `overridableRefs(flow)`: every tool and agent the flow runs, including agent steps with a version of their own.
+  
+  The CLI's `kindgi eval-runs start --flow=<id> --flow-version=<v> --with=<id>@<version>` (repeatable) tells agents from tools by the flow version's steps.
+- 8861bf8: **A registry that takes no writes says so: `409 registry-read-only`.** Under `kindgi dev` the pack's files are the source of agents, tools, flows and guardrails. Writing to them used to answer a misleading `already-registered` (for an agent, even naming a "next free version") or `not found`.
+  
+  - **The marker:** `AgentRegistryBinding`, `ToolRegistryBinding`, `FlowRegistryBinding` and `GuardrailRegistryBinding` take an optional `readOnly: { reason }` (`RegistryReadOnly`).
+  - **What's refused:** every write to a registry that sets it, before the binding is called:
+    - publish, unregister and reinstate;
+    - deriving an agent version;
+    - a deployment that would publish into it.
+  - **The refusal:** `409 registry-read-only`, with the binding's reason as the message, e.g. "Under kindgi dev, the pack is the source of agents: edit the pack's file and kindgi dev reloads it." Reads are unchanged.
+  - **Clients:** both read `registry-read-only` as a conflict, its code the reason.
+  - **CLI:** an error line now shows a conflict's own code, so `kindgi agents publish` prints `Error [registry-read-only]: Under kindgi dev, …`.
+- f90c285: A comparison's result is typed in both clients. `openapi.json` names its shape as `JudgedComparisonResult`: the `summary` (`JudgedComparisonSummary`, with `ComparisonCandidate` and each `ComparisonMetric`) and each case (`ComparisonCaseResult`). `EvalRun.result` stays an open object, since each kind of eval run has its own.
+  
+  The TypeScript client exports the types and `comparisonOf(run)` (also from `@kindgi/sdk/client`), which returns a `judged` eval run's result as `JudgedComparisonResult`, or `undefined` for another kind of run, a dry run, or one not finished. The Python client has `comparison_of(run)`, which returns the validated `models.JudgedComparisonResult`, or `None`.
+
 ## 0.1.4-rc.0
 
 ### Patch Changes

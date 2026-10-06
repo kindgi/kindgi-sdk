@@ -1,5 +1,14 @@
 # @kindgi/compliance
 
+## 0.1.4-rc.1
+
+### Patch Changes
+
+- Updated dependencies [06b5fc0]
+  - @kindgi/platform@0.1.4-rc.1
+  - @kindgi/audit-events@0.1.4-rc.1
+  - @kindgi/types@0.1.4-rc.1
+
 ## 0.1.4-rc.0
 
 ### Patch Changes

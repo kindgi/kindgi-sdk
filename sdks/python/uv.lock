@@ -257,7 +257,7 @@ wheels = [
 
 [[package]]
 name = "kindgi"
-version = "0.1.4rc0"
+version = "0.1.4rc1"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },

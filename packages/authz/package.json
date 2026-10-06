@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/authz",
-  "version": "0.1.4-rc.0",
+  "version": "0.1.4-rc.1",
   "description": "Kindgi™ authorization shape. The public vocabulary and interfaces of Kindgi's authorization stack: Action verbs (read/write/execute/…), ObjectType enum (agent/flow/tool/…), ResourceRef, Principal (who is calling, with delegation and downscoping), the AuthzCheckBinding decision-point interface and its Decision (allow/deny + reason), FGA tuple builders and the TupleEnqueueHook outbox contract, the 403 DenyPayload shape, and reviewer roles. Types and pure functions — no runtime state. The FGA store, the check implementation and the tuple worker are supplied by the deployment.",
   "license": "Apache-2.0",
   "repository": {

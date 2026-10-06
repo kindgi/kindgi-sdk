@@ -1,5 +1,20 @@
 # @kindgi/testing
 
+## 0.1.4-rc.1
+
+### Patch Changes
+
+- Updated dependencies [0359caf]
+- Updated dependencies [b8ff156]
+- Updated dependencies [06b5fc0]
+- Updated dependencies [8861bf8]
+- Updated dependencies [f90c285]
+  - @kindgi/agents@0.1.4-rc.1
+  - @kindgi/api@0.1.4-rc.1
+  - @kindgi/runtime@0.1.4-rc.1
+  - @kindgi/platform@0.1.4-rc.1
+  - @kindgi/memory@0.1.4-rc.1
+
 ## 0.1.4-rc.0
 
 ### Patch Changes
