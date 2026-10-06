@@ -29,14 +29,12 @@ export interface GateMetricSpec {
 /**
  * What a policy asks of a promotion. Every part is optional; an empty
  * spec checks nothing (the promotion is still recorded with the policy).
+ * A promotion must name a comparison (`evalRunId`) exactly when the spec
+ * checks anything one shows: `comparison`, `evidence`, `metrics` or
+ * `replay`.
  */
 export interface GatePolicySpec {
   readonly comparison?: {
-    /**
-     * Whether the promotion must name a comparison (`evalRunId`). Absent:
-     * required when the spec checks anything a comparison shows.
-     */
-    readonly required?: boolean;
     /** The comparison must have finished within this many hours. */
     readonly maxAgeHours?: number;
     /** The comparison must have run this test set (and version). */
@@ -97,6 +95,12 @@ export type GatePolicyErrorCode =
   | 'gate-policy-scope-taken'
   /** A new version names another agent or scope than the policy's. */
   | 'gate-policy-scope-changed'
+  /**
+   * The scope resolves to the agent's latest version (no pin covers it),
+   * so publishing a version would make it live there ungated: pin a
+   * version for the scope, or one above it, first.
+   */
+  | 'gate-policy-scope-unpinned'
   | 'gate-policy-not-found'
   /** The scope names an org or project the tenant doesn't have. */
   | 'scope-invalid'
@@ -125,7 +129,11 @@ export interface GatePolicyVersionInput {
 }
 
 export interface GatePolicyBinding {
-  /** Register `id` at `version`: a new policy, or a new version of one (same agent and scope). */
+  /**
+   * Register `id` at `version`: a new policy, or a new version of one
+   * (same agent and scope). A gated scope always resolves to a pin:
+   * `gate-policy-scope-unpinned` when nothing covering the scope is pinned.
+   */
   publish(input: GatePolicyPublishInput): Promise<Result<GatePolicy, GatePolicyError>>;
   /** The policy's latest active version, or `null`. */
   get(input: { readonly tenantId: TenantId; readonly id: string }): Promise<GatePolicy | null>;

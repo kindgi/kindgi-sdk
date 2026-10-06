@@ -37,7 +37,8 @@
       "description": "Agent catalog (list, get, publish, unregister — caller-plugged registry)."
     },
     {
-      "name": "gate-policies"
+      "name": "gate-policies",
+      "description": "What a promotion of an agent must show before a version goes live for a scope (evals step 4b)."
     },
     {
       "name": "flows",
@@ -706,16 +707,12 @@
       "GatePolicySpec": {
         "type": "object",
         "additionalProperties": false,
-        "description": "What a promotion must show. Every part is optional; an empty spec checks nothing. Unknown keys are refused.",
+        "description": "What a promotion must show. Every part is optional; an empty spec checks nothing. A promotion must name a comparison (`evalRunId`) exactly when the spec has `comparison`, `evidence`, `metrics` or `replay`. Unknown keys are refused.",
         "properties": {
           "comparison": {
             "type": "object",
             "additionalProperties": false,
             "properties": {
-              "required": {
-                "type": "boolean",
-                "description": "Whether the promotion must name a comparison (`evalRunId`). Absent: required when the spec checks anything a comparison shows."
-              },
               "maxAgeHours": {
                 "type": "number",
                 "exclusiveMinimum": 0
@@ -18535,7 +18532,7 @@
             }
           },
           "409": {
-            "description": "`gate-policy-already-registered`: that (id, version) exists. `gate-policy-scope-taken`: another policy gates the agent for the scope (`details.heldBy`). `gate-policy-scope-changed`: the version would change the agent or scope.",
+            "description": "`gate-policy-already-registered`: that (id, version) exists. `gate-policy-scope-taken`: another policy gates the agent for the scope (`details.heldBy`). `gate-policy-scope-changed`: the version would change the agent or scope. `gate-policy-scope-unpinned`: nothing covering the scope is pinned, so a published version would go live there ungated; pin a version for the scope, or one above it, first.",
             "content": {
               "application/json": {
                 "schema": {
@@ -19174,7 +19171,7 @@
             }
           },
           "409": {
-            "description": "The scope has no pin of its own.",
+            "description": "`not-pinned`: the scope has no pin of its own. `gate-policy-needs-pin`: unpinning would leave a scope a gate policy applies to on the latest version, where publishing goes live ungated.",
             "content": {
               "application/json": {
                 "schema": {

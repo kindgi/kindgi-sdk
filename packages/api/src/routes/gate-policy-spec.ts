@@ -103,8 +103,7 @@ export function parseGatePolicySpec(
   const comparison = block(raw, 'comparison', issues);
   if (comparison !== undefined) {
     const at = '/spec/comparison';
-    unknownKeys(comparison, ['required', 'maxAgeHours', 'suite'], at, issues);
-    const required = bool(comparison, 'required', at, issues);
+    unknownKeys(comparison, ['maxAgeHours', 'suite'], at, issues);
     const maxAgeHours = num(comparison, 'maxAgeHours', at, issues, { min: 0, positive: true });
     let suite: { id: string; version?: string } | undefined;
     if (comparison.suite !== undefined) {
@@ -120,7 +119,6 @@ export function parseGatePolicySpec(
       }
     }
     spec.comparison = {
-      ...(required !== undefined && { required }),
       ...(maxAgeHours !== undefined && { maxAgeHours }),
       ...(suite !== undefined && { suite }),
     };
