@@ -525,6 +525,7 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
     pack = dev.createPackService(packOptions);
     packFront = await pack.listen();
   }
+  closeOnStop(pack, ctx.stopSignal);
 
   const builder = dev.createPackBuilder({
     packDir: args.packDir,
@@ -1291,6 +1292,16 @@ function emitBootIndex(
 }
 
 /**
+ * The moment a stop is asked for, the pack service is closing: a child
+ * that exits then (a terminal's Ctrl+C signals the whole process group,
+ * the pack service included) is expected, not restarted mid-shutdown.
+ */
+function closeOnStop(pack: { beginClose(): void }, stopSignal: AbortSignal | undefined): void {
+  if (stopSignal?.aborted === true) pack.beginClose();
+  else stopSignal?.addEventListener('abort', () => pack.beginClose(), { once: true });
+}
+
+/**
  * Stop everything `kindgi dev` started: the watchers, then the refreshes
  * in flight (drained, so none registers against a server shutting down),
  * the runtime and the pack service. In watch mode, on the one shutdown
@@ -1305,22 +1316,35 @@ async function stopDev(parts: {
   readonly server: RunningApiServer;
   readonly pack: { close(): Promise<void> };
 }): Promise<void> {
-  let stopped = false;
-  try {
-    if (parts.watch) {
-      beginStoppingLine();
-      for (const handle of parts.watchHandles) await handle.close();
-    }
+  if (parts.watch) beginStoppingLine();
+  // Every step runs, whichever failed before it: the runtime container is
+  // removed (`server.shutdown`) even when, say, the pack service died first.
+  const failure = await runEach([
+    ...parts.watchHandles.map((handle) => () => handle.close()),
     // Nothing starts a refresh any more; drain the ones in flight.
-    await parts.builder.dispose();
-    await Promise.allSettled(parts.inFlightTicks);
-    await parts.refresher.idle();
-    await parts.server.shutdown();
-    await parts.pack.close();
-    stopped = true;
-  } finally {
-    if (parts.watch) endStoppingLine(stopped);
+    () => parts.builder.dispose(),
+    () => Promise.allSettled(parts.inFlightTicks),
+    () => parts.refresher.idle(),
+    () => parts.server.shutdown(),
+    () => parts.pack.close(),
+  ]);
+  if (parts.watch) endStoppingLine(failure === undefined);
+  if (failure !== undefined) throw failure.cause;
+}
+
+/** Run each step in turn, every one even after one fails; the first failure, if any. */
+async function runEach(
+  steps: readonly (() => Promise<unknown>)[],
+): Promise<{ readonly cause: unknown } | undefined> {
+  let first: { readonly cause: unknown } | undefined;
+  for (const step of steps) {
+    try {
+      await step();
+    } catch (cause) {
+      first ??= { cause };
+    }
   }
+  return first;
 }
 
 /**

@@ -229,6 +229,27 @@ describe('createPackServiceSupervisor — children', () => {
     );
   });
 
+  test('once closing, a child that dies is not restarted and nothing new starts', async () => {
+    const events: PackServiceSupervisorEvent[] = [];
+    const index = await writePack({ 'pid.mjs': PID_TOOL });
+    const running = await supervisor({}, events);
+    const lifecycle = (): string[] => events.filter((e) => e.kind !== 'log').map((e) => e.kind);
+    await running.supervisor.start(index);
+    const { pid } = (await output(running, 'pid')) as { pid: number };
+
+    // A terminal's Ctrl+C reaches the child too, as the owner begins to close.
+    running.supervisor.beginClose();
+    process.kill(pid, 'SIGINT');
+    await until(() => !alive(pid));
+    await new Promise((r) => setTimeout(r, 200)); // four restart delays
+    expect(lifecycle()).toEqual(['started']);
+
+    const refused = await running.supervisor.start(index);
+    expect(refused).toEqual({ kind: 'err', error: { problems: ['The pack service is closing'] } });
+    await running.supervisor.close();
+    expect(lifecycle()).toEqual(['started']);
+  });
+
   test("pack code's output reaches onLog; the service's own lines arrive as events", async () => {
     const events: PackServiceSupervisorEvent[] = [];
     const logs: string[] = [];

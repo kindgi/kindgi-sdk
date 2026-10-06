@@ -104,6 +104,8 @@ interface Fixtures {
   /** `[staged, index]` pairs published, in order. */
   readonly published: (readonly [string, string])[];
   readonly packStops: () => number;
+  /** How often the pack service was told it's closing (`beginClose`). */
+  readonly packBeginCloses: () => number;
   /** Interpreters `checkPackPython` was asked about. */
   readonly pythonChecks: (readonly string[])[];
   /** The `PackCode` each of the pack service, the builder and the indexer got. */
@@ -124,6 +126,8 @@ function makeFixtures(
     readonly providers?: readonly unknown[];
     /** What the boot build loads from `node_modules` (default: not reported). */
     readonly externals?: readonly ExternalPackage[];
+    /** Disposing the builder fails (a shutdown step that throws). */
+    readonly disposeFails?: boolean;
   } = {},
 ): Fixtures {
   const pythonChecks: (readonly string[])[] = [];
@@ -163,6 +167,7 @@ function makeFixtures(
   const packStarts: string[] = [];
   const published: (readonly [string, string])[] = [];
   let packStops = 0;
+  let packBeginCloses = 0;
   const unavailable = {
     kind: 'err',
     error: { code: 'pack-service-unavailable', message: 'fake' },
@@ -201,6 +206,9 @@ function makeFixtures(
         stop: async () => {
           packStops += 1;
         },
+        beginClose: () => {
+          packBeginCloses += 1;
+        },
       };
     },
     createPackBuilder: (builderOpts) => {
@@ -215,7 +223,9 @@ function makeFixtures(
           rebuildRef = onBuild;
         },
         syncEntries: async () => false,
-        dispose: async () => {},
+        dispose: async () => {
+          if (opts.disposeFails === true) throw new Error('dispose failed');
+        },
       };
     },
     publishIndex: async (staged, index) => {
@@ -262,6 +272,7 @@ function makeFixtures(
     packStarts,
     published,
     packStops: () => packStops,
+    packBeginCloses: () => packBeginCloses,
     pythonChecks,
     serviceCodes,
     builderCodes,
@@ -1092,10 +1103,29 @@ describe('kindgi dev — watch flow', () => {
 
     // Abort → command completes gracefully.
     controller.abort();
+    // The pack service is told it's closing the moment the stop arrives,
+    // before anything is awaited: a child that dies now isn't restarted.
+    expect(fixtures.packBeginCloses()).toBe(1);
     const out = await promise;
     expect(out.exitCode).toBe(0);
     expect(fixtures.watchHandle.closeCount).toBe(2);
     expect(fixtures.server.shutdownCount).toBe(1);
+  });
+
+  test('a shutdown step that fails still shuts the runtime and the pack service down', async () => {
+    const controller = new AbortController();
+    const fixtures = makeFixtures({ outcomes: [defaultHappyOutcome()], disposeFails: true });
+    const promise = runCli({
+      ...baseInputs(fixtures, { stopSignal: controller.signal }),
+      argv: ['dev', `--path=${packDir}`],
+    });
+    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
+    controller.abort();
+    const out = await promise;
+    expect(out.exitCode).not.toBe(0);
+    // The runtime (its container) and the pack service went down anyway.
+    expect(fixtures.server.shutdownCount).toBe(1);
+    expect(fixtures.packStops()).toBe(1);
   });
 
   test('watch tick after indexer failure keeps the server up + records lastWatch error', async () => {
