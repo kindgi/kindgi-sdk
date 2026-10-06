@@ -286,6 +286,188 @@ ea4e7c15-7990-41b6-b153-0847a83f2e9d  promote   tenant                          
 history. `--eval-run=<eval-run-id>` on `promote` keeps the comparison behind
 the decision on its record.
 
+## Gate a release
+
+A **gate policy** says what a promotion must show before a version goes live
+for a scope: a recent comparison on your test set, enough judged cases,
+figures at least this good, a clean replay and, if you want, a reviewer's
+approval. An agent has one policy per scope; a promotion is checked by the
+most specific one covering its scope, at its latest version.
+
+### Set a gate
+
+The scope must have a live version first. A gate on a scope with nothing live
+would let the next published version go live there ungated, so it's refused:
+`Nothing covering this scope pins a version of acme.order-desk, so publishing a version would make it live here ungated: pin a version for this scope, or one above it, first`.
+Promote a version, then publish the policy:
+
+```json
+{
+  "comparison": { "maxAgeHours": 168 },
+  "evidence": { "minCases": 3 },
+  "metrics": [{ "name": "weightedYesShare", "minCandidate": 0.6, "maxDrop": 0.02 }],
+  "replay": { "maxRefusedWrites": 0 },
+  "approvals": { "role": "senior" }
+}
+```
+
+```sh
+kindgi gate-policies publish acme.order-desk-release --policy-version=1.0.0 --agent=acme.order-desk --tenant --spec=@gate.json --description="What a release of the order desk must show"
+```
+
+| Part | A promotion must show |
+| --- | --- |
+| `comparison.maxAgeHours` | a comparison of the version, finished at most this many hours ago |
+| `evidence.minCases` | each figure resting on at least this many judged cases, for the version and for the live one |
+| `metrics` | each named figure (`weightedYesShare`, `judgedCoverage`, or `weightedPrecisionAtK` with its `k`) at least `minCandidate`, and at most `maxDrop` below the live version |
+| `replay` | at most this many diverged cases, errors, refused writes and stopped cases (`maxDiverged`, `maxErrors`, `maxRefusedWrites`, `maxStopped`); those left out are 0 |
+| `approvals` | then a reviewer with this role (`senior` if left out) approves it, someone other than whoever asked |
+
+A promotion must name its comparison when the policy has `comparison`,
+`evidence`, `metrics` or `replay`. The comparison must be of the version
+you promote, with the same pins, and its recorded runs must be from the
+version live for the scope now.
+
+To change a gate, publish a new version of the policy;
+`kindgi gate-policies unregister acme.order-desk-release <version>` goes back
+to the one before. `kindgi agents gate-policy acme.order-desk --tenant` shows
+the policy that applies to a scope.
+
+### Check before you promote
+
+`--check` asks the gate without recording anything:
+
+```sh
+kindgi agents promote acme.order-desk 1.3.0 --tenant --eval-run=<comparison-id> --check
+```
+
+```json
+{
+  "outcome": "needs-approval",
+  "policy": { "id": "acme.order-desk-release", "version": "1.0.0" },
+  "checks": [
+    { "name": "comparison.freshness", "passed": true, "message": "The comparison finished 0.013 hours ago; the policy accepts up to 168.", … },
+    { "name": "baselineIsLive", "passed": true, "message": "The baseline is acme.order-desk 1.0.0, the version live for the scope.", … },
+    { "name": "metric.weightedYesShare.minCandidate", "passed": true, "message": "The weighted yes share is 1; the policy needs at least 0.6.", … },
+    …
+  ],
+  "approval": { "role": "senior", "count": 1, "separateApprover": true }
+}
+```
+
+`gate-failed` lists each check that failed, such as
+`` This policy needs a comparison: name one with `evalRunId` (a finished comparison eval run of this version). ``
+when there's no `--eval-run`.
+
+### Promote through the gate
+
+```sh
+kindgi agents promote acme.order-desk 1.3.0 --tenant --eval-run=<comparison-id> --reason="1.3.0 did as well on the order checks"
+```
+
+- **When the policy has no `approvals`,** a promotion that passes goes live
+  at once, `"status": "promoted"`.
+- **When it has,** it waits: `"status": "pending-approval"`, with an
+  `approvalId`. The scope keeps its version until a reviewer approves.
+- **When it fails,** nothing changes. It's refused with every failed check,
+  such as `The gate refused acme.order-desk 1.3.0: The weighted yes share rests on 3 judged cases for the candidate; the policy needs at least 20. …`,
+  and kept in the history as `refused`.
+
+Each promotion in `kindgi agents promotions list` has its `status`:
+`promoted`, `pending-approval`, `refused` or `superseded`.
+
+### Approve it
+
+The request is an approval like any other (see
+[Decide an approval](../../approvals/decide-an-approval/)), for a reviewer
+with the policy's role:
+
+```sh
+kindgi approvals complete <approval-id> --decision=approve --rationale="Checked the comparison"
+```
+
+The version goes live, and the promotion is `promoted`. Whoever asked can't
+approve their own request:
+`Approval <approval-id> was asked for by you: someone else must approve it`.
+If another promotion of the same scope goes live first, a waiting request is
+`superseded` instead of going live.
+
+### A gated scope stays pinned
+
+Rolling back is immediate and isn't gated. Unpinning a gated scope is refused,
+since its runs would then take whatever version is published next:
+`Unpinning would leave tenant with a gate policy on the latest version of acme.order-desk, where publishing goes live ungated: pin a version above it first, or unregister the gate policy`.
+
+### Promote from your app
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// promote-gated.ts
+import { createClient } from '@kindgi/sdk/client';
+
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+const evalRunId = process.argv[2]; // the comparison of 1.3.0
+const request = {
+  version: '1.3.0',
+  scope: { kind: 'tenant' as const },
+  evalRunId,
+  reason: '1.3.0 did as well on the order checks',
+};
+
+// What would the gate say? Nothing is recorded.
+const check = await kindgi.agents.promotions.check('acme.order-desk', request);
+console.log(check.outcome);
+for (const c of check.checks.filter((c) => !c.passed)) console.log(c.message);
+
+if (check.outcome !== 'gate-failed') {
+  const promotion = await kindgi.agents.promotions.create('acme.order-desk', request);
+  console.log(promotion.status, promotion.approvalId ?? '');
+}
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# promote_gated.py
+import sys
+
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+request = {
+    "version": "1.3.0",
+    "scope": {"kind": "tenant"},
+    "eval_run_id": sys.argv[1],  # the comparison of 1.3.0
+    "reason": "1.3.0 did as well on the order checks",
+}
+
+# What would the gate say? Nothing is recorded.
+check = kindgi.agents.promotions.check("acme.order-desk", **request)
+print(check.outcome)
+for c in check.checks:
+    if not c.passed:
+        print(c.message)
+
+if check.outcome != "gate-failed":
+    promotion = kindgi.agents.promotions.create("acme.order-desk", **request)
+    print(promotion.status, promotion.approval_id or "")
+```
+
+</TabItem>
+</Tabs>
+
+```text
+needs-approval
+pending-approval fa6fbbcf-7b0d-4c70-b462-d6a78bbcfd11
+```
+
+`kindgi.gatePolicies.publish` (`gate_policies.publish` in Python) and
+`kindgi.agents.gatePolicy.resolve` (`agents.gate_policy.resolve`) do what
+`kindgi gate-policies publish` and `kindgi agents gate-policy` do.
+
 ## In the console
 
 - An agent's page says which version a run in this project gets, such as
@@ -302,3 +484,17 @@ the decision on its record.
   this project (Support) will use 1.3.0."
 - A run's page says why it ran its version, such as "Live for company = acme
   in this project (Default)".
+- **Gate policies,** on the Live versions page, has each policy in sentences,
+  such as "Judged yes: at least 60%, and no more than 2 points below the live
+  version" and "Then a senior reviewer approves it, someone other than
+  whoever asked", with its versions, **New version** and **Add a gate
+  policy**.
+- **Promote a version** has **Judged on**, a finished comparison of the
+  version, and runs the gate's check before anything is recorded: "The gate
+  passes (gate policy acme.order-desk-release 1.0.0) Then a senior reviewer
+  approves it, someone other than you, and it goes live.", with each check.
+  Its button follows: **Ask to promote 1.3.0**, or "The gate refuses it".
+- A request waiting for approval shows on Live versions, with **Open the
+  approval**. Its approval page shows the promotion, who asked and why, the
+  comparison and the policy, and each check; once approved, "Promoted 1.3.0,
+  replacing 1.0.0".
