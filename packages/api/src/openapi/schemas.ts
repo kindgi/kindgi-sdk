@@ -344,7 +344,7 @@ export const GateCheckSchema: JsonSchema = {
     name: {
       type: 'string',
       description:
-        'Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.suite`, `sameContents`, `baselineIsLive`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`.',
+        'Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.suite`, `sameContents`, `baselineIsLive`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `classWeights.restrictedOnly`.',
     },
     passed: { type: 'boolean' },
     message: {
@@ -404,7 +404,7 @@ export const GatePolicySpecSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'What a promotion must show. Every part is optional; an empty spec checks nothing. A promotion must name a comparison (`evalRunId`) exactly when the spec has `comparison`, `evidence`, `metrics` or `replay`. Unknown keys are refused.',
+    'What a promotion must show. Every part is optional; an empty spec checks nothing. A promotion must name a comparison (`evalRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyRestrictedClasses`. Unknown keys are refused.',
   properties: {
     comparison: {
       type: 'object',
@@ -453,6 +453,11 @@ export const GatePolicySpecSchema: JsonSchema = {
         },
         separateApprover: { type: 'boolean', description: 'Default `true`.' },
       },
+    },
+    onlyRestrictedClasses: {
+      type: 'boolean',
+      description:
+        "Only restricted judge classes count: the comparison must be weighted `restricted-only`, so a class anyone may assert can't move the gate.",
     },
   },
 };
@@ -2572,6 +2577,34 @@ export const JudgeClassScopeSchema: JsonSchema = {
   ],
 };
 
+export const JudgeClassAssertableBySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  minProperties: 1,
+  description:
+    'Who may assert the class: every part that is set must hold. A class with one is restricted: a judgment recorded while it is carries `restricted`, and a comparison weighted `restricted-only` counts only those.',
+  properties: {
+    minReviewerRole: {
+      type: 'string',
+      enum: ['standard', 'senior', 'admin'],
+      description: "The caller's reviewer role is at least this (its token's, or the roster's).",
+    },
+    principalKinds: {
+      type: 'array',
+      minItems: 1,
+      items: { type: 'string', enum: ['user', 'service'] },
+      description: 'Users, service tokens, or both.',
+    },
+    principalIds: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 100,
+      items: { type: 'string', minLength: 1 },
+      description: 'Only these principals: user ids, or service token ids.',
+    },
+  },
+};
+
 export const JudgeClassSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -2590,6 +2623,7 @@ export const JudgeClassSchema: JsonSchema = {
       description: 'How much a judgment of this class counts, relative to the others.',
     },
     description: { type: 'string' },
+    assertableBy: { $ref: '#/components/schemas/JudgeClassAssertableBy' },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
     unregisteredAt: {
@@ -2620,6 +2654,7 @@ export const CreateJudgeClassBodySchema: JsonSchema = {
     name: { type: 'string', minLength: 1, maxLength: 100 },
     weight: { type: 'number', minimum: 0 },
     description: { type: 'string' },
+    assertableBy: { $ref: '#/components/schemas/JudgeClassAssertableBy' },
   },
 };
 
@@ -2630,6 +2665,10 @@ export const UpdateJudgeClassBodySchema: JsonSchema = {
   properties: {
     weight: { type: 'number', minimum: 0 },
     description: { type: 'string' },
+    assertableBy: {
+      oneOf: [{ $ref: '#/components/schemas/JudgeClassAssertableBy' }, { type: 'null' }],
+      description: 'Who may assert the class; `null` lifts the restriction.',
+    },
   },
 };
 
@@ -2716,6 +2755,12 @@ export const JudgmentSchema: JsonSchema = {
       type: 'string',
       description:
         'The judge class the judgment is recorded under. Absent when unclassified (counts with weight 1).',
+    },
+    restricted: {
+      type: 'boolean',
+      enum: [true],
+      description:
+        "Present (true) when the judge class was restricted (`assertableBy`) when the judgment was recorded, so the judge was checked against it. A restriction added or lifted later doesn't change it.",
     },
     assertedBy: { $ref: '#/components/schemas/JudgmentAssertedBy' },
     participantId: {
@@ -2907,6 +2952,14 @@ export const JudgedItemSummarySchema: JsonSchema = {
       description: 'The weight behind "yes" (an unclassified judgment counts 1).',
     },
     totalWeight: { type: 'number', description: 'The weight behind all judgments of the item.' },
+    restricted: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['yesWeight', 'totalWeight'],
+      description:
+        'The same weights, counting only judgments recorded while their class was restricted (`Judgment.restricted`), for a comparison weighted `restricted-only`. Absent from a test set built before restrictions.',
+      properties: { yesWeight: { type: 'number' }, totalWeight: { type: 'number' } },
+    },
     reasons: {
       type: 'array',
       description: 'The reasons given, newest first.',
@@ -5427,6 +5480,12 @@ export const EvalComparisonSchema: JsonSchema = {
     repetitions: { type: 'integer', minimum: 1, maximum: 10 },
     k: { type: 'integer', minimum: 1, maximum: 100 },
     versions: { $ref: '#/components/schemas/FlowVersionOverrides' },
+    classWeights: {
+      type: 'string',
+      enum: ['as-recorded', 'restricted-only'],
+      description:
+        "Which judgments count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Judgment.restricted`), the others weighing 0 (`restricted-only`).",
+    },
   },
 };
 
@@ -5602,6 +5661,12 @@ export const JudgedComparisonSummarySchema: JsonSchema = {
         "Flow cases that stopped at a write the replay refused: no output to score, so they're left out of the metrics.",
     },
     reads: { type: 'string', enum: ['recorded', 'live'] },
+    classWeights: {
+      type: 'string',
+      enum: ['as-recorded', 'restricted-only'],
+      description:
+        'Which judgments counted. Absent from a comparison recorded before restricted classes: `as-recorded`.',
+    },
     sampling: {
       type: 'object',
       additionalProperties: false,
@@ -5833,6 +5898,12 @@ export const StartEvalRunBodySchema: JsonSchema = {
     repetitions: { type: 'integer', minimum: 1, maximum: 10 },
     k: { type: 'integer', minimum: 1, maximum: 100 },
     versions: { $ref: '#/components/schemas/FlowVersionOverrides' },
+    classWeights: {
+      type: 'string',
+      enum: ['as-recorded', 'restricted-only'],
+      description:
+        "Which judgments count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Judgment.restricted`), the others weighing 0 (`restricted-only`).",
+    },
   },
   description:
     "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`).",
@@ -8212,6 +8283,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['CreateJudgmentBody', CreateJudgmentBodySchema],
   ['UnregisterJudgmentResult', UnregisterJudgmentResultSchema],
   ['JudgedItemSummary', JudgedItemSummarySchema],
+  ['JudgeClassAssertableBy', JudgeClassAssertableBySchema],
   ['JudgedEvalCase', JudgedEvalCaseSchema],
   ['JudgedEvalCaseCollectionPage', JudgedEvalCaseCollectionPageSchema],
   ['BuildJudgedSuiteBody', BuildJudgedSuiteBodySchema],

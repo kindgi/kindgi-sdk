@@ -95,7 +95,12 @@ export function parseGatePolicySpec(
     return { kind: 'err', issues: [{ path: '/spec', message: '`spec` must be an object' }] };
   }
   const issues: SpecIssue[] = [];
-  unknownKeys(raw, ['comparison', 'evidence', 'metrics', 'replay', 'approvals'], '/spec', issues);
+  unknownKeys(
+    raw,
+    ['comparison', 'evidence', 'metrics', 'replay', 'approvals', 'onlyRestrictedClasses'],
+    '/spec',
+    issues,
+  );
   const spec: {
     -readonly [K in keyof GatePolicySpec]: GatePolicySpec[K];
   } = {};
@@ -216,6 +221,9 @@ export function parseGatePolicySpec(
       ...(separateApprover !== undefined && { separateApprover }),
     };
   }
+
+  const onlyRestricted = bool(raw, 'onlyRestrictedClasses', '/spec', issues);
+  if (onlyRestricted !== undefined) spec.onlyRestrictedClasses = onlyRestricted;
 
   return issues.length > 0 ? { kind: 'err', issues } : { kind: 'ok', spec };
 }

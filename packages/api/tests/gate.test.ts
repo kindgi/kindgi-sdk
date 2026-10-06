@@ -366,3 +366,19 @@ describe('the verdict', () => {
     expect(gate(strict, { serving: '1.0.0' }).passed).toBe(false);
   });
 });
+
+describe('onlyRestrictedClasses (T200)', () => {
+  test('needs a comparison weighted restricted-only', () => {
+    expect(gate({ onlyRestrictedClasses: true }, { summary: null }).checks).toEqual([
+      expect.objectContaining({ name: 'comparison.required', passed: false }),
+    ]);
+    const asRecorded = check(gate({ onlyRestrictedClasses: true }), 'classWeights.restrictedOnly');
+    expect(asRecorded).toMatchObject({ passed: false, value: 'as-recorded' });
+    expect(asRecorded?.message).toContain("classWeights: 'restricted-only'");
+    const restricted = gate(
+      { onlyRestrictedClasses: true },
+      { summary: summary({ classWeights: 'restricted-only' }) },
+    );
+    expect(check(restricted, 'classWeights.restrictedOnly')?.passed).toBe(true);
+  });
+});

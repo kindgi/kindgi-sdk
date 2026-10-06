@@ -86,7 +86,8 @@ function integerIn(raw: unknown, name: string, max: number): number | string {
 
 /**
  * A comparison eval run's settings from the start body: `baseline`,
- * `reads`, `repetitions`, `k` and a flow candidate's `versions`.
+ * `reads`, `repetitions`, `k`, `classWeights` and a flow candidate's
+ * `versions`.
  * `undefined` when none is given (the defaults apply); an error message
  * for a bad one.
  */
@@ -95,7 +96,7 @@ export function parseComparison(
 ):
   | { readonly kind: 'ok'; readonly value?: EvalComparison }
   | { readonly kind: 'err'; readonly message: string } {
-  const { baseline, reads, repetitions, k } = b;
+  const { baseline, reads, repetitions, k, classWeights } = b;
   const versions = b.versions === undefined ? undefined : parseVersions(b.versions);
   if (typeof versions === 'string') return { kind: 'err', message: versions };
   if (
@@ -103,9 +104,21 @@ export function parseComparison(
     reads === undefined &&
     repetitions === undefined &&
     k === undefined &&
-    versions === undefined
+    versions === undefined &&
+    classWeights === undefined
   ) {
     return { kind: 'ok' };
+  }
+  if (
+    classWeights !== undefined &&
+    classWeights !== 'as-recorded' &&
+    classWeights !== 'restricted-only'
+  ) {
+    return {
+      kind: 'err',
+      message:
+        "`classWeights` must be 'as-recorded' (every judgment at its class's weight) or 'restricted-only' (only judgments recorded under a restricted class)",
+    };
   }
   const parsedBaseline =
     baseline === undefined ? DEFAULT_COMPARISON.baseline : parseBaseline(baseline);
@@ -130,6 +143,7 @@ export function parseComparison(
       repetitions: reps,
       k: topK,
       ...(versions !== undefined && { versions }),
+      ...(classWeights !== undefined && { classWeights }),
     },
   };
 }

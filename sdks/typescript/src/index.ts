@@ -475,6 +475,7 @@ export type {
   LogFilter,
   LogVerifyResult,
   JudgeClass,
+  JudgeClassAssertableBy,
   JudgeClassScope,
   JudgedItem,
   JudgedRunContext,
