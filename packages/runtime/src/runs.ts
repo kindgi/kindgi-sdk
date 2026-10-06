@@ -46,8 +46,11 @@ export interface KernelRunRecord {
   /** Set on a replay run: the run it re-ran and the eval run that did so (`RunReplayRef`). */
   readonly replayOf?: RunId | null;
   readonly evalRunId?: string | null;
-  /** The versions the run swapped in over its flow version's pins (`RunFlowInput.versions`). */
-  readonly versions?: FlowVersionOverrides | null;
+  /**
+   * The versions the run swaps in over its flow version's pins
+   * (`RunFlowInput.versions`). Absent on a run that has none.
+   */
+  readonly versions?: FlowVersionOverrides;
 }
 
 /**
