@@ -39,3 +39,24 @@ export interface VersionedRef<Id extends string> {
   readonly id: Id;
   readonly version: Semver;
 }
+
+/**
+ * Why the runtime registered a version of an agent or flow under another
+ * number than its definition names. Versions never change, so a deploy
+ * whose definition's version is registered already with other content
+ * registers the next free version in its line instead:
+ *
+ * - `pins-changed`: the definition's version is registered with other
+ *   pins (a block it uses has a new version);
+ * - `unpinned`: the definition's version was published before pins
+ *   existed, so it has none;
+ * - `version-taken`: the definition's version holds another definition.
+ */
+export type VersionDerivationReason = 'pins-changed' | 'unpinned' | 'version-taken';
+
+/** The version a version was registered in place of, and why. */
+export interface VersionDerivation {
+  /** The version the definition names. */
+  readonly version: string;
+  readonly reason: VersionDerivationReason;
+}

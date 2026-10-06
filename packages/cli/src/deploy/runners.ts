@@ -87,21 +87,22 @@ export interface DeploymentRecord {
     readonly agents: number;
     readonly flows: number;
   };
-  /** What the deployment shipped; the agents under the versions they're registered as. */
+  /** What the deployment shipped; agents and flows under the versions they're registered as. */
   readonly contents?: {
-    readonly agents?: readonly DeployedAgentRecord[];
+    readonly agents?: readonly DeployedVersionRecord[];
+    readonly flows?: readonly DeployedVersionRecord[];
   };
 }
 
-/** An agent a deployment shipped (`DeployedAgent` in `@kindgi/api`). */
-export interface DeployedAgentRecord {
+/** An agent or flow a deployment shipped (`DeployedVersion` in `@kindgi/api`). */
+export interface DeployedVersionRecord {
   readonly id: string;
   readonly version: string;
   readonly authoredVersion?: string;
   readonly reason?: 'pins-changed' | 'unpinned' | 'version-taken';
   readonly newVersion?: boolean;
   readonly pinChanges?: readonly {
-    readonly kind: 'tool' | 'prompt' | 'setting';
+    readonly kind: 'tool' | 'prompt' | 'setting' | 'agent';
     readonly id: string;
     readonly from?: string;
     readonly to?: string;

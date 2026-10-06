@@ -2989,27 +2989,7 @@
             "$ref": "#/components/schemas/AgentPins"
           },
           "derivedFrom": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "version",
-              "reason"
-            ],
-            "description": "Set by the runtime on a version a deploy registered in place of the definition's version (which was registered already with other pins or content). Never in the publish body.",
-            "properties": {
-              "version": {
-                "type": "string",
-                "description": "The version the agent's definition names."
-              },
-              "reason": {
-                "type": "string",
-                "enum": [
-                  "pins-changed",
-                  "unpinned",
-                  "version-taken"
-                ]
-              }
-            }
+            "$ref": "#/components/schemas/VersionDerivation"
           },
           "pinsDigest": {
             "type": "string",
@@ -3052,7 +3032,7 @@
         }
       },
       "PinChange": {
-        "description": "One pin that differs between two agent versions.",
+        "description": "One pin that differs between two versions of an agent or a flow.",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -3065,7 +3045,8 @@
             "enum": [
               "tool",
               "prompt",
-              "setting"
+              "setting",
+              "agent"
             ]
           },
           "id": {
@@ -3078,6 +3059,55 @@
           "to": {
             "type": "string",
             "description": "The later version's pin; absent when it has none."
+          }
+        }
+      },
+      "VersionDerivation": {
+        "description": "Set by the runtime on an agent or flow version a deploy registered in place of the definition's version, which was registered already with other pins or content (versions never change). Never in the publish body.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "reason"
+        ],
+        "properties": {
+          "version": {
+            "type": "string",
+            "description": "The version the definition names."
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "pins-changed",
+              "unpinned",
+              "version-taken"
+            ],
+            "description": "`pins-changed`: a block it uses has a new version; `unpinned`: the definition's version was published before pins existed; `version-taken`: the definition's version holds another definition."
+          }
+        }
+      },
+      "FlowPins": {
+        "description": "The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs, and each agent it runs at no named version, resolves once to its latest version then, which every run of that flow version uses. Absent on a version published before pins existed (it binds the latest versions per run).",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tools",
+          "agents"
+        ],
+        "properties": {
+          "tools": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Tool id → exact version."
+          },
+          "agents": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Agent id → exact version, for agent nodes that name no version."
           }
         }
       },
@@ -3364,6 +3394,17 @@
           "metadata": {
             "type": "object",
             "additionalProperties": true
+          },
+          "pins": {
+            "$ref": "#/components/schemas/FlowPins"
+          },
+          "pinsDigest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "description": "Set by the runtime with `pins`: `sha256:<hex>` of the pins' canonical JSON (sorted keys, no whitespace)."
+          },
+          "derivedFrom": {
+            "$ref": "#/components/schemas/VersionDerivation"
           }
         }
       },
@@ -8957,7 +8998,7 @@
                 },
                 "authoredVersion": {
                   "type": "string",
-                  "description": "The version the agent's definition names, present when it differs from `version`: that version was registered already with other pins or content, and versions never change, so the deploy registered the next free version in its line (or an earlier deploy did)."
+                  "description": "The version the agent's or flow's definition names, present when it differs from `version`: that version was registered already with other pins or content, and versions never change, so the deploy registered the next free version in its line (or an earlier deploy did)."
                 },
                 "reason": {
                   "type": "string",
@@ -8966,7 +9007,7 @@
                     "unpinned",
                     "version-taken"
                   ],
-                  "description": "Why `version` differs from `authoredVersion`: `pins-changed` (a tool it uses has another version in range now), `unpinned` (`authoredVersion` was published before pins existed), `version-taken` (`authoredVersion` is registered with other content)."
+                  "description": "Why `version` differs from `authoredVersion`: `pins-changed` (a tool or agent it uses has a new version), `unpinned` (`authoredVersion` was published before pins existed), `version-taken` (`authoredVersion` is registered with other content)."
                 },
                 "newVersion": {
                   "type": "boolean",
@@ -8988,7 +9029,8 @@
               "type": "object",
               "additionalProperties": false,
               "required": [
-                "id"
+                "id",
+                "version"
               ],
               "properties": {
                 "id": {
@@ -8996,7 +9038,31 @@
                 },
                 "version": {
                   "type": "string",
-                  "description": "Absent for guardrails, which have no version."
+                  "description": "The version the agent is registered as."
+                },
+                "authoredVersion": {
+                  "type": "string",
+                  "description": "The version the agent's or flow's definition names, present when it differs from `version`: that version was registered already with other pins or content, and versions never change, so the deploy registered the next free version in its line (or an earlier deploy did)."
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "pins-changed",
+                    "unpinned",
+                    "version-taken"
+                  ],
+                  "description": "Why `version` differs from `authoredVersion`: `pins-changed` (a tool or agent it uses has a new version), `unpinned` (`authoredVersion` was published before pins existed), `version-taken` (`authoredVersion` is registered with other content)."
+                },
+                "newVersion": {
+                  "type": "boolean",
+                  "description": "`true`: this deploy registered `version`; `false`: an earlier deploy did."
+                },
+                "pinChanges": {
+                  "type": "array",
+                  "description": "For `pins-changed`: the pins that differ from `authoredVersion`'s.",
+                  "items": {
+                    "$ref": "#/components/schemas/PinChange"
+                  }
                 }
               }
             }

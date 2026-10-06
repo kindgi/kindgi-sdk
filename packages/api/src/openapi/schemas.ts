@@ -961,22 +961,29 @@ export const AgentSchema: JsonSchema = {
     output: { $ref: '#/components/schemas/AgentOutputSpec' },
     toolErrors: { $ref: '#/components/schemas/ToolErrorsSpec' },
     pins: { $ref: '#/components/schemas/AgentPins' },
-    derivedFrom: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['version', 'reason'],
-      description:
-        "Set by the runtime on a version a deploy registered in place of the definition's version (which was registered already with other pins or content). Never in the publish body.",
-      properties: {
-        version: { type: 'string', description: "The version the agent's definition names." },
-        reason: { type: 'string', enum: ['pins-changed', 'unpinned', 'version-taken'] },
-      },
-    },
+    derivedFrom: { $ref: '#/components/schemas/VersionDerivation' },
     pinsDigest: {
       type: 'string',
       pattern: '^sha256:[0-9a-f]{64}$',
       description:
         "Set by the runtime with `pins`: `sha256:<hex>` of the pins' canonical JSON (sorted keys, no whitespace). Two agent versions with the same digest run the same blocks.",
+    },
+  },
+};
+
+export const VersionDerivationSchema: JsonSchema = {
+  description:
+    "Set by the runtime on an agent or flow version a deploy registered in place of the definition's version, which was registered already with other pins or content (versions never change). Never in the publish body.",
+  type: 'object',
+  additionalProperties: false,
+  required: ['version', 'reason'],
+  properties: {
+    version: { type: 'string', description: 'The version the definition names.' },
+    reason: {
+      type: 'string',
+      enum: ['pins-changed', 'unpinned', 'version-taken'],
+      description:
+        "`pins-changed`: a block it uses has a new version; `unpinned`: the definition's version was published before pins existed; `version-taken`: the definition's version holds another definition.",
     },
   },
 };
@@ -1159,6 +1166,29 @@ export const FlowSchema: JsonSchema = {
     edges: { type: 'array', items: { $ref: '#/components/schemas/FlowEdge' } },
     maxParallelism: { type: 'integer', minimum: 1 },
     metadata: { type: 'object', additionalProperties: true },
+    pins: { $ref: '#/components/schemas/FlowPins' },
+    pinsDigest: {
+      type: 'string',
+      pattern: '^sha256:[0-9a-f]{64}$',
+      description:
+        "Set by the runtime with `pins`: `sha256:<hex>` of the pins' canonical JSON (sorted keys, no whitespace).",
+    },
+    derivedFrom: { $ref: '#/components/schemas/VersionDerivation' },
+  },
+};
+
+export const FlowPinsSchema: JsonSchema = {
+  description:
+    'The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs, and each agent it runs at no named version, resolves once to its latest version then, which every run of that flow version uses. Absent on a version published before pins existed (it binds the latest versions per run).',
+  type: 'object',
+  additionalProperties: false,
+  required: ['tools', 'agents'],
+  properties: {
+    tools: { ...PinMapSchema, description: 'Tool id → exact version.' },
+    agents: {
+      ...PinMapSchema,
+      description: 'Agent id → exact version, for agent nodes that name no version.',
+    },
   },
 };
 
@@ -4864,7 +4894,7 @@ const DeployedPrimitiveSchema: JsonSchema = {
   },
 };
 
-const DeployedAgentSchema: JsonSchema = {
+const DeployedVersionSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['id', 'version'],
@@ -4874,13 +4904,13 @@ const DeployedAgentSchema: JsonSchema = {
     authoredVersion: {
       type: 'string',
       description:
-        "The version the agent's definition names, present when it differs from `version`: that version was registered already with other pins or content, and versions never change, so the deploy registered the next free version in its line (or an earlier deploy did).",
+        "The version the agent's or flow's definition names, present when it differs from `version`: that version was registered already with other pins or content, and versions never change, so the deploy registered the next free version in its line (or an earlier deploy did).",
     },
     reason: {
       type: 'string',
       enum: ['pins-changed', 'unpinned', 'version-taken'],
       description:
-        'Why `version` differs from `authoredVersion`: `pins-changed` (a tool it uses has another version in range now), `unpinned` (`authoredVersion` was published before pins existed), `version-taken` (`authoredVersion` is registered with other content).',
+        'Why `version` differs from `authoredVersion`: `pins-changed` (a tool or agent it uses has a new version), `unpinned` (`authoredVersion` was published before pins existed), `version-taken` (`authoredVersion` is registered with other content).',
     },
     newVersion: {
       type: 'boolean',
@@ -4895,12 +4925,12 @@ const DeployedAgentSchema: JsonSchema = {
 };
 
 export const PinChangeSchema: JsonSchema = {
-  description: 'One pin that differs between two agent versions.',
+  description: 'One pin that differs between two versions of an agent or a flow.',
   type: 'object',
   additionalProperties: false,
   required: ['kind', 'id'],
   properties: {
-    kind: { type: 'string', enum: ['tool', 'prompt', 'setting'] },
+    kind: { type: 'string', enum: ['tool', 'prompt', 'setting', 'agent'] },
     id: { type: 'string' },
     from: { type: 'string', description: "The earlier version's pin; absent when it had none." },
     to: { type: 'string', description: "The later version's pin; absent when it has none." },
@@ -4918,8 +4948,8 @@ export const DeploymentContentsSchema: JsonSchema = {
   properties: {
     tools: { type: 'array', items: DeployedPrimitiveSchema },
     guardrails: { type: 'array', items: DeployedPrimitiveSchema },
-    agents: { type: 'array', items: DeployedAgentSchema },
-    flows: { type: 'array', items: DeployedPrimitiveSchema },
+    agents: { type: 'array', items: DeployedVersionSchema },
+    flows: { type: 'array', items: DeployedVersionSchema },
   },
 };
 
@@ -6926,6 +6956,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['Agent', AgentSchema],
   ['AgentPins', AgentPinsSchema],
   ['PinChange', PinChangeSchema],
+  ['VersionDerivation', VersionDerivationSchema],
+  ['FlowPins', FlowPinsSchema],
   ['PublishAgentBody', PublishAgentBodySchema],
   ['PublishAgentResult', PublishAgentResultSchema],
   ['UnregisterAgentResult', UnregisterAgentResultSchema],
