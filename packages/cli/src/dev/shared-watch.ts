@@ -19,7 +19,8 @@
  * handle opens and closes once.
  */
 
-import { sep } from 'node:path';
+import { realpathSync } from 'node:fs';
+import { resolve, sep } from 'node:path';
 
 /** A directory's change events, as `node:fs/promises`'s `watch` gives them. */
 export type WatchEvents = (
@@ -32,7 +33,9 @@ export interface DirectoryWatches {
    * Watch `dir` and everything under it. `onEvent` gets each event's path
    * relative to `dir` (`/`-separated), or `undefined` when the event names
    * no file. `onError` is called once if the watch fails (its folder
-   * removed, too many open files); a later `subscribe` opens a new watch.
+   * removed, too many open files) or ends; a later `subscribe` opens a new
+   * watch. One folder, however it's spelled (`/var` or `/private/var` on
+   * macOS, a trailing slash), has one watch.
    * The returned function ends the subscription; the last one closes the
    * watch.
    */
@@ -83,8 +86,8 @@ function createDirectoryWatches(watch: WatchEvents): DirectoryWatches {
   };
 
   /** Every subscriber hears a failure once; the next subscribe opens a new watch. */
-  const fail = (dir: string, shared: SharedWatch, error: unknown): void => {
-    if (open.get(dir) === shared) open.delete(dir);
+  const fail = (key: string, shared: SharedWatch, error: unknown): void => {
+    if (open.get(key) === shared) open.delete(key);
     for (const subscriber of [...shared.subscribers]) {
       try {
         subscriber.onError(error);
@@ -94,34 +97,49 @@ function createDirectoryWatches(watch: WatchEvents): DirectoryWatches {
     }
   };
 
-  async function consume(dir: string, shared: SharedWatch): Promise<void> {
+  async function consume(key: string, dir: string, shared: SharedWatch): Promise<void> {
     try {
       for await (const evt of watch(dir, { recursive: true, signal: shared.controller.signal })) {
         deliver(shared, slashed(evt.filename));
       }
+      // A watch that ends without an error (its folder removed or renamed)
+      // has failed too: nothing would report again.
+      if (!shared.controller.signal.aborted) {
+        fail(key, shared, new Error(`the watch of ${dir} ended`));
+      }
     } catch (error) {
-      if (!shared.controller.signal.aborted) fail(dir, shared, error);
+      if (!shared.controller.signal.aborted) fail(key, shared, error);
     }
   }
 
   return {
     subscribe(dir, onEvent, onError) {
-      let shared = open.get(dir);
+      const key = canonical(dir);
+      let shared = open.get(key);
       if (shared === undefined) {
         shared = { controller: new AbortController(), subscribers: new Set() };
-        open.set(dir, shared);
-        void consume(dir, shared);
+        open.set(key, shared);
+        void consume(key, dir, shared);
       }
       const subscriber: Subscriber = { onEvent, onError };
       shared.subscribers.add(subscriber);
       const joined = shared;
       return () => {
         if (!joined.subscribers.delete(subscriber) || joined.subscribers.size > 0) return;
-        if (open.get(dir) === joined) open.delete(dir);
+        if (open.get(key) === joined) open.delete(key);
         joined.controller.abort();
       };
     },
   };
+}
+
+/** One spelling per folder: its real path, or (a folder not there yet) its resolved one. */
+function canonical(dir: string): string {
+  try {
+    return realpathSync.native(dir);
+  } catch {
+    return resolve(dir);
+  }
 }
 
 /** An event's file name, `/`-separated, or `undefined` when it names none. */

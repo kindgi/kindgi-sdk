@@ -19,7 +19,7 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import type { FSWatcher } from 'node:fs';
 import { stat as fsStat, mkdir, readFile, rename, watch, writeFile } from 'node:fs/promises';
-import { basename, dirname, join, relative, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -578,6 +578,11 @@ export async function watchPackReal(
     readonly scan?: () => Promise<string>;
     /** One watch on the pack directory, shared (default: on macOS). */
     readonly share?: boolean;
+    /**
+     * A watch failed (its folder removed, too many open files): the scan
+     * behind it goes on, and `onChange` fires once so the refresh looks.
+     */
+    readonly onWatchFailed?: (error: unknown) => void;
   } = {},
 ): Promise<WatchHandle> {
   const watchEvents = opts.watch ?? watch;
@@ -627,6 +632,11 @@ export async function watchPackReal(
     matches,
     files: opts.files ?? [],
     fire,
+    failed: (error) => {
+      if (closed) return;
+      opts.onWatchFailed?.(error);
+      fire();
+    },
     isClosed: () => closed,
   };
   const watches = await ((opts.share ?? SHARE_WATCH_BY_DEFAULT) ? watchShared : watchPerRoot)(spec);
@@ -651,6 +661,8 @@ interface PackWatchSpec {
   /** Single files (the env files). */
   readonly files: readonly string[];
   readonly fire: () => void;
+  /** A watch failed: say so (`onWatchFailed`), and fire. */
+  readonly failed: (error: unknown) => void;
   readonly isClosed: () => boolean;
 }
 
@@ -668,7 +680,7 @@ async function watchShared(spec: PackWatchSpec): Promise<PackWatches> {
   const outside: string[] = [];
   for (const file of spec.files) {
     const rel = relative(spec.packDir, file);
-    if (rel !== '' && !rel.startsWith('..') && !rel.startsWith(sep)) {
+    if (rel !== '' && !isAbsolute(rel) && rel !== '..' && !rel.startsWith(`..${sep}`)) {
       inPack.add(rel.split(sep).join('/'));
     } else outside.push(file);
   }
@@ -682,9 +694,7 @@ async function watchShared(spec: PackWatchSpec): Promise<PackWatches> {
         spec.fire();
       }
     },
-    () => {
-      if (!spec.isClosed()) spec.fire();
-    },
+    spec.failed,
   );
   const single = await watchSingleFiles(spec, outside);
   return {
@@ -713,6 +723,7 @@ async function watchPerRoot(spec: PackWatchSpec): Promise<PackWatches> {
         spec.matches,
         spec.fire,
         spec.isClosed,
+        spec.failed,
       ),
     );
   }
@@ -740,7 +751,15 @@ async function watchSingleFiles(
     const controller = new AbortController();
     controllers.push(controller);
     watchers.push(
-      consumeFileWatch(spec.watchEvents, dir, names, controller.signal, spec.fire, spec.isClosed),
+      consumeFileWatch(
+        spec.watchEvents,
+        dir,
+        names,
+        controller.signal,
+        spec.fire,
+        spec.isClosed,
+        spec.failed,
+      ),
     );
   }
   return { close: () => abortAll(controllers, watchers) };
@@ -811,6 +830,7 @@ async function consumeFileWatch(
   signal: AbortSignal,
   fire: () => void,
   isClosed: () => boolean,
+  failed: (error: unknown) => void,
 ): Promise<void> {
   try {
     for await (const evt of watchEvents(dir, { signal })) {
@@ -818,7 +838,7 @@ async function consumeFileWatch(
     }
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
-    if (code !== 'ABORT_ERR' && code !== 'ERR_ABORT' && !isClosed()) fire();
+    if (code !== 'ABORT_ERR' && code !== 'ERR_ABORT' && !isClosed()) failed(err);
   }
 }
 
@@ -846,6 +866,7 @@ async function consumeWatch(
   matches: (relPath: string) => boolean,
   fire: () => void,
   isClosed: () => boolean,
+  failed: (error: unknown) => void,
 ): Promise<void> {
   try {
     for await (const evt of watchEvents(abs, { recursive: true, signal })) {
@@ -867,7 +888,7 @@ async function consumeWatch(
     // filesystem failure we surface via a synthetic change so the
     // command's re-index reports it.
     const code = (err as NodeJS.ErrnoException).code;
-    if (code !== 'ABORT_ERR' && code !== 'ERR_ABORT' && !isClosed()) fire();
+    if (code !== 'ABORT_ERR' && code !== 'ERR_ABORT' && !isClosed()) failed(err);
   }
 }
 

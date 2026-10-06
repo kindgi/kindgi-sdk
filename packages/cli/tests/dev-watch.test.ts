@@ -139,6 +139,7 @@ const MODES = [
 
 describe.each(MODES)('watchPackReal ($mode): which events count', ({ share }) => {
   let onChange: Mock;
+  let onWatchFailed: Mock;
   let events: ReturnType<typeof scripted>;
   const watched = (rel: string): ScriptedEvents => {
     const found = events.watched.get(rel === '' ? dir : join(dir, rel));
@@ -172,6 +173,7 @@ describe.each(MODES)('watchPackReal ($mode): which events count', ({ share }) =>
   beforeEach(async () => {
     vi.useFakeTimers();
     onChange = vi.fn();
+    onWatchFailed = vi.fn();
     events = scripted();
     handle = await watchPackReal(dir, onChange, {
       debounceMs: DEBOUNCE_MS,
@@ -179,6 +181,7 @@ describe.each(MODES)('watchPackReal ($mode): which events count', ({ share }) =>
       files: [join(dir, '.env'), join(dir, '.env.local')],
       watch: events.watch,
       share,
+      onWatchFailed,
       // The scan never sees a change: only the events decide here.
       scan: async () => 'unchanged',
     });
@@ -243,11 +246,12 @@ describe.each(MODES)('watchPackReal ($mode): which events count', ({ share }) =>
     expect(onChange).toHaveBeenCalledTimes(2);
   });
 
-  test('a watcher that fails fires once, so the refresh reports it', async () => {
+  test('a watcher that fails says so, and fires once, so the refresh looks', async () => {
     const failure = Object.assign(new Error('too many open files'), { code: 'EMFILE' });
     await discoveryWatch().deliver({ error: failure });
     await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
     expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onWatchFailed.mock.calls).toEqual([[failure]]);
   });
 
   test('close() stops: a change still in its debounce window never fires', async () => {

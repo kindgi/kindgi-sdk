@@ -8,6 +8,9 @@
  * the watch.
  */
 
+import { realpathSync } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 
 import { describe, expect, test, vi } from 'vitest';
@@ -135,5 +138,38 @@ describe('directoryWatches', () => {
     directoryWatches(other.watch).subscribe('/a', vi.fn(), vi.fn());
     expect(one.opened.map((o) => o.path)).toEqual(['/a', '/b']);
     expect(other.opened.map((o) => o.path)).toEqual(['/a']);
+  });
+
+  test('a watch that ends without an error (its folder removed) is a failure too', async () => {
+    const opened: string[] = [];
+    // FSEvents can end the iteration when the watched folder goes away.
+    const ending: WatchEvents = (path) => {
+      opened.push(path);
+      return {
+        async *[Symbol.asyncIterator]() {},
+      };
+    };
+    const watches = directoryWatches(ending);
+    const failed = vi.fn();
+    watches.subscribe('/pack', vi.fn(), failed);
+    await vi.waitFor(() => expect(failed).toHaveBeenCalledTimes(1));
+    expect(String(failed.mock.calls[0]?.[0])).toContain('ended');
+    watches.subscribe('/pack', vi.fn(), vi.fn());
+    expect(opened).toEqual(['/pack', '/pack']);
+  });
+
+  test('one folder, however it is spelled, has one watch', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'kindgi-shared-watch-'));
+    try {
+      const events = pushed();
+      const watches = directoryWatches(events.watch);
+      // On macOS the temp folder is under /var, which is /private/var.
+      watches.subscribe(dir, vi.fn(), vi.fn());
+      watches.subscribe(`${realpathSync(dir)}${sep}`, vi.fn(), vi.fn());
+      watches.subscribe(join(dir, '.'), vi.fn(), vi.fn());
+      expect(events.opened).toHaveLength(1);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
