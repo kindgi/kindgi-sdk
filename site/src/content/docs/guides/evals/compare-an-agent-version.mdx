@@ -71,7 +71,7 @@ Without `--wait`, the command returns the run's id at once, and
 
 ```ts
 // compare.ts
-import { createClient } from '@kindgi/sdk/client';
+import { comparisonOf, createClient } from '@kindgi/sdk/client';
 
 const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 const projectId = process.argv[2];
@@ -89,9 +89,8 @@ while (run.status === 'pending' || run.status === 'running') {
   run = await kindgi.evalRuns.get(runId);
 }
 
-type Metric = { baseline: number | null; candidate: number | null };
-const summary = run.result?.summary as { metrics: Record<string, Metric> } | undefined;
-for (const [name, metric] of Object.entries(summary?.metrics ?? {})) {
+const comparison = comparisonOf(run); // undefined until it's finished
+for (const [name, metric] of Object.entries(comparison?.summary.metrics ?? {})) {
   console.log(`${name}: ${metric.baseline} → ${metric.candidate}`);
 }
 ```
@@ -104,7 +103,7 @@ for (const [name, metric] of Object.entries(summary?.metrics ?? {})) {
 import sys
 import time
 
-from kindgi.client import Kindgi
+from kindgi.client import Kindgi, comparison_of
 
 kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 project_id = sys.argv[1]
@@ -121,21 +120,32 @@ while run.status in ("pending", "running"):
     time.sleep(2)
     run = kindgi.eval_runs.get(str(started.run_id))
 
-for name, metric in (run.result or {})["summary"]["metrics"].items():
-    print(f"{name}: {metric['baseline']} → {metric['candidate']}")
+comparison = comparison_of(run)  # None until it's finished
+if comparison is not None:
+    metrics = comparison.summary.metrics
+    for name, metric in [
+        ("judgedCoverage", metrics.judged_coverage),
+        ("weightedYesShare", metrics.weighted_yes_share),
+        ("weightedPrecisionAtK", metrics.weighted_precision_at_k),
+    ]:
+        print(f"{name}: {metric.baseline} → {metric.candidate}")
 ```
 
 </TabItem>
 </Tabs>
 
 ```text
-judgedCoverage: 0.75 → 0.5
-weightedYesShare: 0.3333333333333333 → 1
-weightedPrecisionAtK: 0.3333333333333333 → 1
+judgedCoverage: 0.75 → 0.5714285714285714
+weightedYesShare: 0.3333333333333333 → 0.75
+weightedPrecisionAtK: 0.3333333333333333 → 0.75
 ```
 
-A model doesn't answer the same way every time: this run's 0.2.0 kept only
-the right article in every case, and the first one kept one wrong one.
+`comparisonOf` (Python: `comparison_of`) reads a finished comparison's
+result, typed: its `summary` and each case. It returns `undefined` (`None`)
+for a comparison that hasn't finished, or a dry run.
+
+A model doesn't answer the same way every time: run the same comparison
+again, and 0.2.0 may keep only the right article in every case.
 `--repetitions=<n>` (`repetitions` in the clients, up to 10) runs each case
 several times, and each metric gets a `spread`: its highest value minus its
 lowest.
