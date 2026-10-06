@@ -15,6 +15,7 @@ export { createClient } from './client.js';
 export type { KindgiClient } from './client.js';
 
 export type {
+  AgentGatePolicyClient,
   AgentLiveClient,
   AgentPromotionsClient,
   AgentsClient,
@@ -27,6 +28,12 @@ export type {
   RollbackLiveInput,
   UnpinLiveInput,
 } from './resources/agents.js';
+export type {
+  GatePoliciesClient,
+  GatePolicyFilter,
+  GatePolicyVersionsClient,
+  PublishGatePolicyInput,
+} from './resources/gate-policies.js';
 export type {
   Run,
   RunAgent,
@@ -206,7 +213,15 @@ export type {
   LivePinList,
   LiveScope,
   LiveVersionResolution,
+  GateApproval,
+  GateCheck,
+  GatePolicy,
+  GatePolicyPage,
+  GatePolicyRef,
+  GatePolicyResolution,
+  GatePolicySpec,
   Promotion,
+  PromotionCheck,
   PromotionPage,
   RunProgress,
   ScopeSegment,

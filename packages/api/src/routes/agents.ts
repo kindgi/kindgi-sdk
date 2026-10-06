@@ -28,7 +28,12 @@ import type { Authorizer } from '../middleware/authorize.js';
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
-import { isPromotionWrite, mountAgentReleaseRoutes } from './agent-releases.js';
+import {
+  type AgentReleaseGateDeps,
+  isPromotionCheck,
+  isPromotionWrite,
+  mountAgentReleaseRoutes,
+} from './agent-releases.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams } from './scope-params.js';
 
@@ -56,6 +61,8 @@ export function agentsRouter(
   blockRegistry?: BlockRegistryBinding,
   /** Live versions per scope and promotions (evals step 4); absent → those routes aren't mounted. */
   releases?: AgentReleaseBindings,
+  /** What a promotion's gate reads besides the releases (evals step 4b). */
+  gateDeps?: AgentReleaseGateDeps,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // A read-only registry (under `kindgi dev`, the pack's files) refuses
@@ -76,6 +83,7 @@ export function agentsRouter(
   //   POST /:agentId/versions/:version/unregister    → admin on the agent
   //   POST /:agentId/versions/:version/reinstate     → admin on the agent
   //   POST /:agentId/promotions, /live/rollback, /live/unpin → promote on the agent
+  //   POST /:agentId/promotions/check                → read on the agent (changes nothing)
   //   GET /:agentId/live, /live-versions, /promotions[/…]    → read on the agent
   //   GET / (list)                                   → tenant-scoped fetch;
   //                                                    with a project scope
@@ -117,7 +125,7 @@ export function agentsRouter(
       // changing what's live is its own permission (`promote`, granted to
       // the agent's admins); unregister and reinstate are `admin`.
       const action =
-        c.req.method === 'GET'
+        c.req.method === 'GET' || isPromotionCheck(c.req.method, c.req.path)
           ? 'read'
           : isPromotionWrite(c.req.method, c.req.path)
             ? 'promote'
@@ -502,7 +510,7 @@ export function agentsRouter(
     });
   });
 
-  if (releases !== undefined) mountAgentReleaseRoutes(r, binding, releases);
+  if (releases !== undefined) mountAgentReleaseRoutes(r, binding, releases, gateDeps);
 
   return r;
 }

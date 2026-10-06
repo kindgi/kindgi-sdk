@@ -156,7 +156,10 @@ function registryWith(versions: readonly string[]): AgentRegistryBinding {
       return got.kind === 'ok' ? got.value : null;
     },
     list: unused,
-    getVersion: unused,
+    getVersion: async ({ agentId, version }) => {
+      const got = registry.get(agentId, version as unknown as string);
+      return got.kind === 'ok' ? got.value : null;
+    },
     headExists: unused,
     listVersions: unused,
     publish: unused,
@@ -536,6 +539,8 @@ describe('authorization: changing what is live needs promote; reading needs read
     ['POST', '/promotions', { version: '1.0.0', scope: { kind: 'tenant' } }, 'promote'],
     ['POST', '/live/rollback', { scope: { kind: 'tenant' } }, 'promote'],
     ['POST', '/live/unpin', { scope: { kind: 'tenant' } }, 'promote'],
+    ['POST', '/promotions/check', { version: '1.0.0', scope: { kind: 'tenant' } }, 'read'],
+    ['GET', '/gate-policy?scopeKind=tenant', undefined, 'read'],
     ['GET', '/live', undefined, 'read'],
     ['GET', '/live-versions', undefined, 'read'],
     ['GET', '/promotions', undefined, 'read'],

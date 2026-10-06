@@ -299,6 +299,26 @@ export const PromotionSchema: JsonSchema = {
     reason: { type: 'string' },
     evalRunId: { type: 'string', description: 'The comparison the change was judged on.' },
     createdAt: { type: 'string', format: 'date-time' },
+    status: {
+      type: 'string',
+      enum: ['promoted', 'pending-approval', 'refused', 'superseded', 'rejected', 'expired'],
+      description:
+        "A `promote` row's state: it changes once, from `pending-approval` to its final state. Absent on rollback and unpin rows, and on promotions made before gates (`promoted`).",
+    },
+    policy: {
+      oneOf: [{ $ref: '#/components/schemas/GatePolicyRef' }, { type: 'null' }],
+      description: 'The gate policy that applied; null when none did. Absent before gates.',
+    },
+    checks: { type: 'array', items: { $ref: '#/components/schemas/GateCheck' } },
+    approvalId: {
+      type: 'string',
+      description: 'The approval a `pending-approval` promotion waits on (kept once decided).',
+    },
+    resolvedAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When a `pending-approval` promotion reached its final state.',
+    },
   },
 };
 
@@ -310,6 +330,208 @@ export const PromotionPageSchema: JsonSchema = {
     data: { type: 'array', items: { $ref: '#/components/schemas/Promotion' } },
     hasMore: { type: 'boolean' },
     nextCursor: { type: 'string' },
+  },
+};
+
+// ---------------- the promotion gate (evals step 4b) ----------------
+
+export const GateCheckSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['name', 'passed', 'message'],
+  description: "One of a gate's checks, as the promotion records it.",
+  properties: {
+    name: {
+      type: 'string',
+      description:
+        'Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.suite`, `sameContents`, `baselineIsLive`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`.',
+    },
+    passed: { type: 'boolean' },
+    message: {
+      type: 'string',
+      description: 'A plain sentence: what was found against what the policy asks.',
+    },
+    value: { type: ['number', 'string'] },
+    threshold: { type: ['number', 'string'] },
+  },
+};
+
+export const GatePolicyRefSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'version'],
+  properties: { id: { type: 'string' }, version: { type: 'string' } },
+};
+
+export const GateApprovalSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['role', 'count', 'separateApprover'],
+  description: 'The approval a passing promotion waits for.',
+  properties: {
+    role: { type: 'string', enum: ['standard', 'senior', 'admin'] },
+    count: { type: 'integer', minimum: 1 },
+    separateApprover: {
+      type: 'boolean',
+      description: 'Whoever asked for the promotion may not approve it.',
+    },
+  },
+};
+
+const GateMetricSpecSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['name'],
+  properties: {
+    name: { type: 'string', enum: ['weightedYesShare', 'judgedCoverage', 'weightedPrecisionAtK'] },
+    k: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 100,
+      description: "`weightedPrecisionAtK` only: the summary's `k` must be this.",
+    },
+    minCandidate: { type: 'number', minimum: 0, maximum: 1 },
+    maxDrop: {
+      type: 'number',
+      minimum: 0,
+      maximum: 1,
+      description: 'How far the candidate may fall below the baseline (the live version).',
+    },
+  },
+};
+
+export const GatePolicySpecSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'What a promotion must show. Every part is optional; an empty spec checks nothing. Unknown keys are refused.',
+  properties: {
+    comparison: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        required: {
+          type: 'boolean',
+          description:
+            'Whether the promotion must name a comparison (`evalRunId`). Absent: required when the spec checks anything a comparison shows.',
+        },
+        maxAgeHours: { type: 'number', exclusiveMinimum: 0 },
+        suite: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['id'],
+          properties: { id: { type: 'string' }, version: { type: 'string' } },
+        },
+      },
+    },
+    evidence: {
+      type: 'object',
+      additionalProperties: false,
+      description:
+        "The judged evidence behind each gated metric; for a metric with `maxDrop`, the baseline's too.",
+      properties: {
+        minCases: { type: 'integer', minimum: 0 },
+        minWeight: { type: 'number', minimum: 0 },
+      },
+    },
+    metrics: { type: 'array', items: GateMetricSpecSchema },
+    replay: {
+      type: 'object',
+      additionalProperties: false,
+      description: 'Each knob left out of the block is 0. No block: no replay checks.',
+      properties: {
+        maxDiverged: { type: 'integer', minimum: 0 },
+        maxErrors: { type: 'integer', minimum: 0 },
+        maxRefusedWrites: { type: 'integer', minimum: 0 },
+        maxStopped: { type: 'integer', minimum: 0 },
+      },
+    },
+    approvals: {
+      type: 'object',
+      additionalProperties: false,
+      description: 'A passing promotion waits for a reviewer.',
+      properties: {
+        role: {
+          type: 'string',
+          enum: ['standard', 'senior', 'admin'],
+          description: 'Default `senior`.',
+        },
+        separateApprover: { type: 'boolean', description: 'Default `true`.' },
+      },
+    },
+  },
+};
+
+export const GatePolicySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'version', 'agentId', 'scope', 'spec', 'createdAt'],
+  properties: {
+    id: { type: 'string' },
+    version: { type: 'string' },
+    agentId: { type: 'string' },
+    scope: { $ref: '#/components/schemas/LiveScope' },
+    spec: { $ref: '#/components/schemas/GatePolicySpec' },
+    description: { type: 'string' },
+    createdAt: { type: 'string', format: 'date-time' },
+    unregisteredAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const GatePolicyPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/GatePolicy' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+  },
+};
+
+export const PublishGatePolicyBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'version', 'agentId', 'scope', 'spec'],
+  properties: {
+    id: {
+      type: 'string',
+      pattern: '^[a-z0-9][a-z0-9._-]{0,127}$',
+      description: 'Yours to choose, e.g. `acme.drafting-prod`.',
+    },
+    version: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' },
+    agentId: { type: 'string' },
+    scope: { $ref: '#/components/schemas/LiveScope' },
+    spec: { $ref: '#/components/schemas/GatePolicySpec' },
+    description: { type: 'string' },
+  },
+};
+
+export const GatePolicyResolutionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['policy'],
+  properties: {
+    policy: {
+      oneOf: [{ $ref: '#/components/schemas/GatePolicy' }, { type: 'null' }],
+      description: 'The policy that gates a promotion for the scope; null when none does.',
+    },
+  },
+};
+
+export const PromotionCheckSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['outcome', 'policy', 'checks'],
+  description: 'What the gate would say about a promotion. Nothing is recorded.',
+  properties: {
+    outcome: { type: 'string', enum: ['would-promote', 'needs-approval', 'gate-failed'] },
+    policy: {
+      oneOf: [{ $ref: '#/components/schemas/GatePolicyRef' }, { type: 'null' }],
+      description: 'The policy that applies; null when none does.',
+    },
+    checks: { type: 'array', items: { $ref: '#/components/schemas/GateCheck' } },
+    approval: { $ref: '#/components/schemas/GateApproval' },
   },
 };
 
@@ -5255,6 +5477,11 @@ export const ComparisonCandidateSchema: JsonSchema = {
         kind: { type: 'string', enum: ['agent'] },
         agentId: { type: 'string' },
         version: { type: 'string' },
+        pinsDigest: {
+          type: 'string',
+          description:
+            "The version's pinsDigest: what it ran, as a promotion gate checks. Absent for a version published before pins, and from a comparison recorded before it.",
+        },
       },
     },
     {
@@ -7910,6 +8137,15 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['LivePinList', LivePinListSchema],
   ['Promotion', PromotionSchema],
   ['PromotionPage', PromotionPageSchema],
+  ['GateCheck', GateCheckSchema],
+  ['GatePolicyRef', GatePolicyRefSchema],
+  ['GateApproval', GateApprovalSchema],
+  ['GatePolicySpec', GatePolicySpecSchema],
+  ['GatePolicy', GatePolicySchema],
+  ['GatePolicyPage', GatePolicyPageSchema],
+  ['PublishGatePolicyBody', PublishGatePolicyBodySchema],
+  ['GatePolicyResolution', GatePolicyResolutionSchema],
+  ['PromotionCheck', PromotionCheckSchema],
   ['PromoteBody', PromoteBodySchema],
   ['RollbackBody', RollbackBodySchema],
   ['UnpinBody', UnpinBodySchema],

@@ -106,6 +106,43 @@ OPERATIONS: dict[str, Operation] = {
     "agents.promotions.create": Operation(
         "agents.promotions.create", "POST", "/v1/agents/{agentId}/promotions", "json", True
     ),
+    "agents.promotions.check": Operation(
+        "agents.promotions.check", "POST", "/v1/agents/{agentId}/promotions/check", "json", False
+    ),
+    "agents.gatePolicy.resolve": Operation(
+        "agents.gatePolicy.resolve", "GET", "/v1/agents/{agentId}/gate-policy", "json", False
+    ),
+    "gatePolicies.list": Operation("gatePolicies.list", "GET", "/v1/gate-policies", "json", False),
+    "gatePolicies.publish": Operation(
+        "gatePolicies.publish", "POST", "/v1/gate-policies", "json", True
+    ),
+    "gatePolicies.get": Operation(
+        "gatePolicies.get", "GET", "/v1/gate-policies/{policyId}", "json", False
+    ),
+    "gatePolicies.versions.list": Operation(
+        "gatePolicies.versions.list", "GET", "/v1/gate-policies/{policyId}/versions", "json", False
+    ),
+    "gatePolicies.versions.get": Operation(
+        "gatePolicies.versions.get",
+        "GET",
+        "/v1/gate-policies/{policyId}/versions/{version}",
+        "json",
+        False,
+    ),
+    "gatePolicies.versions.unregister": Operation(
+        "gatePolicies.versions.unregister",
+        "POST",
+        "/v1/gate-policies/{policyId}/versions/{version}/unregister",
+        "json",
+        False,
+    ),
+    "gatePolicies.versions.reinstate": Operation(
+        "gatePolicies.versions.reinstate",
+        "POST",
+        "/v1/gate-policies/{policyId}/versions/{version}/reinstate",
+        "json",
+        False,
+    ),
     "agents.promotions.get": Operation(
         "agents.promotions.get",
         "GET",
@@ -1453,6 +1490,29 @@ class AgentsPromotionsResource:
             timeout=timeout,
         )
 
+    def check(
+        self,
+        agent_id: str,
+        body: _models.PromoteBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PromotionCheck:
+        """Check a promotion against its gate. `POST /v1/agents/{agentId}/promotions/check`
+
+        What `POST …/promotions` with the same body would do, with nothing recorded: `would-promote`, `needs-approval` (with the approval it needs) or `gate-failed`, with every check. For a pipeline: evaluate, check, promote. Needs `read` on the agent.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.promotions.check"],
+            path={"agentId": agent_id},
+            query={},
+            headers={},
+            body=_body(_models.PromoteBody, body, fields),
+            response=_models.PromotionCheck,
+            timeout=timeout,
+        )
+
     def get(
         self, agent_id: str, promotion_id: str, /, *, timeout: float | None = None
     ) -> _models.Promotion:
@@ -1467,6 +1527,36 @@ class AgentsPromotionsResource:
         )
 
 
+class AgentsGatePolicyResource:
+    """`client.agents.gate_policy` — the `agents.gatePolicy` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def resolve(
+        self,
+        agent_id: str,
+        /,
+        *,
+        scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
+        scope_id: str | None = None,
+        segment: list[str] | None = None,
+        timeout: float | None = None,
+    ) -> _models.GatePolicyResolution:
+        """The gate policy for a scope. `GET /v1/agents/{agentId}/gate-policy`
+
+        The gate policy a promotion of the agent for the scope would be checked against: the most specific scope with an active policy (a segment path's longer prefixes first, then its project, the project's org, the tenant), at its latest active version. `policy: null` when none applies.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.gatePolicy.resolve"],
+            path={"agentId": agent_id},
+            query={"scopeKind": scope_kind, "scopeId": scope_id, "segment": segment},
+            headers={},
+            response=_models.GatePolicyResolution,
+            timeout=timeout,
+        )
+
+
 class AgentsResource:
     """`client.agents` — the `agents` operations."""
 
@@ -1474,6 +1564,7 @@ class AgentsResource:
         self._client = client
         self.live = AgentsLiveResource(client)
         self.promotions = AgentsPromotionsResource(client)
+        self.gate_policy = AgentsGatePolicyResource(client)
 
     def list(
         self,
@@ -1638,6 +1729,149 @@ class AgentsResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.ReinstateAgentVersionResult,
+            timeout=timeout,
+        )
+
+
+class GatePoliciesVersionsResource:
+    """`client.gate_policies.versions` — the `gatePolicies.versions` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(self, policy_id: str, /, *, timeout: float | None = None) -> _models.GatePolicyPage:
+        """List a gate policy's versions. `GET /v1/gate-policies/{policyId}/versions`
+
+        Every version, oldest first, unregistered ones too (with `unregisteredAt`).
+        """
+        return self._client._request(
+            _OPERATIONS["gatePolicies.versions.list"],
+            path={"policyId": policy_id},
+            query={},
+            headers={},
+            response=_models.GatePolicyPage,
+            timeout=timeout,
+        )
+
+    def get(
+        self, policy_id: str, version: str, /, *, timeout: float | None = None
+    ) -> _models.GatePolicy:
+        """Get a gate policy version. `GET /v1/gate-policies/{policyId}/versions/{version}`"""
+        return self._client._request(
+            _OPERATIONS["gatePolicies.versions.get"],
+            path={"policyId": policy_id, "version": version},
+            query={},
+            headers={},
+            response=_models.GatePolicy,
+            timeout=timeout,
+        )
+
+    def unregister(
+        self, policy_id: str, version: str, /, *, timeout: float | None = None
+    ) -> _models.GatePolicy:
+        """Unregister a gate policy version. `POST /v1/gate-policies/{policyId}/versions/{version}/unregister`
+
+        The version stops applying; the policy's latest remaining active version applies, or, with none, the scope above's policy. Promotions keep the version they were checked against. Needs `admin` on the tenant.
+        """
+        return self._client._request(
+            _OPERATIONS["gatePolicies.versions.unregister"],
+            path={"policyId": policy_id, "version": version},
+            query={},
+            headers={},
+            response=_models.GatePolicy,
+            timeout=timeout,
+        )
+
+    def reinstate(
+        self, policy_id: str, version: str, /, *, timeout: float | None = None
+    ) -> _models.GatePolicy:
+        """Reinstate a gate policy version. `POST /v1/gate-policies/{policyId}/versions/{version}/reinstate`
+
+        Needs `admin` on the tenant.
+        """
+        return self._client._request(
+            _OPERATIONS["gatePolicies.versions.reinstate"],
+            path={"policyId": policy_id, "version": version},
+            query={},
+            headers={},
+            response=_models.GatePolicy,
+            timeout=timeout,
+        )
+
+
+class GatePoliciesResource:
+    """`client.gate_policies` — the `gatePolicies` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+        self.versions = GatePoliciesVersionsResource(client)
+
+    def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        agent_id: str | None = None,
+        scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
+        scope_id: str | None = None,
+        segment: list[str] | None = None,
+        timeout: float | None = None,
+    ) -> _models.GatePolicyPage:
+        """List gate policies. `GET /v1/gate-policies`
+
+        Each gate policy's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's.
+        """
+        return self._client._request(
+            _OPERATIONS["gatePolicies.list"],
+            path={},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "agentId": agent_id,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+                "segment": segment,
+            },
+            headers={},
+            response=_models.GatePolicyPage,
+            timeout=timeout,
+        )
+
+    def publish(
+        self,
+        body: _models.PublishGatePolicyBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.GatePolicy:
+        """Publish a gate policy. `POST /v1/gate-policies`
+
+        Registers a gate policy, or a new version of one: what a promotion of `agentId` for `scope` must show. One policy per agent and scope: another policy id for a scope that has one is refused with `409 gate-policy-scope-taken` (`details.heldBy` names it; publish a new version of that one instead), and a new version can't change the agent or scope (`409 gate-policy-scope-changed`). The `spec` is checked strictly: an unknown key is refused (`400 validation-failed`, `details.issues`). Needs `admin` on the tenant: whoever may promote can't loosen their own gate.
+        """
+        return self._client._request(
+            _OPERATIONS["gatePolicies.publish"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PublishGatePolicyBody, body, fields),
+            response=_models.GatePolicy,
+            timeout=timeout,
+        )
+
+    def get(self, policy_id: str, /, *, timeout: float | None = None) -> _models.GatePolicy:
+        """Get a gate policy. `GET /v1/gate-policies/{policyId}`
+
+        The policy's latest active version.
+        """
+        return self._client._request(
+            _OPERATIONS["gatePolicies.get"],
+            path={"policyId": policy_id},
+            query={},
+            headers={},
+            response=_models.GatePolicy,
             timeout=timeout,
         )
 
@@ -7063,6 +7297,29 @@ class AsyncAgentsPromotionsResource:
             timeout=timeout,
         )
 
+    async def check(
+        self,
+        agent_id: str,
+        body: _models.PromoteBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PromotionCheck:
+        """Check a promotion against its gate. `POST /v1/agents/{agentId}/promotions/check`
+
+        What `POST …/promotions` with the same body would do, with nothing recorded: `would-promote`, `needs-approval` (with the approval it needs) or `gate-failed`, with every check. For a pipeline: evaluate, check, promote. Needs `read` on the agent.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.promotions.check"],
+            path={"agentId": agent_id},
+            query={},
+            headers={},
+            body=_body(_models.PromoteBody, body, fields),
+            response=_models.PromotionCheck,
+            timeout=timeout,
+        )
+
     async def get(
         self, agent_id: str, promotion_id: str, /, *, timeout: float | None = None
     ) -> _models.Promotion:
@@ -7077,6 +7334,36 @@ class AsyncAgentsPromotionsResource:
         )
 
 
+class AsyncAgentsGatePolicyResource:
+    """`client.agents.gate_policy` — the `agents.gatePolicy` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def resolve(
+        self,
+        agent_id: str,
+        /,
+        *,
+        scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
+        scope_id: str | None = None,
+        segment: list[str] | None = None,
+        timeout: float | None = None,
+    ) -> _models.GatePolicyResolution:
+        """The gate policy for a scope. `GET /v1/agents/{agentId}/gate-policy`
+
+        The gate policy a promotion of the agent for the scope would be checked against: the most specific scope with an active policy (a segment path's longer prefixes first, then its project, the project's org, the tenant), at its latest active version. `policy: null` when none applies.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.gatePolicy.resolve"],
+            path={"agentId": agent_id},
+            query={"scopeKind": scope_kind, "scopeId": scope_id, "segment": segment},
+            headers={},
+            response=_models.GatePolicyResolution,
+            timeout=timeout,
+        )
+
+
 class AsyncAgentsResource:
     """`client.agents` — the `agents` operations."""
 
@@ -7084,6 +7371,7 @@ class AsyncAgentsResource:
         self._client = client
         self.live = AsyncAgentsLiveResource(client)
         self.promotions = AsyncAgentsPromotionsResource(client)
+        self.gate_policy = AsyncAgentsGatePolicyResource(client)
 
     async def list(
         self,
@@ -7248,6 +7536,151 @@ class AsyncAgentsResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.ReinstateAgentVersionResult,
+            timeout=timeout,
+        )
+
+
+class AsyncGatePoliciesVersionsResource:
+    """`client.gate_policies.versions` — the `gatePolicies.versions` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self, policy_id: str, /, *, timeout: float | None = None
+    ) -> _models.GatePolicyPage:
+        """List a gate policy's versions. `GET /v1/gate-policies/{policyId}/versions`
+
+        Every version, oldest first, unregistered ones too (with `unregisteredAt`).
+        """
+        return await self._client._request(
+            _OPERATIONS["gatePolicies.versions.list"],
+            path={"policyId": policy_id},
+            query={},
+            headers={},
+            response=_models.GatePolicyPage,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, policy_id: str, version: str, /, *, timeout: float | None = None
+    ) -> _models.GatePolicy:
+        """Get a gate policy version. `GET /v1/gate-policies/{policyId}/versions/{version}`"""
+        return await self._client._request(
+            _OPERATIONS["gatePolicies.versions.get"],
+            path={"policyId": policy_id, "version": version},
+            query={},
+            headers={},
+            response=_models.GatePolicy,
+            timeout=timeout,
+        )
+
+    async def unregister(
+        self, policy_id: str, version: str, /, *, timeout: float | None = None
+    ) -> _models.GatePolicy:
+        """Unregister a gate policy version. `POST /v1/gate-policies/{policyId}/versions/{version}/unregister`
+
+        The version stops applying; the policy's latest remaining active version applies, or, with none, the scope above's policy. Promotions keep the version they were checked against. Needs `admin` on the tenant.
+        """
+        return await self._client._request(
+            _OPERATIONS["gatePolicies.versions.unregister"],
+            path={"policyId": policy_id, "version": version},
+            query={},
+            headers={},
+            response=_models.GatePolicy,
+            timeout=timeout,
+        )
+
+    async def reinstate(
+        self, policy_id: str, version: str, /, *, timeout: float | None = None
+    ) -> _models.GatePolicy:
+        """Reinstate a gate policy version. `POST /v1/gate-policies/{policyId}/versions/{version}/reinstate`
+
+        Needs `admin` on the tenant.
+        """
+        return await self._client._request(
+            _OPERATIONS["gatePolicies.versions.reinstate"],
+            path={"policyId": policy_id, "version": version},
+            query={},
+            headers={},
+            response=_models.GatePolicy,
+            timeout=timeout,
+        )
+
+
+class AsyncGatePoliciesResource:
+    """`client.gate_policies` — the `gatePolicies` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+        self.versions = AsyncGatePoliciesVersionsResource(client)
+
+    async def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        agent_id: str | None = None,
+        scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
+        scope_id: str | None = None,
+        segment: list[str] | None = None,
+        timeout: float | None = None,
+    ) -> _models.GatePolicyPage:
+        """List gate policies. `GET /v1/gate-policies`
+
+        Each gate policy's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's.
+        """
+        return await self._client._request(
+            _OPERATIONS["gatePolicies.list"],
+            path={},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "agentId": agent_id,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+                "segment": segment,
+            },
+            headers={},
+            response=_models.GatePolicyPage,
+            timeout=timeout,
+        )
+
+    async def publish(
+        self,
+        body: _models.PublishGatePolicyBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.GatePolicy:
+        """Publish a gate policy. `POST /v1/gate-policies`
+
+        Registers a gate policy, or a new version of one: what a promotion of `agentId` for `scope` must show. One policy per agent and scope: another policy id for a scope that has one is refused with `409 gate-policy-scope-taken` (`details.heldBy` names it; publish a new version of that one instead), and a new version can't change the agent or scope (`409 gate-policy-scope-changed`). The `spec` is checked strictly: an unknown key is refused (`400 validation-failed`, `details.issues`). Needs `admin` on the tenant: whoever may promote can't loosen their own gate.
+        """
+        return await self._client._request(
+            _OPERATIONS["gatePolicies.publish"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PublishGatePolicyBody, body, fields),
+            response=_models.GatePolicy,
+            timeout=timeout,
+        )
+
+    async def get(self, policy_id: str, /, *, timeout: float | None = None) -> _models.GatePolicy:
+        """Get a gate policy. `GET /v1/gate-policies/{policyId}`
+
+        The policy's latest active version.
+        """
+        return await self._client._request(
+            _OPERATIONS["gatePolicies.get"],
+            path={"policyId": policy_id},
+            query={},
+            headers={},
+            response=_models.GatePolicy,
             timeout=timeout,
         )
 
@@ -11931,6 +12364,7 @@ class Resources:
     tokens: TokensResource
     approvals: ApprovalsResource
     agents: AgentsResource
+    gate_policies: GatePoliciesResource
     flows: FlowsResource
     tools: ToolsResource
     guardrails: GuardrailsResource
@@ -11976,6 +12410,7 @@ class Resources:
         self.tokens = TokensResource(client)
         self.approvals = ApprovalsResource(client)
         self.agents = AgentsResource(client)
+        self.gate_policies = GatePoliciesResource(client)
         self.flows = FlowsResource(client)
         self.tools = ToolsResource(client)
         self.guardrails = GuardrailsResource(client)
@@ -12023,6 +12458,7 @@ class AsyncResources:
     tokens: AsyncTokensResource
     approvals: AsyncApprovalsResource
     agents: AsyncAgentsResource
+    gate_policies: AsyncGatePoliciesResource
     flows: AsyncFlowsResource
     tools: AsyncToolsResource
     guardrails: AsyncGuardrailsResource
@@ -12068,6 +12504,7 @@ class AsyncResources:
         self.tokens = AsyncTokensResource(client)
         self.approvals = AsyncApprovalsResource(client)
         self.agents = AsyncAgentsResource(client)
+        self.gate_policies = AsyncGatePoliciesResource(client)
         self.flows = AsyncFlowsResource(client)
         self.tools = AsyncToolsResource(client)
         self.guardrails = AsyncGuardrailsResource(client)
