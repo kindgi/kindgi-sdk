@@ -256,11 +256,13 @@ export interface RunAgent {
   readonly version: string;
   readonly conversationId: string;
   /**
-   * How the version was chosen: named on the run (`explicit`), the
-   * conversation's version (`conversation`), a live version (`live`), or
-   * the latest (`latest`). Absent on turns from before 0.1.4.
+   * How the version was chosen: named on the run (`explicit`), held by the
+   * flow version a flow's agent step runs in (`flow-pin`: the node's
+   * `config.version`, else the flow version's pin), the conversation's
+   * version (`conversation`), a live version (`live`), or the latest
+   * (`latest`). Absent on turns from before 0.1.4.
    */
-  readonly via?: 'explicit' | 'conversation' | 'live' | 'latest';
+  readonly via?: 'explicit' | 'flow-pin' | 'conversation' | 'live' | 'latest';
   /** With `via: 'live'`: the scope whose live version ran. */
   readonly liveScope?: LiveScope;
 }
