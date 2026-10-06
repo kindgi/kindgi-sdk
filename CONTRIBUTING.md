@@ -64,6 +64,16 @@ A check on the pull request asks for any of them that's missing.
   canonical wire contracts. Change a schema there first, then every
   package that bundles a copy (drift tests enforce equality);
   `pnpm run spec:validate` checks the whole set.
+- **Public text.** The repository's files, and a pull request's title,
+  description and commit messages (the squash commit's message is the
+  title and description), leave out internal process notes: development-
+  phase ids, scratch paths, unresolved placeholders. They also leave out a few names the
+  project doesn't use in public, the runtime's internal name among them:
+  describe things by their role ("the runtime", "the runtime's release").
+  `pnpm run check:refs` (CI) checks files; the **PR text** check checks a
+  pull request's own text, and runs again when you edit the description.
+  Both say where a name is, never which; the list is kept hashed
+  (`scripts/forbidden-names.json`, generated outside this repository).
 
 ## Releases
 
@@ -81,8 +91,10 @@ PyPI); the script refuses any other.
    1.0, and while release candidates are out, it's a `patch`: one
    `minor` moves every package to the next minor, which no installed
    project reaches. A changeset that means to move the release says so
-   in its body, `Release-decision: <who decided, and when>`
-   (`pnpm run check:changeset-bumps`, in CI).
+   in its body: `Release-decision: <the version, who decided, and
+   when>`, naming a role (the maintainers), never a person, since the
+   body becomes the changelog entry (`pnpm run check:changeset-bumps`,
+   in CI).
 2. Merging to `main` updates the "Version Packages" pull request
    (opened by the org's release GitHub App, so CI runs on it like any
    other pull request).
