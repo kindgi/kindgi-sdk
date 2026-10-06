@@ -22,6 +22,7 @@ import type { Conversation } from '../types.js';
 import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
 import { resolveTurnTools } from './resolve-tools.js';
+import { type PinnedBlockVersions, resolveTurnBlocks } from './resolve-blocks.js';
 import { type ToolErrorPolicy, effectiveToolErrorPolicy } from './tool-errors.js';
 
 /** The conversation the turn runs in: open, and opened with this agent version. */
@@ -80,8 +81,13 @@ export async function resolveTurnEnvironment(
   ctx: TurnContext,
   pinned?: PinnedRoute,
   pinnedTools?: PinnedToolVersions,
+  pinnedBlocks?: PinnedBlockVersions,
 ): Promise<
-  PinnedRoute & { readonly toolCount: number; readonly toolVersions: PinnedToolVersions }
+  PinnedRoute & {
+    readonly toolCount: number;
+    readonly toolVersions: PinnedToolVersions;
+    readonly blockVersions?: PinnedBlockVersions;
+  }
 > {
   const invResolution = resolveGuardrails(ctx.input.agent, ctx.bindings);
   if (invResolution.missing.length > 0) {
@@ -97,6 +103,9 @@ export async function resolveTurnEnvironment(
   // registry shared across concurrent turns of other tenants.
   const tenantTools = await ctx.bindings.toolRegistry.forTenant(ctx.input.tenantId);
   ctx.tools = resolveTurnTools(tenantTools, ctx.input.agent, pinnedTools);
+  // The data blocks, at the versions pinned (the turn's own on resume).
+  const blocks = await resolveTurnBlocks(ctx, pinnedBlocks);
+  if (blocks !== undefined) ctx.blocks = blocks;
 
   const capability = ctx.input.agent.capabilities[0];
   if (capability === undefined) {
@@ -166,6 +175,7 @@ export async function resolveTurnEnvironment(
     toolVersions: Object.fromEntries(
       [...ctx.tools.byName].map(([id, binding]) => [id, binding.resolvedVersion]),
     ),
+    ...(blocks !== undefined && { blockVersions: blocks.versions }),
   };
 }
 

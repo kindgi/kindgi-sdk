@@ -4,7 +4,7 @@
 import { Liquid } from 'liquidjs';
 
 import { compileInlineSchema } from '@kindgi/schema';
-import type { Result } from '@kindgi/types';
+import type { Result, TenantId } from '@kindgi/types';
 
 import { validatePromptParameters } from './define.js';
 import type { PromptParameter } from './types.js';
@@ -190,4 +190,42 @@ function invalid(issues: readonly BlockIssue[]): Result<never, InvalidBlock> {
       issues,
     },
   };
+}
+
+/**
+ * What a model-settings block's values may set: the model-call knobs a
+ * turn passes on. Checked when an agent version that references the
+ * block (`Agent.modelSettings`) is published.
+ */
+export const MODEL_SETTINGS_SCHEMA: Readonly<Record<string, unknown>> = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    temperature: { type: 'number', minimum: 0, maximum: 2 },
+    maxOutputTokens: { type: 'integer', minimum: 1 },
+  },
+};
+
+/** The model-call knobs of a model-settings block. */
+export interface ModelSettings {
+  readonly temperature?: number;
+  readonly maxOutputTokens?: number;
+}
+
+/**
+ * Reads data blocks for an agent turn: an exact version (an unregistered
+ * one included, for the agent versions that pin it), and a block's
+ * active versions (to resolve a range for an agent version with no
+ * pins). The runtime supplies it over its block registry.
+ */
+export interface BlockReader {
+  getVersion(input: {
+    readonly tenantId: TenantId;
+    readonly blockId: string;
+    readonly version: string;
+  }): Promise<BlockDefinition | null>;
+  activeVersions(input: {
+    readonly tenantId: TenantId;
+    readonly blockId: string;
+  }): Promise<readonly string[]>;
 }

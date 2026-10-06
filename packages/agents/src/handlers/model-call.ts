@@ -83,6 +83,13 @@ export function buildModelCallHandler(ctx: TurnContext): NodeHandler {
         ...(ctx.tools.definitions.length > 0 && {
           tools: ctx.tools.definitions,
         }),
+        // The pinned model-settings block's values.
+        ...(ctx.blocks?.modelSettings?.temperature !== undefined && {
+          temperature: ctx.blocks.modelSettings.temperature,
+        }),
+        ...(ctx.blocks?.modelSettings?.maxOutputTokens !== undefined && {
+          maxOutputTokens: ctx.blocks.modelSettings.maxOutputTokens,
+        }),
         abortSignal: ctx.turnAbort.signal,
       };
 

@@ -25,14 +25,20 @@ export function buildRenderPromptHandler(ctx: TurnContext): NodeHandler {
         cause: null,
       });
     }
-    const rendered = renderInstructions(ctx.input.agent, {
-      parameters: ctx.input.parameters ?? {},
-      ...(ctx.input.input !== undefined && { input: ctx.input.input }),
-      conversation: {
-        id: ctx.input.conversationId,
-        turn: ctx.conversation.turnCount + 1,
+    const rendered = renderInstructions(
+      ctx.input.agent,
+      {
+        parameters: ctx.input.parameters ?? {},
+        ...(ctx.input.input !== undefined && { input: ctx.input.input }),
+        conversation: {
+          id: ctx.input.conversationId,
+          turn: ctx.conversation.turnCount + 1,
+        },
+        ...(ctx.blocks !== undefined && { settings: ctx.blocks.settings }),
       },
-    });
+      // The pinned prompt block, when the instructions come from one.
+      ctx.blocks?.prompt?.content,
+    );
     if (!rendered.ok) {
       throwAgentTurnFailure({
         code: 'model-invocation-failed',

@@ -16,6 +16,7 @@ import type { ProvenanceBindings } from '../provenance-emit.js';
 import type { RunSnapshotBinding } from '../run-snapshot-binding.js';
 import type { OnTurnEvent } from '../streaming.js';
 import type { Agent, ConversationId } from '../types.js';
+import type { BlockReader } from '../blocks.js';
 
 /**
  * The user-facing input to `invokeAgent`. Split out from `invoke.ts` so
@@ -101,6 +102,12 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
    * sees another tenant's tools.
    */
   readonly toolRegistry: ToolRegistry;
+  /**
+   * Data blocks (prompts and settings). Setup loads the blocks the agent
+   * references at their pinned versions. Optional: an agent that
+   * references blocks fails its turn (`block-unresolvable`) without it.
+   */
+  readonly blockReader?: BlockReader;
   /**
    * Caller-plugged data-access surface for memory reads.
    * The Kindgi runtime supplies a Postgres-backed implementation;

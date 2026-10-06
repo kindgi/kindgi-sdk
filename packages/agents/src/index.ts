@@ -17,12 +17,19 @@ export type {
   RunSnapshotWriteInput,
 } from './run-snapshot-binding.js';
 export { defineAgent } from './define.js';
-export { BLOCK_KINDS, settingsSchemaIssues, validateBlock } from './blocks.js';
+export {
+  BLOCK_KINDS,
+  MODEL_SETTINGS_SCHEMA,
+  settingsSchemaIssues,
+  validateBlock,
+} from './blocks.js';
 export type {
   BlockDefinition,
   BlockIssue,
   BlockKind,
+  BlockReader,
   InvalidBlock,
+  ModelSettings,
   PromptBlockContent,
   SettingsBlockContent,
 } from './blocks.js';
@@ -116,12 +123,14 @@ export type {
   AgentBindings,
   AgentId,
   AgentOutputSpec,
+  BlockRef,
   Conversation,
   ConversationId,
   ConversationMessage,
   ConversationPolicy,
   MessageRole,
   PromptParameter,
+  PromptRef,
   RetrievalIntent,
   RetrievedFact,
   ToolRef,
