@@ -84,6 +84,7 @@ import type {
   RunningApiServer,
   WatchHandle,
 } from '../dev/runners.js';
+import { RuntimeStartStopped } from '../dev/runtime-container.js';
 import { DEFAULT_RUNTIME_IMAGE } from '../dev/runtime-image.js';
 import { describeEnvDiagnostics, loadLocalEnvSettings } from '../env/project-env.js';
 import { renderJson } from '../output.js';
@@ -570,10 +571,19 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
         ...(args.runtimeUrl !== undefined && { runtimeUrl: args.runtimeUrl }),
         onLog: (line) => emitProgress(`  [runtime] ${line}`),
         onProgress: emitProgress,
+        ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
       }),
     );
   } catch (err) {
     await pack.close().catch(() => undefined);
+    // Ctrl+C (or SIGTERM) while it waited: a stop, not a failure.
+    if (err instanceof RuntimeStartStopped || ctx.stopSignal?.aborted === true) {
+      return {
+        kind: 'error',
+        stderr: 'kindgi dev stopped before the Kindgi runtime served.\n',
+        exitCode: 130,
+      };
+    }
     return {
       kind: 'error',
       stderr: `kindgi dev couldn't start the Kindgi runtime: ${(err as Error).message}\n`,

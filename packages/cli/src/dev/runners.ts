@@ -49,6 +49,11 @@ export interface RunningApiServer {
 export interface StartApiServerOptions {
   /** The host port the API is reached on (`127.0.0.1` only). */
   readonly port: number;
+  /**
+   * `kindgi dev`'s stop (Ctrl+C, SIGTERM): a wait for the runtime ends at
+   * once with `RuntimeStartStopped`, and a container it started is removed.
+   */
+  readonly signal?: AbortSignal;
   /** Postgres, as this machine reaches it. */
   readonly databaseUrl: string;
   readonly tenantId: string;

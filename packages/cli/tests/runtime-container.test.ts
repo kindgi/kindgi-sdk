@@ -7,10 +7,16 @@ import { join } from 'node:path';
 
 import { describe, expect, test } from 'vitest';
 
-import { databaseUrlFrom, googleCredentialsPath } from '../src/dev/defaults.js';
+import {
+  attachToRuntimeReal,
+  databaseUrlFrom,
+  googleCredentialsPath,
+} from '../src/dev/defaults.js';
 import {
   type RuntimeContainerOptions,
+  RuntimeStartStopped,
   describeStartupStop,
+  pauseUnlessStopped,
   runtimeContainerName,
   runtimeRunArgs,
 } from '../src/dev/runtime-container.js';
@@ -118,6 +124,48 @@ describe('googleCredentialsPath', () => {
       ).toBe(adc);
     } finally {
       await rm(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('a stop while kindgi dev waits for its runtime (T176)', () => {
+  test('pauseUnlessStopped ends early when the stop comes', async () => {
+    const controller = new AbortController();
+    const started = Date.now();
+    const paused = pauseUnlessStopped(10_000, controller.signal);
+    setTimeout(() => controller.abort(), 50);
+    await paused;
+    expect(Date.now() - started).toBeLessThan(2_000);
+    // Already stopped: no wait at all.
+    const again = Date.now();
+    await pauseUnlessStopped(10_000, controller.signal);
+    expect(Date.now() - again).toBeLessThan(100);
+  });
+
+  test('--runtime-url with nothing serving: a stop ends the wait at once', async () => {
+    const packDir = await mkdtemp(join(tmpdir(), 'kindgi-attach-'));
+    try {
+      const controller = new AbortController();
+      const attached = attachToRuntimeReal({
+        // Port 9 (discard): nothing serves there.
+        runtimeUrl: 'http://127.0.0.1:9',
+        port: 9,
+        databaseUrl: 'postgres://kindgi@127.0.0.1:5432/acme',
+        tenantId: '00000000-0000-4000-8000-000000000001',
+        token: 'kgi_bt_test',
+        userId: '00000000-0000-4000-8000-000000000002',
+        packDir,
+        hostEnv: {},
+        packService: { url: 'http://127.0.0.1:1', token: 'pack-token' },
+        runtimeImage: 'quay.io/kindgi/runtime:test',
+        signal: controller.signal,
+      });
+      const started = Date.now();
+      setTimeout(() => controller.abort(), 300);
+      await expect(attached).rejects.toBeInstanceOf(RuntimeStartStopped);
+      expect(Date.now() - started).toBeLessThan(5_000);
+    } finally {
+      await rm(packDir, { recursive: true, force: true });
     }
   });
 });
