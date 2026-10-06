@@ -11524,6 +11524,7 @@
           "secret-hard-revoked",
           "hitl-decision",
           "agent-promotion",
+          "agent-promotion-refused",
           "agent-rollback",
           "agent-live-unpinned",
           "agent-live-pin-inactive"
@@ -11675,6 +11676,7 @@
               "secret-hard-revoked",
               "hitl-decision",
               "agent-promotion",
+              "agent-promotion-refused",
               "agent-rollback",
               "agent-live-unpinned",
               "agent-live-pin-inactive"
@@ -11849,6 +11851,7 @@
               "secret-hard-revoked",
               "hitl-decision",
               "agent-promotion",
+              "agent-promotion-refused",
               "agent-rollback",
               "agent-live-unpinned",
               "agent-live-pin-inactive"
@@ -11923,6 +11926,7 @@
                   "secret-hard-revoked",
                   "hitl-decision",
                   "agent-promotion",
+                  "agent-promotion-refused",
                   "agent-rollback",
                   "agent-live-unpinned",
                   "agent-live-pin-inactive"
