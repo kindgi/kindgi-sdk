@@ -410,9 +410,13 @@ data. `kindgi dev` runs it the same way, with the pack's own interpreter:
 
 Ctrl+C (or SIGTERM) stops the watchers, the pack service and the runtime
 container, on one line: `Stopping kindgi dev... stopped.` A second Ctrl+C
-forces the exit. The bundled Postgres keeps running for the next
-`kindgi dev`. The exit code is `0` after a clean stop and `1` if startup
-failed.
+forces the exit. The signal a package manager passes on with the first
+doesn't count as a second: `npx` and `pnpm run` forward SIGINT, and
+`pnpm exec` sends SIGTERM. A SIGTERM never forces the exit. Under
+`pnpm exec`, pnpm exits at once, so the prompt comes back while
+`kindgi dev` finishes stopping and prints `stopped.`. The bundled Postgres
+keeps running for the next `kindgi dev`. The exit code is `0` after a clean
+stop and `1` if startup failed.
 
 ## `kindgi test`
 
