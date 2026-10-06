@@ -49,7 +49,10 @@
           "description": "Resolved environment values for the call (open)."
         },
         "secrets": { "type": "object", "description": "Resolved secrets for the call (open)." },
-        "config": { "type": "object", "description": "Resolved configuration for the call (open)." },
+        "config": {
+          "type": "object",
+          "description": "Resolved configuration for the call (open)."
+        },
         "settings": {
           "type": "object",
           "additionalProperties": { "type": "object" },
