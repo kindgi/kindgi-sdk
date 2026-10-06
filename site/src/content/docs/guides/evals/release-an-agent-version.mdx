@@ -345,9 +345,10 @@ kindgi gate-policies publish acme.order-desk-release --policy-version=1.0.0 --ag
 | `metrics` | each named figure (`weightedYesShare`, `judgedCoverage`, or `weightedPrecisionAtK` with its `k`) at least `minCandidate`, and at most `maxDrop` below the live version |
 | `replay` | at most this many diverged cases, errors, refused writes and stopped cases (`maxDiverged`, `maxErrors`, `maxRefusedWrites`, `maxStopped`); those left out are 0 |
 | `approvals` | then a reviewer with this role (`senior` if left out) approves it, someone other than whoever asked |
+| `onlyRestrictedClasses: true` | a comparison that [counted only restricted judges](../compare-an-agent-version/#count-only-restricted-judges) |
 
 A promotion must name its comparison when the policy has `comparison`,
-`evidence`, `metrics` or `replay`. The comparison must be of the version
+`evidence`, `metrics`, `replay` or `onlyRestrictedClasses`. The comparison must be of the version
 you promote, with the same pins, and its recorded runs must be from the
 version live for the scope now.
 
@@ -355,6 +356,11 @@ To change a gate, publish a new version of the policy;
 `kindgi gate-policies unregister acme.order-desk-release <version>` goes back
 to the one before. `kindgi agents gate-policy acme.order-desk --tenant` shows
 the policy that applies to a scope.
+
+With `onlyRestrictedClasses`, a comparison that counted every class is
+refused with
+`` The policy counts only restricted judge classes; the comparison counted every class. Re-run it with `classWeights: 'restricted-only'`. ``,
+so only the judges you restricted can release a version.
 
 ### Check before you promote
 

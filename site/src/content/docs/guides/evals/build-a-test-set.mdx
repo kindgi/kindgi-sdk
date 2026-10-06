@@ -174,7 +174,9 @@ cases. One of them:
 - **`caseId`** is the id of the judged run.
 - **`items`** has each judged item: its yes and no counts, the same weighted
   by judge class (`yesWeight` of `totalWeight`; a judgment with no class
-  weighs 1), and the reasons people gave.
+  weighs 1), and the reasons people gave. `restricted` has the weights of
+  the [restricted](../judge-a-runs-output/#restrict-who-may-judge-as-a-class)
+  judgments alone, such as `{ "yesWeight": 3, "totalWeight": 3 }`.
 - **`output`** is the run's output, as it was judged.
 - **`context`**, for an agent turn, is what the turn had before it answered:
   the conversation so far (up to 200 messages) and what it retrieved. A

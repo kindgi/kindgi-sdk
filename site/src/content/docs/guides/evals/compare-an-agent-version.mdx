@@ -170,6 +170,21 @@ field) is the same item when the id matches, at any place in the list: the
 without an id, carry a judgment only when they're unchanged; a reworded
 answer is a new item, with no judgments yet.
 
+### Count only restricted judges
+
+`--class-weights=restricted-only` (`classWeights: 'restricted-only'` in
+TypeScript, `class_weights="restricted-only"` in Python) counts only the
+judgments made under a
+[restricted class](../judge-a-runs-output/#restrict-who-may-judge-as-a-class);
+an item none of them judged counts as unjudged. The summary says which it
+used, in `classWeights` (`as-recorded` by default). On a test set of three
+cases, one of them judged only under a class restricted afterwards:
+
+| | `as-recorded` | `restricted-only` |
+| --- | --- | --- |
+| `weightedYesShare` | 0.556 (5 of 9) | 0.5 (3 of 6) |
+| `judgedCoverage` | 1 | 0.667 |
+
 **Case by case,** `perCase` has, for each case:
 
 ```json
