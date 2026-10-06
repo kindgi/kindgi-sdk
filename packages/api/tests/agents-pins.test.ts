@@ -166,7 +166,11 @@ describe('POST /v1/agents pins the version', () => {
     const got = await app.request('/v1/agents/acme.intake/versions/1.0.0', { headers: auth });
     expect(got.status).toBe(200);
     const agent = (await got.json()) as { pins: Agent['pins']; pinsDigest: string };
-    const pins = { tools: { 'acme.lookup': '1.2.0', 'acme.score': '0.3.1' }, prompts: {}, settings: {} };
+    const pins = {
+      tools: { 'acme.lookup': '1.2.0', 'acme.score': '0.3.1' },
+      prompts: {},
+      settings: {},
+    };
     expect(agent.pins).toEqual(pins);
     expect(agent.pinsDigest).toBe(pinsDigest(pins));
   });
