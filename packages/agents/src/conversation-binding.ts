@@ -83,6 +83,13 @@ export interface ListConversationsPageInput {
   readonly agentId?: AgentId;
   /** When set, filter to open (no closedAt) or closed (closedAt set) rows only. */
   readonly status?: 'open' | 'closed';
+  /**
+   * Replay conversations (opened by a comparison's replay turn: their
+   * `metadata` has `replayOf`): `exclude` leaves them out, `only` returns
+   * just them. Absent = include, so internal callers see every
+   * conversation; the HTTP route defaults to `exclude`.
+   */
+  readonly replays?: 'exclude' | 'include' | 'only';
   /** Keyset for the next page — see `ConversationPageCursor`. */
   readonly before?: ConversationPageCursor;
   /**
