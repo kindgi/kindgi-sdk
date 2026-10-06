@@ -12,11 +12,14 @@ import { conversationsCommand } from './conversations.js';
 import { deployCommand } from './deploy.js';
 import { devCommand } from './dev.js';
 import { envCommand } from './env.js';
+import { evalSuitesCommand } from './eval-suites.js';
 import { feedbackCommand } from './feedback.js';
 import { flowsCommand } from './flows.js';
 import { guardrailsCommand } from './guardrails.js';
 import { healthCommand } from './health.js';
 import { initCommand } from './init.js';
+import { judgeClassesCommand } from './judge-classes.js';
+import { judgmentsCommand } from './judgments.js';
 import { keyCommand } from './key.js';
 import { mcpCommand, mcpLaunchCommand } from './mcp.js';
 import { memoryCommand } from './memory.js';
@@ -59,6 +62,9 @@ export const ROOT_COMMANDS: readonly Command[] = [
   approvalsCommand,
   reviewersCommand,
   observationsCommand,
+  judgmentsCommand,
+  judgeClassesCommand,
+  evalSuitesCommand,
   tokensCommand,
   capabilitiesCommand,
   providersCommand,

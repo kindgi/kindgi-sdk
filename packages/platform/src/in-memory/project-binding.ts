@@ -13,16 +13,22 @@
  *
  * `create` enforces the `Project.isDefault = true` uniqueness
  * guardrail at write time: creating a second Default in the same
- * tenant rejects.
+ * tenant resolves to `project-default-already-exists`. A project's
+ * slug is unique within its org, and a project without an org's among
+ * the tenant's projects without one (`slug-conflict`).
  */
 
 import type { Filter, Page, ProjectId, TeamId, TenantId, UserId } from '@kindgi/types';
 
 import type {
   ProjectBinding,
+  ProjectCreateOutcome,
   ProjectListFilter,
   ProjectMembershipAddInput,
+  ProjectMembershipAddOutcome,
   ProjectMembershipBinding,
+  ProjectMembershipUpdateRoleOutcome,
+  ProjectUpdateOutcome,
 } from '../project-binding.js';
 import type {
   TeamProjectGrant,
@@ -82,13 +88,40 @@ export function makeInMemoryProjectBinding(): {
     return false;
   }
 
+  /**
+   * Is `slug` held by another project (not `exceptId`) where a project of
+   * `orgId` lives: in that org, or, without an org, among the tenant's
+   * projects without one?
+   */
+  function slugTaken(
+    tenantId: TenantId,
+    orgId: Project['orgId'],
+    slug: string,
+    exceptId?: ProjectId,
+  ): boolean {
+    for (const row of projectRows.values()) {
+      if (
+        row.tenantId === tenantId &&
+        row.orgId === orgId &&
+        row.slug === slug &&
+        row.id !== exceptId
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   const projects: ProjectBinding = {
-    async create(tenantId, spec: ProjectSpec): Promise<ProjectId> {
+    async create(tenantId, spec: ProjectSpec): Promise<ProjectCreateOutcome> {
       const isDefault = spec.isDefault === true;
+      // The Default guardrail first: a caller asking for the Default
+      // wants to hear that one exists, whatever its slug.
       if (isDefault && tenantAlreadyHasDefault(tenantId)) {
-        throw new Error(
-          `project-default-already-exists: tenant ${tenantId} already has an isDefault=true project`,
-        );
+        return { kind: 'project-default-already-exists' };
+      }
+      if (slugTaken(tenantId, spec.orgId, spec.slug)) {
+        return { kind: 'slug-conflict', slug: spec.slug };
       }
       const id = nextProjectId();
       const now = nowTimestamp();
@@ -104,7 +137,7 @@ export function makeInMemoryProjectBinding(): {
         ...(spec.description !== undefined ? { description: spec.description } : {}),
       };
       projectRows.set(id, row);
-      return id;
+      return { kind: 'ok', projectId: id };
     },
 
     async get(tenantId, projectId): Promise<Project | undefined> {
@@ -135,14 +168,23 @@ export function makeInMemoryProjectBinding(): {
       return undefined;
     },
 
-    async update(tenantId, projectId, patch: ProjectPatch): Promise<void> {
+    async update(tenantId, projectId, patch: ProjectPatch): Promise<ProjectUpdateOutcome> {
       const row = findProjectInTenant(tenantId, projectId);
       if (row === undefined) {
-        throw new Error(`project-not-found: ${projectId}`);
+        return { kind: 'project-not-found' };
       }
       let nextOrgId = row.orgId;
       if (patch.orgId !== undefined) {
         nextOrgId = patch.orgId === null ? undefined : patch.orgId;
+      }
+      // The slug it ends up with, where it ends up: a move to another org
+      // (or out of one) can meet a project with the same slug there.
+      const nextSlug = patch.slug ?? row.slug;
+      if (
+        (patch.slug !== undefined || patch.orgId !== undefined) &&
+        slugTaken(tenantId, nextOrgId, nextSlug, projectId)
+      ) {
+        return { kind: 'slug-conflict', slug: nextSlug };
       }
       const nextDescription = patch.description ?? row.description;
       const next: Project = {
@@ -157,6 +199,7 @@ export function makeInMemoryProjectBinding(): {
         ...(nextDescription !== undefined ? { description: nextDescription } : {}),
       };
       projectRows.set(projectId, next);
+      return { kind: 'ok' };
     },
 
     async delete(tenantId, projectId): Promise<void> {
@@ -181,13 +224,13 @@ export function makeInMemoryProjectBinding(): {
   };
 
   const memberships: ProjectMembershipBinding = {
-    async add(tenantId, input: ProjectMembershipAddInput): Promise<void> {
+    async add(tenantId, input: ProjectMembershipAddInput): Promise<ProjectMembershipAddOutcome> {
       const proj = findProjectInTenant(tenantId, input.projectId);
       if (proj === undefined) {
-        throw new Error(`project-not-found: ${input.projectId}`);
+        return { kind: 'project-not-found' };
       }
       const key = projMembershipKey(input.projectId, input.userId);
-      if (membershipRows.has(key)) return;
+      if (membershipRows.has(key)) return { kind: 'ok' };
       const row: ProjectMembership = {
         projectId: input.projectId,
         userId: input.userId,
@@ -195,6 +238,7 @@ export function makeInMemoryProjectBinding(): {
         joinedAt: nowTimestamp(),
       };
       membershipRows.set(key, row);
+      return { kind: 'ok' };
     },
 
     async remove(tenantId, projectId, userId): Promise<void> {
@@ -227,17 +271,23 @@ export function makeInMemoryProjectBinding(): {
       return paginate(all, filter.limit, filter.cursor);
     },
 
-    async updateRole(tenantId, projectId, userId, role: ProjectRole): Promise<void> {
+    async updateRole(
+      tenantId,
+      projectId,
+      userId,
+      role: ProjectRole,
+    ): Promise<ProjectMembershipUpdateRoleOutcome> {
       const proj = findProjectInTenant(tenantId, projectId);
       if (proj === undefined) {
-        throw new Error(`project-not-found: ${projectId}`);
+        return { kind: 'project-not-found' };
       }
       const key = projMembershipKey(projectId, userId);
       const row = membershipRows.get(key);
       if (row === undefined) {
-        throw new Error(`project-membership-not-found: ${projectId}/${userId}`);
+        return { kind: 'project-membership-not-found' };
       }
       membershipRows.set(key, { ...row, role });
+      return { kind: 'ok' };
     },
   };
 

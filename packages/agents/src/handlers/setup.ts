@@ -290,6 +290,8 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
       providerId: environment.providerId,
       providerModel: environment.model,
       toolCount: environment.toolCount,
+      // The version each tool resolved to: a resumed turn runs these.
+      toolVersions: environment.toolVersions,
     };
   };
 }

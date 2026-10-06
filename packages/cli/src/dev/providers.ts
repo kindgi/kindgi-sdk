@@ -225,7 +225,7 @@ export type OwnedProviders = Readonly<Record<string, OwnedProvider>>;
 
 interface ProvidersRecordFile {
   readonly v: 1;
-  /** By `devProvidersKey`: the dev database and tenant. */
+  /** By `devProvidersKey`: the runtime and tenant. */
   readonly runtimes: Readonly<Record<string, OwnedProviders>>;
 }
 
@@ -235,24 +235,85 @@ export function devProvidersRecordPath(packDir: string): string {
 }
 
 /**
- * The record's key: the dev database (host, port, name; never the
- * credentials) and the tenant. Another database, or a new tenant, starts
- * with nothing owned.
+ * The runtime a pack's providers live in, as the record names it:
+ * - `runtime`: one the developer runs (`--runtime-url`), by its origin;
+ * - `bundled`: the bundled Postgres, by the project's database. Not by
+ *   its host port: that changes when the container comes back;
+ * - `database`: a Postgres the developer names, by host, port and name.
  */
-export function devProvidersKey(databaseUrl: string | undefined, tenantId: string): string {
-  let database = 'unknown';
-  if (databaseUrl !== undefined) {
-    try {
-      const url = new URL(databaseUrl);
-      database = `${url.hostname}:${url.port === '' ? '5432' : url.port}${url.pathname}`;
-    } catch {
-      database = createHash('sha256').update(databaseUrl).digest('hex').slice(0, 16);
-    }
-  }
-  return `${database} tenant ${tenantId}`;
+export type DevProvidersTarget =
+  | { readonly kind: 'runtime'; readonly url: string }
+  | { readonly kind: 'bundled'; readonly database: string }
+  | { readonly kind: 'database'; readonly url: string | undefined };
+
+/**
+ * The record's key: the runtime (`DevProvidersTarget`; never credentials)
+ * and the tenant. Another runtime, or a new tenant, starts with nothing
+ * owned.
+ */
+export function devProvidersKey(target: DevProvidersTarget, tenantId: string): string {
+  if (target.kind === 'runtime') return `runtime ${originOf(target.url)} tenant ${tenantId}`;
+  if (target.kind === 'bundled') return `bundled ${target.database} tenant ${tenantId}`;
+  return `${databaseOf(target.url)} tenant ${tenantId}`;
 }
 
-/** This pack's providers in that database and tenant; nothing when the record is missing or unreadable. */
+function originOf(url: string): string {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return url;
+  }
+}
+
+function databaseOf(databaseUrl: string | undefined): string {
+  if (databaseUrl === undefined) return 'unknown';
+  try {
+    const url = new URL(databaseUrl);
+    return `${url.hostname}:${url.port === '' ? '5432' : url.port}${url.pathname}`;
+  } catch {
+    return createHash('sha256').update(databaseUrl).digest('hex').slice(0, 16);
+  }
+}
+
+/**
+ * Up to 0.1.3 the bundled Postgres's entries were keyed on its host and
+ * port (`127.0.0.1:<port>/<database> tenant <id>`, a loopback host), and the port changes
+ * when the container comes back. Moves such entries for this database and
+ * tenant to the `bundled` key, once: else the providers this pack
+ * registered would read as someone else's. A one-time migration of a
+ * local file: remove it after 0.1.5.
+ */
+export async function adoptLegacyBundledEntries(
+  path: string,
+  database: string,
+  tenantId: string,
+): Promise<void> {
+  const file = await readRecordFile(path);
+  if (file === undefined) return;
+  const key = devProvidersKey({ kind: 'bundled', database }, tenantId);
+  if (file.runtimes[key] !== undefined) return;
+  const legacy = Object.keys(file.runtimes).filter((k) =>
+    isLegacyBundledKey(k, database, tenantId),
+  );
+  if (legacy.length === 0) return;
+  const runtimes: Record<string, OwnedProviders> = { ...file.runtimes };
+  const adopted: Record<string, OwnedProvider> = {};
+  for (const k of legacy) {
+    Object.assign(adopted, runtimes[k]);
+    delete runtimes[k];
+  }
+  runtimes[key] = adopted;
+  await writeRecordFile(path, { v: 1, runtimes });
+}
+
+function isLegacyBundledKey(key: string, database: string, tenantId: string): boolean {
+  const suffix = `/${database} tenant ${tenantId}`;
+  if (!key.endsWith(suffix)) return false;
+  // The bundled Postgres is on this machine; a database elsewhere was named.
+  return /^(127\.0\.0\.1|localhost|\[::1\]):\d+$/.test(key.slice(0, -suffix.length));
+}
+
+/** This pack's providers in that runtime and tenant; nothing when the record is missing or unreadable. */
 export async function readOwnedProviders(path: string, key: string): Promise<OwnedProviders> {
   const file = await readRecordFile(path);
   return file?.runtimes[key] ?? {};
@@ -268,7 +329,10 @@ export async function writeOwnedProviders(
   if (Object.keys(owned).length === 0) delete runtimes[key];
   else runtimes[key] = owned;
   if (file === undefined && Object.keys(runtimes).length === 0) return;
-  const next: ProvidersRecordFile = { v: 1, runtimes };
+  await writeRecordFile(path, { v: 1, runtimes });
+}
+
+async function writeRecordFile(path: string, next: ProvidersRecordFile): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const tmp = `${path}.${process.pid}.tmp`;
   await writeFile(tmp, `${JSON.stringify(next, null, 2)}\n`, 'utf8');
@@ -304,9 +368,13 @@ export interface ProvidersClient {
 
 export type ProviderOutcome =
   | { readonly id: string; readonly kind: 'registered' | 'updated' | 'unchanged' | 'removed' }
-  /** Registered already, as declared, but not by this pack: left. */
+  /**
+   * Registered already, not by this pack, with the declared metadata: left.
+   * The runtime lists only a provider's metadata (not its adapter, the
+   * adapter's settings or the key's name), so those can't be compared.
+   */
   | { readonly id: string; readonly kind: 'present' }
-  /** Registered already, differently, not by this pack: left. */
+  /** Registered already, not by this pack, with other metadata (region, models): left. */
   | { readonly id: string; readonly kind: 'conflict' }
   /** This pack's before, changed since in the runtime: left, and no longer this pack's. */
   | { readonly id: string; readonly kind: 'released' }
@@ -465,6 +533,8 @@ export function describeReconcile(
   if (unchanged.length === outcomes.length) {
     return [`✓ Providers from ${inputs.file}: ${unchanged.join(', ')} (unchanged)`];
   }
+  const unregister = (id: string): string =>
+    `${inputs.kindgi('providers', 'unregister', id)}, then restart kindgi dev`;
   const lines = [`Providers from ${inputs.file}:`];
   if (unchanged.length > 0) lines.push(`  · ${unchanged.join(', ')}: unchanged`);
   for (const o of outcomes) {
@@ -481,11 +551,13 @@ export function describeReconcile(
         lines.push(`  ✓ ${o.id}: unregistered (no longer in ${inputs.file})`);
         break;
       case 'present':
-        lines.push(`  · ${o.id}: registered already, not from ${inputs.file}; left as it is`);
+        lines.push(
+          `  · ${o.id}: registered already, not from ${inputs.file}, with the same models (its adapter settings and key aren't listed to compare); left as it is. For the config's: ${unregister(o.id)}`,
+        );
         break;
       case 'conflict':
         lines.push(
-          `  ⚠ ${o.id}: registered already, differently, not from ${inputs.file}; left as it is. For the config's: ${inputs.kindgi('providers', 'unregister', o.id)}, then restart kindgi dev`,
+          `  ⚠ ${o.id}: registered already, not from ${inputs.file}, with another region or models; left as it is. For the config's: ${unregister(o.id)}`,
         );
         break;
       case 'released':

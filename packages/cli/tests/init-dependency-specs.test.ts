@@ -127,6 +127,11 @@ describe("a Python pack's kindgi", () => {
     expect(kindgiRequirement('0.12.0-preview.3')).toBe('kindgi>=0.12,<0.13');
     expect(kindgiRequirement('1.4.2')).toBe('kindgi>=1.4,<2');
     expect(kindgiRequirement('latest')).toBeUndefined();
+    // A release candidate's floor is itself, so installers take the rc (and then the release).
+    expect(kindgiRequirement('0.1.4-rc.0')).toBe('kindgi>=0.1.4rc0,<0.2');
+    expect(kindgiRequirement('0.2.0-rc.11')).toBe('kindgi>=0.2.0rc11,<0.3');
+    expect(kindgiRequirement('1.0.0-beta.2')).toBe('kindgi>=1.0.0b2,<2');
+    expect(kindgiRequirement('1.1.0-alpha.0')).toBe('kindgi>=1.1.0a0,<2');
   });
 
   test("published: from PyPI with that range; from a checkout: the checkout's SDK", async () => {

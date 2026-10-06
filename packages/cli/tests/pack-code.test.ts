@@ -169,23 +169,66 @@ describe('the Python pack builder', () => {
         env,
         debounceMs: 50,
         watchFs,
+        // The scan never sees a change: only the events decide here.
+        scanSources: async () => 'unchanged',
       });
       const builds: unknown[] = [];
       await mkdir(join(packDir, 'tools'), { recursive: true });
       await writeFile(join(packDir, 'tools', 'a.py'), 'x = 1\n');
       await builder.watch((build) => builds.push(build));
+      // One timer: the scan's interval.
       listener?.('change', 'notes.txt');
       listener?.('change', join('.venv', 'lib', 'x.py'));
       listener?.('rename', null);
-      expect(vi.getTimerCount()).toBe(0);
-      listener?.('change', join('tools', 'a.py'));
-      listener?.('change', join('tools', 'a.py'));
       expect(vi.getTimerCount()).toBe(1);
+      listener?.('change', join('tools', 'a.py'));
+      listener?.('change', join('tools', 'a.py'));
+      expect(vi.getTimerCount()).toBe(2);
       await vi.advanceTimersByTimeAsync(50);
       vi.useRealTimers();
       await vi.waitFor(() => expect(builds).toEqual([{ kind: 'ok', bundleMap: {} }]), {
         timeout: 30_000,
       });
+      await builder.dispose();
+    },
+  );
+
+  // A dropped event (FSEvents under load): the scan finds the change.
+  test.skipIf(systemPython === undefined)(
+    'an edit no event reports is found by the scan, and built once',
+    async () => {
+      vi.useFakeTimers();
+      onTestFinished(() => {
+        vi.useRealTimers();
+      });
+      const watchFs = (() => ({ close() {} })) as unknown as typeof watch;
+      let sources = 'tools/a.py:1:6';
+      const builder = createPythonPackBuilder({
+        packDir,
+        python: [systemPython as string],
+        env,
+        debounceMs: 50,
+        scanIntervalMs: 1_000,
+        watchFs,
+        scanSources: async () => sources,
+      });
+      const builds: unknown[] = [];
+      await mkdir(join(packDir, 'tools'), { recursive: true });
+      await writeFile(join(packDir, 'tools', 'a.py'), 'x = 1\n');
+      await builder.watch((build) => builds.push(build));
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(builds).toEqual([]);
+      // The edit: no event, only the files changed.
+      sources = 'tools/a.py:2:7';
+      await vi.advanceTimersByTimeAsync(1_000 + 50);
+      vi.useRealTimers();
+      await vi.waitFor(() => expect(builds).toEqual([{ kind: 'ok', bundleMap: {} }]), {
+        timeout: 30_000,
+      });
+      vi.useFakeTimers();
+      // Nothing changed since: no second build.
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(builds).toHaveLength(1);
       await builder.dispose();
     },
   );

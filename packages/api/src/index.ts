@@ -309,7 +309,7 @@ export {
   stdioRefusal,
 } from './tenant-host-access.js';
 export type { HostReach, TenantHostAccess } from './tenant-host-access.js';
-export { POLICY_KINDS } from '@kindgi/policy-contract';
+export { APPLIED_POLICY_KINDS, POLICY_KINDS } from '@kindgi/policy-contract';
 export type {
   Policy,
   PolicyGetInput,
@@ -328,6 +328,45 @@ export type {
   PolicyVersionPage,
   PolicyVersionRow,
 } from '@kindgi/policy-contract';
+export { JUDGE_CLASS_SCOPE_KINDS, VERDICTS, judgeClassApplies } from './judgment-binding.js';
+export type {
+  EvalCaseListInput,
+  EvalCasePage,
+  EvalCasePutInput,
+  EvalCaseStoreBinding,
+  JudgedEvalCase,
+  JudgedItemSummary,
+} from './eval-case-binding.js';
+export { MAX_JUDGED_CASES } from './routes/judged-suites.js';
+export { MAX_JUDGED_HISTORY } from './routes/judgment-context.js';
+export type {
+  JudgeClass,
+  JudgeClassCreateInput,
+  JudgeClassCreateOutcome,
+  JudgeClassGetInput,
+  JudgeClassListInput,
+  JudgeClassPage,
+  JudgeClassScope,
+  JudgeClassScopeKind,
+  JudgeClassUpdateInput,
+  JudgedItem,
+  JudgedRunContext,
+  JudgedRunCopy,
+  JudgedRunListInput,
+  JudgedRunPage,
+  JudgedRunWithJudgments,
+  JudgedSubject,
+  Judgment,
+  JudgmentAssertedBy,
+  JudgmentGetInput,
+  JudgmentListInput,
+  JudgmentPage,
+  JudgmentRecordInput,
+  JudgmentRegistryBinding,
+  JudgmentWithCopies,
+  Verdict,
+} from './judgment-binding.js';
+export { resolvePointer } from './routes/judgments.js';
 export { EVAL_KINDS } from './eval-suite-binding.js';
 export type {
   EvalKind,
@@ -379,7 +418,11 @@ export type {
   EvalSubjectInvoker,
   InProcessEvalRunBindingOptions,
 } from './eval-run-dispatcher.js';
-export { COST_GROUP_DIMENSIONS } from './cost-binding.js';
+export {
+  COST_AGGREGATE_DEFAULT_LIMIT,
+  COST_AGGREGATE_MAX_LIMIT,
+  COST_GROUP_DIMENSIONS,
+} from './cost-binding.js';
 export type {
   CostAggregateGroup,
   CostAggregateInput,

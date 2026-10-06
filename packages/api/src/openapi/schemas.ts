@@ -951,6 +951,31 @@ export const AgentSchema: JsonSchema = {
     tags: { type: 'array', items: { type: 'string' } },
     output: { $ref: '#/components/schemas/AgentOutputSpec' },
     toolErrors: { $ref: '#/components/schemas/ToolErrorsSpec' },
+    pins: { $ref: '#/components/schemas/AgentPins' },
+    pinsDigest: {
+      type: 'string',
+      pattern: '^sha256:[0-9a-f]{64}$',
+      description:
+        "Set by the runtime with `pins`: `sha256:<hex>` of the pins' canonical JSON (sorted keys, no whitespace). Two agent versions with the same digest run the same blocks.",
+    },
+  },
+};
+
+const PinMapSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: { type: 'string' },
+};
+
+export const AgentPinsSchema: JsonSchema = {
+  description:
+    'The exact block versions an agent version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool range resolves once to the version every run of that agent version uses, so a new tool version reaches the agent only through a new agent version. Absent on a version published before pins existed (its ranges resolve per run).',
+  type: 'object',
+  additionalProperties: false,
+  required: ['tools', 'prompts', 'settings'],
+  properties: {
+    tools: { ...PinMapSchema, description: 'Tool id → exact version.' },
+    prompts: { ...PinMapSchema, description: 'Prompt block id → exact version.' },
+    settings: { ...PinMapSchema, description: 'Settings block id → exact version.' },
   },
 };
 
@@ -1879,6 +1904,409 @@ export const ObservationCollectionPageSchema: JsonSchema = {
       description: 'Opaque ISO-timestamp cursor. Treat as opaque on the client.',
     },
     hasMore: { type: 'boolean' },
+  },
+};
+
+// ---------------- judgments + judge classes ----------------
+
+export const JudgeClassScopeSchema: JsonSchema = {
+  description:
+    'Where a judge class applies: the whole tenant, one project, or one agent in a project.',
+  oneOf: [
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind'],
+      properties: { kind: { type: 'string', const: 'tenant' } },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind', 'projectId'],
+      properties: {
+        kind: { type: 'string', const: 'project' },
+        projectId: { type: 'string', minLength: 1 },
+      },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind', 'projectId', 'agentId'],
+      properties: {
+        kind: { type: 'string', const: 'agent' },
+        projectId: { type: 'string', minLength: 1 },
+        agentId: { type: 'string', minLength: 1 },
+      },
+    },
+  ],
+};
+
+export const JudgeClassSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'tenantId', 'scope', 'name', 'weight', 'createdAt', 'updatedAt'],
+  properties: {
+    id: { type: 'string' },
+    tenantId: { type: 'string' },
+    scope: { $ref: '#/components/schemas/JudgeClassScope' },
+    name: {
+      type: 'string',
+      description: 'The deployment\'s own word for the class: "expert", "user", "arbitrator".',
+    },
+    weight: {
+      type: 'number',
+      minimum: 0,
+      description: 'How much a judgment of this class counts, relative to the others.',
+    },
+    description: { type: 'string' },
+    createdAt: { type: 'string', format: 'date-time' },
+    updatedAt: { type: 'string', format: 'date-time' },
+    unregisteredAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'Set when the class was retired.',
+    },
+  },
+};
+
+export const JudgeClassCollectionPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/JudgeClass' } },
+    nextCursor: { type: 'string', description: 'Opaque cursor. Treat as opaque on the client.' },
+    hasMore: { type: 'boolean' },
+  },
+};
+
+export const CreateJudgeClassBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['scope', 'name', 'weight'],
+  properties: {
+    scope: { $ref: '#/components/schemas/JudgeClassScope' },
+    name: { type: 'string', minLength: 1, maxLength: 100 },
+    weight: { type: 'number', minimum: 0 },
+    description: { type: 'string' },
+  },
+};
+
+export const UpdateJudgeClassBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  minProperties: 1,
+  properties: {
+    weight: { type: 'number', minimum: 0 },
+    description: { type: 'string' },
+  },
+};
+
+export const UnregisterJudgeClassResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['judgeClassId', 'unregistered'],
+  properties: {
+    judgeClassId: { type: 'string' },
+    unregistered: { type: 'boolean', const: true },
+  },
+};
+
+export const JudgedSubjectSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'id', 'version'],
+  description: 'What a judged run ran: an agent at a version, or a flow at a version.',
+  properties: {
+    kind: { type: 'string', enum: ['agent', 'flow'] },
+    id: { type: 'string' },
+    version: { type: 'string' },
+  },
+};
+
+export const JudgedItemSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['key'],
+  description: "The judged item of a run's output.",
+  properties: {
+    key: { type: 'string', minLength: 1, description: "The caller's stable id for the item." },
+    pointer: {
+      type: 'string',
+      description:
+        'Where the item is in the run\'s output, as a JSON Pointer (RFC 6901), e.g. `/matches/2`. `""` is the whole output.',
+    },
+    rank: {
+      type: 'integer',
+      minimum: 0,
+      description: "The item's position in a ranked list (0 = first).",
+    },
+  },
+};
+
+export const JudgmentAssertedBySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'id'],
+  description: 'Who asserted a judgment: the authenticated caller, never a typed name.',
+  properties: {
+    kind: { type: 'string', enum: ['user', 'service'] },
+    id: {
+      type: 'string',
+      description: 'A user id, or for a service token its token or session id.',
+    },
+  },
+};
+
+export const JudgmentSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'id',
+    'tenantId',
+    'projectId',
+    'runId',
+    'subject',
+    'item',
+    'verdict',
+    'assertedBy',
+    'createdAt',
+  ],
+  properties: {
+    id: { type: 'string' },
+    tenantId: { type: 'string' },
+    projectId: { type: 'string' },
+    runId: { type: 'string' },
+    subject: { $ref: '#/components/schemas/JudgedSubject' },
+    item: { $ref: '#/components/schemas/JudgedItem' },
+    verdict: { type: 'string', enum: ['yes', 'no'] },
+    reason: { type: 'string' },
+    judgeClassId: {
+      type: 'string',
+      description:
+        'The judge class the judgment is recorded under. Absent when unclassified (counts with weight 1).',
+    },
+    assertedBy: { $ref: '#/components/schemas/JudgmentAssertedBy' },
+    participantId: {
+      type: 'string',
+      description:
+        "The app's opaque id for its end user who judged, when an app judged on their behalf.",
+    },
+    createdAt: { type: 'string', format: 'date-time' },
+    unregisteredAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'Set when the judgment was removed or superseded.',
+    },
+    supersededBy: { type: 'string', description: 'The judgment that replaced this one.' },
+  },
+};
+
+export const JudgedRunContextSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'What a judged agent turn read besides its input, captured when it was first judged: the conversation before it and what its retrievals returned.',
+  properties: {
+    history: {
+      type: 'array',
+      items: {},
+      description:
+        "The conversation's messages before the turn, oldest first (at most the last 200).",
+    },
+    historyTruncated: {
+      type: 'boolean',
+      description: 'Whether older messages were left out of `history`.',
+    },
+    retrieved: { description: "What the turn's retrievals returned." },
+  },
+};
+
+export const JudgedRunCopySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['runId', 'subject', 'input', 'output', 'capturedAt'],
+  description:
+    "The stored copy of a judged run's input and output, taken when it was first judged.",
+  properties: {
+    runId: { type: 'string' },
+    subject: { $ref: '#/components/schemas/JudgedSubject' },
+    input: {},
+    context: {
+      $ref: '#/components/schemas/JudgedRunContext',
+    },
+    output: {},
+    capturedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const JudgmentWithCopiesSchema: JsonSchema = {
+  description: 'A judgment with the stored copies of what was judged.',
+  allOf: [
+    { $ref: '#/components/schemas/Judgment' },
+    {
+      type: 'object',
+      required: ['run'],
+      properties: {
+        run: { $ref: '#/components/schemas/JudgedRunCopy' },
+        itemValue: {
+          description: "The judged item's value, when the judgment pointed at it.",
+        },
+      },
+    },
+  ],
+};
+
+export const JudgmentCollectionPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/Judgment' } },
+    nextCursor: { type: 'string', description: 'Opaque cursor. Treat as opaque on the client.' },
+    hasMore: { type: 'boolean' },
+  },
+};
+
+export const CreateJudgmentBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['runId', 'item', 'verdict'],
+  properties: {
+    runId: { type: 'string', minLength: 1 },
+    item: { $ref: '#/components/schemas/JudgedItem' },
+    verdict: { type: 'string', enum: ['yes', 'no'] },
+    reason: { type: 'string', maxLength: 4000 },
+    judgeClassId: {
+      type: 'string',
+      minLength: 1,
+      description: 'Optional. When given it must exist and apply to the run.',
+    },
+    participantId: {
+      type: 'string',
+      minLength: 1,
+      description: "An app's opaque id for its end user, when judging on their behalf.",
+    },
+  },
+};
+
+export const UnregisterJudgmentResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['judgmentId', 'unregistered'],
+  properties: {
+    judgmentId: { type: 'string' },
+    unregistered: { type: 'boolean', const: true },
+  },
+};
+
+export const JudgedItemSummarySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['key', 'yes', 'no', 'yesWeight', 'totalWeight', 'reasons'],
+  description: "The judgments of one item of a case's output, summed up.",
+  properties: {
+    key: { type: 'string' },
+    pointer: { type: 'string' },
+    rank: { type: 'integer', minimum: 0 },
+    yes: { type: 'integer', minimum: 0, description: 'How many judgments said yes.' },
+    no: { type: 'integer', minimum: 0, description: 'How many judgments said no.' },
+    yesWeight: {
+      type: 'number',
+      description: 'The weight behind "yes" (an unclassified judgment counts 1).',
+    },
+    totalWeight: { type: 'number', description: 'The weight behind all judgments of the item.' },
+    reasons: {
+      type: 'array',
+      description: 'The reasons given, newest first.',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['verdict', 'reason'],
+        properties: {
+          verdict: { type: 'string', enum: ['yes', 'no'] },
+          reason: { type: 'string' },
+        },
+      },
+    },
+  },
+};
+
+export const JudgedEvalCaseSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['caseId', 'subject', 'input', 'output', 'items'],
+  description:
+    "One case of a `judged` eval suite: a copy of a judged run with its items' judgments summed up.",
+  properties: {
+    caseId: { type: 'string', description: "The judged run's id." },
+    subject: { $ref: '#/components/schemas/JudgedSubject' },
+    input: {},
+    context: { $ref: '#/components/schemas/JudgedRunContext' },
+    output: {},
+    items: { type: 'array', items: { $ref: '#/components/schemas/JudgedItemSummary' } },
+  },
+};
+
+export const JudgedEvalCaseCollectionPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/JudgedEvalCase' } },
+    nextCursor: { type: 'string', description: 'Opaque cursor. Treat as opaque on the client.' },
+    hasMore: { type: 'boolean' },
+  },
+};
+
+export const BuildJudgedSuiteBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['version', 'projectId'],
+  description: 'Name the agent (`agentId`) or the flow (`flowId`) whose judged runs to use.',
+  properties: {
+    version: { type: 'string', description: 'Semver version to publish, e.g. `1.0.0`.' },
+    projectId: { type: 'string', minLength: 1 },
+    agentId: { type: 'string', minLength: 1 },
+    agentVersion: { type: 'string', minLength: 1, description: 'Needs `agentId`.' },
+    flowId: { type: 'string', minLength: 1 },
+    since: {
+      type: 'string',
+      format: 'date-time',
+      description: 'Runs first judged at or after this time.',
+    },
+    until: {
+      type: 'string',
+      format: 'date-time',
+      description: 'Runs first judged before this time.',
+    },
+    judgeClassIds: {
+      type: 'array',
+      items: { type: 'string', minLength: 1 },
+      description: 'Count only judgments recorded under these judge classes.',
+    },
+    minJudgments: {
+      type: 'integer',
+      minimum: 1,
+      description: 'Leave out runs with fewer counted judgments. Default 1.',
+    },
+    description: { type: 'string' },
+  },
+};
+
+export const BuildJudgedSuiteResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['suiteId', 'version', 'kind', 'caseCount', 'truncated'],
+  properties: {
+    suiteId: { type: 'string' },
+    version: { type: 'string' },
+    kind: { type: 'string', enum: ['judged'] },
+    caseCount: { type: 'integer', minimum: 0 },
+    truncated: {
+      type: 'boolean',
+      description: 'Whether more judged runs matched than the 1000 cases a set holds.',
+    },
   },
 };
 
@@ -3516,6 +3944,19 @@ export const CostAggregateResultSchema: JsonSchema = {
     groups: {
       type: 'array',
       items: { $ref: '#/components/schemas/CostAggregateGroup' },
+      description:
+        'The most expensive groups first (`totalUsd` descending, ties by key), at most `limit`.',
+    },
+    totalGroups: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        'How many groups there were before the `limit` cap. Absent from a runtime before 0.1.5.',
+    },
+    truncated: {
+      type: 'boolean',
+      description:
+        '`true` when there were more groups than `limit`: `groups` holds the most expensive ones, and `totalUsd` / `totalRecords` / `tokens` still cover every record. Absent from a runtime before 0.1.5.',
     },
     totalUsd: { type: 'number', minimum: 0 },
     totalRecords: { type: 'integer', minimum: 0 },
@@ -3803,7 +4244,7 @@ export const ReinstatePolicyVersionResultSchema: JsonSchema = {
  */
 export const EvalKindSchema: JsonSchema = {
   type: 'string',
-  enum: ['accuracy', 'pairwise', 'regression', 'human-review', 'benchmark', 'custom'],
+  enum: ['accuracy', 'pairwise', 'regression', 'human-review', 'benchmark', 'custom', 'judged'],
 };
 
 /**
@@ -6270,6 +6711,27 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ObservationStatus', ObservationStatusSchema],
   ['Observation', ObservationSchema],
   ['ObservationCollectionPage', ObservationCollectionPageSchema],
+  ['JudgeClassScope', JudgeClassScopeSchema],
+  ['JudgeClass', JudgeClassSchema],
+  ['JudgeClassCollectionPage', JudgeClassCollectionPageSchema],
+  ['CreateJudgeClassBody', CreateJudgeClassBodySchema],
+  ['UpdateJudgeClassBody', UpdateJudgeClassBodySchema],
+  ['UnregisterJudgeClassResult', UnregisterJudgeClassResultSchema],
+  ['JudgedSubject', JudgedSubjectSchema],
+  ['JudgedItem', JudgedItemSchema],
+  ['JudgmentAssertedBy', JudgmentAssertedBySchema],
+  ['Judgment', JudgmentSchema],
+  ['JudgedRunContext', JudgedRunContextSchema],
+  ['JudgedRunCopy', JudgedRunCopySchema],
+  ['JudgmentWithCopies', JudgmentWithCopiesSchema],
+  ['JudgmentCollectionPage', JudgmentCollectionPageSchema],
+  ['CreateJudgmentBody', CreateJudgmentBodySchema],
+  ['UnregisterJudgmentResult', UnregisterJudgmentResultSchema],
+  ['JudgedItemSummary', JudgedItemSummarySchema],
+  ['JudgedEvalCase', JudgedEvalCaseSchema],
+  ['JudgedEvalCaseCollectionPage', JudgedEvalCaseCollectionPageSchema],
+  ['BuildJudgedSuiteBody', BuildJudgedSuiteBodySchema],
+  ['BuildJudgedSuiteResult', BuildJudgedSuiteResultSchema],
   ['PromptParameter', PromptParameterSchema],
   ['RetrievalIntent', RetrievalIntentSchema],
   ['ConversationPolicy', ConversationPolicySchema],
@@ -6279,6 +6741,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['AgentOutputSpec', AgentOutputSpecSchema],
   ['ToolErrorsSpec', ToolErrorsSpecSchema],
   ['Agent', AgentSchema],
+  ['AgentPins', AgentPinsSchema],
   ['PublishAgentBody', PublishAgentBodySchema],
   ['PublishAgentResult', PublishAgentResultSchema],
   ['UnregisterAgentResult', UnregisterAgentResultSchema],

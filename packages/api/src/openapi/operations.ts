@@ -554,6 +554,15 @@ const CostGroupByQueryParam: ParameterSpec = {
   schema: { type: 'string' },
 };
 
+const CostAggregateLimitQueryParam: ParameterSpec = {
+  name: 'limit',
+  in: 'query',
+  required: false,
+  description:
+    'The most groups to return: the most expensive ones (`groups` is ordered by `totalUsd`, highest first). 1 to 10000, default 1000. When there were more, `truncated` is `true` and `totalGroups` says how many; the totals still cover every record.',
+  schema: { type: 'integer', minimum: 1, maximum: 10000, default: 1000 },
+};
+
 const CostModelQueryParam: ParameterSpec = {
   name: 'model',
   in: 'query',
@@ -777,7 +786,7 @@ const EvalSuiteKindFilterQueryParam: ParameterSpec = {
   in: 'query',
   required: false,
   description:
-    'Filter to eval suites of a single kind. Values: `accuracy | pairwise | regression | human-review | benchmark | custom`.',
+    'Filter to eval suites of a single kind. Values: `accuracy | pairwise | regression | human-review | benchmark | custom | judged`.',
   schema: { $ref: '#/components/schemas/EvalKind' },
 };
 
@@ -909,6 +918,75 @@ const SecretNamePathParam: ParameterSpec = {
   description: 'Secret name (opaque string within the tenant + envName).',
   schema: { type: 'string', minLength: 1 },
 };
+
+// ---------------- judgments + judge classes: parameters ----------------
+
+const JudgmentIdPathParam: ParameterSpec = {
+  name: 'judgmentId',
+  in: 'path',
+  required: true,
+  description: 'Judgment id.',
+  schema: { type: 'string', minLength: 1 },
+};
+
+const JudgeClassIdPathParam: ParameterSpec = {
+  name: 'judgeClassId',
+  in: 'path',
+  required: true,
+  description: 'Judge class id.',
+  schema: { type: 'string', minLength: 1 },
+};
+
+const judgmentQuery = (name: string, description: string, schema: JsonSchema): ParameterSpec => ({
+  name,
+  in: 'query',
+  required: false,
+  description,
+  schema,
+});
+
+const JudgmentListQueryParams: readonly ParameterSpec[] = [
+  judgmentQuery('runId', 'Only judgments of this run.', { type: 'string', minLength: 1 }),
+  judgmentQuery('agentId', 'Only judgments of runs of this agent.', {
+    type: 'string',
+    minLength: 1,
+  }),
+  judgmentQuery('agentVersion', 'Only judgments of runs of this agent version. Needs `agentId`.', {
+    type: 'string',
+    minLength: 1,
+  }),
+  judgmentQuery('flowId', 'Only judgments of runs of this flow.', { type: 'string', minLength: 1 }),
+  judgmentQuery('verdict', 'Only judgments with this verdict.', {
+    type: 'string',
+    enum: ['yes', 'no'],
+  }),
+  judgmentQuery('judgeClassId', 'Only judgments recorded under this judge class.', {
+    type: 'string',
+    minLength: 1,
+  }),
+  judgmentQuery('participantId', "Only judgments made for this app end user's opaque id.", {
+    type: 'string',
+    minLength: 1,
+  }),
+];
+
+const JudgeClassScopeKindQueryParam: ParameterSpec = judgmentQuery(
+  'scopeKind',
+  'Only classes of this scope kind. `project` and `agent` need `projectId`; `agent` also needs `agentId`.',
+  { type: 'string', enum: ['tenant', 'project', 'agent'] },
+);
+
+const JudgeClassProjectIdQueryParam: ParameterSpec = judgmentQuery(
+  'projectId',
+  'Project of the scope, for `scopeKind=project|agent`.',
+  { type: 'string', minLength: 1 },
+);
+
+const JudgeClassAgentIdQueryParam: ParameterSpec = judgmentQuery(
+  'agentId',
+  'Agent of the scope, for `scopeKind=agent`.',
+  { type: 'string', minLength: 1 },
+);
 
 // ---------------- shared responses ----------------
 
@@ -2663,6 +2741,184 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
 
+  // ---------- judgments ----------
+  {
+    method: 'post',
+    honoPath: '/v1/judgments',
+    openapiPath: '/v1/judgments',
+    operationId: 'judgments.create',
+    summary: "Judge an item of a run's output",
+    description:
+      "Records yes or no, with an optional reason, about one item of a finished run's output, optionally under a judge class that applies to the run's project or agent (unclassified judgments count with weight 1). `item.pointer` (a JSON Pointer) must resolve in the run's output; its value is kept as `itemValue`. The first judgment of a run also stores a copy of the run's input and output. `assertedBy` is the authenticated caller, never the body. Judging again as the same caller for the same run, item key and `participantId` supersedes the earlier judgment. Needs `judge` on the run.",
+    tags: ['judgments'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('CreateJudgmentBody') },
+    responses: {
+      '201': { description: 'Judgment recorded.', schema: ref('Judgment') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        'Malformed body, or `item-not-found` (the pointer resolves to nothing in the output), or `judge-class-not-applicable`.',
+      ),
+      '403': ErrorResponse('`permission-denied`: not allowed to judge this run.'),
+      '404': ErrorResponse('`run-not-found`.'),
+      '409': ErrorResponse('`run-not-finished`: the run has no output to judge yet.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/judgments',
+    openapiPath: '/v1/judgments',
+    operationId: 'judgments.list',
+    summary: 'List judgments',
+    description:
+      'Live judgments (not removed or superseded), newest first, cursor-paginated. Filter by run, agent (and version), flow, verdict, judge class or participant; `?scopeKind + ?scopeId` narrow to a project.',
+    tags: ['judgments'],
+    security: 'bearer',
+    parameters: [
+      LimitQueryParam,
+      CursorQueryParam,
+      ...JudgmentListQueryParams,
+      ScopeKindQueryParam,
+      ScopeIdQueryParam,
+    ],
+    responses: {
+      '200': { description: 'Page of judgments.', schema: ref('JudgmentCollectionPage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('Malformed query parameter.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/judgments/:judgmentId',
+    openapiPath: '/v1/judgments/{judgmentId}',
+    operationId: 'judgments.get',
+    summary: 'Fetch a judgment with its copies',
+    description:
+      "Returns the judgment (live or not) with the stored copy of the run's input and output and, when the judgment pointed at an item, its value.",
+    tags: ['judgments'],
+    security: 'bearer',
+    parameters: [JudgmentIdPathParam],
+    responses: {
+      '200': { description: 'Judgment with copies.', schema: ref('JudgmentWithCopies') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No judgment with that id under this tenant.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/judgments/:judgmentId/unregister',
+    openapiPath: '/v1/judgments/{judgmentId}/unregister',
+    operationId: 'judgments.unregister',
+    summary: 'Remove a judgment',
+    description:
+      'Soft delete: the judgment stops listing; retention policy decides when it is purged.',
+    tags: ['judgments'],
+    security: 'bearer',
+    parameters: [JudgmentIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'Removed.', schema: ref('UnregisterJudgmentResult') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('`permission-denied`.'),
+      '404': ErrorResponse('No live judgment with that id under this tenant.'),
+    },
+  },
+
+  // ---------- judge classes ----------
+  {
+    method: 'post',
+    honoPath: '/v1/judge-classes',
+    openapiPath: '/v1/judge-classes',
+    operationId: 'judgeClasses.create',
+    summary: 'Create a judge class',
+    description:
+      'A named kind of judge with a weight, scoped to the tenant, a project, or an agent in a project. Names are unique among the live classes of a scope. Needs `admin` on the tenant (tenant scope) or the project.',
+    tags: ['judge-classes'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('CreateJudgeClassBody') },
+    responses: {
+      '201': { description: 'Judge class created.', schema: ref('JudgeClass') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('`permission-denied`.'),
+      '409': ErrorResponse('`judge-class-name-taken`, or an idempotency conflict.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/judge-classes',
+    openapiPath: '/v1/judge-classes',
+    operationId: 'judgeClasses.list',
+    summary: 'List judge classes',
+    description:
+      'Live classes, newest first, cursor-paginated. `?scopeKind=tenant|project|agent` (with `projectId` / `agentId`) narrows to one scope.',
+    tags: ['judge-classes'],
+    security: 'bearer',
+    parameters: [
+      LimitQueryParam,
+      CursorQueryParam,
+      JudgeClassScopeKindQueryParam,
+      JudgeClassProjectIdQueryParam,
+      JudgeClassAgentIdQueryParam,
+    ],
+    responses: {
+      '200': { description: 'Page of judge classes.', schema: ref('JudgeClassCollectionPage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('Malformed scope parameters.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/judge-classes/:judgeClassId',
+    openapiPath: '/v1/judge-classes/{judgeClassId}',
+    operationId: 'judgeClasses.get',
+    summary: 'Fetch a judge class',
+    description:
+      'Also returns a retired class (`unregisteredAt` set): judgments keep naming theirs.',
+    tags: ['judge-classes'],
+    security: 'bearer',
+    parameters: [JudgeClassIdPathParam],
+    responses: {
+      '200': { description: 'Judge class.', schema: ref('JudgeClass') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No judge class with that id under this tenant.'),
+    },
+  },
+  {
+    method: 'patch',
+    honoPath: '/v1/judge-classes/:judgeClassId',
+    openapiPath: '/v1/judge-classes/{judgeClassId}',
+    operationId: 'judgeClasses.update',
+    summary: "Change a judge class's weight or description",
+    tags: ['judge-classes'],
+    security: 'bearer',
+    parameters: [JudgeClassIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('UpdateJudgeClassBody') },
+    responses: {
+      '200': { description: 'Updated judge class.', schema: ref('JudgeClass') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('`permission-denied`.'),
+      '404': ErrorResponse('No live judge class with that id under this tenant.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/judge-classes/:judgeClassId/unregister',
+    openapiPath: '/v1/judge-classes/{judgeClassId}/unregister',
+    operationId: 'judgeClasses.unregister',
+    summary: 'Retire a judge class',
+    description: 'No new judgments may name it; existing judgments keep it.',
+    tags: ['judge-classes'],
+    security: 'bearer',
+    parameters: [JudgeClassIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'Retired.', schema: ref('UnregisterJudgeClassResult') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('`permission-denied`.'),
+      '404': ErrorResponse('No live judge class with that id under this tenant.'),
+    },
+  },
+
   // ---------- mcp (interop plane) ----------
   {
     method: 'get',
@@ -2880,11 +3136,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'cost.aggregate',
     summary: 'Aggregate cost across a time window',
     description:
-      "Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId` narrow the aggregate to a scope: `org` covers every project in the org, so one call sums an org's spend. Each group, and the total, carries its cost and its token sums (`tokens`). `inherit` has no effect on cost records, which always belong to a project.",
+      "Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId` narrow the aggregate to a scope: `org` covers every project in the org, so one call sums an org's spend. Each group, and the total, carries its cost and its token sums (`tokens`). `groups` is ordered by `totalUsd`, highest first (ties by key), and capped at `limit` (default 1000): `truncated` and `totalGroups` say when there were more, and the totals still cover every record. For every record, page through `/v1/cost/records`. `inherit` has no effect on cost records, which always belong to a project.",
     tags: ['cost'],
     security: 'bearer',
     parameters: [
       CostGroupByQueryParam,
+      CostAggregateLimitQueryParam,
       CostFromQueryParam,
       CostToQueryParam,
       CostCategoryQueryParam,
@@ -3072,7 +3329,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'policies.publish',
     summary: 'Publish a policy',
     description:
-      "Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).",
+      "Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).",
     tags: ['policies'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -3080,7 +3337,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Policy published.', schema: ref('PublishPolicyResult') },
       ...CommonMutationErrors,
-      '400': ErrorResponse('Validation failed (see `details.issues`).'),
+      '400': ErrorResponse(
+        'Validation failed (see `details.issues`), or `kind-not-applied`: no runtime consumer applies that kind yet.',
+      ),
       '409': ErrorResponse('Policy already registered at that (id, version).'),
     },
   },
@@ -3209,6 +3468,48 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '400': ErrorResponse('Validation failed (see `details.issues`).'),
       '409': ErrorResponse('Eval suite already registered at that (id, version).'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/eval-suites/:suiteId/versions/from-judgments',
+    openapiPath: '/v1/eval-suites/{suiteId}/versions/from-judgments',
+    operationId: 'evalSuites.buildFromJudgments',
+    summary: 'Build a test set from judgments',
+    description:
+      "Publishes a `judged` eval suite version whose cases are copies of judged runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the judged output, and each item's judgments summed up: yes and no counts, the weight behind yes and behind all judgments (an unclassified judgment counts 1), and the reasons. `judgeClassIds` counts only judgments of those classes; `minJudgments` leaves out runs with fewer. Needs `admin` on the project.",
+    tags: ['eval-suites'],
+    security: 'bearer',
+    parameters: [EvalSuiteIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('BuildJudgedSuiteBody') },
+    responses: {
+      '201': { description: 'Version published.', schema: ref('BuildJudgedSuiteResult') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('Malformed body.'),
+      '403': ErrorResponse('`permission-denied`.'),
+      '409': ErrorResponse('Eval suite already registered at that (id, version).'),
+      '501': ErrorResponse('`test-sets-not-supported`: this deployment cannot build test sets.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/eval-suites/:suiteId/versions/:version/cases',
+    openapiPath: '/v1/eval-suites/{suiteId}/versions/{version}/cases',
+    operationId: 'evalSuites.listCases',
+    summary: 'List the cases of a judged eval suite version',
+    description: 'Cursor-paginated, in the order the cases were stored (newest judged run first).',
+    tags: ['eval-suites'],
+    security: 'bearer',
+    parameters: [
+      EvalSuiteIdPathParam,
+      EvalSuiteVersionPathParam,
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
+    responses: {
+      '200': { description: 'Page of cases.', schema: ref('JudgedEvalCaseCollectionPage') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No eval suite with that id.'),
     },
   },
   {
@@ -4053,7 +4354,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'orgs.delete',
     summary: 'Delete an org (idempotent)',
     description:
-      'Idempotent — deleting an unknown or already-deleted org returns 204 per the binding contract.',
+      "A tombstone, not an erase: from then on the org is gone from get and list, and its slug is free for a new org. Its projects and teams stay, without an org; when one of those projects has the slug of a project that has none, nothing is deleted: `409 slug-conflict` names the slugs (rename or move those projects first). In the Kindgi runtime, the org's own secrets and secret mappings are deleted with it, for good, and its own environments and MCP endpoints are unregistered. A retention policy on the `org` domain purges the org's row. Idempotent: deleting an unknown or already-deleted org returns 204.",
     tags: ['orgs'],
     security: 'bearer',
     parameters: [
@@ -4069,6 +4370,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '204': { description: 'Deleted (or already absent). No body.' },
       ...CommonAuthErrors,
+      '409': ErrorResponse(
+        "slug-conflict: the org's projects would leave it with slugs that projects without an org already have.",
+      ),
     },
   },
 
@@ -4372,6 +4676,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/projects',
     operationId: 'projects.create',
     summary: 'Create a project',
+    description:
+      "A project's slug is unique within its org, and a project without an org's among the tenant's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second Default, `409 project-default-already-exists`.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -4410,6 +4716,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/projects/{projectId}',
     operationId: 'projects.update',
     summary: 'Partially update a project',
+    description:
+      'A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up.',
     tags: ['projects'],
     security: 'bearer',
     parameters: [

@@ -189,6 +189,8 @@ export type {
 export { followRun, subscribeToRun } from './run-follow.js';
 export type { RunProgress } from './generated/api.js';
 export type { FollowRunOptions, RunProgressEvent, SubscribeToRunOptions } from './run-follow.js';
+export type { JudgeClassFilter, JudgeClassesClient } from './resources/judge-classes.js';
+export type { JudgmentFilter, JudgmentsClient } from './resources/judgments.js';
 export type {
   McpClient,
   McpEndpointFilter,
@@ -271,7 +273,12 @@ export type {
   SyncSecretsResult,
 } from './resources/deployments.js';
 export type {
+  BuildFromJudgmentsInput,
+  BuildFromJudgmentsResult,
   EvalSuitesClient,
+  ListSuiteCasesQuery,
+  SuiteCase,
+  SuiteCasePage,
   EvalSuiteVersionsClient,
   ListSuiteVersionsFilter,
   ListSuitesFilter,
@@ -409,6 +416,15 @@ export type {
   LogEntry,
   LogFilter,
   LogVerifyResult,
+  JudgeClass,
+  JudgeClassScope,
+  JudgedItem,
+  JudgedRunContext,
+  JudgedRunCopy,
+  JudgedSubject,
+  Judgment,
+  JudgmentAssertedBy,
+  JudgmentWithCopies,
   McpAgentExposure,
   McpEndpoint,
   McpEndpointConfig,
@@ -464,6 +480,8 @@ export type {
   RetrievalResult,
   RevokeSessionsResult,
   RouteResult,
+  CreateJudgeClassInput,
+  CreateJudgmentInput,
   RegisterMcpEndpointInput,
   Reviewer,
   ReviewerId,
@@ -518,6 +536,8 @@ export type {
   WebhookEndpointId,
   WhoamiResult,
   WriteFactInput,
+  UpdateJudgeClassInput,
+  Verdict,
 } from './types.js';
 
 export type {

@@ -210,6 +210,29 @@ OPERATIONS: dict[str, Operation] = {
     "providers.unregister": Operation(
         "providers.unregister", "POST", "/v1/providers/{providerId}/unregister", "json", True
     ),
+    "judgments.list": Operation("judgments.list", "GET", "/v1/judgments", "json", False),
+    "judgments.create": Operation("judgments.create", "POST", "/v1/judgments", "json", True),
+    "judgments.get": Operation("judgments.get", "GET", "/v1/judgments/{judgmentId}", "json", False),
+    "judgments.unregister": Operation(
+        "judgments.unregister", "POST", "/v1/judgments/{judgmentId}/unregister", "json", True
+    ),
+    "judgeClasses.list": Operation("judgeClasses.list", "GET", "/v1/judge-classes", "json", False),
+    "judgeClasses.create": Operation(
+        "judgeClasses.create", "POST", "/v1/judge-classes", "json", True
+    ),
+    "judgeClasses.get": Operation(
+        "judgeClasses.get", "GET", "/v1/judge-classes/{judgeClassId}", "json", False
+    ),
+    "judgeClasses.update": Operation(
+        "judgeClasses.update", "PATCH", "/v1/judge-classes/{judgeClassId}", "json", True
+    ),
+    "judgeClasses.unregister": Operation(
+        "judgeClasses.unregister",
+        "POST",
+        "/v1/judge-classes/{judgeClassId}/unregister",
+        "json",
+        True,
+    ),
     "mcp.endpoints.list": Operation(
         "mcp.endpoints.list", "GET", "/v1/mcp/endpoints", "json", False
     ),
@@ -298,6 +321,20 @@ OPERATIONS: dict[str, Operation] = {
         "evalSuites.versions.get",
         "GET",
         "/v1/eval-suites/{suiteId}/versions/{version}",
+        "json",
+        False,
+    ),
+    "evalSuites.buildFromJudgments": Operation(
+        "evalSuites.buildFromJudgments",
+        "POST",
+        "/v1/eval-suites/{suiteId}/versions/from-judgments",
+        "json",
+        True,
+    ),
+    "evalSuites.listCases": Operation(
+        "evalSuites.listCases",
+        "GET",
+        "/v1/eval-suites/{suiteId}/versions/{version}/cases",
         "json",
         False,
     ),
@@ -2541,6 +2578,231 @@ class ProvidersResource:
         )
 
 
+class JudgmentsResource:
+    """`client.judgments` — the `judgments` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        run_id: str | None = None,
+        agent_id: str | None = None,
+        agent_version: str | None = None,
+        flow_id: str | None = None,
+        verdict: Literal["yes", "no"] | None = None,
+        judge_class_id: str | None = None,
+        participant_id: str | None = None,
+        scope_kind: Literal["tenant", "org", "project"] | None = None,
+        scope_id: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgmentCollectionPage:
+        """List judgments. `GET /v1/judgments`
+
+        Live judgments (not removed or superseded), newest first, cursor-paginated. Filter by run, agent (and version), flow, verdict, judge class or participant; `?scopeKind + ?scopeId` narrow to a project.
+        """
+        return self._client._request(
+            _OPERATIONS["judgments.list"],
+            path={},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "runId": run_id,
+                "agentId": agent_id,
+                "agentVersion": agent_version,
+                "flowId": flow_id,
+                "verdict": verdict,
+                "judgeClassId": judge_class_id,
+                "participantId": participant_id,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+            },
+            headers={},
+            response=_models.JudgmentCollectionPage,
+            timeout=timeout,
+        )
+
+    def create(
+        self,
+        body: _models.CreateJudgmentBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Judgment:
+        """Judge an item of a run's output. `POST /v1/judgments`
+
+        Records yes or no, with an optional reason, about one item of a finished run's output, optionally under a judge class that applies to the run's project or agent (unclassified judgments count with weight 1). `item.pointer` (a JSON Pointer) must resolve in the run's output; its value is kept as `itemValue`. The first judgment of a run also stores a copy of the run's input and output. `assertedBy` is the authenticated caller, never the body. Judging again as the same caller for the same run, item key and `participantId` supersedes the earlier judgment. Needs `judge` on the run.
+        """
+        return self._client._request(
+            _OPERATIONS["judgments.create"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.CreateJudgmentBody, body, fields),
+            response=_models.Judgment,
+            timeout=timeout,
+        )
+
+    def get(
+        self, judgment_id: str, /, *, timeout: float | None = None
+    ) -> _models.JudgmentWithCopies:
+        """Fetch a judgment with its copies. `GET /v1/judgments/{judgmentId}`
+
+        Returns the judgment (live or not) with the stored copy of the run's input and output and, when the judgment pointed at an item, its value.
+        """
+        return self._client._request(
+            _OPERATIONS["judgments.get"],
+            path={"judgmentId": judgment_id},
+            query={},
+            headers={},
+            response=_models.JudgmentWithCopies,
+            timeout=timeout,
+        )
+
+    def unregister(
+        self,
+        judgment_id: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.UnregisterJudgmentResult:
+        """Remove a judgment. `POST /v1/judgments/{judgmentId}/unregister`
+
+        Soft delete: the judgment stops listing; retention policy decides when it is purged.
+        """
+        return self._client._request(
+            _OPERATIONS["judgments.unregister"],
+            path={"judgmentId": judgment_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterJudgmentResult,
+            timeout=timeout,
+        )
+
+
+class JudgeClassesResource:
+    """`client.judge_classes` — the `judgeClasses` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        scope_kind: Literal["tenant", "project", "agent"] | None = None,
+        project_id: str | None = None,
+        agent_id: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgeClassCollectionPage:
+        """List judge classes. `GET /v1/judge-classes`
+
+        Live classes, newest first, cursor-paginated. `?scopeKind=tenant|project|agent` (with `projectId` / `agentId`) narrows to one scope.
+        """
+        return self._client._request(
+            _OPERATIONS["judgeClasses.list"],
+            path={},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "scopeKind": scope_kind,
+                "projectId": project_id,
+                "agentId": agent_id,
+            },
+            headers={},
+            response=_models.JudgeClassCollectionPage,
+            timeout=timeout,
+        )
+
+    def create(
+        self,
+        body: _models.CreateJudgeClassBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JudgeClass:
+        """Create a judge class. `POST /v1/judge-classes`
+
+        A named kind of judge with a weight, scoped to the tenant, a project, or an agent in a project. Names are unique among the live classes of a scope. Needs `admin` on the tenant (tenant scope) or the project.
+        """
+        return self._client._request(
+            _OPERATIONS["judgeClasses.create"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.CreateJudgeClassBody, body, fields),
+            response=_models.JudgeClass,
+            timeout=timeout,
+        )
+
+    def get(self, judge_class_id: str, /, *, timeout: float | None = None) -> _models.JudgeClass:
+        """Fetch a judge class. `GET /v1/judge-classes/{judgeClassId}`
+
+        Also returns a retired class (`unregisteredAt` set): judgments keep naming theirs.
+        """
+        return self._client._request(
+            _OPERATIONS["judgeClasses.get"],
+            path={"judgeClassId": judge_class_id},
+            query={},
+            headers={},
+            response=_models.JudgeClass,
+            timeout=timeout,
+        )
+
+    def update(
+        self,
+        judge_class_id: str,
+        body: _models.UpdateJudgeClassBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JudgeClass:
+        """Change a judge class's weight or description. `PATCH /v1/judge-classes/{judgeClassId}`"""
+        return self._client._request(
+            _OPERATIONS["judgeClasses.update"],
+            path={"judgeClassId": judge_class_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UpdateJudgeClassBody, body, fields),
+            response=_models.JudgeClass,
+            timeout=timeout,
+        )
+
+    def unregister(
+        self,
+        judge_class_id: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.UnregisterJudgeClassResult:
+        """Retire a judge class. `POST /v1/judge-classes/{judgeClassId}/unregister`
+
+        No new judgments may name it; existing judgments keep it.
+        """
+        return self._client._request(
+            _OPERATIONS["judgeClasses.unregister"],
+            path={"judgeClassId": judge_class_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterJudgeClassResult,
+            timeout=timeout,
+        )
+
+
 class McpEndpointsResourcesResource:
     """`client.mcp.endpoints.resources` — the `mcp.endpoints.resources` operations."""
 
@@ -2822,6 +3084,7 @@ class CostResource:
         /,
         *,
         group_by: str,
+        limit: int | None = None,
         from_: str | None = None,
         to: str | None = None,
         category: str | None = None,
@@ -2840,13 +3103,14 @@ class CostResource:
     ) -> _models.CostAggregateResult:
         """Aggregate cost across a time window. `GET /v1/cost/aggregate`
 
-        Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId` narrow the aggregate to a scope: `org` covers every project in the org, so one call sums an org's spend. Each group, and the total, carries its cost and its token sums (`tokens`). `inherit` has no effect on cost records, which always belong to a project.
+        Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId` narrow the aggregate to a scope: `org` covers every project in the org, so one call sums an org's spend. Each group, and the total, carries its cost and its token sums (`tokens`). `groups` is ordered by `totalUsd`, highest first (ties by key), and capped at `limit` (default 1000): `truncated` and `totalGroups` say when there were more, and the totals still cover every record. For every record, page through `/v1/cost/records`. `inherit` has no effect on cost records, which always belong to a project.
         """
         return self._client._request(
             _OPERATIONS["cost.aggregate"],
             path={},
             query={
                 "groupBy": group_by,
+                "limit": limit,
                 "from": from_,
                 "to": to,
                 "category": category,
@@ -3074,7 +3338,7 @@ class PoliciesResource:
     ) -> _models.PublishPolicyResult:
         """Publish a policy. `POST /v1/policies`
 
-        Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).
+        Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).
         """
         return self._client._request(
             _OPERATIONS["policies.publish"],
@@ -3194,7 +3458,9 @@ class EvalSuitesResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
-        kind: Literal["accuracy", "pairwise", "regression", "human-review", "benchmark", "custom"]
+        kind: Literal[
+            "accuracy", "pairwise", "regression", "human-review", "benchmark", "custom", "judged"
+        ]
         | None = None,
         name: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
@@ -3254,6 +3520,53 @@ class EvalSuitesResource:
             query={},
             headers={},
             response=_models.EvalSuite,
+            timeout=timeout,
+        )
+
+    def build_from_judgments(
+        self,
+        suite_id: str,
+        body: _models.BuildJudgedSuiteBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.BuildJudgedSuiteResult:
+        """Build a test set from judgments. `POST /v1/eval-suites/{suiteId}/versions/from-judgments`
+
+        Publishes a `judged` eval suite version whose cases are copies of judged runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the judged output, and each item's judgments summed up: yes and no counts, the weight behind yes and behind all judgments (an unclassified judgment counts 1), and the reasons. `judgeClassIds` counts only judgments of those classes; `minJudgments` leaves out runs with fewer. Needs `admin` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["evalSuites.buildFromJudgments"],
+            path={"suiteId": suite_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.BuildJudgedSuiteBody, body, fields),
+            response=_models.BuildJudgedSuiteResult,
+            timeout=timeout,
+        )
+
+    def list_cases(
+        self,
+        suite_id: str,
+        version: str,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgedEvalCaseCollectionPage:
+        """List the cases of a judged eval suite version. `GET /v1/eval-suites/{suiteId}/versions/{version}/cases`
+
+        Cursor-paginated, in the order the cases were stored (newest judged run first).
+        """
+        return self._client._request(
+            _OPERATIONS["evalSuites.listCases"],
+            path={"suiteId": suite_id, "version": version},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.JudgedEvalCaseCollectionPage,
             timeout=timeout,
         )
 
@@ -3960,7 +4273,7 @@ class OrgsResource:
     ) -> None:
         """Delete an org (idempotent). `DELETE /v1/orgs/{orgId}`
 
-        Idempotent — deleting an unknown or already-deleted org returns 204 per the binding contract.
+        A tombstone, not an erase: from then on the org is gone from get and list, and its slug is free for a new org. Its projects and teams stay, without an org; when one of those projects has the slug of a project that has none, nothing is deleted: `409 slug-conflict` names the slugs (rename or move those projects first). In the Kindgi runtime, the org's own secrets and secret mappings are deleted with it, for good, and its own environments and MCP endpoints are unregistered. A retention policy on the `org` domain purges the org's row. Idempotent: deleting an unknown or already-deleted org returns 204.
         """
         return self._client._request(
             _OPERATIONS["orgs.delete"],
@@ -4312,7 +4625,10 @@ class ProjectsResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.CreateResourceResult:
-        """Create a project. `POST /v1/projects`"""
+        """Create a project. `POST /v1/projects`
+
+        A project's slug is unique within its org, and a project without an org's among the tenant's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second Default, `409 project-default-already-exists`.
+        """
         return self._client._request(
             _OPERATIONS["projects.create"],
             path={},
@@ -4344,7 +4660,10 @@ class ProjectsResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> None:
-        """Partially update a project. `PATCH /v1/projects/{projectId}`"""
+        """Partially update a project. `PATCH /v1/projects/{projectId}`
+
+        A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up.
+        """
         return self._client._request(
             _OPERATIONS["projects.update"],
             path={"projectId": project_id},
@@ -7386,6 +7705,233 @@ class AsyncProvidersResource:
         )
 
 
+class AsyncJudgmentsResource:
+    """`client.judgments` — the `judgments` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        run_id: str | None = None,
+        agent_id: str | None = None,
+        agent_version: str | None = None,
+        flow_id: str | None = None,
+        verdict: Literal["yes", "no"] | None = None,
+        judge_class_id: str | None = None,
+        participant_id: str | None = None,
+        scope_kind: Literal["tenant", "org", "project"] | None = None,
+        scope_id: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgmentCollectionPage:
+        """List judgments. `GET /v1/judgments`
+
+        Live judgments (not removed or superseded), newest first, cursor-paginated. Filter by run, agent (and version), flow, verdict, judge class or participant; `?scopeKind + ?scopeId` narrow to a project.
+        """
+        return await self._client._request(
+            _OPERATIONS["judgments.list"],
+            path={},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "runId": run_id,
+                "agentId": agent_id,
+                "agentVersion": agent_version,
+                "flowId": flow_id,
+                "verdict": verdict,
+                "judgeClassId": judge_class_id,
+                "participantId": participant_id,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+            },
+            headers={},
+            response=_models.JudgmentCollectionPage,
+            timeout=timeout,
+        )
+
+    async def create(
+        self,
+        body: _models.CreateJudgmentBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Judgment:
+        """Judge an item of a run's output. `POST /v1/judgments`
+
+        Records yes or no, with an optional reason, about one item of a finished run's output, optionally under a judge class that applies to the run's project or agent (unclassified judgments count with weight 1). `item.pointer` (a JSON Pointer) must resolve in the run's output; its value is kept as `itemValue`. The first judgment of a run also stores a copy of the run's input and output. `assertedBy` is the authenticated caller, never the body. Judging again as the same caller for the same run, item key and `participantId` supersedes the earlier judgment. Needs `judge` on the run.
+        """
+        return await self._client._request(
+            _OPERATIONS["judgments.create"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.CreateJudgmentBody, body, fields),
+            response=_models.Judgment,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, judgment_id: str, /, *, timeout: float | None = None
+    ) -> _models.JudgmentWithCopies:
+        """Fetch a judgment with its copies. `GET /v1/judgments/{judgmentId}`
+
+        Returns the judgment (live or not) with the stored copy of the run's input and output and, when the judgment pointed at an item, its value.
+        """
+        return await self._client._request(
+            _OPERATIONS["judgments.get"],
+            path={"judgmentId": judgment_id},
+            query={},
+            headers={},
+            response=_models.JudgmentWithCopies,
+            timeout=timeout,
+        )
+
+    async def unregister(
+        self,
+        judgment_id: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.UnregisterJudgmentResult:
+        """Remove a judgment. `POST /v1/judgments/{judgmentId}/unregister`
+
+        Soft delete: the judgment stops listing; retention policy decides when it is purged.
+        """
+        return await self._client._request(
+            _OPERATIONS["judgments.unregister"],
+            path={"judgmentId": judgment_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterJudgmentResult,
+            timeout=timeout,
+        )
+
+
+class AsyncJudgeClassesResource:
+    """`client.judge_classes` — the `judgeClasses` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        scope_kind: Literal["tenant", "project", "agent"] | None = None,
+        project_id: str | None = None,
+        agent_id: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgeClassCollectionPage:
+        """List judge classes. `GET /v1/judge-classes`
+
+        Live classes, newest first, cursor-paginated. `?scopeKind=tenant|project|agent` (with `projectId` / `agentId`) narrows to one scope.
+        """
+        return await self._client._request(
+            _OPERATIONS["judgeClasses.list"],
+            path={},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "scopeKind": scope_kind,
+                "projectId": project_id,
+                "agentId": agent_id,
+            },
+            headers={},
+            response=_models.JudgeClassCollectionPage,
+            timeout=timeout,
+        )
+
+    async def create(
+        self,
+        body: _models.CreateJudgeClassBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JudgeClass:
+        """Create a judge class. `POST /v1/judge-classes`
+
+        A named kind of judge with a weight, scoped to the tenant, a project, or an agent in a project. Names are unique among the live classes of a scope. Needs `admin` on the tenant (tenant scope) or the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["judgeClasses.create"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.CreateJudgeClassBody, body, fields),
+            response=_models.JudgeClass,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, judge_class_id: str, /, *, timeout: float | None = None
+    ) -> _models.JudgeClass:
+        """Fetch a judge class. `GET /v1/judge-classes/{judgeClassId}`
+
+        Also returns a retired class (`unregisteredAt` set): judgments keep naming theirs.
+        """
+        return await self._client._request(
+            _OPERATIONS["judgeClasses.get"],
+            path={"judgeClassId": judge_class_id},
+            query={},
+            headers={},
+            response=_models.JudgeClass,
+            timeout=timeout,
+        )
+
+    async def update(
+        self,
+        judge_class_id: str,
+        body: _models.UpdateJudgeClassBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JudgeClass:
+        """Change a judge class's weight or description. `PATCH /v1/judge-classes/{judgeClassId}`"""
+        return await self._client._request(
+            _OPERATIONS["judgeClasses.update"],
+            path={"judgeClassId": judge_class_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UpdateJudgeClassBody, body, fields),
+            response=_models.JudgeClass,
+            timeout=timeout,
+        )
+
+    async def unregister(
+        self,
+        judge_class_id: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.UnregisterJudgeClassResult:
+        """Retire a judge class. `POST /v1/judge-classes/{judgeClassId}/unregister`
+
+        No new judgments may name it; existing judgments keep it.
+        """
+        return await self._client._request(
+            _OPERATIONS["judgeClasses.unregister"],
+            path={"judgeClassId": judge_class_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterJudgeClassResult,
+            timeout=timeout,
+        )
+
+
 class AsyncMcpEndpointsResourcesResource:
     """`client.mcp.endpoints.resources` — the `mcp.endpoints.resources` operations."""
 
@@ -7669,6 +8215,7 @@ class AsyncCostResource:
         /,
         *,
         group_by: str,
+        limit: int | None = None,
         from_: str | None = None,
         to: str | None = None,
         category: str | None = None,
@@ -7687,13 +8234,14 @@ class AsyncCostResource:
     ) -> _models.CostAggregateResult:
         """Aggregate cost across a time window. `GET /v1/cost/aggregate`
 
-        Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId` narrow the aggregate to a scope: `org` covers every project in the org, so one call sums an org's spend. Each group, and the total, carries its cost and its token sums (`tokens`). `inherit` has no effect on cost records, which always belong to a project.
+        Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId` narrow the aggregate to a scope: `org` covers every project in the org, so one call sums an org's spend. Each group, and the total, carries its cost and its token sums (`tokens`). `groups` is ordered by `totalUsd`, highest first (ties by key), and capped at `limit` (default 1000): `truncated` and `totalGroups` say when there were more, and the totals still cover every record. For every record, page through `/v1/cost/records`. `inherit` has no effect on cost records, which always belong to a project.
         """
         return await self._client._request(
             _OPERATIONS["cost.aggregate"],
             path={},
             query={
                 "groupBy": group_by,
+                "limit": limit,
                 "from": from_,
                 "to": to,
                 "category": category,
@@ -7921,7 +8469,7 @@ class AsyncPoliciesResource:
     ) -> _models.PublishPolicyResult:
         """Publish a policy. `POST /v1/policies`
 
-        Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).
+        Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).
         """
         return await self._client._request(
             _OPERATIONS["policies.publish"],
@@ -8041,7 +8589,9 @@ class AsyncEvalSuitesResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
-        kind: Literal["accuracy", "pairwise", "regression", "human-review", "benchmark", "custom"]
+        kind: Literal[
+            "accuracy", "pairwise", "regression", "human-review", "benchmark", "custom", "judged"
+        ]
         | None = None,
         name: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
@@ -8101,6 +8651,53 @@ class AsyncEvalSuitesResource:
             query={},
             headers={},
             response=_models.EvalSuite,
+            timeout=timeout,
+        )
+
+    async def build_from_judgments(
+        self,
+        suite_id: str,
+        body: _models.BuildJudgedSuiteBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.BuildJudgedSuiteResult:
+        """Build a test set from judgments. `POST /v1/eval-suites/{suiteId}/versions/from-judgments`
+
+        Publishes a `judged` eval suite version whose cases are copies of judged runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the judged output, and each item's judgments summed up: yes and no counts, the weight behind yes and behind all judgments (an unclassified judgment counts 1), and the reasons. `judgeClassIds` counts only judgments of those classes; `minJudgments` leaves out runs with fewer. Needs `admin` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["evalSuites.buildFromJudgments"],
+            path={"suiteId": suite_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.BuildJudgedSuiteBody, body, fields),
+            response=_models.BuildJudgedSuiteResult,
+            timeout=timeout,
+        )
+
+    async def list_cases(
+        self,
+        suite_id: str,
+        version: str,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgedEvalCaseCollectionPage:
+        """List the cases of a judged eval suite version. `GET /v1/eval-suites/{suiteId}/versions/{version}/cases`
+
+        Cursor-paginated, in the order the cases were stored (newest judged run first).
+        """
+        return await self._client._request(
+            _OPERATIONS["evalSuites.listCases"],
+            path={"suiteId": suite_id, "version": version},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.JudgedEvalCaseCollectionPage,
             timeout=timeout,
         )
 
@@ -8809,7 +9406,7 @@ class AsyncOrgsResource:
     ) -> None:
         """Delete an org (idempotent). `DELETE /v1/orgs/{orgId}`
 
-        Idempotent — deleting an unknown or already-deleted org returns 204 per the binding contract.
+        A tombstone, not an erase: from then on the org is gone from get and list, and its slug is free for a new org. Its projects and teams stay, without an org; when one of those projects has the slug of a project that has none, nothing is deleted: `409 slug-conflict` names the slugs (rename or move those projects first). In the Kindgi runtime, the org's own secrets and secret mappings are deleted with it, for good, and its own environments and MCP endpoints are unregistered. A retention policy on the `org` domain purges the org's row. Idempotent: deleting an unknown or already-deleted org returns 204.
         """
         return await self._client._request(
             _OPERATIONS["orgs.delete"],
@@ -9161,7 +9758,10 @@ class AsyncProjectsResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.CreateResourceResult:
-        """Create a project. `POST /v1/projects`"""
+        """Create a project. `POST /v1/projects`
+
+        A project's slug is unique within its org, and a project without an org's among the tenant's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second Default, `409 project-default-already-exists`.
+        """
         return await self._client._request(
             _OPERATIONS["projects.create"],
             path={},
@@ -9193,7 +9793,10 @@ class AsyncProjectsResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> None:
-        """Partially update a project. `PATCH /v1/projects/{projectId}`"""
+        """Partially update a project. `PATCH /v1/projects/{projectId}`
+
+        A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up.
+        """
         return await self._client._request(
             _OPERATIONS["projects.update"],
             path={"projectId": project_id},
@@ -10294,6 +10897,8 @@ class Resources:
     observations: ObservationsResource
     capabilities: CapabilitiesResource
     providers: ProvidersResource
+    judgments: JudgmentsResource
+    judge_classes: JudgeClassesResource
     mcp: McpResource
     cost: CostResource
     adapters: AdaptersResource
@@ -10335,6 +10940,8 @@ class Resources:
         self.observations = ObservationsResource(client)
         self.capabilities = CapabilitiesResource(client)
         self.providers = ProvidersResource(client)
+        self.judgments = JudgmentsResource(client)
+        self.judge_classes = JudgeClassesResource(client)
         self.mcp = McpResource(client)
         self.cost = CostResource(client)
         self.adapters = AdaptersResource(client)
@@ -10378,6 +10985,8 @@ class AsyncResources:
     observations: AsyncObservationsResource
     capabilities: AsyncCapabilitiesResource
     providers: AsyncProvidersResource
+    judgments: AsyncJudgmentsResource
+    judge_classes: AsyncJudgeClassesResource
     mcp: AsyncMcpResource
     cost: AsyncCostResource
     adapters: AsyncAdaptersResource
@@ -10419,6 +11028,8 @@ class AsyncResources:
         self.observations = AsyncObservationsResource(client)
         self.capabilities = AsyncCapabilitiesResource(client)
         self.providers = AsyncProvidersResource(client)
+        self.judgments = AsyncJudgmentsResource(client)
+        self.judge_classes = AsyncJudgeClassesResource(client)
         self.mcp = AsyncMcpResource(client)
         self.cost = AsyncCostResource(client)
         self.adapters = AsyncAdaptersResource(client)

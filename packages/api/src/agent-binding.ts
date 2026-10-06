@@ -149,6 +149,11 @@ export interface AgentPublishInput {
    * silently falls back to Default.
    */
   readonly projectId: ProjectId;
+  /**
+   * The version to store, as given. When the route pinned it, it
+   * carries `pins` and `pinsDigest` (the exact block versions its runs
+   * use); a binding stores and returns them with the rest.
+   */
   readonly agent: Agent;
   /**
    * REQUIRED. Called inside the binding's write transaction after the

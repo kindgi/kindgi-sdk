@@ -12,6 +12,12 @@
  *   `@kindgi/types` (`items` + `nextCursor`).
  * - `list` filters extend the shared `Filter` shape so every list call
  *   shares the same pagination fields.
+ * - A write the caller can get wrong (a slug already taken, a row that
+ *   doesn't exist) resolves to an outcome — a union discriminated on
+ *   `kind`, `'ok'` on success — and never rejects for it. Each
+ *   non-`ok` `kind` is also the API error code the routes answer with
+ *   (`slug-conflict` is a 409, `org-not-found` a 404). A rejected
+ *   promise means the backend failed.
  *
  * This package ships the interface + reference in-memory adapter
  * (in `./in-memory/org-binding.ts`). Any adapter can be checked with
@@ -43,11 +49,13 @@ export interface OrgListFilter extends Filter {
  */
 export interface OrgBinding {
   /**
-   * Create a new `Org` in the given tenant. Returns the freshly-
-   * assigned `OrgId`. The binding is responsible for allocating IDs,
-   * timestamps, and slug-uniqueness enforcement within the tenant.
+   * Create a new `Org` in the given tenant. Resolves to `ok` with the
+   * freshly-assigned `OrgId`, or to `slug-conflict` when another org in
+   * the tenant has `spec.slug`. The binding is responsible for
+   * allocating IDs, timestamps, and slug-uniqueness enforcement within
+   * the tenant.
    */
-  create(tenantId: TenantId, spec: OrgSpec): Promise<OrgId>;
+  create(tenantId: TenantId, spec: OrgSpec): Promise<OrgCreateOutcome>;
   /**
    * Look up an `Org` by id. Returns `undefined` when no row exists in
    * the given tenant, or when the row exists in a different tenant
@@ -62,15 +70,55 @@ export interface OrgBinding {
   list(tenantId: TenantId, filter: OrgListFilter): Promise<Page<Org>>;
   /**
    * Partially update an `Org`. Fields absent from `patch` are left
-   * unchanged; fields present are set to the new value. Not-found is
-   * an error the adapter surfaces (e.g. as a rejected promise); the
-   * conformance suite specifies the exact shape.
+   * unchanged; fields present are set to the new value. Resolves to
+   * `org-not-found` when no org has `orgId` in the tenant, and to
+   * `slug-conflict` when `patch.slug` is another org's slug.
    */
-  update(tenantId: TenantId, orgId: OrgId, patch: OrgPatch): Promise<void>;
+  update(tenantId: TenantId, orgId: OrgId, patch: OrgPatch): Promise<OrgUpdateOutcome>;
   /**
-   * Delete an `Org`. Cascade semantics (dependent teams / projects) are
-   * a storage-layer concern — the in-memory adapter does the delete
-   * unconditionally.
+   * Delete an `Org`: a tombstone, not an erase. From then on `get`,
+   * `list` and `update` treat it as unknown, and its slug is free for a
+   * new org; a retention policy on the `org` domain purges the row.
+   * What happens to dependents (teams, projects, org-scoped config) is
+   * the storage's concern; the in-memory adapter has none. A storage
+   * whose projects leave a deleted org (the Kindgi runtime's: they
+   * become projects without an org) answers `slug-conflict` instead
+   * when one of them has the slug of a project that has no org, and
+   * deletes nothing. Nothing (`void`): the org is deleted, or wasn't
+   * there (or was already deleted).
    */
-  delete(tenantId: TenantId, orgId: OrgId): Promise<void>;
+  // biome-ignore lint/suspicious/noConfusingVoidType: `void`, not `undefined`, so a binding whose `delete` returns `Promise<void>` still conforms.
+  delete(tenantId: TenantId, orgId: OrgId): Promise<void | OrgDeleteConflict>;
 }
+
+/**
+ * Why `OrgBinding.delete` deleted nothing: the org's projects would leave
+ * it with `slugs` that projects without an org already have. Rename or
+ * move them first.
+ */
+export interface OrgDeleteConflict {
+  readonly kind: 'slug-conflict';
+  readonly slugs: readonly string[];
+}
+
+/** What `OrgBinding.create` did. */
+export type OrgCreateOutcome =
+  | { readonly kind: 'ok'; readonly orgId: OrgId }
+  | {
+      /** Another org in the tenant already has this slug. */
+      readonly kind: 'slug-conflict';
+      readonly slug: string;
+    };
+
+/** What `OrgBinding.update` did. */
+export type OrgUpdateOutcome =
+  | { readonly kind: 'ok' }
+  | {
+      /** No org with this id in the tenant. */
+      readonly kind: 'org-not-found';
+    }
+  | {
+      /** Another org in the tenant already has the patched slug. */
+      readonly kind: 'slug-conflict';
+      readonly slug: string;
+    };

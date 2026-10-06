@@ -31,6 +31,7 @@ import type { CostBinding } from './cost-binding.js';
 import type { DeploymentBinding } from './deployment-binding.js';
 import type { EnvBinding } from './env-binding.js';
 import type { WireErrorBody } from './errors.js';
+import type { EvalCaseStoreBinding } from './eval-case-binding.js';
 import type { EvalRunBinding } from './eval-run-binding.js';
 import type { EvalSuiteRegistryBinding } from './eval-suite-binding.js';
 import type { EventBusBinding } from './event-bus-binding.js';
@@ -45,6 +46,7 @@ import type {
   RefreshTokenFn,
 } from './identity-provider-binding.js';
 import type { ImageRegistryBinding } from './image-registry-binding.js';
+import type { JudgmentRegistryBinding } from './judgment-binding.js';
 import type { MCPClientProbeBinding, MCPEndpointRegistryBinding } from './mcp-endpoint-binding.js';
 import type { MemoryBinding } from './memory-binding.js';
 import { type TokenResolver, bearerAuthMiddleware } from './middleware/auth.js';
@@ -91,6 +93,8 @@ import { eventTriggersRouter } from './routes/event-triggers.js';
 import { flowsRouter } from './routes/flows.js';
 import { guardrailsRouter } from './routes/guardrails.js';
 import { identityRouter } from './routes/identity.js';
+import { judgedSuitesRouter } from './routes/judged-suites.js';
+import { judgeClassesRouter, judgmentsRouter } from './routes/judgments.js';
 import { mcpRouter } from './routes/mcp.js';
 import { memoryRouter } from './routes/memory.js';
 import { observationsRouter } from './routes/observations.js';
@@ -585,6 +589,19 @@ export interface CreateAppInput {
    */
   readonly evalRunBinding?: EvalRunBinding;
   /**
+   * Optional. Mounts judgments, yes or no with an optional reason about
+   * one item of a run's output (`/v1/judgments`), and the judge classes
+   * they're recorded under, each with a weight (`/v1/judge-classes`).
+   * Caller-plugged: the API package doesn't own their storage.
+   */
+  readonly judgmentRegistry?: JudgmentRegistryBinding;
+  /**
+   * Optional. With `evalSuiteRegistry` and `judgmentRegistry`, mounts test
+   * sets built from judgments: `POST /v1/eval-suites/:suiteId/versions/from-judgments`
+   * and `GET /v1/eval-suites/:suiteId/versions/:version/cases`.
+   */
+  readonly evalCaseStore?: EvalCaseStoreBinding;
+  /**
    * Optional. Push-based pub/sub binding used by SSE endpoints to
    * deliver run events without polling. When present, `GET
    * /v1/runs/:runId/stream` subscribes on channel
@@ -1002,7 +1019,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     v1.route('/observations', observationsRouter(input.supervisor));
   }
   if (input.agentRegistry !== undefined) {
-    v1.route('/agents', agentsRouter(input.agentRegistry, authorizer));
+    v1.route('/agents', agentsRouter(input.agentRegistry, authorizer, input.toolRegistry));
   }
   if (input.flowRegistry !== undefined) {
     v1.route('/flows', flowsRouter(input.flowRegistry, authorizer));
@@ -1099,6 +1116,28 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   }
   if (input.evalSuiteRegistry !== undefined) {
     v1.route('/eval-suites', evalSuitesRouter(input.evalSuiteRegistry, authorizer));
+  }
+  if (input.judgmentRegistry !== undefined) {
+    v1.route(
+      '/judgments',
+      judgmentsRouter(input.judgmentRegistry, runBinding, authorizer, input.conversationBinding),
+    );
+    v1.route('/judge-classes', judgeClassesRouter(input.judgmentRegistry, authorizer));
+  }
+  if (
+    input.evalSuiteRegistry !== undefined &&
+    input.judgmentRegistry !== undefined &&
+    input.evalCaseStore !== undefined
+  ) {
+    v1.route(
+      '/eval-suites',
+      judgedSuitesRouter(
+        input.evalSuiteRegistry,
+        input.judgmentRegistry,
+        input.evalCaseStore,
+        authorizer,
+      ),
+    );
   }
   // ---------- platform hierarchy ----------
   // Mounts are independent: `/v1/orgs`, `/v1/teams`, `/v1/projects`,

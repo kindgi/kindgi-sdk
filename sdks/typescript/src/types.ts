@@ -2318,3 +2318,139 @@ export interface ClientOptions {
   /** Overridable fetch impl for testing. Defaults to global `fetch`. */
   readonly fetch?: typeof fetch;
 }
+
+// ---------------------------------------------------------------------------
+// Judgments: yes or no, with an optional reason, about one item of a run's
+// output, optionally recorded under a weighted judge class.
+// ---------------------------------------------------------------------------
+
+/** The verdict of a judgment. */
+export type Verdict = 'yes' | 'no';
+
+/**
+ * Where a judge class applies: the whole tenant, one project, or one
+ * agent in a project. Matches `@kindgi/api/openapi.json#JudgeClassScope`.
+ */
+export type JudgeClassScope =
+  | { readonly kind: 'tenant' }
+  | { readonly kind: 'project'; readonly projectId: string }
+  | { readonly kind: 'agent'; readonly projectId: string; readonly agentId: string };
+
+/** Matches `@kindgi/api/openapi.json#JudgeClass`. */
+export interface JudgeClass {
+  readonly id: string;
+  readonly tenantId: string;
+  readonly scope: JudgeClassScope;
+  /** The deployment's own word for the class: "expert", "user", "arbitrator". */
+  readonly name: string;
+  /** How much a judgment of this class counts, relative to the others (≥ 0). */
+  readonly weight: number;
+  readonly description?: string;
+  readonly createdAt: import('@kindgi/types').Timestamp;
+  readonly updatedAt: import('@kindgi/types').Timestamp;
+  /** Set when the class was retired. */
+  readonly unregisteredAt?: import('@kindgi/types').Timestamp;
+}
+
+/** Input for `POST /v1/judge-classes` per `#CreateJudgeClassBody`. */
+export interface CreateJudgeClassInput {
+  readonly scope: JudgeClassScope;
+  readonly name: string;
+  readonly weight: number;
+  readonly description?: string;
+}
+
+/** Input for `PATCH /v1/judge-classes/{judgeClassId}` per `#UpdateJudgeClassBody`. */
+export interface UpdateJudgeClassInput {
+  readonly weight?: number;
+  readonly description?: string;
+}
+
+/** What a judged run ran: an agent at a version, or a flow at a version. */
+export interface JudgedSubject {
+  readonly kind: 'agent' | 'flow';
+  readonly id: string;
+  readonly version: string;
+}
+
+/** The judged item of a run's output. */
+export interface JudgedItem {
+  /** Your stable id for the item, e.g. a matched case's id. */
+  readonly key: string;
+  /** Where the item is in the run's output, as a JSON Pointer (RFC 6901), e.g. `/matches/2`. */
+  readonly pointer?: string;
+  /** The item's position in a ranked list (0 = first). */
+  readonly rank?: number;
+}
+
+/** Who asserted a judgment: the authenticated caller, never a typed name. */
+export interface JudgmentAssertedBy {
+  readonly kind: 'user' | 'service';
+  readonly id: string;
+}
+
+/** Matches `@kindgi/api/openapi.json#Judgment`. */
+export interface Judgment {
+  readonly id: string;
+  readonly tenantId: string;
+  readonly projectId: string;
+  readonly runId: string;
+  readonly subject: JudgedSubject;
+  readonly item: JudgedItem;
+  readonly verdict: Verdict;
+  readonly reason?: string;
+  /** Absent when the judgment is unclassified (it counts with weight 1). */
+  readonly judgeClassId?: string;
+  readonly assertedBy: JudgmentAssertedBy;
+  /** An app's opaque id for its end user who judged, when it judged on their behalf. */
+  readonly participantId?: string;
+  readonly createdAt: import('@kindgi/types').Timestamp;
+  /** Set when the judgment was removed or superseded. */
+  readonly unregisteredAt?: import('@kindgi/types').Timestamp;
+  /** The judgment that replaced this one. */
+  readonly supersededBy?: string;
+}
+
+/**
+ * What a judged agent turn read besides its input, captured when it was
+ * first judged: the conversation before it and what its retrievals returned.
+ */
+export interface JudgedRunContext {
+  /** The conversation's messages before the turn, oldest first (at most the last 200). */
+  readonly history?: readonly unknown[];
+  /** Whether older messages were left out of `history`. */
+  readonly historyTruncated?: boolean;
+  /** What the turn's retrievals returned. */
+  readonly retrieved?: unknown;
+}
+
+/** The stored copy of a judged run's input and output. */
+export interface JudgedRunCopy {
+  readonly runId: string;
+  readonly subject: JudgedSubject;
+  readonly input: unknown;
+  /** Absent for runs judged before context was captured, and for flow runs. */
+  readonly context?: JudgedRunContext;
+  readonly output: unknown;
+  readonly capturedAt: import('@kindgi/types').Timestamp;
+}
+
+/** Matches `@kindgi/api/openapi.json#JudgmentWithCopies`. */
+export interface JudgmentWithCopies extends Judgment {
+  /** The run's input and output as they were when it was first judged. */
+  readonly run: JudgedRunCopy;
+  /** The judged item's value, when the judgment pointed at it. */
+  readonly itemValue?: unknown;
+}
+
+/** Input for `POST /v1/judgments` per `#CreateJudgmentBody`. */
+export interface CreateJudgmentInput {
+  readonly runId: string;
+  readonly item: JudgedItem;
+  readonly verdict: Verdict;
+  readonly reason?: string;
+  /** Optional. When given it must exist and apply to the run. */
+  readonly judgeClassId?: string;
+  /** Your opaque id for the end user who judged, when judging on their behalf. */
+  readonly participantId?: string;
+}

@@ -975,6 +975,435 @@ class ObservationCollectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
+class JudgeClassScope1(BaseModel):
+    """
+    Where a judge class applies: the whole tenant, one project, or one agent in a project.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["tenant"]
+
+
+class JudgeClassScope2(BaseModel):
+    """
+    Where a judge class applies: the whole tenant, one project, or one agent in a project.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["project"]
+    project_id: Annotated[str, Field(alias="projectId", min_length=1)]
+
+
+class JudgeClassScope3(BaseModel):
+    """
+    Where a judge class applies: the whole tenant, one project, or one agent in a project.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["agent"]
+    project_id: Annotated[str, Field(alias="projectId", min_length=1)]
+    agent_id: Annotated[str, Field(alias="agentId", min_length=1)]
+
+
+class JudgeClass(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    tenant_id: Annotated[str, Field(alias="tenantId")]
+    scope: JudgeClassScope1 | JudgeClassScope2 | JudgeClassScope3
+    """
+    Where a judge class applies: the whole tenant, one project, or one agent in a project.
+    """
+    name: str
+    """
+    The deployment's own word for the class: "expert", "user", "arbitrator".
+    """
+    weight: Annotated[float, Field(ge=0.0)]
+    """
+    How much a judgment of this class counts, relative to the others.
+    """
+    description: str | None = None
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    Set when the class was retired.
+    """
+
+
+class JudgeClassCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[JudgeClass]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor. Treat as opaque on the client.
+    """
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class CreateJudgeClassBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    scope: JudgeClassScope1 | JudgeClassScope2 | JudgeClassScope3
+    """
+    Where a judge class applies: the whole tenant, one project, or one agent in a project.
+    """
+    name: Annotated[str, Field(max_length=100, min_length=1)]
+    weight: Annotated[float, Field(ge=0.0)]
+    description: str | None = None
+
+
+class UpdateJudgeClassBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    weight: Annotated[float | None, Field(ge=0.0)] = None
+    description: str | None = None
+
+
+class UnregisterJudgeClassResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    judge_class_id: Annotated[str, Field(alias="judgeClassId")]
+    unregistered: Literal[True]
+
+
+class JudgedSubject(BaseModel):
+    """
+    What a judged run ran: an agent at a version, or a flow at a version.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["agent", "flow"]
+    id: str
+    version: str
+
+
+class JudgedItem(BaseModel):
+    """
+    The judged item of a run's output.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    key: Annotated[str, Field(min_length=1)]
+    """
+    The caller's stable id for the item.
+    """
+    pointer: str | None = None
+    """
+    Where the item is in the run's output, as a JSON Pointer (RFC 6901), e.g. `/matches/2`. `""` is the whole output.
+    """
+    rank: Annotated[int | None, Field(ge=0)] = None
+    """
+    The item's position in a ranked list (0 = first).
+    """
+
+
+class JudgmentAssertedBy(BaseModel):
+    """
+    Who asserted a judgment: the authenticated caller, never a typed name.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["user", "service"]
+    id: str
+    """
+    A user id, or for a service token its token or session id.
+    """
+
+
+class Judgment(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    tenant_id: Annotated[str, Field(alias="tenantId")]
+    project_id: Annotated[str, Field(alias="projectId")]
+    run_id: Annotated[str, Field(alias="runId")]
+    subject: JudgedSubject
+    item: JudgedItem
+    verdict: Literal["yes", "no"]
+    reason: str | None = None
+    judge_class_id: Annotated[str | None, Field(alias="judgeClassId")] = None
+    """
+    The judge class the judgment is recorded under. Absent when unclassified (counts with weight 1).
+    """
+    asserted_by: Annotated[JudgmentAssertedBy, Field(alias="assertedBy")]
+    participant_id: Annotated[str | None, Field(alias="participantId")] = None
+    """
+    The app's opaque id for its end user who judged, when an app judged on their behalf.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    Set when the judgment was removed or superseded.
+    """
+    superseded_by: Annotated[str | None, Field(alias="supersededBy")] = None
+    """
+    The judgment that replaced this one.
+    """
+
+
+class JudgedRunContext(BaseModel):
+    """
+    What a judged agent turn read besides its input, captured when it was first judged: the conversation before it and what its retrievals returned.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    history: list[Any] | None = None
+    """
+    The conversation's messages before the turn, oldest first (at most the last 200).
+    """
+    history_truncated: Annotated[bool | None, Field(alias="historyTruncated")] = None
+    """
+    Whether older messages were left out of `history`.
+    """
+    retrieved: Any | None = None
+    """
+    What the turn's retrievals returned.
+    """
+
+
+class JudgedRunCopy(BaseModel):
+    """
+    The stored copy of a judged run's input and output, taken when it was first judged.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    run_id: Annotated[str, Field(alias="runId")]
+    subject: JudgedSubject
+    input: Any
+    context: JudgedRunContext | None = None
+    output: Any
+    captured_at: Annotated[AwareDatetime, Field(alias="capturedAt")]
+
+
+class JudgmentWithCopies(Judgment):
+    """
+    A judgment with the stored copies of what was judged.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    run: JudgedRunCopy
+    item_value: Annotated[Any | None, Field(alias="itemValue")] = None
+    """
+    The judged item's value, when the judgment pointed at it.
+    """
+
+
+class JudgmentCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Judgment]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor. Treat as opaque on the client.
+    """
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class CreateJudgmentBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    run_id: Annotated[str, Field(alias="runId", min_length=1)]
+    item: JudgedItem
+    verdict: Literal["yes", "no"]
+    reason: Annotated[str | None, Field(max_length=4000)] = None
+    judge_class_id: Annotated[str | None, Field(alias="judgeClassId", min_length=1)] = None
+    """
+    Optional. When given it must exist and apply to the run.
+    """
+    participant_id: Annotated[str | None, Field(alias="participantId", min_length=1)] = None
+    """
+    An app's opaque id for its end user, when judging on their behalf.
+    """
+
+
+class UnregisterJudgmentResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    judgment_id: Annotated[str, Field(alias="judgmentId")]
+    unregistered: Literal[True]
+
+
+class Reason(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    verdict: Literal["yes", "no"]
+    reason: str
+
+
+class JudgedItemSummary(BaseModel):
+    """
+    The judgments of one item of a case's output, summed up.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    key: str
+    pointer: str | None = None
+    rank: Annotated[int | None, Field(ge=0)] = None
+    yes: Annotated[int, Field(ge=0)]
+    """
+    How many judgments said yes.
+    """
+    no: Annotated[int, Field(ge=0)]
+    """
+    How many judgments said no.
+    """
+    yes_weight: Annotated[float, Field(alias="yesWeight")]
+    """
+    The weight behind "yes" (an unclassified judgment counts 1).
+    """
+    total_weight: Annotated[float, Field(alias="totalWeight")]
+    """
+    The weight behind all judgments of the item.
+    """
+    reasons: list[Reason]
+    """
+    The reasons given, newest first.
+    """
+
+
+class JudgedEvalCase(BaseModel):
+    """
+    One case of a `judged` eval suite: a copy of a judged run with its items' judgments summed up.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    case_id: Annotated[str, Field(alias="caseId")]
+    """
+    The judged run's id.
+    """
+    subject: JudgedSubject
+    input: Any
+    context: JudgedRunContext | None = None
+    output: Any
+    items: list[JudgedItemSummary]
+
+
+class JudgedEvalCaseCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[JudgedEvalCase]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor. Treat as opaque on the client.
+    """
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class JudgeClassId(RootModel[str]):
+    root: Annotated[str, Field(min_length=1)]
+
+
+class BuildJudgedSuiteBody(BaseModel):
+    """
+    Name the agent (`agentId`) or the flow (`flowId`) whose judged runs to use.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    version: str
+    """
+    Semver version to publish, e.g. `1.0.0`.
+    """
+    project_id: Annotated[str, Field(alias="projectId", min_length=1)]
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    """
+    Needs `agentId`.
+    """
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    since: AwareDatetime | None = None
+    """
+    Runs first judged at or after this time.
+    """
+    until: AwareDatetime | None = None
+    """
+    Runs first judged before this time.
+    """
+    judge_class_ids: Annotated[list[JudgeClassId] | None, Field(alias="judgeClassIds")] = None
+    """
+    Count only judgments recorded under these judge classes.
+    """
+    min_judgments: Annotated[int | None, Field(alias="minJudgments", ge=1)] = None
+    """
+    Leave out runs with fewer counted judgments. Default 1.
+    """
+    description: str | None = None
+
+
+class BuildJudgedSuiteResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    suite_id: Annotated[str, Field(alias="suiteId")]
+    version: str
+    kind: Literal["judged"]
+    case_count: Annotated[int, Field(alias="caseCount", ge=0)]
+    truncated: bool
+    """
+    Whether more judged runs matched than the 1000 cases a set holds.
+    """
+
+
 class PromptParameter(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -1084,42 +1513,27 @@ class ToolErrorsSpec(BaseModel):
     """
 
 
-class Agent(BaseModel):
+class AgentPins(BaseModel):
+    """
+    The exact block versions an agent version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool range resolves once to the version every run of that agent version uses, so a new tool version reaches the agent only through a new agent version. Absent on a version published before pins existed (its ranges resolve per run).
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    id: str
+    tools: dict[str, str]
     """
-    AgentId — dotted namespace (e.g. `acme.drafting`).
+    Tool id → exact version.
     """
-    version: str
+    prompts: dict[str, str]
     """
-    Semver.
+    Prompt block id → exact version.
     """
-    name: str
-    description: str | None = None
-    instructions: str
-    parameters: list[PromptParameter] | None = None
-    capabilities: list[Capability4]
-    tools: list[ToolRef]
-    retrieval: list[RetrievalIntent]
-    guardrails: list[str]
-    preferred_provider: Annotated[str | None, Field(alias="preferredProvider", min_length=1)] = None
+    settings: dict[str, str]
     """
-    Soft hint — the router prefers this provider by id (e.g. `anthropic`) when at least one of its models satisfies `capabilities.needs` + tenant policy. Combine with `preferredModel` to pin the exact (provider, model) tuple. Falls back to capability-based ranking when the pinned provider is unregistered or filtered out.
+    Settings block id → exact version.
     """
-    preferred_model: Annotated[str | None, Field(alias="preferredModel", min_length=1)] = None
-    """
-    Soft hint at the model level (`ModelInfo.name`, e.g. `claude-sonnet-4-6`). Combined with `preferredProvider`: both set → promote the exact tuple; only `preferredModel` → promote any provider exposing that model; only `preferredProvider` → promote every model of that provider.
-    """
-    conversation_policy: Annotated[ConversationPolicy | None, Field(alias="conversationPolicy")] = (
-        None
-    )
-    budget: TurnBudget | None = None
-    tags: list[str] | None = None
-    output: AgentOutputSpec | None = None
-    tool_errors: Annotated[ToolErrorsSpec | None, Field(alias="toolErrors")] = None
 
 
 class PublishAgentBody(BaseModel):
@@ -1192,19 +1606,6 @@ class ReinstateAgentVersionResult(BaseModel):
     """
     `true` when this call un-tombstoned the version; `false` when it was already active (idempotent no-op).
     """
-
-
-class AgentCollectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[Agent]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    """
-    Opaque cursor for the next page. Absent when `hasMore: false`.
-    """
-    has_more: Annotated[bool, Field(alias="hasMore")]
 
 
 class FlowNode(BaseModel):
@@ -3519,6 +3920,17 @@ class CostAggregateResult(BaseModel):
         populate_by_name=True,
     )
     groups: list[CostAggregateGroup]
+    """
+    The most expensive groups first (`totalUsd` descending, ties by key), at most `limit`.
+    """
+    total_groups: Annotated[int | None, Field(alias="totalGroups", ge=0)] = None
+    """
+    How many groups there were before the `limit` cap. Absent from a runtime before 0.1.5.
+    """
+    truncated: bool | None = None
+    """
+    `true` when there were more groups than `limit`: `groups` holds the most expensive ones, and `totalUsd` / `totalRecords` / `tokens` still cover every record. Absent from a runtime before 0.1.5.
+    """
     total_usd: Annotated[float, Field(alias="totalUsd", ge=0.0)]
     total_records: Annotated[int, Field(alias="totalRecords", ge=0)]
     tokens: CostTokenTotals
@@ -3754,7 +4166,9 @@ class EvalSuite(BaseModel):
     """
     Semver — publishing a modified suite produces a new version.
     """
-    kind: Literal["accuracy", "pairwise", "regression", "human-review", "benchmark", "custom"]
+    kind: Literal[
+        "accuracy", "pairwise", "regression", "human-review", "benchmark", "custom", "judged"
+    ]
     description: str | None = None
     spec: dict[str, Any]
     """
@@ -3787,7 +4201,9 @@ class PublishEvalSuiteBody(BaseModel):
     Optional. When present, must match the caller tenant (server-derived from the token). Cross-tenant publish is rejected.
     """
     version: Annotated[str, Field(pattern="^\\d+\\.\\d+\\.\\d+$")]
-    kind: Literal["accuracy", "pairwise", "regression", "human-review", "benchmark", "custom"]
+    kind: Literal[
+        "accuracy", "pairwise", "regression", "human-review", "benchmark", "custom", "judged"
+    ]
     description: str | None = None
     spec: dict[str, Any]
 
@@ -3852,7 +4268,9 @@ class EvalRun(BaseModel):
     tenant_id: Annotated[UUID, Field(alias="tenantId")]
     suite_id: Annotated[str, Field(alias="suiteId")]
     suite_version: Annotated[str, Field(alias="suiteVersion", pattern="^\\d+\\.\\d+\\.\\d+$")]
-    kind: Literal["accuracy", "pairwise", "regression", "human-review", "benchmark", "custom"]
+    kind: Literal[
+        "accuracy", "pairwise", "regression", "human-review", "benchmark", "custom", "judged"
+    ]
     agent_ref: Annotated[EvalRunAgentRef | None, Field(alias="agentRef")] = None
     flow_ref: Annotated[EvalRunFlowRef | None, Field(alias="flowRef")] = None
     status: Literal["pending", "running", "completed", "failed", "cancelled"]
@@ -6119,6 +6537,64 @@ class CompleteApprovalResult(BaseModel):
     """
     True when the approval had a `waitTokenId` + terminal accept/reject and the run waitpoint was completed as part of this call.
     """
+
+
+class Agent(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    AgentId — dotted namespace (e.g. `acme.drafting`).
+    """
+    version: str
+    """
+    Semver.
+    """
+    name: str
+    description: str | None = None
+    instructions: str
+    parameters: list[PromptParameter] | None = None
+    capabilities: list[Capability4]
+    tools: list[ToolRef]
+    retrieval: list[RetrievalIntent]
+    guardrails: list[str]
+    preferred_provider: Annotated[str | None, Field(alias="preferredProvider", min_length=1)] = None
+    """
+    Soft hint — the router prefers this provider by id (e.g. `anthropic`) when at least one of its models satisfies `capabilities.needs` + tenant policy. Combine with `preferredModel` to pin the exact (provider, model) tuple. Falls back to capability-based ranking when the pinned provider is unregistered or filtered out.
+    """
+    preferred_model: Annotated[str | None, Field(alias="preferredModel", min_length=1)] = None
+    """
+    Soft hint at the model level (`ModelInfo.name`, e.g. `claude-sonnet-4-6`). Combined with `preferredProvider`: both set → promote the exact tuple; only `preferredModel` → promote any provider exposing that model; only `preferredProvider` → promote every model of that provider.
+    """
+    conversation_policy: Annotated[ConversationPolicy | None, Field(alias="conversationPolicy")] = (
+        None
+    )
+    budget: TurnBudget | None = None
+    tags: list[str] | None = None
+    output: AgentOutputSpec | None = None
+    tool_errors: Annotated[ToolErrorsSpec | None, Field(alias="toolErrors")] = None
+    pins: AgentPins | None = None
+    pins_digest: Annotated[
+        str | None, Field(alias="pinsDigest", pattern="^sha256:[0-9a-f]{64}$")
+    ] = None
+    """
+    Set by the runtime with `pins`: `sha256:<hex>` of the pins' canonical JSON (sorted keys, no whitespace). Two agent versions with the same digest run the same blocks.
+    """
+
+
+class AgentCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Agent]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor for the next page. Absent when `hasMore: false`.
+    """
+    has_more: Annotated[bool, Field(alias="hasMore")]
 
 
 class CallUsage(BaseModel):

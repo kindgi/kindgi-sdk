@@ -2,7 +2,9 @@
    Dark: the kindgi.com website's void base and amber accent.
    Light: cool legal paper: a cool ink scale, a honey accent,
    white cards and code, chrome set apart by color rather than borders,
-   IBM Plex Serif headings, 6px corners and soft card shadows.
+   white cards and code with soft shadows.
+   Both: IBM Plex Serif headings and site title, 6px corners, and asides in
+   the same roles (note blue, tip green, caution honey, danger red).
    Fonts: IBM Plex Sans for text, IBM Plex Mono for code. */
 
 :root {
@@ -24,6 +26,24 @@
   --sl-color-gray-5: #2e2d2a;
   --sl-color-gray-6: #1a1a1e;
   --sl-color-black: #0a0a0b;
+
+  /* Asides, in the light theme's roles: note blue, tip green, caution
+     honey (the accent), danger red. The text on each is --sl-color-white;
+     the title is the -high color. */
+  --sl-color-blue-low: #142238;
+  --sl-color-blue: #6f9fe0;
+  --sl-color-blue-high: #b9cff0;
+  --sl-color-purple-low: #15291b;
+  --sl-color-purple: #5fb276;
+  --sl-color-purple-high: #b5dfc0;
+  --sl-color-orange-low: #42341b;
+  --sl-color-orange: #e7a94a;
+  --sl-color-orange-high: #f7c56a;
+  --sl-color-red-low: #3d1714;
+  --sl-color-red: #ef6b5f;
+  --sl-color-red-high: #f6b8b1;
+
+  --kindgi-radius: 6px;
 }
 
 /* Light: cool paper. Ink scale: 25 #f8f9fb (page), 50 #f3f5f8,
@@ -74,8 +94,8 @@
   --kindgi-shadow-card: 0 1px 3px rgba(13, 16, 21, 0.06), 0 4px 12px rgba(13, 16, 21, 0.04);
 }
 
-/* Light: headings in IBM Plex Serif. */
-:root[data-theme="light"] :is(.sl-markdown-content :is(h1, h2, h3), h1#_top, .site-title) {
+/* Headings and the site title in IBM Plex Serif, in both themes. */
+:is(.sl-markdown-content :is(h1, h2, h3), h1#_top, .site-title) {
   font-family: "IBM Plex Serif", "Iowan Old Style", Georgia, serif;
   font-weight: 600;
 }
@@ -108,6 +128,17 @@
 }
 :root[data-theme="light"] .sl-markdown-content :not(pre) > code {
   border-radius: 4px;
+}
+
+/* Both themes: 6px corners on asides, cards and code. */
+.starlight-aside,
+.sl-link-card,
+.card,
+.expressive-code .frame {
+  border-radius: var(--kindgi-radius);
+}
+.expressive-code {
+  --ec-brdRad: var(--kindgi-radius);
 }
 
 /* Headings: the website's tight display tracking. */
