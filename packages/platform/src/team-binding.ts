@@ -134,6 +134,14 @@ export type TeamCreateOutcome =
       /** Another team in the tenant already has this slug. */
       readonly kind: 'slug-conflict';
       readonly slug: string;
+    }
+  | {
+      /**
+       * The org the team would be in isn't one of the tenant's: it never
+       * existed, or it was deleted. Nothing changed.
+       */
+      readonly kind: 'org-not-found';
+      readonly orgId: OrgId;
     };
 
 /** What `TeamBinding.update` did. */
@@ -147,6 +155,14 @@ export type TeamUpdateOutcome =
       /** Another team in the tenant already has the patched slug. */
       readonly kind: 'slug-conflict';
       readonly slug: string;
+    }
+  | {
+      /**
+       * The org the team would be in isn't one of the tenant's: it never
+       * existed, or it was deleted. Nothing changed.
+       */
+      readonly kind: 'org-not-found';
+      readonly orgId: OrgId;
     };
 
 /** What `TeamMembershipBinding.add` did (`ok` when already a member, too). */

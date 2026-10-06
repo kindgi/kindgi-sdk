@@ -4616,6 +4616,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Team created.', schema: ref('CreateResourceResult') },
       ...CommonMutationErrors,
+      '404': ErrorResponse(
+        'org-not-found: `orgId` names no org of the tenant (it never existed, or it was deleted).',
+      ),
     },
   },
   {
@@ -4663,7 +4666,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '204': { description: 'Updated. No body.' },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No team with that id under this tenant.'),
+      '404': ErrorResponse(
+        'team-not-found: no team with that id under this tenant; or org-not-found: `orgId` names no org of the tenant (it never existed, or it was deleted).',
+      ),
     },
   },
   {
@@ -4877,6 +4882,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Project created.', schema: ref('CreateResourceResult') },
       ...CommonMutationErrors,
+      '404': ErrorResponse(
+        'org-not-found: `orgId` names no org of the tenant (it never existed, or it was deleted).',
+      ),
     },
   },
   {
@@ -4926,7 +4934,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '204': { description: 'Updated. No body.' },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No project with that id under this tenant.'),
+      '404': ErrorResponse(
+        'project-not-found: no project with that id under this tenant; or org-not-found: `orgId` names no org of the tenant (it never existed, or it was deleted).',
+      ),
     },
   },
   {

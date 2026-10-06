@@ -27642,6 +27642,16 @@
               }
             }
           },
+          "404": {
+            "description": "org-not-found: `orgId` names no org of the tenant (it never existed, or it was deleted).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "409": {
             "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
             "content": {
@@ -27779,7 +27789,7 @@
             }
           },
           "404": {
-            "description": "No team with that id under this tenant.",
+            "description": "team-not-found: no team with that id under this tenant; or org-not-found: `orgId` names no org of the tenant (it never existed, or it was deleted).",
             "content": {
               "application/json": {
                 "schema": {
@@ -28417,6 +28427,16 @@
               }
             }
           },
+          "404": {
+            "description": "org-not-found: `orgId` names no org of the tenant (it never existed, or it was deleted).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "409": {
             "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
             "content": {
@@ -28555,7 +28575,7 @@
             }
           },
           "404": {
-            "description": "No project with that id under this tenant.",
+            "description": "project-not-found: no project with that id under this tenant; or org-not-found: `orgId` names no org of the tenant (it never existed, or it was deleted).",
             "content": {
               "application/json": {
                 "schema": {

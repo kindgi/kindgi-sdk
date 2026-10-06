@@ -19,7 +19,11 @@ import type { Cursor, OrgId, ProjectId, TenantId, UserId } from '@kindgi/types';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
-import { projectDefaultAlreadyExistsError, slugConflictError } from './hierarchy-errors.js';
+import {
+  orgNotFoundError,
+  projectDefaultAlreadyExistsError,
+  slugConflictError,
+} from './hierarchy-errors.js';
 import { clampLimit } from './pagination.js';
 
 /**
@@ -247,9 +251,11 @@ export function projectsRouter(
         const error =
           result.error.code === 'slug-conflict'
             ? slugConflictError('project', spec.slug)
-            : result.error.code === 'default-conflict'
-              ? projectDefaultAlreadyExistsError()
-              : { code: 'internal-server-error', message: result.error.message };
+            : result.error.code === 'org-not-found'
+              ? orgNotFoundError(result.error.orgId as unknown as string)
+              : result.error.code === 'default-conflict'
+                ? projectDefaultAlreadyExistsError()
+                : { code: 'internal-server-error', message: result.error.message };
         c.status(statusFor(error.code) as never);
         return c.json(toWireError(error, requestId));
       }
@@ -263,7 +269,9 @@ export function projectsRouter(
       const error =
         outcome.kind === 'slug-conflict'
           ? slugConflictError('project', outcome.slug)
-          : projectDefaultAlreadyExistsError();
+          : outcome.kind === 'org-not-found'
+            ? orgNotFoundError(outcome.orgId as unknown as string)
+            : projectDefaultAlreadyExistsError();
       c.status(statusFor(error.code) as never);
       return c.json(toWireError(error, requestId));
     }
@@ -596,8 +604,11 @@ export function projectsRouter(
         ),
       );
     }
-    if (outcome.kind === 'slug-conflict') {
-      const error = slugConflictError('project', outcome.slug);
+    if (outcome.kind === 'slug-conflict' || outcome.kind === 'org-not-found') {
+      const error =
+        outcome.kind === 'slug-conflict'
+          ? slugConflictError('project', outcome.slug)
+          : orgNotFoundError(outcome.orgId as unknown as string);
       c.status(statusFor(error.code) as never);
       return c.json(toWireError(error, requestId));
     }

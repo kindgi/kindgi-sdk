@@ -29,6 +29,8 @@ const T2 = 'tenant-2' as TenantId;
 const U1 = 'user-1' as UserId;
 const U2 = 'user-2' as UserId;
 const ORG_A = 'org-a' as OrgId;
+/** An org the binding doesn't know (T220), for the `checksOrgs` cases. */
+export const CONFORMANCE_MISSING_ORG = 'org-missing' as OrgId;
 
 /** Create a team the test expects to succeed; its id. */
 async function createTeam(teams: TeamBinding, tenantId: TenantId, spec: TeamSpec): Promise<TeamId> {
@@ -44,6 +46,10 @@ export function runTeamBindingConformance(
     readonly memberships: TeamMembershipBinding;
   },
   label = 'TeamBinding',
+  options: {
+    /** The binding checks that an org exists (`CONFORMANCE_MISSING_ORG` doesn't). */
+    readonly checksOrgs?: boolean;
+  } = {},
 ): void {
   describe(`${label} — team CRUD`, () => {
     it('creates + gets a team with orgId', async () => {
@@ -236,4 +242,26 @@ export function runTeamBindingConformance(
       expect((await teams.get(T1, id))?.slug).toBe('b');
     });
   });
+
+  if (options.checksOrgs === true) {
+    describe(`${label} — an org that isn't the tenant's (T220)`, () => {
+      it('creating a team in it: org-not-found, and nothing is created', async () => {
+        const { teams } = makeBinding();
+        expect(
+          await teams.create(T1, { name: 'T', slug: 't', orgId: CONFORMANCE_MISSING_ORG }),
+        ).toEqual({ kind: 'org-not-found', orgId: CONFORMANCE_MISSING_ORG });
+        expect((await teams.list(T1, { orgId: CONFORMANCE_MISSING_ORG })).items).toEqual([]);
+      });
+
+      it('moving a team to it: org-not-found, and the team stays where it was', async () => {
+        const { teams } = makeBinding();
+        const id = await createTeam(teams, T1, { name: 'T', slug: 't', orgId: ORG_A });
+        expect(await teams.update(T1, id, { orgId: CONFORMANCE_MISSING_ORG })).toEqual({
+          kind: 'org-not-found',
+          orgId: CONFORMANCE_MISSING_ORG,
+        });
+        expect((await teams.get(T1, id))?.orgId).toBe(ORG_A);
+      });
+    });
+  }
 }

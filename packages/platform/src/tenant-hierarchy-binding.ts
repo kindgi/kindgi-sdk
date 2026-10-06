@@ -35,6 +35,8 @@ export interface CreateTeamParams {
 
 export type CreateTeamError =
   | { readonly code: 'slug-conflict'; readonly message: string; readonly cause?: unknown }
+  /** `spec.orgId` isn't the tenant's: it never existed, or it was deleted. */
+  | { readonly code: 'org-not-found'; readonly message: string; readonly orgId: OrgId }
   | { readonly code: 'insert-failed'; readonly message: string; readonly cause?: unknown };
 
 export interface AddTeamMemberParams {
@@ -52,6 +54,8 @@ export interface CreateProjectParams {
 
 export type CreateProjectError =
   | { readonly code: 'slug-conflict'; readonly message: string; readonly cause?: unknown }
+  /** `spec.orgId` isn't the tenant's: it never existed, or it was deleted. */
+  | { readonly code: 'org-not-found'; readonly message: string; readonly orgId: OrgId }
   | { readonly code: 'default-conflict'; readonly message: string; readonly cause?: unknown }
   | { readonly code: 'insert-failed'; readonly message: string; readonly cause?: unknown };
 

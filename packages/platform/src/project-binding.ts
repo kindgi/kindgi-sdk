@@ -158,6 +158,14 @@ export type ProjectCreateOutcome =
   | {
       /** `spec.isDefault` was `true` and the tenant already has a Default project. */
       readonly kind: 'project-default-already-exists';
+    }
+  | {
+      /**
+       * The org the project would be in isn't one of the tenant's: it never
+       * existed, or it was deleted. Nothing changed.
+       */
+      readonly kind: 'org-not-found';
+      readonly orgId: OrgId;
     };
 
 /** What `ProjectBinding.update` did. */
@@ -171,6 +179,14 @@ export type ProjectUpdateOutcome =
       /** Another project in the tenant already has the patched slug. */
       readonly kind: 'slug-conflict';
       readonly slug: string;
+    }
+  | {
+      /**
+       * The org the project would be in isn't one of the tenant's: it never
+       * existed, or it was deleted. Nothing changed.
+       */
+      readonly kind: 'org-not-found';
+      readonly orgId: OrgId;
     };
 
 /** What `ProjectMembershipBinding.add` did (`ok` when already a member, too). */
