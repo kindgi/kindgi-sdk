@@ -67,6 +67,11 @@ uv run kindgi dev  # boots Kindgi locally and runs this pack, reloading on save
 `["uv", "run", "python"]`), checks that interpreter can import
 `kindgi`, and swaps the code on every save.
 
+Each git worktree of the project can run its own `kindgi dev` at the same
+time, with its own runtime, database, tenant and token. Give each one its
+own port (`uv run kindgi dev --port 4001`): only one can have the default
+4000. Ctrl+C or `--reset` in one leaves the others alone.
+
 ## Add Kindgi to an existing Python app
 
 In the app's directory (where its `pyproject.toml` is):

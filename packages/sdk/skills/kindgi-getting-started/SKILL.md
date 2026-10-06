@@ -14,7 +14,7 @@ description: >
   primitive.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.7"
+version: "0.3.8"
 sdk_version: "0.0.0"
 pack_languages: [node]
 ---
@@ -96,6 +96,11 @@ pnpm exec kindgi dev
 needs on first run), indexes the pack, registers every primitive, and
 re-registers on every save. The banner prints the API URL, the seeded
 bearer token, and (if the console is bundled) the `/console/` URL.
+
+Each git worktree of the project can run its own `kindgi dev` at the same
+time, with its own runtime, database, tenant and token. Give each one its
+own port (`pnpm exec kindgi dev --port 4001`): only one can have the default
+4000. Ctrl+C or `--reset` in one leaves the others alone.
 
 Until a model provider is registered, agents answer with `dev-echo`, a
 stand-in that calls the agent's first tool with `{"message": <userMessage>}`

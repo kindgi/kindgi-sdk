@@ -119,6 +119,32 @@ workspace root's or the pack folder's. It says which when it starts:
   This project now has its own database, kindgi_acme_desk. The old shared `kindgi` database is left as it is: projects on an older Kindgi still use it. Providers and reviewers are set up once per project: set them up here again.
   ```
 
+### Several worktrees at once
+
+Each git worktree of a project can run its own `kindgi dev` at the same time.
+Give each one its own port: the runtime's API takes 4000 by default, and only
+one can have it.
+
+```sh
+pnpm exec kindgi dev               # in the main checkout
+pnpm exec kindgi dev --port 4001   # in a second worktree
+```
+
+In a Python project, `uv run kindgi dev --port 4001`. The second one says
+which worktree it's for:
+
+```text
+  ✓ Project: acme-wt (the git repository's name; set `project` in the Kindgi config to name it; git worktree acme-wt-review)
+  ✓ Database: kindgi_acme_wt__acme_wt_review (created) in the bundled Postgres; to use your own: --database-url
+```
+
+- **Each worktree has its own** runtime, database, tenant and token (in its
+  `.kindgirc.json`), so a `kindgi runs …` command goes to the runtime of the
+  worktree you run it in.
+- **Stopping and starting over:** Ctrl+C, or `--reset`, in one worktree
+  leaves the others as they are.
+- **Shared:** the bundled Postgres serves them all.
+
 ## Calling Kindgi from an application
 
 An app that only starts runs and reads their results (no pack of its own)
