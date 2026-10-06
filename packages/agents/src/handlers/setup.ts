@@ -12,6 +12,7 @@ import { emitTurnEvent } from '../streaming.js';
 import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
 import { SESSION_GATE_SUBJECT, readGateDecision } from './gate-decision.js';
+import { followReplaySessionGate } from './replay.js';
 import { writeRunSnapshot } from './run-snapshot.js';
 import {
   loadTurnConversation,
@@ -37,7 +38,7 @@ function computeSessionGateWaitToken(input: {
 }
 
 /** The `record` key of the session gate's decision. */
-const SESSION_GATE_RECORD = 'session-hitl-gate';
+export const SESSION_GATE_RECORD = 'session-hitl-gate';
 
 /**
  * The session gate's decision, as `setup` records it the first time
@@ -140,7 +141,11 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
         timeoutMs: effectiveHitl.timeoutMs,
       };
     });
-    if (gate !== undefined) {
+    if (gate !== undefined && ctx.input.replay !== undefined) {
+      // A replay follows the past run's decision at this gate, or skips it
+      // when none was recorded; it never waits for a reviewer.
+      await followReplaySessionGate(ctx, kctx);
+    } else if (gate !== undefined) {
       const { waitTokenId, timeoutMs } = gate;
       const expiresAt = new Date(Date.now() + timeoutMs).toISOString();
 

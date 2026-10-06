@@ -13,6 +13,7 @@ import { conversationsCommand } from './conversations.js';
 import { deployCommand } from './deploy.js';
 import { devCommand } from './dev.js';
 import { envCommand } from './env.js';
+import { evalRunsCommand } from './eval-runs.js';
 import { evalSuitesCommand } from './eval-suites.js';
 import { feedbackCommand } from './feedback.js';
 import { flowsCommand } from './flows.js';
@@ -65,6 +66,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   observationsCommand,
   judgmentsCommand,
   judgeClassesCommand,
+  evalRunsCommand,
   evalSuitesCommand,
   blocksCommand,
   tokensCommand,

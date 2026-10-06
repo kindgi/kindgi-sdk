@@ -1,0 +1,47 @@
+name: Contribution check
+
+# An outside contributor's pull request carries what the kindgi-contributing
+# skill asks for: the checks that were run, the supervising person's
+# `Supervised-by:` line and the agent's trailer (scripts/contribution-check.mjs).
+# Maintainers' pull requests aren't checked.
+#
+# `pull_request_target` runs with this repository's token, so it never runs
+# the pull request's code: it checks out the base commit's script only, and
+# reads the pull request from the event and the API.
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  # The check comments on the pull request (through the issues API).
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: contribution-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Contribution format
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.pull_request.author_association != 'OWNER' &&
+      github.event.pull_request.author_association != 'MEMBER' &&
+      github.event.pull_request.author_association != 'COLLABORATOR'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The base commit's script, never the pull request's code.
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+          sparse-checkout: scripts/contribution-check.mjs
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - name: Check the pull request's format
+        run: node scripts/contribution-check.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

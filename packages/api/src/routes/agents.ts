@@ -13,7 +13,7 @@ import {
 import { type Principal, ref, tuplesForCreate } from '@kindgi/authz';
 import type { Cursor, ProjectId, Semver, TenantId, UserId } from '@kindgi/types';
 
-import type { AgentRegistryBinding } from '../agent-binding.js';
+import type { AgentRegistryBinding, AgentVersionRecord } from '../agent-binding.js';
 import { resolveAgentPins } from '../agent-pins.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
@@ -443,7 +443,7 @@ export function agentsRouter(
   return r;
 }
 
-function serializeAgent(a: Agent): Record<string, unknown> {
+function serializeAgent(a: AgentVersionRecord): Record<string, unknown> {
   return {
     id: a.id as unknown as string,
     version: a.version as unknown as string,
@@ -462,5 +462,7 @@ function serializeAgent(a: Agent): Record<string, unknown> {
     ...(a.preferredModel !== undefined && { preferredModel: a.preferredModel }),
     ...(a.pins !== undefined && { pins: a.pins }),
     ...(a.pinsDigest !== undefined && { pinsDigest: a.pinsDigest }),
+    ...(a.derivedFrom !== undefined && { derivedFrom: a.derivedFrom }),
+    ...(a.unregisteredAt !== undefined && { unregisteredAt: a.unregisteredAt }),
   };
 }

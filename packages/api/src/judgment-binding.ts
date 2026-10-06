@@ -212,6 +212,11 @@ export interface JudgedRunContext {
   readonly historyTruncated?: boolean;
   /** What the turn's retrievals returned. */
   readonly retrieved?: unknown;
+  /**
+   * The reviewer's decision at the turn's session approval gate, when the
+   * turn waited on one. A replay of the turn follows it.
+   */
+  readonly sessionApproval?: { readonly approved: boolean; readonly rationale?: string };
 }
 
 /** The stored copies of a judged run. */

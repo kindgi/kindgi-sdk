@@ -10,7 +10,7 @@
 
 import { describe, expect, test } from 'vitest';
 
-import { type AgentPins, pinsDigest } from '../src/index.js';
+import { type AgentPins, pinChanges, pinsDigest } from '../src/index.js';
 
 const pins: AgentPins = {
   tools: { 'acme.lookup': '1.2.0', 'acme.score': '2.0.0', 'acme.ä-tool': '0.1.0' },
@@ -35,5 +35,28 @@ describe('pinsDigest', () => {
     expect(pinsDigest({ ...pins, tools: { ...pins.tools, 'acme.score': '2.0.1' } })).not.toBe(
       pinsDigest(pins),
     );
+  });
+});
+
+describe('pinChanges', () => {
+  test('each pin that differs, by kind then id; none when equal', () => {
+    const later: AgentPins = {
+      tools: { 'acme.lookup': '1.3.0', 'acme.score': '2.0.0', 'acme.new': '0.1.0' },
+      prompts: {},
+      settings: {},
+    };
+    expect(pinChanges(pins, later)).toEqual([
+      { kind: 'tool', id: 'acme.lookup', from: '1.2.0', to: '1.3.0' },
+      { kind: 'tool', id: 'acme.new', to: '0.1.0' },
+      { kind: 'tool', id: 'acme.ä-tool', from: '0.1.0' },
+      { kind: 'setting', id: 'acme.weights', from: '3.1.4' },
+    ]);
+    expect(pinChanges(pins, pins)).toEqual([]);
+  });
+
+  test('without earlier pins, every pin is a change', () => {
+    expect(
+      pinChanges(undefined, { tools: { 'acme.lookup': '1.2.0' }, prompts: {}, settings: {} }),
+    ).toEqual([{ kind: 'tool', id: 'acme.lookup', to: '1.2.0' }]);
   });
 });

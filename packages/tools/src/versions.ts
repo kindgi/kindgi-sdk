@@ -43,3 +43,18 @@ export function pickVersion(available: readonly string[], range?: string): Versi
 export function latestVersion(available: readonly string[]): string | undefined {
   return semver.maxSatisfying([...available], '*', { includePrerelease: true }) ?? undefined;
 }
+
+/**
+ * The version after `version` when the runtime registers a new version
+ * in its place (a deploy whose agent version is taken): the next patch,
+ * `1.4.0` → `1.4.1`, or for a prerelease the next prerelease,
+ * `1.4.0-rc.1` → `1.4.0-rc.2`. It stays in the same line, so it never
+ * outranks a newer minor or major. `undefined` for an invalid version.
+ */
+export function nextVersion(version: string): string | undefined {
+  const parsed = semver.parse(version);
+  if (parsed === null) return undefined;
+  return parsed.prerelease.length > 0
+    ? (semver.inc(parsed, 'prerelease') ?? undefined)
+    : (semver.inc(parsed, 'patch') ?? undefined);
+}

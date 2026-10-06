@@ -90,6 +90,8 @@ export async function invokeAgent(
         conversationId: input.conversationId,
       },
       ...(input.parent !== undefined && { parent: input.parent }),
+      // A replay's run says so, and which eval run and past run it is for.
+      ...(input.replay !== undefined && { replay: input.replay }),
       ...(input.dryRun === true && { options: { dryRun: true } }),
       // Authorization — carry principal + authz into the run so every
       // tool invocation inside the agent's turn is checked.
@@ -323,5 +325,6 @@ export function turnInputFromSnapshot(
       snapshot.authz !== null && {
         authz: snapshot.authz as { readonly fgaApiUrl: string },
       }),
+    ...(snapshot.replay !== undefined && snapshot.replay !== null && { replay: snapshot.replay }),
   };
 }

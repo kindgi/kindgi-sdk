@@ -18,6 +18,7 @@ import { emitTurnEvent } from '../streaming.js';
 
 import type { AgentTurnIterationOutput, TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
+import { replayTag } from './replay.js';
 import { addModelCallNode } from './turn-provenance.js';
 
 /**
@@ -258,6 +259,7 @@ async function recordCall(
     providerId: ctx.provider.metadata.id,
     model: ctx.model.name,
     ...(ctx.provider.metadata.fallback === true && { fallback: true }),
+    ...(input.replay !== undefined && { replay: replayTag(input.replay) }),
     occurredAt: new Date().toISOString(),
   });
   return recorded.kind === 'err' ? (recorded.error ?? new Error('no detail')) : undefined;

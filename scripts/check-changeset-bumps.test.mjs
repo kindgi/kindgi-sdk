@@ -56,7 +56,7 @@ describe('bumpProblems', () => {
   test('a Release-decision line lets it through', () => {
     const decided = changeset(
       { '@kindgi/api': 'minor' },
-      'A new surface.\n\nRelease-decision: 0.2.0, Katrin, 2026-10-06',
+      'A new surface.\n\nRelease-decision: 0.2.0, the maintainers, 2026-10-06',
     );
     assert.deepEqual(bumpProblems([{ file: md('a'), text: decided }]), []);
   });

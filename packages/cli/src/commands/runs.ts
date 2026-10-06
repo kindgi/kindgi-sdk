@@ -29,12 +29,24 @@ const RUNS_TABLE: TableSpec<RunPage, Run> = {
   ],
 };
 
+const REPLAYS = ['exclude', 'include', 'only'] as const;
+
 const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
   description: 'List runs (paginated).',
-  usage: 'kindgi runs list [--limit=<n>] [--cursor=<c>]',
+  usage:
+    'kindgi runs list [--replays=exclude|include|only] [--eval-run=<id>] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
+    replays: {
+      type: 'string',
+      description:
+        'Replay runs (an eval run re-running a past run): `exclude` (the default) leaves them out, `include` lists them too, `only` lists just them.',
+    },
+    'eval-run': {
+      type: 'string',
+      description: "Only this eval run's replay runs.",
+    },
     limit: {
       type: 'string',
       description: 'The most runs to return (default 25, at most 100).',
@@ -50,6 +62,11 @@ const list: LeafCommand = {
       'runs list',
       async () => {
         const cursor = stringFlag(ctx, 'cursor');
+        const replays = stringFlag(ctx, 'replays');
+        if (replays !== undefined && !REPLAYS.includes(replays as (typeof REPLAYS)[number])) {
+          throw new Error(`--replays must be one of ${REPLAYS.join(', ')}, got "${replays}"`);
+        }
+        const evalRunId = stringFlag(ctx, 'eval-run');
         const limitStr = stringFlag(ctx, 'limit');
         const limit = limitStr !== undefined ? Number.parseInt(limitStr, 10) : undefined;
         if (limit !== undefined && Number.isNaN(limit)) {
@@ -58,6 +75,8 @@ const list: LeafCommand = {
         return await ctx.client().runs.list({
           ...(cursor !== undefined && { cursor: cursor as never }),
           ...(limit !== undefined && { limit }),
+          ...(replays !== undefined && { replays: replays as (typeof REPLAYS)[number] }),
+          ...(evalRunId !== undefined && { evalRunId }),
         });
       },
       RUNS_TABLE,

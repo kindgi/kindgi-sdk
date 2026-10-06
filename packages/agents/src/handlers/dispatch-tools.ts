@@ -20,6 +20,7 @@ import {
   throwAgentTurnFailure,
 } from './errors.js';
 import { TOOL_CALL_GATE_SUBJECT, readGateDecision } from './gate-decision.js';
+import { decideReplayTool } from './replay.js';
 import {
   effectiveToolErrorPolicy,
   toolErrorKindOf,
@@ -244,6 +245,50 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
       // skip the reviewer's answer. Cross-turn `ask_on_first_use` caching
       // (via conversation metadata) is not implemented.
       const gate = await decideToolGate(ctx, kctx, call, tool);
+
+      // A replay turn decides the call first: a recorded or refused call
+      // runs nothing, so it asks for no approval either.
+      const replayed =
+        ctx.input.replay === undefined
+          ? undefined
+          : await decideReplayTool(ctx, kctx, {
+              step: partial.step,
+              callId: call.id,
+              tool,
+              version: resolvedVersion,
+              arguments: call.arguments,
+              gated: gate !== undefined,
+            });
+      if (replayed !== undefined && replayed.kind !== 'live') {
+        const replayStarted = Date.now();
+        await emitTurnEvent(ctx.bindings.onEvent, {
+          kind: 'tool.started',
+          step: partial.step,
+          toolId: call.name,
+          toolVersion: resolvedVersion,
+          toolVersionRange: requestedRange,
+          invocationId: call.id,
+          arguments: call.arguments,
+        });
+        nextMessages = await appendToolResult(ctx, call, replayed.result, {
+          toolId: tool.id as unknown as string,
+          nextMessages,
+          iterationAppended,
+        });
+        await emitTurnEvent(ctx.bindings.onEvent, {
+          kind: 'tool.completed',
+          step: partial.step,
+          toolId: call.name,
+          toolVersion: resolvedVersion,
+          toolVersionRange: requestedRange,
+          invocationId: call.id,
+          output: replayed.result as never,
+          durationMs: Date.now() - replayStarted,
+          replay: replayed.kind,
+        });
+        continue;
+      }
+
       let toolRejectionPayload: { readonly rationale?: string } | null = null;
       if (gate !== undefined) {
         const { argsHash, waitTokenId, timeoutMs } = gate;
@@ -376,6 +421,7 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
         invocationId: call.id,
         output: dispatched.value.persisted.content,
         durationMs: Date.now() - toolStarted,
+        ...(replayed !== undefined && { replay: replayed.kind }),
       });
     }
 
@@ -495,7 +541,12 @@ async function appendToolResult(
   target.iterationAppended.push(persisted.value);
   return [
     ...target.nextMessages,
-    { role: 'tool', content: JSON.stringify(output), toolCallId: call.id },
+    {
+      role: 'tool',
+      // As a tool's own result reaches the model: a string as it is.
+      content: typeof output === 'string' ? output : JSON.stringify(output),
+      toolCallId: call.id,
+    },
   ];
 }
 

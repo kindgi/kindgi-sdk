@@ -3,6 +3,8 @@
 
 import type { ProjectId, Result, RunId, Semver, TenantId, Timestamp } from '@kindgi/types';
 
+import type { RunReplayRef } from '@kindgi/runtime';
+
 import type { PersistenceError } from './errors.js';
 import type { AgentId, ConversationId } from './types.js';
 
@@ -37,6 +39,8 @@ export interface RunSnapshotWriteInput {
    * as `principal`.
    */
   readonly authz?: unknown;
+  /** The turn's replay marker (`InvokeAgentInput.replay`): a resumed replay stays one. */
+  readonly replay?: RunReplayRef;
 }
 
 /**
@@ -59,6 +63,8 @@ export interface RunSnapshotRecord {
   readonly dryRun: boolean;
   readonly principal?: unknown;
   readonly authz?: unknown;
+  /** The turn's replay marker (`InvokeAgentInput.replay`): a resumed replay stays one. */
+  readonly replay?: RunReplayRef;
   readonly createdAt: Timestamp;
 }
 

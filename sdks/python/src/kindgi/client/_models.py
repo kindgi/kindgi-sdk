@@ -8,7 +8,8 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import AnyUrl, AwareDatetime, BaseModel, ConfigDict, Field, RootModel
+from pydantic import AnyUrl, AwareDatetime, BaseModel, ConfigDict, Field, RootModel, constr
+from typing_extensions import TypeAliasType
 
 
 class Error(BaseModel):
@@ -108,6 +109,14 @@ class Run(BaseModel):
     Set on a child run: the node in the parent run that started it.
     """
     agent: RunAgent | None = None
+    replay_of: Annotated[UUID | None, Field(alias="replayOf")] = None
+    """
+    Set on a replay run (an eval run re-running a past run): the run it replays.
+    """
+    eval_run_id: Annotated[str | None, Field(alias="evalRunId")] = None
+    """
+    Set on a replay run: the eval run that started it.
+    """
     public_access_token: Annotated[str | None, Field(alias="publicAccessToken")] = None
     """
     Only in the response to `POST /v1/runs`, when the deployment issues public run tokens: a read-only token for this run (and its descendants) to hand to a browser, for `GET /v1/runs/{runId}/progress` and its stream.
@@ -263,6 +272,14 @@ class Datum(BaseModel):
     Set on a child run: the node in the parent run that started it.
     """
     agent: RunAgent | None = None
+    replay_of: Annotated[UUID | None, Field(alias="replayOf")] = None
+    """
+    Set on a replay run (an eval run re-running a past run): the run it replays.
+    """
+    eval_run_id: Annotated[str | None, Field(alias="evalRunId")] = None
+    """
+    Set on a replay run: the eval run that started it.
+    """
     public_access_token: Annotated[str | None, Field(alias="publicAccessToken")] = None
     """
     Only in the response to `POST /v1/runs`, when the deployment issues public run tokens: a read-only token for this run (and its descendants) to hand to a browser, for `GET /v1/runs/{runId}/progress` and its stream.
@@ -1173,9 +1190,25 @@ class Judgment(BaseModel):
     """
 
 
+class SessionApproval(BaseModel):
+    """
+    The reviewer's decision at the turn's session approval gate, when the turn waited on one. A replay of the turn follows it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    approved: bool
+    rationale: str | None = None
+    """
+    The reviewer's reason for a rejection.
+    """
+
+
 class JudgedRunContext(BaseModel):
     """
-    What a judged agent turn read besides its input, captured when it was first judged: the conversation before it and what its retrievals returned.
+    What a judged agent turn read besides its input, captured when it was first judged: the conversation before it, what its retrievals returned, and the decision at its session approval gate.
     """
 
     model_config = ConfigDict(
@@ -1193,6 +1226,10 @@ class JudgedRunContext(BaseModel):
     retrieved: Any | None = None
     """
     What the turn's retrievals returned.
+    """
+    session_approval: Annotated[SessionApproval | None, Field(alias="sessionApproval")] = None
+    """
+    The reviewer's decision at the turn's session approval gate, when the turn waited on one. A replay of the turn follows it.
     """
 
 
@@ -1536,6 +1573,65 @@ class AgentPins(BaseModel):
     """
 
 
+class PinChange(BaseModel):
+    """
+    One pin that differs between two versions of an agent or a flow.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["tool", "prompt", "setting", "agent"]
+    id: str
+    from_: Annotated[str | None, Field(alias="from")] = None
+    """
+    The earlier version's pin; absent when it had none.
+    """
+    to: str | None = None
+    """
+    The later version's pin; absent when it has none.
+    """
+
+
+class VersionDerivation(BaseModel):
+    """
+    Set by the runtime on an agent or flow version a deploy registered in place of the definition's version, which was registered already with other pins or content (versions never change). Never in the publish body.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    version: str
+    """
+    The version the definition names.
+    """
+    reason: Literal["pins-changed", "unpinned", "version-taken"]
+    """
+    `pins-changed`: a block it uses has a new version; `unpinned`: the definition's version was published before pins existed; `version-taken`: the definition's version holds another definition.
+    """
+
+
+class FlowPins(BaseModel):
+    """
+    The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs, and each agent it runs at no named version, resolves once to its latest version then, which every run of that flow version uses. Absent on a version published before pins existed (it binds the latest versions per run).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tools: dict[str, str]
+    """
+    Tool id → exact version.
+    """
+    agents: dict[str, str]
+    """
+    Agent id → exact version, for agent nodes that name no version.
+    """
+
+
 class PublishAgentBody(BaseModel):
     """
     Full `defineAgent` spec. Validated server-side via `@kindgi/agents.defineAgent` — validation failures return `400 validation-failed` with the issue list under `details.issues`.
@@ -1665,6 +1761,18 @@ class Flow(BaseModel):
     edges: list[FlowEdge]
     max_parallelism: Annotated[int | None, Field(alias="maxParallelism", ge=1)] = None
     metadata: dict[str, Any] | None = None
+    pins: FlowPins | None = None
+    pins_digest: Annotated[
+        str | None, Field(alias="pinsDigest", pattern="^sha256:[0-9a-f]{64}$")
+    ] = None
+    """
+    Set by the runtime with `pins`: `sha256:<hex>` of the pins' canonical JSON (sorted keys, no whitespace).
+    """
+    derived_from: Annotated[VersionDerivation | None, Field(alias="derivedFrom")] = None
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    Present only on an unregistered version (`GET …/versions/{version}` reads those too). Unregister stops a version being chosen, not the pins that hold it: a new run naming it is refused, while a resumed run and a published version that pins it still run it.
+    """
 
 
 class PublishFlowBody(BaseModel):
@@ -3502,6 +3610,11 @@ class ModelInfo(BaseModel):
     """
 
 
+LabelsAdditionalProperty = TypeAliasType(
+    "LabelsAdditionalProperty", Annotated[str, Field(max_length=256)]
+)
+
+
 class ProviderMetadata(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -3531,6 +3644,14 @@ class ProviderMetadata(BaseModel):
     fallback: bool | None = None
     """
     A fallback serves a capability only when no other provider satisfies it (e.g. `kindgi dev`'s scripted `dev-echo`); an agent turn routed to one carries a `fallback-provider` warning. Absent = `false`.
+    """
+    labels: Annotated[
+        dict[constr(pattern=r"^[a-z0-9]([a-z0-9._/-]{0,61}[a-z0-9])?$"), LabelsAdditionalProperty]
+        | None,
+        Field(max_length=32),
+    ] = None
+    """
+    Bookkeeping, such as who manages the provider; the router ignores labels. At most 32 keys; a key is 1-63 lowercase letters and digits, with `.`, `-`, `_` or `/` inside; a value is at most 256 characters. The convention key `kindgi.com/managed-by` names the manager (`kindgi-dev`, `kindgi-deploy:<environment>`). Out of bounds: `400 invalid-provider`, reason `invalid-labels`.
     """
 
 
@@ -4375,6 +4496,61 @@ class EvalRunFlowRef(BaseModel):
     version: Annotated[str | None, Field(pattern="^\\d+\\.\\d+\\.\\d+$")] = None
 
 
+class EvalBaseline1(BaseModel):
+    """
+    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`). Only `'recorded'` runs today; the others are refused when the run starts.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    agent_id: Annotated[str, Field(alias="agentId")]
+    version: str
+
+
+class Live(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+    segments: dict[str, str] | None = None
+
+
+class EvalBaseline2(BaseModel):
+    """
+    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`). Only `'recorded'` runs today; the others are refused when the run starts.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    live: Live
+
+
+class EvalComparison(BaseModel):
+    """
+    A comparison eval run's settings (a `judged` suite).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    baseline: Literal["recorded"] | EvalBaseline1 | EvalBaseline2
+    """
+    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`). Only `'recorded'` runs today; the others are refused when the run starts.
+    """
+    reads: Literal["recorded", "live"]
+    """
+    Whether replayed reads use the past run's results when it has them (`recorded`), or run live.
+    """
+    repetitions: Annotated[int, Field(ge=1, le=10)]
+    k: Annotated[int, Field(ge=1, le=100)]
+
+
 class EvalRun(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -4395,10 +4571,11 @@ class EvalRun(BaseModel):
     completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
     result: dict[str, Any] | None = None
     """
-    Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. Other kinds define their own shapes as their dispatchers ship.
+    Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline and candidate, the case counts (`cases`, `diverged`, `refusedWrites`, `errors`), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, and the tool calls with what happened to each. Other kinds define their own shapes as their dispatchers ship.
     """
     error: str | None = None
     correlation_id: Annotated[str | None, Field(alias="correlationId")] = None
+    comparison: EvalComparison | None = None
 
 
 class EvalRunCollectionPage(BaseModel):
@@ -4413,7 +4590,7 @@ class EvalRunCollectionPage(BaseModel):
 
 class StartEvalRunBody(BaseModel):
     """
-    Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject.
+    Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't; `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how.
     """
 
     model_config = ConfigDict(
@@ -4428,6 +4605,13 @@ class StartEvalRunBody(BaseModel):
     flow_ref: Annotated[EvalRunFlowRef | None, Field(alias="flowRef")] = None
     dry_run: Annotated[bool | None, Field(alias="dryRun")] = None
     correlation_id: Annotated[str | None, Field(alias="correlationId")] = None
+    baseline: Literal["recorded"] | EvalBaseline1 | EvalBaseline2 | None = None
+    """
+    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`). Only `'recorded'` runs today; the others are refused when the run starts.
+    """
+    reads: Literal["recorded", "live"] | None = None
+    repetitions: Annotated[int | None, Field(ge=1, le=10)] = None
+    k: Annotated[int | None, Field(ge=1, le=100)] = None
 
 
 class StartEvalRunResult(BaseModel):
@@ -4711,9 +4895,25 @@ class Agent1(BaseModel):
         populate_by_name=True,
     )
     id: str
-    version: str | None = None
+    version: str
     """
-    Absent for guardrails, which have no version.
+    The version the agent is registered as.
+    """
+    authored_version: Annotated[str | None, Field(alias="authoredVersion")] = None
+    """
+    The version the agent's or flow's definition names, present when it differs from `version`: that version was registered already with other pins or content, and versions never change, so the deploy registered the next free version in its line (or an earlier deploy did).
+    """
+    reason: Literal["pins-changed", "unpinned", "version-taken"] | None = None
+    """
+    Why `version` differs from `authoredVersion`: `pins-changed` (a tool or agent it uses has a new version), `unpinned` (`authoredVersion` was published before pins existed), `version-taken` (`authoredVersion` is registered with other content).
+    """
+    new_version: Annotated[bool | None, Field(alias="newVersion")] = None
+    """
+    `true`: this deploy registered `version`; `false`: an earlier deploy did.
+    """
+    pin_changes: Annotated[list[PinChange] | None, Field(alias="pinChanges")] = None
+    """
+    For `pins-changed`: the pins that differ from `authoredVersion`'s.
     """
 
 
@@ -4723,9 +4923,25 @@ class Flow1(BaseModel):
         populate_by_name=True,
     )
     id: str
-    version: str | None = None
+    version: str
     """
-    Absent for guardrails, which have no version.
+    The version the agent is registered as.
+    """
+    authored_version: Annotated[str | None, Field(alias="authoredVersion")] = None
+    """
+    The version the agent's or flow's definition names, present when it differs from `version`: that version was registered already with other pins or content, and versions never change, so the deploy registered the next free version in its line (or an earlier deploy did).
+    """
+    reason: Literal["pins-changed", "unpinned", "version-taken"] | None = None
+    """
+    Why `version` differs from `authoredVersion`: `pins-changed` (a tool or agent it uses has a new version), `unpinned` (`authoredVersion` was published before pins existed), `version-taken` (`authoredVersion` is registered with other content).
+    """
+    new_version: Annotated[bool | None, Field(alias="newVersion")] = None
+    """
+    `true`: this deploy registered `version`; `false`: an earlier deploy did.
+    """
+    pin_changes: Annotated[list[PinChange] | None, Field(alias="pinChanges")] = None
+    """
+    For `pins-changed`: the pins that differ from `authoredVersion`'s.
     """
 
 
@@ -6692,6 +6908,11 @@ class Agent(BaseModel):
     output: AgentOutputSpec | None = None
     tool_errors: Annotated[ToolErrorsSpec | None, Field(alias="toolErrors")] = None
     pins: AgentPins | None = None
+    derived_from: Annotated[VersionDerivation | None, Field(alias="derivedFrom")] = None
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    Present only on an unregistered version (`GET …/versions/{version}` reads those too). Unregister stops a version being chosen, not the pins that hold it: a new run naming it is refused, while a resumed run and a published version that pins it still run it.
+    """
     pins_digest: Annotated[
         str | None, Field(alias="pinsDigest", pattern="^sha256:[0-9a-f]{64}$")
     ] = None

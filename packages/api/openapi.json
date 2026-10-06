@@ -338,6 +338,15 @@
           "agent": {
             "$ref": "#/components/schemas/RunAgent"
           },
+          "replayOf": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Set on a replay run (an eval run re-running a past run): the run it replays."
+          },
+          "evalRunId": {
+            "type": "string",
+            "description": "Set on a replay run: the eval run that started it."
+          },
           "publicAccessToken": {
             "type": "string",
             "description": "Only in the response to `POST /v1/runs`, when the deployment issues public run tokens: a read-only token for this run (and its descendants) to hand to a browser, for `GET /v1/runs/{runId}/progress` and its stream."
@@ -552,6 +561,15 @@
                 },
                 "agent": {
                   "$ref": "#/components/schemas/RunAgent"
+                },
+                "replayOf": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "Set on a replay run (an eval run re-running a past run): the run it replays."
+                },
+                "evalRunId": {
+                  "type": "string",
+                  "description": "Set on a replay run: the eval run that started it."
                 },
                 "publicAccessToken": {
                   "type": "string",
@@ -2253,7 +2271,7 @@
       "JudgedRunContext": {
         "type": "object",
         "additionalProperties": false,
-        "description": "What a judged agent turn read besides its input, captured when it was first judged: the conversation before it and what its retrievals returned.",
+        "description": "What a judged agent turn read besides its input, captured when it was first judged: the conversation before it, what its retrievals returned, and the decision at its session approval gate.",
         "properties": {
           "history": {
             "type": "array",
@@ -2266,6 +2284,23 @@
           },
           "retrieved": {
             "description": "What the turn's retrievals returned."
+          },
+          "sessionApproval": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "approved"
+            ],
+            "description": "The reviewer's decision at the turn's session approval gate, when the turn waited on one. A replay of the turn follows it.",
+            "properties": {
+              "approved": {
+                "type": "boolean"
+              },
+              "rationale": {
+                "type": "string",
+                "description": "The reviewer's reason for a rejection."
+              }
+            }
           }
         }
       },
@@ -2880,6 +2915,14 @@
           "pins": {
             "$ref": "#/components/schemas/AgentPins"
           },
+          "derivedFrom": {
+            "$ref": "#/components/schemas/VersionDerivation"
+          },
+          "unregisteredAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Present only on an unregistered version (`GET …/versions/{version}` reads those too). Unregister stops a version being chosen, not the pins that hold it: a new run naming it is refused, while a resumed run and a published version that pins it still run it."
+          },
           "pinsDigest": {
             "type": "string",
             "pattern": "^sha256:[0-9a-f]{64}$",
@@ -2917,6 +2960,86 @@
               "type": "string"
             },
             "description": "Settings block id → exact version."
+          }
+        }
+      },
+      "PinChange": {
+        "description": "One pin that differs between two versions of an agent or a flow.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "id"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tool",
+              "prompt",
+              "setting",
+              "agent"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string",
+            "description": "The earlier version's pin; absent when it had none."
+          },
+          "to": {
+            "type": "string",
+            "description": "The later version's pin; absent when it has none."
+          }
+        }
+      },
+      "VersionDerivation": {
+        "description": "Set by the runtime on an agent or flow version a deploy registered in place of the definition's version, which was registered already with other pins or content (versions never change). Never in the publish body.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "reason"
+        ],
+        "properties": {
+          "version": {
+            "type": "string",
+            "description": "The version the definition names."
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "pins-changed",
+              "unpinned",
+              "version-taken"
+            ],
+            "description": "`pins-changed`: a block it uses has a new version; `unpinned`: the definition's version was published before pins existed; `version-taken`: the definition's version holds another definition."
+          }
+        }
+      },
+      "FlowPins": {
+        "description": "The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs, and each agent it runs at no named version, resolves once to its latest version then, which every run of that flow version uses. Absent on a version published before pins existed (it binds the latest versions per run).",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tools",
+          "agents"
+        ],
+        "properties": {
+          "tools": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Tool id → exact version."
+          },
+          "agents": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Agent id → exact version, for agent nodes that name no version."
           }
         }
       },
@@ -3203,6 +3326,22 @@
           "metadata": {
             "type": "object",
             "additionalProperties": true
+          },
+          "pins": {
+            "$ref": "#/components/schemas/FlowPins"
+          },
+          "pinsDigest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "description": "Set by the runtime with `pins`: `sha256:<hex>` of the pins' canonical JSON (sorted keys, no whitespace)."
+          },
+          "derivedFrom": {
+            "$ref": "#/components/schemas/VersionDerivation"
+          },
+          "unregisteredAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Present only on an unregistered version (`GET …/versions/{version}` reads those too). Unregister stops a version being chosen, not the pins that hold it: a new run naming it is refused, while a resumed run and a published version that pins it still run it."
           }
         }
       },
@@ -6374,6 +6513,18 @@
           "fallback": {
             "type": "boolean",
             "description": "A fallback serves a capability only when no other provider satisfies it (e.g. `kindgi dev`'s scripted `dev-echo`); an agent turn routed to one carries a `fallback-provider` warning. Absent = `false`."
+          },
+          "labels": {
+            "type": "object",
+            "maxProperties": 32,
+            "propertyNames": {
+              "pattern": "^[a-z0-9]([a-z0-9._/-]{0,61}[a-z0-9])?$"
+            },
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 256
+            },
+            "description": "Bookkeeping, such as who manages the provider; the router ignores labels. At most 32 keys; a key is 1-63 lowercase letters and digits, with `.`, `-`, `_` or `/` inside; a value is at most 256 characters. The convention key `kindgi.com/managed-by` names the manager (`kindgi-dev`, `kindgi-deploy:<environment>`). Out of bounds: `400 invalid-provider`, reason `invalid-labels`."
           }
         }
       },
@@ -8190,6 +8341,91 @@
           }
         }
       },
+      "EvalBaseline": {
+        "description": "What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`). Only `'recorded'` runs today; the others are refused when the run starts.",
+        "oneOf": [
+          {
+            "type": "string",
+            "enum": [
+              "recorded"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "agentId",
+              "version"
+            ],
+            "properties": {
+              "agentId": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "live"
+            ],
+            "properties": {
+              "live": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "projectId": {
+                    "type": "string"
+                  },
+                  "segments": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "EvalComparison": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "baseline",
+          "reads",
+          "repetitions",
+          "k"
+        ],
+        "description": "A comparison eval run's settings (a `judged` suite).",
+        "properties": {
+          "baseline": {
+            "$ref": "#/components/schemas/EvalBaseline"
+          },
+          "reads": {
+            "type": "string",
+            "enum": [
+              "recorded",
+              "live"
+            ],
+            "description": "Whether replayed reads use the past run's results when it has them (`recorded`), or run live."
+          },
+          "repetitions": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10
+          },
+          "k": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        }
+      },
       "EvalRun": {
         "type": "object",
         "additionalProperties": false,
@@ -8252,13 +8488,16 @@
           "result": {
             "type": "object",
             "additionalProperties": true,
-            "description": "Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. Other kinds define their own shapes as their dispatchers ship."
+            "description": "Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline and candidate, the case counts (`cases`, `diverged`, `refusedWrites`, `errors`), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, and the tool calls with what happened to each. Other kinds define their own shapes as their dispatchers ship."
           },
           "error": {
             "type": "string"
           },
           "correlationId": {
             "type": "string"
+          },
+          "comparison": {
+            "$ref": "#/components/schemas/EvalComparison"
           }
         }
       },
@@ -8307,9 +8546,29 @@
           },
           "correlationId": {
             "type": "string"
+          },
+          "baseline": {
+            "$ref": "#/components/schemas/EvalBaseline"
+          },
+          "reads": {
+            "type": "string",
+            "enum": [
+              "recorded",
+              "live"
+            ]
+          },
+          "repetitions": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10
+          },
+          "k": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
           }
         },
-        "description": "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject."
+        "description": "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't; `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how."
       },
       "StartEvalRunResult": {
         "type": "object",
@@ -8884,7 +9143,8 @@
               "type": "object",
               "additionalProperties": false,
               "required": [
-                "id"
+                "id",
+                "version"
               ],
               "properties": {
                 "id": {
@@ -8892,7 +9152,31 @@
                 },
                 "version": {
                   "type": "string",
-                  "description": "Absent for guardrails, which have no version."
+                  "description": "The version the agent is registered as."
+                },
+                "authoredVersion": {
+                  "type": "string",
+                  "description": "The version the agent's or flow's definition names, present when it differs from `version`: that version was registered already with other pins or content, and versions never change, so the deploy registered the next free version in its line (or an earlier deploy did)."
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "pins-changed",
+                    "unpinned",
+                    "version-taken"
+                  ],
+                  "description": "Why `version` differs from `authoredVersion`: `pins-changed` (a tool or agent it uses has a new version), `unpinned` (`authoredVersion` was published before pins existed), `version-taken` (`authoredVersion` is registered with other content)."
+                },
+                "newVersion": {
+                  "type": "boolean",
+                  "description": "`true`: this deploy registered `version`; `false`: an earlier deploy did."
+                },
+                "pinChanges": {
+                  "type": "array",
+                  "description": "For `pins-changed`: the pins that differ from `authoredVersion`'s.",
+                  "items": {
+                    "$ref": "#/components/schemas/PinChange"
+                  }
                 }
               }
             }
@@ -8903,7 +9187,8 @@
               "type": "object",
               "additionalProperties": false,
               "required": [
-                "id"
+                "id",
+                "version"
               ],
               "properties": {
                 "id": {
@@ -8911,7 +9196,31 @@
                 },
                 "version": {
                   "type": "string",
-                  "description": "Absent for guardrails, which have no version."
+                  "description": "The version the agent is registered as."
+                },
+                "authoredVersion": {
+                  "type": "string",
+                  "description": "The version the agent's or flow's definition names, present when it differs from `version`: that version was registered already with other pins or content, and versions never change, so the deploy registered the next free version in its line (or an earlier deploy did)."
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "pins-changed",
+                    "unpinned",
+                    "version-taken"
+                  ],
+                  "description": "Why `version` differs from `authoredVersion`: `pins-changed` (a tool or agent it uses has a new version), `unpinned` (`authoredVersion` was published before pins existed), `version-taken` (`authoredVersion` is registered with other content)."
+                },
+                "newVersion": {
+                  "type": "boolean",
+                  "description": "`true`: this deploy registered `version`; `false`: an earlier deploy did."
+                },
+                "pinChanges": {
+                  "type": "array",
+                  "description": "For `pins-changed`: the pins that differ from `authoredVersion`'s.",
+                  "items": {
+                    "$ref": "#/components/schemas/PinChange"
+                  }
                 }
               }
             }
@@ -12553,6 +12862,31 @@
             },
             "required": false,
             "description": "Only this agent's turns, at any version. Turns that ran before Kindgi 0.1.3 don't name their agent and aren't matched."
+          },
+          {
+            "name": "replays",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "exclude",
+                "include",
+                "only"
+              ],
+              "default": "exclude"
+            },
+            "required": false,
+            "description": "Replay runs (an eval run re-running a past run). `exclude` (default) leaves them out; `include` lists them with the other runs; `only` lists just them."
+          },
+          {
+            "name": "evalRunId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Only the replay runs of this eval run. Implies replays are included; cannot be combined with `replays=exclude`."
           },
           {
             "name": "include",
@@ -19754,7 +20088,7 @@
             }
           }
         },
-        "description": "Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding.",
+        "description": "Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped; optional `labels` within their limits — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -19939,7 +20273,7 @@
             }
           },
           "404": {
-            "description": "No provider with that id under this tenant.",
+            "description": "No provider with that id under this tenant, or already unregistered.",
             "content": {
               "application/json": {
                 "schema": {
@@ -19969,6 +20303,7 @@
             }
           }
         },
+        "description": "A tombstone, not an erase: from then on the provider is gone from list, get and capabilities, and the router never picks it. Its id is free to register again. A retention policy on the `provider` domain purges the row.",
         "parameters": [
           {
             "name": "providerId",

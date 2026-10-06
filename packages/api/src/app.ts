@@ -1030,7 +1030,16 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     v1.route('/agents', agentsRouter(input.agentRegistry, authorizer, input.toolRegistry));
   }
   if (input.flowRegistry !== undefined) {
-    v1.route('/flows', flowsRouter(input.flowRegistry, authorizer));
+    v1.route(
+      '/flows',
+      flowsRouter(
+        input.flowRegistry,
+        authorizer,
+        input.toolRegistry !== undefined && input.agentRegistry !== undefined
+          ? { tools: input.toolRegistry, agents: input.agentRegistry }
+          : undefined,
+      ),
+    );
   }
   if (input.toolRegistry !== undefined) {
     v1.route('/tools', toolsRouter(input.toolRegistry, authorizer, input.onToolWrite));

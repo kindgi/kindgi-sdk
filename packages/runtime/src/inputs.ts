@@ -56,6 +56,12 @@ export interface RunAgentRef {
   readonly conversationId: ConversationId;
 }
 
+/** Marks a run as a replay: an eval run re-running a past run (`of`). */
+export interface RunReplayRef {
+  readonly of: RunId;
+  readonly evalRunId: string;
+}
+
 /**
  * Binds the handlers for a flow the runtime is about to run or resume —
  * the root flow and every child flow a subgraph node starts. Lets a
@@ -101,6 +107,8 @@ export interface RunFlowInput {
   readonly parent?: ParentRunRef;
   /** The agent this run is a turn of; see `RunAgentRef`. */
   readonly agent?: RunAgentRef;
+  /** Set when an eval run is replaying a past run; see `RunReplayRef`. */
+  readonly replay?: RunReplayRef;
   /**
    * Run an existing `pending` row (created by `startRun`) instead of
    * inserting a new one — how a caller hands back a run id before the
@@ -170,6 +178,8 @@ export interface StartRunParams {
   readonly parent?: ParentRunRef;
   /** The agent this run is a turn of; see `RunAgentRef`. */
   readonly agent?: RunAgentRef;
+  /** Set when an eval run is replaying a past run; see `RunReplayRef`. */
+  readonly replay?: RunReplayRef;
 }
 
 export type StartRunError = { readonly code: 'insert-failed'; readonly message: string };
