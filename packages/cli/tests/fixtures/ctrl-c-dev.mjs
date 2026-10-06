@@ -62,9 +62,9 @@ report({ kind: 'ready', pid: process.pid, packPid: output.pid });
 
 await new Promise((resolve) => stopSignal.addEventListener('abort', resolve, { once: true }));
 report({ kind: 'stopping' });
-// The stop's first step holds the event loop, as closing a recursive file
-// watcher does on macOS (over a second): a signal that came with the first
-// is handled only after it.
+// A stop step holds the event loop, as closing a recursive file watcher
+// does on macOS (over a second). Here it's the first, the hardest case: a
+// signal that came with the first is handled only after it.
 const holdUntil = Date.now() + 700;
 while (Date.now() < holdUntil) {}
 // The rest of the stop takes a while (the runtime's container): the pack

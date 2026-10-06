@@ -106,6 +106,8 @@ interface Fixtures {
   readonly packStops: () => number;
   /** How often the pack service was told it's closing (`beginClose`). */
   readonly packBeginCloses: () => number;
+  /** What the stop took down, in order: `runtime: stopping` / `runtime: gone`, `watcher`, `pack service`. */
+  readonly stopOrder: string[];
   /** Interpreters `checkPackPython` was asked about. */
   readonly pythonChecks: (readonly string[])[];
   /** The `PackCode` each of the pack service, the builder and the indexer got. */
@@ -128,9 +130,12 @@ function makeFixtures(
     readonly externals?: readonly ExternalPackage[];
     /** Disposing the builder fails (a shutdown step that throws). */
     readonly disposeFails?: boolean;
+    /** Stopping the runtime fails at once. */
+    readonly shutdownFails?: boolean;
   } = {},
 ): Fixtures {
   const pythonChecks: (readonly string[])[] = [];
+  const stopOrder: string[] = [];
   const serviceCodes: unknown[] = [];
   const builderCodes: unknown[] = [];
   const indexerCodes: unknown[] = [];
@@ -148,6 +153,11 @@ function makeFixtures(
     shutdownCount: 0,
     shutdown: async () => {
       server.shutdownCount += 1;
+      // As `docker stop`: under way at once, done a while later.
+      stopOrder.push('runtime: stopping');
+      if (opts.shutdownFails === true) throw new Error('docker stop failed');
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      stopOrder.push('runtime: gone');
     },
   };
 
@@ -161,6 +171,7 @@ function makeFixtures(
     closeCount: 0,
     close: async () => {
       watchHandle.closeCount += 1;
+      stopOrder.push('watcher');
     },
   };
 
@@ -191,6 +202,7 @@ function makeFixtures(
         listen: async () => ({ url: 'http://127.0.0.1:1', port: 1 }),
         close: async () => {
           packStops += 1;
+          stopOrder.push('pack service');
         },
         transport: {
           target: 'fake-pack',
@@ -273,6 +285,7 @@ function makeFixtures(
     published,
     packStops: () => packStops,
     packBeginCloses: () => packBeginCloses,
+    stopOrder,
     pythonChecks,
     serviceCodes,
     builderCodes,
@@ -1110,6 +1123,49 @@ describe('kindgi dev — watch flow', () => {
     expect(out.exitCode).toBe(0);
     expect(fixtures.watchHandle.closeCount).toBe(2);
     expect(fixtures.server.shutdownCount).toBe(1);
+  });
+
+  test('the watchers close while the runtime stops; a change seen while stopping starts nothing', async () => {
+    const controller = new AbortController();
+    const fixtures = makeFixtures({ outcomes: [defaultHappyOutcome()] });
+    const promise = runCli({
+      ...baseInputs(fixtures, { stopSignal: controller.signal }),
+      argv: ['dev', `--path=${packDir}`],
+    });
+    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
+    const indexed = fixtures.captureIndexerCalls.length;
+    controller.abort();
+    // The watchers are still open while the runtime shuts down: what they
+    // report now is ignored.
+    fixtures.triggerChange();
+    fixtures.triggerEnvChange();
+    const out = await promise;
+    expect(out.exitCode).toBe(0);
+    expect(fixtures.captureIndexerCalls).toHaveLength(indexed);
+    // Closing a recursive watcher holds the loop for a second or more on
+    // macOS: it happens while the runtime's container stops, not before.
+    expect(fixtures.stopOrder).toEqual([
+      'runtime: stopping',
+      'watcher',
+      'watcher',
+      'runtime: gone',
+      'pack service',
+    ]);
+  });
+
+  test("a runtime that won't stop still has the watchers and the pack service closed", async () => {
+    const controller = new AbortController();
+    const fixtures = makeFixtures({ outcomes: [defaultHappyOutcome()], shutdownFails: true });
+    const promise = runCli({
+      ...baseInputs(fixtures, { stopSignal: controller.signal }),
+      argv: ['dev', `--path=${packDir}`],
+    });
+    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
+    controller.abort();
+    const out = await promise;
+    expect(out.exitCode).not.toBe(0);
+    expect(out.stderr).toContain('docker stop failed');
+    expect(fixtures.stopOrder).toEqual(['runtime: stopping', 'watcher', 'watcher', 'pack service']);
   });
 
   test('a shutdown step that fails still shuts the runtime and the pack service down', async () => {
