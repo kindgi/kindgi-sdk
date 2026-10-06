@@ -24,7 +24,7 @@ export { invokeTool } from './invoke.js';
 export { ToolPreconditionError, isToolPreconditionError } from './precondition.js';
 export type { InvokeToolOptions } from './invoke.js';
 export { createToolRegistry } from './registry.js';
-export type { ToolRegistry, ToolResolution } from './registry.js';
+export type { ToolRegisterOptions, ToolRegistry, ToolResolution } from './registry.js';
 export { latestVersion, pickVersion } from './versions.js';
 export type { VersionPick } from './versions.js';
 export { toManifest, toMcpManifest } from './manifest.js';

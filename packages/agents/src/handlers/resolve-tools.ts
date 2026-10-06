@@ -2,7 +2,8 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { ModelToolDefinition } from '@kindgi/capabilities';
-import type { Tool, ToolError, ToolRegistry } from '@kindgi/tools';
+import type { Tool, ToolError, ToolRegistry, ToolResolution } from '@kindgi/tools';
+import type { Result, ToolId } from '@kindgi/types';
 
 import type { Agent, ToolRef } from '../types.js';
 
@@ -36,7 +37,12 @@ export function resolveTurnTools(
     // telemetry — a replay can then pin against the same version.
     const turnPin = pinned?.[ref.id];
     const pin = turnPin ?? agent.pins?.tools[ref.id];
-    const resolved = registry.resolve(ref.id as never, pin ?? ref.version);
+    // A pin names its exact version, which a retired (unregistered) one
+    // still serves; a range picks among the active versions only.
+    const resolved =
+      pin !== undefined
+        ? exactVersion(registry, ref.id, pin)
+        : registry.resolve(ref.id as never, ref.version);
     if (resolved.kind === 'err') {
       throwUnresolved(agent, ref, resolved.error, pin, turnPin !== undefined ? 'turn' : 'agent');
     }
@@ -49,6 +55,18 @@ export function resolveTurnTools(
     byName.set(tool.id, { tool, resolvedVersion, requestedRange: ref.version });
   }
   return { definitions, byName };
+}
+
+/** A pinned tool version, retired or not, as a resolution. */
+function exactVersion(
+  registry: ToolRegistry,
+  id: string,
+  version: string,
+): Result<ToolResolution, ToolError> {
+  const found = registry.getVersion(id as ToolId, version);
+  return found.kind === 'ok'
+    ? { kind: 'ok', value: { tool: found.value, resolvedVersion: version } }
+    : found;
 }
 
 /**

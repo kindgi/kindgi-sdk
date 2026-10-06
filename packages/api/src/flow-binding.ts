@@ -39,11 +39,12 @@ export interface FlowRegistryBinding {
    */
   get(input: FlowGetInput): Promise<Flow | null>;
   /**
-   * Specific `(flowId, version)` lookup, or `null` if unknown.
-   * Returns tombstoned versions too — provenance paths need to
-   * resolve historical run references.
+   * Specific `(flowId, version)` lookup, or `null` if unknown. Returns
+   * unregistered (tombstoned) versions too, with `unregisteredAt` set:
+   * a resumed run and provenance read them, while a new run that names
+   * one is refused.
    */
-  getVersion(input: FlowGetVersionInput): Promise<Flow | null>;
+  getVersion(input: FlowGetVersionInput): Promise<FlowVersionRecord | null>;
   /**
    * Head-row existence check. Lets `GET /v1/flows/{id}` distinguish
    * `410 gone` (identity exists, no active version) from `404 not-
@@ -78,6 +79,12 @@ export interface FlowRegistryBinding {
    */
   reinstateVersion(input: FlowReinstateVersionInput): Promise<FlowReinstateVersionOutcome>;
 }
+
+/** A flow version as `getVersion` reads it: `unregisteredAt` is set when it's unregistered. */
+export type FlowVersionRecord = Flow & {
+  /** ISO-8601; present only on an unregistered version. */
+  readonly unregisteredAt?: string;
+};
 
 export interface FlowListInput {
   readonly tenantId: TenantId;
