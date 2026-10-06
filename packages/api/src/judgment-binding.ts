@@ -81,8 +81,9 @@ export type JudgeClassScopeKind = (typeof JUDGE_CLASS_SCOPE_KINDS)[number];
 /**
  * Who may assert a judge class (T200): every part that's set must hold.
  * Absent: anyone who may judge the run may assert the class, as before.
- * A class with one is *restricted*; a comparison weighted
- * `restricted-only` counts only judgments of restricted classes.
+ * A class with one is *restricted*; a judgment recorded while it is
+ * carries `restricted`, and a comparison weighted `restricted-only`
+ * counts only those.
  */
 export interface JudgeClassAssertableBy {
   /** The caller's reviewer role is at least this (its token's, or the roster's). */
@@ -242,6 +243,12 @@ export interface Judgment {
   readonly reason?: string;
   /** The judge's class; absent for an unclassified judgment (weight 1). */
   readonly judgeClassId?: string;
+  /**
+   * Set when the class was restricted (`assertableBy`) when the judgment
+   * was recorded, so the judge was checked against it. A restriction added
+   * or lifted later doesn't change it (T200).
+   */
+  readonly restricted?: true;
   readonly assertedBy: JudgmentAssertedBy;
   /** The app's opaque id for its end user who judged, when an app judged on their behalf. */
   readonly participantId?: string;
@@ -345,6 +352,8 @@ export interface JudgmentRecordInput {
   readonly verdict: Verdict;
   readonly reason?: string;
   readonly judgeClassId?: string;
+  /** The class was restricted, and the judge met it (see `Judgment.restricted`). */
+  readonly restricted?: true;
   readonly assertedBy: JudgmentAssertedBy;
   readonly participantId?: string;
 }

@@ -2582,7 +2582,7 @@ export const JudgeClassAssertableBySchema: JsonSchema = {
   additionalProperties: false,
   minProperties: 1,
   description:
-    'Who may assert the class: every part that is set must hold. A class with one is restricted; a comparison weighted `restricted-only` counts only judgments of restricted classes.',
+    'Who may assert the class: every part that is set must hold. A class with one is restricted: a judgment recorded while it is carries `restricted`, and a comparison weighted `restricted-only` counts only those.',
   properties: {
     minReviewerRole: {
       type: 'string',
@@ -2755,6 +2755,12 @@ export const JudgmentSchema: JsonSchema = {
       type: 'string',
       description:
         'The judge class the judgment is recorded under. Absent when unclassified (counts with weight 1).',
+    },
+    restricted: {
+      type: 'boolean',
+      enum: [true],
+      description:
+        "Present (true) when the judge class was restricted (`assertableBy`) when the judgment was recorded, so the judge was checked against it. A restriction added or lifted later doesn't change it.",
     },
     assertedBy: { $ref: '#/components/schemas/JudgmentAssertedBy' },
     participantId: {
@@ -2951,7 +2957,7 @@ export const JudgedItemSummarySchema: JsonSchema = {
       additionalProperties: false,
       required: ['yesWeight', 'totalWeight'],
       description:
-        'The same weights, counting only judgments of restricted classes (with `assertableBy`), for a comparison weighted `restricted-only`. Absent from a test set built before restrictions.',
+        'The same weights, counting only judgments recorded while their class was restricted (`Judgment.restricted`), for a comparison weighted `restricted-only`. Absent from a test set built before restrictions.',
       properties: { yesWeight: { type: 'number' }, totalWeight: { type: 'number' } },
     },
     reasons: {
@@ -5478,7 +5484,7 @@ export const EvalComparisonSchema: JsonSchema = {
       type: 'string',
       enum: ['as-recorded', 'restricted-only'],
       description:
-        "Which judgments count: every class at its recorded weight (`as-recorded`, the default), or only restricted classes' (with `assertableBy`), the others weighing 0 (`restricted-only`).",
+        "Which judgments count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Judgment.restricted`), the others weighing 0 (`restricted-only`).",
     },
   },
 };
@@ -5896,7 +5902,7 @@ export const StartEvalRunBodySchema: JsonSchema = {
       type: 'string',
       enum: ['as-recorded', 'restricted-only'],
       description:
-        "Which judgments count: every class at its recorded weight (`as-recorded`, the default), or only restricted classes' (with `assertableBy`), the others weighing 0 (`restricted-only`).",
+        "Which judgments count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Judgment.restricted`), the others weighing 0 (`restricted-only`).",
     },
   },
   description:

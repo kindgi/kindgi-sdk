@@ -58,9 +58,9 @@ export interface GatePolicySpec {
     readonly separateApprover?: boolean;
   };
   /**
-   * Only restricted judge classes count (T200): the comparison must be
-   * weighted `restricted-only`, so an unrestricted class (anyone may assert
-   * it) can't move the gate.
+   * Only judgments recorded under a restricted judge class count (T200):
+   * the comparison must be weighted `restricted-only`, so a class anyone
+   * may assert can't move the gate.
    */
   readonly onlyRestrictedClasses?: boolean;
 }

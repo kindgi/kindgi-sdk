@@ -710,7 +710,9 @@ describe('restricted judge classes (assertableBy, T200)', () => {
     expect(refused.body.error.message).toBe(
       'You can\'t judge as "arbiter": it needs a senior reviewer or above, and you aren\'t a reviewer.',
     );
-    expect((await judge(h, run.runId, classId, SENIOR_TOKEN)).status).toBe(201);
+    const recorded = await judge(h, run.runId, classId, SENIOR_TOKEN);
+    expect(recorded.status).toBe(201);
+    expect(recorded.body.restricted).toBe(true);
   });
 
   test('principal kinds and ids', async () => {
@@ -741,7 +743,10 @@ describe('restricted judge classes (assertableBy, T200)', () => {
     const lifted = await h.call('PATCH', `/v1/judge-classes/${classId}`, { assertableBy: null });
     expect(lifted.status).toBe(200);
     expect(lifted.body).not.toHaveProperty('assertableBy');
-    expect((await judge(h, run.runId, classId)).status).toBe(201);
+    const unrestricted = await judge(h, run.runId, classId);
+    expect(unrestricted.status).toBe(201);
+    // Recorded while the class was unrestricted: not restricted, whatever the class is later.
+    expect(unrestricted.body).not.toHaveProperty('restricted');
   });
 
   test.each([

@@ -283,26 +283,41 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
     expect(byId.has('run-2')).toBe(false);
   });
 
-  test("a restricted class's judgments are counted apart too, for restricted-only comparisons", async () => {
-    const lifted = await h.judgments.updateClass({
+  test('a judgment recorded under a restricted class is counted apart too; restricting the class later changes nothing', async () => {
+    // The expert's judgments on run-1 were recorded before the class was restricted.
+    await h.judgments.updateClass({
       tenantId,
       judgeClassId: h.expertId,
       assertableBy: { minReviewerRole: 'senior' },
     });
-    expect(lifted?.assertableBy).toEqual({ minReviewerRole: 'senior' });
+    // One recorded under the restriction: the route marks it `restricted` once the judge meets it.
+    await h.judgments.record({
+      tenantId,
+      projectId: project,
+      runId: 'run-1',
+      run: { subject: subject(), input: {}, output: {} },
+      item: { key: 'c2', rank: 1 },
+      verdict: 'yes',
+      judgeClassId: h.expertId,
+      restricted: true,
+      assertedBy: { kind: 'user', id: 'senior-1' },
+    });
     await h.call('POST', BUILD, base);
     const cases = await h.call('GET', '/v1/eval-suites/acme.matches/versions/1.0.0/cases');
     const run1 = cases.body.data.find((c: { caseId: string }) => c.caseId === 'run-1');
-    // c1: the expert's yes (3) is restricted; the unclassified no (1) isn't.
+    // c1: the expert's yes (3) predates the restriction, so nothing on it is restricted.
     expect(run1.items[0]).toMatchObject({
       key: 'c1',
       yesWeight: 3,
       totalWeight: 4,
-      restricted: { yesWeight: 3, totalWeight: 3 },
+      restricted: { yesWeight: 0, totalWeight: 0 },
     });
+    // c2: the senior expert's yes (3) is restricted; the unclassified no (1) isn't.
     expect(run1.items[1]).toMatchObject({
       key: 'c2',
-      restricted: { yesWeight: 0, totalWeight: 0 },
+      yesWeight: 3,
+      totalWeight: 4,
+      restricted: { yesWeight: 3, totalWeight: 3 },
     });
   });
 

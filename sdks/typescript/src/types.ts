@@ -2509,6 +2509,11 @@ export interface Judgment {
   readonly reason?: string;
   /** Absent when the judgment is unclassified (it counts with weight 1). */
   readonly judgeClassId?: string;
+  /**
+   * `true` when the class was restricted (`assertableBy`) when the judgment
+   * was recorded, so the judge was checked against it.
+   */
+  readonly restricted?: true;
   readonly assertedBy: JudgmentAssertedBy;
   /** An app's opaque id for its end user who judged, when it judged on their behalf. */
   readonly participantId?: string;

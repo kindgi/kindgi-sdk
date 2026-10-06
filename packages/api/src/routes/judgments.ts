@@ -83,7 +83,7 @@ export function judgmentsRouter(
       reviewers,
     });
     if (prepared.kind === 'err') return fail(prepared.code, prepared.message);
-    const { run, subject, projectId, itemValue, conversationId } = prepared;
+    const { run, subject, projectId, itemValue, conversationId, restricted } = prepared;
     const context = (await isFirstJudgment(binding, tenantId, body.runId))
       ? await captureContext({
           tenantId,
@@ -112,6 +112,7 @@ export function judgmentsRouter(
       verdict: body.verdict,
       ...(body.reason !== undefined && { reason: body.reason }),
       ...(body.judgeClassId !== undefined && { judgeClassId: body.judgeClassId }),
+      ...(restricted === true && { restricted }),
       assertedBy: asserted,
       ...(body.participantId !== undefined && { participantId: body.participantId }),
     });
@@ -399,6 +400,8 @@ type Prepared =
       readonly projectId: ProjectId;
       readonly itemValue?: unknown;
       readonly conversationId?: string;
+      /** The class was restricted and the caller met it. */
+      readonly restricted?: true;
     }
   | { readonly kind: 'err'; readonly code: string; readonly message: string };
 
@@ -435,6 +438,7 @@ async function prepareJudgment(
   }
   const subject = subjectOf(run);
   const projectId = run.projectId as unknown as ProjectId;
+  let restricted = false;
   if (body.judgeClassId !== undefined) {
     const judgeClass = await applicableClass(binding, tenantId, body.judgeClassId, {
       projectId,
@@ -455,13 +459,16 @@ async function prepareJudgment(
       if (why !== undefined) {
         return err('judge-class-not-allowed', `You can't judge as "${judgeClass.name}": ${why}.`);
       }
+      restricted = true;
     }
   }
   const copy = { input: run.input, output: run.output };
-  const turn =
-    run.agent !== undefined ? { conversationId: run.agent.conversationId as string } : {};
+  const extra = {
+    ...(run.agent !== undefined && { conversationId: run.agent.conversationId as string }),
+    ...(restricted && { restricted: true as const }),
+  };
   if (body.item.pointer === undefined)
-    return { kind: 'ok', run: copy, subject, projectId, ...turn };
+    return { kind: 'ok', run: copy, subject, projectId, ...extra };
   const found = resolvePointer(run.output, body.item.pointer);
   if (!found.found) {
     return err(
@@ -469,7 +476,7 @@ async function prepareJudgment(
       `Nothing at "${body.item.pointer}" in run "${body.runId}"'s output.`,
     );
   }
-  return { kind: 'ok', run: copy, subject, projectId, itemValue: found.value, ...turn };
+  return { kind: 'ok', run: copy, subject, projectId, itemValue: found.value, ...extra };
 }
 
 /** Whether the run has no live judgment yet (its copy is stored with the first). */
@@ -787,6 +794,7 @@ function serializeJudgment(j: Judgment): Record<string, unknown> {
     verdict: j.verdict,
     ...(j.reason !== undefined && { reason: j.reason }),
     ...(j.judgeClassId !== undefined && { judgeClassId: j.judgeClassId }),
+    ...(j.restricted === true && { restricted: true }),
     assertedBy: j.assertedBy,
     ...(j.participantId !== undefined && { participantId: j.participantId }),
     createdAt: j.createdAt,

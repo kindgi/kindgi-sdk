@@ -125,9 +125,9 @@ export interface JudgedComparisonSummary {
   readonly stopped: number;
   readonly reads: EvalComparison['reads'];
   /**
-   * Which judgments counted: `restricted-only` weighs judgments of
-   * unrestricted classes 0 (a gate can require it). Absent from a summary
-   * recorded before T200: `as-recorded`.
+   * Which judgments counted: `restricted-only` weighs a judgment not
+   * recorded under a restricted class 0 (a gate can require it). Absent
+   * from a summary recorded before T200: `as-recorded`.
    */
   readonly classWeights?: EvalClassWeights;
   /** The models that answered the candidate's replays, and how many replays each. */
@@ -541,8 +541,8 @@ function summarize(
 
 /**
  * A case as a `restricted-only` comparison counts it: each item at its
- * restricted classes' weights; an item no restricted class judged is left
- * out, so it counts as unjudged.
+ * restricted judgments' weights; an item with none is left out, so it
+ * counts as unjudged.
  */
 function restrictedOnly(c: JudgedEvalCase): JudgedEvalCase {
   return {

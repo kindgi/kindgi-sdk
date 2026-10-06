@@ -1424,6 +1424,10 @@ class Judgment(BaseModel):
     """
     The judge class the judgment is recorded under. Absent when unclassified (counts with weight 1).
     """
+    restricted: Literal[True] | None = None
+    """
+    Present (true) when the judge class was restricted (`assertableBy`) when the judgment was recorded, so the judge was checked against it. A restriction added or lifted later doesn't change it.
+    """
     asserted_by: Annotated[JudgmentAssertedBy, Field(alias="assertedBy")]
     participant_id: Annotated[str | None, Field(alias="participantId")] = None
     """
@@ -1618,7 +1622,7 @@ class UnregisterJudgmentResult(BaseModel):
 
 class Restricted(BaseModel):
     """
-    The same weights, counting only judgments of restricted classes (with `assertableBy`), for a comparison weighted `restricted-only`. Absent from a test set built before restrictions.
+    The same weights, counting only judgments recorded while their class was restricted (`Judgment.restricted`), for a comparison weighted `restricted-only`. Absent from a test set built before restrictions.
     """
 
     model_config = ConfigDict(
@@ -1668,7 +1672,7 @@ class JudgedItemSummary(BaseModel):
     """
     restricted: Restricted | None = None
     """
-    The same weights, counting only judgments of restricted classes (with `assertableBy`), for a comparison weighted `restricted-only`. Absent from a test set built before restrictions.
+    The same weights, counting only judgments recorded while their class was restricted (`Judgment.restricted`), for a comparison weighted `restricted-only`. Absent from a test set built before restrictions.
     """
     reasons: list[Reason]
     """
@@ -1682,7 +1686,7 @@ class PrincipalId(RootModel[str]):
 
 class JudgeClassAssertableBy(BaseModel):
     """
-    Who may assert the class: every part that is set must hold. A class with one is restricted; a comparison weighted `restricted-only` counts only judgments of restricted classes.
+    Who may assert the class: every part that is set must hold. A class with one is restricted: a judgment recorded while it is carries `restricted`, and a comparison weighted `restricted-only` counts only those.
     """
 
     model_config = ConfigDict(
@@ -5258,7 +5262,7 @@ class EvalComparison(BaseModel):
         Literal["as-recorded", "restricted-only"] | None, Field(alias="classWeights")
     ] = None
     """
-    Which judgments count: every class at its recorded weight (`as-recorded`, the default), or only restricted classes' (with `assertableBy`), the others weighing 0 (`restricted-only`).
+    Which judgments count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Judgment.restricted`), the others weighing 0 (`restricted-only`).
     """
 
 
@@ -5700,7 +5704,7 @@ class StartEvalRunBody(BaseModel):
         Literal["as-recorded", "restricted-only"] | None, Field(alias="classWeights")
     ] = None
     """
-    Which judgments count: every class at its recorded weight (`as-recorded`, the default), or only restricted classes' (with `assertableBy`), the others weighing 0 (`restricted-only`).
+    Which judgments count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Judgment.restricted`), the others weighing 0 (`restricted-only`).
     """
 
 

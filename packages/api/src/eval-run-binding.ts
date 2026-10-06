@@ -138,14 +138,15 @@ export type EvalBaseline =
 /** Whether replayed reads use the past run's results when it has them, or run live. */
 export type EvalReads = 'recorded' | 'live';
 
-/** How a comparison eval run runs its cases (absent: the run isn't a comparison). */
 /**
- * Which judgments a comparison counts: every class at its recorded weight
- * (`as-recorded`, the default), or only restricted classes' (with
- * `assertableBy`), the others weighing 0 (`restricted-only`; T200).
+ * Which judgments a comparison counts: every judgment at its class's
+ * weight (`as-recorded`, the default), or only those recorded while their
+ * class was restricted (`assertableBy`), the others weighing 0
+ * (`restricted-only`; T200).
  */
 export type EvalClassWeights = 'as-recorded' | 'restricted-only';
 
+/** How a comparison eval run runs its cases (absent: the run isn't a comparison). */
 export interface EvalComparison {
   readonly baseline: EvalBaseline;
   readonly reads: EvalReads;

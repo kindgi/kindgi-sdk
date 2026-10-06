@@ -3131,6 +3131,13 @@
             "type": "string",
             "description": "The judge class the judgment is recorded under. Absent when unclassified (counts with weight 1)."
           },
+          "restricted": {
+            "type": "boolean",
+            "enum": [
+              true
+            ],
+            "description": "Present (true) when the judge class was restricted (`assertableBy`) when the judgment was recorded, so the judge was checked against it. A restriction added or lifted later doesn't change it."
+          },
           "assertedBy": {
             "$ref": "#/components/schemas/JudgmentAssertedBy"
           },
@@ -3444,7 +3451,7 @@
               "yesWeight",
               "totalWeight"
             ],
-            "description": "The same weights, counting only judgments of restricted classes (with `assertableBy`), for a comparison weighted `restricted-only`. Absent from a test set built before restrictions.",
+            "description": "The same weights, counting only judgments recorded while their class was restricted (`Judgment.restricted`), for a comparison weighted `restricted-only`. Absent from a test set built before restrictions.",
             "properties": {
               "yesWeight": {
                 "type": "number"
@@ -3484,7 +3491,7 @@
         "type": "object",
         "additionalProperties": false,
         "minProperties": 1,
-        "description": "Who may assert the class: every part that is set must hold. A class with one is restricted; a comparison weighted `restricted-only` counts only judgments of restricted classes.",
+        "description": "Who may assert the class: every part that is set must hold. A class with one is restricted: a judgment recorded while it is carries `restricted`, and a comparison weighted `restricted-only` counts only those.",
         "properties": {
           "minReviewerRole": {
             "type": "string",
@@ -9830,7 +9837,7 @@
               "as-recorded",
               "restricted-only"
             ],
-            "description": "Which judgments count: every class at its recorded weight (`as-recorded`, the default), or only restricted classes' (with `assertableBy`), the others weighing 0 (`restricted-only`)."
+            "description": "Which judgments count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Judgment.restricted`), the others weighing 0 (`restricted-only`)."
           }
         }
       },
@@ -10645,7 +10652,7 @@
               "as-recorded",
               "restricted-only"
             ],
-            "description": "Which judgments count: every class at its recorded weight (`as-recorded`, the default), or only restricted classes' (with `assertableBy`), the others weighing 0 (`restricted-only`)."
+            "description": "Which judgments count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Judgment.restricted`), the others weighing 0 (`restricted-only`)."
           }
         },
         "description": "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`)."

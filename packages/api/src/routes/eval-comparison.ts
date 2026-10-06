@@ -117,7 +117,7 @@ export function parseComparison(
     return {
       kind: 'err',
       message:
-        "`classWeights` must be 'as-recorded' (every judgment at its class's weight) or 'restricted-only' (only restricted classes')",
+        "`classWeights` must be 'as-recorded' (every judgment at its class's weight) or 'restricted-only' (only judgments recorded under a restricted class)",
     };
   }
   const parsedBaseline =
