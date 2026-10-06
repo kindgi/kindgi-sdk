@@ -21,7 +21,7 @@ import type { RunId } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from './agent-binding.js';
 import type { EvalCaseStoreBinding, JudgedEvalCase } from './eval-case-binding.js';
-import type { AgentRef, EvalComparison, FlowRef } from './eval-run-binding.js';
+import type { AgentRef, EvalClassWeights, EvalComparison, FlowRef } from './eval-run-binding.js';
 import type {
   DispatchContext,
   DispatchResult,
@@ -124,6 +124,12 @@ export interface JudgedComparisonSummary {
    */
   readonly stopped: number;
   readonly reads: EvalComparison['reads'];
+  /**
+   * Which judgments counted: `restricted-only` weighs a judgment not
+   * recorded under a restricted class 0 (a gate can require it). Absent
+   * from a summary recorded before T200: `as-recorded`.
+   */
+  readonly classWeights?: EvalClassWeights;
   /** The models that answered the candidate's replays, and how many replays each. */
   readonly sampling: {
     readonly models: readonly {
@@ -206,7 +212,9 @@ export function createJudgedDispatcher(options: JudgedDispatcherOptions): EvalRu
     validate: validateComparison,
     async dispatch(ctx): Promise<DispatchResult> {
       const comparison = ctx.comparison ?? DEFAULT_COMPARISON;
-      const all = await allCases(options.cases, ctx);
+      const stored = await allCases(options.cases, ctx);
+      const all =
+        comparison.classWeights === 'restricted-only' ? stored.map(restrictedOnly) : stored;
       if (ctx.dryRun) {
         return { result: { dryRun: true, cases: all.length, comparison } };
       }
@@ -514,6 +522,7 @@ function summarize(
     errors,
     stopped,
     reads: comparison.reads,
+    classWeights: comparison.classWeights ?? 'as-recorded',
     sampling: { models },
     repetitions: comparison.repetitions,
     metrics: {
@@ -527,6 +536,28 @@ function summarize(
         { k: comparison.k },
       ),
     },
+  };
+}
+
+/**
+ * A case as a `restricted-only` comparison counts it: each item at its
+ * restricted judgments' weights; an item with none is left out, so it
+ * counts as unjudged.
+ */
+function restrictedOnly(c: JudgedEvalCase): JudgedEvalCase {
+  return {
+    ...c,
+    items: c.items.flatMap((item) =>
+      item.restricted !== undefined && item.restricted.totalWeight > 0
+        ? [
+            {
+              ...item,
+              yesWeight: item.restricted.yesWeight,
+              totalWeight: item.restricted.totalWeight,
+            },
+          ]
+        : [],
+    ),
   };
 }
 

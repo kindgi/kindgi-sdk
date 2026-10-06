@@ -331,7 +331,12 @@ export type {
   PolicyVersionPage,
   PolicyVersionRow,
 } from '@kindgi/policy-contract';
-export { JUDGE_CLASS_SCOPE_KINDS, VERDICTS, judgeClassApplies } from './judgment-binding.js';
+export {
+  JUDGE_CLASS_SCOPE_KINDS,
+  VERDICTS,
+  judgeClassApplies,
+  whyNotAssertable,
+} from './judgment-binding.js';
 export type {
   EvalCaseListInput,
   EvalCasePage,
@@ -344,6 +349,8 @@ export { MAX_JUDGED_CASES } from './routes/judged-suites.js';
 export { MAX_JUDGED_HISTORY } from './routes/judgment-context.js';
 export type {
   JudgeClass,
+  JudgeClassAssertableBy,
+  JudgeClassAsserter,
   JudgeClassCreateInput,
   JudgeClassCreateOutcome,
   JudgeClassGetInput,
@@ -443,6 +450,7 @@ export { EVAL_RUN_STATUSES } from './eval-run-binding.js';
 export type {
   AgentRef,
   EvalBaseline,
+  EvalClassWeights,
   EvalComparison,
   EvalReads,
   EvalRun,

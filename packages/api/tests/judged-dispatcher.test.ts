@@ -94,9 +94,15 @@ async function compare(options: {
   readonly agents?: JudgedDispatcherOptions['agents'];
   readonly answer?: (input: EvalRunSubjectInvokeInput, call: number) => EvalRunSubjectInvokeOutcome;
   readonly dryRun?: boolean;
+  readonly cases?: readonly JudgedEvalCase[];
 }) {
   const cases = inMemoryCaseStore();
-  await cases.putCases({ tenantId, suiteId: 'acme.set', version: '1.0.0', cases: [caseA, caseB] });
+  await cases.putCases({
+    tenantId,
+    suiteId: 'acme.set',
+    version: '1.0.0',
+    cases: options.cases ?? [caseA, caseB],
+  });
   const invoked: EvalRunSubjectInvokeInput[] = [];
   const progress: unknown[] = [];
   const suite: EvalSuite = {
@@ -333,6 +339,45 @@ describe('a comparison eval run', () => {
     const { invoked, ...out } = await compare({ dryRun: true });
     expect(invoked).toEqual([]);
     expect(out).toMatchObject({ dryRun: true, cases: 2 });
+  });
+});
+
+describe('classWeights (T200)', () => {
+  /** Case A judged by a restricted class on its answer and m2 only; case B by none. */
+  const restricted = (yesWeight: number, totalWeight: number) => ({
+    restricted: { yesWeight, totalWeight },
+  });
+  const caseARestricted: JudgedEvalCase = {
+    ...caseA,
+    items: [
+      item('answer', 1, 1, { pointer: '/appended/3/content', ...restricted(1, 1) }),
+      item('m1', 2, 2, { pointer: '/output/matches/0', rank: 0, ...restricted(0, 0) }),
+      item('m2', 0, 1, { pointer: '/output/matches/1', rank: 1, ...restricted(0, 1) }),
+    ],
+  };
+
+  test('as recorded by default, and the summary says so', async () => {
+    const { summary } = await compare({ cases: [caseARestricted, caseB] });
+    expect(summary.classWeights).toBe('as-recorded');
+    expect(summary.metrics.weightedYesShare).toMatchObject({ baseline: 0.6, baselineWeight: 5 });
+  });
+
+  test('restricted-only counts only what restricted classes judged', async () => {
+    const result = await compare({
+      comparison: { ...DEFAULT_COMPARISON, classWeights: 'restricted-only' },
+      cases: [caseARestricted, caseB],
+    });
+    expect(wireErrors(result)).toEqual([]);
+    const { summary } = result;
+    expect(summary.classWeights).toBe('restricted-only');
+    // Baseline: A's answer (1 of 1) and m2 (0 of 1); m1 and all of B unjudged.
+    expect(summary.metrics.weightedYesShare).toMatchObject({
+      baseline: 0.5,
+      baselineN: 1,
+      baselineWeight: 2,
+    });
+    // Coverage: A has 2 of its 3 items judged, B none of its 1.
+    expect(summary.metrics.judgedCoverage.baseline).toBeCloseTo(0.5);
   });
 });
 

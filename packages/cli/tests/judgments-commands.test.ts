@@ -228,6 +228,65 @@ describe('kindgi judge-classes', () => {
     ).toContain('Give a scope');
   });
 
+  test('add and set take who may assert a class; set --unrestricted lifts it', async () => {
+    const { calls, rec } = recorder();
+    const client = {
+      judgeClasses: {
+        create: rec('create', { id: 'jc-1' }),
+        update: rec('update', { id: 'jc-1' }),
+      },
+    };
+    const added = await run(
+      [
+        'judge-classes',
+        'add',
+        '--name=expert',
+        '--weight=3',
+        '--tenant',
+        '--min-reviewer-role=senior',
+        '--principal-kind=user',
+        '--principal-id=user-1',
+        '--principal-id=user-2',
+      ],
+      client,
+    );
+    expect(added.exitCode, added.stderr).toBe(0);
+    await run(['judge-classes', 'set', 'jc-1', '--principal-kind=service'], client);
+    await run(['judge-classes', 'set', 'jc-1', '--unrestricted'], client);
+    expect(calls).toEqual([
+      [
+        'create',
+        {
+          scope: { kind: 'tenant' },
+          name: 'expert',
+          weight: 3,
+          assertableBy: {
+            minReviewerRole: 'senior',
+            principalKinds: ['user'],
+            principalIds: ['user-1', 'user-2'],
+          },
+        },
+      ],
+      ['update', 'jc-1', { assertableBy: { principalKinds: ['service'] } }],
+      ['update', 'jc-1', { assertableBy: null }],
+    ]);
+  });
+
+  test('a restriction flag must name a role or kind there is', async () => {
+    const client = { judgeClasses: {} };
+    const add = ['judge-classes', 'add', '--name=x', '--weight=1', '--tenant'];
+    expect((await run([...add, '--min-reviewer-role=chief'], client)).stderr).toContain(
+      '--min-reviewer-role must be one of standard, senior, admin',
+    );
+    expect((await run([...add, '--principal-kind=robot'], client)).stderr).toContain(
+      '--principal-kind must be user or service',
+    );
+    expect(
+      (await run(['judge-classes', 'set', 'jc-1', '--unrestricted', '--principal-id=u'], client))
+        .stderr,
+    ).toContain('--unrestricted cannot be combined');
+  });
+
   test('set changes weight and/or description; remove retires', async () => {
     const { calls, rec } = recorder();
     const client = {

@@ -118,14 +118,24 @@ async function settled(binding: EvalRunBinding, runId: string): Promise<EvalRun>
 describe('a comparison eval run over the API', () => {
   test('starts with its settings, keeps them on the run, and ends with the summary', async () => {
     const { app, binding, start } = await setup();
-    const res = await start({ reads: 'live', repetitions: 2, k: 5 });
+    const res = await start({
+      reads: 'live',
+      repetitions: 2,
+      k: 5,
+      classWeights: 'restricted-only',
+    });
     expect(res.status).toBe(201);
     const { runId } = (await res.json()) as { runId: string };
     const run = await settled(binding, runId);
     expect(run.status).toBe('completed');
     const summary = (run.result as { summary: JudgedComparisonSummary }).summary;
-    expect(summary).toMatchObject({ status: 'completed', cases: 1, repetitions: 2, reads: 'live' });
-    expect(summary.metrics.weightedYesShare).toMatchObject({ baseline: 1, candidate: 1, delta: 0 });
+    expect(summary).toMatchObject({
+      status: 'completed',
+      cases: 1,
+      repetitions: 2,
+      reads: 'live',
+      classWeights: 'restricted-only',
+    });
 
     const got = await app.request(`/v1/eval-runs/${runId}`, {
       headers: { authorization: `Bearer ${TOKEN}` },
@@ -135,6 +145,7 @@ describe('a comparison eval run over the API', () => {
       reads: 'live',
       repetitions: 2,
       k: 5,
+      classWeights: 'restricted-only',
     });
   });
 
@@ -146,6 +157,7 @@ describe('a comparison eval run over the API', () => {
     expect((run.result as { summary: JudgedComparisonSummary }).summary).toMatchObject({
       reads: 'recorded',
       repetitions: 1,
+      classWeights: 'as-recorded',
     });
   });
 
@@ -154,6 +166,7 @@ describe('a comparison eval run over the API', () => {
     [{ repetitions: 0 }, '`repetitions` must be an integer from 1 to 10'],
     [{ repetitions: 11 }, '`repetitions` must be an integer from 1 to 10'],
     [{ k: 1.5 }, '`k` must be an integer from 1 to 100'],
+    [{ classWeights: 'some' }, "`classWeights` must be 'as-recorded'"],
     [{ baseline: 'yesterday' }, '`baseline` must be'],
     [{ baseline: { agentId: 'acme.agent' } }, 'needs `agentId` and `version`'],
     [
