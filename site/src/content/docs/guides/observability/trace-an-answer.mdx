@@ -208,8 +208,9 @@ Fetch the record for that run: `kindgi provenance get 4bdae2f9-…`.
 
 `kindgi provenance list` lists records, newest first, without their graphs.
 `--created-after=<time>` keeps the newer ones, `--run=<run-id>` one run's,
-and `--project=<id>` or `--org=<id>` one project's or one org's. `--table`
-prints a row per record:
+`--agent=<agent-id>` one agent's turns at any version, and `--project=<id>`
+or `--org=<id>` one project's or one org's. `--table` prints a row per
+record:
 
 ```sh
 kindgi provenance list --created-after=2026-10-06T17:00:00Z --limit=3 --table
@@ -221,7 +222,7 @@ RUN                                   CREATED                   FLOW  SIGNED
 e4cb91b4-d0b1-499a-a282-c75b83c7693c  2026-10-06T17:12:02.090Z        no
 ```
 
-Over HTTP it's `GET /v1/provenance`, filtered by `runId` or by
+Over HTTP it's `GET /v1/provenance`, filtered by `runId`, `agentId` or
 `createdAfter`:
 
 ```sh
@@ -236,7 +237,8 @@ curl "$KINDGI_API_URL/v1/provenance?createdAfter=2026-10-05T16:25:00Z&limit=3" \
 Each record carries its run's `projectId`. `scopeKind=project&scopeId=<id>`
 lists one project's records, and `scopeKind=org&scopeId=<id>` every
 project's in an org (`scope` in the clients). Records from before Kindgi
-0.1.3 have no project, so only a list without a scope shows them.
+0.1.3 have no project and don't name their agent, so only a list without a
+scope or `--agent` shows them.
 
 `signed` is `false` for now: `kindgi provenance export <run-id> --signing-key=<key-id>`
 would export a record signed with one of the deployment's keys, but the
