@@ -3955,6 +3955,19 @@ export const CostAggregateResultSchema: JsonSchema = {
     groups: {
       type: 'array',
       items: { $ref: '#/components/schemas/CostAggregateGroup' },
+      description:
+        'The most expensive groups first (`totalUsd` descending, ties by key), at most `limit`.',
+    },
+    totalGroups: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        'How many groups there were before the `limit` cap. Absent from a runtime before 0.1.5.',
+    },
+    truncated: {
+      type: 'boolean',
+      description:
+        '`true` when there were more groups than `limit`: `groups` holds the most expensive ones, and `totalUsd` / `totalRecords` / `tokens` still cover every record. Absent from a runtime before 0.1.5.',
     },
     totalUsd: { type: 'number', minimum: 0 },
     totalRecords: { type: 'integer', minimum: 0 },

@@ -12,6 +12,7 @@
  * hit). Cross-tenant leakage is a hard guardrail, asserted by the
  * conformance suite. Slugs are unique within a tenant: `create` and
  * `update` resolve to `slug-conflict` for a slug another org holds.
+ * `delete` tombstones: a deleted org reads as unknown and frees its slug.
  */
 
 import type { OrgId, Page, TenantId, Timestamp } from '@kindgi/types';
@@ -37,10 +38,20 @@ function nextOrgId(): OrgId {
  */
 export function makeInMemoryOrgBinding(): OrgBinding {
   const rows = new Map<OrgId, Org>();
+  /** Tombstoned orgs: kept, and read as unknown. */
+  const deleted = new Set<OrgId>();
 
-  /** Is `slug` held by an org in the tenant other than `exceptId`? */
+  /** The tenant's live org with that id. */
+  function live(tenantId: TenantId, orgId: OrgId): Org | undefined {
+    const row = rows.get(orgId);
+    if (row === undefined || row.tenantId !== tenantId || deleted.has(orgId)) return undefined;
+    return row;
+  }
+
+  /** Is `slug` held by a live org in the tenant other than `exceptId`? */
   function slugTaken(tenantId: TenantId, slug: string, exceptId?: OrgId): boolean {
     for (const row of rows.values()) {
+      if (deleted.has(row.id)) continue;
       if (row.tenantId === tenantId && row.slug === slug && row.id !== exceptId) return true;
     }
     return false;
@@ -64,16 +75,13 @@ export function makeInMemoryOrgBinding(): OrgBinding {
     },
 
     async get(tenantId: TenantId, orgId: OrgId): Promise<Org | undefined> {
-      const row = rows.get(orgId);
-      if (row === undefined) return undefined;
-      if (row.tenantId !== tenantId) return undefined;
-      return row;
+      return live(tenantId, orgId);
     },
 
     async list(tenantId: TenantId, filter: OrgListFilter): Promise<Page<Org>> {
       const all: Org[] = [];
       for (const row of rows.values()) {
-        if (row.tenantId !== tenantId) continue;
+        if (row.tenantId !== tenantId || deleted.has(row.id)) continue;
         if (filter.nameContains !== undefined && !row.name.includes(filter.nameContains)) {
           continue;
         }
@@ -88,10 +96,8 @@ export function makeInMemoryOrgBinding(): OrgBinding {
     },
 
     async update(tenantId: TenantId, orgId: OrgId, patch: OrgPatch): Promise<OrgUpdateOutcome> {
-      const row = rows.get(orgId);
-      if (row === undefined || row.tenantId !== tenantId) {
-        return { kind: 'org-not-found' };
-      }
+      const row = live(tenantId, orgId);
+      if (row === undefined) return { kind: 'org-not-found' };
       if (patch.slug !== undefined && slugTaken(tenantId, patch.slug, orgId)) {
         return { kind: 'slug-conflict', slug: patch.slug };
       }
@@ -109,12 +115,9 @@ export function makeInMemoryOrgBinding(): OrgBinding {
     },
 
     async delete(tenantId: TenantId, orgId: OrgId): Promise<void> {
-      const row = rows.get(orgId);
-      if (row === undefined || row.tenantId !== tenantId) {
-        // Idempotent delete — no-op when absent or in another tenant.
-        return;
-      }
-      rows.delete(orgId);
+      // Idempotent: a no-op when absent, already deleted or in another tenant.
+      if (live(tenantId, orgId) === undefined) return;
+      deleted.add(orgId);
     },
   };
 }
