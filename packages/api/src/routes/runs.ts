@@ -2,7 +2,6 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { Hono } from 'hono';
-import type { MiddlewareHandler } from 'hono';
 
 import type { AgentId } from '@kindgi/agents';
 import type { KernelRunRecord, ListRunsInput, RunBinding } from '@kindgi/runtime';
@@ -30,6 +29,7 @@ import {
   projectJournalEntry,
   toRunProgressEvent,
 } from './sse.js';
+import { UUID_RE, refuseMalformedUuidParam } from './uuid-param.js';
 
 const KERNEL_RUN_CHANNEL_PREFIX = 'kernel:run:';
 
@@ -61,23 +61,8 @@ const MAX_RUN_ANCESTRY = 16;
  * `POST /:runId/cancel`, `POST /:runId/resume`, `GET /:runId/stream`
  * (SSE), `GET /:runId/journal`.
  */
-/** A run id: a UUID. */
-const RUN_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/**
- * A `:runId` that isn't a run id is a 400, before it reaches a query (where
- * Postgres's uuid cast would fail it as a 500).
- */
-const refuseMalformedRunId: MiddlewareHandler<AppEnv> = async (c, next) => {
-  if (RUN_ID_RE.test(c.req.param('runId') ?? '')) return next();
-  c.status(statusFor('bad-input') as never);
-  return c.json(
-    toWireError(
-      { code: 'bad-input', message: '`runId` must be a run id (a UUID)' },
-      c.get('requestId'),
-    ),
-  );
-};
+/** A `:runId` that isn't a run id is a 400 (`uuid-param.ts`). */
+const refuseMalformedRunId = refuseMalformedUuidParam('runId', 'a run id');
 
 export function runsRouter(
   binding: RunHandlerBinding,
@@ -777,7 +762,7 @@ function parseRunListFilter(
     return { kind: 'err', message: '`topLevel` must be `true` or `false`' };
   }
   const topLevelOnly = topLevel === 'true';
-  if (parentRunId !== undefined && !RUN_ID_RE.test(parentRunId)) {
+  if (parentRunId !== undefined && !UUID_RE.test(parentRunId)) {
     return { kind: 'err', message: '`parentRunId` must be a run id (a UUID)' };
   }
   if (parentRunId !== undefined && topLevelOnly) {

@@ -2199,6 +2199,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Conversation.', schema: ref('Conversation') },
       ...CommonAuthErrors,
+      '400': ErrorResponse('`conversationId` is not a conversation id (a UUID).'),
       '404': ErrorResponse('No conversation with that id under this tenant.'),
     },
   },
@@ -2236,6 +2237,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('Conversation'),
       },
       ...CommonMutationErrors,
+      '400': ErrorResponse('`conversationId` is not a conversation id (a UUID).'),
       '404': ErrorResponse('No conversation with that id under this tenant.'),
     },
   },
@@ -2256,7 +2258,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('ConversationMessageCollectionPage'),
       },
       ...CommonAuthErrors,
-      '400': ErrorResponse('Malformed cursor.'),
+      '400': ErrorResponse(
+        'Malformed cursor, or `conversationId` is not a conversation id (a UUID).',
+      ),
       '404': ErrorResponse('No conversation with that id under this tenant.'),
     },
   },
