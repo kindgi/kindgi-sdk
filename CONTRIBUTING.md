@@ -113,5 +113,5 @@ The steps:
    "Version Packages" pull request versions `X.Y.Z`, its changelog
    gathering every rc's changesets, and that publishes under `latest`.
 
-The runtime image follows the same versions: sovereign's
-`runtime-release` takes `X.Y.Z-rc.N`, and never moves `preview` for one.
+The runtime image follows the same versions: the runtime's release takes
+`X.Y.Z-rc.N`, and never moves `preview` for one.
