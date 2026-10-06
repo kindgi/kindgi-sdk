@@ -226,7 +226,8 @@ the same tool with the same arguments.
 **The replay runs** are ordinary runs, marked with `replayOf` (the past run)
 and `evalRunId`. Lists of runs leave them out: `kindgi runs list
 --eval-run=<run-id>` lists one comparison's, and `--replays=include` or
-`--replays=only` adds them to any list. You can [judge](../judge-a-runs-output/)
+`--replays=only` adds them to any list. Conversation lists leave out their
+conversations the same way (`kindgi conversations list --replays=only`). You can [judge](../judge-a-runs-output/)
 them like any run: that's how a version's new items get their judgments.
 
 **A comparison stopped** before it finished, because the runtime stopped,
