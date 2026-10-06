@@ -243,13 +243,26 @@ kindgi approvals complete 416c22ba-73f9-45b7-999d-c1d5938758f7 --decision=approv
     "reviewerRoleAtDecision": "standard",
     …
   },
-  "waitpointResolved": true
+  "waitpointResolved": true,
+  "resume": { "kind": "ok" }
 }
 ```
 
 The run continues in the same call: the tool runs and the agent finishes its
 turn. The tool runs at the version the turn started with, even when a newer
-version in the agent's range appeared while it waited. Its journal (`kindgi runs journal <run-id>`) says who decided which
+version in the agent's range appeared while it waited.
+
+If that version is gone by then (under `kindgi dev`, the tool's file now says
+another version), the turn can't go on. The approval still stands, its answer
+says so in `resume`, and the run fails:
+
+```json
+"resume": {
+  "kind": "failed",
+  "code": "tool-version-unresolvable",
+  "message": "Tool \"acme-ops.post-update\": this turn started with version 0.1.0, which is no longer registered; it doesn't run another version mid-turn. …"
+}
+``` Its journal (`kindgi runs journal <run-id>`) says who decided which
 approval:
 
 ```json
