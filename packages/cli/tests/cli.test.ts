@@ -523,6 +523,59 @@ describe('kindgi runs start — turn warnings', () => {
   });
 });
 
+describe('kindgi runs start — project and segments', () => {
+  test('sends the project and the segment path, in order', async () => {
+    const started: unknown[] = [];
+    const out = await runCli(
+      baseInputs({
+        argv: [
+          'runs',
+          'start',
+          '--agent=acme.drafter',
+          '--input={"userMessage":"hi"}',
+          '--project=p-1',
+          '--segment=company:acme',
+          '--segment=role:counsel',
+          '--no-wait',
+        ],
+        env: { KINDGI_API_URL: 'https://x', KINDGI_API_TOKEN: 't' },
+        clientFactory: () =>
+          ({
+            runs: {
+              start: async (input: unknown) => {
+                started.push(input);
+                return { id: 'run-1', status: 'pending' };
+              },
+            },
+          }) as never,
+      }),
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(started).toEqual([
+      expect.objectContaining({
+        agent: 'acme.drafter',
+        projectId: 'p-1',
+        segments: [
+          { key: 'company', value: 'acme' },
+          { key: 'role', value: 'counsel' },
+        ],
+      }),
+    ]);
+  });
+
+  test('a segment without a value fails before the run starts', async () => {
+    const out = await runCli(
+      baseInputs({
+        argv: ['runs', 'start', '--agent=a', '--input={}', '--segment=company'],
+        env: { KINDGI_API_URL: 'https://x', KINDGI_API_TOKEN: 't' },
+        clientFactory: () => ({ runs: { start: async () => ({}) } }) as never,
+      }),
+    );
+    expect(out.exitCode).not.toBe(0);
+    expect(out.stderr).toContain('key:value');
+  });
+});
+
 describe('auth login', () => {
   test('persists config and reports the path', async () => {
     const out = await runCli(

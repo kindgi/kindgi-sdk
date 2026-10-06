@@ -124,6 +124,9 @@ def param_annotation(doc: dict[str, Any], schema: dict[str, Any]) -> str:
     if "enum" in resolved:
         return "Literal[" + ", ".join(json.dumps(v) for v in resolved["enum"]) + "]"
     kind = resolved.get("type")
+    if kind == "array":
+        # A repeated query parameter (`segment=a&segment=b`): httpx repeats a list's key.
+        return f"list[{param_annotation(doc, resolved.get('items', {}))}]"
     return {"string": "str", "integer": "int", "number": "float", "boolean": "bool"}.get(
         kind if isinstance(kind, str) else "", "Any"
     )

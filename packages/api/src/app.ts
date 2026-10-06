@@ -48,6 +48,7 @@ import type {
 } from './identity-provider-binding.js';
 import type { ImageRegistryBinding } from './image-registry-binding.js';
 import type { JudgmentRegistryBinding } from './judgment-binding.js';
+import type { AgentReleaseBindings } from './live-version-binding.js';
 import type { MCPClientProbeBinding, MCPEndpointRegistryBinding } from './mcp-endpoint-binding.js';
 import type { MemoryBinding } from './memory-binding.js';
 import { type TokenResolver, bearerAuthMiddleware } from './middleware/auth.js';
@@ -611,6 +612,13 @@ export interface CreateAppInput {
    */
   readonly evalCaseStore?: EvalCaseStoreBinding;
   /**
+   * Optional. Live versions of agents per scope, and their promotions
+   * (`/v1/agents/{id}/live`, `/live-versions`, `/promotions`,
+   * `/live/rollback`, `/live/unpin`). Absent → a run takes the latest
+   * version, as before.
+   */
+  readonly agentReleases?: AgentReleaseBindings;
+  /**
    * Optional. Push-based pub/sub binding used by SSE endpoints to
    * deliver run events without polling. When present, `GET
    * /v1/runs/:runId/stream` subscribes on channel
@@ -1035,7 +1043,13 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   if (input.agentRegistry !== undefined) {
     v1.route(
       '/agents',
-      agentsRouter(input.agentRegistry, authorizer, input.toolRegistry, input.blockRegistry),
+      agentsRouter(
+        input.agentRegistry,
+        authorizer,
+        input.toolRegistry,
+        input.blockRegistry,
+        input.agentReleases,
+      ),
     );
   }
   if (input.flowRegistry !== undefined) {

@@ -52,6 +52,7 @@ import {
 } from '../env/pack-env-plan.js';
 import { renderJson } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
+import type { OptionValue } from '../parse.js';
 import { runBuild } from './build.js';
 import type { EnvironmentConfig, PackConfig } from './build.js';
 import type { CommandResult, LeafCommand } from './types.js';
@@ -628,8 +629,8 @@ async function runInlineBuild(
 function buildInlineOptions(
   ctx: CommandContext,
   args: ResolvedDeployArgs,
-): Record<string, string | boolean | undefined> {
-  const opts: Record<string, string | boolean | undefined> = {};
+): Record<string, OptionValue> {
+  const opts: Record<string, OptionValue> = {};
   opts.env = args.envName;
   opts.path = args.packDir;
   opts.out = args.outDir;

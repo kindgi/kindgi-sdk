@@ -52,6 +52,7 @@ export const ACTIONS = [
   'rotate',
   'fire',
   'cancel',
+  'promote',
 ] as const;
 
 export type Action = (typeof ACTIONS)[number];
@@ -67,6 +68,7 @@ export const ACTION_TO_RELATION: Record<Action, string> = {
   rotate: 'can_rotate',
   fire: 'can_fire',
   cancel: 'can_cancel',
+  promote: 'can_promote',
 };
 
 // Which verbs are meaningful for which object types. A PEP uses this to
@@ -78,7 +80,7 @@ export const OBJECT_ACTIONS: Record<ObjectType, readonly Action[]> = {
   project: ['read', 'write', 'admin', 'delete'],
   user: [],
 
-  agent: ['read', 'write', 'delete', 'admin', 'execute', 'publish'],
+  agent: ['read', 'write', 'delete', 'admin', 'execute', 'publish', 'promote'],
   flow: ['read', 'write', 'delete', 'admin', 'execute', 'publish'],
   tool: ['read', 'write', 'delete', 'admin', 'invoke'],
   guardrail: ['read', 'write', 'delete', 'admin'],

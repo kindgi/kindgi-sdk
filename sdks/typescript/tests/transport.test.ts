@@ -37,6 +37,23 @@ describe('createTransport', () => {
     expect(url.searchParams.has('skipped')).toBe(false);
   });
 
+  it('repeats the key for an array value, in order', async () => {
+    const stub = jsonFetch({ ok: true });
+    const transport = createTransport({
+      apiUrl: 'https://api.example.com',
+      auth: { kind: 'apiToken', token: 'tk' },
+      fetch: stub.fetch,
+    });
+    await transport.request({
+      method: 'GET',
+      path: '/v1/agents/a/live',
+      query: { segment: ['company:acme', 'role:counsel'], empty: [] },
+    });
+    const url = new URL(stub.calls[0]?.url);
+    expect(url.searchParams.getAll('segment')).toEqual(['company:acme', 'role:counsel']);
+    expect(url.searchParams.has('empty')).toBe(false);
+  });
+
   it('passes Authorization Bearer for oauth kind too', async () => {
     const stub = jsonFetch({ ok: true });
     const transport = createTransport({

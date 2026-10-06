@@ -8,7 +8,17 @@ import type { MemoryQueryBinding } from '@kindgi/memory';
 import type { PolicyRegistry } from '@kindgi/policy-contract';
 import type { ParentRunRef, RunBinding, RunReplayRef } from '@kindgi/runtime';
 import type { ToolRegistry, ToolSecretRef } from '@kindgi/tools';
-import type { OrgId, ProjectId, ProvenanceId, RunId, TenantId, Timestamp } from '@kindgi/types';
+import type {
+  AgentVersionVia,
+  LiveScope,
+  OrgId,
+  ProjectId,
+  ProvenanceId,
+  RunId,
+  ScopeSegment,
+  TenantId,
+  Timestamp,
+} from '@kindgi/types';
 
 import type { BlockReader } from '../blocks.js';
 import type { ConversationBinding } from '../conversation-binding.js';
@@ -43,6 +53,12 @@ export interface InvokeAgentInput {
   readonly orgId?: OrgId;
   readonly agent: Agent;
   readonly conversationId: ConversationId;
+  /** Why the caller chose this agent version; recorded on the run (`RunAgentRef.via`). */
+  readonly versionVia?: AgentVersionVia;
+  /** The live pin that chose it, when `versionVia` is `live`. */
+  readonly liveScope?: LiveScope;
+  /** The segment path the turn runs for; recorded on its run (`KernelRunRecord.segments`). */
+  readonly segments?: readonly ScopeSegment[];
   readonly userMessage: string;
   readonly parameters?: Readonly<Record<string, string | number | boolean>>;
   /**

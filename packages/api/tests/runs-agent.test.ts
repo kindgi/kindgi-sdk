@@ -16,7 +16,7 @@ import { createStubAppBindings } from '@kindgi/testing';
 import type { ConversationId, ProjectId, RunId, TenantId, Timestamp } from '@kindgi/types';
 
 import { createApp } from '../src/index.js';
-import type { RunHandlerBinding, TokenResolver } from '../src/index.js';
+import type { InvokeAgentBindingInput, RunHandlerBinding, TokenResolver } from '../src/index.js';
 
 const tenantId = randomUUID() as TenantId;
 const TOKEN = 'runs-agent-token';
@@ -43,6 +43,23 @@ const turn = record({
   agent: { id: 'acme.desk.echo-agent', version: '0.3.0', conversationId },
 });
 const flowRun = record({ flowId: 'acme.desk.triage', flowVersion: '0.1.0' });
+const liveTurn = record({
+  segments: [
+    { key: 'company', value: 'acme' },
+    { key: 'role', value: 'counsel' },
+  ],
+  agent: {
+    id: 'acme.desk.echo-agent',
+    version: '0.2.0',
+    conversationId,
+    via: 'live',
+    liveScope: {
+      kind: 'segment',
+      projectId: randomUUID() as ProjectId,
+      path: [{ key: 'company', value: 'acme' }],
+    },
+  },
+});
 
 function app() {
   const stubs = createStubAppBindings();
@@ -50,7 +67,7 @@ function app() {
   const run = {
     ...stubs.kernelBinding.run,
     getRun: async (_t: TenantId, runId: string) =>
-      [turn, flowRun].find((r) => r.runId === runId) ?? null,
+      [turn, flowRun, liveTurn].find((r) => r.runId === runId) ?? null,
     listRuns: async (input: ListRunsInput) => {
       listed.push(input);
       return { data: [turn, flowRun], hasMore: false };
@@ -79,6 +96,38 @@ describe('a run names its agent', () => {
       flowId: 'agent.turn',
       agent: { id: 'acme.desk.echo-agent', version: '0.3.0', conversationId },
     });
+  });
+
+  test('a turn records how its version was chosen, and the live scope', async () => {
+    const answer = await get(`/v1/runs/${liveTurn.runId}`);
+    expect(answer.status).toBe(200);
+    const scope = liveTurn.agent?.liveScope;
+    expect(answer.json.agent).toEqual({
+      id: 'acme.desk.echo-agent',
+      version: '0.2.0',
+      conversationId,
+      via: 'live',
+      liveScope: {
+        kind: 'segment',
+        projectId: scope?.kind === 'segment' ? scope.projectId : undefined,
+        path: [{ key: 'company', value: 'acme' }],
+      },
+    });
+  });
+
+  test('without a recorded choice, no via', async () => {
+    const answer = await get(`/v1/runs/${turn.runId}`);
+    expect(answer.json.agent).not.toHaveProperty('via');
+    expect(answer.json.agent).not.toHaveProperty('liveScope');
+    expect(answer.json).not.toHaveProperty('segments');
+  });
+
+  test('the segment path the run was started with, in order', async () => {
+    const answer = await get(`/v1/runs/${liveTurn.runId}`);
+    expect(answer.json.segments).toEqual([
+      { key: 'company', value: 'acme' },
+      { key: 'role', value: 'counsel' },
+    ]);
   });
 
   test('a flow run has no agent', async () => {
@@ -117,5 +166,59 @@ describe('GET /v1/runs?agentId=', () => {
       message: '`agentId` must not be empty',
     });
     expect(answer.listed).toEqual([]);
+  });
+});
+
+describe('POST /v1/runs — segments', () => {
+  function starting() {
+    const started: InvokeAgentBindingInput[] = [];
+    const runHandler = {
+      invokeAgent: async (input: InvokeAgentBindingInput) => {
+        started.push(input);
+        return { kind: 'err', error: { code: 'bad-input', message: 'recorded' } };
+      },
+    } as unknown as RunHandlerBinding;
+    const built = createApp({ ...createStubAppBindings(), resolveToken, runHandler });
+    const start = (body: unknown) =>
+      built.request('/v1/runs', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    return { start, started };
+  }
+
+  test('the segment path reaches the run handler, in order', async () => {
+    const { start, started } = starting();
+    const segments = [
+      { key: 'company', value: 'acme' },
+      { key: 'role', value: 'counsel' },
+    ];
+    await start({ agent: 'acme.desk.echo-agent', input: 'hi', segments });
+    expect(started[0]?.segments).toEqual(segments);
+  });
+
+  test('no segments: none passed', async () => {
+    const { start, started } = starting();
+    await start({ agent: 'acme.desk.echo-agent', input: 'hi' });
+    expect(started[0]).not.toHaveProperty('segments');
+  });
+
+  test.each([
+    ['not an array', { company: 'acme' }],
+    ['an upper-case key', [{ key: 'Company', value: 'acme' }]],
+    ['an empty value', [{ key: 'company', value: '' }]],
+    [
+      'a repeated key',
+      [
+        { key: 'company', value: 'a' },
+        { key: 'company', value: 'b' },
+      ],
+    ],
+  ])('%s → 400, no run', async (_name, segments) => {
+    const { start, started } = starting();
+    const res = await start({ agent: 'acme.desk.echo-agent', input: 'hi', segments });
+    expect(res.status).toBe(400);
+    expect(started).toEqual([]);
   });
 });
