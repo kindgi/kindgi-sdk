@@ -184,7 +184,7 @@ kindgi.agents.promotions.create(
 )
 
 # Which version would a run there use, and why?
-live = kindgi.agents.live.resolve("acme.order-desk", project_id=project_id, segment=["company:acme"])
+live = kindgi.agents.live.resolve("acme.order-desk", project_id=project_id, segments=acme)
 print(live.version, live.via, live.live_scope.kind)
 
 # A run that names no version gets it.
@@ -266,20 +266,20 @@ What each refuses:
 ## The history
 
 Every promotion, rollback and unpin is kept, with who asked and why, newest
-first:
+first. `STATUS` says how each ended (`done` for a rollback or an unpin):
 
 ```sh
 kindgi agents promotions list acme.order-desk --table
 ```
 
 ```text
-ID                                    ACTION    SCOPE                                                      FROM   TO     BY                                         AT
-────────────────────────────────────  ────────  ─────────────────────────────────────────────────────────  ─────  ─────  ─────────────────────────────────────────  ────────────────────────
-d6db591b-8afc-4413-81c8-a794d9f848a5  unpin     tenant                                                     1.0.0  -      user 5c0a7e11-0000-4000-8000-0000000000aa  2026-10-06T18:48:59.665Z
-7da674c5-c835-42c0-8cde-59571afd0915  rollback  tenant                                                     1.2.0  1.0.0  user 5c0a7e11-0000-4000-8000-0000000000aa  2026-10-06T18:48:47.871Z
-70ea0024-ec7e-4122-abc4-04df1eb7b9eb  promote   tenant                                                     1.0.0  1.2.0  user 5c0a7e11-0000-4000-8000-0000000000aa  2026-10-06T18:48:43.578Z
-912e10e7-18fb-4228-92b9-33b3f2a4d45b  promote   project 367e1657-8067-4a1d-8ec4-bfa3c5fc5865 company=acme  -      1.1.0  user 5c0a7e11-0000-4000-8000-0000000000aa  2026-10-06T18:48:23.207Z
-ea4e7c15-7990-41b6-b153-0847a83f2e9d  promote   tenant                                                     -      1.0.0  user 5c0a7e11-0000-4000-8000-0000000000aa  2026-10-06T18:46:15.125Z
+ID                                    ACTION    STATUS    SCOPE                                                      FROM   TO     BY                                         AT
+────────────────────────────────────  ────────  ────────  ─────────────────────────────────────────────────────────  ─────  ─────  ─────────────────────────────────────────  ────────────────────────
+d6db591b-8afc-4413-81c8-a794d9f848a5  unpin     done      tenant                                                     1.0.0  -      user 5c0a7e11-0000-4000-8000-0000000000aa  2026-10-06T18:48:59.665Z
+7da674c5-c835-42c0-8cde-59571afd0915  rollback  done      tenant                                                     1.2.0  1.0.0  user 5c0a7e11-0000-4000-8000-0000000000aa  2026-10-06T18:48:47.871Z
+70ea0024-ec7e-4122-abc4-04df1eb7b9eb  promote   promoted  tenant                                                     1.0.0  1.2.0  user 5c0a7e11-0000-4000-8000-0000000000aa  2026-10-06T18:48:43.578Z
+912e10e7-18fb-4228-92b9-33b3f2a4d45b  promote   promoted  project 367e1657-8067-4a1d-8ec4-bfa3c5fc5865 company=acme  -      1.1.0  user 5c0a7e11-0000-4000-8000-0000000000aa  2026-10-06T18:48:23.207Z
+ea4e7c15-7990-41b6-b153-0847a83f2e9d  promote   promoted  tenant                                                     -      1.0.0  user 5c0a7e11-0000-4000-8000-0000000000aa  2026-10-06T18:46:15.125Z
 ```
 
 `--tenant`, `--org`, `--project` and `--segment` narrow it to one scope's
