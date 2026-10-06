@@ -759,8 +759,11 @@ Inside a pack that `kindgi dev` runs, they find it on their own (see
 | `version` | The CLI's and SDK's versions, and the API's when it's reachable |
 
 `kindgi runs start` starts a run for an agent (`--agent=<id>`) or a flow
-(`--flow=<id>`) and waits until it finishes, or until it waits on an
-approval. It follows the run rather than holding the start request open, so
+(`--flow=<id>`), at its latest version or the one `--agent-version=<v>` /
+`--flow-version=<v>` names (a turn in a conversation needs the version the
+conversation was opened with), in the tenant's Default project or the one
+`--project=<project-id>` names (`kindgi projects list`), and waits until it
+finishes, or until it waits on an approval. It follows the run rather than holding the start request open, so
 a long run doesn't time it out. Stopped (Ctrl+C), the wait ends and the run
 goes on: the CLI prints its id and `kindgi runs get <id>`. `--no-wait`
 prints the run as soon as it exists (follow it with `runs get` or `runs
