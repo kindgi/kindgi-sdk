@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Cursor, Filter, Page } from '@kindgi/types';
+import type { Filter } from '@kindgi/types';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
+import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { Transport } from '../transport.js';
 import type {
   CapabilityDeclaration,
@@ -45,7 +46,7 @@ export interface CapabilitiesClient {
    * @wire `GET /v1/capabilities` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1capabilities/get`.
    */
-  list(filter?: CapabilityFilter): Promise<Page<CapabilityDeclaration>>;
+  list(filter?: CapabilityFilter): Promise<ListPage<CapabilityDeclaration>>;
 
   /**
    * Fetch a single capability declaration by id.
@@ -71,7 +72,7 @@ export interface ProvidersClient {
    * @wire `GET /v1/providers` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1providers/get`.
    */
-  list(filter?: ProviderFilter): Promise<Page<Provider>>;
+  list(filter?: ProviderFilter): Promise<ListPage<Provider>>;
 
   /**
    * @wire `GET /v1/providers/{providerId}` — see
@@ -139,12 +140,6 @@ export interface ProviderFilter extends Filter {
   readonly feature?: string;
 }
 
-interface WirePage<T> {
-  readonly data: readonly T[];
-  readonly hasMore: boolean;
-  readonly nextCursor?: string;
-}
-
 export function makeCapabilitiesClient(transport: Transport): CapabilitiesClient {
   return {
     async list(filter) {
@@ -157,12 +152,7 @@ export function makeCapabilitiesClient(transport: Transport): CapabilitiesClient
           ...(filter?.feature !== undefined && { feature: filter.feature }),
         },
       });
-      return {
-        items: page.data,
-        ...(page.nextCursor !== undefined && {
-          nextCursor: page.nextCursor as unknown as Cursor,
-        }),
-      };
+      return listPage(page);
     },
 
     async get(capabilityId) {
@@ -192,12 +182,7 @@ export function makeCapabilitiesClient(transport: Transport): CapabilitiesClient
             ...(filter?.feature !== undefined && { feature: filter.feature }),
           },
         });
-        return {
-          items: page.data,
-          ...(page.nextCursor !== undefined && {
-            nextCursor: page.nextCursor as unknown as Cursor,
-          }),
-        };
+        return listPage(page);
       },
 
       async get(id) {

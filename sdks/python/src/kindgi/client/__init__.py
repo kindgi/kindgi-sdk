@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from . import _models as models
 from ._client import AsyncKindgi, Kindgi, apaginate, paginate
+from ._comparison import comparison_of
 from ._errors import (
     AuthError,
     ConflictError,
@@ -38,6 +39,7 @@ from ._errors import (
     RateLimitedError,
     ServerError,
 )
+from ._pins import pins_digest
 from ._runtime_config import KindgiConfigWarning
 
 __all__ = [
@@ -54,6 +56,8 @@ __all__ = [
     "RateLimitedError",
     "ServerError",
     "apaginate",
+    "comparison_of",
     "models",
     "paginate",
+    "pins_digest",
 ]

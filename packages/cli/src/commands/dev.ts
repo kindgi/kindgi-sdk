@@ -64,6 +64,7 @@ import { createDevOnlyImportsCheck } from '../dev/dev-only-imports.js';
 import { type PackCode, resolvePackCode } from '../dev/pack-code.js';
 import { devPackEnv, devPackEnvFiles } from '../dev/pack-env.js';
 import { createPackRefresher, describePackEvent } from '../dev/pack-service.js';
+import { PORT_SEARCH_SPAN, firstFreePort } from '../dev/port.js';
 import { type DevProject, resolveDevProject } from '../dev/project.js';
 import {
   type DeclaredProvider,
@@ -107,7 +108,7 @@ export const devCommand: LeafCommand = {
     port: {
       type: 'string',
       description:
-        "The port the runtime's API is reached on, on `127.0.0.1`. Default: `4000`. Not used with `--runtime-url`.",
+        "The port the runtime's API is reached on, on `127.0.0.1`. Default: `4000`, or the next free port when it's taken (another `kindgi dev`, say). A port given here that's taken is refused. Not used with `--runtime-url`.",
     },
     // The Kindgi runtime image to run (default: the one this CLI release pins).
     'runtime-image': {
@@ -251,6 +252,8 @@ function renderMissingDbHint(reason: string): string {
 
 interface ResolvedDevArgs {
   readonly port: number;
+  /** `--port` was given: a taken port is refused, not moved from. */
+  readonly portGiven: boolean;
   /**
    * `undefined` when the caller passed neither `--database-url` nor
    * `KINDGI_DATABASE_URL` — in that case `runDev` tries `startServices` to
@@ -313,6 +316,12 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   if (declared.kind === 'invalid') {
     return { kind: 'error', stderr: `kindgi dev: ${declared.message}\n`, exitCode: 1 };
   }
+
+  // The runtime's port, before anything starts. Taken without `--port`
+  // (another `kindgi dev`, say): the next free one, which `.kindgirc.json`
+  // then records for every client. Taken with `--port`: refused.
+  const port = await pickRuntimePort(dev, args);
+  if (port.kind === 'error') return port;
 
   // Resolve the database URL. Precedence:
   //   1. --database-url, then KINDGI_DATABASE_URL from the shell
@@ -516,6 +525,7 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
     pack = dev.createPackService(packOptions);
     packFront = await pack.listen();
   }
+  closeOnStop(pack, ctx.stopSignal);
 
   const builder = dev.createPackBuilder({
     packDir: args.packDir,
@@ -552,7 +562,7 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   try {
     server = await withHeartbeat('still starting the runtime', 3000, () =>
       dev.startApiServer({
-        port: args.port,
+        port: port.port,
         databaseUrl,
         tenantId: effectiveTenantId,
         token: effectiveToken,
@@ -814,24 +824,36 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
     };
     // Code: esbuild rebuilds when any file a bundle read changes —
     // shared libraries outside the discovery folders included.
-    await builder.watch((build) => onRefresh(build));
+    // Each watcher's changes start nothing once the stop begins: the
+    // watchers close while the runtime stops (see `stopDev`).
+    await builder.watch(untilStopped(ctx.stopSignal, (build: PackBuild) => onRefresh(build)));
+    const onWatchFailed = reportWatchFailureOnce();
     // A primitive file added or removed changes the entry points.
     watchHandles.push(
       await dev.watchPack(
         args.packDir,
-        () => {
+        untilStopped(ctx.stopSignal, () => {
           void builder.syncEntries();
+        }),
+        {
+          debounceMs: DEFAULT_WATCH_DEBOUNCE_MS,
+          patterns: projectEnv.discoveryPatterns,
+          onWatchFailed,
         },
-        { debounceMs: DEFAULT_WATCH_DEBOUNCE_MS, patterns: projectEnv.discoveryPatterns },
       ),
     );
     // The env files: the same code, restarted with the new environment.
     watchHandles.push(
-      await dev.watchPack(args.packDir, () => onRefresh(), {
-        debounceMs: DEFAULT_WATCH_DEBOUNCE_MS,
-        patterns: [],
-        files: devPackEnvFiles(args.packDir, projectEnv.localEnvFiles),
-      }),
+      await dev.watchPack(
+        args.packDir,
+        untilStopped(ctx.stopSignal, () => onRefresh()),
+        {
+          debounceMs: DEFAULT_WATCH_DEBOUNCE_MS,
+          patterns: [],
+          files: devPackEnvFiles(args.packDir, projectEnv.localEnvFiles),
+          onWatchFailed,
+        },
+      ),
     );
   }
 
@@ -996,6 +1018,39 @@ async function loadDevProjectEnv(ctx: CommandContext, packDir: string): Promise<
   };
 }
 
+type RuntimePortOutcome =
+  | { readonly kind: 'ok'; readonly port: number }
+  | (CommandResult & { readonly kind: 'error' });
+
+async function pickRuntimePort(
+  dev: DevRunners,
+  args: ResolvedDevArgs,
+): Promise<RuntimePortOutcome> {
+  // `--runtime-url`: the developer's runtime has its own port. Port 0: any.
+  if (args.runtimeUrl !== undefined || args.port === 0 || dev.runtimePortInUse === undefined) {
+    return { kind: 'ok', port: args.port };
+  }
+  const inUse = (port: number) => dev.runtimePortInUse!({ packDir: args.packDir, port });
+  if (!(await inUse(args.port))) return { kind: 'ok', port: args.port };
+  if (args.portGiven) {
+    return {
+      kind: 'error',
+      stderr: `kindgi dev: port ${args.port} is in use. Pick another with --port, or stop what's using it.\n`,
+      exitCode: 1,
+    };
+  }
+  const free = await firstFreePort(args.port + 1, inUse);
+  if (free === undefined) {
+    return {
+      kind: 'error',
+      stderr: `kindgi dev: ports ${args.port} to ${args.port + PORT_SEARCH_SPAN} are all in use. Pick a free one with --port.\n`,
+      exitCode: 1,
+    };
+  }
+  emitProgress(`⚠ port ${args.port} is in use (another kindgi dev?): using ${free}`);
+  return { kind: 'ok', port: free };
+}
+
 type DevArgsOutcome =
   | { readonly kind: 'ok'; readonly args: ResolvedDevArgs }
   | (CommandResult & { readonly kind: 'error' });
@@ -1004,7 +1059,8 @@ function resolveDevArgs(ctx: CommandContext): DevArgsOutcome {
   // --port
   const portRaw = ctx.options.port;
   let port = DEFAULT_DEV_PORT;
-  if (typeof portRaw === 'string' && portRaw !== '') {
+  const portGiven = typeof portRaw === 'string' && portRaw !== '';
+  if (portGiven) {
     const parsedPort = Number.parseInt(portRaw, 10);
     if (!Number.isFinite(parsedPort) || parsedPort < 0 || parsedPort > 65535) {
       return {
@@ -1084,6 +1140,7 @@ function resolveDevArgs(ctx: CommandContext): DevArgsOutcome {
     kind: 'ok',
     args: {
       port,
+      portGiven,
       databaseUrl,
       tenantId,
       token,
@@ -1247,10 +1304,45 @@ function emitBootIndex(
 }
 
 /**
- * Stop everything `kindgi dev` started: the watchers, then the refreshes
- * in flight (drained, so none registers against a server shutting down),
- * the runtime and the pack service. In watch mode, on the one shutdown
- * line.
+ * The moment a stop is asked for, the pack service is closing: a child
+ * that exits then (a terminal's Ctrl+C signals the whole process group,
+ * the pack service included) is expected, not restarted mid-shutdown.
+ */
+function closeOnStop(pack: { beginClose(): void }, stopSignal: AbortSignal | undefined): void {
+  if (stopSignal?.aborted === true) pack.beginClose();
+  else stopSignal?.addEventListener('abort', () => pack.beginClose(), { once: true });
+}
+
+/**
+ * A failed file watch (its folder removed, too many open files), said once
+ * for the session: the once-a-second scan behind the watchers goes on and
+ * picks up the pack's changes from then on.
+ */
+function reportWatchFailureOnce(): (error: unknown) => void {
+  let said = false;
+  return (error) => {
+    if (said) return;
+    said = true;
+    const why = error instanceof Error ? error.message : String(error);
+    emitProgress(`  ⚠ file watch failed (${why}): changes are picked up by the once-a-second scan`);
+  };
+}
+
+/** `fn` until the stop begins: a change seen while stopping starts nothing. */
+function untilStopped<A extends unknown[]>(
+  stopSignal: AbortSignal | undefined,
+  fn: (...args: A) => void,
+): (...args: A) => void {
+  return (...args) => {
+    if (stopSignal?.aborted !== true) fn(...args);
+  };
+}
+
+/**
+ * Stop everything `kindgi dev` started: the refreshes in flight (drained,
+ * so none registers against a server shutting down), the runtime with the
+ * watchers closing meanwhile, then the pack service. In watch mode, on
+ * the one shutdown line.
  */
 async function stopDev(parts: {
   readonly watch: boolean;
@@ -1261,22 +1353,58 @@ async function stopDev(parts: {
   readonly server: RunningApiServer;
   readonly pack: { close(): Promise<void> };
 }): Promise<void> {
-  let stopped = false;
-  try {
-    if (parts.watch) {
-      beginStoppingLine();
-      for (const handle of parts.watchHandles) await handle.close();
+  if (parts.watch) beginStoppingLine();
+  // Every step runs, whichever failed before it: the runtime container is
+  // removed (`server.shutdown`) even when, say, the pack service died first.
+  const failure = await runEach([
+    // Nothing starts a refresh any more (the watchers' changes are ignored
+    // from the stop on); drain the ones in flight.
+    () => parts.builder.dispose(),
+    () => Promise.allSettled(parts.inFlightTicks),
+    () => parts.refresher.idle(),
+    // The watchers close while the runtime's container stops: closing a
+    // recursive one holds this event loop for a second or more on macOS,
+    // and `docker stop` doesn't wait on it.
+    () =>
+      whileRunning(
+        () => parts.server.shutdown(),
+        parts.watchHandles.map((handle) => () => handle.close()),
+      ),
+    () => parts.pack.close(),
+  ]);
+  if (parts.watch) endStoppingLine(failure === undefined);
+  if (failure !== undefined) throw failure.cause;
+}
+
+/** Start `first`, run `meanwhile` while it's under way, then wait for it; throws the first failure. */
+async function whileRunning(
+  first: () => Promise<unknown>,
+  meanwhile: readonly (() => Promise<unknown>)[],
+): Promise<void> {
+  // Called now, before `meanwhile` holds the loop; settled at once, so a
+  // failure while `meanwhile` runs isn't unhandled.
+  const started = (async () => first())().then(
+    () => undefined,
+    (cause: unknown) => ({ cause }),
+  );
+  const meanwhileFailure = await runEach(meanwhile);
+  const failure = (await started) ?? meanwhileFailure;
+  if (failure !== undefined) throw failure.cause;
+}
+
+/** Run each step in turn, every one even after one fails; the first failure, if any. */
+async function runEach(
+  steps: readonly (() => Promise<unknown>)[],
+): Promise<{ readonly cause: unknown } | undefined> {
+  let first: { readonly cause: unknown } | undefined;
+  for (const step of steps) {
+    try {
+      await step();
+    } catch (cause) {
+      first ??= { cause };
     }
-    // Nothing starts a refresh any more; drain the ones in flight.
-    await parts.builder.dispose();
-    await Promise.allSettled(parts.inFlightTicks);
-    await parts.refresher.idle();
-    await parts.server.shutdown();
-    await parts.pack.close();
-    stopped = true;
-  } finally {
-    if (parts.watch) endStoppingLine(stopped);
   }
+  return first;
 }
 
 /**

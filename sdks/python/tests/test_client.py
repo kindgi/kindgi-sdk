@@ -120,6 +120,28 @@ def test_a_body_as_a_mapping_or_a_model() -> None:
         api.runs.start({"agent": "a", "input": {}}, flow="f")
 
 
+def test_a_field_named_for_a_keyword_takes_a_trailing_underscore() -> None:
+    # `from` is a Python keyword: `from_=` sends it, as does a mapping.
+    derived = {
+        "id": "acme.intake",
+        "version": "1.4.1",
+        "name": "Intake",
+        "instructions": {"prompt": "acme.intake-prompt", "version": "^1.0.0"},
+        "capabilities": [],
+        "tools": [],
+        "retrieval": [],
+        "guardrails": [],
+        "derivedFrom": {"version": "1.4.0", "reason": "edited", "by": "user:u-1"},
+    }
+    api, seen = client(lambda r: httpx.Response(201, json=derived))
+    pins = {"prompts": {"acme.intake-prompt": "1.1.0"}}
+    agent = api.agents.derive_version("acme.intake", from_="1.4.0", pins=pins)
+    api.agents.derive_version("acme.intake", {"from": "1.4.0", "pins": pins})
+    assert agent.derived_from is not None and agent.derived_from.reason == "edited"
+    assert [r.url for r in seen] == ["http://kindgi.test/v1/agents/acme.intake/versions"] * 2
+    assert [json.loads(r.content) for r in seen] == [{"from": "1.4.0", "pins": pins}] * 2
+
+
 def test_path_and_query_parameters() -> None:
     page = {"data": [], "hasMore": False}
     api, seen = client(
@@ -129,6 +151,42 @@ def test_path_and_query_parameters() -> None:
     api.runs.list(limit=5, top_level=True)
     assert seen[0].url.raw_path == b"/v1/runs/a%2Fb%20c"
     assert dict(seen[1].url.params) == {"limit": "5", "topLevel": "true"}
+
+
+def test_eval_suites_unregister_names_the_call_as_the_other_resources_do() -> None:
+    # `eval_suites.unregister`, as `agents.unregister`: the same call as
+    # `eval_suites.versions.unregister`.
+    answer = {"suiteId": "acme.set", "version": "1.0.0", "unregistered": True}
+    api, seen = client(lambda r: httpx.Response(200, json=answer))
+    api.eval_suites.unregister("acme.set", "1.0.0")
+    api.eval_suites.versions.unregister("acme.set", "1.0.0")
+    assert [(r.method, r.url.path) for r in seen] == [
+        ("POST", "/v1/eval-suites/acme.set/versions/1.0.0/unregister"),
+    ] * 2
+
+
+def test_conversations_list_takes_replays() -> None:
+    # A comparison's replay conversations are left out unless asked for.
+    api, seen = client(lambda r: httpx.Response(200, json={"data": [], "hasMore": False}))
+    api.conversations.list()
+    api.conversations.list(replays="only")
+    assert dict(seen[0].url.params) == {}
+    assert dict(seen[1].url.params) == {"replays": "only"}
+
+
+def test_a_list_query_parameter_repeats_its_key_in_order() -> None:
+    project = "0b9f4c1e-1111-4a2b-8c3d-000000000001"
+    api, seen = client(
+        lambda _r: httpx.Response(
+            200, json={"agentId": "acme.drafter", "version": "1.1.0", "via": "latest"}
+        )
+    )
+    resolved = api.agents.live.resolve(
+        "acme.drafter", project_id=project, segment=["company:acme", "role:counsel"]
+    )
+    assert resolved.via == "latest"
+    assert seen[0].url.params.get_list("segment") == ["company:acme", "role:counsel"]
+    assert seen[0].url.params["projectId"] == project
 
 
 @pytest.mark.parametrize(
@@ -153,6 +211,26 @@ def test_path_and_query_parameters() -> None:
             error(409, "project-default-already-exists"),
             ConflictError,
             lambda e: e.server_code == "project-default-already-exists",
+        ),
+        (
+            error(409, "registry-read-only"),
+            ConflictError,
+            lambda e: e.server_code == "registry-read-only",
+        ),
+        (
+            error(409, "nothing-to-roll-back"),
+            ConflictError,
+            lambda e: e.server_code == "nothing-to-roll-back",
+        ),
+        (
+            error(404, "agent-version-not-found"),
+            NotFoundError,
+            lambda e: e.kind == "agent-version",
+        ),
+        (
+            error(400, "scope-invalid"),
+            InvalidRequestError,
+            lambda e: e.issues == [],
         ),
         (
             error(400, "validation-failed", details={"issues": [{"path": "/x", "message": "bad"}]}),
@@ -284,6 +362,28 @@ def test_paginate_follows_the_cursor() -> None:
     assert [r.url.params.get("cursor") for r in seen] == [None, "c2"]
 
 
+@pytest.mark.parametrize("has_more", [True, None], ids=["hasMore", "older server"])
+def test_paginate_pages_env_with_or_without_has_more(has_more: bool | None) -> None:
+    entry = {
+        "scope": {"kind": "tenant", "tenantId": "acme"},
+        "envName": "dev",
+        "name": "REGION",
+        "value": "eu",
+        "revision": 1,
+        "createdAt": "2026-10-01T00:00:00Z",
+        "updatedAt": "2026-10-01T00:00:00Z",
+    }
+    first: dict[str, Any] = {"data": [entry], "nextCursor": "c2"}
+    last: dict[str, Any] = {"data": [entry]}
+    if has_more is not None:
+        first["hasMore"], last["hasMore"] = True, False
+    pages = {None: first, "c2": last}
+    api, seen = client(lambda r: httpx.Response(200, json=pages[r.url.params.get("cursor")]))
+    entries = list(paginate(api.env.list, env_name="dev", scope_kind="tenant"))
+    assert len(entries) == 2
+    assert [r.url.params.get("cursor") for r in seen] == [None, "c2"]
+
+
 def test_settings_come_from_the_environment(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -343,3 +443,57 @@ def test_the_generated_client_is_in_step_with_openapi() -> None:
         [sys.executable, str(script), "--check"], capture_output=True, text=True, check=False
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_retention_scheduled_and_sweep() -> None:
+    """T236: the retention routes, with the conflicts a page reports."""
+    conflict = {
+        "domain": "provider",
+        "policyIds": ["acme.keep-providers", "acme.keep-providers-long"],
+        "appliedPolicyId": "acme.keep-providers",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/retention/scheduled":
+            return httpx.Response(
+                200,
+                json={
+                    "data": [],
+                    "domainsMissingAdapter": [],
+                    "unpolicedDomains": ["run"],
+                    "conflicts": [conflict],
+                },
+            )
+        return httpx.Response(200, json={"perDomain": [], "totalPurged": 0})
+
+    api, seen = client(handler)
+    page = api.retention.scheduled(domain="provider", past_grace_only=True, limit=10)
+    assert page.conflicts is not None
+    assert page.conflicts[0].applied_policy_id == "acme.keep-providers"
+    assert dict(seen[0].url.params) == {
+        "domain": "provider",
+        "pastGraceOnly": "true",
+        "limit": "10",
+    }
+
+    api.retention.sweep(max_per_domain=100)
+    assert (seen[1].method, seen[1].url.path) == ("POST", "/v1/retention/sweep")
+    assert json.loads(seen[1].content) == {"maxPerDomain": 100}
+
+    api.retention.sweep_domain("judge_class")
+    assert seen[2].url.path == "/v1/retention/sweep/judge_class"
+
+
+def test_a_second_retention_policy_for_a_domain_is_a_conflict() -> None:
+    """T236: `409 policy-scope-taken` names the policy that covers the domain."""
+    response = error(409, "policy-scope-taken", details={"heldBy": "acme.keep-providers"})
+    api, _ = client(lambda r: response, max_retries=0)
+    with pytest.raises(ConflictError) as raised:
+        api.policies.publish(
+            id="acme.keep-providers-long",
+            version="1.0.0",
+            kind="retention",
+            spec={"v": 1, "doc": {"domain": "provider", "graceSeconds": 0, "mode": "purge"}},
+        )
+    assert raised.value.server_code == "policy-scope-taken"
+    assert raised.value.details["heldBy"] == "acme.keep-providers"

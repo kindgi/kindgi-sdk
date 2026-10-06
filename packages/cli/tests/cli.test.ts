@@ -380,6 +380,74 @@ describe('kindgi runs start', () => {
     });
     expect(JSON.parse(out.stdout)).toEqual({ id: 'run-2', status: 'pending' });
   });
+
+  /** `kindgi runs start <flags>` against a client that records what it started. */
+  async function start(flags: readonly string[]) {
+    const started: unknown[] = [];
+    const out = await runCli(
+      baseInputs({
+        argv: [
+          'runs',
+          'start',
+          ...flags,
+          '--input={"x":1}',
+          '--no-wait',
+          '--url=https://x',
+          '--token=t',
+        ],
+        clientFactory: () =>
+          ({
+            runs: {
+              start: async (input: unknown) => {
+                started.push(input);
+                return { id: 'run-3', status: 'pending' };
+              },
+            },
+          }) as never,
+      }),
+    );
+    return { out, started };
+  }
+
+  test('--agent-version and --flow-version name the version to run (T245)', async () => {
+    const agent = await start(['--agent=pack.agent', '--agent-version=1.0.0']);
+    expect(agent.out.exitCode, agent.out.stderr).toBe(0);
+    expect(agent.started).toEqual([
+      { agent: 'pack.agent', agentVersion: '1.0.0', input: { x: 1 }, options: { wait: false } },
+    ]);
+    const flow = await start(['--flow=pack.flow', '--flow-version=2.1.0']);
+    expect(flow.out.exitCode, flow.out.stderr).toBe(0);
+    expect(flow.started).toEqual([
+      { flow: 'pack.flow', flowVersion: '2.1.0', input: { x: 1 }, options: { wait: false } },
+    ]);
+  });
+
+  test('--project runs it in that project, agent or flow', async () => {
+    const agent = await start(['--agent=pack.agent', '--project=p-1']);
+    expect(agent.out.exitCode, agent.out.stderr).toBe(0);
+    expect(agent.started).toEqual([
+      { agent: 'pack.agent', projectId: 'p-1', input: { x: 1 }, options: { wait: false } },
+    ]);
+    const flow = await start(['--flow=pack.flow', '--project=p-2']);
+    expect(flow.started).toEqual([
+      { flow: 'pack.flow', projectId: 'p-2', input: { x: 1 }, options: { wait: false } },
+    ]);
+  });
+
+  test('a version for the other kind is refused, and nothing starts (T245)', async () => {
+    for (const [flags, message] of [
+      [
+        ['--flow=pack.flow', '--agent-version=1.0.0'],
+        '--agent-version goes with --agent=<agent-id>',
+      ],
+      [['--agent=pack.agent', '--flow-version=1.0.0'], '--flow-version goes with --flow=<flow-id>'],
+    ] as const) {
+      const { out, started } = await start(flags);
+      expect(out.exitCode).not.toBe(0);
+      expect(out.stderr).toContain(message);
+      expect(started).toEqual([]);
+    }
+  });
 });
 
 describe('missing required arguments', () => {
@@ -452,6 +520,59 @@ describe('kindgi runs start — turn warnings', () => {
   test('no warnings, nothing on stderr', async () => {
     const out = await startWith({ response: { content: 'Hello, Ada!' } });
     expect(out.stderr).toBe('');
+  });
+});
+
+describe('kindgi runs start — project and segments', () => {
+  test('sends the project and the segment path, in order', async () => {
+    const started: unknown[] = [];
+    const out = await runCli(
+      baseInputs({
+        argv: [
+          'runs',
+          'start',
+          '--agent=acme.drafter',
+          '--input={"userMessage":"hi"}',
+          '--project=p-1',
+          '--segment=company:acme',
+          '--segment=role:counsel',
+          '--no-wait',
+        ],
+        env: { KINDGI_API_URL: 'https://x', KINDGI_API_TOKEN: 't' },
+        clientFactory: () =>
+          ({
+            runs: {
+              start: async (input: unknown) => {
+                started.push(input);
+                return { id: 'run-1', status: 'pending' };
+              },
+            },
+          }) as never,
+      }),
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(started).toEqual([
+      expect.objectContaining({
+        agent: 'acme.drafter',
+        projectId: 'p-1',
+        segments: [
+          { key: 'company', value: 'acme' },
+          { key: 'role', value: 'counsel' },
+        ],
+      }),
+    ]);
+  });
+
+  test('a segment without a value fails before the run starts', async () => {
+    const out = await runCli(
+      baseInputs({
+        argv: ['runs', 'start', '--agent=a', '--input={}', '--segment=company'],
+        env: { KINDGI_API_URL: 'https://x', KINDGI_API_TOKEN: 't' },
+        clientFactory: () => ({ runs: { start: async () => ({}) } }) as never,
+      }),
+    );
+    expect(out.exitCode).not.toBe(0);
+    expect(out.stderr).toContain('key:value');
   });
 });
 

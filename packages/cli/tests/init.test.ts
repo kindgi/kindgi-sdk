@@ -8,6 +8,8 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { runCli } from '../src/main.js';
+import { publishedCliSpec } from '../src/package-manager.js';
+import { CLI_VERSION } from '../src/version-info.js';
 
 let home: string;
 let cwd: string;
@@ -291,7 +293,7 @@ describe('kindgi init — python template', () => {
     const tool = await readFile(join(cwd, 'my-pack', 'tools/echo.py'), 'utf8');
     expect(tool).toContain('@tool(id="my-pack.echo")');
     expect(out.stderr).toContain('uv sync');
-    expect(out.stderr).toMatch(/npx --yes @kindgi\/cli@\d+\.\d+ dev/);
+    expect(out.stderr).toContain(`npx --yes ${publishedCliSpec(CLI_VERSION)} dev`);
   });
 });
 

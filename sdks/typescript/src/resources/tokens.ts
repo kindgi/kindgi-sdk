@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Cursor, Page, Timestamp } from '@kindgi/types';
+import type { Cursor, Timestamp } from '@kindgi/types';
 import type {
   ApiTokenPage as ApiTokenPageWire,
   ApiToken as ApiTokenWire,
@@ -10,6 +10,7 @@ import type {
   MintTokenResult,
 } from '../generated/api.js';
 
+import { type ListPage, listPage } from '../list-page.js';
 import type { Transport } from '../transport.js';
 import type { ApiToken, ApiTokenCreated, ApiTokenId, ApiTokenSpec } from '../types.js';
 
@@ -42,7 +43,7 @@ export interface TokensClient {
    * @wire `GET /v1/tokens` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1tokens/get`.
    */
-  list(filter?: TokenFilter): Promise<Page<ApiToken>>;
+  list(filter?: TokenFilter): Promise<ListPage<ApiToken>>;
 
   /**
    * Read one API key. Never returns the secret.
@@ -132,10 +133,7 @@ export function makeTokensClient(transport: Transport): TokensClient {
           ...(filter?.cursor !== undefined && { cursor: filter.cursor as unknown as string }),
         },
       });
-      return {
-        items: page.data.map(fromWire),
-        ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as Cursor }),
-      };
+      return listPage({ ...page, data: page.data.map(fromWire) });
     },
 
     async get(id) {

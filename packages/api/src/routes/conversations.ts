@@ -18,6 +18,7 @@ import { statusFor, toWireError } from '../errors.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit, decodeCursor, encodeCursor } from './pagination.js';
 import { parseListScope } from './scope-params.js';
+import { refuseMalformedUuidParam } from './uuid-param.js';
 
 const PROJECT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -28,6 +29,15 @@ const PROJECT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
  * order); conversation list sort is `openedAt DESC, id DESC`
  * (most-recently-opened first).
  */
+/**
+ * A `:conversationId` that isn't a conversation id is a 400
+ * (`uuid-param.ts`), not a 500 from the uuid cast (as `runs` does).
+ */
+const refuseMalformedConversationId = refuseMalformedUuidParam(
+  'conversationId',
+  'a conversation id',
+);
+
 export function conversationsRouter(
   conversationBinding: ConversationBinding,
   runBinding: RunBinding,
@@ -62,6 +72,23 @@ export function conversationsRouter(
 
     const agentIdRaw = c.req.query('agentId');
 
+    // Replay conversations (a comparison's replays) are left out unless asked for.
+    const replaysRaw = c.req.query('replays');
+    if (
+      replaysRaw !== undefined &&
+      replaysRaw !== 'exclude' &&
+      replaysRaw !== 'include' &&
+      replaysRaw !== 'only'
+    ) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          { code: 'bad-input', message: '`replays` must be `exclude`, `include` or `only`' },
+          requestId,
+        ),
+      );
+    }
+
     const scopeParsed = parseListScope(c.req.query(), { tenantId });
     if (scopeParsed.kind === 'err') {
       c.status(statusFor('scope-invalid') as never);
@@ -88,6 +115,7 @@ export function conversationsRouter(
       ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(agentIdRaw !== undefined && agentIdRaw.length > 0 && { agentId: agentIdRaw as AgentId }),
       ...(statusFilter !== undefined && { status: statusFilter }),
+      replays: replaysRaw ?? 'exclude',
       ...(before !== undefined && { before }),
       limit,
     });
@@ -112,7 +140,7 @@ export function conversationsRouter(
   });
 
   // ---------- GET /:conversationId ----------
-  r.get('/:conversationId', async (c) => {
+  r.get('/:conversationId', refuseMalformedConversationId, async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const conversationId = c.req.param('conversationId') as ConversationId;
@@ -186,7 +214,7 @@ export function conversationsRouter(
   });
 
   // ---------- POST /:conversationId/close (idempotent) ----------
-  r.post('/:conversationId/close', async (c) => {
+  r.post('/:conversationId/close', refuseMalformedConversationId, async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const conversationId = c.req.param('conversationId') as ConversationId;
@@ -214,7 +242,7 @@ export function conversationsRouter(
   });
 
   // ---------- GET /:conversationId/messages (cursor-paginated, sequence asc) ----------
-  r.get('/:conversationId/messages', async (c) => {
+  r.get('/:conversationId/messages', refuseMalformedConversationId, async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const conversationId = c.req.param('conversationId') as ConversationId;

@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Cursor, Page, Timestamp } from '@kindgi/types';
+import type { Timestamp } from '@kindgi/types';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
+import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import { scopeToQuery } from '../scope-wire.js';
 import type { Transport } from '../transport.js';
 import type {
@@ -39,7 +40,7 @@ export interface UsageClient {
    * @wire `GET /v1/cost/records` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1cost~1records/get`.
    */
-  query(filter?: CostRecordFilter): Promise<Page<CostRecord>>;
+  query(filter?: CostRecordFilter): Promise<ListPage<CostRecord>>;
 
   /**
    * Fetch a single cost record.
@@ -67,6 +68,13 @@ export interface UsageSummaryInput
   /** Exclusive. */
   readonly to: Timestamp;
   readonly groupBy?: readonly CostGroupDimension[];
+  /**
+   * The most groups to return: the most expensive ones, highest first.
+   * 1 to 10000; the server's default is 1000. When there were more, the
+   * result's `truncated` is `true` and `totalGroups` says how many; the
+   * totals still cover every record.
+   */
+  readonly limit?: number;
 }
 
 /** The query parameters a cost filter sends. */
@@ -111,12 +119,6 @@ export interface BudgetsClient {
   getRemaining(): Promise<BudgetsRemaining>;
 }
 
-interface WirePage<T> {
-  readonly data: readonly T[];
-  readonly hasMore: boolean;
-  readonly nextCursor?: string;
-}
-
 export function makeCostClient(transport: Transport): CostClient {
   return {
     usage: {
@@ -130,12 +132,7 @@ export function makeCostClient(transport: Transport): CostClient {
             ...filterQuery(filter ?? {}),
           },
         });
-        return {
-          items: page.data,
-          ...(page.nextCursor !== undefined && {
-            nextCursor: page.nextCursor as unknown as Cursor,
-          }),
-        };
+        return listPage(page);
       },
 
       async get(recordId, options) {
@@ -147,7 +144,7 @@ export function makeCostClient(transport: Transport): CostClient {
       },
 
       async summary(input) {
-        const { from, to, groupBy, ...filter } = input;
+        const { from, to, groupBy, limit, ...filter } = input;
         return transport.request<CostAggregateResult>({
           method: 'GET',
           path: '/v1/cost/aggregate',
@@ -156,6 +153,7 @@ export function makeCostClient(transport: Transport): CostClient {
             from: from as unknown as string,
             to: to as unknown as string,
             ...(groupBy !== undefined && { groupBy: groupBy.join(',') }),
+            ...(limit !== undefined && { limit }),
           },
         });
       },

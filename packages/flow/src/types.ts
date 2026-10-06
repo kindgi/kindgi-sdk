@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { EdgeId, FlowId, NodeId } from '@kindgi/types';
+import type { EdgeId, FlowId, NodeId, VersionDerivation } from '@kindgi/types';
+
+import type { FlowPins } from './pins.js';
 
 /**
  * Path roots addressable in edge predicates.
@@ -799,6 +801,20 @@ export interface Flow {
    * `$end` edge (the lowest-id taken one when several fire).
    */
   readonly output?: FlowOutputSpec;
+  /**
+   * The exact tool and agent versions this flow version runs, resolved by
+   * the runtime when the version was published (see `FlowPins`). Never
+   * authored: `loadFlow` refuses it. Absent on a flow version published
+   * before pins existed; it binds the latest versions per run.
+   */
+  readonly pins?: FlowPins;
+  /** `flowPinsDigest(pins)`, recorded when the version was published. */
+  readonly pinsDigest?: string;
+  /**
+   * Set by the runtime on a version a deploy registered under another
+   * number than the definition's (see `VersionDerivation`). Never authored.
+   */
+  readonly derivedFrom?: VersionDerivation;
 }
 
 /**

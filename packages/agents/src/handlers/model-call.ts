@@ -18,6 +18,7 @@ import { emitTurnEvent } from '../streaming.js';
 
 import type { AgentTurnIterationOutput, TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
+import { replayTag } from './replay.js';
 import { addModelCallNode } from './turn-provenance.js';
 
 /**
@@ -83,6 +84,7 @@ export function buildModelCallHandler(ctx: TurnContext): NodeHandler {
         ...(ctx.tools.definitions.length > 0 && {
           tools: ctx.tools.definitions,
         }),
+        ...modelSettingsOf(ctx),
         abortSignal: ctx.turnAbort.signal,
       };
 
@@ -251,6 +253,7 @@ async function recordCall(
     providerId: ctx.provider.metadata.id,
     model: ctx.model.name,
     ...(ctx.provider.metadata.fallback === true && { fallback: true }),
+    ...(input.replay !== undefined && { replay: replayTag(input.replay) }),
     occurredAt: new Date().toISOString(),
   });
   return recorded.kind === 'err' ? (recorded.error ?? new Error('no detail')) : undefined;
@@ -264,4 +267,15 @@ function describeCause(cause: unknown): string {
   const text = (cause instanceof Error ? cause.message : String(cause)).replace(/\s+/g, ' ').trim();
   if (text.length === 0) return cause instanceof Error ? cause.name : 'no detail';
   return text.length > MAX_CAUSE_CHARS ? `${text.slice(0, MAX_CAUSE_CHARS - 1)}…` : text;
+}
+
+/** The pinned model-settings block's values, as model-call fields; none when it has none. */
+function modelSettingsOf(
+  ctx: TurnContext,
+): Pick<ModelCallInput, 'temperature' | 'maxOutputTokens'> {
+  const settings = ctx.blocks?.modelSettings;
+  return {
+    ...(settings?.temperature !== undefined && { temperature: settings.temperature }),
+    ...(settings?.maxOutputTokens !== undefined && { maxOutputTokens: settings.maxOutputTokens }),
+  };
 }

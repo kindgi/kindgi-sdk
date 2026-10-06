@@ -8,7 +8,8 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import AnyUrl, AwareDatetime, BaseModel, ConfigDict, Field, RootModel
+from pydantic import AnyUrl, AwareDatetime, BaseModel, ConfigDict, Field, RootModel, constr
+from typing_extensions import TypeAliasType
 
 
 class Error(BaseModel):
@@ -53,71 +54,232 @@ class RunStatus(
     root: Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]
 
 
-class RunAgent(BaseModel):
+class ScopeSegment(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    key: Annotated[str, Field(pattern="^[a-z][a-z0-9_-]{0,63}$")]
     """
-    Set on an agent's turn (an agent run, or the turn a flow's agent step started): the agent, the version that ran and the conversation. Absent on other runs, and on turns that ran before Kindgi 0.1.3.
+    Lowercase, like an identifier: `company`, `contact-role`.
+    """
+    value: Annotated[str, Field(max_length=256, min_length=1)]
+
+
+class LiveScopeTenant(BaseModel):
+    """
+    The agent's default for the whole tenant.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    id: str
+    kind: Literal["tenant"]
+
+
+class LiveScopeOrg(BaseModel):
     """
-    The agent id.
+    An org's projects.
     """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["org"]
+    org_id: Annotated[UUID, Field(alias="orgId")]
+
+
+class LiveScopeProject(BaseModel):
+    """
+    One project.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["project"]
+    project_id: Annotated[UUID, Field(alias="projectId")]
+
+
+class LiveScopeSegment(BaseModel):
+    """
+    A segment path within a project: it covers every run whose path starts with it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["segment"]
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    path: Annotated[list[ScopeSegment], Field(max_length=8, min_length=1)]
+
+
+class LiveVersionResolution(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    agent_id: Annotated[str, Field(alias="agentId")]
     version: str
     """
-    The agent version that ran (semver).
+    The version a run would use (semver).
     """
-    conversation_id: Annotated[UUID, Field(alias="conversationId")]
+    via: Literal["live", "latest"]
+    """
+    A live pin chose it, or nothing is live on the way up and it is the latest.
+    """
+    live_scope: Annotated[
+        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment | None,
+        Field(alias="liveScope", discriminator="kind"),
+    ] = None
+    """
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    """
 
 
-class Run(BaseModel):
+class LivePin(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    agent_id: Annotated[str, Field(alias="agentId")]
+    scope: Annotated[
+        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment,
+        Field(discriminator="kind"),
+    ]
+    """
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    """
+    version: str
+    promotion_id: Annotated[UUID, Field(alias="promotionId")]
+    """
+    The promotion that set it.
+    """
+    set_at: Annotated[AwareDatetime, Field(alias="setAt")]
+
+
+class LivePinList(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[LivePin]
+
+
+class RequestedBy(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["user", "service"]
+    id: str
+
+
+class Promotion(BaseModel):
+    """
+    One change of a scope's live version, kept for good: what was live before, what is after, who asked and why.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
     id: UUID
+    agent_id: Annotated[str, Field(alias="agentId")]
+    scope: Annotated[
+        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment,
+        Field(discriminator="kind"),
+    ]
     """
-    RunId.
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
     """
-    tenant_id: Annotated[UUID, Field(alias="tenantId")]
-    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
-    flow_id: Annotated[str, Field(alias="flowId")]
-    flow_version: Annotated[str, Field(alias="flowVersion")]
+    action: Literal["promote", "rollback", "unpin"]
+    from_version: Annotated[str | None, Field(alias="fromVersion")]
     """
-    Semver.
+    The scope's own pin before; null when it had none.
     """
-    status: Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]
-    dry_run: Annotated[bool, Field(alias="dryRun")]
+    to_version: Annotated[str | None, Field(alias="toVersion")]
+    """
+    The scope's own pin after; null after an unpin.
+    """
+    requested_by: Annotated[RequestedBy, Field(alias="requestedBy")]
+    reason: str | None = None
+    eval_run_id: Annotated[str | None, Field(alias="evalRunId")] = None
+    """
+    The comparison the change was judged on.
+    """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
-    completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
-    failure_message: Annotated[str | None, Field(alias="failureMessage")] = None
-    output: Any | None = None
+
+
+class PromotionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Promotion]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class PromoteBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    version: str
     """
-    The run's output once it completed. Present on single-run responses; on lists only with `?include=output`.
+    The agent version to make live (registered, active).
     """
-    parent_run_id: Annotated[UUID | None, Field(alias="parentRunId")] = None
+    scope: Annotated[
+        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment,
+        Field(discriminator="kind"),
+    ]
     """
-    Set on a child run (a sub-flow run, or the agent turn an agent step started): the run that started it.
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
     """
-    parent_node_id: Annotated[str | None, Field(alias="parentNodeId")] = None
+    reason: Annotated[str | None, Field(max_length=2000)] = None
+    eval_run_id: Annotated[str | None, Field(alias="evalRunId")] = None
     """
-    Set on a child run: the node in the parent run that started it.
+    The comparison this promotion was judged on.
     """
-    agent: RunAgent | None = None
-    public_access_token: Annotated[str | None, Field(alias="publicAccessToken")] = None
+
+
+class RollbackBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    scope: Annotated[
+        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment,
+        Field(discriminator="kind"),
+    ]
     """
-    Only in the response to `POST /v1/runs`, when the deployment issues public run tokens: a read-only token for this run (and its descendants) to hand to a browser, for `GET /v1/runs/{runId}/progress` and its stream.
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
     """
-    public_access_token_expires_at: Annotated[
-        AwareDatetime | None, Field(alias="publicAccessTokenExpiresAt")
-    ] = None
+    to_version: Annotated[str | None, Field(alias="toVersion")] = None
     """
-    When `publicAccessToken` stops working.
+    An earlier version to go back to; omit → the scope's previous live version.
     """
+    reason: Annotated[str | None, Field(max_length=2000)] = None
+
+
+class UnpinBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    scope: Annotated[
+        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment,
+        Field(discriminator="kind"),
+    ]
+    """
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    """
+    reason: Annotated[str | None, Field(max_length=2000)] = None
 
 
 class StartRunOptions(BaseModel):
@@ -165,11 +327,15 @@ class StartRunBody1(BaseModel):
     """
     agent_version: Annotated[str | None, Field(alias="agentVersion")] = None
     """
-    Semver; omit → latest.
+    Semver. Omit → the conversation's own version for a follow-up turn, else the version live for the run's scope, else the latest.
     """
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
     Project to run under; omit → the tenant's Default project.
+    """
+    segments: Annotated[list[ScopeSegment] | None, Field(max_length=8)] = None
+    """
+    The run's segment path below its project, coarse to fine (an app-defined finer scope, e.g. company then role). A version live on a prefix of it serves the run.
     """
     input: Any
     """
@@ -199,6 +365,10 @@ class StartRunBody2(BaseModel):
     """
     Project to run under; omit → the tenant's Default project.
     """
+    segments: Annotated[list[ScopeSegment] | None, Field(max_length=8)] = None
+    """
+    The run's segment path below its project, coarse to fine (an app-defined finer scope, e.g. company then role). A version live on a prefix of it serves the run.
+    """
     input: Any
     """
     Opaque payload forwarded to the flow runtime.
@@ -226,66 +396,6 @@ class ResumeRunBody(BaseModel):
     """
     Resolved value passed back into the flow handler that suspended.
     """
-
-
-class Datum(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    id: UUID
-    """
-    RunId.
-    """
-    tenant_id: Annotated[UUID, Field(alias="tenantId")]
-    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
-    flow_id: Annotated[str, Field(alias="flowId")]
-    flow_version: Annotated[str, Field(alias="flowVersion")]
-    """
-    Semver.
-    """
-    status: Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]
-    dry_run: Annotated[bool, Field(alias="dryRun")]
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
-    completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
-    failure_message: Annotated[str | None, Field(alias="failureMessage")] = None
-    output: Any | None = None
-    """
-    The run's output once it completed. Present on single-run responses; on lists only with `?include=output`.
-    """
-    parent_run_id: Annotated[UUID | None, Field(alias="parentRunId")] = None
-    """
-    Set on a child run (a sub-flow run, or the agent turn an agent step started): the run that started it.
-    """
-    parent_node_id: Annotated[str | None, Field(alias="parentNodeId")] = None
-    """
-    Set on a child run: the node in the parent run that started it.
-    """
-    agent: RunAgent | None = None
-    public_access_token: Annotated[str | None, Field(alias="publicAccessToken")] = None
-    """
-    Only in the response to `POST /v1/runs`, when the deployment issues public run tokens: a read-only token for this run (and its descendants) to hand to a browser, for `GET /v1/runs/{runId}/progress` and its stream.
-    """
-    public_access_token_expires_at: Annotated[
-        AwareDatetime | None, Field(alias="publicAccessTokenExpiresAt")
-    ] = None
-    """
-    When `publicAccessToken` stops working.
-    """
-
-
-class RunCollectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[Datum]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    """
-    Opaque cursor for the next page. Absent when `hasMore: false`. See `docs/API-ROUTE-CONVENTIONS.md` §5.
-    """
-    has_more: Annotated[bool, Field(alias="hasMore")]
 
 
 class JournalKind(RootModel[str]):
@@ -778,6 +888,32 @@ class CompleteApprovalBody(BaseModel):
     """
 
 
+class Resume(BaseModel):
+    """
+    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["ok"]
+
+
+class Resume1(BaseModel):
+    """
+    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["failed"]
+    code: str
+    message: str
+
+
 class Reviewer(BaseModel):
     """
     Reviewer roster row. Deactivation is soft (audit trail survives offboarding). `deactivatedAt` present → reviewer no longer receives approvals.
@@ -1173,9 +1309,80 @@ class Judgment(BaseModel):
     """
 
 
+class SessionApproval(BaseModel):
+    """
+    The reviewer's decision at the turn's session approval gate, when the turn waited on one. A replay of the turn follows it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    approved: bool
+    rationale: str | None = None
+    """
+    The reviewer's reason for a rejection.
+    """
+
+
+class Call(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    run_id: Annotated[str, Field(alias="runId")]
+    """
+    The run that made it: the flow run, a sub-flow's, or an agent step's turn.
+    """
+    node_id: Annotated[str | None, Field(alias="nodeId")] = None
+    """
+    The tool node that made it, or the agent step whose turn did.
+    """
+    scope: str | None = None
+    """
+    The loop iteration, in a loop body.
+    """
+    tool_id: Annotated[str, Field(alias="toolId")]
+    arguments: Any | None = None
+    result: Any | None = None
+
+
+class Step(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    run_id: Annotated[str, Field(alias="runId")]
+    node_id: Annotated[str | None, Field(alias="nodeId")] = None
+    scope: str | None = None
+    agent_id: Annotated[str, Field(alias="agentId")]
+    agent_version: Annotated[str, Field(alias="agentVersion")]
+    retrieved: Any | None = None
+    """
+    What the step's turn retrieved.
+    """
+
+
+class Flow(BaseModel):
+    """
+    For a flow run: what it did, kept at its first judgment so it can be replayed. Every tool call it made with its result (at its tool nodes, in its agent steps' turns and in its sub-flows), at most 500, and its agent steps.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    calls: list[Call]
+    steps: list[Step]
+    truncated: bool | None = None
+    """
+    More calls were made than were kept.
+    """
+
+
 class JudgedRunContext(BaseModel):
     """
-    What a judged agent turn read besides its input, captured when it was first judged: the conversation before it and what its retrievals returned.
+    What a judged run needs besides its input to be replayed, captured when it was first judged. For an agent turn: the conversation before it, what its retrievals returned, and the decision at its session approval gate. For a flow run: its tool calls with their results.
     """
 
     model_config = ConfigDict(
@@ -1193,6 +1400,14 @@ class JudgedRunContext(BaseModel):
     retrieved: Any | None = None
     """
     What the turn's retrievals returned.
+    """
+    session_approval: Annotated[SessionApproval | None, Field(alias="sessionApproval")] = None
+    """
+    The reviewer's decision at the turn's session approval gate, when the turn waited on one. A replay of the turn follows it.
+    """
+    flow: Flow | None = None
+    """
+    For a flow run: what it did, kept at its first judgment so it can be replayed. Every tool call it made with its result (at its tool nodes, in its agent steps' turns and in its sub-flows), at most 500, and its agent steps.
     """
 
 
@@ -1513,42 +1728,177 @@ class ToolErrorsSpec(BaseModel):
     """
 
 
-class Agent(BaseModel):
+class Instructions(RootModel[str]):
+    root: Annotated[str, Field(min_length=1)]
+    """
+    The system prompt (a Liquid template), or a prompt block by range whose template and parameters are used instead (pinned at publish, `pins.prompts`).
+    """
+
+
+class AgentPins(BaseModel):
+    """
+    The exact block versions an agent version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool range resolves once to the version every run of that agent version uses, so a new tool version reaches the agent only through a new agent version. Absent on a version published before pins existed (its ranges resolve per run).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tools: dict[str, str]
+    """
+    Tool id → exact version.
+    """
+    prompts: dict[str, str]
+    """
+    Prompt block id → exact version.
+    """
+    settings: dict[str, str]
+    """
+    Settings block id → exact version.
+    """
+
+
+class PromptRef(BaseModel):
+    """
+    A prompt block an agent's instructions come from, by id and semver range.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    prompt: str
+    """
+    The prompt block id.
+    """
+    version: str
+    """
+    A semver range (`^1.0.0`, `1.2.0`).
+    """
+
+
+class BlockRef(BaseModel):
+    """
+    A settings block an agent reads, by id and semver range.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
     id: str
     """
-    AgentId — dotted namespace (e.g. `acme.drafting`).
+    The settings block id.
     """
     version: str
     """
-    Semver.
+    A semver range (`^1.0.0`, `1.2.0`).
     """
-    name: str
-    description: str | None = None
-    instructions: str
-    parameters: list[PromptParameter] | None = None
-    capabilities: list[Capability4]
-    tools: list[ToolRef]
-    retrieval: list[RetrievalIntent]
-    guardrails: list[str]
-    preferred_provider: Annotated[str | None, Field(alias="preferredProvider", min_length=1)] = None
+
+
+class PinChange(BaseModel):
     """
-    Soft hint — the router prefers this provider by id (e.g. `anthropic`) when at least one of its models satisfies `capabilities.needs` + tenant policy. Combine with `preferredModel` to pin the exact (provider, model) tuple. Falls back to capability-based ranking when the pinned provider is unregistered or filtered out.
+    One pin that differs between two versions of an agent or a flow.
     """
-    preferred_model: Annotated[str | None, Field(alias="preferredModel", min_length=1)] = None
-    """
-    Soft hint at the model level (`ModelInfo.name`, e.g. `claude-sonnet-4-6`). Combined with `preferredProvider`: both set → promote the exact tuple; only `preferredModel` → promote any provider exposing that model; only `preferredProvider` → promote every model of that provider.
-    """
-    conversation_policy: Annotated[ConversationPolicy | None, Field(alias="conversationPolicy")] = (
-        None
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
     )
-    budget: TurnBudget | None = None
-    tags: list[str] | None = None
-    output: AgentOutputSpec | None = None
-    tool_errors: Annotated[ToolErrorsSpec | None, Field(alias="toolErrors")] = None
+    kind: Literal["tool", "prompt", "setting", "agent"]
+    id: str
+    from_: Annotated[str | None, Field(alias="from")] = None
+    """
+    The earlier version's pin; absent when it had none.
+    """
+    to: str | None = None
+    """
+    The later version's pin; absent when it has none.
+    """
+
+
+class VersionDerivation(BaseModel):
+    """
+    Set by the runtime on an agent or flow version a deploy registered in place of the definition's version, which was registered already with other pins or content (versions never change). Never in the publish body.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    version: str
+    """
+    The version the definition names.
+    """
+    reason: Literal["pins-changed", "unpinned", "version-taken", "edited"]
+    """
+    `pins-changed`: a block it uses has a new version; `unpinned`: the definition's version was published before pins existed; `version-taken`: the definition's version holds another definition; `edited`: derived from `version` with some data-block pins swapped (`POST /v1/agents/{agentId}/versions`).
+    """
+    label: str | None = None
+    """
+    For `edited`: a short label for the version.
+    """
+    by: str | None = None
+    """
+    For `edited`: who derived it (`user:<id>`).
+    """
+
+
+class AgentPinSwaps(BaseModel):
+    """
+    The data-block pins to swap, by block id → exact version. Only blocks the version already references; tool pins come from code.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    prompts: dict[str, str] | None = None
+    """
+    Prompt block id → exact version.
+    """
+    settings: dict[str, str] | None = None
+    """
+    Settings block id → exact version.
+    """
+
+
+class FlowPins(BaseModel):
+    """
+    The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs, and each agent it runs at no named version, resolves once to its latest version then, which every run of that flow version uses. Absent on a version published before pins existed (it binds the latest versions per run).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tools: dict[str, str]
+    """
+    Tool id → exact version.
+    """
+    agents: dict[str, str]
+    """
+    Agent id → exact version, for agent nodes that name no version.
+    """
+
+
+class FlowVersionOverrides(BaseModel):
+    """
+    Agents and tools a flow runs at other exact versions than the flow version's pins ("this flow, with `acme.scorer` at 0.4.0"), without publishing a new flow version: a comparison's flow candidate (`versions` on the start body and the run's `comparison`), and the flow runs that replay it (a run's `versions`). Each id must be an agent or tool the flow uses.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tools: dict[str, str] | None = None
+    """
+    Tool id → exact version.
+    """
+    agents: dict[str, str] | None = None
+    """
+    Agent id → exact version, for agent nodes with or without a version of their own.
+    """
 
 
 class PublishAgentBody(BaseModel):
@@ -1568,8 +1918,19 @@ class PublishAgentBody(BaseModel):
     """
     Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`.
     """
-    instructions: str
+    instructions: Instructions | PromptRef
+    """
+    The system prompt (a Liquid template), or a prompt block by range whose template and parameters are used instead (pinned at publish, `pins.prompts`).
+    """
     parameters: list[PromptParameter] | None = None
+    settings: list[BlockRef] | None = None
+    """
+    Settings blocks the agent reads, by range: tools read them as `ToolContext.settings['<id>']`, templates as `settings["<id>"]`. Pinned at publish (`pins.settings`).
+    """
+    model_settings: Annotated[BlockRef | None, Field(alias="modelSettings")] = None
+    """
+    A model-settings block by range: its `temperature` and `maxOutputTokens` go into the turn's model calls. Pinned at publish.
+    """
     capabilities: list[Capability4]
     tools: list[ToolRef]
     retrieval: list[RetrievalIntent]
@@ -1623,19 +1984,6 @@ class ReinstateAgentVersionResult(BaseModel):
     """
 
 
-class AgentCollectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[Agent]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    """
-    Opaque cursor for the next page. Absent when `hasMore: false`.
-    """
-    has_more: Annotated[bool, Field(alias="hasMore")]
-
-
 class FlowNode(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -1674,7 +2022,7 @@ class FlowEdge(BaseModel):
     """
 
 
-class Flow(BaseModel):
+class Flow1(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -1693,6 +2041,18 @@ class Flow(BaseModel):
     edges: list[FlowEdge]
     max_parallelism: Annotated[int | None, Field(alias="maxParallelism", ge=1)] = None
     metadata: dict[str, Any] | None = None
+    pins: FlowPins | None = None
+    pins_digest: Annotated[
+        str | None, Field(alias="pinsDigest", pattern="^sha256:[0-9a-f]{64}$")
+    ] = None
+    """
+    Set by the runtime with `pins`: `sha256:<hex>` of the pins' canonical JSON (sorted keys, no whitespace).
+    """
+    derived_from: Annotated[VersionDerivation | None, Field(alias="derivedFrom")] = None
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    Present only on an unregistered version (`GET …/versions/{version}` reads those too). Unregister stops a version being chosen, not the pins that hold it: a new run naming it is refused, while a resumed run and a published version that pins it still run it.
+    """
 
 
 class PublishFlowBody(BaseModel):
@@ -1755,7 +2115,7 @@ class FlowCollectionPage(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    data: list[Flow]
+    data: list[Flow1]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     """
     Opaque cursor for the next page. Absent when `hasMore: false`.
@@ -3530,6 +3890,11 @@ class ModelInfo(BaseModel):
     """
 
 
+LabelsAdditionalProperty = TypeAliasType(
+    "LabelsAdditionalProperty", Annotated[str, Field(max_length=256)]
+)
+
+
 class ProviderMetadata(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -3559,6 +3924,14 @@ class ProviderMetadata(BaseModel):
     fallback: bool | None = None
     """
     A fallback serves a capability only when no other provider satisfies it (e.g. `kindgi dev`'s scripted `dev-echo`); an agent turn routed to one carries a `fallback-provider` warning. Absent = `false`.
+    """
+    labels: Annotated[
+        dict[constr(pattern=r"^[a-z0-9]([a-z0-9._/-]{0,61}[a-z0-9])?$"), LabelsAdditionalProperty]
+        | None,
+        Field(max_length=32),
+    ] = None
+    """
+    Bookkeeping, such as who manages the provider; the router ignores labels. At most 32 keys; a key is 1-63 lowercase letters and digits, with `.`, `-`, `_` or `/` inside; a value is at most 256 characters. The convention key `kindgi.com/managed-by` names the manager (`kindgi-dev`, `kindgi-deploy:<environment>`). Out of bounds: `400 invalid-provider`, reason `invalid-labels`.
     """
 
 
@@ -4073,7 +4446,7 @@ class Policy(BaseModel):
     description: str | None = None
     spec: dict[str, Any]
     """
-    Kind-specific policy body. For `access-control`, matches `@kindgi/specs/policy.schema.json` (rules + defaults). For `model-routing`, matches `TenantPolicy` from `@kindgi/capabilities` (providers.allow / providers.deny / models.allow / models.deny / regionAllow / maxCostPerCallUsd / maxTokensPerCall). For `tool-errors`, `ToolErrorsSpec` (maxRetries / retryOn). For `hitl`, `HitlSpec` from `@kindgi/policy-contract` (maxTimeoutMs / minReviewerRole / tools — per tool id a mode or `{ mode, requiredRole }`); it only tightens an agent's approvals. `tool-errors` and `hitl` specs are validated on publish. For other kinds, the shape is defined by the runtime consumer.
+    Kind-specific policy body. For `access-control`, matches `@kindgi/specs/policy.schema.json` (rules + defaults). For `model-routing`, matches `TenantPolicy` from `@kindgi/capabilities` (providers.allow / providers.deny / models.allow / models.deny / regionAllow / maxCostPerCallUsd / maxTokensPerCall). For `tool-errors`, `ToolErrorsSpec` (maxRetries / retryOn). For `hitl`, `HitlSpec` from `@kindgi/policy-contract` (maxTimeoutMs / minReviewerRole / tools — per tool id a mode or `{ mode, requiredRole }`); it only tightens an agent's approvals. For `retention`, `{ v: 1, doc: RetentionSpec }` from `@kindgi/policy-contract` (domain / graceSeconds / mode, which must be `purge`); a tenant has one retention policy per domain, plus one for `*`. `tool-errors`, `hitl` and `retention` specs are validated on publish. For other kinds, the shape is defined by the runtime consumer.
     """
 
 
@@ -4111,7 +4484,7 @@ class PolicyVersionRow(BaseModel):
     description: str | None = None
     spec: dict[str, Any]
     """
-    Kind-specific policy body. For `access-control`, matches `@kindgi/specs/policy.schema.json` (rules + defaults). For `model-routing`, matches `TenantPolicy` from `@kindgi/capabilities` (providers.allow / providers.deny / models.allow / models.deny / regionAllow / maxCostPerCallUsd / maxTokensPerCall). For `tool-errors`, `ToolErrorsSpec` (maxRetries / retryOn). For `hitl`, `HitlSpec` from `@kindgi/policy-contract` (maxTimeoutMs / minReviewerRole / tools — per tool id a mode or `{ mode, requiredRole }`); it only tightens an agent's approvals. `tool-errors` and `hitl` specs are validated on publish. For other kinds, the shape is defined by the runtime consumer.
+    Kind-specific policy body. For `access-control`, matches `@kindgi/specs/policy.schema.json` (rules + defaults). For `model-routing`, matches `TenantPolicy` from `@kindgi/capabilities` (providers.allow / providers.deny / models.allow / models.deny / regionAllow / maxCostPerCallUsd / maxTokensPerCall). For `tool-errors`, `ToolErrorsSpec` (maxRetries / retryOn). For `hitl`, `HitlSpec` from `@kindgi/policy-contract` (maxTimeoutMs / minReviewerRole / tools — per tool id a mode or `{ mode, requiredRole }`); it only tightens an agent's approvals. For `retention`, `{ v: 1, doc: RetentionSpec }` from `@kindgi/policy-contract` (domain / graceSeconds / mode, which must be `purge`); a tenant has one retention policy per domain, plus one for `*`. `tool-errors`, `hitl` and `retention` specs are validated on publish. For other kinds, the shape is defined by the runtime consumer.
     """
     unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
     """
@@ -4181,6 +4554,241 @@ class ReinstatePolicyVersionResult(BaseModel):
     policy_id: Annotated[str, Field(alias="policyId")]
     version: str
     was_tombstoned: Annotated[bool, Field(alias="wasTombstoned")]
+
+
+class RetentionPolicyConflict(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    domain: Literal[
+        "org",
+        "agent",
+        "flow",
+        "tool",
+        "eval_suite",
+        "guardrail",
+        "mcp_endpoint",
+        "env",
+        "secret",
+        "run",
+        "policy",
+        "judgment",
+        "judge_class",
+        "provider",
+        "*",
+    ]
+    policy_ids: Annotated[list[str], Field(alias="policyIds", min_length=2)]
+    """
+    Every policy id that covers the domain, sorted.
+    """
+    applied_policy_id: Annotated[str, Field(alias="appliedPolicyId")]
+    """
+    The one that applies: the policy whose latest version is highest, and on equal versions the lower policy id. Unregister the others.
+    """
+
+
+class RetentionScheduledItem(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    domain: Literal[
+        "org",
+        "agent",
+        "flow",
+        "tool",
+        "eval_suite",
+        "guardrail",
+        "mcp_endpoint",
+        "env",
+        "secret",
+        "run",
+        "policy",
+        "judgment",
+        "judge_class",
+        "provider",
+        "*",
+    ]
+    id: str
+    """
+    The tombstoned row's id in its domain.
+    """
+    unregistered_at: Annotated[AwareDatetime, Field(alias="unregisteredAt")]
+    purge_at: Annotated[AwareDatetime, Field(alias="purgeAt")]
+    """
+    `unregisteredAt` plus the policy's grace: when a sweep purges the row.
+    """
+    past_grace: Annotated[bool, Field(alias="pastGrace")]
+    """
+    Whether a sweep would purge the row now.
+    """
+    policy_id: Annotated[str, Field(alias="policyId")]
+    """
+    The retention policy that applies.
+    """
+    policy_version: Annotated[str, Field(alias="policyVersion")]
+    grace_seconds: Annotated[int, Field(alias="graceSeconds")]
+    """
+    The policy's grace, in seconds (`-1`: a hold, never purged).
+    """
+
+
+class RetentionScheduledPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[RetentionScheduledItem]
+    domains_missing_adapter: Annotated[
+        list[
+            Literal[
+                "org",
+                "agent",
+                "flow",
+                "tool",
+                "eval_suite",
+                "guardrail",
+                "mcp_endpoint",
+                "env",
+                "secret",
+                "run",
+                "policy",
+                "judgment",
+                "judge_class",
+                "provider",
+                "*",
+            ]
+        ],
+        Field(alias="domainsMissingAdapter"),
+    ]
+    """
+    Domains a retention policy covers that this deployment can't purge (no adapter is wired).
+    """
+    unpoliced_domains: Annotated[
+        list[
+            Literal[
+                "org",
+                "agent",
+                "flow",
+                "tool",
+                "eval_suite",
+                "guardrail",
+                "mcp_endpoint",
+                "env",
+                "secret",
+                "run",
+                "policy",
+                "judgment",
+                "judge_class",
+                "provider",
+                "*",
+            ]
+        ],
+        Field(alias="unpolicedDomains"),
+    ]
+    """
+    Domains no retention policy covers: their tombstones are kept.
+    """
+    conflicts: list[RetentionPolicyConflict] | None = None
+    """
+    Domains more than one retention policy covers. Absent or empty: none.
+    """
+
+
+class RetentionSweepBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    domain: (
+        Literal[
+            "org",
+            "agent",
+            "flow",
+            "tool",
+            "eval_suite",
+            "guardrail",
+            "mcp_endpoint",
+            "env",
+            "secret",
+            "run",
+            "policy",
+            "judgment",
+            "judge_class",
+            "provider",
+            "*",
+        ]
+        | None
+    ) = None
+    """
+    Sweep only this domain. Absent: every domain.
+    """
+    max_per_domain: Annotated[int | None, Field(alias="maxPerDomain", ge=1, le=10000)] = None
+    """
+    The most rows one call purges per domain (default 500); the rest are `remaining`.
+    """
+
+
+class RetentionSweepDomainBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    max_per_domain: Annotated[int | None, Field(alias="maxPerDomain", ge=1, le=10000)] = None
+    """
+    The most rows this call purges (default 500); the rest are `remaining`.
+    """
+
+
+class PerDomainItem(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    domain: Literal[
+        "org",
+        "agent",
+        "flow",
+        "tool",
+        "eval_suite",
+        "guardrail",
+        "mcp_endpoint",
+        "env",
+        "secret",
+        "run",
+        "policy",
+        "judgment",
+        "judge_class",
+        "provider",
+        "*",
+    ]
+    purged: Annotated[int, Field(ge=0)]
+    remaining: Annotated[int, Field(ge=0)]
+    """
+    Rows past grace this call left (the `maxPerDomain` cap); sweep again.
+    """
+    policy_id: Annotated[str | None, Field(alias="policyId")] = None
+    """
+    The retention policy that applied.
+    """
+    missing_adapter: Annotated[Literal[True] | None, Field(alias="missingAdapter")] = None
+    """
+    Present when this deployment can't purge the domain (no adapter).
+    """
+
+
+class RetentionSweepResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    per_domain: Annotated[list[PerDomainItem], Field(alias="perDomain")]
+    total_purged: Annotated[int, Field(alias="totalPurged", ge=0)]
+    conflicts: list[RetentionPolicyConflict] | None = None
+    """
+    Domains more than one retention policy covers. Absent or empty: none.
+    """
 
 
 class EvalSuite(BaseModel):
@@ -4265,6 +4873,122 @@ class ReinstateEvalSuiteVersionResult(BaseModel):
     was_tombstoned: Annotated[bool, Field(alias="wasTombstoned")]
 
 
+class PromptBlockContent(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    template: Annotated[str, Field(min_length=1)]
+    """
+    Liquid, rendered as an agent's instructions are (same parameters and auto-injected variables).
+    """
+    parameters: list[PromptParameter] | None = None
+
+
+class SettingsBlockContent(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    values: dict[str, Any]
+    """
+    What tools read (`ToolContext.settings[<block id>]`) and templates read (`settings.<block id>.<key>`).
+    """
+    schema_: Annotated[dict[str, Any] | None, Field(alias="schema")] = None
+    """
+    JSON Schema (draft 2020-12) the values must satisfy. A later version's values must satisfy the latest version's schema too.
+    """
+
+
+class Block(BaseModel):
+    """
+    A data block version: a prompt or settings, versioned like a tool (immutable versions, soft unregister). An agent version pins the block versions it uses when it is published. Belongs to one project and is authorized through it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    Dotted lowercase id (e.g. `acme.intake-prompt`).
+    """
+    version: Annotated[str, Field(pattern="^\\d+\\.\\d+\\.\\d+$")]
+    kind: Literal["prompt", "settings"]
+    """
+    `prompt`: a Liquid template an agent renders as its instructions. `settings`: a JSON object tools and templates read.
+    """
+    description: str | None = None
+    content: PromptBlockContent | SettingsBlockContent
+    """
+    `PromptBlockContent` for a prompt, `SettingsBlockContent` for settings.
+    """
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    published_at: Annotated[AwareDatetime, Field(alias="publishedAt")]
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    Present only on an unregistered version; agent versions that pin it still read it.
+    """
+
+
+class BlockCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Block]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class PublishBlockBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    """
+    Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`.
+    """
+    id: Annotated[str, Field(min_length=1)]
+    version: Annotated[str, Field(pattern="^\\d+\\.\\d+\\.\\d+$")]
+    kind: Literal["prompt", "settings"]
+    """
+    `prompt`: a Liquid template an agent renders as its instructions. `settings`: a JSON object tools and templates read.
+    """
+    description: str | None = None
+    content: PromptBlockContent | SettingsBlockContent
+
+
+class PublishBlockResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    block_id: Annotated[str, Field(alias="blockId")]
+    version: str
+
+
+class UnregisterBlockResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    block_id: Annotated[str, Field(alias="blockId")]
+    version: str
+    unregistered: Literal[True]
+
+
+class ReinstateBlockResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    block_id: Annotated[str, Field(alias="blockId")]
+    version: str
+    was_tombstoned: Annotated[bool, Field(alias="wasTombstoned")]
+
+
 class EvalRunStatus(RootModel[Literal["pending", "running", "completed", "failed", "cancelled"]]):
     root: Literal["pending", "running", "completed", "failed", "cancelled"]
 
@@ -4287,6 +5011,424 @@ class EvalRunFlowRef(BaseModel):
     version: Annotated[str | None, Field(pattern="^\\d+\\.\\d+\\.\\d+$")] = None
 
 
+class EvalBaseline1(BaseModel):
+    """
+    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`). Only `'recorded'` runs today; the others are refused when the run starts.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    agent_id: Annotated[str, Field(alias="agentId")]
+    version: str
+
+
+class Live(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+    segments: dict[str, str] | None = None
+
+
+class EvalBaseline2(BaseModel):
+    """
+    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`). Only `'recorded'` runs today; the others are refused when the run starts.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    live: Live
+
+
+class EvalComparison(BaseModel):
+    """
+    A comparison eval run's settings (a `judged` suite).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    baseline: Literal["recorded"] | EvalBaseline1 | EvalBaseline2
+    """
+    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`). Only `'recorded'` runs today; the others are refused when the run starts.
+    """
+    reads: Literal["recorded", "live"]
+    """
+    Whether replayed reads use the past run's results when it has them (`recorded`), or run live.
+    """
+    repetitions: Annotated[int, Field(ge=1, le=10)]
+    k: Annotated[int, Field(ge=1, le=100)]
+    versions: FlowVersionOverrides | None = None
+
+
+class ComparisonMetric(BaseModel):
+    """
+    One metric, the recorded runs beside the candidate. `null` where a side had no judged evidence; `n` / `weight` are the candidate's evidence (cases with judged items, and the judgment weight behind them), `baselineN` / `baselineWeight` the recorded side's.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    baseline: float | None
+    candidate: float | None
+    delta: float | None
+    n: Annotated[int, Field(ge=0)]
+    weight: Annotated[float, Field(ge=0.0)]
+    baseline_n: Annotated[int, Field(alias="baselineN", ge=0)]
+    baseline_weight: Annotated[float, Field(alias="baselineWeight", ge=0.0)]
+    direction: Literal["higher"]
+    k: Annotated[int | None, Field(ge=1)] = None
+    """
+    `weightedPrecisionAtK`: the ranked items it looked at.
+    """
+    spread: float | None = None
+    """
+    With more than one repetition: the candidate's max − min across them.
+    """
+
+
+class ComparisonCandidate1(BaseModel):
+    """
+    What ran on the cases: an agent version, or a flow version (with any versions it swapped in).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["agent"]
+    agent_id: Annotated[str, Field(alias="agentId")]
+    version: str
+
+
+class ComparisonCandidate2(BaseModel):
+    """
+    What ran on the cases: an agent version, or a flow version (with any versions it swapped in).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["flow"]
+    flow_id: Annotated[str, Field(alias="flowId")]
+    version: str
+    versions: FlowVersionOverrides | None = None
+
+
+class Suite(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    version: str
+
+
+class Version(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    agent_id: Annotated[str | None, Field(alias="agentId")] = None
+    flow_id: Annotated[str | None, Field(alias="flowId")] = None
+    version: str
+    cases: Annotated[int, Field(ge=0)]
+
+
+class Baseline(BaseModel):
+    """
+    What the candidate was compared with: `recorded` (the test set's recorded runs, with the versions that served them), or another version.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["recorded"]
+    versions: list[Version]
+
+
+class Baseline1(BaseModel):
+    """
+    What the candidate was compared with: `recorded` (the test set's recorded runs, with the versions that served them), or another version.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["version"]
+    agent_id: Annotated[str, Field(alias="agentId")]
+    version: str
+    via: Literal["explicit", "live"]
+    live_scope: Annotated[dict[str, Any] | None, Field(alias="liveScope")] = None
+
+
+class Scope(BaseModel):
+    """
+    Where the test set's judgments came from.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+
+
+class Model(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    provider_id: Annotated[str, Field(alias="providerId")]
+    model: str
+    runs: Annotated[int, Field(ge=0)]
+
+
+class Sampling(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    models: list[Model]
+    """
+    The models that answered the candidate's replays, and how many replays each.
+    """
+
+
+class Metrics(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    weighted_yes_share: Annotated[ComparisonMetric, Field(alias="weightedYesShare")]
+    judged_coverage: Annotated[ComparisonMetric, Field(alias="judgedCoverage")]
+    weighted_precision_at_k: Annotated[ComparisonMetric, Field(alias="weightedPrecisionAtK")]
+
+
+class JudgedComparisonSummary(BaseModel):
+    """
+    What a comparison concluded: the candidate beside the recorded runs, the case counts, and the metrics. What a promotion gate reads.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    eval_run_id: Annotated[str, Field(alias="evalRunId")]
+    status: Literal["completed", "partial", "failed"]
+    completed_at: Annotated[AwareDatetime, Field(alias="completedAt")]
+    suite: Suite
+    candidate: ComparisonCandidate1 | ComparisonCandidate2
+    """
+    What ran on the cases: an agent version, or a flow version (with any versions it swapped in).
+    """
+    baseline: Baseline | Baseline1
+    """
+    What the candidate was compared with: `recorded` (the test set's recorded runs, with the versions that served them), or another version.
+    """
+    scope: Scope
+    """
+    Where the test set's judgments came from.
+    """
+    cases: Annotated[int, Field(ge=0)]
+    diverged: Annotated[int, Field(ge=0)]
+    """
+    Cases where a read with no recording ran live under `reads: 'recorded'`.
+    """
+    refused_writes: Annotated[int, Field(alias="refusedWrites", ge=0)]
+    """
+    Tool calls refused across the cases (what the candidate would have done).
+    """
+    errors: Annotated[int, Field(ge=0)]
+    """
+    Cases none of whose repetitions ran.
+    """
+    stopped: Annotated[int, Field(ge=0)]
+    """
+    Flow cases that stopped at a write the replay refused: no output to score, so they're left out of the metrics.
+    """
+    reads: Literal["recorded", "live"]
+    sampling: Sampling
+    repetitions: Annotated[int, Field(ge=1)]
+    metrics: Metrics
+
+
+class TopK(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    yes_weight: Annotated[float, Field(alias="yesWeight")]
+    total_weight: Annotated[float, Field(alias="totalWeight")]
+
+
+class Baseline2(BaseModel):
+    """
+    An output's score: Σ yesWeight and Σ totalWeight over its judged items, and over those among the first `k` ranked items.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    yes_weight: Annotated[float, Field(alias="yesWeight")]
+    total_weight: Annotated[float, Field(alias="totalWeight")]
+    items: Annotated[int, Field(ge=0)]
+    judged_items: Annotated[int, Field(alias="judgedItems", ge=0)]
+    top_k: Annotated[TopK, Field(alias="topK")]
+
+
+class CandidateItem(BaseModel):
+    """
+    An output's score: Σ yesWeight and Σ totalWeight over its judged items, and over those among the first `k` ranked items.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    yes_weight: Annotated[float, Field(alias="yesWeight")]
+    total_weight: Annotated[float, Field(alias="totalWeight")]
+    items: Annotated[int, Field(ge=0)]
+    judged_items: Annotated[int, Field(alias="judgedItems", ge=0)]
+    top_k: Annotated[TopK, Field(alias="topK")]
+
+
+class KeptItem(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    key: str
+    rank_before: Annotated[int | None, Field(alias="rankBefore")] = None
+    rank: int | None = None
+
+
+class DroppedItem(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    key: str
+    rank_before: Annotated[int | None, Field(alias="rankBefore")] = None
+
+
+class NewItem(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    key: str
+    pointer: str
+    rank: int | None = None
+
+
+class Changes(BaseModel):
+    """
+    The first repetition's items against the judged ones.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kept: list[KeptItem]
+    dropped: list[DroppedItem]
+    new: list[NewItem]
+
+
+class Tool1(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    step: Annotated[int, Field(ge=0)]
+    call_id: Annotated[str, Field(alias="callId")]
+    tool_id: Annotated[str, Field(alias="toolId")]
+    tool_version: Annotated[str, Field(alias="toolVersion")]
+    arguments: Any
+    source: Literal["live", "recorded", "refused"]
+    reason: str | None = None
+
+
+class Stopped(BaseModel):
+    """
+    Set when the replay stopped at a refused write: what it would have done.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool_id: Annotated[str, Field(alias="toolId")]
+    arguments: Any
+    reason: str | None = None
+
+
+class ComparisonCaseResult(BaseModel):
+    """
+    One case of a comparison: its replay runs, the scores, the items kept, dropped and new, the tool calls, and why it didn't run when it didn't.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    case_id: Annotated[str, Field(alias="caseId")]
+    run_ids: Annotated[list[str], Field(alias="runIds")]
+    """
+    The candidate's replay runs, one per repetition.
+    """
+    baseline: Baseline2
+    """
+    An output's score: Σ yesWeight and Σ totalWeight over its judged items, and over those among the first `k` ranked items.
+    """
+    candidate: list[CandidateItem]
+    """
+    One per repetition that ran.
+    """
+    changes: Changes | None = None
+    """
+    The first repetition's items against the judged ones.
+    """
+    tools: list[Tool1] | None = None
+    """
+    The first repetition's tool calls, and what happened to each.
+    """
+    diverged: bool
+    refused_writes: Annotated[int, Field(alias="refusedWrites", ge=0)]
+    no_context: Annotated[bool, Field(alias="noContext")]
+    approval_skipped: Annotated[bool, Field(alias="approvalSkipped")]
+    error: str | None = None
+    stopped: Stopped | None = None
+    """
+    Set when the replay stopped at a refused write: what it would have done.
+    """
+
+
+class JudgedComparisonResult(BaseModel):
+    """
+    A comparison's `result` (a `judged` eval run's): the summary and each case. `EvalRun.result` stays an open object, since each kind has its own; the clients read it as this (TS `comparisonOf(run)`, Python `comparison_of(run)`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    summary: JudgedComparisonSummary
+    per_case: Annotated[list[ComparisonCaseResult], Field(alias="perCase")]
+
+
 class EvalRun(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -4307,10 +5449,11 @@ class EvalRun(BaseModel):
     completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
     result: dict[str, Any] | None = None
     """
-    Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. Other kinds define their own shapes as their dispatchers ship.
+    Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a write the replay refused, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.
     """
     error: str | None = None
     correlation_id: Annotated[str | None, Field(alias="correlationId")] = None
+    comparison: EvalComparison | None = None
 
 
 class EvalRunCollectionPage(BaseModel):
@@ -4325,7 +5468,7 @@ class EvalRunCollectionPage(BaseModel):
 
 class StartEvalRunBody(BaseModel):
     """
-    Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject.
+    Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`).
     """
 
     model_config = ConfigDict(
@@ -4340,6 +5483,14 @@ class StartEvalRunBody(BaseModel):
     flow_ref: Annotated[EvalRunFlowRef | None, Field(alias="flowRef")] = None
     dry_run: Annotated[bool | None, Field(alias="dryRun")] = None
     correlation_id: Annotated[str | None, Field(alias="correlationId")] = None
+    baseline: Literal["recorded"] | EvalBaseline1 | EvalBaseline2 | None = None
+    """
+    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`). Only `'recorded'` runs today; the others are refused when the run starts.
+    """
+    reads: Literal["recorded", "live"] | None = None
+    repetitions: Annotated[int | None, Field(ge=1, le=10)] = None
+    k: Annotated[int | None, Field(ge=1, le=100)] = None
+    versions: FlowVersionOverrides | None = None
 
 
 class StartEvalRunResult(BaseModel):
@@ -4428,6 +5579,10 @@ class IdentityProviderCollectionPage(BaseModel):
         populate_by_name=True,
     )
     data: list[IdentityProviderConfig]
+    has_more: Annotated[bool | None, Field(alias="hasMore")] = None
+    """
+    Always `false`: the list comes whole. Absent from older servers.
+    """
 
 
 class RegisterIdentityProviderResult(BaseModel):
@@ -4593,7 +5748,7 @@ class DeploymentPrimitiveCounts(BaseModel):
     flows: Annotated[int, Field(ge=0)]
 
 
-class Tool1(BaseModel):
+class Tool2(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -4623,21 +5778,53 @@ class Agent1(BaseModel):
         populate_by_name=True,
     )
     id: str
-    version: str | None = None
+    version: str
     """
-    Absent for guardrails, which have no version.
+    The version the agent is registered as.
+    """
+    authored_version: Annotated[str | None, Field(alias="authoredVersion")] = None
+    """
+    The version the agent's or flow's definition names, present when it differs from `version`: that version was registered already with other pins or content, and versions never change, so the deploy registered the next free version in its line (or an earlier deploy did).
+    """
+    reason: Literal["pins-changed", "unpinned", "version-taken"] | None = None
+    """
+    Why `version` differs from `authoredVersion`: `pins-changed` (a tool or agent it uses has a new version), `unpinned` (`authoredVersion` was published before pins existed), `version-taken` (`authoredVersion` is registered with other content).
+    """
+    new_version: Annotated[bool | None, Field(alias="newVersion")] = None
+    """
+    `true`: this deploy registered `version`; `false`: an earlier deploy did.
+    """
+    pin_changes: Annotated[list[PinChange] | None, Field(alias="pinChanges")] = None
+    """
+    For `pins-changed`: the pins that differ from `authoredVersion`'s.
     """
 
 
-class Flow1(BaseModel):
+class Flow2(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
     id: str
-    version: str | None = None
+    version: str
     """
-    Absent for guardrails, which have no version.
+    The version the agent is registered as.
+    """
+    authored_version: Annotated[str | None, Field(alias="authoredVersion")] = None
+    """
+    The version the agent's or flow's definition names, present when it differs from `version`: that version was registered already with other pins or content, and versions never change, so the deploy registered the next free version in its line (or an earlier deploy did).
+    """
+    reason: Literal["pins-changed", "unpinned", "version-taken"] | None = None
+    """
+    Why `version` differs from `authoredVersion`: `pins-changed` (a tool or agent it uses has a new version), `unpinned` (`authoredVersion` was published before pins existed), `version-taken` (`authoredVersion` is registered with other content).
+    """
+    new_version: Annotated[bool | None, Field(alias="newVersion")] = None
+    """
+    `true`: this deploy registered `version`; `false`: an earlier deploy did.
+    """
+    pin_changes: Annotated[list[PinChange] | None, Field(alias="pinChanges")] = None
+    """
+    For `pins-changed`: the pins that differ from `authoredVersion`'s.
     """
 
 
@@ -4646,10 +5833,10 @@ class DeploymentContents(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    tools: list[Tool1]
+    tools: list[Tool2]
     guardrails: list[Guardrail1]
     agents: list[Agent1]
-    flows: list[Flow1]
+    flows: list[Flow2]
 
 
 class DeploymentRecord(BaseModel):
@@ -4829,6 +6016,10 @@ class EvidenceKind(RootModel[str]):
                 "secret-revoked",
                 "secret-hard-revoked",
                 "hitl-decision",
+                "agent-promotion",
+                "agent-rollback",
+                "agent-live-unpinned",
+                "agent-live-pin-inactive",
             ],
             min_length=1,
         ),
@@ -4976,6 +6167,10 @@ class ComplianceEvidence(BaseModel):
                 "secret-revoked",
                 "secret-hard-revoked",
                 "hitl-decision",
+                "agent-promotion",
+                "agent-rollback",
+                "agent-live-unpinned",
+                "agent-live-pin-inactive",
             ],
             min_length=1,
         ),
@@ -5048,6 +6243,10 @@ class ExportComplianceEvidenceFilter(BaseModel):
                 "secret-revoked",
                 "secret-hard-revoked",
                 "hitl-decision",
+                "agent-promotion",
+                "agent-rollback",
+                "agent-live-unpinned",
+                "agent-live-pin-inactive",
             ],
             min_length=1,
         ),
@@ -5102,6 +6301,10 @@ class Filter(BaseModel):
                 "secret-revoked",
                 "secret-hard-revoked",
                 "hitl-decision",
+                "agent-promotion",
+                "agent-rollback",
+                "agent-live-unpinned",
+                "agent-live-pin-inactive",
             ],
             min_length=1,
         ),
@@ -5515,7 +6718,7 @@ class UpsertTenantConfigResult(BaseModel):
     entry: TenantConfigEntry
 
 
-class Scope1(BaseModel):
+class Scope2(BaseModel):
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
     """
@@ -5528,7 +6731,7 @@ class Scope1(BaseModel):
     tenant_id: Annotated[str, Field(alias="tenantId")]
 
 
-class Scope2(BaseModel):
+class Scope3(BaseModel):
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
     """
@@ -5542,7 +6745,7 @@ class Scope2(BaseModel):
     org_id: Annotated[str, Field(alias="orgId")]
 
 
-class Scope3(BaseModel):
+class Scope4(BaseModel):
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
     """
@@ -5561,7 +6764,7 @@ class EnvRecord(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    scope: Scope1 | Scope2 | Scope3
+    scope: Scope2 | Scope3 | Scope4
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
     """
@@ -5591,7 +6794,7 @@ class EnvSetInput(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    scope: Scope1 | Scope2 | Scope3
+    scope: Scope2 | Scope3 | Scope4
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
     """
@@ -5642,7 +6845,7 @@ class SecretRecord(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    scope: Scope1 | Scope2 | Scope3
+    scope: Scope2 | Scope3 | Scope4
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
     """
@@ -5674,7 +6877,7 @@ class SecretVersionRecord(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    scope: Scope1 | Scope2 | Scope3
+    scope: Scope2 | Scope3 | Scope4
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
     """
@@ -5697,7 +6900,7 @@ class SecretSetInput(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    scope: Scope1 | Scope2 | Scope3
+    scope: Scope2 | Scope3 | Scope4
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
     """
@@ -5809,6 +7012,10 @@ class EnvCollectionPage(BaseModel):
         populate_by_name=True,
     )
     data: list[EnvRecord]
+    has_more: Annotated[bool | None, Field(alias="hasMore")] = None
+    """
+    Whether there's another page. Absent from older servers: there is one when `nextCursor` is set.
+    """
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
@@ -5817,7 +7024,7 @@ class EnvSetRequest(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    scope: Scope1 | Scope2 | Scope3 | None = None
+    scope: Scope2 | Scope3 | Scope4 | None = None
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
     """
@@ -5845,6 +7052,10 @@ class SecretCollectionPage(BaseModel):
         populate_by_name=True,
     )
     data: list[SecretRecord]
+    has_more: Annotated[bool | None, Field(alias="hasMore")] = None
+    """
+    Whether there's another page. Absent from older servers: there is one when `nextCursor` is set.
+    """
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
@@ -5854,6 +7065,10 @@ class SecretVersionCollectionPage(BaseModel):
         populate_by_name=True,
     )
     data: list[SecretVersionRecord]
+    has_more: Annotated[bool | None, Field(alias="hasMore")] = None
+    """
+    Whether there's another page. Absent from older servers: there is one when `nextCursor` is set.
+    """
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
@@ -5862,7 +7077,7 @@ class SecretSetRequest(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    scope: Scope1 | Scope2 | Scope3
+    scope: Scope2 | Scope3 | Scope4
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
     """
@@ -5892,7 +7107,7 @@ class SecretRotateRequest(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    scope: Scope1 | Scope2 | Scope3 | None = None
+    scope: Scope2 | Scope3 | Scope4 | None = None
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
     """
@@ -6495,6 +7710,170 @@ class AuditAuthzListResponse(BaseModel):
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
+class RunAgent(BaseModel):
+    """
+    Set on an agent's turn (an agent run, or the turn a flow's agent step started): the agent, the version that ran and the conversation. Absent on other runs, and on turns that ran before Kindgi 0.1.3.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    The agent id.
+    """
+    version: str
+    """
+    The agent version that ran (semver).
+    """
+    conversation_id: Annotated[UUID, Field(alias="conversationId")]
+    via: Literal["explicit", "conversation", "live", "latest"] | None = None
+    """
+    Why this version ran: named by the caller, the conversation's own, the version live for the run's scope, or the latest (nothing live). Absent on runs from before Kindgi 0.1.4.
+    """
+    live_scope: Annotated[
+        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment | None,
+        Field(alias="liveScope", discriminator="kind"),
+    ] = None
+    """
+    The pin that chose the version, when `via` is `live`.
+    """
+
+
+class Run(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: UUID
+    """
+    RunId.
+    """
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    flow_id: Annotated[str, Field(alias="flowId")]
+    flow_version: Annotated[str, Field(alias="flowVersion")]
+    """
+    Semver.
+    """
+    status: Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]
+    dry_run: Annotated[bool, Field(alias="dryRun")]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
+    failure_message: Annotated[str | None, Field(alias="failureMessage")] = None
+    output: Any | None = None
+    """
+    The run's output once it completed. Present on single-run responses; on lists only with `?include=output`.
+    """
+    parent_run_id: Annotated[UUID | None, Field(alias="parentRunId")] = None
+    """
+    Set on a child run (a sub-flow run, or the agent turn an agent step started): the run that started it.
+    """
+    parent_node_id: Annotated[str | None, Field(alias="parentNodeId")] = None
+    """
+    Set on a child run: the node in the parent run that started it.
+    """
+    agent: RunAgent | None = None
+    replay_of: Annotated[UUID | None, Field(alias="replayOf")] = None
+    """
+    Set on a replay run (an eval run re-running a past run): the run it replays.
+    """
+    eval_run_id: Annotated[str | None, Field(alias="evalRunId")] = None
+    """
+    Set on a replay run: the eval run that started it.
+    """
+    versions: FlowVersionOverrides | None = None
+    segments: list[ScopeSegment] | None = None
+    """
+    The segment path the run was started with (coarse to fine), which picks live agent versions. A child run has its parent's. Absent when there was none.
+    """
+    public_access_token: Annotated[str | None, Field(alias="publicAccessToken")] = None
+    """
+    Only in the response to `POST /v1/runs`, when the deployment issues public run tokens: a read-only token for this run (and its descendants) to hand to a browser, for `GET /v1/runs/{runId}/progress` and its stream.
+    """
+    public_access_token_expires_at: Annotated[
+        AwareDatetime | None, Field(alias="publicAccessTokenExpiresAt")
+    ] = None
+    """
+    When `publicAccessToken` stops working.
+    """
+
+
+class Datum(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: UUID
+    """
+    RunId.
+    """
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    flow_id: Annotated[str, Field(alias="flowId")]
+    flow_version: Annotated[str, Field(alias="flowVersion")]
+    """
+    Semver.
+    """
+    status: Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]
+    dry_run: Annotated[bool, Field(alias="dryRun")]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
+    failure_message: Annotated[str | None, Field(alias="failureMessage")] = None
+    output: Any | None = None
+    """
+    The run's output once it completed. Present on single-run responses; on lists only with `?include=output`.
+    """
+    parent_run_id: Annotated[UUID | None, Field(alias="parentRunId")] = None
+    """
+    Set on a child run (a sub-flow run, or the agent turn an agent step started): the run that started it.
+    """
+    parent_node_id: Annotated[str | None, Field(alias="parentNodeId")] = None
+    """
+    Set on a child run: the node in the parent run that started it.
+    """
+    agent: RunAgent | None = None
+    replay_of: Annotated[UUID | None, Field(alias="replayOf")] = None
+    """
+    Set on a replay run (an eval run re-running a past run): the run it replays.
+    """
+    eval_run_id: Annotated[str | None, Field(alias="evalRunId")] = None
+    """
+    Set on a replay run: the eval run that started it.
+    """
+    versions: FlowVersionOverrides | None = None
+    segments: list[ScopeSegment] | None = None
+    """
+    The segment path the run was started with (coarse to fine), which picks live agent versions. A child run has its parent's. Absent when there was none.
+    """
+    public_access_token: Annotated[str | None, Field(alias="publicAccessToken")] = None
+    """
+    Only in the response to `POST /v1/runs`, when the deployment issues public run tokens: a read-only token for this run (and its descendants) to hand to a browser, for `GET /v1/runs/{runId}/progress` and its stream.
+    """
+    public_access_token_expires_at: Annotated[
+        AwareDatetime | None, Field(alias="publicAccessTokenExpiresAt")
+    ] = None
+    """
+    When `publicAccessToken` stops working.
+    """
+
+
+class RunCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Datum]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor for the next page. Absent when `hasMore: false`. See `docs/API-ROUTE-CONVENTIONS.md` §5.
+    """
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
 class Approval(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -6565,6 +7944,108 @@ class CompleteApprovalResult(BaseModel):
     """
     True when the approval had a `waitTokenId` + terminal accept/reject and the run waitpoint was completed as part of this call.
     """
+    resume: Resume | Resume1 | None = None
+    """
+    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way.
+    """
+
+
+class Agent(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    AgentId — dotted namespace (e.g. `acme.drafting`).
+    """
+    version: str
+    """
+    Semver.
+    """
+    name: str
+    description: str | None = None
+    instructions: Instructions | PromptRef
+    """
+    The system prompt (a Liquid template), or a prompt block by range whose template and parameters are used instead (pinned at publish, `pins.prompts`).
+    """
+    parameters: list[PromptParameter] | None = None
+    settings: list[BlockRef] | None = None
+    """
+    Settings blocks the agent reads, by range: tools read them as `ToolContext.settings['<id>']`, templates as `settings["<id>"]`. Pinned at publish (`pins.settings`).
+    """
+    model_settings: Annotated[BlockRef | None, Field(alias="modelSettings")] = None
+    """
+    A model-settings block by range: its `temperature` and `maxOutputTokens` go into the turn's model calls. Pinned at publish.
+    """
+    capabilities: list[Capability4]
+    tools: list[ToolRef]
+    retrieval: list[RetrievalIntent]
+    guardrails: list[str]
+    preferred_provider: Annotated[str | None, Field(alias="preferredProvider", min_length=1)] = None
+    """
+    Soft hint — the router prefers this provider by id (e.g. `anthropic`) when at least one of its models satisfies `capabilities.needs` + tenant policy. Combine with `preferredModel` to pin the exact (provider, model) tuple. Falls back to capability-based ranking when the pinned provider is unregistered or filtered out.
+    """
+    preferred_model: Annotated[str | None, Field(alias="preferredModel", min_length=1)] = None
+    """
+    Soft hint at the model level (`ModelInfo.name`, e.g. `claude-sonnet-4-6`). Combined with `preferredProvider`: both set → promote the exact tuple; only `preferredModel` → promote any provider exposing that model; only `preferredProvider` → promote every model of that provider.
+    """
+    conversation_policy: Annotated[ConversationPolicy | None, Field(alias="conversationPolicy")] = (
+        None
+    )
+    budget: TurnBudget | None = None
+    tags: list[str] | None = None
+    output: AgentOutputSpec | None = None
+    tool_errors: Annotated[ToolErrorsSpec | None, Field(alias="toolErrors")] = None
+    pins: AgentPins | None = None
+    derived_from: Annotated[VersionDerivation | None, Field(alias="derivedFrom")] = None
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    Present only on an unregistered version (`GET …/versions/{version}` reads those too). Unregister stops a version being chosen, not the pins that hold it: a new run naming it is refused, while a resumed run and a published version that pins it still run it.
+    """
+    pins_digest: Annotated[
+        str | None, Field(alias="pinsDigest", pattern="^sha256:[0-9a-f]{64}$")
+    ] = None
+    """
+    Set by the runtime with `pins`: `sha256:<hex>` of the pins' canonical JSON (sorted keys, no whitespace). Two agent versions with the same digest run the same blocks.
+    """
+
+
+class DeriveAgentVersionBody(BaseModel):
+    """
+    Derive a new agent version from a pinned one with some data-block pins swapped: an expert's edit reaching an agent with no code change.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    from_: Annotated[str, Field(alias="from")]
+    """
+    The version to derive from (it must be pinned).
+    """
+    pins: AgentPinSwaps
+    label: str | None = None
+    """
+    A short label for the new version.
+    """
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The agent's project, when the runtime doesn't record it on the version.
+    """
+
+
+class AgentCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Agent]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor for the next page. Absent when `hasMore: false`.
+    """
+    has_more: Annotated[bool, Field(alias="hasMore")]
 
 
 class CallUsage(BaseModel):

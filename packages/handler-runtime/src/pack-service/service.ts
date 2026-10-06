@@ -119,7 +119,15 @@ export function createPackService(options: PackServiceOptions): PackService {
     options.importModule ?? ((p: string) => import(pathToFileURL(p).href) as Promise<unknown>);
   const expectedToken = Buffer.from(options.token);
 
-  const tools = new Map<string, IndexedTool>(options.index.tools.map((t) => [t.id, t]));
+  // Every version of a tool the pack holds, side by side: one agent version
+  // may pin tool@1 while another pins tool@2 (keyed by id and version).
+  const tools = new Map<string, IndexedTool>(
+    options.index.tools.map((t) => [toolKey(t.id, t.version), t]),
+  );
+  const versionsOf = new Map<string, IndexedTool[]>();
+  for (const t of options.index.tools) {
+    versionsOf.set(t.id, [...(versionsOf.get(t.id) ?? []), t]);
+  }
   const checks = new Map<string, IndexedGuardrail>(
     options.index.guardrails.map((g) => [g.checkId ?? g.id, g]),
   );
@@ -197,24 +205,44 @@ export function createPackService(options: PackServiceOptions): PackService {
     };
   }
 
-  function callTool(message: ToolInvokeMessage, signal: AbortSignal): Promise<PackResponse> {
-    const tool = tools.get(message.tool.id);
-    if (tool === undefined) {
-      return Promise.resolve(
-        packError('tool-not-in-pack', `This pack has no tool "${message.tool.id}"`, {
-          toolId: message.tool.id,
+  /**
+   * The tool version a call asks for: that version, or, when it names
+   * none, the tool's only version in the pack.
+   */
+  function toolFor(
+    ref: ToolInvokeMessage['tool'],
+  ): { readonly tool: IndexedTool } | { readonly refused: PackResponse } {
+    const versions = versionsOf.get(ref.id) ?? [];
+    if (versions.length === 0) {
+      return {
+        refused: packError('tool-not-in-pack', `This pack has no tool "${ref.id}"`, {
+          toolId: ref.id,
         }),
-      );
+      };
     }
-    if (message.tool.version !== undefined && message.tool.version !== tool.version) {
-      return Promise.resolve(
-        packError(
-          'tool-version-mismatch',
-          `Tool "${tool.id}" is ${tool.version ?? 'unversioned'} in this pack; the caller asked for ${message.tool.version}`,
-          { toolId: tool.id },
-        ),
-      );
-    }
+    const have = versions.map((t) => t.version ?? 'unversioned').join(', ');
+    const tool =
+      ref.version === undefined
+        ? versions.length === 1
+          ? versions[0]
+          : undefined
+        : tools.get(toolKey(ref.id, ref.version));
+    if (tool !== undefined) return { tool };
+    return {
+      refused: packError(
+        'tool-version-mismatch',
+        ref.version === undefined
+          ? `Tool "${ref.id}" has several versions in this pack (${have}); the caller named none`
+          : `Tool "${ref.id}" is ${have} in this pack; the caller asked for ${ref.version}`,
+        { toolId: ref.id },
+      ),
+    };
+  }
+
+  function callTool(message: ToolInvokeMessage, signal: AbortSignal): Promise<PackResponse> {
+    const found = toolFor(message.tool);
+    if ('refused' in found) return Promise.resolve(found.refused);
+    const { tool } = found;
     return runHandler({
       tool: {
         id: tool.id,
@@ -475,4 +503,9 @@ function sendJson(
 
 function describe(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
+}
+
+/** A tool's key in the pack: its id and version (an unversioned tool, by id alone). */
+function toolKey(id: string, version: string | undefined): string {
+  return version === undefined ? id : `${id}@${version}`;
 }

@@ -79,9 +79,11 @@ describe('the version-taking tool commands take the version as an argument', () 
       clientFactory: () =>
         ({
           tools: {
-            getVersion: rec('getVersion'),
-            unregisterVersion: rec('unregisterVersion'),
-            reinstateVersion: rec('reinstateVersion'),
+            versions: {
+              get: rec('versions.get'),
+              unregister: rec('versions.unregister'),
+              reinstate: rec('versions.reinstate'),
+            },
           },
         }) as never,
     });
@@ -89,9 +91,9 @@ describe('the version-taking tool commands take the version as an argument', () 
   }
 
   test.each([
-    ['get-version', 'getVersion'],
-    ['unregister', 'unregisterVersion'],
-    ['reinstate', 'reinstateVersion'],
+    ['get-version', 'versions.get'],
+    ['unregister', 'versions.unregister'],
+    ['reinstate', 'versions.reinstate'],
   ])('kindgi tools %s <tool-id> <version>', async (sub, method) => {
     const { out, calls } = await run(['tools', sub, 'acme.echo', '1.2.0']);
     expect(out.exitCode).toBe(0);

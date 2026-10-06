@@ -246,7 +246,8 @@ export interface IndexedAgent {
   readonly id: string;
   readonly version: string;
   readonly name: string;
-  readonly instructions: string;
+  /** The system prompt, or a prompt block by range. */
+  readonly instructions: string | { readonly prompt: string; readonly version: string };
   readonly capabilities: readonly unknown[];
   /**
    * Typed tool references — `{ id, version }` where `version` is a
@@ -256,6 +257,10 @@ export interface IndexedAgent {
   readonly tools: readonly { readonly id: string; readonly version: string }[];
   readonly retrieval?: readonly unknown[];
   readonly guardrails?: readonly string[];
+  /** Settings blocks by range. */
+  readonly settings?: readonly { readonly id: string; readonly version: string }[];
+  /** A model-settings block by range. */
+  readonly modelSettings?: { readonly id: string; readonly version: string };
   readonly budget?: Readonly<Record<string, unknown>>;
   readonly parameters?: readonly unknown[];
   readonly preferredProvider?: string;
@@ -468,21 +473,39 @@ export async function runIndexer(
   const guardrails: IndexedGuardrail[] = [];
   const agents: IndexedAgent[] = [];
   const flows: IndexedFlow[] = [];
-  // Which file defined each `kind:id`. A pack defines a primitive once: the
-  // pack service keys them by id, so a second file's would silently replace
-  // the first's. The first (in discovery order) is kept, the second refused,
-  // as the Python indexer does.
-  const owners = new Map<string, string>();
-  const duplicateOf = (kind: string, id: string, relPath: string): IndexerError | undefined => {
-    const owner = owners.get(`${kind}:${id}`);
+  // Per `kind:id`, the versions defined so far and their files. A pack may
+  // hold several versions of one primitive side by side (the pack service
+  // serves each tool by id and version, as an agent version pins the one it
+  // uses), but defines each version once: a second file's would silently
+  // replace the first's. So the same version twice is an error, and so is
+  // an entry with no version next to any other of its id: nothing would
+  // tell them apart. The first (in discovery order) is kept, the second
+  // refused, as the Python indexer does.
+  const owners = new Map<string, Map<string | undefined, string>>();
+  const duplicateOf = (
+    kind: string,
+    id: string,
+    version: string | undefined,
+    relPath: string,
+  ): IndexerError | undefined => {
+    let defined = owners.get(`${kind}:${id}`);
+    if (defined === undefined) {
+      defined = new Map();
+      owners.set(`${kind}:${id}`, defined);
+    }
+    const owner =
+      version === undefined || defined.has(undefined)
+        ? defined.values().next().value
+        : defined.get(version);
     if (owner !== undefined) {
+      const what = `${kind} '${id}'${version !== undefined ? ` version ${version}` : ''}`;
       return {
         code: 'manifest-validation-failed',
-        message: `${relPath}: duplicate ${kind} id '${id}' (also defined in ${owner})`,
+        message: `${relPath}: duplicate ${what} (also defined in ${owner})`,
         filePath: relPath,
       };
     }
-    owners.set(`${kind}:${id}`, relPath);
+    defined.set(version, relPath);
     return undefined;
   };
   const fileErrors: IndexerError[] = [];
@@ -553,7 +576,7 @@ export async function runIndexer(
           fileErrors.push(built.error);
           continue;
         }
-        const duplicate = duplicateOf('tool', built.value.id, relPath);
+        const duplicate = duplicateOf('tool', built.value.id, built.value.version, relPath);
         if (duplicate !== undefined) {
           fileErrors.push(duplicate);
           continue;
@@ -567,7 +590,7 @@ export async function runIndexer(
           fileErrors.push(built.error);
           continue;
         }
-        const duplicate = duplicateOf('guardrail', built.value.id, relPath);
+        const duplicate = duplicateOf('guardrail', built.value.id, undefined, relPath);
         if (duplicate !== undefined) {
           fileErrors.push(duplicate);
           continue;
@@ -581,7 +604,7 @@ export async function runIndexer(
           fileErrors.push(built.error);
           continue;
         }
-        const duplicate = duplicateOf('agent', built.value.id, relPath);
+        const duplicate = duplicateOf('agent', built.value.id, built.value.version, relPath);
         if (duplicate !== undefined) {
           fileErrors.push(duplicate);
           continue;
@@ -595,7 +618,7 @@ export async function runIndexer(
           fileErrors.push(built.error);
           continue;
         }
-        const duplicate = duplicateOf('flow', built.value.id, relPath);
+        const duplicate = duplicateOf('flow', built.value.id, built.value.version, relPath);
         if (duplicate !== undefined) {
           fileErrors.push(duplicate);
           continue;
@@ -1287,7 +1310,12 @@ function detectKind(value: unknown): PrimitiveKind | undefined {
     rec.action !== null &&
     'on-violation' in (rec.action as Record<string, unknown>);
   if (isGuardrailAction && 'kind' in rec) return 'guardrail';
-  if (typeof rec.instructions === 'string' && Array.isArray(rec.tools)) return 'agent';
+  if (
+    (typeof rec.instructions === 'string' || isPromptRef(rec.instructions)) &&
+    Array.isArray(rec.tools)
+  ) {
+    return 'agent';
+  }
   if (Array.isArray(rec.nodes) && Array.isArray(rec.edges)) return 'flow';
   return undefined;
 }
@@ -1436,8 +1464,11 @@ function buildAgent(raw: unknown, relPath: string): Result<IndexedAgent, Indexer
   if (typeof rec.name !== 'string') {
     return manifestErr(relPath, `'name' is missing or not a string`);
   }
-  if (typeof rec.instructions !== 'string') {
-    return manifestErr(relPath, `'instructions' is missing or not a string`);
+  if (typeof rec.instructions !== 'string' && !isPromptRef(rec.instructions)) {
+    return manifestErr(
+      relPath,
+      `'instructions' is missing, or neither a string nor a prompt block { prompt, version }`,
+    );
   }
   if (!Array.isArray(rec.capabilities)) {
     return manifestErr(relPath, `'capabilities' is missing or not an array`);
@@ -1449,7 +1480,7 @@ function buildAgent(raw: unknown, relPath: string): Result<IndexedAgent, Indexer
     id: rec.id,
     version: rec.version,
     name: rec.name,
-    instructions: rec.instructions,
+    instructions: rec.instructions as IndexedAgent['instructions'],
     capabilities: rec.capabilities as readonly unknown[],
     tools: rec.tools as readonly { readonly id: string; readonly version: string }[],
     ...optionalAgentFields(rec),
@@ -1458,13 +1489,28 @@ function buildAgent(raw: unknown, relPath: string): Result<IndexedAgent, Indexer
   return { kind: 'ok', value: agent };
 }
 
+/** A prompt block reference: `{ prompt, version }`. */
+function isPromptRef(value: unknown): boolean {
+  return (
+    isObject(value) &&
+    typeof (value as { prompt?: unknown }).prompt === 'string' &&
+    typeof (value as { version?: unknown }).version === 'string'
+  );
+}
+
 /** The agent's optional fields, carried when present with the right shape. */
 function optionalAgentFields(rec: Record<string, unknown>): Partial<IndexedAgent> {
   const out: Record<string, unknown> = {};
-  for (const key of ['retrieval', 'guardrails', 'parameters', 'tags'] as const) {
+  for (const key of ['retrieval', 'guardrails', 'parameters', 'tags', 'settings'] as const) {
     if (Array.isArray(rec[key])) out[key] = rec[key];
   }
-  for (const key of ['budget', 'conversationPolicy', 'output', 'toolErrors'] as const) {
+  for (const key of [
+    'budget',
+    'conversationPolicy',
+    'output',
+    'toolErrors',
+    'modelSettings',
+  ] as const) {
     if (isObject(rec[key])) out[key] = rec[key];
   }
   for (const key of ['preferredProvider', 'preferredModel', 'description'] as const) {

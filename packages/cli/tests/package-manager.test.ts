@@ -15,6 +15,7 @@ import {
   localLinkProtocol,
   publishedCliSpec,
 } from '../src/package-manager.js';
+import { CLI_VERSION } from '../src/version-info.js';
 
 function io(files: Record<string, string>): DetectIo {
   return {
@@ -74,15 +75,13 @@ describe('binCommand — runs the project-local bin, never downloads', () => {
     expect(binCommand(pm, 'kindgi', ['dev'])).toEqual({ command, args });
   });
 
-  test('path — a Python pack (no npm project) runs the published CLI through npx, within its minor', () => {
-    const cli = expect.stringMatching(/^@kindgi\/cli@\d+\.\d+$/);
+  test('path — a Python pack (no npm project) runs the published CLI through npx, within its minor (an rc: that rc)', () => {
+    const cli = publishedCliSpec(CLI_VERSION);
     expect(binCommand('path', 'kindgi', ['dev'])).toEqual({
       command: 'npx',
       args: ['--yes', cli, 'dev'],
     });
-    expect(binDisplay('path', 'kindgi', ['skills', 'sync'])).toMatch(
-      /^npx --yes @kindgi\/cli@\d+\.\d+ skills sync$/,
-    );
+    expect(binDisplay('path', 'kindgi', ['skills', 'sync'])).toBe(`npx --yes ${cli} skills sync`);
     expect(binCommand('path', 'uv', ['sync'])).toEqual({ command: 'uv', args: ['sync'] });
   });
 

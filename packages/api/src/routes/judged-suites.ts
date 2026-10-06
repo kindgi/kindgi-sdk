@@ -81,6 +81,8 @@ export function judgedSuitesRouter(
         ...(body.description !== undefined && { description: body.description }),
         spec: {
           source: 'judgments',
+          // Where the judgments came from: a comparison's summary names it.
+          projectId: body.projectId,
           query: body.query,
           caseCount: built.cases.length,
           truncated: built.truncated,

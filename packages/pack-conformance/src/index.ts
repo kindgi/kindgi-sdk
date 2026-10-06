@@ -868,6 +868,7 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
           env: { REGION: 'eu' },
           secrets: { API_KEY: 's3cret' },
           config: { mode: 'fast' },
+          settings: { 'acme.weights': { recency: 0.7 } },
         };
         const answer = response(
           await invoke(service, toolCall('conformance.context', {}, { ctx })),
@@ -1031,7 +1032,12 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
  */
 export function describeCallContextCompatibility(target: PackServiceTarget): void {
   const spec = specValidators();
-  const newer = { ...CTX, projectId: 'project-1', orgId: 'org-1' };
+  const newer = {
+    ...CTX,
+    projectId: 'project-1',
+    orgId: 'org-1',
+    settings: { 'acme.weights': { recency: 0.7 } },
+  };
 
   describe(`an older pack service, called by a newer runtime — ${target.name}`, () => {
     let workDir = '';

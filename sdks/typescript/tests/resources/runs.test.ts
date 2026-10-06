@@ -193,6 +193,22 @@ describe('runs.list — filters', () => {
     expect(query.get('topLevel')).toBe('true');
   });
 
+  it('sends replays and evalRunId', async () => {
+    const stub = recordingFetch([
+      { status: 200, body: JSON.stringify({ data: [], hasMore: false }) },
+      { status: 200, body: JSON.stringify({ data: [], hasMore: false }) },
+    ]);
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    await client.runs.list({ replays: 'only' });
+    await client.runs.list({ evalRunId: 'eval-1' });
+    expect(new URL(stub.calls[0]?.url ?? '').searchParams.get('replays')).toBe('only');
+    expect(new URL(stub.calls[1]?.url ?? '').searchParams.get('evalRunId')).toBe('eval-1');
+  });
+
   it('sends a project or org scope as scopeKind + scopeId', async () => {
     const stub = recordingFetch([
       { status: 200, body: JSON.stringify({ data: [], hasMore: false }) },
@@ -538,5 +554,45 @@ describe('runs.start — projectId on agent runs (POST /v1/runs accepts it)', ()
     await client.runs.start({ agent: 'acme.drafter' as never, input: {} });
 
     expect(JSON.parse(stub.calls[0]?.body ?? '{}')).not.toHaveProperty('projectId');
+  });
+});
+
+describe('runs.start — segments pick the live version', () => {
+  it('sends the segment path for an agent run and a flow run', async () => {
+    const body = JSON.stringify(WIRE_RUN);
+    const stub = recordingFetch([
+      { status: 201, body },
+      { status: 201, body },
+    ]);
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    const segments = [
+      { key: 'company', value: 'acme' },
+      { key: 'role', value: 'counsel' },
+    ];
+
+    await client.runs.start({ agent: 'acme.drafter', segments, input: {} });
+    await client.runs.start({ flow: 'acme.triage', segments, input: {} });
+
+    expect(stub.calls.map((c) => JSON.parse(c.body ?? '{}').segments)).toEqual([
+      segments,
+      segments,
+    ]);
+  });
+
+  it('omits segments when the caller does not set them', async () => {
+    const stub = jsonFetch(WIRE_RUN, { status: 201 });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+
+    await client.runs.start({ agent: 'acme.drafter', input: {} });
+
+    expect(JSON.parse(stub.calls[0]?.body ?? '{}')).not.toHaveProperty('segments');
   });
 });

@@ -1,5 +1,55 @@
 # @kindgi/runtime
 
+## 0.1.4-rc.1
+
+### Patch Changes
+
+- b8ff156: A flow comparison can run some of the flow's agents or tools at other versions, without publishing a new flow version ("this flow, with `acme.scorer` at 0.4.0"). `POST /v1/eval-suites/{suiteId}/runs` takes `versions: { agents?, tools? }` (id → exact version) with `flowRef`. The run keeps them in `comparison.versions`, each replay runs with them, and the summary's flow `candidate` names them (`versions`).
+  
+  They're checked when the run starts. An id the flow doesn't use, a version that isn't published, or an unregistered agent version is refused with `400 validation-failed`, each one under `details.issues` (for example `{ path: '/versions/agents/acme.x', message: "flow acme.f 1.2.0 doesn't use agent acme.x" }`). `versions` with `agentRef` is refused.
+  
+  A run that ran some blocks at other versions says which: `versions` on `GET /v1/runs/{runId}` (`KernelRunRecord.versions`, set from `RunFlowInput.versions` or `StartRunParams.versions`; `InvokeFlowBindingInput.versions` passes them to a runtime). `@kindgi/flow` adds `overridableRefs(flow)`: every tool and agent the flow runs, including agent steps with a version of their own.
+  
+  The CLI's `kindgi eval-runs start --flow=<id> --flow-version=<v> --with=<id>@<version>` (repeatable) tells agents from tools by the flow version's steps.
+- Updated dependencies [b8ff156]
+  - @kindgi/flow@0.1.4-rc.1
+  - @kindgi/authz@0.1.4-rc.1
+  - @kindgi/handler@0.1.4-rc.1
+  - @kindgi/types@0.1.4-rc.1
+
+## 0.1.4-rc.0
+
+### Patch Changes
+
+- d0ebeb6: Replay turns: an agent turn can re-run a past run for an eval run without doing anything the past run didn't do.
+  
+  - `@kindgi/agents`:
+    - `InvokeAgentInput.replay` (`{ of, evalRunId }`) marks a turn as a replay. It is kept on the turn's run and in its run snapshot (new nullable `agent_run_snapshots.replay` column), so a resumed turn stays a replay.
+    - The new optional `InvokeAgentBindings.replay` (`ReplayBinding`) decides each tool call:
+      - `live`: the tool runs;
+      - `recorded`: the past run's result is used;
+      - `refused`: the model gets the given result.
+    - Whatever the binding says, only a tool declared read-only (`mutating: false`, no writing effect, see `isReadOnlyTool`) with no approval to wait for runs. A replay with no binding refuses every call.
+    - Each decision is journaled, and `AgentTurnResult.replay` lists them. A refused call shows what the turn would have done.
+    - `retrievals` can supply the past run's retrieved facts. `sessionApproval` gives the past run's decision at the session approval gate, which the replay follows (a recorded rejection fails the turn with `hitl-rejected`). Without a recorded decision the gate is skipped, and the result says so.
+    - `tool.completed` events carry `replay: 'live' | 'recorded' | 'refused'`.
+  - `@kindgi/runtime`: `RunReplayRef`; `replay` on `runGraph` and `startRun`; `replayOf` and `evalRunId` on `KernelRunRecord`; `replays` and `evalRunId` on `ListRunsInput`.
+  - `@kindgi/capabilities`: `ModelUsageRecord.replay` tags a replay's model calls with the past run and the eval run.
+  - `@kindgi/api`:
+    - A run carries `replayOf` and `evalRunId`.
+    - `GET /v1/runs` leaves replay runs out unless `replays=include|only`; `evalRunId` lists one eval run's replays.
+    - A judged agent turn's captured `context` also keeps `sessionApproval`, the decision at its session approval gate.
+  - `@kindgi/client`: `runs.list({ replays, evalRunId })`; the Python client too.
+  - `@kindgi/cli`: `kindgi runs list --replays=<exclude|include|only> --eval-run=<id>`.
+- Updated dependencies [fac7472]
+- Updated dependencies [26b2a23]
+- Updated dependencies [d9cee7c]
+- Updated dependencies [dde7fdb]
+  - @kindgi/types@0.1.4-rc.0
+  - @kindgi/flow@0.1.4-rc.0
+  - @kindgi/authz@0.1.4-rc.0
+  - @kindgi/handler@0.1.4-rc.0
+
 ## 0.1.3
 
 ### Patch Changes

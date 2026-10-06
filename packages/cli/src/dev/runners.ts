@@ -322,6 +322,8 @@ export interface DevRunners {
       readonly debounceMs?: number;
       readonly patterns?: readonly string[];
       readonly files?: readonly string[];
+      /** A watch failed; the once-a-second scan behind it goes on. */
+      readonly onWatchFailed?: (error: unknown) => void;
     },
   ) => Promise<WatchHandle>;
   /**
@@ -341,6 +343,15 @@ export interface DevRunners {
    * container is reused as it is — another `kindgi dev` may be using it.
    * Without compose it is always reused; the handle's `notes` say so.
    */
+  /**
+   * Whether the runtime's port on `127.0.0.1` is taken, checked before
+   * anything starts. The pack's own runtime from an earlier boot doesn't
+   * count: starting the runtime replaces it. Missing: not checked.
+   */
+  readonly runtimePortInUse?: (input: {
+    readonly packDir: string;
+    readonly port: number;
+  }) => Promise<boolean>;
   readonly startServices?: (options: {
     readonly recreate: boolean;
   }) => Promise<StartServicesResult>;

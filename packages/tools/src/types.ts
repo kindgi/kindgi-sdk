@@ -119,6 +119,13 @@ export interface ToolContext {
    */
   readonly resolveSecret?: (ref: ToolSecretRef) => Promise<string>;
   /**
+   * The values of the settings blocks the calling agent version pins, by
+   * block id (`ctx.settings['acme.weights'].recency`). Unset when the
+   * agent references none. A tool reads its tunables here, so an expert
+   * changes them by publishing a new block version, not new code.
+   */
+  readonly settings?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+  /**
    * The secrets this tool declares in `needsSpec.secrets`, by name,
    * resolved by the runtime for this call: for the call's tenant, in the
    * env the runtime serves (`KINDGI_ENV`; in `kindgi dev`, `local` — the

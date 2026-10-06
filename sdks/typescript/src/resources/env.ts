@@ -104,6 +104,8 @@ export interface EnvRecord {
 
 export interface EnvListPage {
   readonly data: readonly EnvRecord[];
+  /** Whether there's another page (`nextCursor` names it). */
+  readonly hasMore: boolean;
   readonly nextCursor?: Cursor;
 }
 
@@ -124,6 +126,8 @@ export interface EnvDeleteOutcome {
 
 interface WireEnvPage {
   readonly data: readonly EnvRecord[];
+  /** Absent from older servers. */
+  readonly hasMore?: boolean;
   readonly nextCursor?: string;
 }
 
@@ -158,6 +162,7 @@ export function makeEnvClient(transport: Transport): EnvClient {
       });
       return {
         data: page.data,
+        hasMore: page.hasMore ?? page.nextCursor !== undefined,
         ...(page.nextCursor !== undefined && {
           nextCursor: page.nextCursor as unknown as Cursor,
         }),

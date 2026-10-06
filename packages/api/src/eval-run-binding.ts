@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { AgentId } from '@kindgi/agents';
+import type { FlowVersionOverrides } from '@kindgi/flow';
 import type { Scope } from '@kindgi/platform';
 import type { Cursor, FlowId, ProjectId, RunId, Semver, TenantId, Timestamp } from '@kindgi/types';
 
@@ -105,6 +106,8 @@ export interface EvalRun {
   readonly result?: Readonly<Record<string, unknown>>;
   readonly error?: string;
   readonly correlationId?: string;
+  /** A comparison eval run's baseline, reads and repetitions. */
+  readonly comparison?: EvalComparison;
 }
 
 export interface EvalRunFilter {
@@ -114,6 +117,41 @@ export interface EvalRunFilter {
   readonly flowId?: FlowId;
   readonly from?: Timestamp;
   readonly to?: Timestamp;
+}
+
+/**
+ * What a comparison eval run compares the candidate against:
+ *   - `'recorded'`: the output each case recorded (what was judged);
+ *   - `{ agentId, version }`: that version, replayed under the same rules;
+ *   - `{ live }`: the version live in a scope (a project, segments).
+ */
+export type EvalBaseline =
+  | 'recorded'
+  | { readonly agentId: AgentId; readonly version: Semver }
+  | {
+      readonly live: {
+        readonly projectId?: ProjectId;
+        readonly segments?: Readonly<Record<string, string>>;
+      };
+    };
+
+/** Whether replayed reads use the past run's results when it has them, or run live. */
+export type EvalReads = 'recorded' | 'live';
+
+/** How a comparison eval run runs its cases (absent: the run isn't a comparison). */
+export interface EvalComparison {
+  readonly baseline: EvalBaseline;
+  readonly reads: EvalReads;
+  /** How many times each case runs (1–10); with more than 1, the summary shows the spread. */
+  readonly repetitions: number;
+  /** How many ranked items `weightedPrecisionAtK` looks at (1–100). */
+  readonly k: number;
+  /**
+   * For a flow candidate: agents and tools its replays run at other exact
+   * versions than the flow version's pins ("this flow, with `acme.scorer`
+   * at 0.4.0"), without publishing a new flow version.
+   */
+  readonly versions?: FlowVersionOverrides;
 }
 
 export interface EvalRunStartInput {
@@ -130,6 +168,8 @@ export interface EvalRunStartInput {
   readonly flowRef?: FlowRef;
   readonly dryRun?: boolean;
   readonly correlationId?: string;
+  /** Set for a comparison eval run (a `judged` suite): its baseline, reads and repetitions. */
+  readonly comparison?: EvalComparison;
 }
 
 /**

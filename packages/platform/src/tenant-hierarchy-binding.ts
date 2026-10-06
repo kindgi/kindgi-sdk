@@ -15,6 +15,8 @@
 //
 
 import type { OrgId, ProjectId, Result, TeamId, TenantId, UserId } from '@kindgi/types';
+import type { ProjectMembershipUpdateRoleOutcome } from './project-binding.js';
+import type { TeamMembershipUpdateRoleOutcome } from './team-binding.js';
 import type { OrgSpec, ProjectRole, ProjectSpec, TeamRole, TeamSpec } from './types.js';
 
 export interface CreateOrgParams {
@@ -35,6 +37,8 @@ export interface CreateTeamParams {
 
 export type CreateTeamError =
   | { readonly code: 'slug-conflict'; readonly message: string; readonly cause?: unknown }
+  /** `spec.orgId` isn't the tenant's: it never existed, or it was deleted. */
+  | { readonly code: 'org-not-found'; readonly message: string; readonly orgId: OrgId }
   | { readonly code: 'insert-failed'; readonly message: string; readonly cause?: unknown };
 
 export interface AddTeamMemberParams {
@@ -52,6 +56,8 @@ export interface CreateProjectParams {
 
 export type CreateProjectError =
   | { readonly code: 'slug-conflict'; readonly message: string; readonly cause?: unknown }
+  /** `spec.orgId` isn't the tenant's: it never existed, or it was deleted. */
+  | { readonly code: 'org-not-found'; readonly message: string; readonly orgId: OrgId }
   | { readonly code: 'default-conflict'; readonly message: string; readonly cause?: unknown }
   | { readonly code: 'insert-failed'; readonly message: string; readonly cause?: unknown };
 
@@ -77,6 +83,35 @@ export type AddProjectMemberError =
       readonly message: string;
     }
   | { readonly code: 'add-failed'; readonly message: string; readonly cause?: unknown };
+
+/** Which direct membership to remove: the user's on the team or project. */
+export interface RemoveTeamMemberParams {
+  readonly tenantId: TenantId;
+  readonly teamId: TeamId;
+  readonly userId: UserId;
+}
+
+export interface RemoveProjectMemberParams {
+  readonly tenantId: TenantId;
+  readonly projectId: ProjectId;
+  readonly userId: UserId;
+}
+
+/** A direct membership's new role. */
+export interface UpdateTeamMemberRoleParams extends RemoveTeamMemberParams {
+  readonly role: TeamRole;
+}
+
+export interface UpdateProjectMemberRoleParams extends RemoveProjectMemberParams {
+  readonly role: ProjectRole;
+}
+
+/** A membership change that couldn't be written (the row and its tuple both left as they were). */
+export interface MembershipWriteError {
+  readonly code: 'write-failed';
+  readonly message: string;
+  readonly cause?: unknown;
+}
 
 /**
  * Tenant-summary read shape returned by `getTenant`. Only the fields
@@ -109,6 +144,26 @@ export interface TenantHierarchyBinding {
   ): Promise<Result<{ readonly projectId: ProjectId }, CreateProjectError>>;
   addTeamMember(params: AddTeamMemberParams): Promise<Result<void, AddTeamMemberError>>;
   addProjectMember(params: AddProjectMemberParams): Promise<Result<void, AddProjectMemberError>>;
+  /**
+   * Remove a user's team membership and its authorization tuple
+   * together (one transaction, or the tuple outbox). No-op when absent.
+   * The membership routes use this when authorization is enforced; a
+   * binding without it can't keep permissions in step, so those routes
+   * refuse the change rather than remove the row alone.
+   */
+  removeTeamMember?(params: RemoveTeamMemberParams): Promise<Result<void, MembershipWriteError>>;
+  /** Change a team membership's role and replace its tuple together (see `removeTeamMember`). */
+  updateTeamMemberRole?(
+    params: UpdateTeamMemberRoleParams,
+  ): Promise<Result<TeamMembershipUpdateRoleOutcome, MembershipWriteError>>;
+  /** Remove a user's direct project membership and its tuple together (see `removeTeamMember`). */
+  removeProjectMember?(
+    params: RemoveProjectMemberParams,
+  ): Promise<Result<void, MembershipWriteError>>;
+  /** Change a direct project membership's role and replace its tuple together (see `removeTeamMember`). */
+  updateProjectMemberRole?(
+    params: UpdateProjectMemberRoleParams,
+  ): Promise<Result<ProjectMembershipUpdateRoleOutcome, MembershipWriteError>>;
   /**
    * Look up a tenant by id. Returns `null` when no tenant exists.
    * Not itself tenant-scoped: it is how a caller finds out which

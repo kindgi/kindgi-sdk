@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Cursor, Filter, Page, Timestamp } from '@kindgi/types';
+import type { Filter, Timestamp } from '@kindgi/types';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
+import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { Transport } from '../transport.js';
 import type {
   BlobMeta,
@@ -49,7 +50,7 @@ export interface ArtifactsClient {
    * @wire `GET /v1/artifacts` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1artifacts/get`.
    */
-  list(filter?: ArtifactFilter): Promise<Page<BlobMeta>>;
+  list(filter?: ArtifactFilter): Promise<ListPage<BlobMeta>>;
 
   /**
    * Delete an artifact. First delete returns `deleted: true`; a repeat
@@ -86,12 +87,6 @@ export interface ArtifactFilter extends Filter {
   readonly sha256?: string;
 }
 
-interface WirePage<T> {
-  readonly data: readonly T[];
-  readonly hasMore: boolean;
-  readonly nextCursor?: string;
-}
-
 export function makeArtifactsClient(transport: Transport): ArtifactsClient {
   return {
     async put(_input) {
@@ -125,12 +120,7 @@ export function makeArtifactsClient(transport: Transport): ArtifactsClient {
           ...(filter?.contentType !== undefined && { contentType: filter.contentType }),
         },
       });
-      return {
-        items: page.data,
-        ...(page.nextCursor !== undefined && {
-          nextCursor: page.nextCursor as unknown as Cursor,
-        }),
-      };
+      return listPage(page);
     },
 
     async delete(blobId, options) {

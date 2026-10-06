@@ -48,6 +48,8 @@ import type { ConversationMessage, RetrievedFact } from '../types.js';
 import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
 import { readGateDecision } from './gate-decision.js';
+import { rehydrateReplay } from './replay.js';
+import type { PinnedBlockVersions } from './resolve-blocks.js';
 import { TOOL_GATE_RECORD_PREFIX } from './tool-hitl.js';
 import {
   loadTurnConversation,
@@ -113,6 +115,7 @@ export async function rehydrateTurnContext(
     readonly providerId: string;
     readonly providerModel: string;
     readonly toolVersions?: Readonly<Record<string, string>>;
+    readonly blockVersions?: PinnedBlockVersions;
   }>(steps, 'setup');
   if (setup === undefined) return false;
 
@@ -129,6 +132,7 @@ export async function rehydrateTurnContext(
     ctx,
     { providerId: setup.providerId, model: setup.providerModel },
     setup.toolVersions,
+    setup.blockVersions,
   );
 
   const userMessage = outputOf<{ readonly sequence: number }>(steps, 'persist-user-message');
@@ -161,6 +165,7 @@ export async function rehydrateTurnContext(
   }
   ctx.toolApprovals = toolApprovalsOf(journal);
   rebuildProvenance(ctx, steps, retrievals?.retrieved);
+  rehydrateReplay(ctx, journal);
   return true;
 }
 

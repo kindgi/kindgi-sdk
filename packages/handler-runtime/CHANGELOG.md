@@ -1,5 +1,49 @@
 # @kindgi/handler-runtime
 
+## 0.1.4-rc.1
+
+### Patch Changes
+
+- Updated dependencies [846dd9c]
+- Updated dependencies [b8ff156]
+- Updated dependencies [c0f1b56]
+  - @kindgi/env-schema@0.1.4-rc.1
+  - @kindgi/flow@0.1.4-rc.1
+  - @kindgi/sandbox@0.1.4-rc.1
+  - @kindgi/schema@0.1.4-rc.1
+  - @kindgi/types@0.1.4-rc.1
+
+## 0.1.4-rc.0
+
+### Patch Changes
+
+- 024a47f: **An agent's prompt and settings can come from data blocks, pinned when the agent version is published.**
+  
+  - **References:**
+    - `instructions` is the system prompt, or a prompt block by range: `{ prompt: 'acme.intake-prompt', version: '^1.0.0' }`. Its template and declared parameters are used instead.
+    - `settings: [{ id, version }]` lists settings blocks.
+    - `modelSettings: { id, version }` names a model-settings block (`MODEL_SETTINGS_SCHEMA`: `temperature`, `maxOutputTokens`).
+  - **Pinned at publish:** `POST /v1/agents` and deploys resolve each reference by `pickVersion` into `pins.prompts` / `pins.settings`, alongside the tools.
+  - **Refusals:** a reference that matches no published version, names a block of the other kind, names model settings that aren't, or runs on a runtime with no block registry refuses the publish (`400 validation-failed`).
+  - **At run time:** a turn loads each block at its pinned version. A resumed turn uses the versions its `setup` journaled (`blockVersions`).
+    - The prompt block renders as the instructions.
+    - Settings values reach tools as `ToolContext.settings['<id>']` and templates as `settings["<id>"]`.
+    - Model settings go into the model call.
+    - A block that can't load fails the turn (`block-unresolvable`).
+    - `InvokeAgentBindings` takes an optional `blockReader`.
+  - **Changed elsewhere:** the agent spec, the pack index, both indexers (TS and Python: `Agent(instructions={...}, settings=[...], model_settings={...})`), and both clients.
+  - **Pack protocol 2.4.0:** `callContext` gets optional `settings`, so pack code reads them: `ctx.settings['acme.weights']` in TS, `ctx.settings["acme.weights"]` in Python. Older pack services still answer calls that carry it: a TS one passes it to the handler, a Python one drops it.
+  - **`settings` is now a reserved template name.**
+- e197294: Two files in a pack that define a tool, guardrail, agent or flow with the same id are an error. The indexer kept both, and the pack service silently served only the last. Now the indexer keeps the first file in path order and reports the second: `tools/b.ts: duplicate tool id 'acme.echo' (also defined in tools/a.ts)` (`manifest-validation-failed`), as the Python indexer already does. That holds for two versions of one id as well: a pack serves one version of each primitive. `kindgi build` and `kindgi deploy` refuse the pack; `kindgi dev` prints the error and loads the rest. The same id on two different kinds (a tool and a flow) is still allowed.
+- b52d890: A pack can hold several versions of one tool, side by side: one agent version may pin `acme.scorer@1.0.0` while another pins `2.0.0`. The pack service (TypeScript and Python) keys its tools by id and version: a call runs the version it names; a call that names none runs the tool's only version, and is refused (`tool-version-mismatch`, naming the versions it has) when there are several. `GET /v1/info` lists every version. The Python indexer accepts several versions of one id, keyed by the version the index records (a tool without its own takes the pack's), and refuses the same version twice.
+- Updated dependencies [fac7472]
+- Updated dependencies [26b2a23]
+  - @kindgi/types@0.1.4-rc.0
+  - @kindgi/flow@0.1.4-rc.0
+  - @kindgi/schema@0.1.4-rc.0
+  - @kindgi/sandbox@0.1.4-rc.0
+  - @kindgi/env-schema@0.1.4-rc.0
+
 ## 0.1.3
 
 ### Patch Changes

@@ -25,11 +25,13 @@ const guideAreas = [
   ['Models', 'models'],
   ['Flows', 'flows'],
   ['Runs', 'runs'],
+  ['Orgs and projects', 'projects'],
   ['Webhooks', 'webhooks'],
   ['Guardrails', 'guardrails'],
   ['Approvals', 'approvals'],
   ['Secrets and env', 'secrets'],
   ['Cost and provenance', 'observability'],
+  ['Evals', 'evals'],
 ];
 
 // The HTTP API reference: every route and schema, from the API's own spec.

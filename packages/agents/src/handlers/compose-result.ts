@@ -8,6 +8,7 @@ import type { AgentTurnResult, AgentTurnUsage } from './result-shape.js';
 
 import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
+import { replayReport } from './replay.js';
 import { parseJsonAnswer } from './structured-output.js';
 
 /** The final answer as JSON — `budget-check` already validated it against the schema. */
@@ -45,6 +46,7 @@ export function buildComposeResultHandler(ctx: TurnContext): NodeHandler {
       model: ctx.model?.name ?? 'unknown',
     };
 
+    const replay = replayReport(ctx);
     const result: AgentTurnResult = {
       runId: kctx.runId,
       conversationId: ctx.input.conversationId,
@@ -70,6 +72,7 @@ export function buildComposeResultHandler(ctx: TurnContext): NodeHandler {
       }),
       ...(ctx.persistedProvenance !== undefined && { provenance: ctx.persistedProvenance }),
       ...(kctx.dryRun && { dryRun: true }),
+      ...(replay !== undefined && { replay }),
     };
 
     await emitTurnEvent(ctx.bindings.onEvent, {

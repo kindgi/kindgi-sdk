@@ -105,8 +105,16 @@
       "description": "Tenant policy catalog (list, get, versions, publish, unregister) — part of the admin control plane. Full versioned CRUD, mirrors `flows` 1:1. Registry-only: enforcement is out of scope. `policyKind` selects the shape of `spec` — closed enum, extended additively (`access-control`, `model-routing`, `adapter-allowlist`, `rate-limit`, `retention`, `compliance`). Runtime consumers (e.g. model routing for `model-routing`, retention sweeps for `retention`) read policies from this store and apply them at their own boundary. Caller-plugged via `PolicyRegistryBinding`."
     },
     {
+      "name": "retention",
+      "description": "Deleted rows' retention (scheduled, sweep) — part of the admin control plane. Deleting most things is a tombstone; a `retention` policy per domain (see `policies`) sets how long tombstones stay before a sweep purges them for good. `scheduled` lists what's due and when; `sweep` purges what's past its grace. Nothing sweeps on its own: call `sweep` from a schedule. Caller-plugged via `RetentionBinding`."
+    },
+    {
       "name": "eval-suites",
       "description": "Evaluation suite catalog (list, get, versions, publish, unregister) — part of the admin control plane. Full versioned CRUD, mirrors `policies` 1:1. Registry-only: eval-run execution + per-kind grader dispatch live on the `eval-runs` tag. `evalKind` selects the shape of `spec` — closed enum, extended additively (`accuracy`, `pairwise`, `regression`, `human-review`, `benchmark`, `custom`, `judged`). The cases of a `judged` suite are copies of judged runs built from judgments (`POST .../versions/from-judgments`, listed at `GET .../versions/{version}/cases`; `EvalCaseStoreBinding`). Runs against these suites are started through the `eval-runs` tag. Caller-plugged via `EvalSuiteRegistryBinding`."
+    },
+    {
+      "name": "blocks",
+      "description": "Data blocks: versioned prompts and settings an agent version pins when it's published (list, get, versions, publish, unregister, reinstate). A version never changes, nor does a block's kind; a settings block's values satisfy its schema and the latest version's. A block belongs to one project and is authorized through it: `read` on the project to read, `write` to publish, unregister or reinstate. Caller-plugged via `BlockRegistryBinding`."
     },
     {
       "name": "eval-runs",
@@ -253,6 +261,386 @@
           "conversationId": {
             "type": "string",
             "format": "uuid"
+          },
+          "via": {
+            "type": "string",
+            "enum": [
+              "explicit",
+              "conversation",
+              "live",
+              "latest"
+            ],
+            "description": "Why this version ran: named by the caller, the conversation's own, the version live for the run's scope, or the latest (nothing live). Absent on runs from before Kindgi 0.1.4."
+          },
+          "liveScope": {
+            "$ref": "#/components/schemas/LiveScope",
+            "description": "The pin that chose the version, when `via` is `live`."
+          }
+        }
+      },
+      "ScopeSegment": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "value"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+            "description": "Lowercase, like an identifier: `company`, `contact-role`."
+          },
+          "value": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        }
+      },
+      "LiveScopeTenant": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind"
+        ],
+        "description": "The agent's default for the whole tenant.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tenant"
+            ]
+          }
+        }
+      },
+      "LiveScopeOrg": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "orgId"
+        ],
+        "description": "An org's projects.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "org"
+            ]
+          },
+          "orgId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "LiveScopeProject": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "projectId"
+        ],
+        "description": "One project.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "project"
+            ]
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "LiveScopeSegment": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "projectId",
+          "path"
+        ],
+        "description": "A segment path within a project: it covers every run whose path starts with it.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "segment"
+            ]
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "path": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "items": {
+              "$ref": "#/components/schemas/ScopeSegment"
+            }
+          }
+        }
+      },
+      "LiveScope": {
+        "description": "Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/LiveScopeTenant"
+          },
+          {
+            "$ref": "#/components/schemas/LiveScopeOrg"
+          },
+          {
+            "$ref": "#/components/schemas/LiveScopeProject"
+          },
+          {
+            "$ref": "#/components/schemas/LiveScopeSegment"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind"
+        }
+      },
+      "LiveVersionResolution": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "agentId",
+          "version",
+          "via"
+        ],
+        "properties": {
+          "agentId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string",
+            "description": "The version a run would use (semver)."
+          },
+          "via": {
+            "type": "string",
+            "enum": [
+              "live",
+              "latest"
+            ],
+            "description": "A live pin chose it, or nothing is live on the way up and it is the latest."
+          },
+          "liveScope": {
+            "$ref": "#/components/schemas/LiveScope"
+          }
+        }
+      },
+      "LivePin": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "agentId",
+          "scope",
+          "version",
+          "promotionId",
+          "setAt"
+        ],
+        "properties": {
+          "agentId": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/LiveScope"
+          },
+          "version": {
+            "type": "string"
+          },
+          "promotionId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The promotion that set it."
+          },
+          "setAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "LivePinList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LivePin"
+            }
+          }
+        }
+      },
+      "Promotion": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "agentId",
+          "scope",
+          "action",
+          "fromVersion",
+          "toVersion",
+          "requestedBy",
+          "createdAt"
+        ],
+        "description": "One change of a scope's live version, kept for good: what was live before, what is after, who asked and why.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "agentId": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/LiveScope"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "promote",
+              "rollback",
+              "unpin"
+            ]
+          },
+          "fromVersion": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The scope's own pin before; null when it had none."
+          },
+          "toVersion": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The scope's own pin after; null after an unpin."
+          },
+          "requestedBy": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "id"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "user",
+                  "service"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            }
+          },
+          "reason": {
+            "type": "string"
+          },
+          "evalRunId": {
+            "type": "string",
+            "description": "The comparison the change was judged on."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PromotionPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Promotion"
+            }
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        }
+      },
+      "PromoteBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "scope"
+        ],
+        "properties": {
+          "version": {
+            "type": "string",
+            "description": "The agent version to make live (registered, active)."
+          },
+          "scope": {
+            "$ref": "#/components/schemas/LiveScope"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "evalRunId": {
+            "type": "string",
+            "description": "The comparison this promotion was judged on."
+          }
+        }
+      },
+      "RollbackBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope"
+        ],
+        "properties": {
+          "scope": {
+            "$ref": "#/components/schemas/LiveScope"
+          },
+          "toVersion": {
+            "type": "string",
+            "description": "An earlier version to go back to; omit → the scope's previous live version."
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        }
+      },
+      "UnpinBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope"
+        ],
+        "properties": {
+          "scope": {
+            "$ref": "#/components/schemas/LiveScope"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 2000
           }
         }
       },
@@ -334,6 +722,25 @@
           "agent": {
             "$ref": "#/components/schemas/RunAgent"
           },
+          "replayOf": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Set on a replay run (an eval run re-running a past run): the run it replays."
+          },
+          "evalRunId": {
+            "type": "string",
+            "description": "Set on a replay run: the eval run that started it."
+          },
+          "versions": {
+            "$ref": "#/components/schemas/FlowVersionOverrides"
+          },
+          "segments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScopeSegment"
+            },
+            "description": "The segment path the run was started with (coarse to fine), which picks live agent versions. A child run has its parent's. Absent when there was none."
+          },
           "publicAccessToken": {
             "type": "string",
             "description": "Only in the response to `POST /v1/runs`, when the deployment issues public run tokens: a read-only token for this run (and its descendants) to hand to a browser, for `GET /v1/runs/{runId}/progress` and its stream."
@@ -376,12 +783,20 @@
               },
               "agentVersion": {
                 "type": "string",
-                "description": "Semver; omit → latest."
+                "description": "Semver. Omit → the conversation's own version for a follow-up turn, else the version live for the run's scope, else the latest."
               },
               "projectId": {
                 "type": "string",
                 "format": "uuid",
                 "description": "Project to run under; omit → the tenant's Default project."
+              },
+              "segments": {
+                "type": "array",
+                "maxItems": 8,
+                "items": {
+                  "$ref": "#/components/schemas/ScopeSegment"
+                },
+                "description": "The run's segment path below its project, coarse to fine (an app-defined finer scope, e.g. company then role). A version live on a prefix of it serves the run."
               },
               "input": {
                 "description": "Opaque payload forwarded to the agent binding."
@@ -422,6 +837,14 @@
                 "type": "string",
                 "format": "uuid",
                 "description": "Project to run under; omit → the tenant's Default project."
+              },
+              "segments": {
+                "type": "array",
+                "maxItems": 8,
+                "items": {
+                  "$ref": "#/components/schemas/ScopeSegment"
+                },
+                "description": "The run's segment path below its project, coarse to fine (an app-defined finer scope, e.g. company then role). A version live on a prefix of it serves the run."
               },
               "input": {
                 "description": "Opaque payload forwarded to the flow runtime."
@@ -548,6 +971,25 @@
                 },
                 "agent": {
                   "$ref": "#/components/schemas/RunAgent"
+                },
+                "replayOf": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "Set on a replay run (an eval run re-running a past run): the run it replays."
+                },
+                "evalRunId": {
+                  "type": "string",
+                  "description": "Set on a replay run: the eval run that started it."
+                },
+                "versions": {
+                  "$ref": "#/components/schemas/FlowVersionOverrides"
+                },
+                "segments": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ScopeSegment"
+                  },
+                  "description": "The segment path the run was started with (coarse to fine), which picks live agent versions. A child run has its parent's. Absent when there was none."
                 },
                 "publicAccessToken": {
                   "type": "string",
@@ -1573,6 +2015,45 @@
           "waitpointResolved": {
             "type": "boolean",
             "description": "True when the approval had a `waitTokenId` + terminal accept/reject and the run waitpoint was completed as part of this call."
+          },
+          "resume": {
+            "description": "How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way.",
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "ok"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "code",
+                  "message"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "failed"
+                  },
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                }
+              }
+            ]
           }
         }
       },
@@ -2249,7 +2730,7 @@
       "JudgedRunContext": {
         "type": "object",
         "additionalProperties": false,
-        "description": "What a judged agent turn read besides its input, captured when it was first judged: the conversation before it and what its retrievals returned.",
+        "description": "What a judged run needs besides its input to be replayed, captured when it was first judged. For an agent turn: the conversation before it, what its retrievals returned, and the decision at its session approval gate. For a flow run: its tool calls with their results.",
         "properties": {
           "history": {
             "type": "array",
@@ -2262,6 +2743,100 @@
           },
           "retrieved": {
             "description": "What the turn's retrievals returned."
+          },
+          "sessionApproval": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "approved"
+            ],
+            "description": "The reviewer's decision at the turn's session approval gate, when the turn waited on one. A replay of the turn follows it.",
+            "properties": {
+              "approved": {
+                "type": "boolean"
+              },
+              "rationale": {
+                "type": "string",
+                "description": "The reviewer's reason for a rejection."
+              }
+            }
+          },
+          "flow": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "calls",
+              "steps"
+            ],
+            "description": "For a flow run: what it did, kept at its first judgment so it can be replayed. Every tool call it made with its result (at its tool nodes, in its agent steps' turns and in its sub-flows), at most 500, and its agent steps.",
+            "properties": {
+              "calls": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "runId",
+                    "toolId"
+                  ],
+                  "properties": {
+                    "runId": {
+                      "type": "string",
+                      "description": "The run that made it: the flow run, a sub-flow's, or an agent step's turn."
+                    },
+                    "nodeId": {
+                      "type": "string",
+                      "description": "The tool node that made it, or the agent step whose turn did."
+                    },
+                    "scope": {
+                      "type": "string",
+                      "description": "The loop iteration, in a loop body."
+                    },
+                    "toolId": {
+                      "type": "string"
+                    },
+                    "arguments": {},
+                    "result": {}
+                  }
+                }
+              },
+              "steps": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "runId",
+                    "agentId",
+                    "agentVersion"
+                  ],
+                  "properties": {
+                    "runId": {
+                      "type": "string"
+                    },
+                    "nodeId": {
+                      "type": "string"
+                    },
+                    "scope": {
+                      "type": "string"
+                    },
+                    "agentId": {
+                      "type": "string"
+                    },
+                    "agentVersion": {
+                      "type": "string"
+                    },
+                    "retrieved": {
+                      "description": "What the step's turn retrieved."
+                    }
+                  }
+                }
+              },
+              "truncated": {
+                "type": "boolean",
+                "description": "More calls were made than were kept."
+              }
+            }
           }
         }
       },
@@ -2813,13 +3388,33 @@
             "type": "string"
           },
           "instructions": {
-            "type": "string"
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "$ref": "#/components/schemas/PromptRef"
+              }
+            ],
+            "description": "The system prompt (a Liquid template), or a prompt block by range whose template and parameters are used instead (pinned at publish, `pins.prompts`)."
           },
           "parameters": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/PromptParameter"
             }
+          },
+          "settings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BlockRef"
+            },
+            "description": "Settings blocks the agent reads, by range: tools read them as `ToolContext.settings['<id>']`, templates as `settings[\"<id>\"]`. Pinned at publish (`pins.settings`)."
+          },
+          "modelSettings": {
+            "$ref": "#/components/schemas/BlockRef",
+            "description": "A model-settings block by range: its `temperature` and `maxOutputTokens` go into the turn's model calls. Pinned at publish."
           },
           "capabilities": {
             "type": "array",
@@ -2872,6 +3467,251 @@
           },
           "toolErrors": {
             "$ref": "#/components/schemas/ToolErrorsSpec"
+          },
+          "pins": {
+            "$ref": "#/components/schemas/AgentPins"
+          },
+          "derivedFrom": {
+            "$ref": "#/components/schemas/VersionDerivation"
+          },
+          "unregisteredAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Present only on an unregistered version (`GET …/versions/{version}` reads those too). Unregister stops a version being chosen, not the pins that hold it: a new run naming it is refused, while a resumed run and a published version that pins it still run it."
+          },
+          "pinsDigest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "description": "Set by the runtime with `pins`: `sha256:<hex>` of the pins' canonical JSON (sorted keys, no whitespace). Two agent versions with the same digest run the same blocks."
+          }
+        }
+      },
+      "AgentPins": {
+        "description": "The exact block versions an agent version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool range resolves once to the version every run of that agent version uses, so a new tool version reaches the agent only through a new agent version. Absent on a version published before pins existed (its ranges resolve per run).",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tools",
+          "prompts",
+          "settings"
+        ],
+        "properties": {
+          "tools": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Tool id → exact version."
+          },
+          "prompts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Prompt block id → exact version."
+          },
+          "settings": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Settings block id → exact version."
+          }
+        }
+      },
+      "PromptRef": {
+        "description": "A prompt block an agent's instructions come from, by id and semver range.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "prompt",
+          "version"
+        ],
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "The prompt block id."
+          },
+          "version": {
+            "type": "string",
+            "description": "A semver range (`^1.0.0`, `1.2.0`)."
+          }
+        }
+      },
+      "BlockRef": {
+        "description": "A settings block an agent reads, by id and semver range.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The settings block id."
+          },
+          "version": {
+            "type": "string",
+            "description": "A semver range (`^1.0.0`, `1.2.0`)."
+          }
+        }
+      },
+      "PinChange": {
+        "description": "One pin that differs between two versions of an agent or a flow.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "id"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tool",
+              "prompt",
+              "setting",
+              "agent"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string",
+            "description": "The earlier version's pin; absent when it had none."
+          },
+          "to": {
+            "type": "string",
+            "description": "The later version's pin; absent when it has none."
+          }
+        }
+      },
+      "VersionDerivation": {
+        "description": "Set by the runtime on an agent or flow version a deploy registered in place of the definition's version, which was registered already with other pins or content (versions never change). Never in the publish body.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "reason"
+        ],
+        "properties": {
+          "version": {
+            "type": "string",
+            "description": "The version the definition names."
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "pins-changed",
+              "unpinned",
+              "version-taken",
+              "edited"
+            ],
+            "description": "`pins-changed`: a block it uses has a new version; `unpinned`: the definition's version was published before pins existed; `version-taken`: the definition's version holds another definition; `edited`: derived from `version` with some data-block pins swapped (`POST /v1/agents/{agentId}/versions`)."
+          },
+          "label": {
+            "type": "string",
+            "description": "For `edited`: a short label for the version."
+          },
+          "by": {
+            "type": "string",
+            "description": "For `edited`: who derived it (`user:<id>`)."
+          }
+        }
+      },
+      "DeriveAgentVersionBody": {
+        "description": "Derive a new agent version from a pinned one with some data-block pins swapped: an expert's edit reaching an agent with no code change.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "from",
+          "pins"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "description": "The version to derive from (it must be pinned)."
+          },
+          "pins": {
+            "$ref": "#/components/schemas/AgentPinSwaps"
+          },
+          "label": {
+            "type": "string",
+            "description": "A short label for the new version."
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The agent's project, when the runtime doesn't record it on the version."
+          }
+        }
+      },
+      "AgentPinSwaps": {
+        "description": "The data-block pins to swap, by block id → exact version. Only blocks the version already references; tool pins come from code.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "prompts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Prompt block id → exact version."
+          },
+          "settings": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Settings block id → exact version."
+          }
+        }
+      },
+      "FlowPins": {
+        "description": "The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs, and each agent it runs at no named version, resolves once to its latest version then, which every run of that flow version uses. Absent on a version published before pins existed (it binds the latest versions per run).",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tools",
+          "agents"
+        ],
+        "properties": {
+          "tools": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Tool id → exact version."
+          },
+          "agents": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Agent id → exact version, for agent nodes that name no version."
+          }
+        }
+      },
+      "FlowVersionOverrides": {
+        "description": "Agents and tools a flow runs at other exact versions than the flow version's pins (\"this flow, with `acme.scorer` at 0.4.0\"), without publishing a new flow version: a comparison's flow candidate (`versions` on the start body and the run's `comparison`), and the flow runs that replay it (a run's `versions`). Each id must be an agent or tool the flow uses.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "tools": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Tool id → exact version."
+          },
+          "agents": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Agent id → exact version, for agent nodes with or without a version of their own."
           }
         }
       },
@@ -2909,13 +3749,33 @@
             "description": "Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`."
           },
           "instructions": {
-            "type": "string"
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "$ref": "#/components/schemas/PromptRef"
+              }
+            ],
+            "description": "The system prompt (a Liquid template), or a prompt block by range whose template and parameters are used instead (pinned at publish, `pins.prompts`)."
           },
           "parameters": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/PromptParameter"
             }
+          },
+          "settings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BlockRef"
+            },
+            "description": "Settings blocks the agent reads, by range: tools read them as `ToolContext.settings['<id>']`, templates as `settings[\"<id>\"]`. Pinned at publish (`pins.settings`)."
+          },
+          "modelSettings": {
+            "$ref": "#/components/schemas/BlockRef",
+            "description": "A model-settings block by range: its `temperature` and `maxOutputTokens` go into the turn's model calls. Pinned at publish."
           },
           "capabilities": {
             "type": "array",
@@ -3158,6 +4018,22 @@
           "metadata": {
             "type": "object",
             "additionalProperties": true
+          },
+          "pins": {
+            "$ref": "#/components/schemas/FlowPins"
+          },
+          "pinsDigest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "description": "Set by the runtime with `pins`: `sha256:<hex>` of the pins' canonical JSON (sorted keys, no whitespace)."
+          },
+          "derivedFrom": {
+            "$ref": "#/components/schemas/VersionDerivation"
+          },
+          "unregisteredAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Present only on an unregistered version (`GET …/versions/{version}` reads those too). Unregister stops a version being chosen, not the pins that hold it: a new run naming it is refused, while a resumed run and a published version that pins it still run it."
           }
         }
       },
@@ -6329,6 +7205,18 @@
           "fallback": {
             "type": "boolean",
             "description": "A fallback serves a capability only when no other provider satisfies it (e.g. `kindgi dev`'s scripted `dev-echo`); an agent turn routed to one carries a `fallback-provider` warning. Absent = `false`."
+          },
+          "labels": {
+            "type": "object",
+            "maxProperties": 32,
+            "propertyNames": {
+              "pattern": "^[a-z0-9]([a-z0-9._/-]{0,61}[a-z0-9])?$"
+            },
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 256
+            },
+            "description": "Bookkeeping, such as who manages the provider; the router ignores labels. At most 32 keys; a key is 1-63 lowercase letters and digits, with `.`, `-`, `_` or `/` inside; a value is at most 256 characters. The convention key `kindgi.com/managed-by` names the manager (`kindgi-dev`, `kindgi-deploy:<environment>`). Out of bounds: `400 invalid-provider`, reason `invalid-labels`."
           }
         }
       },
@@ -7531,7 +8419,7 @@
           "spec": {
             "type": "object",
             "additionalProperties": true,
-            "description": "Kind-specific policy body. For `access-control`, matches `@kindgi/specs/policy.schema.json` (rules + defaults). For `model-routing`, matches `TenantPolicy` from `@kindgi/capabilities` (providers.allow / providers.deny / models.allow / models.deny / regionAllow / maxCostPerCallUsd / maxTokensPerCall). For `tool-errors`, `ToolErrorsSpec` (maxRetries / retryOn). For `hitl`, `HitlSpec` from `@kindgi/policy-contract` (maxTimeoutMs / minReviewerRole / tools — per tool id a mode or `{ mode, requiredRole }`); it only tightens an agent's approvals. `tool-errors` and `hitl` specs are validated on publish. For other kinds, the shape is defined by the runtime consumer."
+            "description": "Kind-specific policy body. For `access-control`, matches `@kindgi/specs/policy.schema.json` (rules + defaults). For `model-routing`, matches `TenantPolicy` from `@kindgi/capabilities` (providers.allow / providers.deny / models.allow / models.deny / regionAllow / maxCostPerCallUsd / maxTokensPerCall). For `tool-errors`, `ToolErrorsSpec` (maxRetries / retryOn). For `hitl`, `HitlSpec` from `@kindgi/policy-contract` (maxTimeoutMs / minReviewerRole / tools — per tool id a mode or `{ mode, requiredRole }`); it only tightens an agent's approvals. For `retention`, `{ v: 1, doc: RetentionSpec }` from `@kindgi/policy-contract` (domain / graceSeconds / mode, which must be `purge`); a tenant has one retention policy per domain, plus one for `*`. `tool-errors`, `hitl` and `retention` specs are validated on publish. For other kinds, the shape is defined by the runtime consumer."
           }
         }
       },
@@ -7590,7 +8478,7 @@
           "spec": {
             "type": "object",
             "additionalProperties": true,
-            "description": "Kind-specific policy body. For `access-control`, matches `@kindgi/specs/policy.schema.json` (rules + defaults). For `model-routing`, matches `TenantPolicy` from `@kindgi/capabilities` (providers.allow / providers.deny / models.allow / models.deny / regionAllow / maxCostPerCallUsd / maxTokensPerCall). For `tool-errors`, `ToolErrorsSpec` (maxRetries / retryOn). For `hitl`, `HitlSpec` from `@kindgi/policy-contract` (maxTimeoutMs / minReviewerRole / tools — per tool id a mode or `{ mode, requiredRole }`); it only tightens an agent's approvals. `tool-errors` and `hitl` specs are validated on publish. For other kinds, the shape is defined by the runtime consumer."
+            "description": "Kind-specific policy body. For `access-control`, matches `@kindgi/specs/policy.schema.json` (rules + defaults). For `model-routing`, matches `TenantPolicy` from `@kindgi/capabilities` (providers.allow / providers.deny / models.allow / models.deny / regionAllow / maxCostPerCallUsd / maxTokensPerCall). For `tool-errors`, `ToolErrorsSpec` (maxRetries / retryOn). For `hitl`, `HitlSpec` from `@kindgi/policy-contract` (maxTimeoutMs / minReviewerRole / tools — per tool id a mode or `{ mode, requiredRole }`); it only tightens an agent's approvals. For `retention`, `{ v: 1, doc: RetentionSpec }` from `@kindgi/policy-contract` (domain / graceSeconds / mode, which must be `purge`); a tenant has one retention policy per domain, plus one for `*`. `tool-errors`, `hitl` and `retention` specs are validated on publish. For other kinds, the shape is defined by the runtime consumer."
           },
           "unregisteredAt": {
             "type": "string",
@@ -7710,6 +8598,221 @@
           },
           "wasTombstoned": {
             "type": "boolean"
+          }
+        }
+      },
+      "RetentionDomain": {
+        "type": "string",
+        "enum": [
+          "org",
+          "agent",
+          "flow",
+          "tool",
+          "eval_suite",
+          "guardrail",
+          "mcp_endpoint",
+          "env",
+          "secret",
+          "run",
+          "policy",
+          "judgment",
+          "judge_class",
+          "provider",
+          "*"
+        ]
+      },
+      "RetentionPolicyConflict": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "domain",
+          "policyIds",
+          "appliedPolicyId"
+        ],
+        "properties": {
+          "domain": {
+            "$ref": "#/components/schemas/RetentionDomain"
+          },
+          "policyIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 2,
+            "description": "Every policy id that covers the domain, sorted."
+          },
+          "appliedPolicyId": {
+            "type": "string",
+            "description": "The one that applies: the policy whose latest version is highest, and on equal versions the lower policy id. Unregister the others."
+          }
+        }
+      },
+      "RetentionScheduledItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "domain",
+          "id",
+          "unregisteredAt",
+          "purgeAt",
+          "pastGrace",
+          "policyId",
+          "policyVersion",
+          "graceSeconds"
+        ],
+        "properties": {
+          "domain": {
+            "$ref": "#/components/schemas/RetentionDomain"
+          },
+          "id": {
+            "type": "string",
+            "description": "The tombstoned row's id in its domain."
+          },
+          "unregisteredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "purgeAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "`unregisteredAt` plus the policy's grace: when a sweep purges the row."
+          },
+          "pastGrace": {
+            "type": "boolean",
+            "description": "Whether a sweep would purge the row now."
+          },
+          "policyId": {
+            "type": "string",
+            "description": "The retention policy that applies."
+          },
+          "policyVersion": {
+            "type": "string"
+          },
+          "graceSeconds": {
+            "type": "integer",
+            "description": "The policy's grace, in seconds (`-1`: a hold, never purged)."
+          }
+        }
+      },
+      "RetentionScheduledPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "domainsMissingAdapter",
+          "unpolicedDomains"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RetentionScheduledItem"
+            }
+          },
+          "domainsMissingAdapter": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RetentionDomain"
+            },
+            "description": "Domains a retention policy covers that this deployment can't purge (no adapter is wired)."
+          },
+          "unpolicedDomains": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RetentionDomain"
+            },
+            "description": "Domains no retention policy covers: their tombstones are kept."
+          },
+          "conflicts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RetentionPolicyConflict"
+            },
+            "description": "Domains more than one retention policy covers. Absent or empty: none."
+          }
+        }
+      },
+      "RetentionSweepBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "domain": {
+            "$ref": "#/components/schemas/RetentionDomain",
+            "description": "Sweep only this domain. Absent: every domain."
+          },
+          "maxPerDomain": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000,
+            "description": "The most rows one call purges per domain (default 500); the rest are `remaining`."
+          }
+        }
+      },
+      "RetentionSweepDomainBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "maxPerDomain": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000,
+            "description": "The most rows this call purges (default 500); the rest are `remaining`."
+          }
+        }
+      },
+      "RetentionSweepResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "perDomain",
+          "totalPurged"
+        ],
+        "properties": {
+          "perDomain": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "domain",
+                "purged",
+                "remaining"
+              ],
+              "properties": {
+                "domain": {
+                  "$ref": "#/components/schemas/RetentionDomain"
+                },
+                "purged": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "remaining": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Rows past grace this call left (the `maxPerDomain` cap); sweep again."
+                },
+                "policyId": {
+                  "type": "string",
+                  "description": "The retention policy that applied."
+                },
+                "missingAdapter": {
+                  "type": "boolean",
+                  "const": true,
+                  "description": "Present when this deployment can't purge the domain (no adapter)."
+                }
+              }
+            }
+          },
+          "totalPurged": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "conflicts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RetentionPolicyConflict"
+            },
+            "description": "Domains more than one retention policy covers. Absent or empty: none."
           }
         }
       },
@@ -7882,6 +8985,227 @@
           }
         }
       },
+      "BlockKind": {
+        "type": "string",
+        "enum": [
+          "prompt",
+          "settings"
+        ],
+        "description": "`prompt`: a Liquid template an agent renders as its instructions. `settings`: a JSON object tools and templates read."
+      },
+      "PromptBlockContent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "template"
+        ],
+        "properties": {
+          "template": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Liquid, rendered as an agent's instructions are (same parameters and auto-injected variables)."
+          },
+          "parameters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PromptParameter"
+            }
+          }
+        }
+      },
+      "SettingsBlockContent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "values"
+        ],
+        "properties": {
+          "values": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "What tools read (`ToolContext.settings[<block id>]`) and templates read (`settings.<block id>.<key>`)."
+          },
+          "schema": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "JSON Schema (draft 2020-12) the values must satisfy. A later version's values must satisfy the latest version's schema too."
+          }
+        }
+      },
+      "Block": {
+        "description": "A data block version: a prompt or settings, versioned like a tool (immutable versions, soft unregister). An agent version pins the block versions it uses when it is published. Belongs to one project and is authorized through it.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "kind",
+          "content",
+          "projectId",
+          "publishedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Dotted lowercase id (e.g. `acme.intake-prompt`)."
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d+\\.\\d+$"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/BlockKind"
+          },
+          "description": {
+            "type": "string"
+          },
+          "content": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PromptBlockContent"
+              },
+              {
+                "$ref": "#/components/schemas/SettingsBlockContent"
+              }
+            ],
+            "description": "`PromptBlockContent` for a prompt, `SettingsBlockContent` for settings."
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "unregisteredAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Present only on an unregistered version; agent versions that pin it still read it."
+          }
+        }
+      },
+      "BlockCollectionPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Block"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PublishBlockBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "projectId",
+          "id",
+          "version",
+          "kind",
+          "content"
+        ],
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`."
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d+\\.\\d+$"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/BlockKind"
+          },
+          "description": {
+            "type": "string"
+          },
+          "content": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PromptBlockContent"
+              },
+              {
+                "$ref": "#/components/schemas/SettingsBlockContent"
+              }
+            ]
+          }
+        }
+      },
+      "PublishBlockResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "blockId",
+          "version"
+        ],
+        "properties": {
+          "blockId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "UnregisterBlockResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "blockId",
+          "version",
+          "unregistered"
+        ],
+        "properties": {
+          "blockId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "unregistered": {
+            "type": "boolean",
+            "const": true
+          }
+        }
+      },
+      "ReinstateBlockResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "blockId",
+          "version",
+          "wasTombstoned"
+        ],
+        "properties": {
+          "blockId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "wasTombstoned": {
+            "type": "boolean"
+          }
+        }
+      },
       "EvalRunStatus": {
         "type": "string",
         "enum": [
@@ -7921,6 +9245,743 @@
           "version": {
             "type": "string",
             "pattern": "^\\d+\\.\\d+\\.\\d+$"
+          }
+        }
+      },
+      "EvalBaseline": {
+        "description": "What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`). Only `'recorded'` runs today; the others are refused when the run starts.",
+        "oneOf": [
+          {
+            "type": "string",
+            "enum": [
+              "recorded"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "agentId",
+              "version"
+            ],
+            "properties": {
+              "agentId": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "live"
+            ],
+            "properties": {
+              "live": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "projectId": {
+                    "type": "string"
+                  },
+                  "segments": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "EvalComparison": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "baseline",
+          "reads",
+          "repetitions",
+          "k"
+        ],
+        "description": "A comparison eval run's settings (a `judged` suite).",
+        "properties": {
+          "baseline": {
+            "$ref": "#/components/schemas/EvalBaseline"
+          },
+          "reads": {
+            "type": "string",
+            "enum": [
+              "recorded",
+              "live"
+            ],
+            "description": "Whether replayed reads use the past run's results when it has them (`recorded`), or run live."
+          },
+          "repetitions": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10
+          },
+          "k": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "versions": {
+            "$ref": "#/components/schemas/FlowVersionOverrides"
+          }
+        }
+      },
+      "ComparisonMetric": {
+        "description": "One metric, the recorded runs beside the candidate. `null` where a side had no judged evidence; `n` / `weight` are the candidate's evidence (cases with judged items, and the judgment weight behind them), `baselineN` / `baselineWeight` the recorded side's.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "baseline",
+          "candidate",
+          "delta",
+          "n",
+          "weight",
+          "baselineN",
+          "baselineWeight",
+          "direction"
+        ],
+        "properties": {
+          "baseline": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "candidate": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "delta": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "n": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "weight": {
+            "type": "number",
+            "minimum": 0
+          },
+          "baselineN": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "baselineWeight": {
+            "type": "number",
+            "minimum": 0
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "higher"
+            ]
+          },
+          "k": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "`weightedPrecisionAtK`: the ranked items it looked at."
+          },
+          "spread": {
+            "type": "number",
+            "description": "With more than one repetition: the candidate's max − min across them."
+          }
+        }
+      },
+      "ComparisonCandidate": {
+        "description": "What ran on the cases: an agent version, or a flow version (with any versions it swapped in).",
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "agentId",
+              "version"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "agent"
+                ]
+              },
+              "agentId": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "flowId",
+              "version"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "flow"
+                ]
+              },
+              "flowId": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "versions": {
+                "$ref": "#/components/schemas/FlowVersionOverrides"
+              }
+            }
+          }
+        ]
+      },
+      "JudgedComparisonSummary": {
+        "description": "What a comparison concluded: the candidate beside the recorded runs, the case counts, and the metrics. What a promotion gate reads.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "evalRunId",
+          "status",
+          "completedAt",
+          "suite",
+          "candidate",
+          "baseline",
+          "scope",
+          "cases",
+          "diverged",
+          "refusedWrites",
+          "errors",
+          "stopped",
+          "reads",
+          "sampling",
+          "repetitions",
+          "metrics"
+        ],
+        "properties": {
+          "evalRunId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "partial",
+              "failed"
+            ]
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "suite": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "version"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            }
+          },
+          "candidate": {
+            "$ref": "#/components/schemas/ComparisonCandidate"
+          },
+          "baseline": {
+            "description": "What the candidate was compared with: `recorded` (the test set's recorded runs, with the versions that served them), or another version.",
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "versions"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "recorded"
+                    ]
+                  },
+                  "versions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "version",
+                        "cases"
+                      ],
+                      "properties": {
+                        "agentId": {
+                          "type": "string"
+                        },
+                        "flowId": {
+                          "type": "string"
+                        },
+                        "version": {
+                          "type": "string"
+                        },
+                        "cases": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "agentId",
+                  "version",
+                  "via"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "version"
+                    ]
+                  },
+                  "agentId": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "string"
+                  },
+                  "via": {
+                    "type": "string",
+                    "enum": [
+                      "explicit",
+                      "live"
+                    ]
+                  },
+                  "liveScope": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            ]
+          },
+          "scope": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Where the test set's judgments came from.",
+            "properties": {
+              "projectId": {
+                "type": "string"
+              }
+            }
+          },
+          "cases": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "diverged": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Cases where a read with no recording ran live under `reads: 'recorded'`."
+          },
+          "refusedWrites": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Tool calls refused across the cases (what the candidate would have done)."
+          },
+          "errors": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Cases none of whose repetitions ran."
+          },
+          "stopped": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Flow cases that stopped at a write the replay refused: no output to score, so they're left out of the metrics."
+          },
+          "reads": {
+            "type": "string",
+            "enum": [
+              "recorded",
+              "live"
+            ]
+          },
+          "sampling": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "models"
+            ],
+            "properties": {
+              "models": {
+                "type": "array",
+                "description": "The models that answered the candidate's replays, and how many replays each.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "providerId",
+                    "model",
+                    "runs"
+                  ],
+                  "properties": {
+                    "providerId": {
+                      "type": "string"
+                    },
+                    "model": {
+                      "type": "string"
+                    },
+                    "runs": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "repetitions": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "metrics": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "weightedYesShare",
+              "judgedCoverage",
+              "weightedPrecisionAtK"
+            ],
+            "properties": {
+              "weightedYesShare": {
+                "$ref": "#/components/schemas/ComparisonMetric"
+              },
+              "judgedCoverage": {
+                "$ref": "#/components/schemas/ComparisonMetric"
+              },
+              "weightedPrecisionAtK": {
+                "$ref": "#/components/schemas/ComparisonMetric"
+              }
+            }
+          }
+        }
+      },
+      "ComparisonCaseResult": {
+        "description": "One case of a comparison: its replay runs, the scores, the items kept, dropped and new, the tool calls, and why it didn't run when it didn't.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "caseId",
+          "runIds",
+          "baseline",
+          "candidate",
+          "diverged",
+          "refusedWrites",
+          "noContext",
+          "approvalSkipped"
+        ],
+        "properties": {
+          "caseId": {
+            "type": "string"
+          },
+          "runIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The candidate's replay runs, one per repetition."
+          },
+          "baseline": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "yesWeight",
+              "totalWeight",
+              "items",
+              "judgedItems",
+              "topK"
+            ],
+            "description": "An output's score: Σ yesWeight and Σ totalWeight over its judged items, and over those among the first `k` ranked items.",
+            "properties": {
+              "yesWeight": {
+                "type": "number"
+              },
+              "totalWeight": {
+                "type": "number"
+              },
+              "items": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "judgedItems": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "topK": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "yesWeight",
+                  "totalWeight"
+                ],
+                "properties": {
+                  "yesWeight": {
+                    "type": "number"
+                  },
+                  "totalWeight": {
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          },
+          "candidate": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "yesWeight",
+                "totalWeight",
+                "items",
+                "judgedItems",
+                "topK"
+              ],
+              "description": "An output's score: Σ yesWeight and Σ totalWeight over its judged items, and over those among the first `k` ranked items.",
+              "properties": {
+                "yesWeight": {
+                  "type": "number"
+                },
+                "totalWeight": {
+                  "type": "number"
+                },
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "judgedItems": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "topK": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "yesWeight",
+                    "totalWeight"
+                  ],
+                  "properties": {
+                    "yesWeight": {
+                      "type": "number"
+                    },
+                    "totalWeight": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            },
+            "description": "One per repetition that ran."
+          },
+          "changes": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kept",
+              "dropped",
+              "new"
+            ],
+            "description": "The first repetition's items against the judged ones.",
+            "properties": {
+              "kept": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "key"
+                  ],
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "rankBefore": {
+                      "type": "integer"
+                    },
+                    "rank": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              },
+              "dropped": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "key"
+                  ],
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "rankBefore": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              },
+              "new": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "key",
+                    "pointer"
+                  ],
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "pointer": {
+                      "type": "string"
+                    },
+                    "rank": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "tools": {
+            "type": "array",
+            "description": "The first repetition's tool calls, and what happened to each.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "step",
+                "callId",
+                "toolId",
+                "toolVersion",
+                "arguments",
+                "source"
+              ],
+              "properties": {
+                "step": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "callId": {
+                  "type": "string"
+                },
+                "toolId": {
+                  "type": "string"
+                },
+                "toolVersion": {
+                  "type": "string"
+                },
+                "arguments": {},
+                "source": {
+                  "type": "string",
+                  "enum": [
+                    "live",
+                    "recorded",
+                    "refused"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "diverged": {
+            "type": "boolean"
+          },
+          "refusedWrites": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "noContext": {
+            "type": "boolean"
+          },
+          "approvalSkipped": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          },
+          "stopped": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "toolId",
+              "arguments"
+            ],
+            "description": "Set when the replay stopped at a refused write: what it would have done.",
+            "properties": {
+              "toolId": {
+                "type": "string"
+              },
+              "arguments": {},
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "JudgedComparisonResult": {
+        "description": "A comparison's `result` (a `judged` eval run's): the summary and each case. `EvalRun.result` stays an open object, since each kind has its own; the clients read it as this (TS `comparisonOf(run)`, Python `comparison_of(run)`).",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "summary",
+          "perCase"
+        ],
+        "properties": {
+          "summary": {
+            "$ref": "#/components/schemas/JudgedComparisonSummary"
+          },
+          "perCase": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ComparisonCaseResult"
+            }
           }
         }
       },
@@ -7986,13 +10047,16 @@
           "result": {
             "type": "object",
             "additionalProperties": true,
-            "description": "Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. Other kinds define their own shapes as their dispatchers ship."
+            "description": "Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: \"agent\", agentId, version }` or `{ kind: \"flow\", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a write the replay refused, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship."
           },
           "error": {
             "type": "string"
           },
           "correlationId": {
             "type": "string"
+          },
+          "comparison": {
+            "$ref": "#/components/schemas/EvalComparison"
           }
         }
       },
@@ -8041,9 +10105,32 @@
           },
           "correlationId": {
             "type": "string"
+          },
+          "baseline": {
+            "$ref": "#/components/schemas/EvalBaseline"
+          },
+          "reads": {
+            "type": "string",
+            "enum": [
+              "recorded",
+              "live"
+            ]
+          },
+          "repetitions": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10
+          },
+          "k": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "versions": {
+            "$ref": "#/components/schemas/FlowVersionOverrides"
           }
         },
-        "description": "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject."
+        "description": "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`)."
       },
       "StartEvalRunResult": {
         "type": "object",
@@ -8196,6 +10283,10 @@
             "items": {
               "$ref": "#/components/schemas/IdentityProviderConfig"
             }
+          },
+          "hasMore": {
+            "type": "boolean",
+            "description": "Always `false`: the list comes whole. Absent from older servers."
           }
         }
       },
@@ -8618,7 +10709,8 @@
               "type": "object",
               "additionalProperties": false,
               "required": [
-                "id"
+                "id",
+                "version"
               ],
               "properties": {
                 "id": {
@@ -8626,7 +10718,31 @@
                 },
                 "version": {
                   "type": "string",
-                  "description": "Absent for guardrails, which have no version."
+                  "description": "The version the agent is registered as."
+                },
+                "authoredVersion": {
+                  "type": "string",
+                  "description": "The version the agent's or flow's definition names, present when it differs from `version`: that version was registered already with other pins or content, and versions never change, so the deploy registered the next free version in its line (or an earlier deploy did)."
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "pins-changed",
+                    "unpinned",
+                    "version-taken"
+                  ],
+                  "description": "Why `version` differs from `authoredVersion`: `pins-changed` (a tool or agent it uses has a new version), `unpinned` (`authoredVersion` was published before pins existed), `version-taken` (`authoredVersion` is registered with other content)."
+                },
+                "newVersion": {
+                  "type": "boolean",
+                  "description": "`true`: this deploy registered `version`; `false`: an earlier deploy did."
+                },
+                "pinChanges": {
+                  "type": "array",
+                  "description": "For `pins-changed`: the pins that differ from `authoredVersion`'s.",
+                  "items": {
+                    "$ref": "#/components/schemas/PinChange"
+                  }
                 }
               }
             }
@@ -8637,7 +10753,8 @@
               "type": "object",
               "additionalProperties": false,
               "required": [
-                "id"
+                "id",
+                "version"
               ],
               "properties": {
                 "id": {
@@ -8645,7 +10762,31 @@
                 },
                 "version": {
                   "type": "string",
-                  "description": "Absent for guardrails, which have no version."
+                  "description": "The version the agent is registered as."
+                },
+                "authoredVersion": {
+                  "type": "string",
+                  "description": "The version the agent's or flow's definition names, present when it differs from `version`: that version was registered already with other pins or content, and versions never change, so the deploy registered the next free version in its line (or an earlier deploy did)."
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "pins-changed",
+                    "unpinned",
+                    "version-taken"
+                  ],
+                  "description": "Why `version` differs from `authoredVersion`: `pins-changed` (a tool or agent it uses has a new version), `unpinned` (`authoredVersion` was published before pins existed), `version-taken` (`authoredVersion` is registered with other content)."
+                },
+                "newVersion": {
+                  "type": "boolean",
+                  "description": "`true`: this deploy registered `version`; `false`: an earlier deploy did."
+                },
+                "pinChanges": {
+                  "type": "array",
+                  "description": "For `pins-changed`: the pins that differ from `authoredVersion`'s.",
+                  "items": {
+                    "$ref": "#/components/schemas/PinChange"
+                  }
                 }
               }
             }
@@ -8965,7 +11106,11 @@
           "secret-rotation-failed",
           "secret-revoked",
           "secret-hard-revoked",
-          "hitl-decision"
+          "hitl-decision",
+          "agent-promotion",
+          "agent-rollback",
+          "agent-live-unpinned",
+          "agent-live-pin-inactive"
         ]
       },
       "EvidenceActor": {
@@ -9112,7 +11257,11 @@
               "secret-rotation-failed",
               "secret-revoked",
               "secret-hard-revoked",
-              "hitl-decision"
+              "hitl-decision",
+              "agent-promotion",
+              "agent-rollback",
+              "agent-live-unpinned",
+              "agent-live-pin-inactive"
             ]
           },
           "timestamp": {
@@ -9282,7 +11431,11 @@
               "secret-rotation-failed",
               "secret-revoked",
               "secret-hard-revoked",
-              "hitl-decision"
+              "hitl-decision",
+              "agent-promotion",
+              "agent-rollback",
+              "agent-live-unpinned",
+              "agent-live-pin-inactive"
             ]
           },
           "from": {
@@ -9352,7 +11505,11 @@
                   "secret-rotation-failed",
                   "secret-revoked",
                   "secret-hard-revoked",
-                  "hitl-decision"
+                  "hitl-decision",
+                  "agent-promotion",
+                  "agent-rollback",
+                  "agent-live-unpinned",
+                  "agent-live-pin-inactive"
                 ]
               },
               "from": {
@@ -10697,6 +12854,10 @@
               "$ref": "#/components/schemas/EnvRecord"
             }
           },
+          "hasMore": {
+            "type": "boolean",
+            "description": "Whether there's another page. Absent from older servers: there is one when `nextCursor` is set."
+          },
           "nextCursor": {
             "type": "string"
           }
@@ -10759,6 +12920,10 @@
               "$ref": "#/components/schemas/SecretRecord"
             }
           },
+          "hasMore": {
+            "type": "boolean",
+            "description": "Whether there's another page. Absent from older servers: there is one when `nextCursor` is set."
+          },
           "nextCursor": {
             "type": "string"
           }
@@ -10776,6 +12941,10 @@
             "items": {
               "$ref": "#/components/schemas/SecretVersionRecord"
             }
+          },
+          "hasMore": {
+            "type": "boolean",
+            "description": "Whether there's another page. Absent from older servers: there is one when `nextCursor` is set."
           },
           "nextCursor": {
             "type": "string"
@@ -12090,7 +14259,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body.",
+            "description": "Malformed request body, or the body's `projectId` isn't a project id (a UUID).",
             "content": {
               "application/json": {
                 "schema": {
@@ -12110,7 +14279,7 @@
             }
           },
           "404": {
-            "description": "Agent or flow not found.",
+            "description": "Agent or flow not found; or `projectId` names no project of this tenant (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -12287,6 +14456,31 @@
             },
             "required": false,
             "description": "Only this agent's turns, at any version. Turns that ran before Kindgi 0.1.3 don't name their agent and aren't matched."
+          },
+          {
+            "name": "replays",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "exclude",
+                "include",
+                "only"
+              ],
+              "default": "exclude"
+            },
+            "required": false,
+            "description": "Replay runs (an eval run re-running a past run). `exclude` (default) leaves them out; `include` lists them with the other runs; `only` lists just them."
+          },
+          {
+            "name": "evalRunId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Only the replay runs of this eval run. Implies replays are included; cannot be combined with `replays=exclude`."
           },
           {
             "name": "include",
@@ -13238,7 +15432,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body.",
+            "description": "Malformed request body, or the body's `projectId` isn't a project id (a UUID).",
             "content": {
               "application/json": {
                 "schema": {
@@ -13259,6 +15453,16 @@
           },
           "403": {
             "description": "Not a tenant admin, or a capability the caller does not hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The body's `projectId` names no project of this tenant (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -14113,6 +16317,16 @@
               }
             }
           },
+          "403": {
+            "description": "With authorization enforced, the caller is not an admin of the tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "409": {
             "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
             "content": {
@@ -14252,6 +16466,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "With authorization enforced, the caller is not an admin of the tenant.",
             "content": {
               "application/json": {
                 "schema": {
@@ -14565,7 +16789,7 @@
             }
           },
           "400": {
-            "description": "Validation failed (see `details.issues`).",
+            "description": "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID).",
             "content": {
               "application/json": {
                 "schema": {
@@ -14584,8 +16808,18 @@
               }
             }
           },
+          "404": {
+            "description": "The body's `projectId` names no project of this tenant (`project-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "409": {
-            "description": "Agent already registered at that (id, version).",
+            "description": "Agent already registered at that (id, version). Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -14769,6 +17003,122 @@
             "bearerAuth": []
           }
         ]
+      },
+      "post": {
+        "operationId": "agents.deriveVersion",
+        "summary": "Derive an agent version with data-block pins swapped",
+        "tags": [
+          "agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "An active version already holds this definition and these pins (the same swap derived before, or a deploy that registered it): that version, unchanged.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Agent"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "The derived agent version.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Agent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`validation-failed`: `from` has no pins, a swap names a block it doesn't reference, or a version that isn't published, active or the right kind (see `details.issues`); or `projectId` isn't a project id (a UUID).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`agent-not-found`: no agent at `from`; or `projectId` names no project of this tenant (`project-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "An expert's edit, without a code change: a new agent version that is `from`'s bag with some prompt or settings pins swapped (`derivedFrom: { version, reason: 'edited', label, by }`), numbered the next free patch after the agent's highest version. Only blocks `from` already references swap, to a published, active version of the right kind (model settings for the model-settings block); tool pins come from code. Needs `publish` on the agent.",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "AgentId — dotted namespace (`acme.drafting`)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeriveAgentVersionBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
       }
     },
     "/v1/agents/{agentId}/versions/{version}": {
@@ -14886,7 +17236,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -14992,7 +17342,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -15043,6 +17393,638 @@
             "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
           }
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/agents/{agentId}/live": {
+      "get": {
+        "operationId": "agents.live.resolve",
+        "summary": "The version a run would use",
+        "tags": [
+          "agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "The resolved version.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveVersionResolution"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A malformed project id or segment, or a segment without a project.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No agent with that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Resolves the version a run of this agent would use for a project and segment path: the most specific live version (segment path, project, org, tenant), else the latest registered. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "AgentId — dotted namespace (`acme.drafting`)."
+          },
+          {
+            "name": "projectId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "description": "The run's project; omit → only the agent's tenant-wide pin applies."
+          },
+          {
+            "name": "segment",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "required": false,
+            "description": "One step of the segment path, `key:value`; repeat it in order, coarse to fine."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/agents/{agentId}/live-versions": {
+      "get": {
+        "operationId": "agents.live.list",
+        "summary": "List an agent's live versions",
+        "tags": [
+          "agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "The pins.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LivePinList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Every scope with a live version pinned, and the promotion that set it.",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "AgentId — dotted namespace (`acme.drafting`)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/agents/{agentId}/promotions": {
+      "post": {
+        "operationId": "agents.promotions.create",
+        "summary": "Make a version live for a scope",
+        "tags": [
+          "agents"
+        ],
+        "responses": {
+          "201": {
+            "description": "Promoted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Promotion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The version is not registered, or was unregistered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Pins `version` live for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every promotion is recorded, with who asked and why. Needs `promote` on the agent.",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "AgentId — dotted namespace (`acme.drafting`)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromoteBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "agents.promotions.list",
+        "summary": "List an agent's promotions",
+        "tags": [
+          "agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of promotions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromotionPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed scope or cursor.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "The history of live-version changes (promotions, rollbacks, unpins), newest first. `scopeKind` (`tenant`, `org`, `project`, `segment`) with `scopeId` and `segment` narrows it to one scope.",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "AgentId — dotted namespace (`acme.drafting`)."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Opaque cursor from a prior response. Absent → first page."
+          },
+          {
+            "name": "scopeKind",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "tenant",
+                "org",
+                "project",
+                "segment"
+              ]
+            },
+            "required": false,
+            "description": "Only one scope: `tenant`, `org` or `project` (with `scopeId`), or `segment` (with `scopeId` and `segment`)."
+          },
+          {
+            "name": "scopeId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Required IF scopeKind is `org` or `project`. MUST be absent if scopeKind=`tenant` (tenant is implicit from the session). Malformed combinations return 400 scope-invalid."
+          },
+          {
+            "name": "segment",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "required": false,
+            "description": "One step of the segment path, `key:value`; repeat it in order, coarse to fine."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/agents/{agentId}/promotions/{promotionId}": {
+      "get": {
+        "operationId": "agents.promotions.get",
+        "summary": "Get a promotion",
+        "tags": [
+          "agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "The promotion.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Promotion"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such promotion for this agent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "AgentId — dotted namespace (`acme.drafting`)."
+          },
+          {
+            "name": "promotionId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/agents/{agentId}/live/rollback": {
+      "post": {
+        "operationId": "agents.live.rollback",
+        "summary": "Roll a scope back to its previous live version",
+        "tags": [
+          "agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "Rolled back.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Promotion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`toVersion` is not registered, or was unregistered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The scope has no pin, or no earlier version to go back to.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Back to the scope's previous live version, or `toVersion`. Recorded like a promotion. Needs `promote` on the agent.",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "AgentId — dotted namespace (`acme.drafting`)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RollbackBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/agents/{agentId}/live/unpin": {
+      "post": {
+        "operationId": "agents.live.unpin",
+        "summary": "Remove a scope's live version",
+        "tags": [
+          "agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "Unpinned.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Promotion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The scope has no pin of its own.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Removes the scope's own pin: its runs use the next scope up (and the latest when nothing is pinned). Recorded like a promotion. Needs `promote` on the agent.",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "AgentId — dotted namespace (`acme.drafting`)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnpinBody"
+              }
+            }
+          }
+        },
         "security": [
           {
             "bearerAuth": []
@@ -15175,7 +18157,7 @@
             }
           },
           "400": {
-            "description": "Validation failed (see `details.issues`).",
+            "description": "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID).",
             "content": {
               "application/json": {
                 "schema": {
@@ -15194,8 +18176,18 @@
               }
             }
           },
+          "404": {
+            "description": "The body's `projectId` names no project of this tenant (`project-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "409": {
-            "description": "Flow already registered at that (id, version).",
+            "description": "Flow already registered at that (id, version). Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -15496,7 +18488,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -15602,7 +18594,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -15785,7 +18777,7 @@
             }
           },
           "400": {
-            "description": "Validation failed (see `details.issues`).",
+            "description": "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID).",
             "content": {
               "application/json": {
                 "schema": {
@@ -15804,8 +18796,18 @@
               }
             }
           },
+          "404": {
+            "description": "The body's `projectId` names no project of this tenant (`project-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "409": {
-            "description": "Tool already registered at that id.",
+            "description": "Tool already registered at that id. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16127,7 +19129,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16233,7 +19235,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16416,7 +19418,7 @@
             }
           },
           "400": {
-            "description": "Validation failed (see `details.issues`).",
+            "description": "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID).",
             "content": {
               "application/json": {
                 "schema": {
@@ -16435,8 +19437,18 @@
               }
             }
           },
+          "404": {
+            "description": "The body's `projectId` names no project of this tenant (`project-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "409": {
-            "description": "Guardrail already registered at that id.",
+            "description": "Guardrail already registered at that id. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16592,7 +19604,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16679,7 +19691,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations from before Kindgi 0.1.3 have no project and are listed only without a scope.",
+        "description": "Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, `?replays=exclude|include|only` (default `exclude`: a comparison's replay conversations are left out), and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations from before Kindgi 0.1.3 have no project and are listed only without a scope.",
         "parameters": [
           {
             "name": "limit",
@@ -16737,6 +19749,21 @@
             },
             "required": false,
             "description": "Filter by conversation lifecycle status."
+          },
+          {
+            "name": "replays",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "exclude",
+                "include",
+                "only"
+              ],
+              "default": "exclude"
+            },
+            "required": false,
+            "description": "Replay conversations (opened by a comparison's replay turn; `metadata.replayOf` names the run it replays). `exclude` (default) leaves them out; `include` lists them with the others; `only` lists just them."
           }
         ],
         "security": [
@@ -16851,6 +19878,16 @@
               }
             }
           },
+          "400": {
+            "description": "`conversationId` is not a conversation id (a UUID).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
             "content": {
@@ -16910,7 +19947,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body.",
+            "description": "`conversationId` is not a conversation id (a UUID).",
             "content": {
               "application/json": {
                 "schema": {
@@ -17009,7 +20046,7 @@
             }
           },
           "400": {
-            "description": "Malformed cursor.",
+            "description": "Malformed cursor, or `conversationId` is not a conversation id (a UUID).",
             "content": {
               "application/json": {
                 "schema": {
@@ -19488,7 +22525,7 @@
             }
           }
         },
-        "description": "Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding.",
+        "description": "Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped; optional `labels` within their limits — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -19673,7 +22710,7 @@
             }
           },
           "404": {
-            "description": "No provider with that id under this tenant.",
+            "description": "No provider with that id under this tenant, or already unregistered.",
             "content": {
               "application/json": {
                 "schema": {
@@ -19703,6 +22740,7 @@
             }
           }
         },
+        "description": "A tombstone, not an erase: from then on the provider is gone from list, get and capabilities, and the router never picks it. Its id is free to register again. A retention policy on the `provider` domain purges the row.",
         "parameters": [
           {
             "name": "providerId",
@@ -22232,7 +25270,7 @@
               "$ref": "#/components/schemas/PolicyKind"
             },
             "required": false,
-            "description": "Filter to policies of a single kind. Values: `access-control | model-routing | adapter-allowlist | rate-limit | retention | compliance`."
+            "description": "Filter to policies of a single kind. Values: `access-control | model-routing | adapter-allowlist | rate-limit | retention | compliance | tool-errors | hitl`."
           },
           {
             "name": "name",
@@ -22288,7 +25326,7 @@
             }
           },
           "409": {
-            "description": "Policy already registered at that (id, version).",
+            "description": "`policy-already-registered`: that (id, version) exists. `policy-scope-taken`: another policy covers the retention domain (`details.heldBy`). `policy-scope-changed`: the version would move the policy to another domain.",
             "content": {
               "application/json": {
                 "schema": {
@@ -22308,7 +25346,7 @@
             }
           }
         },
-        "description": "Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).",
+        "description": "Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object), and `spec` for `tool-errors`, `hitl` and `retention` (a retention policy with an unknown domain or `mode: archive` is refused with `400 validation-failed`, naming the field). Other kinds' specs are their runtime consumer's to validate. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A tenant has one retention policy per domain, plus one for `*`: a second policy id for a covered domain is refused with `409 policy-scope-taken` (`details.heldBy` names the policy that covers it; publish a new version of that one instead), and a new version can't move a policy to another domain (`409 policy-scope-changed`). A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -22711,7 +25749,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "`policy-scope-taken`: another policy now covers the version's retention domain (`details.heldBy`); unregister it first. `policy-scope-changed`: the version covers a different domain from the policy's other versions.",
             "content": {
               "application/json": {
                 "schema": {
@@ -22764,6 +25802,281 @@
             "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
           }
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/retention/scheduled": {
+      "get": {
+        "operationId": "retention.scheduled",
+        "summary": "List deleted rows scheduled for purging",
+        "tags": [
+          "retention"
+        ],
+        "responses": {
+          "200": {
+            "description": "Scheduled rows.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetentionScheduledPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown `domain`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Tombstoned rows in every domain a retention policy covers, with when each is purged (`purgeAt`) and the policy that decides it. `domainsMissingAdapter` names the covered domains this deployment can't purge; `unpolicedDomains` the ones no policy covers, whose tombstones are kept; `conflicts` the domains two policies cover (stored before one policy per domain was enforced). Requires `admin` on the tenant.",
+        "parameters": [
+          {
+            "name": "domain",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/RetentionDomain"
+            },
+            "required": false,
+            "description": "Only this domain. Absent: every domain."
+          },
+          {
+            "name": "pastGraceOnly",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "`true`: only rows past their grace, the ones a sweep would purge now."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/retention/sweep": {
+      "post": {
+        "operationId": "retention.sweep",
+        "summary": "Purge the deleted rows past their grace",
+        "tags": [
+          "retention"
+        ],
+        "responses": {
+          "200": {
+            "description": "What was purged, per domain.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetentionSweepResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown `domain`, or `maxPerDomain` outside 1..10000.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Purges, for good, every tombstoned row past the grace of the retention policy that covers its domain (or only `domain`'s), up to `maxPerDomain` per domain; `remaining` counts what is left for the next call. Nothing sweeps on its own: call this (or `POST /v1/retention/sweep/{domain}`) from a schedule. A hold (`graceSeconds: -1`) keeps its domain's rows. Idempotent: a second call purges nothing new. Requires `admin` on the tenant.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetentionSweepBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/retention/sweep/{domain}": {
+      "post": {
+        "operationId": "retention.sweepDomain",
+        "summary": "Purge one domain's deleted rows past their grace",
+        "tags": [
+          "retention"
+        ],
+        "responses": {
+          "200": {
+            "description": "What was purged.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetentionSweepResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown `domain` (or `*`), or `maxPerDomain` outside 1..10000.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "As `POST /v1/retention/sweep`, for one domain. Requires `admin` on the tenant.",
+        "parameters": [
+          {
+            "name": "domain",
+            "in": "path",
+            "schema": {
+              "$ref": "#/components/schemas/RetentionDomain"
+            },
+            "required": true,
+            "description": "The domain to sweep (not `*`)."
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetentionSweepDomainBody"
+              }
+            }
+          }
+        },
         "security": [
           {
             "bearerAuth": []
@@ -22905,7 +26218,7 @@
             }
           },
           "400": {
-            "description": "Validation failed (see `details.issues`).",
+            "description": "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID).",
             "content": {
               "application/json": {
                 "schema": {
@@ -22916,6 +26229,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The body's `projectId` names no project of this tenant (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -23200,7 +26523,7 @@
             }
           },
           "400": {
-            "description": "Malformed body.",
+            "description": "Malformed body; or `projectId` isn't a project id (a UUID).",
             "content": {
               "application/json": {
                 "schema": {
@@ -23221,6 +26544,16 @@
           },
           "403": {
             "description": "`permission-denied`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The body's `projectId` names no project of this tenant (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -23607,6 +26940,675 @@
         ]
       }
     },
+    "/v1/blocks": {
+      "get": {
+        "operationId": "blocks.list",
+        "summary": "List data blocks (latest version of each)",
+        "tags": [
+          "blocks"
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of blocks.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlockCollectionPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed query parameter: an unknown `kind`, or `scope-invalid` for a malformed scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, and `?scopeKind=` + `?scopeId=` narrow to a project or an org, as the other lists do.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Opaque cursor from a prior response. Absent → first page."
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/BlockKind"
+            },
+            "required": false,
+            "description": "Only blocks of this kind: `prompt` or `settings`."
+          },
+          {
+            "name": "name",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Prefix match on the block id."
+          },
+          {
+            "name": "scopeKind",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/ScopeKind"
+            },
+            "required": false,
+            "description": "Optional scope discriminator. If absent, no scope filter is applied."
+          },
+          {
+            "name": "scopeId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Required IF scopeKind is `org` or `project`. MUST be absent if scopeKind=`tenant` (tenant is implicit from the session). Malformed combinations return 400 scope-invalid."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "blocks.publish",
+        "summary": "Publish a data block version",
+        "tags": [
+          "blocks"
+        ],
+        "responses": {
+          "201": {
+            "description": "Published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishBlockResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`validation-failed` (see `details.issues`), or an unknown `projectId`; or `projectId` isn't a project id (a UUID).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: no `write` on the project.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The body's `projectId` names no project of this tenant (`project-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`block-already-registered` or `block-project-mismatch`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project (`409 block-project-mismatch`). Idempotency-Key applies.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishBlockBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/blocks/{blockId}": {
+      "get": {
+        "operationId": "blocks.get",
+        "summary": "Fetch a data block (latest version)",
+        "tags": [
+          "blocks"
+        ],
+        "responses": {
+          "200": {
+            "description": "Latest active version.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Block"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`block-not-found`: no such block, or one in a project the caller can't read.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "blockId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "Block id: dotted lowercase (e.g. `acme.intake-prompt`)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/blocks/{blockId}/versions": {
+      "get": {
+        "operationId": "blocks.versions.list",
+        "summary": "List versions of a data block",
+        "tags": [
+          "blocks"
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of versions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlockCollectionPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`block-not-found`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Newest published first. `?includeTombstoned=true` includes unregistered versions, each with `unregisteredAt`.",
+        "parameters": [
+          {
+            "name": "blockId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "Block id: dotted lowercase (e.g. `acme.intake-prompt`)."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Opaque cursor from a prior response. Absent → first page."
+          },
+          {
+            "name": "includeTombstoned",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "When `true`, the response includes soft-tombstoned versions in addition to active ones. Tombstoned rows carry an `unregisteredAt` ISO timestamp; active rows omit the field. Default: `false` (active-only)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/blocks/{blockId}/versions/{version}": {
+      "get": {
+        "operationId": "blocks.versions.get",
+        "summary": "Fetch a specific data block version",
+        "tags": [
+          "blocks"
+        ],
+        "responses": {
+          "200": {
+            "description": "The block at that version.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Block"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`block-not-found`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "An unregistered version is returned too, with `unregisteredAt`.",
+        "parameters": [
+          {
+            "name": "blockId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "Block id: dotted lowercase (e.g. `acme.intake-prompt`)."
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "Exact block version (`major.minor.patch`)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/blocks/{blockId}/versions/{version}/unregister": {
+      "post": {
+        "operationId": "blocks.versions.unregister",
+        "summary": "Unregister a data block version",
+        "tags": [
+          "blocks"
+        ],
+        "responses": {
+          "200": {
+            "description": "Unregistered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnregisterBlockResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: no `write` on the project.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`block-not-found`, or already unregistered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Soft: no range picks it any more, but the agent versions that pin it keep running it, and GET still reads it. Needs `write` on the project.",
+        "parameters": [
+          {
+            "name": "blockId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "Block id: dotted lowercase (e.g. `acme.intake-prompt`)."
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "Exact block version (`major.minor.patch`)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/blocks/{blockId}/versions/{version}/reinstate": {
+      "post": {
+        "operationId": "blocks.versions.reinstate",
+        "summary": "Reinstate an unregistered data block version",
+        "tags": [
+          "blocks"
+        ],
+        "responses": {
+          "200": {
+            "description": "Reinstated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReinstateBlockResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: no `write` on the project.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`block-not-found`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Unchanged, as published. Idempotent. Needs `write` on the project.",
+        "parameters": [
+          {
+            "name": "blockId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "Block id: dotted lowercase (e.g. `acme.intake-prompt`)."
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "Exact block version (`major.minor.patch`)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/v1/eval-suites/{suiteId}/runs": {
       "post": {
         "operationId": "evalRuns.start",
@@ -23626,7 +27628,7 @@
             }
           },
           "400": {
-            "description": "Malformed body (both / neither of `agentRef` / `flowRef`, dispatcher-input-invalid).",
+            "description": "Malformed body (both / neither of `agentRef` / `flowRef`, dispatcher-input-invalid); or `projectId` isn't a project id (a UUID).",
             "content": {
               "application/json": {
                 "schema": {
@@ -23646,7 +27648,7 @@
             }
           },
           "404": {
-            "description": "No eval suite with that id under this tenant.",
+            "description": "No eval suite with that id under this tenant; or `projectId` names no project of this tenant (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -24998,7 +29000,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -26324,6 +30326,16 @@
               }
             }
           },
+          "404": {
+            "description": "org-not-found: `orgId` names no org of the tenant (it never existed, or it was deleted).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "409": {
             "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
             "content": {
@@ -26461,7 +30473,7 @@
             }
           },
           "404": {
-            "description": "No team with that id under this tenant.",
+            "description": "team-not-found: no team with that id under this tenant; or org-not-found: `orgId` names no org of the tenant (it never existed, or it was deleted).",
             "content": {
               "application/json": {
                 "schema": {
@@ -26782,6 +30794,16 @@
                 }
               }
             }
+          },
+          "501": {
+            "description": "With authorization enforced, a runtime whose tenant-hierarchy binding can't change the membership together with its authorization tuple refuses with `authz-membership-unsupported`; nothing is changed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -26872,6 +30894,16 @@
           },
           "500": {
             "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "With authorization enforced, a runtime whose tenant-hierarchy binding can't change the membership together with its authorization tuple refuses with `authz-membership-unsupported`; nothing is changed.",
             "content": {
               "application/json": {
                 "schema": {
@@ -27099,6 +31131,16 @@
               }
             }
           },
+          "404": {
+            "description": "org-not-found: `orgId` names no org of the tenant (it never existed, or it was deleted).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "409": {
             "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
             "content": {
@@ -27237,7 +31279,7 @@
             }
           },
           "404": {
-            "description": "No project with that id under this tenant.",
+            "description": "project-not-found: no project with that id under this tenant; or org-not-found: `orgId` names no org of the tenant (it never existed, or it was deleted).",
             "content": {
               "application/json": {
                 "schema": {
@@ -27559,6 +31601,16 @@
                 }
               }
             }
+          },
+          "501": {
+            "description": "With authorization enforced, a runtime whose tenant-hierarchy binding can't change the membership together with its authorization tuple refuses with `authz-membership-unsupported`; nothing is changed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -27649,6 +31701,16 @@
           },
           "500": {
             "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "With authorization enforced, a runtime whose tenant-hierarchy binding can't change the membership together with its authorization tuple refuses with `authz-membership-unsupported`; nothing is changed.",
             "content": {
               "application/json": {
                 "schema": {

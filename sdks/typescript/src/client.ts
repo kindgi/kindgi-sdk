@@ -7,6 +7,7 @@ import { type ApprovalsClient, makeApprovalsClient } from './resources/approvals
 import { type ArtifactsClient, makeArtifactsClient } from './resources/artifacts.js';
 import { type AuditResourceClient, makeAuditClient } from './resources/audit.js';
 import { type AuthClient, makeAuthClient } from './resources/auth.js';
+import { type BlocksClient, makeBlocksClient } from './resources/blocks.js';
 import { type CapabilitiesClient, makeCapabilitiesClient } from './resources/capabilities.js';
 import { type ComplianceClient, makeComplianceClient } from './resources/compliance.js';
 import { type ConversationsClient, makeConversationsClient } from './resources/conversations.js';
@@ -31,6 +32,7 @@ import { type PoliciesClient, makePoliciesClient } from './resources/policies.js
 import { type ProjectsClient, makeProjectsClient } from './resources/projects.js';
 import { type ProvenanceClient, makeProvenanceClient } from './resources/provenance.js';
 import { type ProvidersClient, makeProvidersClient } from './resources/providers.js';
+import { type RetentionClient, makeRetentionClient } from './resources/retention.js';
 import { type RunsClient, makeRunsClient } from './resources/runs.js';
 import { type SchedulesClient, makeSchedulesClient } from './resources/schedules.js';
 import { type SecretsClient, makeSecretsClient } from './resources/secrets.js';
@@ -80,6 +82,7 @@ export interface KindgiClient {
   readonly adapters: AdaptersClient;
   readonly providers: ProvidersClient;
   readonly policies: PoliciesClient;
+  readonly retention: RetentionClient;
   readonly projects: ProjectsClient;
   readonly env: EnvClient;
   readonly secrets: SecretsClient;
@@ -87,6 +90,8 @@ export interface KindgiClient {
   readonly compliance: ComplianceClient;
   readonly audit: AuditResourceClient;
   readonly evalSuites: EvalSuitesClient;
+  /** Data blocks: versioned prompts and settings an agent version pins. */
+  readonly blocks: BlocksClient;
   readonly evalRuns: EvalRunsClient;
   readonly judgments: JudgmentsClient;
   readonly judgeClasses: JudgeClassesClient;
@@ -144,6 +149,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     adapters: makeAdaptersClient(transport),
     providers: makeProvidersClient(transport),
     policies: makePoliciesClient(transport),
+    retention: makeRetentionClient(transport),
     projects: makeProjectsClient(transport),
     env: makeEnvClient(transport),
     secrets: makeSecretsClient(transport),
@@ -151,6 +157,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     compliance: makeComplianceClient(transport),
     audit: makeAuditClient(transport),
     evalSuites: makeEvalSuitesClient(transport),
+    blocks: makeBlocksClient(transport),
     evalRuns: makeEvalRunsClient(transport),
     judgments: makeJudgmentsClient(transport),
     judgeClasses: makeJudgeClassesClient(transport),

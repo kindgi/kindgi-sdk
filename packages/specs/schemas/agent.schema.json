@@ -37,9 +37,17 @@
       "description": "Prose describing what the agent does. Shown in catalog + provenance metadata."
     },
     "instructions": {
-      "type": "string",
-      "minLength": 1,
-      "description": "System-prompt rendered at the top of every turn. LiquidJS template — {{ variable }} substitution, {% if %} / {% for %} control flow, {{ value | filter }} filters. Every referenced variable must be a declared PromptParameter or a framework auto-var (today, now, agent.*, conversation.*). Rendered with strictVariables — unresolved refs are hard errors."
+      "oneOf": [{ "type": "string", "minLength": 1 }, { "$ref": "#/$defs/PromptRef" }],
+      "description": "System-prompt rendered at the top of every turn. LiquidJS template — {{ variable }} substitution, {% if %} / {% for %} control flow, {{ value | filter }} filters. Every referenced variable must be a declared PromptParameter or a framework auto-var (today, now, agent.*, conversation.*, settings). Rendered with strictVariables — unresolved refs are hard errors. Or a prompt block by range ({ prompt, version }): its template and parameters are used instead, at the version pinned when the agent version is published."
+    },
+    "settings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/BlockRef" },
+      "description": "Settings blocks the agent reads, by range: tools read them as ToolContext.settings['<id>'], templates as settings[\"<id>\"]. Pinned when the agent version is published."
+    },
+    "modelSettings": {
+      "$ref": "#/$defs/BlockRef",
+      "description": "A model-settings block by range: its temperature and maxOutputTokens go into the turn's model calls. Pinned when the agent version is published."
     },
     "parameters": {
       "type": "array",
@@ -91,6 +99,24 @@
     "toolErrors": { "$ref": "#/$defs/ToolErrorsSpec" }
   },
   "$defs": {
+    "PromptRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["prompt", "version"],
+      "properties": {
+        "prompt": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*(?:\\.[a-z0-9][a-z0-9-]*)+$" },
+        "version": { "type": "string", "minLength": 1, "description": "A semver range." }
+      }
+    },
+    "BlockRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*(?:\\.[a-z0-9][a-z0-9-]*)+$" },
+        "version": { "type": "string", "minLength": 1, "description": "A semver range." }
+      }
+    },
     "ToolErrorsSpec": {
       "type": "object",
       "additionalProperties": false,

@@ -227,6 +227,15 @@ KINDGI_LICENSE_KEY is not set. Outside development mode the Kindgi runtime needs
 
 A key within 30 days of expiry adds the warning under the license line, as this example key does.
 
+**Behind a proxy or a load balancer,** or on a published port other than the one it binds, set `KINDGI_PUBLIC_URL` in `kindgi.env` to the address clients use. The first line then names both, and the banner's links (`Docs`, and `Console` when it serves the console) use the public address:
+
+```text
+Kindgi API server listening on http://localhost:4000 (reached at https://kindgi.example.com)
+  …
+  Docs:    https://kindgi.example.com/docs
+  …
+```
+
 ## 7. Trust your key and deploy
 
 The runtime deploys only images signed by a key its tenant trusts. Trust yours:

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Tool } from '@kindgi/client';
-import type { Page, ToolId } from '@kindgi/types';
+import type { ListPage, Tool } from '@kindgi/client';
+import type { ToolId } from '@kindgi/types';
 
 import {
   type TableSpec,
@@ -15,8 +15,8 @@ import {
 import type { Command, LeafCommand } from './types.js';
 
 /** `tools list --table`. */
-const TOOLS_TABLE: TableSpec<Page<Tool>, Tool> = {
-  rows: (page) => page.items,
+const TOOLS_TABLE: TableSpec<ListPage<Tool>, Tool> = {
+  rows: (page) => page.data,
   columns: [
     { header: 'ID', get: (tool) => String(tool.id) },
     { header: 'VERSION', get: (tool) => tool.version ?? '' },
@@ -98,7 +98,7 @@ const unregister: LeafCommand = {
     runSdk(ctx, 'tools unregister', async () => {
       const toolId = requiredPositional(ctx, 0, 'tool-id');
       const version = requiredPositional(ctx, 1, 'version');
-      return await ctx.client().tools.unregisterVersion(toolId as ToolId, version);
+      return await ctx.client().tools.versions.unregister(toolId as ToolId, version);
     }),
 };
 
@@ -131,7 +131,7 @@ const versions: LeafCommand = {
         throw new Error(`--limit must be an integer, got "${limitStr}"`);
       }
       const includeTombstoned = ctx.options['include-tombstoned'] === true;
-      return await ctx.client().tools.listVersions(toolId as ToolId, {
+      return await ctx.client().tools.versions.list(toolId as ToolId, {
         ...(cursor !== undefined && { cursor: cursor as never }),
         ...(limit !== undefined && { limit }),
         ...(includeTombstoned && { includeTombstoned: true }),
@@ -148,7 +148,7 @@ const getVersion: LeafCommand = {
     runSdk(ctx, 'tools get-version', async () => {
       const toolId = requiredPositional(ctx, 0, 'tool-id');
       const version = requiredPositional(ctx, 1, 'version');
-      return await ctx.client().tools.getVersion(toolId as ToolId, version);
+      return await ctx.client().tools.versions.get(toolId as ToolId, version);
     }),
 };
 
@@ -161,7 +161,7 @@ const reinstate: LeafCommand = {
     runSdk(ctx, 'tools reinstate', async () => {
       const toolId = requiredPositional(ctx, 0, 'tool-id');
       const version = requiredPositional(ctx, 1, 'version');
-      return await ctx.client().tools.reinstateVersion(toolId as ToolId, version);
+      return await ctx.client().tools.versions.reinstate(toolId as ToolId, version);
     }),
 };
 

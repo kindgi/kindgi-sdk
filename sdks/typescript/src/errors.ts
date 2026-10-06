@@ -242,6 +242,8 @@ export function fromWire(body: unknown): KindgiError {
     case 'provider-not-found':
     case 'capability-not-found':
     case 'token-not-found':
+    case 'agent-version-not-found':
+    case 'promotion-not-found':
       return {
         code: 'not-found',
         message,
@@ -279,6 +281,9 @@ export function fromWire(body: unknown): KindgiError {
     case 'approval-not-decided':
     case 'slug-conflict':
     case 'project-default-already-exists':
+    case 'registry-read-only':
+    case 'nothing-to-roll-back':
+    case 'not-pinned':
       return { code: 'conflict', message, reason: code };
     case 'invalid-request':
     case 'validation-failed':
@@ -294,6 +299,7 @@ export function fromWire(body: unknown): KindgiError {
     case 'invalid-guardrail':
     case 'invalid-provider':
     case 'supervisor-header-missing':
+    case 'scope-invalid':
       return {
         code: 'invalid-request',
         message,

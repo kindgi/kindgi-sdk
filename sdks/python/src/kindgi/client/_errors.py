@@ -132,20 +132,22 @@ _NOT_FOUND = {
     "proposal-not-found", "provenance-not-found", "observation-not-found", "blob-not-found",
     "audit-bundle-not-found", "signing-not-configured", "signing-key-not-found",
     "adapter-not-found", "fact-not-found", "identity-user-not-found", "provider-not-found",
-    "capability-not-found", "token-not-found",
+    "capability-not-found", "token-not-found", "agent-version-not-found", "promotion-not-found",
 }  # fmt: skip
 _CONFLICT = {
     "conflict", "already-terminal", "run-already-terminal", "idempotency-key-body-mismatch",
     "hitl-required", "agent-already-registered", "tool-already-registered",
     "guardrail-already-registered", "flow-already-registered", "conversation-closed",
     "provider-already-registered", "proposal-invalid-state-transition", "approval-not-decided",
-    "slug-conflict", "project-default-already-exists",
+    "slug-conflict", "project-default-already-exists", "registry-read-only",
+    "policy-already-registered", "policy-scope-taken", "policy-scope-changed",
+    "nothing-to-roll-back", "not-pinned",
 }  # fmt: skip
 _INVALID = {
     "invalid-request", "validation-failed", "unknown-field", "bad-input", "unresolved-tool",
     "unresolved-guardrail", "schema-validation-failed", "invalid-agent", "invalid-tool-definition",
     "invalid-schema", "unknown-effect", "invalid-guardrail", "invalid-provider",
-    "supervisor-header-missing",
+    "supervisor-header-missing", "scope-invalid",
 }  # fmt: skip
 _AUTH: Mapping[str, Literal["unauthenticated", "forbidden", "token-expired"]] = {
     "auth-missing": "unauthenticated",

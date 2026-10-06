@@ -124,11 +124,35 @@ export function stringFlag(ctx: CommandContext, name: string): string | undefine
 }
 
 /**
+ * A repeatable `--<name>=key:value` flag (default `--segment`): a segment
+ * path, in order (coarse to fine).
+ */
+export function segmentsFlag(
+  ctx: CommandContext,
+  name = 'segment',
+): readonly { readonly key: string; readonly value: string }[] {
+  return listFlag(ctx, name).map((raw) => {
+    const at = raw.indexOf(':');
+    if (at <= 0 || at === raw.length - 1) {
+      throw new Error(`--${name} must be key:value, got "${raw}"`);
+    }
+    return { key: raw.slice(0, at), value: raw.slice(at + 1) };
+  });
+}
+
+/**
  * The project a command writes into: `--project=<id>`, or the tenant's
  * Default project when the flag is absent.
  */
 export async function projectIdFlag(ctx: CommandContext): Promise<string> {
   return stringFlag(ctx, 'project') ?? (await ctx.client().projects.getDefault()).id;
+}
+
+/** The values of a repeatable flag (`multiple: true`), in the order given. */
+export function listFlag(ctx: CommandContext, name: string): string[] {
+  const raw: unknown = ctx.options[name];
+  const values = Array.isArray(raw) ? raw : [raw];
+  return values.filter((v): v is string => typeof v === 'string' && v !== '');
 }
 
 /** Extract an optional integer flag; throws on non-integer values. */

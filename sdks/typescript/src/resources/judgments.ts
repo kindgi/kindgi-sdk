@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Cursor, Page } from '@kindgi/types';
+import type { Cursor } from '@kindgi/types';
 
+import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { ScopeRef } from '../scope-wire.js';
 import { scopeToQuery } from '../scope-wire.js';
 import type { Transport } from '../transport.js';
@@ -32,7 +33,7 @@ export interface JudgmentsClient {
    *
    * @wire `GET /v1/judgments` — see `@kindgi/api/openapi.json#/paths/~1v1~1judgments/get`.
    */
-  list(filter?: JudgmentFilter): Promise<Page<Judgment>>;
+  list(filter?: JudgmentFilter): Promise<ListPage<Judgment>>;
 
   /**
    * One judgment with the stored copies of what was judged.
@@ -66,12 +67,6 @@ export interface JudgmentFilter {
   readonly scope?: ScopeRef;
 }
 
-interface WirePage<T> {
-  readonly data: readonly T[];
-  readonly hasMore: boolean;
-  readonly nextCursor?: string;
-}
-
 export function makeJudgmentsClient(transport: Transport): JudgmentsClient {
   return {
     async create(input, options) {
@@ -100,10 +95,7 @@ export function makeJudgmentsClient(transport: Transport): JudgmentsClient {
           ...(filter?.scope !== undefined && scopeToQuery(filter.scope)),
         },
       });
-      return {
-        items: page.data,
-        ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as Cursor }),
-      };
+      return listPage(page);
     },
 
     async get(judgmentId) {

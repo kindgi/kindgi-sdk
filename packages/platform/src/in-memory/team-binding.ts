@@ -32,6 +32,7 @@ import type {
   TeamUpdateOutcome,
 } from '../team-binding.js';
 import type { Team, TeamMembership, TeamPatch, TeamRole, TeamSpec } from '../types.js';
+import type { InMemoryHierarchyOptions } from './project-binding.js';
 
 import { nowTimestamp, paginate } from './util.js';
 
@@ -51,7 +52,7 @@ function membershipKey(teamId: TeamId, userId: UserId): string {
  * (memberships reference teams; the two must agree on tenant
  * membership at every op).
  */
-export function makeInMemoryTeamBinding(): {
+export function makeInMemoryTeamBinding(options: InMemoryHierarchyOptions = {}): {
   readonly teams: TeamBinding;
   readonly memberships: TeamMembershipBinding;
 } {
@@ -74,6 +75,9 @@ export function makeInMemoryTeamBinding(): {
 
   const teams: TeamBinding = {
     async create(tenantId, spec: TeamSpec): Promise<TeamCreateOutcome> {
+      if (spec.orgId !== undefined && (await options.orgExists?.(tenantId, spec.orgId)) === false) {
+        return { kind: 'org-not-found', orgId: spec.orgId };
+      }
       if (slugTaken(tenantId, spec.slug)) return { kind: 'slug-conflict', slug: spec.slug };
       const id = nextTeamId();
       const now = nowTimestamp();
@@ -116,6 +120,13 @@ export function makeInMemoryTeamBinding(): {
       const row = findTeamInTenant(tenantId, teamId);
       if (row === undefined) {
         return { kind: 'team-not-found' };
+      }
+      if (
+        patch.orgId !== undefined &&
+        patch.orgId !== null &&
+        (await options.orgExists?.(tenantId, patch.orgId)) === false
+      ) {
+        return { kind: 'org-not-found', orgId: patch.orgId };
       }
       if (patch.slug !== undefined && slugTaken(tenantId, patch.slug, teamId)) {
         return { kind: 'slug-conflict', slug: patch.slug };

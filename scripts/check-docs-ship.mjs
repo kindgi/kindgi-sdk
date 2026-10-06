@@ -37,7 +37,7 @@ const DOCS = [
   /(^|\/)README\.md$/,
   /^docs\//,
 ];
-const OPT_OUT = /^No-docs:\s*\S/m;
+const OPT_OUT = /^No-docs:\s*\S.*$/m;
 
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8' }).trim();
 

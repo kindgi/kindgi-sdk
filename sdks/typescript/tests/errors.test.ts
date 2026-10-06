@@ -69,14 +69,35 @@ describe('fromWire — guardrail-violation', () => {
 });
 
 describe('fromWire — conflicts', () => {
-  it.each(['slug-conflict', 'project-default-already-exists'])(
-    'a %s is a conflict, its code the reason',
-    (code) => {
-      expect(fromWire({ code, message: 'taken' })).toEqual({
-        code: 'conflict',
-        message: 'taken',
-        reason: code,
-      });
-    },
-  );
+  it.each([
+    'slug-conflict',
+    'project-default-already-exists',
+    'registry-read-only',
+    'nothing-to-roll-back',
+    'not-pinned',
+  ])('a %s is a conflict, its code the reason', (code) => {
+    expect(fromWire({ code, message: 'taken' })).toEqual({
+      code: 'conflict',
+      message: 'taken',
+      reason: code,
+    });
+  });
+});
+
+describe('fromWire — live versions', () => {
+  it.each([
+    ['agent-version-not-found', 'agent-version'],
+    ['promotion-not-found', 'promotion'],
+  ])('a %s is a not-found of a %s', (code, kind) => {
+    expect(fromWire({ code, message: 'gone' })).toMatchObject({
+      code: 'not-found',
+      resource: { kind },
+    });
+  });
+
+  it('a scope-invalid is an invalid request', () => {
+    expect(fromWire({ code: 'scope-invalid', message: 'no such project' })).toMatchObject({
+      code: 'invalid-request',
+    });
+  });
 });

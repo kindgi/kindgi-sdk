@@ -67,6 +67,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'duplicate-edge-id': 409,
   'agent-version-mismatch': 409,
   'agent-already-registered': 409,
+  'registry-read-only': 409,
   'agent-gone': 410,
   'flow-gone': 410,
   'policy-gone': 410,
@@ -160,7 +161,12 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // Admin plane — policies.
   'policy-not-found': 404,
   'policy-already-registered': 409,
+  'policy-scope-taken': 409,
+  'policy-scope-changed': 409,
   // Admin plane — eval suites.
+  'block-not-found': 404,
+  'block-already-registered': 409,
+  'block-project-mismatch': 409,
   'eval-suite-not-found': 404,
   'eval-suite-already-registered': 409,
   // Admin plane — eval-run dispatch.
@@ -170,10 +176,17 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'judge-class-not-found': 404,
   'judge-class-name-taken': 409,
   'judge-class-not-applicable': 400,
+  // Live versions of agents and their promotions.
+  'agent-version-not-found': 404,
+  'promotion-not-found': 404,
+  'nothing-to-roll-back': 409,
+  'not-pinned': 409,
   'run-not-finished': 409,
   'item-not-found': 400,
   // The judgment binding can't list judged runs, so no test sets from judgments.
   'test-sets-not-supported': 501,
+  // Authorization is enforced, but a membership change can't be kept in step with it.
+  'authz-membership-unsupported': 501,
   'eval-run-already-terminal': 409,
   'dispatcher-not-registered': 422,
   'dispatcher-input-invalid': 400,

@@ -308,6 +308,12 @@ export interface ProviderMetadata {
    * to one says so (`RoutingDecision.fallback`).
    */
   readonly fallback?: boolean;
+  /**
+   * Bookkeeping, such as who manages the provider: string keys to
+   * string values. The router ignores them. The limits and the
+   * convention key (`kindgi.com/managed-by`) are in `provider-labels.ts`.
+   */
+  readonly labels?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -479,6 +485,11 @@ export interface ModelUsageRecord {
   readonly error?: { readonly message: string; readonly attempts?: number };
   /** How long the call took, failed or not. */
   readonly durationMs: number;
+  /**
+   * Set on a replay turn's calls: the past run it re-runs (`of`) and the
+   * eval run it's for, so eval spend can be told apart from production.
+   */
+  readonly replay?: { readonly of: string; readonly evalRunId: string };
 }
 
 /**

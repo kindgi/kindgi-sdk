@@ -76,7 +76,7 @@ export function authRouters(options: AuthRouterOptions): {
   authed.get('/providers', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
     const page = await identityProvider.list({ tenantId });
-    return c.json({ data: page.data.map(serializeProviderConfig) });
+    return c.json({ data: page.data.map(serializeProviderConfig), hasMore: false });
   });
 
   // ---------- POST /providers ----------

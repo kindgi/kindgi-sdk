@@ -1,0 +1,186 @@
+---
+title: Agent and tool versions
+description: How a range picks a tool version, how a published agent version locks its tools, what a deploy does when they change, and what unregistering a version does.
+sidebar:
+  order: 7
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+:::note[Preview (0.1.4-rc)]
+Pinned versions are new in Kindgi 0.1.4, available now in its release
+candidates: `npx @kindgi/cli@next`, and `uv add --prerelease allow kindgi`.
+:::
+
+Tools and agents are versioned, and several versions of each can be live at
+once. An agent names each tool by a range; this page is about which version
+a run gets.
+
+## A range picks a version
+
+A range picks the highest live version it allows: `^1.0.0` picks `1.2.0`
+when `1.0.0`, `1.1.0` and `1.2.0` are live, and never picks `2.0.0`.
+
+A pack can hold several versions of one tool side by side: two tool files with
+the same id and different versions. Both are served, and each agent runs the
+one its range picks. `kindgi tools versions <tool-id>` lists them.
+
+## A published agent version locks its tools
+
+When an agent version is published, by `kindgi deploy` or by
+`POST /v1/agents`, each tool range is resolved once, to an exact version: the
+version's **pins**. Every run of that version uses them.
+
+An agent `acme.greeter` 1.0.0 asks for `acme.greet` `^1.0.0` while
+`acme.greet` 1.0.0 and 1.1.0 are published. It's pinned to 1.1.0:
+
+```sh
+curl "$KINDGI_API_URL/v1/agents/acme.greeter/versions/1.0.0" -H "Authorization: Bearer $KINDGI_API_TOKEN"
+```
+
+```json
+{
+  "version": "1.0.0",
+  "pins": { "tools": { "acme.greet": "1.1.0" }, "prompts": {}, "settings": {} },
+  "pinsDigest": "sha256:d63b0dc80adfcece6df1989ba7a423d78ec4c917f1f501fa46495457af9b75eb",
+  …
+}
+```
+
+Then `acme.greet` 1.2.0 is published. `acme.greeter` 1.0.0 still runs 1.1.0;
+the next agent version, 1.0.1, is pinned to 1.2.0. **A new tool version
+reaches a published agent only through a new agent version.**
+
+A range that no published version matches is refused when the agent is
+published, so a version can't be published with a tool it can't run:
+
+```json
+{
+  "code": "validation-failed",
+  "message": "Agent \"acme.greeter\" uses tool versions that aren't published (1 issue)",
+  "details": {
+    "issues": [
+      {
+        "path": "/tools/0/version",
+        "message": "tool \"acme.greet\" has no published version in \"^3.0.0\" (published: 1.2.0, 1.1.0, 1.0.0); publish one in range first, or change the range"
+      }
+    ]
+  }
+}
+```
+
+**Under `kindgi dev`,** agents aren't published: each turn resolves its
+ranges when it starts, so a tool you save is used at the next turn. Agent
+versions published before pins existed have none, and also resolve their
+ranges per run.
+
+## Deploys make the new version for you
+
+`kindgi deploy` publishes the agents in your pack. A published version
+never changes, so when an agent keeps its version number but its pins would
+change, because a tool it uses has a new version, the deploy registers the
+next free version and says so:
+
+```text
+agent acme.matcher: registered new version 1.4.1 (1.4.0's pins changed: tool acme.score 1.0.0 → 1.1.0); set version: '1.4.1' in acme.matcher to match
+```
+
+Set that version in the agent's code, so the code and the runtime agree.
+Until you do, deploying again registers nothing new and says
+`1.4.0 runs as 1.4.1, registered by an earlier deploy`.
+
+The same happens when you change an agent's code and keep its version
+number: the deploy registers the next free version, because
+`1.4.0 is taken by a different definition`.
+
+**Flows** are pinned the same way: a flow version pins its tool nodes, and
+its agent steps that don't name a version, to their latest at publish. A tool
+change reaches a flow through a new agent version and a new flow version, in
+one deploy, with a line for each.
+
+**After upgrading to 0.1.4,** the first deploy registers a pinned next version
+of each agent published before pins:
+
+```text
+agent acme.matcher: registered new version 1.4.1 (1.4.0 was published before pins; 1.4.1 pins its tools); set version: '1.4.1' in acme.matcher to match
+```
+
+An app that runs an exact version (`agentVersion: '1.4.0'`, or
+`--agent-version=1.4.0` from the CLI) keeps running the old, unpinned one until
+you change it; an app that runs the latest gets the
+pinned one.
+
+## What unregistering a version does
+
+Unregistering a version stops it from being chosen. It doesn't stop the
+versions that pin it.
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// unregister-version.ts
+import { createClient } from '@kindgi/sdk/client';
+import type { AgentId, Semver } from '@kindgi/sdk/types';
+
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+const agent = 'acme.greeter' as AgentId;
+const version = '1.0.0' as Semver;
+
+// No new run gets 1.0.0. What pins it keeps running it.
+await kindgi.agents.versions.unregister(agent, version);
+const unregistered = await kindgi.agents.versions.get(agent, version);
+console.log(unregistered.unregisteredAt, unregistered.pins?.tools);
+
+// 1.0.0 can be chosen again, unchanged.
+await kindgi.agents.versions.reinstate(agent, version);
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# unregister_version.py
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+# No new run gets 1.0.0. What pins it keeps running it.
+kindgi.agents.unregister("acme.greeter", "1.0.0")
+unregistered = kindgi.agents.get_version("acme.greeter", "1.0.0")
+print(unregistered.unregistered_at, unregistered.pins.tools if unregistered.pins else None)
+
+# 1.0.0 can be chosen again, unchanged.
+kindgi.agents.reinstate_version("acme.greeter", "1.0.0")
+```
+
+</TabItem>
+</Tabs>
+
+```text
+2026-10-06T05:42:12.899Z { 'acme.greet': '1.1.0' }
+```
+
+Tool and flow versions are unregistered and reinstated the same way. This
+is for a runtime you deploy to: under `kindgi dev`, the pack's files are the
+agents and tools, so you remove or change the file instead. There, an
+unregister is refused:
+
+```text
+Under kindgi dev, the pack is the source of agents: change the agent in the pack's files and kindgi dev reloads it.
+```
+
+- **No new run gets it:** not by a range, not as the latest, not by its
+  exact number. A run that names it is refused:
+
+  ```text
+  Agent "acme.greeter@1.0.0" is unregistered; reinstate it or run another version.
+  ```
+
+- **What pins it keeps running:** an agent version pinned to an unregistered
+  tool version, or a flow whose step names an unregistered agent version,
+  runs as before.
+- **You can still read it:** it keeps its pins, and fetching it shows
+  `unregisteredAt`. Reinstating it makes it choosable again.
+- **A run waiting on an approval** resumes after its version is
+  unregistered.

@@ -6,7 +6,7 @@ import type { AgentId, FlowId, RunId, TenantId, Timestamp } from '@kindgi/types'
 import type { ScopeRef } from '../scope-wire.js';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
-import type { RunProgress } from '../generated/api.js';
+import type { LiveScope, RunProgress, ScopeSegment } from '../generated/api.js';
 import { type RunProgressEvent, followRun } from '../run-follow.js';
 import { scopeToQuery } from '../scope-wire.js';
 import type { Transport } from '../transport.js';
@@ -182,6 +182,10 @@ export interface ListRunsFilter {
   readonly topLevel?: boolean;
   /** Only this agent's turns, at any version (turns from before 0.1.3 don't name their agent). */
   readonly agentId?: AgentId | string;
+  /** Replay runs (an eval run re-running a past run): `exclude` (the default) leaves them out, `include` lists them too, `only` lists just them. */
+  readonly replays?: 'exclude' | 'include' | 'only';
+  /** Only the replay runs of this eval run (implies replays are included). */
+  readonly evalRunId?: string;
   /** Include each run's `output` (omitted from lists by default). */
   readonly includeOutput?: boolean;
 }
@@ -200,9 +204,15 @@ export interface RunPage {
 export type StartRunInput =
   | {
       readonly agent: AgentId | string;
+      /**
+       * Omit to use the live version for this project and segment path
+       * (or, in a conversation, the version its earlier turns used).
+       */
       readonly agentVersion?: string;
       /** Project the run belongs to. Omit to use the tenant's default project. */
       readonly projectId?: string;
+      /** Where the run happens, coarse to fine (e.g. company, then role); picks the live version. */
+      readonly segments?: readonly ScopeSegment[];
       readonly input: unknown;
       readonly options?: StartRunOptions;
       readonly idempotencyKey?: string;
@@ -212,6 +222,8 @@ export type StartRunInput =
       readonly flowVersion?: string;
       /** Project the run belongs to. Optional; when omitted, the API's run handler chooses. */
       readonly projectId?: string;
+      /** Where the run happens; picks the live version of each agent step. */
+      readonly segments?: readonly ScopeSegment[];
       readonly input: unknown;
       readonly options?: StartRunOptions;
       readonly idempotencyKey?: string;
@@ -243,6 +255,14 @@ export interface RunAgent {
   readonly id: string;
   readonly version: string;
   readonly conversationId: string;
+  /**
+   * How the version was chosen: named on the run (`explicit`), the
+   * conversation's version (`conversation`), a live version (`live`), or
+   * the latest (`latest`). Absent on turns from before 0.1.4.
+   */
+  readonly via?: 'explicit' | 'conversation' | 'live' | 'latest';
+  /** With `via: 'live'`: the scope whose live version ran. */
+  readonly liveScope?: LiveScope;
 }
 
 /**
@@ -274,6 +294,8 @@ export interface Run {
    * started). Absent on other runs, and on turns from before 0.1.3.
    */
   readonly agent?: RunAgent;
+  /** The segment path the run was started with; a child run has its parent's. */
+  readonly segments?: readonly ScopeSegment[];
 }
 
 /**
@@ -301,6 +323,7 @@ export function makeRunsClient(transport: Transport): RunsClient {
               agent: input.agent as unknown as string,
               ...(input.agentVersion !== undefined && { agentVersion: input.agentVersion }),
               ...(input.projectId !== undefined && { projectId: input.projectId }),
+              ...(input.segments !== undefined && { segments: input.segments }),
               input: input.input,
               ...(input.options !== undefined && { options: input.options }),
             }
@@ -308,6 +331,7 @@ export function makeRunsClient(transport: Transport): RunsClient {
               flow: input.flow as unknown as string,
               ...(input.flowVersion !== undefined && { flowVersion: input.flowVersion }),
               ...(input.projectId !== undefined && { projectId: input.projectId }),
+              ...(input.segments !== undefined && { segments: input.segments }),
               input: input.input,
               ...(input.options !== undefined && { options: input.options }),
             };
@@ -412,6 +436,8 @@ export function makeRunsClient(transport: Transport): RunsClient {
           }),
           ...(filter?.topLevel !== undefined && { topLevel: String(filter.topLevel) }),
           ...(filter?.agentId !== undefined && { agentId: filter.agentId as string }),
+          ...(filter?.replays !== undefined && { replays: filter.replays }),
+          ...(filter?.evalRunId !== undefined && { evalRunId: filter.evalRunId }),
           ...(filter?.includeOutput === true && { include: 'output' }),
         },
       });

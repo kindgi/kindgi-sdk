@@ -160,6 +160,7 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
     });
     return c.json({
       data: page.data.map(serializeSecretRecord),
+      hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
   });
@@ -232,6 +233,7 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
     });
     return c.json({
       data: page.data.map(serializeVersion),
+      hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
   });

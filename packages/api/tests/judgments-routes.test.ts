@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
+import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
 import type { KernelRunRecord, RunAgentRef, RunBinding } from '@kindgi/runtime';
 import type { ConversationId, ProjectId, RunId, TenantId, Timestamp, UserId } from '@kindgi/types';
 
@@ -75,9 +76,35 @@ interface TurnReads {
   readonly journal?: readonly unknown[];
 }
 
+/**
+ * With `grants`, the app checks authorization: it allows exactly the
+ * `action type:id` pairs listed, and records every check in `checked`.
+ */
+interface Authz {
+  readonly grants: readonly string[];
+  readonly checked: string[];
+}
+
+function decision(authz: Authz, action: Action, resource: ResourceRef): Decision {
+  const key = `${action} ${resource.type}:${resource.id}`;
+  authz.checked.push(key);
+  const allowed = authz.grants.includes(key);
+  return {
+    allowed,
+    reason: allowed ? 'test: granted' : 'test: not granted',
+    evidence: {
+      action,
+      relation: '',
+      resource: `${resource.type}:${resource.id}`,
+      actorSubject: '',
+    },
+  };
+}
+
 function harness(
   rows: KernelRunRecord[],
   reads: TurnReads = {},
+  authz?: Authz,
 ): Harness & { readonly reads: number[] } {
   const binding = inMemoryJudgments();
   const stubs = createStubAppBindings();
@@ -105,6 +132,16 @@ function harness(
     resolveToken,
     runHandler,
     judgmentRegistry: binding,
+    ...(authz !== undefined && {
+      authz: {
+        fgaApiUrl: 'http://fga.invalid',
+        authzCheckBinding: {
+          check: async (_principal, action, resource) => decision(authz, action, resource),
+          checkBatch: async (_principal, action, resources) =>
+            resources.map((resource) => decision(authz, action, resource)),
+        } satisfies AuthzCheckBinding,
+      },
+    }),
   });
   const call: Harness['call'] = async (method, path, body, token = USER_TOKEN) => {
     const res = await app.request(path, {
@@ -316,6 +353,29 @@ describe('POST /v1/judgments', () => {
   });
 });
 
+describe('judging and authorization', () => {
+  test("judging a run needs write on the run's project, as cancelling one does", async () => {
+    const run = row();
+    const project = run.projectId as unknown as string;
+    const granted: Authz = { grants: [`write project:${project}`], checked: [] };
+    const allowed = await harness([run], {}, granted).call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { key: 'c1' },
+      verdict: 'yes',
+    });
+    expect(allowed.status).toBe(201);
+    expect(granted.checked).toContain(`write project:${project}`);
+
+    const denied = await harness(
+      [run],
+      {},
+      { grants: [`read project:${project}`], checked: [] },
+    ).call('POST', '/v1/judgments', { runId: run.runId, item: { key: 'c1' }, verdict: 'yes' });
+    expect(denied.status).toBe(403);
+    expect(denied.body.error.code).toBe('permission-denied');
+  });
+});
+
 describe("the context captured on a turn's first judgment", () => {
   const messages = [
     { sequence: 0, role: 'user', content: 'hi' },
@@ -358,6 +418,48 @@ describe("the context captured on a turn's first judgment", () => {
     });
   });
 
+  test("the decision at the turn's session approval gate is kept", async () => {
+    const gated = (value: unknown) => [
+      ...journal,
+      {
+        kind: 'value.recorded',
+        nodeId: 'setup',
+        payload: { scope: 's', key: 'session-hitl-gate', value: { waitTokenId: 'tok-1' } },
+      },
+      { kind: 'wait.suspended', nodeId: 'setup', payload: { tokenId: 'tok-1' } },
+      { kind: 'wait.resumed', nodeId: 'setup', payload: { tokenId: 'tok-1', value } },
+    ];
+    const contextOf = async (value: unknown) => {
+      const run = turn();
+      const h = harness([run], { messages, journal: gated(value) });
+      const res = await h.call('POST', '/v1/judgments', {
+        runId: run.runId,
+        item: { key: 'c1' },
+        verdict: 'yes',
+      });
+      return (await h.call('GET', `/v1/judgments/${res.body.id}`)).body.run.context;
+    };
+    expect((await contextOf({ decided: 'approve', rationale: 'fine' })).sessionApproval).toEqual({
+      approved: true,
+    });
+    expect((await contextOf({ decided: 'reject', rationale: 'not now' })).sessionApproval).toEqual({
+      approved: false,
+      rationale: 'not now',
+    });
+  });
+
+  test('a turn that never waited at the gate has no decision kept', async () => {
+    const run = turn();
+    const h = harness([run], { messages, journal });
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { key: 'c1' },
+      verdict: 'yes',
+    });
+    const got = await h.call('GET', `/v1/judgments/${res.body.id}`);
+    expect(got.body.run.context).not.toHaveProperty('sessionApproval');
+  });
+
   test('a second judgment of the run does not read it again', async () => {
     const run = turn();
     const h = harness([run], { messages, journal });
@@ -376,7 +478,7 @@ describe("the context captured on a turn's first judgment", () => {
     expect(h.reads).toEqual([1, 1]);
   });
 
-  test('a flow run has no context and reads nothing', async () => {
+  test('a flow run reads no conversation; with no tool calls to keep, it keeps no context', async () => {
     const { agent: _agent, ...run } = row();
     const h = harness([run], { messages, journal });
     const res = await h.call('POST', '/v1/judgments', {
@@ -384,9 +486,11 @@ describe("the context captured on a turn's first judgment", () => {
       item: { key: 'c1' },
       verdict: 'yes',
     });
+    expect(res.status).toBe(201);
     const got = await h.call('GET', `/v1/judgments/${res.body.id}`);
     expect(got.body.run.context).toBeUndefined();
-    expect(h.reads).toEqual([0, 0]);
+    // Its journal was read (for tool calls), its conversation never.
+    expect(h.reads[0]).toBe(0);
   });
 });
 

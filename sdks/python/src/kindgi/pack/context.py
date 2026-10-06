@@ -106,6 +106,10 @@ class ToolContext:
     """The secrets the tool declares (`needs_spec["secrets"]`), resolved for this call's tenant."""
     config: Mapping[str, Any] = field(default_factory=_empty)
     """Configuration the runtime resolves for the call — none yet (empty)."""
+    settings: Mapping[str, Mapping[str, Any]] = field(default_factory=_empty)
+    """The settings blocks the calling agent version pins, by block id:
+    `ctx.settings["acme.weights"]["recency"]`. Empty when it pins none, and from an older
+    runtime (protocol 2.4.0)."""
     cancellation: Cancellation = field(default_factory=Cancellation)
     """Fires when the caller gives up on the call."""
 
@@ -139,5 +143,6 @@ class ToolContext:
             env=mapping("env"),
             secrets=mapping("secrets"),
             config=mapping("config"),
+            settings=mapping("settings"),
             cancellation=cancellation,
         )
