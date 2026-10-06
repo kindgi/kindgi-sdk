@@ -4948,11 +4948,12 @@ class AuditAuthzResource:
         run_id: str | None = None,
         from_: str | None = None,
         to: str | None = None,
+        order: Literal["asc", "desc"] | None = None,
         timeout: float | None = None,
     ) -> _models.AuditAuthzListResponse:
         """List authz decision audit events. `GET /v1/audit/authz`
 
-        Cursor-paginated read of `authz-decision` audit events for the tenant. Filters (all AND-composed): `?actorSubject=` / `?onBehalfOf=` / `?action=` / `?resource=` / `?outcome=` / `?runId=` / `?from=` / `?to=`. Admin@tenant only. Only mounted when `CreateAppInput.auditEvents` is wired.
+        Cursor-paginated read of `authz-decision` audit events for the tenant. Filters (all AND-composed): `?actorSubject=` / `?onBehalfOf=` / `?action=` / `?resource=` / `?outcome=` / `?runId=` / `?from=` / `?to=`. Oldest first; `?order=desc` for newest first. Admin@tenant only. Only mounted when `CreateAppInput.auditEvents` is wired.
         """
         return self._client._request(
             _OPERATIONS["audit.authz.list"],
@@ -4968,6 +4969,7 @@ class AuditAuthzResource:
                 "runId": run_id,
                 "from": from_,
                 "to": to,
+                "order": order,
             },
             headers={},
             response=_models.AuditAuthzListResponse,
@@ -10777,11 +10779,12 @@ class AsyncAuditAuthzResource:
         run_id: str | None = None,
         from_: str | None = None,
         to: str | None = None,
+        order: Literal["asc", "desc"] | None = None,
         timeout: float | None = None,
     ) -> _models.AuditAuthzListResponse:
         """List authz decision audit events. `GET /v1/audit/authz`
 
-        Cursor-paginated read of `authz-decision` audit events for the tenant. Filters (all AND-composed): `?actorSubject=` / `?onBehalfOf=` / `?action=` / `?resource=` / `?outcome=` / `?runId=` / `?from=` / `?to=`. Admin@tenant only. Only mounted when `CreateAppInput.auditEvents` is wired.
+        Cursor-paginated read of `authz-decision` audit events for the tenant. Filters (all AND-composed): `?actorSubject=` / `?onBehalfOf=` / `?action=` / `?resource=` / `?outcome=` / `?runId=` / `?from=` / `?to=`. Oldest first; `?order=desc` for newest first. Admin@tenant only. Only mounted when `CreateAppInput.auditEvents` is wired.
         """
         return await self._client._request(
             _OPERATIONS["audit.authz.list"],
@@ -10797,6 +10800,7 @@ class AsyncAuditAuthzResource:
                 "runId": run_id,
                 "from": from_,
                 "to": to,
+                "order": order,
             },
             headers={},
             response=_models.AuditAuthzListResponse,

@@ -4914,7 +4914,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'audit.authz.list',
     summary: 'List authz decision audit events',
     description:
-      'Cursor-paginated read of `authz-decision` audit events for the tenant. Filters (all AND-composed): `?actorSubject=` / `?onBehalfOf=` / `?action=` / `?resource=` / `?outcome=` / `?runId=` / `?from=` / `?to=`. Admin@tenant only. Only mounted when `CreateAppInput.auditEvents` is wired.',
+      'Cursor-paginated read of `authz-decision` audit events for the tenant. Filters (all AND-composed): `?actorSubject=` / `?onBehalfOf=` / `?action=` / `?resource=` / `?outcome=` / `?runId=` / `?from=` / `?to=`. Oldest first; `?order=desc` for newest first. Admin@tenant only. Only mounted when `CreateAppInput.auditEvents` is wired.',
     tags: ['audit'],
     security: 'bearer',
     parameters: [
@@ -4976,6 +4976,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
         description: 'ISO 8601 upper bound (inclusive) on `timestamp`.',
         schema: { type: 'string', format: 'date-time' },
       },
+      {
+        name: 'order',
+        in: 'query',
+        required: false,
+        description:
+          '`asc` (the default): oldest first. `desc`: newest first. `nextCursor` continues in the same order.',
+        schema: { type: 'string', enum: ['asc', 'desc'] },
+      },
     ],
     responses: {
       '200': {
@@ -5022,7 +5030,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         },
       },
       ...CommonAuthErrors,
-      '400': ErrorResponse('Malformed cursor, `from`, `to`, or `outcome`.'),
+      '400': ErrorResponse('Malformed cursor, `from`, `to`, `outcome`, or `order`.'),
     },
   },
 
