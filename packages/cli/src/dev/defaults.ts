@@ -286,6 +286,8 @@ export async function startApiServerContainerReal(
     ...(network === 'host-network'
       ? { apiPort: opts.port, apiHost: '127.0.0.1' }
       : { apiPort: IMAGE_API_PORT, hostAlias: 'host.docker.internal' }),
+    // Where the developer reaches it: the published port, for its banner.
+    publicUrl: `http://127.0.0.1:${opts.port}`,
     packDir: RUNTIME_PACK_DIR,
     databaseUrl: databaseUrlFrom(opts.databaseUrl, network),
     tenantId: opts.tenantId,
@@ -366,6 +368,7 @@ export async function attachToRuntimeReal(
     buildRuntimeEnv({
       apiPort: port,
       apiHost: '127.0.0.1',
+      publicUrl: baseUrl,
       packDir: opts.packDir,
       databaseUrl: opts.databaseUrl,
       tenantId: opts.tenantId,
