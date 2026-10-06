@@ -825,8 +825,9 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
     // Code: esbuild rebuilds when any file a bundle read changes —
     // shared libraries outside the discovery folders included.
     // Each watcher's changes start nothing once the stop begins: the
-    // watchers are closed last (see `stopDev`).
+    // watchers close while the runtime stops (see `stopDev`).
     await builder.watch(untilStopped(ctx.stopSignal, (build: PackBuild) => onRefresh(build)));
+    const onWatchFailed = reportWatchFailureOnce();
     // A primitive file added or removed changes the entry points.
     watchHandles.push(
       await dev.watchPack(
@@ -834,7 +835,11 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
         untilStopped(ctx.stopSignal, () => {
           void builder.syncEntries();
         }),
-        { debounceMs: DEFAULT_WATCH_DEBOUNCE_MS, patterns: projectEnv.discoveryPatterns },
+        {
+          debounceMs: DEFAULT_WATCH_DEBOUNCE_MS,
+          patterns: projectEnv.discoveryPatterns,
+          onWatchFailed,
+        },
       ),
     );
     // The env files: the same code, restarted with the new environment.
@@ -846,6 +851,7 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
           debounceMs: DEFAULT_WATCH_DEBOUNCE_MS,
           patterns: [],
           files: devPackEnvFiles(args.packDir, projectEnv.localEnvFiles),
+          onWatchFailed,
         },
       ),
     );
@@ -1305,6 +1311,21 @@ function emitBootIndex(
 function closeOnStop(pack: { beginClose(): void }, stopSignal: AbortSignal | undefined): void {
   if (stopSignal?.aborted === true) pack.beginClose();
   else stopSignal?.addEventListener('abort', () => pack.beginClose(), { once: true });
+}
+
+/**
+ * A failed file watch (its folder removed, too many open files), said once
+ * for the session: the once-a-second scan behind the watchers goes on and
+ * picks up the pack's changes from then on.
+ */
+function reportWatchFailureOnce(): (error: unknown) => void {
+  let said = false;
+  return (error) => {
+    if (said) return;
+    said = true;
+    const why = error instanceof Error ? error.message : String(error);
+    emitProgress(`  ⚠ file watch failed (${why}): changes are picked up by the once-a-second scan`);
+  };
 }
 
 /** `fn` until the stop begins: a change seen while stopping starts nothing. */

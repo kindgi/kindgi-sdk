@@ -16,6 +16,7 @@
 
 import { spawn } from 'node:child_process';
 import { type FSWatcher, watch } from 'node:fs';
+import { watch as watchEventsReal } from 'node:fs/promises';
 
 import type { PackBuild, PackBuilder } from './runners.js';
 import {
@@ -24,6 +25,7 @@ import {
   scanSignature,
   startScanBackstop,
 } from './scan-backstop.js';
+import { SHARE_WATCH_BY_DEFAULT, type WatchEvents, directoryWatches } from './shared-watch.js';
 
 const SKIPPED_DIRS = ['__pycache__', 'node_modules', 'venv', 'site-packages'];
 const DEFAULT_DEBOUNCE_MS = 150;
@@ -64,8 +66,16 @@ export interface PythonPackBuilderOptions {
   readonly debounceMs?: number;
   /** How often the sources are also scanned (`fs.watch` can miss events). */
   readonly scanIntervalMs?: number;
-  /** Test seam: `node:fs.watch`. */
+  /** Test seam: `node:fs.watch` (a watch of its own, when not `share`). */
   readonly watchFs?: typeof watch;
+  /**
+   * Share the pack directory's watch with the pack's other watchers
+   * (`shared-watch.ts`; default: on macOS, where each handle's close is
+   * slow).
+   */
+  readonly share?: boolean;
+  /** Test seam: `node:fs/promises`'s `watch`, which a shared watch uses. */
+  readonly watchEvents?: WatchEvents;
   /** Test seam: what the sources are now (`pythonSourcesSignature`). */
   readonly scanSources?: () => Promise<string>;
 }
@@ -93,6 +103,7 @@ export function createPythonPackBuilder(options: PythonPackBuilderOptions): Pack
   const watchFs = options.watchFs ?? watch;
   const scan = options.scanSources ?? (() => pythonSourcesSignature(options.packDir));
   let watcher: FSWatcher | undefined;
+  let unsubscribe: (() => void) | undefined;
   let backstop: ScanBackstop | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -140,7 +151,7 @@ export function createPythonPackBuilder(options: PythonPackBuilderOptions): Pack
   return {
     build,
     async watch(onBuild) {
-      if (watcher !== undefined) return;
+      if (watcher !== undefined || unsubscribe !== undefined) return;
       const schedule = (): void => {
         if (timer !== undefined) clearTimeout(timer);
         timer = setTimeout(() => {
@@ -150,10 +161,21 @@ export function createPythonPackBuilder(options: PythonPackBuilderOptions): Pack
           void (backstop?.mark() ?? Promise.resolve()).then(build).then(onBuild);
         }, options.debounceMs ?? DEFAULT_DEBOUNCE_MS);
       };
-      watcher = watchFs(options.packDir, { recursive: true }, (_event, filename) => {
-        if (filename === null || !isPythonSourceChange(filename.toString())) return;
-        schedule();
-      });
+      if (options.share ?? SHARE_WATCH_BY_DEFAULT) {
+        unsubscribe = directoryWatches(options.watchEvents ?? watchEventsReal).subscribe(
+          options.packDir,
+          (rel) => {
+            if (rel !== undefined && isPythonSourceChange(rel)) schedule();
+          },
+          // The watch failed: build, so the result says how the sources are.
+          schedule,
+        );
+      } else {
+        watcher = watchFs(options.packDir, { recursive: true }, (_event, filename) => {
+          if (filename === null || !isPythonSourceChange(filename.toString())) return;
+          schedule();
+        });
+      }
       backstop = await startScanBackstop({
         scan,
         intervalMs: options.scanIntervalMs ?? DEFAULT_SCAN_INTERVAL_MS,
@@ -166,6 +188,8 @@ export function createPythonPackBuilder(options: PythonPackBuilderOptions): Pack
       if (timer !== undefined) clearTimeout(timer);
       backstop?.stop();
       backstop = undefined;
+      unsubscribe?.();
+      unsubscribe = undefined;
       watcher?.close();
       watcher = undefined;
     },
