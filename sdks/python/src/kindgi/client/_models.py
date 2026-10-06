@@ -4230,7 +4230,7 @@ class Policy(BaseModel):
     description: str | None = None
     spec: dict[str, Any]
     """
-    Kind-specific policy body. For `access-control`, matches `@kindgi/specs/policy.schema.json` (rules + defaults). For `model-routing`, matches `TenantPolicy` from `@kindgi/capabilities` (providers.allow / providers.deny / models.allow / models.deny / regionAllow / maxCostPerCallUsd / maxTokensPerCall). For `tool-errors`, `ToolErrorsSpec` (maxRetries / retryOn). For `hitl`, `HitlSpec` from `@kindgi/policy-contract` (maxTimeoutMs / minReviewerRole / tools — per tool id a mode or `{ mode, requiredRole }`); it only tightens an agent's approvals. `tool-errors` and `hitl` specs are validated on publish. For other kinds, the shape is defined by the runtime consumer.
+    Kind-specific policy body. For `access-control`, matches `@kindgi/specs/policy.schema.json` (rules + defaults). For `model-routing`, matches `TenantPolicy` from `@kindgi/capabilities` (providers.allow / providers.deny / models.allow / models.deny / regionAllow / maxCostPerCallUsd / maxTokensPerCall). For `tool-errors`, `ToolErrorsSpec` (maxRetries / retryOn). For `hitl`, `HitlSpec` from `@kindgi/policy-contract` (maxTimeoutMs / minReviewerRole / tools — per tool id a mode or `{ mode, requiredRole }`); it only tightens an agent's approvals. For `retention`, `{ v: 1, doc: RetentionSpec }` from `@kindgi/policy-contract` (domain / graceSeconds / mode, which must be `purge`); a tenant has one retention policy per domain, plus one for `*`. `tool-errors`, `hitl` and `retention` specs are validated on publish. For other kinds, the shape is defined by the runtime consumer.
     """
 
 
@@ -4268,7 +4268,7 @@ class PolicyVersionRow(BaseModel):
     description: str | None = None
     spec: dict[str, Any]
     """
-    Kind-specific policy body. For `access-control`, matches `@kindgi/specs/policy.schema.json` (rules + defaults). For `model-routing`, matches `TenantPolicy` from `@kindgi/capabilities` (providers.allow / providers.deny / models.allow / models.deny / regionAllow / maxCostPerCallUsd / maxTokensPerCall). For `tool-errors`, `ToolErrorsSpec` (maxRetries / retryOn). For `hitl`, `HitlSpec` from `@kindgi/policy-contract` (maxTimeoutMs / minReviewerRole / tools — per tool id a mode or `{ mode, requiredRole }`); it only tightens an agent's approvals. `tool-errors` and `hitl` specs are validated on publish. For other kinds, the shape is defined by the runtime consumer.
+    Kind-specific policy body. For `access-control`, matches `@kindgi/specs/policy.schema.json` (rules + defaults). For `model-routing`, matches `TenantPolicy` from `@kindgi/capabilities` (providers.allow / providers.deny / models.allow / models.deny / regionAllow / maxCostPerCallUsd / maxTokensPerCall). For `tool-errors`, `ToolErrorsSpec` (maxRetries / retryOn). For `hitl`, `HitlSpec` from `@kindgi/policy-contract` (maxTimeoutMs / minReviewerRole / tools — per tool id a mode or `{ mode, requiredRole }`); it only tightens an agent's approvals. For `retention`, `{ v: 1, doc: RetentionSpec }` from `@kindgi/policy-contract` (domain / graceSeconds / mode, which must be `purge`); a tenant has one retention policy per domain, plus one for `*`. `tool-errors`, `hitl` and `retention` specs are validated on publish. For other kinds, the shape is defined by the runtime consumer.
     """
     unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
     """
@@ -4338,6 +4338,241 @@ class ReinstatePolicyVersionResult(BaseModel):
     policy_id: Annotated[str, Field(alias="policyId")]
     version: str
     was_tombstoned: Annotated[bool, Field(alias="wasTombstoned")]
+
+
+class RetentionPolicyConflict(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    domain: Literal[
+        "org",
+        "agent",
+        "flow",
+        "tool",
+        "eval_suite",
+        "guardrail",
+        "mcp_endpoint",
+        "env",
+        "secret",
+        "run",
+        "policy",
+        "judgment",
+        "judge_class",
+        "provider",
+        "*",
+    ]
+    policy_ids: Annotated[list[str], Field(alias="policyIds", min_length=2)]
+    """
+    Every policy id that covers the domain, sorted.
+    """
+    applied_policy_id: Annotated[str, Field(alias="appliedPolicyId")]
+    """
+    The one that applies: the policy whose latest version is highest, and on equal versions the lower policy id. Unregister the others.
+    """
+
+
+class RetentionScheduledItem(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    domain: Literal[
+        "org",
+        "agent",
+        "flow",
+        "tool",
+        "eval_suite",
+        "guardrail",
+        "mcp_endpoint",
+        "env",
+        "secret",
+        "run",
+        "policy",
+        "judgment",
+        "judge_class",
+        "provider",
+        "*",
+    ]
+    id: str
+    """
+    The tombstoned row's id in its domain.
+    """
+    unregistered_at: Annotated[AwareDatetime, Field(alias="unregisteredAt")]
+    purge_at: Annotated[AwareDatetime, Field(alias="purgeAt")]
+    """
+    `unregisteredAt` plus the policy's grace: when a sweep purges the row.
+    """
+    past_grace: Annotated[bool, Field(alias="pastGrace")]
+    """
+    Whether a sweep would purge the row now.
+    """
+    policy_id: Annotated[str, Field(alias="policyId")]
+    """
+    The retention policy that applies.
+    """
+    policy_version: Annotated[str, Field(alias="policyVersion")]
+    grace_seconds: Annotated[int, Field(alias="graceSeconds")]
+    """
+    The policy's grace, in seconds (`-1`: a hold, never purged).
+    """
+
+
+class RetentionScheduledPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[RetentionScheduledItem]
+    domains_missing_adapter: Annotated[
+        list[
+            Literal[
+                "org",
+                "agent",
+                "flow",
+                "tool",
+                "eval_suite",
+                "guardrail",
+                "mcp_endpoint",
+                "env",
+                "secret",
+                "run",
+                "policy",
+                "judgment",
+                "judge_class",
+                "provider",
+                "*",
+            ]
+        ],
+        Field(alias="domainsMissingAdapter"),
+    ]
+    """
+    Domains a retention policy covers that this deployment can't purge (no adapter is wired).
+    """
+    unpoliced_domains: Annotated[
+        list[
+            Literal[
+                "org",
+                "agent",
+                "flow",
+                "tool",
+                "eval_suite",
+                "guardrail",
+                "mcp_endpoint",
+                "env",
+                "secret",
+                "run",
+                "policy",
+                "judgment",
+                "judge_class",
+                "provider",
+                "*",
+            ]
+        ],
+        Field(alias="unpolicedDomains"),
+    ]
+    """
+    Domains no retention policy covers: their tombstones are kept.
+    """
+    conflicts: list[RetentionPolicyConflict] | None = None
+    """
+    Domains more than one retention policy covers. Absent or empty: none.
+    """
+
+
+class RetentionSweepBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    domain: (
+        Literal[
+            "org",
+            "agent",
+            "flow",
+            "tool",
+            "eval_suite",
+            "guardrail",
+            "mcp_endpoint",
+            "env",
+            "secret",
+            "run",
+            "policy",
+            "judgment",
+            "judge_class",
+            "provider",
+            "*",
+        ]
+        | None
+    ) = None
+    """
+    Sweep only this domain. Absent: every domain.
+    """
+    max_per_domain: Annotated[int | None, Field(alias="maxPerDomain", ge=1, le=10000)] = None
+    """
+    The most rows one call purges per domain (default 500); the rest are `remaining`.
+    """
+
+
+class RetentionSweepDomainBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    max_per_domain: Annotated[int | None, Field(alias="maxPerDomain", ge=1, le=10000)] = None
+    """
+    The most rows this call purges (default 500); the rest are `remaining`.
+    """
+
+
+class PerDomainItem(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    domain: Literal[
+        "org",
+        "agent",
+        "flow",
+        "tool",
+        "eval_suite",
+        "guardrail",
+        "mcp_endpoint",
+        "env",
+        "secret",
+        "run",
+        "policy",
+        "judgment",
+        "judge_class",
+        "provider",
+        "*",
+    ]
+    purged: Annotated[int, Field(ge=0)]
+    remaining: Annotated[int, Field(ge=0)]
+    """
+    Rows past grace this call left (the `maxPerDomain` cap); sweep again.
+    """
+    policy_id: Annotated[str | None, Field(alias="policyId")] = None
+    """
+    The retention policy that applied.
+    """
+    missing_adapter: Annotated[Literal[True] | None, Field(alias="missingAdapter")] = None
+    """
+    Present when this deployment can't purge the domain (no adapter).
+    """
+
+
+class RetentionSweepResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    per_domain: Annotated[list[PerDomainItem], Field(alias="perDomain")]
+    total_purged: Annotated[int, Field(alias="totalPurged", ge=0)]
+    conflicts: list[RetentionPolicyConflict] | None = None
+    """
+    Domains more than one retention policy covers. Absent or empty: none.
+    """
 
 
 class EvalSuite(BaseModel):

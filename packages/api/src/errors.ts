@@ -161,6 +161,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // Admin plane — policies.
   'policy-not-found': 404,
   'policy-already-registered': 409,
+  'policy-scope-taken': 409,
+  'policy-scope-changed': 409,
   // Admin plane — eval suites.
   'block-not-found': 404,
   'block-already-registered': 409,

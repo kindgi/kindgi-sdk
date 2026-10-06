@@ -11,6 +11,8 @@ import {
   type Policy,
   type PolicyKind,
   type PolicyRegistryBinding,
+  type PolicyScopeChanged,
+  type PolicyScopeTaken,
   isAppliedPolicyKind,
   validatePolicySpec,
 } from '@kindgi/policy-contract';
@@ -27,9 +29,12 @@ import { clampLimit } from './pagination.js';
  * that kind. The route validates the top-level shape (id, tenantId,
  * semver version, kind ∈ closed enum, spec is an object), and `spec`
  * against its kind's contract where `@kindgi/policy-contract` has one
- * (`tool-errors`, `hitl`) — a policy that couldn't be applied is refused
- * here, not found out on a turn. Other kinds' specs are their runtime
- * consumer's to validate.
+ * (`tool-errors`, `hitl`, `retention`) — a policy that couldn't be
+ * applied is refused here, not found out on a turn or a sweep. Other
+ * kinds' specs are their runtime consumer's to validate. A kind that
+ * holds a scope (`policyScope`: a retention policy, its domain) gets one
+ * policy per scope; the binding enforces it (`409 policy-scope-taken`,
+ * `409 policy-scope-changed`).
  *
  * Enforcement is out of scope. This is the *registry* surface only.
  * Runtime consumers (e.g. `@kindgi/capabilities` `route` for
@@ -255,6 +260,10 @@ export function policiesRouter(binding: PolicyRegistryBinding): Hono<AppEnv> {
         ),
       );
     }
+    if (outcome.kind === 'scope-taken' || outcome.kind === 'scope-changed') {
+      c.status(statusFor(`policy-${outcome.kind}`) as never);
+      return c.json(toWireError(scopeError(outcome, 'publish'), requestId));
+    }
     c.status(201);
     return c.json({ policyId: outcome.policyId, version: outcome.version });
   });
@@ -305,6 +314,10 @@ export function policiesRouter(binding: PolicyRegistryBinding): Hono<AppEnv> {
         ),
       );
     }
+    if (outcome.kind === 'scope-taken' || outcome.kind === 'scope-changed') {
+      c.status(statusFor(`policy-${outcome.kind}`) as never);
+      return c.json(toWireError(scopeError(outcome, 'reinstate'), requestId));
+    }
     return c.json({
       policyId: outcome.policyId,
       version: outcome.version,
@@ -313,6 +326,51 @@ export function policiesRouter(binding: PolicyRegistryBinding): Hono<AppEnv> {
   });
 
   return r;
+}
+
+/**
+ * The 409 for a policy whose scope (`policyScope`) another policy holds,
+ * or that a version would move: for `retention`, a second policy for a
+ * domain, which a tenant can't have.
+ */
+function scopeError(
+  outcome: PolicyScopeTaken | PolicyScopeChanged,
+  action: 'publish' | 'reinstate',
+): { code: string; message: string } & Record<string, unknown> {
+  const { policyId, version, policyKind, scope } = outcome;
+  const retention = policyKind === 'retention';
+  if (outcome.kind === 'scope-taken') {
+    const { heldBy } = outcome;
+    const message = !retention
+      ? `Policy "${heldBy}" already holds "${scope}" for ${policyKind} policies.`
+      : action === 'publish'
+        ? `Retention domain "${scope}" is already covered by policy "${heldBy}": a tenant has one retention policy per domain, and one for "*". Publish a new version of "${heldBy}" instead, or unregister it first.`
+        : `Retention domain "${scope}" is now covered by policy "${heldBy}", so reinstating "${policyId}" ${version} would make two: a tenant has one retention policy per domain, and one for "*". Unregister "${heldBy}" first.`;
+    return {
+      code: 'policy-scope-taken',
+      message,
+      policyId,
+      version,
+      policyKind,
+      scope,
+      heldBy,
+    };
+  }
+  const { previousScope } = outcome;
+  const message = !retention
+    ? `Policy "${policyId}" holds "${previousScope}"; version ${version} can't move it to "${scope}".`
+    : action === 'publish'
+      ? `Policy "${policyId}" covers retention domain "${previousScope}", and a new version can't move it to "${scope}". Publish a policy for "${scope}" under a new id.`
+      : `Version ${version} of policy "${policyId}" covers retention domain "${scope}", but its other versions cover "${previousScope}": a policy keeps one domain. Publish it under a new id instead.`;
+  return {
+    code: 'policy-scope-changed',
+    message,
+    policyId,
+    version,
+    policyKind,
+    scope,
+    previousScope,
+  };
 }
 
 function serializePolicy(p: Policy): Record<string, unknown> {

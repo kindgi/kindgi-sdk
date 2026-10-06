@@ -1681,6 +1681,92 @@ export type PolicyKind =
 /** @deprecated The wire has no policy status; policies are selected by `kind`. */
 export type PolicyStatus = 'draft' | 'active' | 'archived';
 
+// -- Retention ------------------------------------------------
+
+/**
+ * A tombstoning domain a `retention` policy can cover; `*` is the
+ * tenant-wide default. Wire enum — matches
+ * `@kindgi/api/openapi.json#RetentionDomain`.
+ */
+export type RetentionDomain =
+  | 'org'
+  | 'agent'
+  | 'flow'
+  | 'tool'
+  | 'eval_suite'
+  | 'guardrail'
+  | 'mcp_endpoint'
+  | 'env'
+  | 'secret'
+  | 'run'
+  | 'policy'
+  | 'judgment'
+  | 'judge_class'
+  | 'provider'
+  | '*';
+
+/**
+ * One tombstoned row and when a sweep purges it. Matches
+ * `@kindgi/api/openapi.json#RetentionScheduledItem`.
+ */
+export interface RetentionScheduledItem {
+  readonly domain: RetentionDomain;
+  /** The row's id in its domain. */
+  readonly id: string;
+  readonly unregisteredAt: string;
+  /** `unregisteredAt` plus the policy's grace. */
+  readonly purgeAt: string;
+  /** Whether a sweep would purge it now. */
+  readonly pastGrace: boolean;
+  /** The retention policy that applies. */
+  readonly policyId: string;
+  readonly policyVersion: string;
+  /** `-1`: a hold, never purged. */
+  readonly graceSeconds: number;
+}
+
+/**
+ * A domain more than one retention policy covers. Publishing refuses a
+ * second policy for a domain (`409 policy-scope-taken`), so only
+ * policies stored before that rule can do this. Matches
+ * `@kindgi/api/openapi.json#RetentionPolicyConflict`.
+ */
+export interface RetentionPolicyConflict {
+  readonly domain: RetentionDomain;
+  /** Every policy id that covers the domain, sorted. */
+  readonly policyIds: readonly string[];
+  /**
+   * The one that applies: the policy whose latest version is highest,
+   * and on equal versions the lower policy id. Unregister the others.
+   */
+  readonly appliedPolicyId: string;
+}
+
+/** Matches `@kindgi/api/openapi.json#RetentionScheduledPage`. */
+export interface RetentionScheduledPage {
+  readonly data: readonly RetentionScheduledItem[];
+  /** Covered domains this deployment can't purge (no adapter). */
+  readonly domainsMissingAdapter: readonly RetentionDomain[];
+  /** Domains no retention policy covers: their tombstones are kept. */
+  readonly unpolicedDomains: readonly RetentionDomain[];
+  readonly conflicts?: readonly RetentionPolicyConflict[];
+}
+
+/** Matches `@kindgi/api/openapi.json#RetentionSweepResult`. */
+export interface RetentionSweepResult {
+  readonly perDomain: readonly {
+    readonly domain: RetentionDomain;
+    readonly purged: number;
+    /** Rows past grace this call left (the `maxPerDomain` cap); sweep again. */
+    readonly remaining: number;
+    readonly policyId?: string;
+    /** This deployment can't purge the domain (no adapter). */
+    readonly missingAdapter?: true;
+  }[];
+  readonly totalPurged: number;
+  readonly conflicts?: readonly RetentionPolicyConflict[];
+}
+
 /**
  * Wire body for `POST /v1/policies` per
  * `@kindgi/api/openapi.json#PublishPolicyBody`: `{ kind, description,

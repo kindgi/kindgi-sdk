@@ -370,3 +370,57 @@ def test_the_generated_client_is_in_step_with_openapi() -> None:
         [sys.executable, str(script), "--check"], capture_output=True, text=True, check=False
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_retention_scheduled_and_sweep() -> None:
+    """T236: the retention routes, with the conflicts a page reports."""
+    conflict = {
+        "domain": "provider",
+        "policyIds": ["acme.keep-providers", "acme.keep-providers-long"],
+        "appliedPolicyId": "acme.keep-providers",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/retention/scheduled":
+            return httpx.Response(
+                200,
+                json={
+                    "data": [],
+                    "domainsMissingAdapter": [],
+                    "unpolicedDomains": ["run"],
+                    "conflicts": [conflict],
+                },
+            )
+        return httpx.Response(200, json={"perDomain": [], "totalPurged": 0})
+
+    api, seen = client(handler)
+    page = api.retention.scheduled(domain="provider", past_grace_only=True, limit=10)
+    assert page.conflicts is not None
+    assert page.conflicts[0].applied_policy_id == "acme.keep-providers"
+    assert dict(seen[0].url.params) == {
+        "domain": "provider",
+        "pastGraceOnly": "true",
+        "limit": "10",
+    }
+
+    api.retention.sweep(max_per_domain=100)
+    assert (seen[1].method, seen[1].url.path) == ("POST", "/v1/retention/sweep")
+    assert json.loads(seen[1].content) == {"maxPerDomain": 100}
+
+    api.retention.sweep_domain("judge_class")
+    assert seen[2].url.path == "/v1/retention/sweep/judge_class"
+
+
+def test_a_second_retention_policy_for_a_domain_is_a_conflict() -> None:
+    """T236: `409 policy-scope-taken` names the policy that covers the domain."""
+    response = error(409, "policy-scope-taken", details={"heldBy": "acme.keep-providers"})
+    api, _ = client(lambda r: response, max_retries=0)
+    with pytest.raises(ConflictError) as raised:
+        api.policies.publish(
+            id="acme.keep-providers-long",
+            version="1.0.0",
+            kind="retention",
+            spec={"v": 1, "doc": {"domain": "provider", "graceSeconds": 0, "mode": "purge"}},
+        )
+    assert raised.value.server_code == "policy-scope-taken"
+    assert raised.value.details["heldBy"] == "acme.keep-providers"

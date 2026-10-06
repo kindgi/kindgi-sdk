@@ -143,6 +143,11 @@ export type {
   PolicyListFilter,
   PolicyVersionsFilter,
 } from './resources/policies.js';
+export type {
+  RetentionClient,
+  RetentionScheduledFilter,
+  RetentionSweepInput,
+} from './resources/retention.js';
 export type { SessionsClient, UserFilter, UsersClient } from './resources/users.js';
 export type {
   AddMembershipInput,
@@ -478,6 +483,11 @@ export type {
   PolicyId,
   PolicyKind,
   PolicySpec,
+  RetentionDomain,
+  RetentionPolicyConflict,
+  RetentionScheduledItem,
+  RetentionScheduledPage,
+  RetentionSweepResult,
   PolicyStatus,
   PresignedUrl,
   PresignInput,
