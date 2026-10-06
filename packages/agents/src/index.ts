@@ -98,8 +98,13 @@ export type {
   RenderFailureError,
   RenderResult,
 } from './prompt.js';
-export { pinsDigest } from './pins.js';
-export type { AgentPins } from './pins.js';
+export { pinChanges, pinsDigest } from './pins.js';
+export type {
+  AgentDerivation,
+  AgentDerivationReason,
+  AgentPins,
+  PinChange,
+} from './pins.js';
 export { createAgentRegistry } from './registry.js';
 export type { AgentRegistry } from './registry.js';
 export {

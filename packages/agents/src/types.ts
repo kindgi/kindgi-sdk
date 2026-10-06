@@ -6,7 +6,7 @@ import type { Fact, MemoryScope } from '@kindgi/memory';
 import type { ToolErrorsSpec, ToolHitlMode, ToolHitlRule } from '@kindgi/policy-contract';
 import type { Brand, ConversationId, ProjectId, Semver, TenantId, Timestamp } from '@kindgi/types';
 
-import type { AgentPins } from './pins.js';
+import type { AgentDerivation, AgentPins } from './pins.js';
 
 /**
  * Branded agent id. Convention: dotted namespace under the tenant's
@@ -417,6 +417,12 @@ export interface Agent {
   readonly pins?: AgentPins;
   /** `pinsDigest(pins)`, recorded when the version was published. */
   readonly pinsDigest?: string;
+  /**
+   * Set by the runtime on a version it registered under another number
+   * than the definition's, when a deploy couldn't register that number
+   * as it was (see `AgentDerivation`). Never authored.
+   */
+  readonly derivedFrom?: AgentDerivation;
 }
 
 /**

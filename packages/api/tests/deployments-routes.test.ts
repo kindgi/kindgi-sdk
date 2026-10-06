@@ -5,6 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
+import { type Agent, type AgentPins, pinsDigest } from '@kindgi/agents';
 import { generateEd25519KeyPair, serializePublicKeyPem, signEd25519 } from '@kindgi/crypto';
 import type { Project, ProjectBinding } from '@kindgi/platform';
 import type { Cursor, ProjectId, SigningKeyId, TenantId } from '@kindgi/types';
@@ -554,6 +555,7 @@ function makeApp(opts: {
   signingKeyRegistry?: SigningKeyRegistryBinding;
   imageRegistry?: ImageRegistryBinding;
   agentRegistry?: AgentRegistryBinding;
+  toolRegistry?: ToolRegistryBinding;
   omit?: 'deployment' | 'signing' | 'image';
   omitProjectBinding?: boolean;
   extraTrust?: readonly TrustEntry[];
@@ -588,7 +590,7 @@ function makeApp(opts: {
     ...(opts.extraImages ?? []),
   ];
   const imageRegistry = opts.imageRegistry ?? makeMockImageRegistry(images);
-  const toolRegistry = makeInMemoryToolRegistry();
+  const toolRegistry = opts.toolRegistry ?? makeInMemoryToolRegistry();
   const guardrailRegistry = makeInMemoryGuardrailRegistry();
   const agentRegistry = opts.agentRegistry ?? makeInMemoryAgentRegistry();
   const flowRegistry = makeInMemoryFlowRegistry();
@@ -2339,5 +2341,313 @@ describe('POST /v1/deployments/:deploymentId/secrets — Idempotency-Key', () =>
     });
     expect(secondKey.status).toBe(200);
     expect(secretsFixture.recordedSets).toHaveLength(2);
+  });
+});
+
+// ---------------- agents are pinned (evals step 2) ----------------
+
+/** A tool registry keyed by (id, version), as the runtime's is. */
+function makeVersionedToolRegistry(): ToolRegistryBinding & { versions: (id: string) => string[] } {
+  const rows = new Map<string, Map<string, unknown>>();
+  const versionsOf = (id: string) => [...(rows.get(id)?.keys() ?? [])];
+  return {
+    versions: versionsOf,
+    async list() {
+      return { data: [] };
+    },
+    async get() {
+      return null;
+    },
+    async getVersion() {
+      return null;
+    },
+    async headExists({ toolId }) {
+      return rows.has(toolId as unknown as string);
+    },
+    async listVersions({ toolId }) {
+      return { data: [...(rows.get(toolId as unknown as string)?.values() ?? [])] as never[] };
+    },
+    async resolve({ toolId }) {
+      return { kind: 'not-found', toolId };
+    },
+    async publish({ tool }) {
+      const id = tool.id as unknown as string;
+      const version = tool.version as unknown as string;
+      let byVersion = rows.get(id);
+      if (byVersion === undefined) {
+        byVersion = new Map();
+        rows.set(id, byVersion);
+      }
+      if (byVersion.has(version)) {
+        return { kind: 'already-registered', toolId: tool.id, version: tool.version as never };
+      }
+      byVersion.set(version, tool);
+      return { kind: 'ok', toolId: tool.id, version: tool.version as never };
+    },
+    async unregister({ toolId, version }) {
+      return {
+        unregistered: rows.get(toolId as unknown as string)?.delete(version as never) ?? false,
+      };
+    },
+    async reinstateVersion({ toolId, version }) {
+      return { kind: 'not-found', toolId, version };
+    },
+  };
+}
+
+/** An agent registry that lists and reads its versions back, as the runtime's does. */
+function makeVersionedAgentRegistry(): AgentRegistryBinding & {
+  versions: () => Agent[];
+  seed: (agent: Agent) => void;
+} {
+  const rows = new Map<string, Agent>();
+  return {
+    versions: () => [...rows.values()],
+    seed: (agent) => rows.set(agent.version as unknown as string, agent),
+    async list() {
+      return { data: [] };
+    },
+    async get() {
+      return null;
+    },
+    async getVersion({ version }) {
+      return rows.get(version as unknown as string) ?? null;
+    },
+    async headExists() {
+      return rows.size > 0;
+    },
+    async listVersions() {
+      return { data: [...rows.values()] };
+    },
+    async publish({ agent }) {
+      if (rows.has(agent.version as unknown as string)) {
+        return { kind: 'already-registered', agentId: agent.id, version: agent.version };
+      }
+      rows.set(agent.version as unknown as string, agent);
+      return { kind: 'ok', agentId: agent.id, version: agent.version };
+    },
+    async unregister({ version }) {
+      return { unregistered: rows.delete(version as unknown as string) };
+    },
+    async reinstateVersion({ agentId, version }) {
+      return { kind: 'not-found', agentId, version };
+    },
+  };
+}
+
+/** A pack with one tool version and one agent that uses the tool by range. */
+function pinnedPack(opts: {
+  toolVersion: string;
+  agentVersion: string;
+  range?: string;
+  instructions?: string;
+  artifactVersion?: string;
+}): SignedDeploy {
+  const artifactVersion = opts.artifactVersion ?? '20261005.1';
+  const publishedAt = '2026-10-05T00:00:00.000Z';
+  return buildSignedDeploy({
+    artifactVersion,
+    publishedAt,
+    index: {
+      v: 1,
+      artifactVersion,
+      publishedAt,
+      tools: [
+        {
+          id: 'acme.score',
+          description: 'Scores a match.',
+          version: opts.toolVersion,
+          input: { type: 'object', properties: { q: { type: 'string' } } },
+          output: { type: 'object', properties: { score: { type: 'number' } } },
+          modulePath: `./tools/score-${opts.toolVersion}.js`,
+        },
+      ],
+      guardrails: [],
+      agents: [
+        {
+          id: 'acme.matcher',
+          version: opts.agentVersion,
+          name: 'Matcher',
+          instructions: opts.instructions ?? 'Match the request.',
+          capabilities: [{ feature: 'model.text.chat' }],
+          tools: [{ id: 'acme.score', version: opts.range ?? '^1.0.0' }],
+        },
+      ],
+      flows: [],
+    },
+  });
+}
+
+describe('POST /v1/deployments — agents are pinned, and a deploy never keeps old pins', () => {
+  const trustOf = (f: SignedDeploy): TrustEntry => ({
+    keyId: KEY_ID,
+    tenantId,
+    publicKey: Buffer.from(f.publicKeyRaw).toString('base64'),
+  });
+  const imageOf = (f: SignedDeploy): FakeImage => ({
+    imageRef: f.imageRef,
+    digest: f.digest,
+    indexBytes: f.indexBytes,
+  });
+
+  function setup(...packs: SignedDeploy[]) {
+    const tools = makeVersionedToolRegistry();
+    const agents = makeVersionedAgentRegistry();
+    const { app } = makeApp({
+      toolRegistry: tools,
+      agentRegistry: agents,
+      extraTrust: packs.map(trustOf),
+      extraImages: packs.map(imageOf),
+    });
+    const deploy = async (f: SignedDeploy) => {
+      const res = await app.request('/v1/deployments', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(f.wire),
+      });
+      return { status: res.status, body: (await res.json()) as Record<string, any> };
+    };
+    return { tools, agents, deploy };
+  }
+
+  test('a new tool version in range registers the next patch of the agent, naming the pin that changed', async () => {
+    const first = pinnedPack({ toolVersion: '1.0.0', agentVersion: '1.4.0' });
+    const second = pinnedPack({ toolVersion: '1.1.0', agentVersion: '1.4.0' });
+    const { agents, deploy } = setup(first, second);
+
+    const one = await deploy(first);
+    expect(one.status).toBe(201);
+    expect(one.body.contents.agents).toEqual([{ id: 'acme.matcher', version: '1.4.0' }]);
+
+    const two = await deploy(second);
+    expect(two.status).toBe(201);
+    expect(two.body.contents.agents).toEqual([
+      {
+        id: 'acme.matcher',
+        version: '1.4.1',
+        authoredVersion: '1.4.0',
+        reason: 'pins-changed',
+        newVersion: true,
+        pinChanges: [{ kind: 'tool', id: 'acme.score', from: '1.0.0', to: '1.1.0' }],
+      },
+    ]);
+    const byVersion = Object.fromEntries(agents.versions().map((a) => [a.version, a]));
+    expect(byVersion['1.4.0']?.pins?.tools).toEqual({ 'acme.score': '1.0.0' });
+    expect(byVersion['1.4.1']?.pins?.tools).toEqual({ 'acme.score': '1.1.0' });
+    expect(byVersion['1.4.1']?.derivedFrom).toEqual({ version: '1.4.0', reason: 'pins-changed' });
+    expect(byVersion['1.4.1']?.pinsDigest).toBe(pinsDigest(byVersion['1.4.1']?.pins as AgentPins));
+  });
+
+  test('redeploying changes nothing; setting the registered version in the code is unchanged too', async () => {
+    const first = pinnedPack({ toolVersion: '1.0.0', agentVersion: '1.4.0' });
+    const second = pinnedPack({ toolVersion: '1.1.0', agentVersion: '1.4.0' });
+    const again = pinnedPack({
+      toolVersion: '1.1.0',
+      agentVersion: '1.4.0',
+      artifactVersion: '20261005.2',
+    });
+    const matched = pinnedPack({
+      toolVersion: '1.1.0',
+      agentVersion: '1.4.1',
+      artifactVersion: '20261005.3',
+    });
+    const { agents, deploy } = setup(first, second, again, matched);
+    await deploy(first);
+    await deploy(second);
+
+    const three = await deploy(again);
+    expect(three.status).toBe(201);
+    expect(three.body.contents.agents).toEqual([
+      {
+        id: 'acme.matcher',
+        version: '1.4.1',
+        authoredVersion: '1.4.0',
+        reason: 'pins-changed',
+        newVersion: false,
+        pinChanges: [{ kind: 'tool', id: 'acme.score', from: '1.0.0', to: '1.1.0' }],
+      },
+    ]);
+    const four = await deploy(matched);
+    expect(four.body.contents.agents).toEqual([{ id: 'acme.matcher', version: '1.4.1' }]);
+    expect(
+      agents
+        .versions()
+        .map((a) => a.version)
+        .sort(),
+    ).toEqual(['1.4.0', '1.4.1']);
+  });
+
+  test('a version taken by a different definition registers the next free one in its line', async () => {
+    const first = pinnedPack({ toolVersion: '1.0.0', agentVersion: '1.4.0' });
+    const edited = pinnedPack({
+      toolVersion: '1.0.0',
+      agentVersion: '1.4.0',
+      instructions: 'Match the request, strictly.',
+      artifactVersion: '20261005.2',
+    });
+    const { agents, deploy } = setup(first, edited);
+    // 1.4.1 is taken: an earlier, different definition holds it.
+    agents.seed({
+      id: 'acme.matcher',
+      version: '1.4.1',
+      name: 'Matcher',
+      instructions: 'Something else entirely.',
+      capabilities: [{ feature: 'model.text.chat' }],
+      tools: [],
+    } as unknown as Agent);
+    await deploy(first);
+
+    const two = await deploy(edited);
+    expect(two.body.contents.agents).toEqual([
+      {
+        id: 'acme.matcher',
+        version: '1.4.2',
+        authoredVersion: '1.4.0',
+        reason: 'version-taken',
+        newVersion: true,
+      },
+    ]);
+  });
+
+  test('a version published before pins registers a pinned next patch', async () => {
+    const pack = pinnedPack({ toolVersion: '1.0.0', agentVersion: '1.4.0' });
+    const { agents, deploy } = setup(pack);
+    agents.seed({
+      id: 'acme.matcher',
+      version: '1.4.0',
+      name: 'Matcher',
+      instructions: 'Match the request.',
+      capabilities: [{ feature: 'model.text.chat' }],
+      tools: [{ id: 'acme.score', version: '^1.0.0' }],
+    } as unknown as Agent);
+
+    const res = await deploy(pack);
+    expect(res.body.contents.agents).toEqual([
+      {
+        id: 'acme.matcher',
+        version: '1.4.1',
+        authoredVersion: '1.4.0',
+        reason: 'unpinned',
+        newVersion: true,
+      },
+    ]);
+  });
+
+  test('a range that matches no published version refuses the deploy and rolls back its tools', async () => {
+    const pack = pinnedPack({ toolVersion: '1.0.0', agentVersion: '1.4.0', range: '^2.0.0' });
+    const { tools, agents, deploy } = setup(pack);
+    const res = await deploy(pack);
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('validation-failed');
+    expect(res.body.error.details.issues).toEqual([
+      {
+        path: '/agents/0/tools/0/version',
+        message: expect.stringContaining(
+          'agent "acme.matcher": tool "acme.score" has no published version in "^2.0.0" (published: 1.0.0)',
+        ),
+      },
+    ]);
+    expect(tools.versions('acme.score')).toEqual([]);
+    expect(agents.versions()).toEqual([]);
   });
 });

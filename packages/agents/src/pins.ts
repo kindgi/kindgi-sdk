@@ -42,3 +42,65 @@ export function pinsDigest(pins: AgentPins): string {
   });
   return `sha256:${createHash('sha256').update(canonical, 'utf8').digest('hex')}`;
 }
+
+/**
+ * Why the runtime registered an agent version under another number
+ * than the one its definition names:
+ *
+ * - `pins-changed`: the definition's version is registered with other
+ *   pins (a tool it uses has a new version in range), and a version's
+ *   pins never change;
+ * - `unpinned`: the definition's version was published before pins
+ *   existed, so it has none;
+ * - `version-taken`: the definition's version is registered with other
+ *   content.
+ */
+export type AgentDerivationReason = 'pins-changed' | 'unpinned' | 'version-taken';
+
+/** The version an agent version was registered in place of, and why. */
+export interface AgentDerivation {
+  /** The version the agent's definition names. */
+  readonly version: string;
+  readonly reason: AgentDerivationReason;
+}
+
+/** One pin that differs between two agent versions. */
+export interface PinChange {
+  readonly kind: 'tool' | 'prompt' | 'setting';
+  readonly id: string;
+  /** The earlier version's pin; absent when it didn't pin this block. */
+  readonly from?: string;
+  /** The later version's pin; absent when it doesn't pin this block. */
+  readonly to?: string;
+}
+
+const PIN_KINDS = [
+  ['tools', 'tool'],
+  ['prompts', 'prompt'],
+  ['settings', 'setting'],
+] as const;
+
+/**
+ * The pins that differ from `before` to `after`, by kind then id. With
+ * no `before` (a version published before pins), every pin of `after`
+ * is a change.
+ */
+export function pinChanges(before: AgentPins | undefined, after: AgentPins): PinChange[] {
+  const changes: PinChange[] = [];
+  for (const [key, kind] of PIN_KINDS) {
+    const was = before?.[key] ?? {};
+    const now = after[key];
+    for (const id of [...new Set([...Object.keys(was), ...Object.keys(now)])].sort()) {
+      const from = was[id];
+      const to = now[id];
+      if (from === to) continue;
+      changes.push({
+        kind,
+        id,
+        ...(from !== undefined && { from }),
+        ...(to !== undefined && { to }),
+      });
+    }
+  }
+  return changes;
+}

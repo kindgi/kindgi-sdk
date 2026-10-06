@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 
 import { Hono } from 'hono';
 
-import type { AgentId } from '@kindgi/agents';
+import type { Agent, AgentId, AgentPins } from '@kindgi/agents';
 import { tuplesForCreate } from '@kindgi/authz';
 import { parsePublicKeyPem, verifyEd25519 } from '@kindgi/crypto';
 import { type Guardrail, validateGuardrailSpec } from '@kindgi/guardrails';
@@ -16,13 +16,16 @@ import type {
   FlowId,
   GuardrailId,
   ProjectId,
+  Semver,
   SigningKeyId,
   TenantId,
   ToolId,
 } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from '../agent-binding.js';
+import { type UnpinnableTool, publishDeployedAgent, resolveAgentPins } from '../agent-pins.js';
 import type {
+  DeployedAgent,
   Deployment,
   DeploymentBinding,
   DeploymentPrimitiveCounts,
@@ -529,6 +532,9 @@ export function deploymentsRouter(bindings: DeploymentsRouterBindings): Hono<App
     }
 
     const rolled: RollbackAction[] = [];
+    // The version each agent is registered under: its definition's, or
+    // the one a deploy registered in its place (`publishDeployedAgent`).
+    const deployedAgents: DeployedAgent[] = [];
     try {
       if (bindings.toolRegistry !== undefined && defaultProjectId !== undefined) {
         for (const tool of validated.tools) {
@@ -578,31 +584,18 @@ export function deploymentsRouter(bindings: DeploymentsRouterBindings): Hono<App
         }
       }
       if (bindings.agentRegistry !== undefined && defaultProjectId !== undefined) {
-        for (const agent of validated.agents) {
-          const projectIdForAgent = defaultProjectId;
-          const outcome = await bindings.agentRegistry.publish({
+        deployedAgents.push(
+          ...(await registerAgents({
+            agents: bindings.agentRegistry,
+            tools: bindings.toolRegistry,
             tenantId,
-            projectId: projectIdForAgent,
-            agent,
-            // Signed deploys have no per-request principal — pass parent-
-            // only tuples (no owner grant). Tenant admins keep access via
-            // `admin from parent` cascade.
-            enqueueTuples: (agentId) =>
-              tuplesForCreate({
-                kind: 'agent',
-                id: agentId as AgentId,
-                tenantId,
-                projectId: projectIdForAgent,
-              }),
-          });
-          if (outcome.kind === 'ok') {
-            const agentId = outcome.agentId;
-            const version = outcome.version;
-            rolled.push(async () => {
-              await bindings.agentRegistry?.unregister({ tenantId, agentId, version });
-            });
-          }
-        }
+            projectId: defaultProjectId,
+            defined: validated.agents,
+            rolled,
+          })),
+        );
+      } else {
+        deployedAgents.push(...validated.agents.map(deployedAgent));
       }
       if (bindings.flowRegistry !== undefined && defaultProjectId !== undefined) {
         for (const flow of validated.flows) {
@@ -630,6 +623,19 @@ export function deploymentsRouter(bindings: DeploymentsRouterBindings): Hono<App
       }
     } catch (cause) {
       await rollback(rolled);
+      if (cause instanceof UnpinnableAgents) {
+        c.status(statusFor('invalid-agent') as never);
+        return c.json(
+          toWireError(
+            {
+              code: 'validation-failed',
+              message: `The deployment's agents use tool versions that aren't published (${cause.issues.length} issue${cause.issues.length === 1 ? '' : 's'}); nothing was deployed`,
+              issues: cause.issues as unknown as Record<string, unknown>[],
+            },
+            requestId,
+          ),
+        );
+      }
       c.status(statusFor('internal-server-error') as never);
       return c.json(
         toWireError(
@@ -669,10 +675,7 @@ export function deploymentsRouter(bindings: DeploymentsRouterBindings): Hono<App
             version: t.version,
           })),
           guardrails: validated.guardrails.map((g) => ({ id: g.id as unknown as string })),
-          agents: validated.agents.map((a) => ({
-            id: a.id as unknown as string,
-            version: a.version as unknown as string,
-          })),
+          agents: deployedAgents,
           flows: validated.flows.map((f) => ({
             id: f.id as unknown as string,
             version: f.version as unknown as string,
@@ -1410,6 +1413,112 @@ function validateFlowIndexShape(
 // ------------------------------------------------------------
 
 type RollbackAction = () => Promise<void>;
+
+/** A deploy whose agents' tool ranges match no published version. */
+class UnpinnableAgents extends Error {
+  constructor(readonly issues: readonly UnpinnableTool[]) {
+    super('agents use tool versions that are not published');
+  }
+}
+
+/** A deployed agent registered under its definition's version. */
+function deployedAgent(agent: Agent): DeployedAgent {
+  return { id: agent.id as unknown as string, version: agent.version as unknown as string };
+}
+
+/**
+ * Register a deployment's agents, each under the version it's registered
+ * as (`DeployedAgent`), pushing a rollback for each version it writes.
+ *
+ * With a tool registry, every agent is pinned first (the pack's tools
+ * are registered by now): one whose range matches no published version
+ * throws `UnpinnableAgents` before any agent is written, and the deploy
+ * rolls back. Each is then registered by `publishDeployedAgent`, which
+ * never keeps a version's old pins. Without one, agents register
+ * unpinned, as before pins existed.
+ */
+async function registerAgents(input: {
+  readonly agents: AgentRegistryBinding;
+  readonly tools: ToolRegistryBinding | undefined;
+  readonly tenantId: TenantId;
+  readonly projectId: ProjectId;
+  readonly defined: readonly Agent[];
+  readonly rolled: RollbackAction[];
+}): Promise<DeployedAgent[]> {
+  const { agents, tools, tenantId, projectId, rolled } = input;
+  // Signed deploys have no per-request principal — pass parent-only
+  // tuples (no owner grant). Tenant admins keep access via
+  // `admin from parent` cascade.
+  const enqueueTuples = (agentId: string) =>
+    tuplesForCreate({ kind: 'agent', id: agentId as AgentId, tenantId, projectId });
+  const written = (agentId: AgentId, version: Semver) =>
+    rolled.push(async () => {
+      await agents.unregister({ tenantId, agentId, version });
+    });
+
+  if (tools === undefined) {
+    for (const agent of input.defined) {
+      const outcome = await agents.publish({ tenantId, projectId, agent, enqueueTuples });
+      if (outcome.kind === 'ok') written(outcome.agentId, outcome.version);
+    }
+    return input.defined.map(deployedAgent);
+  }
+
+  const pinsOf = await pinAgents(tools, tenantId, input.defined);
+  const deployed: DeployedAgent[] = [];
+  for (const [i, agent] of input.defined.entries()) {
+    const pins = pinsOf[i] as AgentPins;
+    const outcome = await publishDeployedAgent({
+      agents,
+      tenantId,
+      projectId,
+      agent,
+      pins,
+      enqueueTuples,
+    });
+    if (outcome.kind === 'registered' || outcome.kind === 'renumbered') {
+      written(agent.id, outcome.version as unknown as Semver);
+    }
+    deployed.push(
+      outcome.kind === 'reused' || outcome.kind === 'renumbered'
+        ? {
+            id: agent.id as unknown as string,
+            version: outcome.version,
+            authoredVersion: agent.version as unknown as string,
+            reason: outcome.reason,
+            newVersion: outcome.kind === 'renumbered',
+            ...(outcome.pinChanges !== undefined && { pinChanges: outcome.pinChanges }),
+          }
+        : deployedAgent(agent),
+    );
+  }
+  return deployed;
+}
+
+/** Each agent's pins, in order; throws `UnpinnableAgents` naming every range that matches nothing. */
+async function pinAgents(
+  tools: ToolRegistryBinding,
+  tenantId: TenantId,
+  defined: readonly Agent[],
+): Promise<AgentPins[]> {
+  const pins: AgentPins[] = [];
+  const unpinnable: UnpinnableTool[] = [];
+  for (const [i, agent] of defined.entries()) {
+    const resolved = await resolveAgentPins(tools, tenantId, agent);
+    if (resolved.kind === 'ok') {
+      pins.push(resolved.pins);
+      continue;
+    }
+    for (const issue of resolved.issues) {
+      unpinnable.push({
+        path: `/agents/${i}${issue.path}`,
+        message: `agent "${agent.id as unknown as string}": ${issue.message}`,
+      });
+    }
+  }
+  if (unpinnable.length > 0) throw new UnpinnableAgents(unpinnable);
+  return pins;
+}
 
 async function rollback(actions: readonly RollbackAction[]): Promise<void> {
   // Reverse order — last-in, first-out — so registrations are undone in

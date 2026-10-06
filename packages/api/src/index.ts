@@ -539,6 +539,7 @@ export type {
   DeploymentGetInput,
   DeploymentListInput,
   DeploymentPage,
+  DeployedAgent,
   DeployedPrimitive,
   DeploymentContents,
   DeploymentPrimitiveCounts,
