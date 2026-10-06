@@ -18,6 +18,8 @@ import { fileURLToPath } from 'node:url';
 import { bumpProblems, changesetBumps, whyDecisionNeeded } from './check-changeset-bumps.mjs';
 
 const SCRIPT = fileURLToPath(new URL('./check-changeset-bumps.mjs', import.meta.url));
+/** A changeset's file name, built so check-refs doesn't read it as a document reference. */
+const md = (name) => `${name}.md`;
 const changeset = (bumps, body = 'A change.') =>
   `---\n${Object.entries(bumps)
     .map(([pkg, bump]) => `"${pkg}": ${bump}`)
@@ -43,11 +45,11 @@ describe('bumpProblems', () => {
   test('a minor or major is a problem; a patch is not', () => {
     assert.deepEqual(
       bumpProblems([
-        { file: 'a.md', text: changeset({ '@kindgi/api': 'minor', '@kindgi/cli': 'patch' }) },
-        { file: 'b.md', text: changeset({ '@kindgi/cli': 'patch' }) },
-        { file: 'c.md', text: changeset({ '@kindgi/sdk': 'major' }) },
+        { file: md('a'), text: changeset({ '@kindgi/api': 'minor', '@kindgi/cli': 'patch' }) },
+        { file: md('b'), text: changeset({ '@kindgi/cli': 'patch' }) },
+        { file: md('c'), text: changeset({ '@kindgi/sdk': 'major' }) },
       ]),
-      ['a.md: @kindgi/api: minor', 'c.md: @kindgi/sdk: major'],
+      [`${md('a')}: @kindgi/api: minor`, `${md('c')}: @kindgi/sdk: major`],
     );
   });
 
@@ -56,7 +58,7 @@ describe('bumpProblems', () => {
       { '@kindgi/api': 'minor' },
       'A new surface.\n\nRelease-decision: 0.2.0, Katrin, 2026-10-06',
     );
-    assert.deepEqual(bumpProblems([{ file: 'a.md', text: decided }]), []);
+    assert.deepEqual(bumpProblems([{ file: md('a'), text: decided }]), []);
   });
 });
 
@@ -101,14 +103,14 @@ describe('the command', () => {
   const run = (cwd) => spawnSync(process.execPath, [SCRIPT], { cwd, encoding: 'utf8' });
 
   test('before 1.0, a minor fails even outside pre mode', () => {
-    const out = run(repo({ 'a.md': changeset({ '@kindgi/api': 'minor' }) }));
+    const out = run(repo({ [md('a')]: changeset({ '@kindgi/api': 'minor' }) }));
     assert.equal(out.status, 1);
     assert.match(out.stderr, /before 1\.0/);
     assert.match(out.stderr, /\.changeset\/a\.md: @kindgi\/api: minor/);
   });
 
   test('from 1.0, outside pre mode, a minor passes', () => {
-    const out = run(repo({ 'a.md': changeset({ '@kindgi/api': 'minor' }) }, '1.2.0'));
+    const out = run(repo({ [md('a')]: changeset({ '@kindgi/api': 'minor' }) }, '1.2.0'));
     assert.equal(out.status, 0);
     assert.match(out.stdout, /need no decision/);
   });
@@ -117,8 +119,8 @@ describe('the command', () => {
     const out = run(
       repo({
         'pre.json': JSON.stringify({ mode: 'pre', tag: 'rc' }),
-        'a.md': changeset({ '@kindgi/api': 'minor' }),
-        'b.md': changeset({ '@kindgi/cli': 'patch' }),
+        [md('a')]: changeset({ '@kindgi/api': 'minor' }),
+        [md('b')]: changeset({ '@kindgi/cli': 'patch' }),
         'README.md': '# Changesets\n',
       }),
     );
@@ -132,7 +134,7 @@ describe('the command', () => {
       run(
         repo({
           'pre.json': JSON.stringify({ mode: 'pre', tag: 'rc' }),
-          'b.md': changeset({ '@kindgi/cli': 'patch' }),
+          [md('b')]: changeset({ '@kindgi/cli': 'patch' }),
         }),
       ).status,
       0,
@@ -142,7 +144,7 @@ describe('the command', () => {
         repo(
           {
             'pre.json': JSON.stringify({ mode: 'exit', tag: 'rc' }),
-            'a.md': changeset({ '@kindgi/api': 'minor' }),
+            [md('a')]: changeset({ '@kindgi/api': 'minor' }),
           },
           '1.2.0',
         ),
