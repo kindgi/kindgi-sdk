@@ -348,7 +348,7 @@ kindgi gate-policies publish acme.order-desk-release --policy-version=1.0.0 --ag
 | `evidence.minCases` | each figure resting on at least this many judged cases, for the version and for the live one |
 | `metrics` | each named figure (`weightedYesShare`, `judgedCoverage`, or `weightedPrecisionAtK` with its `k`) at least `minCandidate`, and at most `maxDrop` below the live version |
 | `replay` | at most this many diverged cases, errors, refused writes and stopped cases (`maxDiverged`, `maxErrors`, `maxRefusedWrites`, `maxStopped`); those left out are 0 |
-| `approvals` | then a reviewer with this role (`senior` if left out) approves it, someone other than whoever asked |
+| `approvals` | then a reviewer with this role (`senior` if left out) approves it, someone other than whoever asked (`separateApprover: false` lets the one who asked approve it) |
 | `onlyRestrictedClasses: true` | a comparison that [counted only restricted judges](../compare-an-agent-version/#count-only-restricted-judges) |
 
 A promotion must name its comparison when the policy has `comparison`,
@@ -421,7 +421,11 @@ kindgi approvals complete <approval-id> --decision=approve --rationale="Checked 
 
 The version goes live, and the promotion is `promoted`. Whoever asked can't
 approve their own request:
-`Approval <approval-id> was asked for by you: someone else must approve it`.
+`Approval <approval-id> was asked for by you: someone else must approve it`,
+unless the policy's `approvals` has `"separateApprover": false`. A
+deployment with one credential has only one person to ask and approve (see
+[Run with authorization](../../../deploy/authorization/)), so its gates with
+`approvals` need `"separateApprover": false`.
 If another promotion of the same scope goes live first, a waiting request is
 `superseded` instead of going live.
 
