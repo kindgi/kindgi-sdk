@@ -278,6 +278,37 @@ describe('not-implemented-in-preview SDK errors', () => {
     expect(out.stderr).toContain('kindgi approvals complete <approval-id> --decision=approve');
     expect(called).toBe(false);
   });
+
+  test("tokens create and revoke say the runtime doesn't serve them, and call nothing", async () => {
+    for (const argv of [
+      ['tokens', 'create'],
+      ['tokens', 'revoke', 'tok-1'],
+    ]) {
+      let called = false;
+      const out = await runCli(
+        baseInputs({
+          argv: [...argv, '--url=https://x', '--token=t'],
+          clientFactory: () =>
+            ({
+              tokens: {
+                create: async () => {
+                  called = true;
+                },
+                revoke: async () => {
+                  called = true;
+                },
+              },
+            }) as never,
+        }),
+      );
+      expect(out.exitCode).toBe(2);
+      expect(out.stderr).toContain(
+        `Command 'kindgi ${argv.slice(0, 2).join(' ')}' is not available`,
+      );
+      expect(out.stderr).toContain("the Kindgi runtime doesn't serve `/v1/tokens` yet");
+      expect(called).toBe(false);
+    }
+  });
 });
 
 describe('kindgi runs start', () => {

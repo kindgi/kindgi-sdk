@@ -30,6 +30,10 @@ export const UNWIRED_COMMANDS: ReadonlySet<string> = new Set([
   'runs resume',
 ]);
 
+/** Why `kindgi tokens` is unwired: the runtime wires no `tokenAdmin`, so `/v1/tokens` isn't mounted (T243). */
+const TOKENS_NOT_SERVED =
+  "the Kindgi runtime doesn't serve `/v1/tokens` yet, so it has no API keys to mint or revoke; it authenticates with the token it starts with (`KINDGI_API_TOKEN`, or the one `kindgi dev` prints).";
+
 /**
  * Why a listed command isn't available, when the reason isn't simply "not
  * wired yet": what the CLI prints instead of the generic message.
@@ -39,6 +43,8 @@ export const UNWIRED_REASONS: ReadonlyMap<string, string> = new Map([
     'runs resume',
     'resuming a run at a waitpoint is not available in this release: every waitpoint belongs to an approval or to the runtime. A run waiting for an approval continues when a reviewer decides it: `kindgi approvals complete <approval-id> --decision=approve`.',
   ],
+  ['tokens create', TOKENS_NOT_SERVED],
+  ['tokens revoke', TOKENS_NOT_SERVED],
 ]);
 
 /** Whether the command at `path` (its words, from the root) is wired. */
