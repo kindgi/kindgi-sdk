@@ -119,7 +119,10 @@ Python). Changing members takes `admin` on the project.
 ## The access audit
 
 Each decision, allowed or denied, is kept: `GET /v1/audit/authz` lists them,
-newest last, for a tenant admin.
+newest last, for a tenant admin. They're kept for good, unless the runtime
+purges audit events: with `KINDGI_COMPLIANCE_CLASSIFIER=shipped`, allowed ones
+after 90 days and denied ones after 365 (see
+[Audit events](../retention/#audit-events)).
 
 ```json
 {

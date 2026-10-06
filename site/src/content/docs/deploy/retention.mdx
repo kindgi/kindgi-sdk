@@ -1,6 +1,6 @@
 ---
 title: Keep and purge deleted data
-description: How long Kindgi keeps what you delete, the retention policies that purge it, sweeps, and keeping records for good.
+description: How long Kindgi keeps what you delete, the retention policies that purge it, sweeps, keeping records for good, and how long the audit trail is kept.
 sidebar:
   order: 4
 ---
@@ -182,6 +182,11 @@ purged:
   (`past_grace_only` in Python) the list to what a sweep would purge now.
 - **`unpolicedDomains`**, in the list's answer, names the domains no policy
   covers: their deleted records are kept.
+- **A long list comes in pages.** `limit` is how many records per domain
+  (25 unless you say, at most 100); `hasMore` says there are more, and
+  `nextCursor`, passed back as `cursor`, gets the next page. In Python,
+  `paginate(kindgi.retention.scheduled, limit=…)` (from `kindgi.client`) walks
+  every page.
 - **A purged record is gone for good.** Sweeping again purges nothing new
   until more records pass their grace. Over HTTP: `GET /v1/retention/scheduled`
   and `POST /v1/retention/sweep` (or `/v1/retention/sweep/<domain>`).
@@ -219,6 +224,62 @@ have a policy of their own:
 
 Records kept for good aren't listed by `retention.scheduled`, since nothing
 will purge them.
+
+## Audit events
+
+Retention policies don't touch the audit trail: each access decision, each
+approval decision, each run's outcome. Kindgi keeps it for good, unless you
+start the runtime with `KINDGI_COMPLIANCE_CLASSIFIER` set to:
+
+- `shipped`, the classifier the runtime ships;
+- or the absolute path of a classifier JSON of your own.
+
+With `shipped`, the runtime purges audit events by kind, when it starts and
+then every hour, in the tenants it serves:
+
+| Audit events | Kept for |
+| --- | --- |
+| Access decisions (`authz-decision`) | 90 days; denied ones 365 days |
+| Run outcomes (`run-outcome`), guardrail violations (`guardrail-violation`) | 730 days |
+| Approval decisions (`hitl-decision`), secret changes (`secret-set`, `secret-rotation`) | For good: they're on legal hold |
+| Any other kind | For good |
+
+The banner says it's on:
+
+```text
+  Compliance: on, the shipped classifier: /v1/compliance/*, and audit events purged by kind as it says
+```
+
+Without the setting, it says
+`Compliance: off (KINDGI_COMPLIANCE_CLASSIFIER turns on /v1/compliance/* and purging audit events by kind)`,
+and no audit event is ever purged. With it on, a pass that purged something
+logs it, per tenant:
+
+```text
+[audit retention] tenant 5c0a7e11-0000-4000-8000-00000000c0de: purged 2 (authz-decision 1, run-outcome 1)
+```
+
+Any other value stops the runtime at start:
+`` KINDGI_COMPLIANCE_CLASSIFIER must be `shipped` or the absolute path of a classifier JSON. Got "nonsense". ``
+
+Your own classifier lists the kinds to purge under `byKind`, each with its
+`days`, and `onDenyDays` for denied ones; `legalHold: true` keeps a kind for
+good. A kind it doesn't list is kept. This one keeps run outcomes 50 days:
+
+```json
+{
+  "version": 1,
+  "default": { "retention": { "days": 90 }, "signed": false, "exportable": false },
+  "byKind": {
+    "authz-decision": { "retention": { "days": 90, "onDenyDays": 365 }, "signed": false, "exportable": true },
+    "run-outcome": { "retention": { "days": 50 }, "signed": true, "exportable": true },
+    "hitl-decision": { "retention": { "days": 2555, "legalHold": true }, "signed": true, "exportable": true }
+  }
+}
+```
+
+The setting also turns on `GET /v1/compliance/evidence`, which lists the audit
+events as compliance evidence. Without it, that route answers `404`.
 
 ## In the console
 
