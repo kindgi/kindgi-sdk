@@ -20,7 +20,6 @@ export const UNWIRED_COMMANDS: ReadonlySet<string> = new Set([
   'observations',
   'proposals',
   'tokens',
-  'tools publish',
   'runs resume',
   'memory facts supersede',
   'memory facts retrieve',
