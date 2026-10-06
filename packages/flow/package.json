@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/flow",
-  "version": "0.1.4-rc.0",
+  "version": "0.1.4-rc.1",
   "description": "Flow model + predicate DSL for Kindgi™. Defines the task-flow shape (nodes, edges, conditional edges, data-flow mappings) executed by the kernel. Pure — no I/O, no database, no runtime. Ships types, a JSON-schema-validated loader (loadFlow / defineFlow), a predicate evaluator and mapping resolver (evaluateExpr / resolveMapping), and the scheduler tick (schedulerTick) the kernel uses to pick the nodes ready for concurrent execution.",
   "license": "Apache-2.0",
   "repository": {

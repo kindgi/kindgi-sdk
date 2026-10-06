@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/env-inmemory",
-  "version": "0.1.4-rc.0",
+  "version": "0.1.4-rc.1",
   "description": "Reference in-memory `EnvBinding` adapter — dev + tests only; refuses to boot in production.",
   "license": "Apache-2.0",
   "repository": {

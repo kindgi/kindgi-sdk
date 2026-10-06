@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/memory",
-  "version": "0.1.4-rc.0",
+  "version": "0.1.4-rc.1",
   "description": "Kindgi™ memory type surface. Public type contract for the memory subsystem: Fact (typed versioned record, Kind-A immutable or Kind-B cached-view), Retention (fact-level retention override), MemoryScope (where in the tenant/user/thread hierarchy a Fact lives), Source + SourceFreshness + SourceRefresh (external-source metadata for Kind-B facts). Also LogEntry + LOG_KINDS (hash-chained run log), RetrievalHit, the MemoryError variants, and MemoryQueryBinding (the data-access interface a binding implementation provides). Types and interfaces only — no runtime state. Storage, indexes, retrieval, and retention sweeps are provided by a binding implementation, such as the Postgres-backed one in the Kindgi runtime.",
   "license": "Apache-2.0",
   "repository": {
