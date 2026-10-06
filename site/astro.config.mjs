@@ -25,6 +25,7 @@ const guideAreas = [
   ['Models', 'models'],
   ['Flows', 'flows'],
   ['Runs', 'runs'],
+  ['Orgs and projects', 'projects'],
   ['Webhooks', 'webhooks'],
   ['Guardrails', 'guardrails'],
   ['Approvals', 'approvals'],
