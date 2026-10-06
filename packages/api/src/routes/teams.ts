@@ -10,6 +10,7 @@ import type {
   TeamBinding,
   TeamMembership,
   TeamMembershipBinding,
+  TeamMembershipUpdateRoleOutcome,
   TeamPatch,
   TeamRole,
   TeamSpec,
@@ -19,7 +20,11 @@ import type { Cursor, OrgId, TeamId, TenantId, UserId } from '@kindgi/types';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
-import { orgNotFoundError, slugConflictError } from './hierarchy-errors.js';
+import {
+  membershipNotKeptInStepError,
+  orgNotFoundError,
+  slugConflictError,
+} from './hierarchy-errors.js';
 import { clampLimit } from './pagination.js';
 
 /**
@@ -56,6 +61,34 @@ export function teamsRouter(
   authorizer?: Authorizer,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+
+  /**
+   * Change a member's role. With an authorizer, the row and its FGA tuple
+   * change together through the tenant-hierarchy binding, or the change
+   * is refused; without one, the membership binding alone.
+   */
+  async function updateMemberRole(
+    tenantId: TenantId,
+    teamId: TeamId,
+    userId: UserId,
+    role: TeamRole,
+  ): Promise<
+    | { readonly kind: 'done'; readonly outcome: TeamMembershipUpdateRoleOutcome }
+    | { readonly kind: 'refused'; readonly error: ReturnType<typeof membershipNotKeptInStepError> }
+  > {
+    if (authorizer === undefined) {
+      return {
+        kind: 'done',
+        outcome: await membershipBinding.updateRole(tenantId, teamId, userId, role),
+      };
+    }
+    if (tenantHierarchy.updateTeamMemberRole === undefined) {
+      return { kind: 'refused', error: membershipNotKeptInStepError('updateTeamMemberRole') };
+    }
+    const res = await tenantHierarchy.updateTeamMemberRole({ tenantId, teamId, userId, role });
+    if (res.kind === 'err') throw new Error(res.error.message, { cause: res.error });
+    return { kind: 'done', outcome: res.value };
+  }
 
   // ---------- Authorization middleware ----------
   // Full PEP surface:
@@ -363,7 +396,19 @@ export function teamsRouter(
     const tenantId = c.get('tenantId') as TenantId;
     const teamId = c.req.param('teamId') as TeamId;
     const userId = c.req.param('userId') as UserId;
-    await membershipBinding.remove(tenantId, teamId, userId);
+    // With an authorizer, the row and its FGA tuple go together, or not
+    // at all: removing the row alone would leave the permission in place.
+    if (authorizer !== undefined) {
+      if (tenantHierarchy.removeTeamMember === undefined) {
+        const refusal = membershipNotKeptInStepError('removeTeamMember');
+        c.status(statusFor(refusal.code) as never);
+        return c.json(toWireError(refusal, c.get('requestId')));
+      }
+      const res = await tenantHierarchy.removeTeamMember({ tenantId, teamId, userId });
+      if (res.kind === 'err') throw new Error(res.error.message, { cause: res.error });
+    } else {
+      await membershipBinding.remove(tenantId, teamId, userId);
+    }
     c.status(204);
     return c.body(null);
   });
@@ -403,7 +448,12 @@ export function teamsRouter(
         ),
       );
     }
-    const outcome = await membershipBinding.updateRole(tenantId, teamId, userId, b.role);
+    const updated = await updateMemberRole(tenantId, teamId, userId, b.role);
+    if (updated.kind === 'refused') {
+      c.status(statusFor(updated.error.code) as never);
+      return c.json(toWireError(updated.error, requestId));
+    }
+    const { outcome } = updated;
     if (outcome.kind === 'team-membership-not-found') {
       c.status(statusFor('team-membership-not-found') as never);
       return c.json(

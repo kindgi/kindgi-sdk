@@ -3,10 +3,11 @@
 
 import { Hono } from 'hono';
 
-import type { ReviewerRole } from '@kindgi/authz';
+import { type ReviewerRole, ref } from '@kindgi/authz';
 import type { Cursor, ReviewerId, TenantId, UserId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
+import type { Authorizer } from '../middleware/authorize.js';
 import type { ReviewerRecord, ReviewerRegistryBinding } from '../reviewer-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
@@ -20,8 +21,9 @@ import { clampLimit } from './pagination.js';
  * inside `approvalsRouter`: registering a reviewer is an admin surface
  * action, not a reviewer-only one, so requiring a `reviewerRole` on the
  * caller would be circular ("only reviewers can appoint reviewers").
- * The caller still needs a valid bearer token — the `/v1/*` auth chain
- * covers that upstream.
+ * With authorization enforced, registering or unregistering needs
+ * `admin` on the tenant; reading the roster needs only a valid bearer
+ * token (the `/v1/*` auth chain upstream).
  *
  * Mounted BEFORE `approvalsRouter` on the parent `/v1` router so path
  * matching resolves `/v1/approvals/reviewers/*` here rather than being
@@ -29,8 +31,25 @@ import { clampLimit } from './pagination.js';
  */
 const ROLE_VALUES: ReadonlySet<ReviewerRole> = new Set(['standard', 'senior', 'admin']);
 
-export function reviewersRouter(binding: ReviewerRegistryBinding): Hono<AppEnv> {
+export function reviewersRouter(
+  binding: ReviewerRegistryBinding,
+  /**
+   * When set, registering or unregistering a reviewer needs `admin` on
+   * the tenant: a reviewer (an `admin` one above all) decides approvals.
+   * Reading the list doesn't.
+   */
+  authorizer?: Authorizer,
+): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+
+  if (authorizer !== undefined) {
+    r.use('*', async (c, next) => {
+      if (c.req.method === 'GET') return next();
+      const tenantId = c.get('tenantId') as TenantId;
+      const mw = authorizer.authorize('admin', () => ref('tenant', tenantId as unknown as string));
+      return mw(c, next);
+    });
+  }
 
   // ---------- GET / (list, cursor-paginated) ----------
   r.get('/', async (c) => {

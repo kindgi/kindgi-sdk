@@ -10,6 +10,7 @@ import type {
   ProjectBinding,
   ProjectMembership,
   ProjectMembershipBinding,
+  ProjectMembershipUpdateRoleOutcome,
   ProjectPatch,
   ProjectRole,
   ProjectSpec,
@@ -20,6 +21,7 @@ import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import {
+  membershipNotKeptInStepError,
   orgNotFoundError,
   projectDefaultAlreadyExistsError,
   slugConflictError,
@@ -77,6 +79,39 @@ export function projectsRouter(
   authorizer?: Authorizer,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+
+  /**
+   * Change a member's role. With an authorizer, the row and its FGA tuple
+   * change together through the tenant-hierarchy binding, or the change
+   * is refused; without one, the membership binding alone.
+   */
+  async function updateMemberRole(
+    tenantId: TenantId,
+    projectId: ProjectId,
+    userId: UserId,
+    role: ProjectRole,
+  ): Promise<
+    | { readonly kind: 'done'; readonly outcome: ProjectMembershipUpdateRoleOutcome }
+    | { readonly kind: 'refused'; readonly error: ReturnType<typeof membershipNotKeptInStepError> }
+  > {
+    if (authorizer === undefined) {
+      return {
+        kind: 'done',
+        outcome: await membershipBinding.updateRole(tenantId, projectId, userId, role),
+      };
+    }
+    if (tenantHierarchy.updateProjectMemberRole === undefined) {
+      return { kind: 'refused', error: membershipNotKeptInStepError('updateProjectMemberRole') };
+    }
+    const res = await tenantHierarchy.updateProjectMemberRole({
+      tenantId,
+      projectId,
+      userId,
+      role,
+    });
+    if (res.kind === 'err') throw new Error(res.error.message, { cause: res.error });
+    return { kind: 'done', outcome: res.value };
+  }
 
   // ---------- GET /default (literal segment; must precede /:projectId) ----------
   r.get('/default', async (c) => {
@@ -420,7 +455,19 @@ export function projectsRouter(
     const tenantId = c.get('tenantId') as TenantId;
     const projectId = c.req.param('projectId') as ProjectId;
     const userId = c.req.param('userId') as UserId;
-    await membershipBinding.remove(tenantId, projectId, userId);
+    // With an authorizer, the row and its FGA tuple go together, or not
+    // at all: removing the row alone would leave the permission in place.
+    if (authorizer !== undefined) {
+      if (tenantHierarchy.removeProjectMember === undefined) {
+        const refusal = membershipNotKeptInStepError('removeProjectMember');
+        c.status(statusFor(refusal.code) as never);
+        return c.json(toWireError(refusal, c.get('requestId')));
+      }
+      const res = await tenantHierarchy.removeProjectMember({ tenantId, projectId, userId });
+      if (res.kind === 'err') throw new Error(res.error.message, { cause: res.error });
+    } else {
+      await membershipBinding.remove(tenantId, projectId, userId);
+    }
     c.status(204);
     return c.body(null);
   });
@@ -460,7 +507,12 @@ export function projectsRouter(
         ),
       );
     }
-    const outcome = await membershipBinding.updateRole(tenantId, projectId, userId, b.role);
+    const updated = await updateMemberRole(tenantId, projectId, userId, b.role);
+    if (updated.kind === 'refused') {
+      c.status(statusFor(updated.error.code) as never);
+      return c.json(toWireError(updated.error, requestId));
+    }
+    const { outcome } = updated;
     if (outcome.kind === 'project-membership-not-found') {
       c.status(statusFor('project-membership-not-found') as never);
       return c.json(
