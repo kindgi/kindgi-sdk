@@ -746,10 +746,11 @@ Inside a pack that `kindgi dev` runs, they find it on their own (see
 | Command | Subcommands |
 |---|---|
 | `projects` | `list`, `get-default`, `get <project-id>`: the ids the `--project=<id>` flags take |
+| `provenance` | `list`, `get <run-id>`: each run's graph of what ran; `export <run-id> --signing-key=<id>`, signed |
 | `memory facts` | `list` (by `--type`, `--scope`), `get <fact-id>`, `write --input=<json>`: the facts agents remember |
 | `conversations` | `list`, `get`, `open <agent-id> <version>`, `close`, `messages` |
 | `runs` | `list`, `get`, `cancel`, `journal`, `stream` (one JSON event per line), `start`, `resume` |
-| `agents` | `publish` |
+| `agents` | `list`, `get <agent-id> [<version>]`, `publish`, `derive`, `unregister <agent-id> <version>`, `versions`; which version runs where: `live`, `live-versions`, `promote`, `rollback`, `unpin`, `promotions` |
 | `tools` | `list`, `get`, `unregister`, `versions`, `get-version`, `reinstate` |
 | `guardrails` | `list`, `get`, `register`, `unregister` |
 | `providers` | `list`, `get`, `register`, `presets`, `unregister` |
@@ -774,10 +775,9 @@ false`).
 `kindgi <command> --help` prints a command's subcommands and flags.
 
 More of the API (superseding and searching memory, artifacts,
-provenance, proposals, observations, tokens, capabilities, and listing
-agents and flows) has commands in progress. They're left out of
-`--help` until they work; until then, use
-[`@kindgi/client`](../../sdks/typescript) for those resources.
+proposals, observations, tokens, capabilities, and flows) has commands
+in progress. They're left out of `--help` until they work; until then,
+use [`@kindgi/client`](../../sdks/typescript) for those resources.
 
 ## Auth and config
 
