@@ -158,7 +158,9 @@ export function createTransport(options: ClientOptions): Transport {
       } catch {
         body = undefined;
       }
-      throw new KindgiApiError(fromWire(unwrapErrorEnvelope(body, response.status)));
+      throw new KindgiApiError(
+        fromWire(unwrapErrorEnvelope(body, response.status), response.status),
+      );
     },
   };
 }

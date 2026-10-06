@@ -49,7 +49,13 @@ describe('judgeClasses.create', () => {
     const stub = errorFetch(409, { code: 'judge-class-name-taken', message: 'Taken.' });
     await expect(
       clientFor(stub).judgeClasses.create({ scope: { kind: 'tenant' }, name: 'expert', weight: 1 }),
-    ).rejects.toMatchObject({ error: { code: 'server', serverCode: 'judge-class-name-taken' } });
+    ).rejects.toMatchObject({
+      error: {
+        code: 'conflict',
+        reason: 'judge-class-name-taken',
+        serverCode: 'judge-class-name-taken',
+      },
+    });
   });
 });
 

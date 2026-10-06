@@ -71,6 +71,8 @@ import {
   TOOL_ERROR_KINDS,
 } from '@kindgi/policy-contract';
 
+import { ERROR_CODE_TO_STATUS } from '../errors.js';
+
 export type JsonSchema = Record<string, unknown>;
 
 // ---------------- shared shapes ----------------
@@ -79,6 +81,11 @@ export const WireErrorSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['error'],
+  // Every code the API answers with, and its HTTP status. Not a closed
+  // list for clients (a newer server may add codes); the clients' tests
+  // read it to check that each 4xx code maps to a typed error, not to a
+  // server error. Generators and validators ignore `x-` keys.
+  'x-error-codes': ERROR_CODE_TO_STATUS,
   properties: {
     error: {
       type: 'object',
