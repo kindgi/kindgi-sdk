@@ -37,6 +37,9 @@
       "description": "Agent catalog (list, get, publish, unregister — caller-plugged registry)."
     },
     {
+      "name": "gate-policies"
+    },
+    {
       "name": "flows",
       "description": "Flow catalog (list, get, publish, unregister — caller-plugged registry). Enables non-agent workflows via HTTP — publish once, execute many via `POST /v1/runs`."
     },
@@ -558,6 +561,44 @@
           "createdAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "promoted",
+              "pending-approval",
+              "refused",
+              "superseded",
+              "rejected",
+              "expired"
+            ],
+            "description": "A `promote` row's state: it changes once, from `pending-approval` to its final state. Absent on rollback and unpin rows, and on promotions made before gates (`promoted`)."
+          },
+          "policy": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/GatePolicyRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The gate policy that applied; null when none did. Absent before gates."
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GateCheck"
+            }
+          },
+          "approvalId": {
+            "type": "string",
+            "description": "The approval a `pending-approval` promotion waits on (kept once decided)."
+          },
+          "resolvedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When a `pending-approval` promotion reached its final state."
           }
         }
       },
@@ -580,6 +621,372 @@
           },
           "nextCursor": {
             "type": "string"
+          }
+        }
+      },
+      "GateCheck": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "passed",
+          "message"
+        ],
+        "description": "One of a gate's checks, as the promotion records it.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.suite`, `sameContents`, `baselineIsLive`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`."
+          },
+          "passed": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string",
+            "description": "A plain sentence: what was found against what the policy asks."
+          },
+          "value": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "threshold": {
+            "type": [
+              "number",
+              "string"
+            ]
+          }
+        }
+      },
+      "GatePolicyRef": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "GateApproval": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "role",
+          "count",
+          "separateApprover"
+        ],
+        "description": "The approval a passing promotion waits for.",
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "senior",
+              "admin"
+            ]
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "separateApprover": {
+            "type": "boolean",
+            "description": "Whoever asked for the promotion may not approve it."
+          }
+        }
+      },
+      "GatePolicySpec": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "What a promotion must show. Every part is optional; an empty spec checks nothing. Unknown keys are refused.",
+        "properties": {
+          "comparison": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "required": {
+                "type": "boolean",
+                "description": "Whether the promotion must name a comparison (`evalRunId`). Absent: required when the spec checks anything a comparison shows."
+              },
+              "maxAgeHours": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "suite": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "evidence": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "The judged evidence behind each gated metric; for a metric with `maxDrop`, the baseline's too.",
+            "properties": {
+              "minCases": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "minWeight": {
+                "type": "number",
+                "minimum": 0
+              }
+            }
+          },
+          "metrics": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "enum": [
+                    "weightedYesShare",
+                    "judgedCoverage",
+                    "weightedPrecisionAtK"
+                  ]
+                },
+                "k": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100,
+                  "description": "`weightedPrecisionAtK` only: the summary's `k` must be this."
+                },
+                "minCandidate": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "maxDrop": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "description": "How far the candidate may fall below the baseline (the live version)."
+                }
+              }
+            }
+          },
+          "replay": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Each knob left out of the block is 0. No block: no replay checks.",
+            "properties": {
+              "maxDiverged": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "maxErrors": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "maxRefusedWrites": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "maxStopped": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "approvals": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "A passing promotion waits for a reviewer.",
+            "properties": {
+              "role": {
+                "type": "string",
+                "enum": [
+                  "standard",
+                  "senior",
+                  "admin"
+                ],
+                "description": "Default `senior`."
+              },
+              "separateApprover": {
+                "type": "boolean",
+                "description": "Default `true`."
+              }
+            }
+          }
+        }
+      },
+      "GatePolicy": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "agentId",
+          "scope",
+          "spec",
+          "createdAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "agentId": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/LiveScope"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/GatePolicySpec"
+          },
+          "description": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "unregisteredAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "GatePolicyPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GatePolicy"
+            }
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        }
+      },
+      "PublishGatePolicyBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "agentId",
+          "scope",
+          "spec"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$",
+            "description": "Yours to choose, e.g. `acme.drafting-prod`."
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d+\\.\\d+$"
+          },
+          "agentId": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/LiveScope"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/GatePolicySpec"
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      },
+      "GatePolicyResolution": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "policy"
+        ],
+        "properties": {
+          "policy": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/GatePolicy"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The policy that gates a promotion for the scope; null when none does."
+          }
+        }
+      },
+      "PromotionCheck": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "outcome",
+          "policy",
+          "checks"
+        ],
+        "description": "What the gate would say about a promotion. Nothing is recorded.",
+        "properties": {
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "would-promote",
+              "needs-approval",
+              "gate-failed"
+            ]
+          },
+          "policy": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/GatePolicyRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The policy that applies; null when none does."
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GateCheck"
+            }
+          },
+          "approval": {
+            "$ref": "#/components/schemas/GateApproval"
           }
         }
       },
@@ -8709,6 +9116,14 @@
               "$ref": "#/components/schemas/RetentionScheduledItem"
             }
           },
+          "hasMore": {
+            "type": "boolean",
+            "description": "Some domain has more scheduled rows than this page returned (`limit` is per domain). Always sent from 0.1.4; a runtime before it sends none."
+          },
+          "nextCursor": {
+            "type": "string",
+            "description": "The `cursor` for the next page. Absent when `hasMore: false`, or when the runtime cannot continue a page."
+          },
           "domainsMissingAdapter": {
             "type": "array",
             "items": {
@@ -9425,6 +9840,10 @@
               },
               "version": {
                 "type": "string"
+              },
+              "pinsDigest": {
+                "type": "string",
+                "description": "The version's pinsDigest: what it ran, as a promotion gate checks. Absent for a version published before pins, and from a comparison recorded before it."
               }
             }
           },
@@ -17556,6 +17975,16 @@
               }
             }
           },
+          "202": {
+            "description": "The gate passed; the promotion waits for an approval (`approvalId`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Promotion"
+                }
+              }
+            }
+          },
           "400": {
             "description": "Malformed request body.",
             "content": {
@@ -17577,7 +18006,7 @@
             }
           },
           "404": {
-            "description": "The version is not registered, or was unregistered.",
+            "description": "The version is not registered, or was unregistered; or the eval run is not found.",
             "content": {
               "application/json": {
                 "schema": {
@@ -17587,7 +18016,17 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "`promotion-superseded`: the scope's live version changed while the gate ran; check again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`gate-failed`: the gate refused it. `details.checks` has every check; the refusal is recorded (`details.promotionId`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -17605,9 +18044,19 @@
                 }
               }
             }
+          },
+          "501": {
+            "description": "`promotion-gate-unsupported`: a gate policy applies, and the deployment can't record a gated promotion.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
           }
         },
-        "description": "Pins `version` live for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every promotion is recorded, with who asked and why. Needs `promote` on the agent.",
+        "description": "Pins `version` live for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every promotion is recorded, with who asked and why. Needs `promote` on the agent.\n\nWith a gate policy for the scope (`GET …/gate-policy`), the promotion is checked first against the comparison named by `evalRunId`: `201` promoted; `202` the gate passed and the policy wants a reviewer's approval (a HITL approval, subject `agent-promotion`; the live version moves once it's approved, if nothing changed meanwhile); `422 gate-failed` with `details.promotionId`, `details.policy` and every check in `details.checks`. A refused promotion is recorded too.",
         "parameters": [
           {
             "name": "agentId",
@@ -17751,6 +18200,758 @@
             },
             "required": false,
             "description": "One step of the segment path, `key:value`; repeat it in order, coarse to fine."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/agents/{agentId}/promotions/check": {
+      "post": {
+        "operationId": "agents.promotions.check",
+        "summary": "Check a promotion against its gate",
+        "tags": [
+          "agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "The gate's answer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromotionCheck"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed body, or the eval run is not a finished comparison.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The version, the agent or the eval run is not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "What `POST …/promotions` with the same body would do, with nothing recorded: `would-promote`, `needs-approval` (with the approval it needs) or `gate-failed`, with every check. For a pipeline: evaluate, check, promote. Needs `read` on the agent.",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "AgentId — dotted namespace (`acme.drafting`)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromoteBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/agents/{agentId}/gate-policy": {
+      "get": {
+        "operationId": "agents.gatePolicy.resolve",
+        "summary": "The gate policy for a scope",
+        "tags": [
+          "agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "The policy, or null.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatePolicyResolution"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or malformed scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "The gate policy a promotion of the agent for the scope would be checked against: the most specific scope with an active policy (a segment path's longer prefixes first, then its project, the project's org, the tenant), at its latest active version. `policy: null` when none applies.",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "AgentId — dotted namespace (`acme.drafting`)."
+          },
+          {
+            "name": "scopeKind",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "tenant",
+                "org",
+                "project",
+                "segment"
+              ]
+            },
+            "required": false,
+            "description": "Only one scope: `tenant`, `org` or `project` (with `scopeId`), or `segment` (with `scopeId` and `segment`)."
+          },
+          {
+            "name": "scopeId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Required IF scopeKind is `org` or `project`. MUST be absent if scopeKind=`tenant` (tenant is implicit from the session). Malformed combinations return 400 scope-invalid."
+          },
+          {
+            "name": "segment",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "required": false,
+            "description": "One step of the segment path, `key:value`; repeat it in order, coarse to fine."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/gate-policies": {
+      "get": {
+        "operationId": "gatePolicies.list",
+        "summary": "List gate policies",
+        "tags": [
+          "gate-policies"
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of gate policies.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatePolicyPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed scope or cursor.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Each gate policy's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Opaque cursor from a prior response. Absent → first page."
+          },
+          {
+            "name": "agentId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Only the policies gating this agent."
+          },
+          {
+            "name": "scopeKind",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "tenant",
+                "org",
+                "project",
+                "segment"
+              ]
+            },
+            "required": false,
+            "description": "Only one scope: `tenant`, `org` or `project` (with `scopeId`), or `segment` (with `scopeId` and `segment`)."
+          },
+          {
+            "name": "scopeId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Required IF scopeKind is `org` or `project`. MUST be absent if scopeKind=`tenant` (tenant is implicit from the session). Malformed combinations return 400 scope-invalid."
+          },
+          {
+            "name": "segment",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "required": false,
+            "description": "One step of the segment path, `key:value`; repeat it in order, coarse to fine."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "gatePolicies.publish",
+        "summary": "Publish a gate policy",
+        "tags": [
+          "gate-policies"
+        ],
+        "responses": {
+          "201": {
+            "description": "Gate policy published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatePolicy"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failed (see `details.issues`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`gate-policy-already-registered`: that (id, version) exists. `gate-policy-scope-taken`: another policy gates the agent for the scope (`details.heldBy`). `gate-policy-scope-changed`: the version would change the agent or scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Registers a gate policy, or a new version of one: what a promotion of `agentId` for `scope` must show. One policy per agent and scope: another policy id for a scope that has one is refused with `409 gate-policy-scope-taken` (`details.heldBy` names it; publish a new version of that one instead), and a new version can't change the agent or scope (`409 gate-policy-scope-changed`). The `spec` is checked strictly: an unknown key is refused (`400 validation-failed`, `details.issues`). Needs `admin` on the tenant: whoever may promote can't loosen their own gate.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishGatePolicyBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/gate-policies/{policyId}": {
+      "get": {
+        "operationId": "gatePolicies.get",
+        "summary": "Get a gate policy",
+        "tags": [
+          "gate-policies"
+        ],
+        "responses": {
+          "200": {
+            "description": "The gate policy.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatePolicy"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No active gate policy with that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "The policy's latest active version.",
+        "parameters": [
+          {
+            "name": "policyId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "The gate policy id."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/gate-policies/{policyId}/versions": {
+      "get": {
+        "operationId": "gatePolicies.versions.list",
+        "summary": "List a gate policy's versions",
+        "tags": [
+          "gate-policies"
+        ],
+        "responses": {
+          "200": {
+            "description": "The versions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatePolicyPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No gate policy with that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Every version, oldest first, unregistered ones too (with `unregisteredAt`).",
+        "parameters": [
+          {
+            "name": "policyId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "The gate policy id."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/gate-policies/{policyId}/versions/{version}": {
+      "get": {
+        "operationId": "gatePolicies.versions.get",
+        "summary": "Get a gate policy version",
+        "tags": [
+          "gate-policies"
+        ],
+        "responses": {
+          "200": {
+            "description": "The version.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatePolicy"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such version.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "policyId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "The gate policy id."
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "A semver version of the gate policy."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/gate-policies/{policyId}/versions/{version}/unregister": {
+      "post": {
+        "operationId": "gatePolicies.versions.unregister",
+        "summary": "Unregister a gate policy version",
+        "tags": [
+          "gate-policies"
+        ],
+        "responses": {
+          "200": {
+            "description": "The unregistered version.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatePolicy"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such version.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "The version stops applying; the policy's latest remaining active version applies, or, with none, the scope above's policy. Promotions keep the version they were checked against. Needs `admin` on the tenant.",
+        "parameters": [
+          {
+            "name": "policyId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "The gate policy id."
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "A semver version of the gate policy."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/gate-policies/{policyId}/versions/{version}/reinstate": {
+      "post": {
+        "operationId": "gatePolicies.versions.reinstate",
+        "summary": "Reinstate a gate policy version",
+        "tags": [
+          "gate-policies"
+        ],
+        "responses": {
+          "200": {
+            "description": "The reinstated version.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatePolicy"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such version.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Needs `admin` on the tenant.",
+        "parameters": [
+          {
+            "name": "policyId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "The gate policy id."
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "A semver version of the gate policy."
           }
         ],
         "security": [
@@ -25858,7 +27059,7 @@
             }
           }
         },
-        "description": "Tombstoned rows in every domain a retention policy covers, with when each is purged (`purgeAt`) and the policy that decides it. `domainsMissingAdapter` names the covered domains this deployment can't purge; `unpolicedDomains` the ones no policy covers, whose tombstones are kept; `conflicts` the domains two policies cover (stored before one policy per domain was enforced). Requires `admin` on the tenant.",
+        "description": "Tombstoned rows in every domain a retention policy covers, with when each is purged (`purgeAt`) and the policy that decides it. `domainsMissingAdapter` names the covered domains this deployment can't purge; `unpolicedDomains` the ones no policy covers, whose tombstones are kept; `conflicts` the domains two policies cover (stored before one policy per domain was enforced). `limit` caps the rows **per domain**; `hasMore` says some domain has more than it returned, and `nextCursor` (when the runtime can continue) is the `cursor` for the next page. Requires `admin` on the tenant.",
         "parameters": [
           {
             "name": "domain",
@@ -25890,6 +27091,15 @@
             },
             "required": false,
             "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Opaque cursor from a prior response. Absent → first page."
           }
         ],
         "security": [

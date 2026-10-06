@@ -1745,6 +1745,10 @@ export interface RetentionPolicyConflict {
 /** Matches `@kindgi/api/openapi.json#RetentionScheduledPage`. */
 export interface RetentionScheduledPage {
   readonly data: readonly RetentionScheduledItem[];
+  /** Some domain has more scheduled rows than this page returned (`limit` is per domain). */
+  readonly hasMore: boolean;
+  /** Pass as `cursor` for the next page. Absent when `hasMore` is false, or the runtime can't continue. */
+  readonly nextCursor?: string;
   /** Covered domains this deployment can't purge (no adapter). */
   readonly domainsMissingAdapter: readonly RetentionDomain[];
   /** Domains no retention policy covers: their tombstones are kept. */

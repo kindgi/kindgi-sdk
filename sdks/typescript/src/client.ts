@@ -19,6 +19,7 @@ import { type EvalSuitesClient, makeEvalSuitesClient } from './resources/eval-su
 import { type EventTriggersClient, makeEventTriggersClient } from './resources/event-triggers.js';
 import { type EventsClient, makeEventsClient } from './resources/events.js';
 import { type FlowsClient, makeFlowsClient } from './resources/flows.js';
+import { type GatePoliciesClient, makeGatePoliciesClient } from './resources/gate-policies.js';
 import { type GuardrailsClient, makeGuardrailsClient } from './resources/guardrails.js';
 import { type IdentityClient, makeIdentityClient } from './resources/identity.js';
 import { type JudgeClassesClient, makeJudgeClassesClient } from './resources/judge-classes.js';
@@ -82,6 +83,8 @@ export interface KindgiClient {
   readonly adapters: AdaptersClient;
   readonly providers: ProvidersClient;
   readonly policies: PoliciesClient;
+  /** Gate policies: what a promotion must show before a version goes live (evals step 4b). */
+  readonly gatePolicies: GatePoliciesClient;
   readonly retention: RetentionClient;
   readonly projects: ProjectsClient;
   readonly env: EnvClient;
@@ -149,6 +152,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     adapters: makeAdaptersClient(transport),
     providers: makeProvidersClient(transport),
     policies: makePoliciesClient(transport),
+    gatePolicies: makeGatePoliciesClient(transport),
     retention: makeRetentionClient(transport),
     projects: makeProjectsClient(transport),
     env: makeEnvClient(transport),

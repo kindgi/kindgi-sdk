@@ -161,6 +161,29 @@ describe('createInMemoryAuditEventBinding — append + query', () => {
     expect(page.value.data.map((e) => e.id)).toEqual(['new']);
   });
 
+  test("purge by outcome: a kind's denials on their own cutoff, the rest (no outcome included) on another", async () => {
+    const b = createInMemoryAuditEventBinding();
+    const old = '2026-01-01T00:00:00.000Z' as Timestamp;
+    await b.append([
+      baseEvent({ id: 'denied', timestamp: old, outcome: 'denied' }),
+      baseEvent({ id: 'allowed', timestamp: old, outcome: 'allowed' }),
+      baseEvent({ id: 'no-outcome', timestamp: old }),
+    ]);
+    const cutoff = {
+      tenantId: TENANT,
+      kind: 'authz-decision',
+      olderThan: '2026-06-01T00:00:00.000Z',
+    };
+    const rest = await b.purge({ ...cutoff, exceptOutcome: 'denied' });
+    if (rest.kind !== 'ok') throw new Error('purge failed');
+    expect(rest.value.deleted).toBe(2);
+    const left = await b.query({ tenantId: TENANT });
+    if (left.kind !== 'ok') throw new Error('query failed');
+    expect(left.value.data.map((e) => e.id)).toEqual(['denied']);
+    const denials = await b.purge({ ...cutoff, outcome: 'denied' });
+    expect(denials.kind === 'ok' && denials.value.deleted).toBe(1);
+  });
+
   test('rejects empty event id at append boundary', async () => {
     const b = createInMemoryAuditEventBinding();
     const r = await b.append([baseEvent({ id: '' })]);

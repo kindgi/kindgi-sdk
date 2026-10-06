@@ -49,13 +49,11 @@ const unregister: LeafCommand = {
   kind: 'leaf',
   name: 'unregister',
   description: 'Unregister a specific flow version.',
-  usage: 'kindgi flows unregister <flow-id> --version=<semver>',
-  optionSpec: {
-    version: { type: 'string', description: 'The flow version to unregister (semver).' },
-  },
+  usage: 'kindgi flows unregister <flow-id> <version>',
   run: (ctx) =>
     runSdk(ctx, 'flows unregister', async () => {
       requiredPositional(ctx, 0, 'flow-id');
+      requiredPositional(ctx, 1, 'version');
       throwUnwired('flows.unregister');
     }),
 };

@@ -236,7 +236,7 @@ const SEGMENT_FLAG: ParseArgsOption = {
 };
 
 /** The flags that name a scope: one of `--tenant`, `--org`, `--project` (with `--segment`s). */
-const SCOPE_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
+export const SCOPE_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
   tenant: { type: 'boolean', description: 'The whole tenant.' },
   org: { type: 'string', description: 'An org, by id.' },
   project: {
@@ -246,12 +246,13 @@ const SCOPE_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
   segment: SEGMENT_FLAG,
 };
 
-const SCOPE_USAGE = '(--tenant | --org=<org-id> | --project=<project-id> [--segment=<key:value>]…)';
+export const SCOPE_USAGE =
+  '(--tenant | --org=<org-id> | --project=<project-id> [--segment=<key:value>]…)';
 
 /** The scope the flags name. Writes need one; a history filter may name none. */
-function scopeFrom(ctx: CommandContext, required: true): LiveScope;
-function scopeFrom(ctx: CommandContext, required: false): LiveScope | undefined;
-function scopeFrom(ctx: CommandContext, required: boolean): LiveScope | undefined {
+export function scopeFrom(ctx: CommandContext, required: true): LiveScope;
+export function scopeFrom(ctx: CommandContext, required: false): LiveScope | undefined;
+export function scopeFrom(ctx: CommandContext, required: boolean): LiveScope | undefined {
   const tenant = ctx.options.tenant === true;
   const orgId = stringFlag(ctx, 'org');
   const projectId = stringFlag(ctx, 'project');
@@ -271,7 +272,7 @@ function scopeFrom(ctx: CommandContext, required: boolean): LiveScope | undefine
 }
 
 /** A scope in a table cell: `tenant`, `org <id>`, `project <id>`, `project <id> company=acme/role=x`. */
-function scopeCell(scope: LiveScope): string {
+export function scopeCell(scope: LiveScope): string {
   switch (scope.kind) {
     case 'tenant':
       return 'tenant';
@@ -354,13 +355,18 @@ const promote: LeafCommand = {
   kind: 'leaf',
   name: 'promote',
   description:
-    "Make a version live for a scope: its runs that don't name a version use it, from the next run. Open conversations keep their version.",
-  usage: `kindgi agents promote <agent-id> <version> ${SCOPE_USAGE} [--reason=<text>] [--eval-run=<eval-run-id>]`,
+    "Make a version live for a scope: its runs that don't name a version use it, from the next run. Open conversations keep their version. With a gate policy for the scope, the comparison named by --eval-run is checked first: the answer's `status` is `promoted`, or `pending-approval` (a reviewer approves it); a refusal lists every check. `--check` asks what would happen, changing nothing.",
+  usage: `kindgi agents promote <agent-id> <version> ${SCOPE_USAGE} [--eval-run=<eval-run-id>] [--reason=<text>] [--check]`,
   optionSpec: {
     ...SCOPE_FLAGS,
     'eval-run': {
       type: 'string',
-      description: 'The eval run behind the decision, kept on the record.',
+      description: 'The comparison eval run the gate checks, kept on the record.',
+    },
+    check: {
+      type: 'boolean',
+      description:
+        'What the gate would say: would-promote, needs-approval or gate-failed. Changes nothing.',
     },
     ...WRITE_FLAGS,
   },
@@ -369,16 +375,30 @@ const promote: LeafCommand = {
       const agentId = requiredPositional(ctx, 0, 'agent-id');
       const version = requiredPositional(ctx, 1, 'version');
       const evalRunId = stringFlag(ctx, 'eval-run');
-      return await ctx.client().agents.promotions.create(
-        agentId,
-        {
-          version,
-          scope: scopeFrom(ctx, true),
-          ...reasonFlag(ctx),
-          ...(evalRunId !== undefined && { evalRunId }),
-        },
-        idempotency(ctx),
-      );
+      const input = {
+        version,
+        scope: scopeFrom(ctx, true),
+        ...reasonFlag(ctx),
+        ...(evalRunId !== undefined && { evalRunId }),
+      };
+      if (ctx.options.check === true) {
+        return await ctx.client().agents.promotions.check(agentId, input);
+      }
+      return await ctx.client().agents.promotions.create(agentId, input, idempotency(ctx));
+    }),
+};
+
+const gatePolicy: LeafCommand = {
+  kind: 'leaf',
+  name: 'gate-policy',
+  description:
+    'Show the gate policy a promotion of this agent for a scope is checked against (the most specific scope with one), or null.',
+  usage: `kindgi agents gate-policy <agent-id> ${SCOPE_USAGE}`,
+  optionSpec: SCOPE_FLAGS,
+  run: (ctx) =>
+    runSdk(ctx, 'agents gate-policy', async () => {
+      const agentId = requiredPositional(ctx, 0, 'agent-id');
+      return await ctx.client().agents.gatePolicy.resolve(agentId, scopeFrom(ctx, true));
     }),
 };
 
@@ -501,6 +521,7 @@ export const agentsCommand: Command = {
     live,
     liveVersions,
     promote,
+    gatePolicy,
     rollback,
     unpin,
     promotions,

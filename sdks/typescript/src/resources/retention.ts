@@ -41,8 +41,10 @@ export interface RetentionScheduledFilter {
   readonly domain?: RetentionDomain;
   /** Only the rows a sweep would purge now. */
   readonly pastGraceOnly?: boolean;
-  /** 1..100, default 25. */
+  /** Rows per domain at most: 1..100, default 25. */
   readonly limit?: number;
+  /** A previous page's `nextCursor`, to continue where it stopped. */
+  readonly cursor?: string;
 }
 
 export interface RetentionSweepInput {
@@ -52,18 +54,25 @@ export interface RetentionSweepInput {
   readonly maxPerDomain?: number;
 }
 
+/** The wire's page: a runtime before 0.1.4 sends no `hasMore`. */
+type RetentionScheduledWirePage = Omit<RetentionScheduledPage, 'hasMore'> & {
+  readonly hasMore?: boolean;
+};
+
 export function makeRetentionClient(transport: Transport): RetentionClient {
   return {
     async scheduled(filter) {
-      return transport.request<RetentionScheduledPage>({
+      const page = await transport.request<RetentionScheduledWirePage>({
         method: 'GET',
         path: '/v1/retention/scheduled',
         query: {
           ...(filter?.domain !== undefined && { domain: filter.domain }),
           ...(filter?.pastGraceOnly === true && { pastGraceOnly: 'true' }),
           ...(filter?.limit !== undefined && { limit: filter.limit }),
+          ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
         },
       });
+      return { ...page, hasMore: page.hasMore ?? page.nextCursor !== undefined };
     },
 
     async sweep(input) {

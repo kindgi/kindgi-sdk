@@ -8,10 +8,12 @@ import type {
   Agent,
   AgentCollectionPage,
   DeriveAgentVersionBody,
+  GatePolicyResolution,
   LivePinList,
   LiveScope,
   LiveVersionResolution,
   Promotion,
+  PromotionCheck,
   PromotionPage,
   ScopeSegment,
   UnregisterAgentResult,
@@ -57,6 +59,9 @@ export interface AgentsClient {
 
   /** Making a version live for a scope, and the history of those changes. */
   readonly promotions: AgentPromotionsClient;
+
+  /** The gate policy a promotion for a scope is checked against. */
+  readonly gatePolicy: AgentGatePolicyClient;
 
   /**
    * Un-tombstone a specific previously-unregistered version.
@@ -162,6 +167,13 @@ export interface AgentPromotionsClient {
    * conversations keep their version. `404 agent-version-not-found`
    * when the version isn't registered and active.
    *
+   * With a gate policy for the scope, the promotion is checked first,
+   * against the comparison named by `evalRunId`. The answer's `status`
+   * says what happened: `promoted`, or `pending-approval` (a reviewer
+   * must approve it; `approvalId`). A refusal throws a `KindgiApiError`
+   * whose `error.serverCode` is `gate-failed`, with `promotionId`,
+   * `policy` and every check in `error.fields`.
+   *
    * @wire POST /v1/agents/:agentId/promotions
    */
   create(
@@ -169,10 +181,29 @@ export interface AgentPromotionsClient {
     input: PromoteInput,
     options?: MutationOptions,
   ): Promise<Promotion>;
+  /**
+   * What `create` with the same input would do, recording nothing:
+   * `would-promote`, `needs-approval` (with the approval it needs) or
+   * `gate-failed`, with every check.
+   *
+   * @wire POST /v1/agents/:agentId/promotions/check
+   */
+  check(agentId: AgentId | string, input: PromoteInput): Promise<PromotionCheck>;
   /** @wire GET /v1/agents/:agentId/promotions — newest first */
   list(agentId: AgentId | string, filter?: ListPromotionsFilter): Promise<PromotionPage>;
   /** @wire GET /v1/agents/:agentId/promotions/:promotionId */
   get(agentId: AgentId | string, promotionId: string): Promise<Promotion>;
+}
+
+export interface AgentGatePolicyClient {
+  /**
+   * The gate policy a promotion for `scope` is checked against: the most
+   * specific scope with one, at its latest active version; `policy: null`
+   * when none applies.
+   *
+   * @wire GET /v1/agents/:agentId/gate-policy
+   */
+  resolve(agentId: AgentId | string, scope: LiveScope): Promise<GatePolicyResolution>;
 }
 
 /** Where a run would happen: its project and segment path (coarse to fine). */
@@ -373,6 +404,13 @@ export function makeAgentsClient(transport: Transport): AgentsClient {
           ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
         });
       },
+      async check(agentId, input) {
+        return transport.request<PromotionCheck>({
+          method: 'POST',
+          path: `/v1/agents/${seg(agentId as string)}/promotions/check`,
+          body: input,
+        });
+      },
       async list(agentId, filter) {
         return transport.request<PromotionPage>({
           method: 'GET',
@@ -391,6 +429,15 @@ export function makeAgentsClient(transport: Transport): AgentsClient {
         });
       },
     },
+    gatePolicy: {
+      async resolve(agentId, scope) {
+        return transport.request<GatePolicyResolution>({
+          method: 'GET',
+          path: `/v1/agents/${seg(agentId as string)}/gate-policy`,
+          query: scopeQuery(scope),
+        });
+      },
+    },
   };
 }
 
@@ -400,7 +447,7 @@ function segmentParam(s: ScopeSegment): string {
 }
 
 /** A scope as the history filter's query: `scopeKind`, `scopeId`, `segment`. */
-function scopeQuery(scope: LiveScope): Record<string, string | readonly string[]> {
+export function scopeQuery(scope: LiveScope): Record<string, string | readonly string[]> {
   switch (scope.kind) {
     case 'tenant':
       return { scopeKind: 'tenant' };

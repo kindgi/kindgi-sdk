@@ -181,6 +181,16 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'promotion-not-found': 404,
   'nothing-to-roll-back': 409,
   'not-pinned': 409,
+  // The gate (evals step 4b).
+  'gate-failed': 422,
+  'promotion-superseded': 409,
+  // The binding can't record a gated promotion, so one a policy applies to is refused.
+  'promotion-gate-unsupported': 501,
+  'separate-approver-required': 403,
+  'gate-policy-not-found': 404,
+  'gate-policy-already-registered': 409,
+  'gate-policy-scope-taken': 409,
+  'gate-policy-scope-changed': 409,
   'run-not-finished': 409,
   'item-not-found': 400,
   // The judgment binding can't list judged runs, so no test sets from judgments.
