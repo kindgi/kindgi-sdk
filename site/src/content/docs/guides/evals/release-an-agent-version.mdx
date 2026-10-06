@@ -286,6 +286,10 @@ What each refuses:
 - an unpin where the scope has no live version of its own:
   `The scope has no live version of its own`.
 
+To retire a version that's live somewhere, roll back, unpin or promote
+another version in each of those scopes first; until then
+`kindgi agents unregister` refuses it (`409 agent-version-live`).
+
 ## The history
 
 Every promotion, rollback and unpin is kept, with who asked and why, newest
