@@ -91,20 +91,13 @@ const publish: LeafCommand = {
 const unregister: LeafCommand = {
   kind: 'leaf',
   name: 'unregister',
-  description: 'Unregister a specific tool version.',
-  usage: 'kindgi tools unregister <tool-id> --version=<semver>',
-  optionSpec: {
-    version: {
-      type: 'string',
-      description:
-        'The version to unregister (semver); `kindgi tools reinstate` brings it back. Required.',
-    },
-  },
+  description:
+    'Unregister a specific tool version (semver); `kindgi tools reinstate` brings it back.',
+  usage: 'kindgi tools unregister <tool-id> <version>',
   run: (ctx) =>
     runSdk(ctx, 'tools unregister', async () => {
       const toolId = requiredPositional(ctx, 0, 'tool-id');
-      const version = stringFlag(ctx, 'version');
-      if (version === undefined) throw new Error('--version=<semver> is required');
+      const version = requiredPositional(ctx, 1, 'version');
       return await ctx.client().tools.unregisterVersion(toolId as ToolId, version);
     }),
 };
@@ -150,15 +143,11 @@ const getVersion: LeafCommand = {
   kind: 'leaf',
   name: 'get-version',
   description: 'Fetch a specific tool version by exact semver.',
-  usage: 'kindgi tools get-version <tool-id> --version=<semver>',
-  optionSpec: {
-    version: { type: 'string', description: 'The exact version to fetch (semver). Required.' },
-  },
+  usage: 'kindgi tools get-version <tool-id> <version>',
   run: (ctx) =>
     runSdk(ctx, 'tools get-version', async () => {
       const toolId = requiredPositional(ctx, 0, 'tool-id');
-      const version = stringFlag(ctx, 'version');
-      if (version === undefined) throw new Error('--version=<semver> is required');
+      const version = requiredPositional(ctx, 1, 'version');
       return await ctx.client().tools.getVersion(toolId as ToolId, version);
     }),
 };
@@ -166,19 +155,12 @@ const getVersion: LeafCommand = {
 const reinstate: LeafCommand = {
   kind: 'leaf',
   name: 'reinstate',
-  description: 'Un-tombstone a specific tool version.',
-  usage: 'kindgi tools reinstate <tool-id> --version=<semver>',
-  optionSpec: {
-    version: {
-      type: 'string',
-      description: 'The unregistered version to bring back (semver). Required.',
-    },
-  },
+  description: 'Bring back an unregistered tool version (semver).',
+  usage: 'kindgi tools reinstate <tool-id> <version>',
   run: (ctx) =>
     runSdk(ctx, 'tools reinstate', async () => {
       const toolId = requiredPositional(ctx, 0, 'tool-id');
-      const version = stringFlag(ctx, 'version');
-      if (version === undefined) throw new Error('--version=<semver> is required');
+      const version = requiredPositional(ctx, 1, 'version');
       return await ctx.client().tools.reinstateVersion(toolId as ToolId, version);
     }),
 };
