@@ -350,7 +350,10 @@ export type {
   JudgeClassScopeKind,
   JudgeClassUpdateInput,
   JudgedItem,
+  JudgedFlowContext,
+  JudgedFlowStep,
   JudgedRunContext,
+  JudgedToolCall,
   JudgedRunCopy,
   JudgedRunListInput,
   JudgedRunPage,
@@ -387,6 +390,9 @@ export type {
 export { EVAL_RUN_STATUSES } from './eval-run-binding.js';
 export type {
   AgentRef,
+  EvalBaseline,
+  EvalComparison,
+  EvalReads,
   EvalRun,
   EvalRunBinding,
   EvalRunCancelInput,
@@ -418,6 +424,22 @@ export type {
   EvalSubjectInvoker,
   InProcessEvalRunBindingOptions,
 } from './eval-run-dispatcher.js';
+export { DEFAULT_COMPARISON, createJudgedDispatcher } from './judged-dispatcher.js';
+export type {
+  ComparisonBaselineSummary,
+  ComparisonMetric,
+  JudgedCaseResult,
+  JudgedComparisonSummary,
+  JudgedDispatcherOptions,
+} from './judged-dispatcher.js';
+export { itemChanges, matchJudged, outputItems, scoreItems, valueAt } from './judged-items.js';
+export type {
+  ItemChanges,
+  ItemJudgments,
+  MatchedItem,
+  OutputItem,
+  OutputScore,
+} from './judged-items.js';
 export {
   COST_AGGREGATE_DEFAULT_LIMIT,
   COST_AGGREGATE_MAX_LIMIT,
@@ -520,7 +542,10 @@ export type {
   DeploymentGetInput,
   DeploymentListInput,
   DeploymentPage,
+  DeployedAgent,
+  DeployedFlow,
   DeployedPrimitive,
+  DeployedVersion,
   DeploymentContents,
   DeploymentPrimitiveCounts,
   DeploymentRegisterInput,

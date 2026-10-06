@@ -11,6 +11,13 @@ export type {
   PrepareEvent,
 } from './adapter-factory.js';
 export { CAPABILITY_SCHEMA_URI, defineCapability } from './define.js';
+export {
+  PROVIDER_LABEL_KEY,
+  PROVIDER_LABEL_MANAGED_BY,
+  PROVIDER_LABEL_VALUE_MAX_LENGTH,
+  PROVIDER_LABELS_MAX_KEYS,
+  validateProviderLabels,
+} from './provider-labels.js';
 export { createProviderRegistry } from './registry.js';
 export { matchTuples, route } from './router.js';
 export type { RouteInput } from './router.js';

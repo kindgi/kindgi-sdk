@@ -149,6 +149,24 @@ const RunAgentIdQueryParam: ParameterSpec = {
   schema: { type: 'string', minLength: 1 },
 };
 
+const RunReplaysQueryParam: ParameterSpec = {
+  name: 'replays',
+  in: 'query',
+  required: false,
+  description:
+    'Replay runs (an eval run re-running a past run). `exclude` (default) leaves them out; `include` lists them with the other runs; `only` lists just them.',
+  schema: { type: 'string', enum: ['exclude', 'include', 'only'], default: 'exclude' },
+};
+
+const RunEvalRunIdQueryParam: ParameterSpec = {
+  name: 'evalRunId',
+  in: 'query',
+  required: false,
+  description:
+    'Only the replay runs of this eval run. Implies replays are included; cannot be combined with `replays=exclude`.',
+  schema: { type: 'string', minLength: 1 },
+};
+
 const RunIncludeQueryParam: ParameterSpec = {
   name: 'include',
   in: 'query',
@@ -1086,6 +1104,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ParentRunIdQueryParam,
       TopLevelQueryParam,
       RunAgentIdQueryParam,
+      RunReplaysQueryParam,
+      RunEvalRunIdQueryParam,
       RunIncludeQueryParam,
     ],
     responses: {
@@ -2713,7 +2733,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'providers.register',
     summary: 'Register a model provider',
     description:
-      'Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding.',
+      'Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped; optional `labels` within their limits — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding.',
     tags: ['providers'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -2731,13 +2751,15 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/providers/{providerId}/unregister',
     operationId: 'providers.unregister',
     summary: 'Unregister a model provider',
+    description:
+      'A tombstone, not an erase: from then on the provider is gone from list, get and capabilities, and the router never picks it. Its id is free to register again. A retention policy on the `provider` domain purges the row.',
     tags: ['providers'],
     security: 'bearer',
     parameters: [ProviderIdPathParam, IdempotencyKeyParam],
     responses: {
       '200': { description: 'Unregistered.', schema: ref('UnregisterProviderResult') },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No provider with that id under this tenant.'),
+      '404': ErrorResponse('No provider with that id under this tenant, or already unregistered.'),
     },
   },
 

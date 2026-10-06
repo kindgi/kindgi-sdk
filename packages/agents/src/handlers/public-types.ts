@@ -6,7 +6,7 @@ import type { ProviderRegistry, TenantPolicy, UsageSink } from '@kindgi/capabili
 import type { EmbeddingProviderRegistry } from '@kindgi/embedding';
 import type { MemoryQueryBinding } from '@kindgi/memory';
 import type { PolicyRegistry } from '@kindgi/policy-contract';
-import type { ParentRunRef, RunBinding } from '@kindgi/runtime';
+import type { ParentRunRef, RunBinding, RunReplayRef } from '@kindgi/runtime';
 import type { ToolRegistry, ToolSecretRef } from '@kindgi/tools';
 import type { OrgId, ProjectId, ProvenanceId, RunId, TenantId, Timestamp } from '@kindgi/types';
 
@@ -16,6 +16,8 @@ import type { ProvenanceBindings } from '../provenance-emit.js';
 import type { RunSnapshotBinding } from '../run-snapshot-binding.js';
 import type { OnTurnEvent } from '../streaming.js';
 import type { Agent, ConversationId } from '../types.js';
+
+import type { ReplayBinding } from './replay.js';
 
 /**
  * The user-facing input to `invokeAgent`. Split out from `invoke.ts` so
@@ -54,6 +56,13 @@ export interface InvokeAgentInput {
    * step. Recorded on the turn's run, so the flow can find its child.
    */
   readonly parent?: ParentRunRef;
+  /**
+   * Marks the turn as a replay: an eval run re-running a past run (`of`)
+   * on this agent version. Recorded on the turn's run and in its snapshot.
+   * Its tool calls are decided by `InvokeAgentBindings.replay` (every call
+   * is refused when that isn't wired), and only a read-only tool can run.
+   */
+  readonly replay?: RunReplayRef;
   readonly participantId?: string;
   readonly abortSignal?: AbortSignal;
   /**
@@ -175,6 +184,11 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
    * unaffected.
    */
   readonly resolveSecret?: (ref: ToolSecretRef) => Promise<string>;
+  /**
+   * How replay turns (`InvokeAgentInput.replay`) decide their tool calls,
+   * retrievals and session approval. Consulted only for a replay turn.
+   */
+  readonly replay?: ReplayBinding;
 }
 
 export interface HitlBindings {

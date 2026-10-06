@@ -212,6 +212,49 @@ export interface JudgedRunContext {
   readonly historyTruncated?: boolean;
   /** What the turn's retrievals returned. */
   readonly retrieved?: unknown;
+  /**
+   * The reviewer's decision at the turn's session approval gate, when the
+   * turn waited on one. A replay of the turn follows it.
+   */
+  readonly sessionApproval?: { readonly approved: boolean; readonly rationale?: string };
+  /** For a flow run: what it did (see `JudgedFlowContext`). */
+  readonly flow?: JudgedFlowContext;
+}
+
+/** One tool call a judged run made, and its result. */
+export interface JudgedToolCall {
+  /** The run that made it: the flow run, a sub-flow's run, or an agent step's turn. */
+  readonly runId: string;
+  /** The tool node that made it, or the agent step whose turn did. */
+  readonly nodeId?: string;
+  /** The loop iteration, when the node is in a loop body. */
+  readonly scope?: string;
+  readonly toolId: string;
+  readonly arguments: unknown;
+  readonly result: unknown;
+}
+
+/** One agent step of a judged flow run: the turn it started. */
+export interface JudgedFlowStep {
+  readonly runId: string;
+  readonly nodeId?: string;
+  readonly scope?: string;
+  readonly agentId: string;
+  readonly agentVersion: string;
+  /** What the turn's retrievals returned. */
+  readonly retrieved?: unknown;
+}
+
+/**
+ * What a judged flow run did, kept at its first judgment: every tool
+ * call it made with its result (at its tool nodes, in its agent steps'
+ * turns and in its sub-flows), at most 500, and its agent steps.
+ */
+export interface JudgedFlowContext {
+  readonly calls: readonly JudgedToolCall[];
+  readonly steps: readonly JudgedFlowStep[];
+  /** More calls were made than were kept. */
+  readonly truncated?: boolean;
 }
 
 /** The stored copies of a judged run. */

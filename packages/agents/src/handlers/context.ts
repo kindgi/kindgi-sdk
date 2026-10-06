@@ -190,6 +190,13 @@ export interface TurnContext {
    */
   nonBlockingViolations?: readonly EvaluationResult[];
   /**
+   * A replay turn's tool calls so far, and what happened to each
+   * (`decideReplayTool`). Rebuilt from the journal on resume.
+   */
+  replayTrace?: import('./replay.js').ReplayToolTrace[];
+  /** A replay turn's session approval, when it reached the gate (`replaySessionApproval`). */
+  replayApproval?: 'followed' | 'skipped';
+  /**
    * Reason recorded when `turnAbort` fires. Used to distinguish
    * external cancellation from wall-clock timeout in the projected
    * error.

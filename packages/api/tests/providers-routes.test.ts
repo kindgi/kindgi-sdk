@@ -376,6 +376,56 @@ describe('API — providers register + get', () => {
     expect(((await get.json()) as { fallback?: boolean }).fallback).toBe(true);
   });
 
+  test('labels round-trip through register + get + list', async () => {
+    const { app } = makeApp();
+    const labels = { 'kindgi.com/managed-by': 'kindgi-dev:acme.pack', team: 'search' };
+    const register = await app.request('/v1/providers', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        metadata: { ...providerSpec(), labels },
+        adapter_id: TEST_ADAPTER_ID,
+      }),
+    });
+    expect(register.status).toBe(201);
+    const get = await app.request('/v1/providers/anthropic:claude-opus-4-7', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(((await get.json()) as { labels?: unknown }).labels).toEqual(labels);
+    const list = await app.request('/v1/providers', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    const page = (await list.json()) as { data: { labels?: unknown }[] };
+    expect(page.data[0]?.labels).toEqual(labels);
+  });
+
+  test('labels out of bounds → 400 invalid-provider, reason invalid-labels', async () => {
+    const { app } = makeApp();
+    for (const labels of [
+      { Team: 'search' },
+      { team: 1 },
+      { team: 'x'.repeat(257) },
+      Object.fromEntries(Array.from({ length: 33 }, (_, i) => [`k${i}`, 'v'])),
+      ['team'],
+    ]) {
+      const res = await app.request('/v1/providers', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          metadata: { ...providerSpec(), labels },
+          adapter_id: TEST_ADAPTER_ID,
+        }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as {
+        error: { code: string; message: string; details?: { reason?: string } };
+      };
+      expect(body.error.code).toBe('invalid-provider');
+      expect(body.error.details?.reason).toBe('invalid-labels');
+      expect(body.error.message).toContain('labels');
+    }
+  });
+
   test('validation failure (non-boolean fallback) → 400 invalid-provider', async () => {
     const { app } = makeApp();
     const res = await app.request('/v1/providers', {

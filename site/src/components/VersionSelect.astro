@@ -1,7 +1,8 @@
 ---
 /*
  * The version menu. Each release line's docs are served under `/vX.Y/`,
- * the newest also at the root; `/versions.json` at the site root lists
+ * the newest also at the root, and a release candidate newer than every
+ * release under `/next/`; `/versions.json` at the site root lists
  * them (scripts/build-versions.mjs writes it). Switching keeps the reader on the same page when the other
  * version has it, else opens that version's home. Hidden when there's no
  * `/versions.json` (a single local build).
@@ -17,6 +18,8 @@
   interface Version {
     readonly version: string;
     readonly path: string;
+    /** `/next/`: a release candidate, newer than the latest release. */
+    readonly next?: boolean;
   }
   interface Versions {
     readonly latest: string;
@@ -32,6 +35,7 @@
   }
 
   function label(v: Version, latest: string): string {
+    if (v.next) return `next (v${v.version})`;
     return v.version === latest ? `v${v.version} (latest)` : `v${v.version}`;
   }
 

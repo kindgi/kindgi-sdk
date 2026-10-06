@@ -18,7 +18,7 @@ import type { CapabilityDescriptor } from './capability-binding.js';
  * endpoints, credentials) cross the HTTP boundary. Secrets stay inside
  * the binding implementation; the wire surface returns only routing-
  * relevant metadata: provider-level `id` / `region` / `attributes` /
- * `capabilityKind` + `models[]` (each entry carries `name`,
+ * `capabilityKind` / `labels` + `models[]` (each entry carries `name`,
  * `contextWindow`, `features`, `cost`, optional `p95LatencyMs`,
  * `maxOutputTokens`, `description`).
  *
@@ -38,8 +38,8 @@ export interface ProviderRegistryBinding {
    */
   list(input: ProviderListInput): Promise<ProviderPage>;
   /**
-   * Fetch a provider by id, or `null` when unknown. The route surfaces
-   * `null` as `404 provider-not-found`.
+   * Fetch a provider by id, or `null` when unknown or unregistered. The
+   * route surfaces `null` as `404 provider-not-found`.
    */
   get(input: ProviderGetInput): Promise<ProviderMetadata | null>;
   /**
@@ -47,13 +47,18 @@ export interface ProviderRegistryBinding {
    * the wire shape via the `@kindgi/capabilities` runtime rules
    * before calling — the binding receives well-formed metadata.
    * Bindings MAY reject with `already-registered` when the same
-   * `providerId` is re-registered; the route maps that to `409`.
+   * `providerId` is re-registered; the route maps that to `409`. An
+   * unregistered id is free: registering it again makes a new provider.
    */
   register(input: ProviderRegisterInput): Promise<ProviderRegisterOutcome>;
   /**
-   * Remove a specific provider. Returns `{ unregistered: true }` on
-   * success; `{ unregistered: false }` when the id was unknown — the
-   * route flips the latter to `404`.
+   * Unregister a provider: a tombstone, not an erase. From then on the
+   * provider is gone from `list`, `get`, `capabilitiesFor` and
+   * `resolveForRuntime`, and the router never picks it; a retention
+   * policy on the `provider` domain purges the row. Returns
+   * `{ unregistered: true }` on success; `{ unregistered: false }` when
+   * the id was unknown or already unregistered — the route flips the
+   * latter to `404`.
    */
   unregister(input: ProviderUnregisterInput): Promise<ProviderUnregisterOutcome>;
   /**

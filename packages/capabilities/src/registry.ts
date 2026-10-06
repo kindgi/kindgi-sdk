@@ -4,6 +4,7 @@
 import type { Result, TenantId } from '@kindgi/types';
 
 import type { CapabilityError, DuplicateProviderError, InvalidProviderError } from './errors.js';
+import { validateProviderLabels } from './provider-labels.js';
 import type { ModelProvider, ProviderRegistry } from './types.js';
 
 /**
@@ -16,7 +17,8 @@ import type { ModelProvider, ProviderRegistry } from './types.js';
  * non-empty; `models[]` non-empty with unique `name` per entry;
  * per-model `contextWindow` positive integer; per-model `cost`
  * non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens`
- * well-shaped; `invoke` is a function. Duplicate ids within a tenant
+ * well-shaped; `labels` within their limits (`provider-labels.ts`);
+ * `invoke` is a function. Duplicate ids within a tenant
  * are refused — accidental clobber of a running provider would be
  * catastrophic under a live workload. The same `providerId` may be
  * registered under different tenants (that's the whole point).
@@ -123,6 +125,8 @@ export function createProviderRegistry(
         };
       }
     }
+    const badLabels = validateProviderLabels(p.metadata.id, p.metadata.labels);
+    if (badLabels !== undefined) return { code: 'invalid-provider', ...badLabels };
     if (typeof p.invoke !== 'function') {
       return {
         code: 'invalid-provider',
