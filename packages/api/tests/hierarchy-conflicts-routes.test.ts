@@ -137,6 +137,26 @@ function makeApp(options: Options) {
         ? { kind: 'ok', value: undefined }
         : { kind: 'err', error: { code: 'project-not-found', message: 'project gone' } };
     },
+    async removeTeamMember({ tenantId, teamId, userId }) {
+      await teamMemberships.remove(tenantId, teamId, userId);
+      return { kind: 'ok', value: undefined };
+    },
+    async updateTeamMemberRole({ tenantId, teamId, userId, role }) {
+      return {
+        kind: 'ok',
+        value: await teamMemberships.updateRole(tenantId, teamId, userId, role),
+      };
+    },
+    async removeProjectMember({ tenantId, projectId, userId }) {
+      await projectMemberships.remove(tenantId, projectId, userId);
+      return { kind: 'ok', value: undefined };
+    },
+    async updateProjectMemberRole({ tenantId, projectId, userId, role }) {
+      return {
+        kind: 'ok',
+        value: await projectMemberships.updateRole(tenantId, projectId, userId, role),
+      };
+    },
     getTenant: async () => null,
   };
 

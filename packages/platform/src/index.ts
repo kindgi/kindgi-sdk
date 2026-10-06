@@ -64,6 +64,11 @@ export type {
   CreateProjectParams,
   CreateTeamError,
   CreateTeamParams,
+  MembershipWriteError,
+  RemoveProjectMemberParams,
+  RemoveTeamMemberParams,
   TenantHierarchyBinding,
   TenantSummary,
+  UpdateProjectMemberRoleParams,
+  UpdateTeamMemberRoleParams,
 } from './tenant-hierarchy-binding.js';

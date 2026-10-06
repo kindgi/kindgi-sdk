@@ -58,3 +58,17 @@ export function projectDefaultAlreadyExistsError() {
     message: 'The tenant already has a Default project',
   } as const;
 }
+
+/**
+ * `501 authz-membership-unsupported`: authorization is enforced, but the
+ * tenant-hierarchy binding can't change a membership together with its
+ * authorization tuple (it has no `method`). Nothing is changed: removing
+ * the row alone would leave the user's permission in place.
+ */
+export function membershipNotKeptInStepError(method: string) {
+  return {
+    code: 'authz-membership-unsupported',
+    message: `This runtime can't keep permissions in step with a membership change (its tenant-hierarchy binding has no ${method}), so nothing was changed.`,
+    method,
+  } as const;
+}
