@@ -6,6 +6,8 @@ import type { Fact, MemoryScope } from '@kindgi/memory';
 import type { ToolErrorsSpec, ToolHitlMode, ToolHitlRule } from '@kindgi/policy-contract';
 import type { Brand, ConversationId, ProjectId, Semver, TenantId, Timestamp } from '@kindgi/types';
 
+import type { AgentPins } from './pins.js';
+
 /**
  * Branded agent id. Convention: dotted namespace under the tenant's
  * pack — e.g. `acme.citation-verifier`, `acme.drafting`.
@@ -405,6 +407,16 @@ export interface Agent {
    * A tenant's `tool-errors` policy can lower it. See `ToolErrorsSpec`.
    */
   readonly toolErrors?: ToolErrorsSpec;
+  /**
+   * The exact block versions this agent version runs, resolved by the
+   * runtime when the version was published (see `AgentPins`). Never
+   * authored: `defineAgent` doesn't take it. Absent on an agent defined
+   * in code and on a version published before pins existed; its tool
+   * ranges then resolve per run.
+   */
+  readonly pins?: AgentPins;
+  /** `pinsDigest(pins)`, recorded when the version was published. */
+  readonly pinsDigest?: string;
 }
 
 /**

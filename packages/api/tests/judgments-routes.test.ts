@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
+import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
 import type { KernelRunRecord, RunAgentRef, RunBinding } from '@kindgi/runtime';
 import type { ConversationId, ProjectId, RunId, TenantId, Timestamp, UserId } from '@kindgi/types';
 
@@ -75,9 +76,35 @@ interface TurnReads {
   readonly journal?: readonly unknown[];
 }
 
+/**
+ * With `grants`, the app checks authorization: it allows exactly the
+ * `action type:id` pairs listed, and records every check in `checked`.
+ */
+interface Authz {
+  readonly grants: readonly string[];
+  readonly checked: string[];
+}
+
+function decision(authz: Authz, action: Action, resource: ResourceRef): Decision {
+  const key = `${action} ${resource.type}:${resource.id}`;
+  authz.checked.push(key);
+  const allowed = authz.grants.includes(key);
+  return {
+    allowed,
+    reason: allowed ? 'test: granted' : 'test: not granted',
+    evidence: {
+      action,
+      relation: '',
+      resource: `${resource.type}:${resource.id}`,
+      actorSubject: '',
+    },
+  };
+}
+
 function harness(
   rows: KernelRunRecord[],
   reads: TurnReads = {},
+  authz?: Authz,
 ): Harness & { readonly reads: number[] } {
   const binding = inMemoryJudgments();
   const stubs = createStubAppBindings();
@@ -105,6 +132,16 @@ function harness(
     resolveToken,
     runHandler,
     judgmentRegistry: binding,
+    ...(authz !== undefined && {
+      authz: {
+        fgaApiUrl: 'http://fga.invalid',
+        authzCheckBinding: {
+          check: async (_principal, action, resource) => decision(authz, action, resource),
+          checkBatch: async (_principal, action, resources) =>
+            resources.map((resource) => decision(authz, action, resource)),
+        } satisfies AuthzCheckBinding,
+      },
+    }),
   });
   const call: Harness['call'] = async (method, path, body, token = USER_TOKEN) => {
     const res = await app.request(path, {
@@ -313,6 +350,29 @@ describe('POST /v1/judgments', () => {
     expect(asUser.body.assertedBy).toEqual({ kind: 'user', id: 'user-1' });
     const asKey = await h.call('POST', '/v1/judgments', body, KEY_TOKEN);
     expect(asKey.body.assertedBy).toEqual({ kind: 'service', id: 'key-1' });
+  });
+});
+
+describe('judging and authorization', () => {
+  test("judging a run needs write on the run's project, as cancelling one does", async () => {
+    const run = row();
+    const project = run.projectId as unknown as string;
+    const granted: Authz = { grants: [`write project:${project}`], checked: [] };
+    const allowed = await harness([run], {}, granted).call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { key: 'c1' },
+      verdict: 'yes',
+    });
+    expect(allowed.status).toBe(201);
+    expect(granted.checked).toContain(`write project:${project}`);
+
+    const denied = await harness(
+      [run],
+      {},
+      { grants: [`read project:${project}`], checked: [] },
+    ).call('POST', '/v1/judgments', { runId: run.runId, item: { key: 'c1' }, verdict: 'yes' });
+    expect(denied.status).toBe(403);
+    expect(denied.body.error.code).toBe('permission-denied');
   });
 });
 

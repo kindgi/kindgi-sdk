@@ -1019,7 +1019,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     v1.route('/observations', observationsRouter(input.supervisor));
   }
   if (input.agentRegistry !== undefined) {
-    v1.route('/agents', agentsRouter(input.agentRegistry, authorizer));
+    v1.route('/agents', agentsRouter(input.agentRegistry, authorizer, input.toolRegistry));
   }
   if (input.flowRegistry !== undefined) {
     v1.route('/flows', flowsRouter(input.flowRegistry, authorizer));

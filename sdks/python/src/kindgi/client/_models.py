@@ -1549,42 +1549,27 @@ class ToolErrorsSpec(BaseModel):
     """
 
 
-class Agent(BaseModel):
+class AgentPins(BaseModel):
+    """
+    The exact block versions an agent version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool range resolves once to the version every run of that agent version uses, so a new tool version reaches the agent only through a new agent version. Absent on a version published before pins existed (its ranges resolve per run).
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    id: str
+    tools: dict[str, str]
     """
-    AgentId — dotted namespace (e.g. `acme.drafting`).
+    Tool id → exact version.
     """
-    version: str
+    prompts: dict[str, str]
     """
-    Semver.
+    Prompt block id → exact version.
     """
-    name: str
-    description: str | None = None
-    instructions: str
-    parameters: list[PromptParameter] | None = None
-    capabilities: list[Capability4]
-    tools: list[ToolRef]
-    retrieval: list[RetrievalIntent]
-    guardrails: list[str]
-    preferred_provider: Annotated[str | None, Field(alias="preferredProvider", min_length=1)] = None
+    settings: dict[str, str]
     """
-    Soft hint — the router prefers this provider by id (e.g. `anthropic`) when at least one of its models satisfies `capabilities.needs` + tenant policy. Combine with `preferredModel` to pin the exact (provider, model) tuple. Falls back to capability-based ranking when the pinned provider is unregistered or filtered out.
+    Settings block id → exact version.
     """
-    preferred_model: Annotated[str | None, Field(alias="preferredModel", min_length=1)] = None
-    """
-    Soft hint at the model level (`ModelInfo.name`, e.g. `claude-sonnet-4-6`). Combined with `preferredProvider`: both set → promote the exact tuple; only `preferredModel` → promote any provider exposing that model; only `preferredProvider` → promote every model of that provider.
-    """
-    conversation_policy: Annotated[ConversationPolicy | None, Field(alias="conversationPolicy")] = (
-        None
-    )
-    budget: TurnBudget | None = None
-    tags: list[str] | None = None
-    output: AgentOutputSpec | None = None
-    tool_errors: Annotated[ToolErrorsSpec | None, Field(alias="toolErrors")] = None
 
 
 class PublishAgentBody(BaseModel):
@@ -1657,19 +1642,6 @@ class ReinstateAgentVersionResult(BaseModel):
     """
     `true` when this call un-tombstoned the version; `false` when it was already active (idempotent no-op).
     """
-
-
-class AgentCollectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[Agent]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    """
-    Opaque cursor for the next page. Absent when `hasMore: false`.
-    """
-    has_more: Annotated[bool, Field(alias="hasMore")]
 
 
 class FlowNode(BaseModel):
@@ -6664,6 +6636,64 @@ class CompleteApprovalResult(BaseModel):
     """
     True when the approval had a `waitTokenId` + terminal accept/reject and the run waitpoint was completed as part of this call.
     """
+
+
+class Agent(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    AgentId — dotted namespace (e.g. `acme.drafting`).
+    """
+    version: str
+    """
+    Semver.
+    """
+    name: str
+    description: str | None = None
+    instructions: str
+    parameters: list[PromptParameter] | None = None
+    capabilities: list[Capability4]
+    tools: list[ToolRef]
+    retrieval: list[RetrievalIntent]
+    guardrails: list[str]
+    preferred_provider: Annotated[str | None, Field(alias="preferredProvider", min_length=1)] = None
+    """
+    Soft hint — the router prefers this provider by id (e.g. `anthropic`) when at least one of its models satisfies `capabilities.needs` + tenant policy. Combine with `preferredModel` to pin the exact (provider, model) tuple. Falls back to capability-based ranking when the pinned provider is unregistered or filtered out.
+    """
+    preferred_model: Annotated[str | None, Field(alias="preferredModel", min_length=1)] = None
+    """
+    Soft hint at the model level (`ModelInfo.name`, e.g. `claude-sonnet-4-6`). Combined with `preferredProvider`: both set → promote the exact tuple; only `preferredModel` → promote any provider exposing that model; only `preferredProvider` → promote every model of that provider.
+    """
+    conversation_policy: Annotated[ConversationPolicy | None, Field(alias="conversationPolicy")] = (
+        None
+    )
+    budget: TurnBudget | None = None
+    tags: list[str] | None = None
+    output: AgentOutputSpec | None = None
+    tool_errors: Annotated[ToolErrorsSpec | None, Field(alias="toolErrors")] = None
+    pins: AgentPins | None = None
+    pins_digest: Annotated[
+        str | None, Field(alias="pinsDigest", pattern="^sha256:[0-9a-f]{64}$")
+    ] = None
+    """
+    Set by the runtime with `pins`: `sha256:<hex>` of the pins' canonical JSON (sorted keys, no whitespace). Two agent versions with the same digest run the same blocks.
+    """
+
+
+class AgentCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Agent]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor for the next page. Absent when `hasMore: false`.
+    """
+    has_more: Annotated[bool, Field(alias="hasMore")]
 
 
 class CallUsage(BaseModel):
