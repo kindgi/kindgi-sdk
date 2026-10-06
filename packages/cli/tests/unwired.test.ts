@@ -43,7 +43,7 @@ describe('commands the API does not wire yet', () => {
     const root = rootHelpText();
     expect(root).toContain('  runs');
     expect(root).not.toMatch(/^ {2}capabilities /m);
-    expect(root).not.toMatch(/^ {2}flows /m);
+    expect(root).not.toMatch(/^ {2}artifacts /m);
 
     const runs = ROOT_COMMANDS.find((c) => c.name === 'runs')!;
     const help = commandHelpText(runs, ['runs']);

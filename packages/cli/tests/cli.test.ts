@@ -279,6 +279,22 @@ describe('not-implemented-in-preview SDK errors', () => {
     expect(called).toBe(false);
   });
 
+  test.each([
+    [['observations', 'list'], "doesn't record supervisor observations yet"],
+    [['proposals', 'list'], "doesn't draft or apply supervisor fix proposals yet"],
+    [['proposals', 'get', 'p-1'], "doesn't draft or apply supervisor fix proposals yet"],
+  ])("%j says why: the group's reason covers each of its commands", async (argv, reason) => {
+    const out = await runCli(
+      baseInputs({
+        argv: [...argv, '--url=https://x', '--token=t'],
+        clientFactory: () => ({}) as never,
+      }),
+    );
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain(`Command 'kindgi ${argv.slice(0, 2).join(' ')}' is not available`);
+    expect(out.stderr).toContain(reason);
+  });
+
   test("tokens create and revoke say the runtime doesn't serve them, and call nothing", async () => {
     for (const argv of [
       ['tokens', 'create'],

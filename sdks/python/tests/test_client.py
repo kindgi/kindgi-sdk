@@ -142,6 +142,23 @@ def test_a_field_named_for_a_keyword_takes_a_trailing_underscore() -> None:
     assert [json.loads(r.content) for r in seen] == [{"from": "1.4.0", "pins": pins}] * 2
 
 
+def test_a_field_set_to_none_is_sent_as_null() -> None:
+    # `assertable_by=None` lifts a judge class's restriction; a field left out stays out.
+    judge_class = {
+        "id": "jc-1",
+        "tenantId": "t-1",
+        "scope": {"kind": "tenant"},
+        "name": "expert",
+        "weight": 3,
+        "createdAt": "2026-10-06T00:00:00.000Z",
+        "updatedAt": "2026-10-06T00:00:00.000Z",
+    }
+    api, seen = client(lambda r: httpx.Response(200, json=judge_class))
+    api.judge_classes.update("jc-1", assertable_by=None)
+    api.judge_classes.update("jc-1", weight=2)
+    assert [json.loads(r.content) for r in seen] == [{"assertableBy": None}, {"weight": 2}]
+
+
 def test_path_and_query_parameters() -> None:
     page = {"data": [], "hasMore": False}
     api, seen = client(
@@ -537,3 +554,26 @@ def test_a_second_retention_policy_for_a_domain_is_a_conflict() -> None:
         )
     assert raised.value.server_code == "policy-scope-taken"
     assert raised.value.details["heldBy"] == "acme.keep-providers"
+
+
+def test_observations_list_sends_every_filter_the_route_reads() -> None:
+    """`agentVersion`, `conversationId`, `since` and `until` were missing from the spec."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"data": [], "hasMore": False})
+
+    api, seen = client(handler)
+    api.observations.list(
+        agent_id="acme.helper",
+        agent_version="1.0.0",
+        conversation_id="c-1",
+        since="2026-10-01T00:00:00Z",
+        until="2026-10-06T00:00:00Z",
+    )
+    assert dict(seen[0].url.params) == {
+        "agentId": "acme.helper",
+        "agentVersion": "1.0.0",
+        "conversationId": "c-1",
+        "since": "2026-10-01T00:00:00Z",
+        "until": "2026-10-06T00:00:00Z",
+    }

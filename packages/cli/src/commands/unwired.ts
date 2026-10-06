@@ -16,11 +16,9 @@ import type { Command } from './types.js';
 export const UNWIRED_COMMANDS: ReadonlySet<string> = new Set([
   'artifacts',
   'capabilities',
-  'flows',
   'observations',
   'proposals',
   'tokens',
-  'tools publish',
   'runs resume',
   'memory facts supersede',
   'memory facts retrieve',
@@ -31,8 +29,8 @@ const TOKENS_NOT_SERVED =
   "the Kindgi runtime doesn't serve `/v1/tokens` yet, so it has no API keys to mint or revoke; it authenticates with the token it starts with (`KINDGI_API_TOKEN`, or the one `kindgi dev` prints).";
 
 /**
- * Why a listed command isn't available, when the reason isn't simply "not
- * wired yet": what the CLI prints instead of the generic message.
+ * Why a command (or a whole group: a command's nearest listed path counts)
+ * is unwired, when there's more to say than "not yet wired".
  */
 export const UNWIRED_REASONS: ReadonlyMap<string, string> = new Map([
   [
@@ -49,7 +47,21 @@ export const UNWIRED_REASONS: ReadonlyMap<string, string> = new Map([
     'memory facts retrieve',
     "the Kindgi runtime doesn't search memory yet (keyword or semantic): a retrieval would find nothing. To list facts by type or scope: `kindgi memory facts list --type=<type> --scope=<json>`.",
   ],
+  [
+    'observations',
+    "the Kindgi runtime doesn't record supervisor observations yet, so there's nothing to list; how a run went is in `kindgi runs get <run-id>` and `kindgi runs journal <run-id>`.",
+  ],
+  ['proposals', "the Kindgi runtime doesn't draft or apply supervisor fix proposals yet."],
 ]);
+
+/** The reason a command at `path` (its words) is unwired, from its nearest listed path. */
+export function unwiredReason(path: readonly string[]): string | undefined {
+  for (let i = path.length; i >= 1; i -= 1) {
+    const reason = UNWIRED_REASONS.get(path.slice(0, i).join(' '));
+    if (reason !== undefined) return reason;
+  }
+  return undefined;
+}
 
 /** Whether the command at `path` (its words, from the root) is wired. */
 export function isWired(path: readonly string[]): boolean {

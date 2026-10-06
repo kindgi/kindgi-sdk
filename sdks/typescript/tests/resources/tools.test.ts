@@ -176,3 +176,25 @@ describe('tools.invoke / tools.manifests (not yet wired)', () => {
     });
   });
 });
+
+describe('tools.register', () => {
+  it('POSTs /v1/tools with the manifest and its project, and returns the tool id', async () => {
+    const stub = jsonFetch({ toolId: 'acme.verify-citation' }, { status: 201 });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+
+    const result = await client.tools.register(WIRE_TOOL as never, {
+      projectId: 'p-1',
+      idempotencyKey: 'k-1',
+    });
+
+    expect(result).toEqual({ toolId: 'acme.verify-citation' });
+    expect(stub.calls[0]?.method).toBe('POST');
+    expect(stub.calls[0]?.url).toBe('https://api.example.com/v1/tools');
+    expect(JSON.parse(stub.calls[0]?.body ?? '{}')).toEqual({ ...WIRE_TOOL, projectId: 'p-1' });
+    expect(stub.calls[0]?.headers['idempotency-key']).toBe('k-1');
+  });
+});

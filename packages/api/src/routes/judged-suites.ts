@@ -252,12 +252,16 @@ async function summarize(
   let no = 0;
   let yesWeight = 0;
   let totalWeight = 0;
+  // What judges a class was restricted to asserted, as it was when each judgment was recorded.
+  const restricted = { yesWeight: 0, totalWeight: 0 };
   for (const j of judgments) {
     const w = await weightOf(j.judgeClassId);
     totalWeight += w;
+    if (j.restricted === true) restricted.totalWeight += w;
     if (j.verdict === 'yes') {
       yes += 1;
       yesWeight += w;
+      if (j.restricted === true) restricted.yesWeight += w;
     } else {
       no += 1;
     }
@@ -271,6 +275,7 @@ async function summarize(
     no,
     yesWeight,
     totalWeight,
+    restricted,
     reasons: judgments.flatMap((j) =>
       j.reason !== undefined ? [{ verdict: j.verdict, reason: j.reason }] : [],
     ),

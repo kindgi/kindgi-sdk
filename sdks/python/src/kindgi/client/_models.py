@@ -190,7 +190,7 @@ class GateCheck(BaseModel):
     )
     name: str
     """
-    Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.suite`, `sameContents`, `baselineIsLive`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`.
+    Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.suite`, `sameContents`, `baselineIsLive`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `classWeights.restrictedOnly`.
     """
     passed: bool
     message: str
@@ -311,7 +311,7 @@ class Approvals(BaseModel):
 
 class GatePolicySpec(BaseModel):
     """
-    What a promotion must show. Every part is optional; an empty spec checks nothing. A promotion must name a comparison (`evalRunId`) exactly when the spec has `comparison`, `evidence`, `metrics` or `replay`. Unknown keys are refused.
+    What a promotion must show. Every part is optional; an empty spec checks nothing. A promotion must name a comparison (`evalRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyRestrictedClasses`. Unknown keys are refused.
     """
 
     model_config = ConfigDict(
@@ -331,6 +331,10 @@ class GatePolicySpec(BaseModel):
     approvals: Approvals | None = None
     """
     A passing promotion waits for a reviewer.
+    """
+    only_restricted_classes: Annotated[bool | None, Field(alias="onlyRestrictedClasses")] = None
+    """
+    Only restricted judge classes count: the comparison must be weighted `restricted-only`, so a class anyone may assert can't move the gate.
     """
 
 
@@ -1341,70 +1345,6 @@ class JudgeClassScope3(BaseModel):
     agent_id: Annotated[str, Field(alias="agentId", min_length=1)]
 
 
-class JudgeClass(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    id: str
-    tenant_id: Annotated[str, Field(alias="tenantId")]
-    scope: JudgeClassScope1 | JudgeClassScope2 | JudgeClassScope3
-    """
-    Where a judge class applies: the whole tenant, one project, or one agent in a project.
-    """
-    name: str
-    """
-    The deployment's own word for the class: "expert", "user", "arbitrator".
-    """
-    weight: Annotated[float, Field(ge=0.0)]
-    """
-    How much a judgment of this class counts, relative to the others.
-    """
-    description: str | None = None
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
-    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
-    """
-    Set when the class was retired.
-    """
-
-
-class JudgeClassCollectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[JudgeClass]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    """
-    Opaque cursor. Treat as opaque on the client.
-    """
-    has_more: Annotated[bool, Field(alias="hasMore")]
-
-
-class CreateJudgeClassBody(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    scope: JudgeClassScope1 | JudgeClassScope2 | JudgeClassScope3
-    """
-    Where a judge class applies: the whole tenant, one project, or one agent in a project.
-    """
-    name: Annotated[str, Field(max_length=100, min_length=1)]
-    weight: Annotated[float, Field(ge=0.0)]
-    description: str | None = None
-
-
-class UpdateJudgeClassBody(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    weight: Annotated[float | None, Field(ge=0.0)] = None
-    description: str | None = None
-
-
 class UnregisterJudgeClassResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -1483,6 +1423,10 @@ class Judgment(BaseModel):
     judge_class_id: Annotated[str | None, Field(alias="judgeClassId")] = None
     """
     The judge class the judgment is recorded under. Absent when unclassified (counts with weight 1).
+    """
+    restricted: Literal[True] | None = None
+    """
+    Present (true) when the judge class was restricted (`assertableBy`) when the judgment was recorded, so the judge was checked against it. A restriction added or lifted later doesn't change it.
     """
     asserted_by: Annotated[JudgmentAssertedBy, Field(alias="assertedBy")]
     participant_id: Annotated[str | None, Field(alias="participantId")] = None
@@ -1676,6 +1620,19 @@ class UnregisterJudgmentResult(BaseModel):
     unregistered: Literal[True]
 
 
+class Restricted(BaseModel):
+    """
+    The same weights, counting only judgments recorded while their class was restricted (`Judgment.restricted`), for a comparison weighted `restricted-only`. Absent from a test set built before restrictions.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    yes_weight: Annotated[float, Field(alias="yesWeight")]
+    total_weight: Annotated[float, Field(alias="totalWeight")]
+
+
 class Reason(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -1713,9 +1670,46 @@ class JudgedItemSummary(BaseModel):
     """
     The weight behind all judgments of the item.
     """
+    restricted: Restricted | None = None
+    """
+    The same weights, counting only judgments recorded while their class was restricted (`Judgment.restricted`), for a comparison weighted `restricted-only`. Absent from a test set built before restrictions.
+    """
     reasons: list[Reason]
     """
     The reasons given, newest first.
+    """
+
+
+class PrincipalId(RootModel[str]):
+    root: Annotated[str, Field(min_length=1)]
+
+
+class JudgeClassAssertableBy(BaseModel):
+    """
+    Who may assert the class: every part that is set must hold. A class with one is restricted: a judgment recorded while it is carries `restricted`, and a comparison weighted `restricted-only` counts only those.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    min_reviewer_role: Annotated[
+        Literal["standard", "senior", "admin"] | None, Field(alias="minReviewerRole")
+    ] = None
+    """
+    The caller's reviewer role is at least this (its token's, or the roster's).
+    """
+    principal_kinds: Annotated[
+        list[Literal["user", "service"]] | None, Field(alias="principalKinds", min_length=1)
+    ] = None
+    """
+    Users, service tokens, or both.
+    """
+    principal_ids: Annotated[
+        list[PrincipalId] | None, Field(alias="principalIds", max_length=100, min_length=1)
+    ] = None
+    """
+    Only these principals: user ids, or service token ids.
     """
 
 
@@ -5264,6 +5258,12 @@ class EvalComparison(BaseModel):
     repetitions: Annotated[int, Field(ge=1, le=10)]
     k: Annotated[int, Field(ge=1, le=100)]
     versions: FlowVersionOverrides | None = None
+    class_weights: Annotated[
+        Literal["as-recorded", "restricted-only"] | None, Field(alias="classWeights")
+    ] = None
+    """
+    Which judgments count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Judgment.restricted`), the others weighing 0 (`restricted-only`).
+    """
 
 
 class ComparisonMetric(BaseModel):
@@ -5461,6 +5461,12 @@ class JudgedComparisonSummary(BaseModel):
     Flow cases that stopped at a write the replay refused: no output to score, so they're left out of the metrics.
     """
     reads: Literal["recorded", "live"]
+    class_weights: Annotated[
+        Literal["as-recorded", "restricted-only"] | None, Field(alias="classWeights")
+    ] = None
+    """
+    Which judgments counted. Absent from a comparison recorded before restricted classes: `as-recorded`.
+    """
     sampling: Sampling
     repetitions: Annotated[int, Field(ge=1)]
     metrics: Metrics
@@ -5694,6 +5700,12 @@ class StartEvalRunBody(BaseModel):
     repetitions: Annotated[int | None, Field(ge=1, le=10)] = None
     k: Annotated[int | None, Field(ge=1, le=100)] = None
     versions: FlowVersionOverrides | None = None
+    class_weights: Annotated[
+        Literal["as-recorded", "restricted-only"] | None, Field(alias="classWeights")
+    ] = None
+    """
+    Which judgments count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Judgment.restricted`), the others weighing 0 (`restricted-only`).
+    """
 
 
 class StartEvalRunResult(BaseModel):
@@ -8220,6 +8232,76 @@ class CompleteApprovalResult(BaseModel):
     resume: Resume | Resume1 | None = None
     """
     How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way.
+    """
+
+
+class JudgeClass(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    tenant_id: Annotated[str, Field(alias="tenantId")]
+    scope: JudgeClassScope1 | JudgeClassScope2 | JudgeClassScope3
+    """
+    Where a judge class applies: the whole tenant, one project, or one agent in a project.
+    """
+    name: str
+    """
+    The deployment's own word for the class: "expert", "user", "arbitrator".
+    """
+    weight: Annotated[float, Field(ge=0.0)]
+    """
+    How much a judgment of this class counts, relative to the others.
+    """
+    description: str | None = None
+    assertable_by: Annotated[JudgeClassAssertableBy | None, Field(alias="assertableBy")] = None
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    Set when the class was retired.
+    """
+
+
+class JudgeClassCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[JudgeClass]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor. Treat as opaque on the client.
+    """
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class CreateJudgeClassBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    scope: JudgeClassScope1 | JudgeClassScope2 | JudgeClassScope3
+    """
+    Where a judge class applies: the whole tenant, one project, or one agent in a project.
+    """
+    name: Annotated[str, Field(max_length=100, min_length=1)]
+    weight: Annotated[float, Field(ge=0.0)]
+    description: str | None = None
+    assertable_by: Annotated[JudgeClassAssertableBy | None, Field(alias="assertableBy")] = None
+
+
+class UpdateJudgeClassBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    weight: Annotated[float | None, Field(ge=0.0)] = None
+    description: str | None = None
+    assertable_by: Annotated[JudgeClassAssertableBy | None, Field(alias="assertableBy")] = None
+    """
+    Who may assert the class; `null` lifts the restriction.
     """
 
 

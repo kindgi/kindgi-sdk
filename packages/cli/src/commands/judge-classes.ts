@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { JudgeClassScope } from '@kindgi/client';
+import type { JudgeClassAssertableBy, JudgeClassScope } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
-import { integerFlag, requiredPositional, runSdk, stringFlag } from './helpers.js';
+import { integerFlag, listFlag, requiredPositional, runSdk, stringFlag } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
 const SCOPE_FLAGS = {
@@ -33,6 +33,57 @@ function scopeFromFlags(ctx: CommandContext, required: boolean): JudgeClassScope
   if (required)
     throw new Error('Give a scope: --tenant, --project=<id>, or --agent=<id> --project=<id>');
   return undefined;
+}
+
+const REVIEWER_ROLES = ['standard', 'senior', 'admin'] as const;
+const PRINCIPAL_KINDS = ['user', 'service'] as const;
+type ReviewerRole = (typeof REVIEWER_ROLES)[number];
+type PrincipalKind = (typeof PRINCIPAL_KINDS)[number];
+
+const ASSERTABLE_FLAGS = {
+  'min-reviewer-role': {
+    type: 'string',
+    description: `Only reviewers of this role or above may assert the class: ${REVIEWER_ROLES.join(', ')}.`,
+  },
+  'principal-kind': {
+    type: 'string',
+    multiple: true,
+    description:
+      'Only people (`user`) or service tokens (`service`) may assert the class. Repeat the flag for both.',
+  },
+  'principal-id': {
+    type: 'string',
+    multiple: true,
+    description: 'Only this user or token id may assert the class. Repeat the flag for several.',
+  },
+} as const;
+
+const ASSERTABLE_USAGE =
+  '[--min-reviewer-role=standard|senior|admin] [--principal-kind=user|service ...] [--principal-id=<id> ...]';
+
+/** Who may assert a class, from the flags; `undefined` when none is given. */
+function assertableByFromFlags(ctx: CommandContext): JudgeClassAssertableBy | undefined {
+  const role = stringFlag(ctx, 'min-reviewer-role');
+  if (role !== undefined && !(REVIEWER_ROLES as readonly string[]).includes(role)) {
+    throw new Error(
+      `--min-reviewer-role must be one of ${REVIEWER_ROLES.join(', ')}, got "${role}"`,
+    );
+  }
+  const kinds = listFlag(ctx, 'principal-kind');
+  for (const kind of kinds) {
+    if (!(PRINCIPAL_KINDS as readonly string[]).includes(kind)) {
+      throw new Error(`--principal-kind must be user or service, got "${kind}"`);
+    }
+  }
+  const ids = listFlag(ctx, 'principal-id');
+  if (role === undefined && kinds.length === 0 && ids.length === 0) return undefined;
+  return {
+    ...(role !== undefined && {
+      minReviewerRole: role as ReviewerRole,
+    }),
+    ...(kinds.length > 0 && { principalKinds: kinds as PrincipalKind[] }),
+    ...(ids.length > 0 && { principalIds: ids }),
+  };
 }
 
 function weightFlag(ctx: CommandContext): number | undefined {
@@ -75,9 +126,8 @@ const add: LeafCommand = {
   kind: 'leaf',
   name: 'add',
   description:
-    'Add a judge class: a named kind of judge with a weight, for the tenant, a project, or an agent.',
-  usage:
-    'kindgi judge-classes add --name=<name> --weight=<w> (--tenant | --project=<id> | --agent=<id> --project=<id>) [--description=<text>]',
+    'Add a judge class: a named kind of judge with a weight, for the tenant, a project, or an agent. The restriction flags limit who may assert it; without them, anyone who may judge the run may.',
+  usage: `kindgi judge-classes add --name=<name> --weight=<w> (--tenant | --project=<id> | --agent=<id> --project=<id>) [--description=<text>] ${ASSERTABLE_USAGE}`,
   optionSpec: {
     name: { type: 'string', description: 'The class name, e.g. `expert`. Required.' },
     weight: {
@@ -86,6 +136,7 @@ const add: LeafCommand = {
     },
     ...SCOPE_FLAGS,
     description: { type: 'string', description: 'What the class is for.' },
+    ...ASSERTABLE_FLAGS,
   },
   run: (ctx) =>
     runSdk(ctx, 'judge-classes add', async () => {
@@ -95,11 +146,13 @@ const add: LeafCommand = {
       if (weight === undefined) throw new Error('--weight=<w> is required');
       const scope = scopeFromFlags(ctx, true) as JudgeClassScope;
       const description = stringFlag(ctx, 'description');
+      const assertableBy = assertableByFromFlags(ctx);
       return await ctx.client().judgeClasses.create({
         scope,
         name,
         weight,
         ...(description !== undefined && { description }),
+        ...(assertableBy !== undefined && { assertableBy }),
       });
     }),
 };
@@ -107,23 +160,36 @@ const add: LeafCommand = {
 const set: LeafCommand = {
   kind: 'leaf',
   name: 'set',
-  description: "Change a judge class's weight or description.",
-  usage: 'kindgi judge-classes set <judge-class-id> [--weight=<w>] [--description=<text>]',
+  description:
+    "Change a judge class's weight, description, or who may assert it. The restriction flags replace the class's whole restriction; `--unrestricted` lifts it.",
+  usage: `kindgi judge-classes set <judge-class-id> [--weight=<w>] [--description=<text>] [${ASSERTABLE_USAGE} | --unrestricted]`,
   optionSpec: {
     weight: { type: 'string', description: 'The new weight, a number of 0 or more.' },
     description: { type: 'string', description: 'The new description.' },
+    ...ASSERTABLE_FLAGS,
+    unrestricted: {
+      type: 'boolean',
+      description: 'Lift the restriction: anyone who may judge the run may assert the class.',
+    },
   },
   run: (ctx) =>
     runSdk(ctx, 'judge-classes set', async () => {
       const id = requiredPositional(ctx, 0, 'judge-class-id');
       const weight = weightFlag(ctx);
       const description = stringFlag(ctx, 'description');
-      if (weight === undefined && description === undefined) {
-        throw new Error('Give --weight and/or --description');
+      const restricted = assertableByFromFlags(ctx);
+      const unrestricted = ctx.options.unrestricted === true;
+      if (restricted !== undefined && unrestricted) {
+        throw new Error('--unrestricted cannot be combined with the restriction flags');
+      }
+      const assertableBy = unrestricted ? null : restricted;
+      if (weight === undefined && description === undefined && assertableBy === undefined) {
+        throw new Error('Give --weight, --description, a restriction flag, or --unrestricted');
       }
       return await ctx.client().judgeClasses.update(id, {
         ...(weight !== undefined && { weight }),
         ...(description !== undefined && { description }),
+        ...(assertableBy !== undefined && { assertableBy }),
       });
     }),
 };

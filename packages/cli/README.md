@@ -751,7 +751,8 @@ Inside a pack that `kindgi dev` runs, they find it on their own (see
 | `conversations` | `list`, `get`, `open <agent-id> <version>`, `close`, `messages` |
 | `runs` | `list`, `get`, `cancel`, `journal`, `stream` (one JSON event per line), `start`, `resume` |
 | `agents` | `list`, `get <agent-id> [<version>]`, `publish`, `derive`, `unregister <agent-id> <version>`, `versions`; which version runs where: `live`, `live-versions`, `promote`, `rollback`, `unpin`, `promotions` |
-| `tools` | `list`, `get`, `unregister`, `versions`, `get-version`, `reinstate` |
+| `tools` | `list`, `get`, `publish`, `unregister`, `versions`, `get-version`, `reinstate` |
+| `flows` | `list`, `get <flow-id> [<version>]`, `publish --spec=<json>`, `versions`, `unregister <flow-id> <version>`, `reinstate <flow-id> <version>` |
 | `guardrails` | `list`, `get`, `register`, `unregister` |
 | `providers` | `list`, `get`, `register`, `presets`, `unregister` |
 | `adapters` | `prepare` |
@@ -775,9 +776,9 @@ false`).
 `kindgi <command> --help` prints a command's subcommands and flags.
 
 More of the API (superseding and searching memory, artifacts,
-proposals, observations, tokens, capabilities, and flows) has commands
-in progress. They're left out of `--help` until they work; until then,
-use [`@kindgi/client`](../../sdks/typescript) for those resources.
+proposals, observations, tokens and capabilities) has commands in
+progress. They're left out of `--help` until they work; until then, use
+[`@kindgi/client`](../../sdks/typescript) for those resources.
 
 ## Auth and config
 

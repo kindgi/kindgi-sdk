@@ -102,6 +102,23 @@ describe('judgeClasses.get / update / unregister', () => {
     expect(JSON.parse(req.body!)).toEqual({ weight: 5 });
   });
 
+  it('sends who may assert a class, and null to lift it', async () => {
+    const assertableBy = { minReviewerRole: 'senior', principalKinds: ['user'] } as const;
+    const stub = jsonFetch({ ...CLASS, assertableBy }, { status: 201 });
+    const created = await clientFor(stub).judgeClasses.create({
+      scope: { kind: 'tenant' },
+      name: 'expert',
+      weight: 3,
+      assertableBy,
+    });
+    expect(created.assertableBy).toEqual(assertableBy);
+    expect(JSON.parse(stub.calls[0]?.body ?? '{}').assertableBy).toEqual(assertableBy);
+
+    const lifted = jsonFetch(CLASS);
+    await clientFor(lifted).judgeClasses.update('jc-1', { assertableBy: null });
+    expect(JSON.parse(lifted.calls[0]?.body ?? '{}')).toEqual({ assertableBy: null });
+  });
+
   it('POSTs unregister and returns nothing', async () => {
     const stub = jsonFetch({ judgeClassId: 'jc-1', unregistered: true });
     expect(await clientFor(stub).judgeClasses.unregister('jc-1')).toBeUndefined();

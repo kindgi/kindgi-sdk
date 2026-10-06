@@ -176,6 +176,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'judge-class-not-found': 404,
   'judge-class-name-taken': 409,
   'judge-class-not-applicable': 400,
+  // The judge class is restricted (`assertableBy`), and the caller isn't one who may assert it.
+  'judge-class-not-allowed': 403,
   // Live versions of agents and their promotions.
   'agent-version-not-found': 404,
   'promotion-not-found': 404,

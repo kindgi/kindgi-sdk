@@ -47,7 +47,7 @@ export interface JudgeClassesClient {
   get(judgeClassId: string): Promise<JudgeClass>;
 
   /**
-   * Change a live class's weight or description.
+   * Change a live class's weight, description or who may assert it.
    *
    * @wire `PATCH /v1/judge-classes/{judgeClassId}` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1judge-classes~1{judgeClassId}/patch`.
