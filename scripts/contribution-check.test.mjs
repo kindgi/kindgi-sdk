@@ -13,7 +13,12 @@ import { dirname, join } from 'node:path';
 import { describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { COMMENT_MARKER, evaluateContribution, renderComment } from './contribution-check.mjs';
+import {
+  COMMENT_MARKER,
+  evaluateContribution,
+  fromFork,
+  renderComment,
+} from './contribution-check.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -33,29 +38,36 @@ Supervised-by: Ada Lovelace <ada@acme.dev>
 `;
 
 const outside = (body, commitMessages = [AGENT_COMMIT]) =>
-  evaluateContribution({ association: 'CONTRIBUTOR', body, commitMessages });
+  evaluateContribution({ fork: true, body, commitMessages });
+
+const pullRequest = (head) => ({
+  head: { repo: head === null ? null : { full_name: head } },
+  base: { repo: { full_name: 'kindgi/kindgi-sdk' } },
+});
+
+describe('fromFork', () => {
+  test('a branch of this repository: not a fork, whoever opened it', () => {
+    assert.equal(fromFork(pullRequest('kindgi/kindgi-sdk')), false);
+  });
+
+  test("another repository's branch, or a deleted fork's: a fork", () => {
+    assert.equal(fromFork(pullRequest('ada/kindgi-sdk')), true);
+    assert.equal(fromFork(pullRequest(null)), true);
+  });
+});
 
 describe('evaluateContribution', () => {
-  test("a maintainer's pull request isn't checked", () => {
-    for (const association of ['OWNER', 'MEMBER', 'COLLABORATOR']) {
-      assert.deepEqual(evaluateContribution({ association, body: '', commitMessages: [] }), {
-        applies: false,
-        missing: [],
-        notes: [],
-        failed: false,
-      });
-    }
+  test("a branch of this repository (a maintainer's) isn't checked", () => {
+    assert.deepEqual(evaluateContribution({ fork: false, body: '', commitMessages: [] }), {
+      applies: false,
+      missing: [],
+      notes: [],
+      failed: false,
+    });
   });
 
   test('a complete pull request passes, with nothing to say', () => {
-    for (const association of ['CONTRIBUTOR', 'FIRST_TIME_CONTRIBUTOR', 'FIRST_TIMER', 'NONE']) {
-      const result = evaluateContribution({
-        association,
-        body: COMPLETE,
-        commitMessages: [AGENT_COMMIT],
-      });
-      assert.deepEqual(result, { applies: true, missing: [], notes: [], failed: false });
-    }
+    assert.deepEqual(outside(COMPLETE), { applies: true, missing: [], notes: [], failed: false });
   });
 
   test('the person: missing, a placeholder, twice, or without an email, fails', () => {
@@ -128,5 +140,24 @@ describe('renderComment', () => {
       renderComment(outside(COMPLETE)),
       /^<!-- kindgi-contribution-check -->\n✓ Thanks!/,
     );
+  });
+});
+
+describe('the workflow', () => {
+  const path = join(ROOT, '.github', 'workflows', 'contribution-check.yml');
+  const workflow = readFileSync(path, 'utf8');
+
+  test("runs only for a fork's pull request, and may comment on it", () => {
+    assert.match(
+      workflow,
+      /^ {4}if: github\.event\.pull_request\.head\.repo\.full_name != github\.repository$/m,
+    );
+    assert.doesNotMatch(workflow, /^\s*(if:|github\.).*author_association/m);
+    assert.match(workflow, /^ {2}pull-requests: write$/m);
+  });
+
+  test("never checks out the pull request's code", () => {
+    assert.match(workflow, /ref: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/);
+    assert.match(workflow, /persist-credentials: false/);
   });
 });
