@@ -134,3 +134,14 @@ newest last, for a tenant admin.
 ```
 
 `actorSubject`, `action`, `resource`, `outcome` (`allowed` or `denied`), `from`, `to` and `runId` narrow the list.
+
+### In the console
+
+**Access audit** lists the same decisions, 50 at a time, oldest first:
+**Next page** leads to the newer ones. A denied one has a ✗ and a red row. Narrow
+the list by who, on what, action, result (allowed or denied), and time with
+From and To, which are in UTC like the times in the list. The filters are in
+the page's address, so you can copy it to share what you see. Clicking a row
+shows the decision: allowed or denied, the part that failed (such as
+`actor`), how long the check took, the reason, the request's correlation id,
+and the check it asked OpenFGA (the evidence).
