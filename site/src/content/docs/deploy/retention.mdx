@@ -252,7 +252,14 @@ The banner says it's on:
 
 Without the setting, it says
 `Compliance: off (KINDGI_COMPLIANCE_CLASSIFIER turns on /v1/compliance/* and purging audit events by kind)`,
-and no audit event is ever purged. Any other value stops the runtime at start:
+and no audit event is ever purged. With it on, a pass that purged something
+logs it, per tenant:
+
+```text
+[audit retention] tenant 5c0a7e11-0000-4000-8000-00000000c0de: purged 2 (authz-decision 1, run-outcome 1)
+```
+
+Any other value stops the runtime at start:
 `` KINDGI_COMPLIANCE_CLASSIFIER must be `shipped` or the absolute path of a classifier JSON. Got "nonsense". ``
 
 Your own classifier lists the kinds to purge under `byKind`, each with its
