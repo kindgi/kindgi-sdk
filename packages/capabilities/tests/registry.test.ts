@@ -5,7 +5,12 @@ import { describe, expect, test } from 'vitest';
 
 import type { TenantId } from '@kindgi/types';
 
-import { createProviderRegistry } from '../src/index.js';
+import {
+  PROVIDER_LABELS_MAX_KEYS,
+  PROVIDER_LABEL_MANAGED_BY,
+  createProviderRegistry,
+  validateProviderLabels,
+} from '../src/index.js';
 import type { ModelInfo, ProviderMetadata } from '../src/index.js';
 import { fakeProvider } from './helpers.js';
 
@@ -131,6 +136,44 @@ describe('createProviderRegistry', () => {
     if (dupResult.kind === 'err' && dupResult.error.code === 'invalid-provider') {
       expect(dupResult.error.reason).toBe('duplicate-model-name');
     }
+  });
+
+  test('labels: kept as given, and out-of-bounds labels are refused', () => {
+    const { registry, register } = createProviderRegistry();
+    const labels = {
+      [PROVIDER_LABEL_MANAGED_BY]: 'kindgi-dev:acme.pack',
+      'acme.com/team': 'search',
+    };
+    expect(register(TENANT_A, fakeProvider(meta('ok', { provider: { labels } }))).kind).toBe('ok');
+    expect(registry.get(TENANT_A, 'ok')?.metadata.labels).toEqual(labels);
+
+    const tooMany = Object.fromEntries(
+      Array.from({ length: PROVIDER_LABELS_MAX_KEYS + 1 }, (_, i) => [`k${i}`, 'v']),
+    );
+    const cases: readonly [Record<string, unknown>, string][] = [
+      [{ Team: 'search' }, 'key "Team" must be 1-63 lowercase letters and digits'],
+      [{ '-team': 'search' }, 'key "-team"'],
+      [{ [`k${'x'.repeat(63)}`]: 'v' }, 'must be 1-63'],
+      [{ team: 7 }, 'value of "team" must be a string'],
+      [{ team: 'x'.repeat(257) }, 'value of "team" may be at most 256 characters (got 257)'],
+      [tooMany, 'may have at most 32 keys (got 33)'],
+    ];
+    for (const [bad, message] of cases) {
+      const result = register(
+        TENANT_A,
+        fakeProvider(meta('bad', { provider: { labels: bad as Record<string, string> } })),
+      );
+      expect(result.kind).toBe('err');
+      if (result.kind === 'err' && result.error.code === 'invalid-provider') {
+        expect(result.error.reason).toBe('invalid-labels');
+        expect(result.error.message).toContain(message);
+      }
+    }
+    expect(validateProviderLabels('p', ['a'])?.message).toBe(
+      'provider "p" labels must be an object of string keys to string values',
+    );
+    expect(validateProviderLabels('p', undefined)).toBeUndefined();
+    expect(registry.has(TENANT_A, 'bad')).toBe(false);
   });
 
   test('seed pre-populates providers per tenant', () => {

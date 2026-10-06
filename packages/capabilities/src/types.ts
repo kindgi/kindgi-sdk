@@ -308,6 +308,12 @@ export interface ProviderMetadata {
    * to one says so (`RoutingDecision.fallback`).
    */
   readonly fallback?: boolean;
+  /**
+   * Bookkeeping, such as who manages the provider: string keys to
+   * string values. The router ignores them. The limits and the
+   * convention key (`kindgi.com/managed-by`) are in `provider-labels.ts`.
+   */
+  readonly labels?: Readonly<Record<string, string>>;
 }
 
 /**

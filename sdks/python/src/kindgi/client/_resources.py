@@ -2517,7 +2517,7 @@ class ProvidersResource:
     ) -> _models.RegisterProviderResult:
         """Register a model provider. `POST /v1/providers`
 
-        Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding.
+        Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped; optional `labels` within their limits — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding.
         """
         return self._client._request(
             _OPERATIONS["providers.register"],
@@ -2567,7 +2567,10 @@ class ProvidersResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
     ) -> _models.UnregisterProviderResult:
-        """Unregister a model provider. `POST /v1/providers/{providerId}/unregister`"""
+        """Unregister a model provider. `POST /v1/providers/{providerId}/unregister`
+
+        A tombstone, not an erase: from then on the provider is gone from list, get and capabilities, and the router never picks it. Its id is free to register again. A retention policy on the `provider` domain purges the row.
+        """
         return self._client._request(
             _OPERATIONS["providers.unregister"],
             path={"providerId": provider_id},
@@ -7642,7 +7645,7 @@ class AsyncProvidersResource:
     ) -> _models.RegisterProviderResult:
         """Register a model provider. `POST /v1/providers`
 
-        Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding.
+        Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped; optional `labels` within their limits — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding.
         """
         return await self._client._request(
             _OPERATIONS["providers.register"],
@@ -7694,7 +7697,10 @@ class AsyncProvidersResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
     ) -> _models.UnregisterProviderResult:
-        """Unregister a model provider. `POST /v1/providers/{providerId}/unregister`"""
+        """Unregister a model provider. `POST /v1/providers/{providerId}/unregister`
+
+        A tombstone, not an erase: from then on the provider is gone from list, get and capabilities, and the router never picks it. Its id is free to register again. A retention policy on the `provider` domain purges the row.
+        """
         return await self._client._request(
             _OPERATIONS["providers.unregister"],
             path={"providerId": provider_id},

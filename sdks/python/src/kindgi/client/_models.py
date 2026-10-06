@@ -8,7 +8,8 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import AnyUrl, AwareDatetime, BaseModel, ConfigDict, Field, RootModel
+from pydantic import AnyUrl, AwareDatetime, BaseModel, ConfigDict, Field, RootModel, constr
+from typing_extensions import TypeAliasType
 
 
 class Error(BaseModel):
@@ -3502,6 +3503,11 @@ class ModelInfo(BaseModel):
     """
 
 
+LabelsAdditionalProperty = TypeAliasType(
+    "LabelsAdditionalProperty", Annotated[str, Field(max_length=256)]
+)
+
+
 class ProviderMetadata(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -3531,6 +3537,14 @@ class ProviderMetadata(BaseModel):
     fallback: bool | None = None
     """
     A fallback serves a capability only when no other provider satisfies it (e.g. `kindgi dev`'s scripted `dev-echo`); an agent turn routed to one carries a `fallback-provider` warning. Absent = `false`.
+    """
+    labels: Annotated[
+        dict[constr(pattern=r"^[a-z0-9]([a-z0-9._/-]{0,61}[a-z0-9])?$"), LabelsAdditionalProperty]
+        | None,
+        Field(max_length=32),
+    ] = None
+    """
+    Bookkeeping, such as who manages the provider; the router ignores labels. At most 32 keys; a key is 1-63 lowercase letters and digits, with `.`, `-`, `_` or `/` inside; a value is at most 256 characters. The convention key `kindgi.com/managed-by` names the manager (`kindgi-dev`, `kindgi-deploy:<environment>`). Out of bounds: `400 invalid-provider`, reason `invalid-labels`.
     """
 
 
