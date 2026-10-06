@@ -816,6 +816,46 @@ const EvalSuiteNameFilterQueryParam: ParameterSpec = {
   schema: { type: 'string' },
 };
 
+const BlockIdPathParam: ParameterSpec = {
+  name: 'blockId',
+  in: 'path',
+  required: true,
+  description: 'Block id: dotted lowercase (e.g. `acme.intake-prompt`).',
+  schema: { type: 'string', minLength: 1 },
+};
+
+const BlockVersionPathParam: ParameterSpec = {
+  name: 'version',
+  in: 'path',
+  required: true,
+  description: 'Exact block version (`major.minor.patch`).',
+  schema: { type: 'string', minLength: 1 },
+};
+
+const BlockKindFilterQueryParam: ParameterSpec = {
+  name: 'kind',
+  in: 'query',
+  required: false,
+  description: 'Only blocks of this kind: `prompt` or `settings`.',
+  schema: { $ref: '#/components/schemas/BlockKind' },
+};
+
+const BlockNameFilterQueryParam: ParameterSpec = {
+  name: 'name',
+  in: 'query',
+  required: false,
+  description: 'Prefix match on the block id.',
+  schema: { type: 'string' },
+};
+
+const BlockProjectFilterQueryParam: ParameterSpec = {
+  name: 'projectId',
+  in: 'query',
+  required: false,
+  description: "Only this project's blocks.",
+  schema: { type: 'string', format: 'uuid' },
+};
+
 // Admin plane — eval-run data plane.
 
 const EvalRunIdPathParam: ParameterSpec = {
@@ -3568,6 +3608,136 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
 
   // ---------- eval runs (data plane) ----------
+  {
+    method: 'get',
+    honoPath: '/v1/blocks',
+    openapiPath: '/v1/blocks',
+    operationId: 'blocks.list',
+    summary: 'List data blocks (latest version of each)',
+    description:
+      'Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, `?projectId=` narrows to one project.',
+    tags: ['blocks'],
+    security: 'bearer',
+    parameters: [
+      LimitQueryParam,
+      CursorQueryParam,
+      BlockKindFilterQueryParam,
+      BlockNameFilterQueryParam,
+      BlockProjectFilterQueryParam,
+    ],
+    responses: {
+      '200': { description: 'Page of blocks.', schema: ref('BlockCollectionPage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('Malformed query parameter (unknown `kind`).'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/blocks/:blockId',
+    openapiPath: '/v1/blocks/{blockId}',
+    operationId: 'blocks.get',
+    summary: 'Fetch a data block (latest version)',
+    tags: ['blocks'],
+    security: 'bearer',
+    parameters: [BlockIdPathParam],
+    responses: {
+      '200': { description: 'Latest active version.', schema: ref('Block') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse(
+        "`block-not-found`: no such block, or one in a project the caller can't read.",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/blocks/:blockId/versions',
+    openapiPath: '/v1/blocks/{blockId}/versions',
+    operationId: 'blocks.versions.list',
+    summary: 'List versions of a data block',
+    description:
+      'Newest published first. `?includeTombstoned=true` includes unregistered versions, each with `unregisteredAt`.',
+    tags: ['blocks'],
+    security: 'bearer',
+    parameters: [BlockIdPathParam, LimitQueryParam, CursorQueryParam, IncludeTombstonedQueryParam],
+    responses: {
+      '200': { description: 'Page of versions.', schema: ref('BlockCollectionPage') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('`block-not-found`.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/blocks/:blockId/versions/:version',
+    openapiPath: '/v1/blocks/{blockId}/versions/{version}',
+    operationId: 'blocks.versions.get',
+    summary: 'Fetch a specific data block version',
+    description: 'An unregistered version is returned too, with `unregisteredAt`.',
+    tags: ['blocks'],
+    security: 'bearer',
+    parameters: [BlockIdPathParam, BlockVersionPathParam],
+    responses: {
+      '200': { description: 'The block at that version.', schema: ref('Block') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('`block-not-found`.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/blocks',
+    openapiPath: '/v1/blocks',
+    operationId: 'blocks.publish',
+    summary: 'Publish a data block version',
+    description:
+      "Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project (`409 block-project-mismatch`). Idempotency-Key applies.",
+    tags: ['blocks'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('PublishBlockBody') },
+    responses: {
+      '201': { description: 'Published.', schema: ref('PublishBlockResult') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        '`validation-failed` (see `details.issues`), or an unknown `projectId`.',
+      ),
+      '403': ErrorResponse('`permission-denied`: no `write` on the project.'),
+      '409': ErrorResponse('`block-already-registered` or `block-project-mismatch`.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/blocks/:blockId/versions/:version/unregister',
+    openapiPath: '/v1/blocks/{blockId}/versions/{version}/unregister',
+    operationId: 'blocks.versions.unregister',
+    summary: 'Unregister a data block version',
+    description:
+      'Soft: no range picks it any more, but the agent versions that pin it keep running it, and GET still reads it. Needs `write` on the project.',
+    tags: ['blocks'],
+    security: 'bearer',
+    parameters: [BlockIdPathParam, BlockVersionPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'Unregistered.', schema: ref('UnregisterBlockResult') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('`permission-denied`: no `write` on the project.'),
+      '404': ErrorResponse('`block-not-found`, or already unregistered.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/blocks/:blockId/versions/:version/reinstate',
+    openapiPath: '/v1/blocks/{blockId}/versions/{version}/reinstate',
+    operationId: 'blocks.versions.reinstate',
+    summary: 'Reinstate an unregistered data block version',
+    description: 'Unchanged, as published. Idempotent. Needs `write` on the project.',
+    tags: ['blocks'],
+    security: 'bearer',
+    parameters: [BlockIdPathParam, BlockVersionPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'Reinstated.', schema: ref('ReinstateBlockResult') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('`permission-denied`: no `write` on the project.'),
+      '404': ErrorResponse('`block-not-found`.'),
+    },
+  },
   {
     method: 'post',
     honoPath: '/v1/eval-suites/:suiteId/runs',

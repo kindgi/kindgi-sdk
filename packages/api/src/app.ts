@@ -26,6 +26,7 @@ import type { MemoryQueryBinding } from '@kindgi/memory';
 import type { PolicyRegistryBinding } from '@kindgi/policy-contract';
 import type { AdapterRegistryBinding } from './adapter-binding.js';
 import type { AgentRegistryBinding } from './agent-binding.js';
+import type { BlockRegistryBinding } from './block-binding.js';
 import type { CapabilityRegistryBinding } from './capability-binding.js';
 import type { CostBinding } from './cost-binding.js';
 import type { DeploymentBinding } from './deployment-binding.js';
@@ -81,6 +82,7 @@ import { approvalsRouter } from './routes/approvals.js';
 import { artifactsRouter } from './routes/artifacts.js';
 import { auditRouter } from './routes/audit.js';
 import { authRouters } from './routes/auth.js';
+import { blocksRouter } from './routes/blocks.js';
 import { capabilitiesRouter } from './routes/capabilities.js';
 import { complianceRouter } from './routes/compliance.js';
 import { conversationsRouter } from './routes/conversations.js';
@@ -575,6 +577,12 @@ export interface CreateAppInput {
    * — new kinds require a spec + validator update in tandem.
    */
   readonly evalSuiteRegistry?: EvalSuiteRegistryBinding;
+  /**
+   * Data blocks (`/v1/blocks`): versioned prompts and settings that agent
+   * versions pin. Mounted when supplied. Authorized through each block's
+   * project; the binding writes no authorization tuples.
+   */
+  readonly blockRegistry?: BlockRegistryBinding;
   /**
    * Optional. When present alongside `evalSuiteRegistry`, mounts the
    * evaluation-run data-plane surface: `POST /v1/eval-suites/:suiteId/runs`
@@ -1125,6 +1133,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   }
   if (input.evalSuiteRegistry !== undefined) {
     v1.route('/eval-suites', evalSuitesRouter(input.evalSuiteRegistry, authorizer));
+  }
+  if (input.blockRegistry !== undefined) {
+    v1.route('/blocks', blocksRouter(input.blockRegistry, authorizer));
   }
   if (input.judgmentRegistry !== undefined) {
     v1.route(

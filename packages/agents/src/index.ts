@@ -17,6 +17,15 @@ export type {
   RunSnapshotWriteInput,
 } from './run-snapshot-binding.js';
 export { defineAgent } from './define.js';
+export { BLOCK_KINDS, settingsSchemaIssues, validateBlock } from './blocks.js';
+export type {
+  BlockDefinition,
+  BlockIssue,
+  BlockKind,
+  InvalidBlock,
+  PromptBlockContent,
+  SettingsBlockContent,
+} from './blocks.js';
 export type { DefineAgentSpec } from './define.js';
 export { resolveEffectiveHitlPolicy } from './hitl-policy.js';
 export {

@@ -291,6 +291,20 @@ export type {
   UnregisterSuiteVersionResult,
 } from './resources/eval-suites.js';
 export type {
+  Block,
+  BlockKind,
+  BlockPage,
+  BlocksClient,
+  BlockVersionsClient,
+  ListBlocksFilter,
+  ListBlockVersionsFilter,
+  PublishBlockInput,
+  PublishBlockOptions,
+  PublishBlockResult,
+  ReinstateBlockResult,
+  UnregisterBlockResult,
+} from './resources/blocks.js';
+export type {
   EvalRunEvent,
   EvalRunPage,
   EvalRunRecord,

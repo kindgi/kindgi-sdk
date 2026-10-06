@@ -50,7 +50,7 @@ export function defineAgent(spec: DefineAgentSpec): Result<Agent, InvalidAgentEr
     ...validateContent(spec),
     ...validateArrays(spec),
     ...validateRetrieval(spec),
-    ...validateParameters(spec.parameters),
+    ...validatePromptParameters(spec.parameters),
     ...validateBudget(spec.budget),
     ...validateConversationPolicy(spec.conversationPolicy),
     ...validateToolErrors(spec.toolErrors),
@@ -336,7 +336,8 @@ function validateIntent(intent: RetrievalIntent, i: number): Issue[] {
 const VALID_PARAM_TYPES = new Set(['string', 'number', 'boolean', 'date']);
 const AUTO_INJECTED_NAMES = new Set(['today', 'now', 'agent', 'conversation']);
 
-function validateParameters(parameters?: readonly PromptParameter[]): Issue[] {
+/** An agent's or a prompt block's declared parameters: the problems, none when they're valid. */
+export function validatePromptParameters(parameters?: readonly PromptParameter[]): Issue[] {
   if (parameters === undefined) return [];
   const out: Issue[] = [];
   const seen = new Set<string>();

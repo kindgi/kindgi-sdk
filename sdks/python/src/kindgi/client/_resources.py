@@ -352,6 +352,29 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         True,
     ),
+    "blocks.list": Operation("blocks.list", "GET", "/v1/blocks", "json", False),
+    "blocks.publish": Operation("blocks.publish", "POST", "/v1/blocks", "json", True),
+    "blocks.get": Operation("blocks.get", "GET", "/v1/blocks/{blockId}", "json", False),
+    "blocks.versions.list": Operation(
+        "blocks.versions.list", "GET", "/v1/blocks/{blockId}/versions", "json", False
+    ),
+    "blocks.versions.get": Operation(
+        "blocks.versions.get", "GET", "/v1/blocks/{blockId}/versions/{version}", "json", False
+    ),
+    "blocks.versions.unregister": Operation(
+        "blocks.versions.unregister",
+        "POST",
+        "/v1/blocks/{blockId}/versions/{version}/unregister",
+        "json",
+        True,
+    ),
+    "blocks.versions.reinstate": Operation(
+        "blocks.versions.reinstate",
+        "POST",
+        "/v1/blocks/{blockId}/versions/{version}/reinstate",
+        "json",
+        True,
+    ),
     "evalRuns.start": Operation(
         "evalRuns.start", "POST", "/v1/eval-suites/{suiteId}/runs", "json", True
     ),
@@ -3596,6 +3619,166 @@ class EvalSuitesResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.ReinstateEvalSuiteVersionResult,
+            timeout=timeout,
+        )
+
+
+class BlocksVersionsResource:
+    """`client.blocks.versions` — the `blocks.versions` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        block_id: str,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        include_tombstoned: bool | None = None,
+        timeout: float | None = None,
+    ) -> _models.BlockCollectionPage:
+        """List versions of a data block. `GET /v1/blocks/{blockId}/versions`
+
+        Newest published first. `?includeTombstoned=true` includes unregistered versions, each with `unregisteredAt`.
+        """
+        return self._client._request(
+            _OPERATIONS["blocks.versions.list"],
+            path={"blockId": block_id},
+            query={"limit": limit, "cursor": cursor, "includeTombstoned": include_tombstoned},
+            headers={},
+            response=_models.BlockCollectionPage,
+            timeout=timeout,
+        )
+
+    def get(self, block_id: str, version: str, /, *, timeout: float | None = None) -> _models.Block:
+        """Fetch a specific data block version. `GET /v1/blocks/{blockId}/versions/{version}`
+
+        An unregistered version is returned too, with `unregisteredAt`.
+        """
+        return self._client._request(
+            _OPERATIONS["blocks.versions.get"],
+            path={"blockId": block_id, "version": version},
+            query={},
+            headers={},
+            response=_models.Block,
+            timeout=timeout,
+        )
+
+    def unregister(
+        self,
+        block_id: str,
+        version: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.UnregisterBlockResult:
+        """Unregister a data block version. `POST /v1/blocks/{blockId}/versions/{version}/unregister`
+
+        Soft: no range picks it any more, but the agent versions that pin it keep running it, and GET still reads it. Needs `write` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["blocks.versions.unregister"],
+            path={"blockId": block_id, "version": version},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterBlockResult,
+            timeout=timeout,
+        )
+
+    def reinstate(
+        self,
+        block_id: str,
+        version: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ReinstateBlockResult:
+        """Reinstate an unregistered data block version. `POST /v1/blocks/{blockId}/versions/{version}/reinstate`
+
+        Unchanged, as published. Idempotent. Needs `write` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["blocks.versions.reinstate"],
+            path={"blockId": block_id, "version": version},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ReinstateBlockResult,
+            timeout=timeout,
+        )
+
+
+class BlocksResource:
+    """`client.blocks` — the `blocks` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+        self.versions = BlocksVersionsResource(client)
+
+    def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        kind: Literal["prompt", "settings"] | None = None,
+        name: str | None = None,
+        project_id: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.BlockCollectionPage:
+        """List data blocks (latest version of each). `GET /v1/blocks`
+
+        Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, `?projectId=` narrows to one project.
+        """
+        return self._client._request(
+            _OPERATIONS["blocks.list"],
+            path={},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "kind": kind,
+                "name": name,
+                "projectId": project_id,
+            },
+            headers={},
+            response=_models.BlockCollectionPage,
+            timeout=timeout,
+        )
+
+    def publish(
+        self,
+        body: _models.PublishBlockBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PublishBlockResult:
+        """Publish a data block version. `POST /v1/blocks`
+
+        Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project (`409 block-project-mismatch`). Idempotency-Key applies.
+        """
+        return self._client._request(
+            _OPERATIONS["blocks.publish"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PublishBlockBody, body, fields),
+            response=_models.PublishBlockResult,
+            timeout=timeout,
+        )
+
+    def get(self, block_id: str, /, *, timeout: float | None = None) -> _models.Block:
+        """Fetch a data block (latest version). `GET /v1/blocks/{blockId}`"""
+        return self._client._request(
+            _OPERATIONS["blocks.get"],
+            path={"blockId": block_id},
+            query={},
+            headers={},
+            response=_models.Block,
             timeout=timeout,
         )
 
@@ -8738,6 +8921,168 @@ class AsyncEvalSuitesResource:
         )
 
 
+class AsyncBlocksVersionsResource:
+    """`client.blocks.versions` — the `blocks.versions` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        block_id: str,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        include_tombstoned: bool | None = None,
+        timeout: float | None = None,
+    ) -> _models.BlockCollectionPage:
+        """List versions of a data block. `GET /v1/blocks/{blockId}/versions`
+
+        Newest published first. `?includeTombstoned=true` includes unregistered versions, each with `unregisteredAt`.
+        """
+        return await self._client._request(
+            _OPERATIONS["blocks.versions.list"],
+            path={"blockId": block_id},
+            query={"limit": limit, "cursor": cursor, "includeTombstoned": include_tombstoned},
+            headers={},
+            response=_models.BlockCollectionPage,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, block_id: str, version: str, /, *, timeout: float | None = None
+    ) -> _models.Block:
+        """Fetch a specific data block version. `GET /v1/blocks/{blockId}/versions/{version}`
+
+        An unregistered version is returned too, with `unregisteredAt`.
+        """
+        return await self._client._request(
+            _OPERATIONS["blocks.versions.get"],
+            path={"blockId": block_id, "version": version},
+            query={},
+            headers={},
+            response=_models.Block,
+            timeout=timeout,
+        )
+
+    async def unregister(
+        self,
+        block_id: str,
+        version: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.UnregisterBlockResult:
+        """Unregister a data block version. `POST /v1/blocks/{blockId}/versions/{version}/unregister`
+
+        Soft: no range picks it any more, but the agent versions that pin it keep running it, and GET still reads it. Needs `write` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["blocks.versions.unregister"],
+            path={"blockId": block_id, "version": version},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterBlockResult,
+            timeout=timeout,
+        )
+
+    async def reinstate(
+        self,
+        block_id: str,
+        version: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ReinstateBlockResult:
+        """Reinstate an unregistered data block version. `POST /v1/blocks/{blockId}/versions/{version}/reinstate`
+
+        Unchanged, as published. Idempotent. Needs `write` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["blocks.versions.reinstate"],
+            path={"blockId": block_id, "version": version},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ReinstateBlockResult,
+            timeout=timeout,
+        )
+
+
+class AsyncBlocksResource:
+    """`client.blocks` — the `blocks` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+        self.versions = AsyncBlocksVersionsResource(client)
+
+    async def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        kind: Literal["prompt", "settings"] | None = None,
+        name: str | None = None,
+        project_id: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.BlockCollectionPage:
+        """List data blocks (latest version of each). `GET /v1/blocks`
+
+        Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, `?projectId=` narrows to one project.
+        """
+        return await self._client._request(
+            _OPERATIONS["blocks.list"],
+            path={},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "kind": kind,
+                "name": name,
+                "projectId": project_id,
+            },
+            headers={},
+            response=_models.BlockCollectionPage,
+            timeout=timeout,
+        )
+
+    async def publish(
+        self,
+        body: _models.PublishBlockBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PublishBlockResult:
+        """Publish a data block version. `POST /v1/blocks`
+
+        Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project (`409 block-project-mismatch`). Idempotency-Key applies.
+        """
+        return await self._client._request(
+            _OPERATIONS["blocks.publish"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PublishBlockBody, body, fields),
+            response=_models.PublishBlockResult,
+            timeout=timeout,
+        )
+
+    async def get(self, block_id: str, /, *, timeout: float | None = None) -> _models.Block:
+        """Fetch a data block (latest version). `GET /v1/blocks/{blockId}`"""
+        return await self._client._request(
+            _OPERATIONS["blocks.get"],
+            path={"blockId": block_id},
+            query={},
+            headers={},
+            response=_models.Block,
+            timeout=timeout,
+        )
+
+
 class AsyncEvalRunsResource:
     """`client.eval_runs` — the `evalRuns` operations."""
 
@@ -10918,6 +11263,7 @@ class Resources:
     adapters: AdaptersResource
     policies: PoliciesResource
     eval_suites: EvalSuitesResource
+    blocks: BlocksResource
     eval_runs: EvalRunsResource
     auth: AuthResource
     identity: IdentityResource
@@ -10961,6 +11307,7 @@ class Resources:
         self.adapters = AdaptersResource(client)
         self.policies = PoliciesResource(client)
         self.eval_suites = EvalSuitesResource(client)
+        self.blocks = BlocksResource(client)
         self.eval_runs = EvalRunsResource(client)
         self.auth = AuthResource(client)
         self.identity = IdentityResource(client)
@@ -11006,6 +11353,7 @@ class AsyncResources:
     adapters: AsyncAdaptersResource
     policies: AsyncPoliciesResource
     eval_suites: AsyncEvalSuitesResource
+    blocks: AsyncBlocksResource
     eval_runs: AsyncEvalRunsResource
     auth: AsyncAuthResource
     identity: AsyncIdentityResource
@@ -11049,6 +11397,7 @@ class AsyncResources:
         self.adapters = AsyncAdaptersResource(client)
         self.policies = AsyncPoliciesResource(client)
         self.eval_suites = AsyncEvalSuitesResource(client)
+        self.blocks = AsyncBlocksResource(client)
         self.eval_runs = AsyncEvalRunsResource(client)
         self.auth = AsyncAuthResource(client)
         self.identity = AsyncIdentityResource(client)

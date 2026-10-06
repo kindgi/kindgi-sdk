@@ -7,6 +7,7 @@ import { type ApprovalsClient, makeApprovalsClient } from './resources/approvals
 import { type ArtifactsClient, makeArtifactsClient } from './resources/artifacts.js';
 import { type AuditResourceClient, makeAuditClient } from './resources/audit.js';
 import { type AuthClient, makeAuthClient } from './resources/auth.js';
+import { type BlocksClient, makeBlocksClient } from './resources/blocks.js';
 import { type CapabilitiesClient, makeCapabilitiesClient } from './resources/capabilities.js';
 import { type ComplianceClient, makeComplianceClient } from './resources/compliance.js';
 import { type ConversationsClient, makeConversationsClient } from './resources/conversations.js';
@@ -87,6 +88,8 @@ export interface KindgiClient {
   readonly compliance: ComplianceClient;
   readonly audit: AuditResourceClient;
   readonly evalSuites: EvalSuitesClient;
+  /** Data blocks: versioned prompts and settings an agent version pins. */
+  readonly blocks: BlocksClient;
   readonly evalRuns: EvalRunsClient;
   readonly judgments: JudgmentsClient;
   readonly judgeClasses: JudgeClassesClient;
@@ -151,6 +154,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     compliance: makeComplianceClient(transport),
     audit: makeAuditClient(transport),
     evalSuites: makeEvalSuitesClient(transport),
+    blocks: makeBlocksClient(transport),
     evalRuns: makeEvalRunsClient(transport),
     judgments: makeJudgmentsClient(transport),
     judgeClasses: makeJudgeClassesClient(transport),

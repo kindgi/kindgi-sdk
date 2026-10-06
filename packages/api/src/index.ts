@@ -370,6 +370,19 @@ export type {
   Verdict,
 } from './judgment-binding.js';
 export { resolvePointer } from './routes/judgments.js';
+export type {
+  BlockGetInput,
+  BlockGetVersionInput,
+  BlockListInput,
+  BlockListVersionsInput,
+  BlockPage,
+  BlockPublishInput,
+  BlockPublishOutcome,
+  BlockRecord,
+  BlockRegistryBinding,
+  BlockReinstateOutcome,
+  BlockVersionInput,
+} from './block-binding.js';
 export { EVAL_KINDS } from './eval-suite-binding.js';
 export type {
   EvalKind,
