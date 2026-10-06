@@ -47,7 +47,7 @@ async function provenance(argv: readonly string[]) {
     clientFactory: () =>
       ({
         provenance: {
-          query: record('query', { items: [RECORD] }),
+          query: record('query', { data: [RECORD], hasMore: false, items: [RECORD] }),
           get: record('get', { ...RECORD, nodes: [] }),
           export: record('export', { bundle: {}, signature: 'sig' }),
         },

@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { ProvenanceRecordMetadata } from '@kindgi/client';
-import type { Page } from '@kindgi/types';
+import type { ListPage, ProvenanceRecordMetadata } from '@kindgi/client';
 
 import { type TableSpec, integerFlag, requiredPositional, runSdk, stringFlag } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
 /** `provenance list --table`. */
-const PROVENANCE_TABLE: TableSpec<Page<ProvenanceRecordMetadata>, ProvenanceRecordMetadata> = {
-  rows: (page) => page.items,
+const PROVENANCE_TABLE: TableSpec<ListPage<ProvenanceRecordMetadata>, ProvenanceRecordMetadata> = {
+  rows: (page) => page.data,
   columns: [
     { header: 'RUN', get: (p) => String(p.runId) },
     { header: 'CREATED', get: (p) => String(p.createdAt) },
