@@ -376,6 +376,38 @@ const SupervisorIdQueryParam: ParameterSpec = {
   schema: { type: 'string' },
 };
 
+const ObservationAgentVersionQueryParam: ParameterSpec = {
+  name: 'agentVersion',
+  in: 'query',
+  required: false,
+  description: 'Only the observations of this agent version (with `agentId`).',
+  schema: { type: 'string' },
+};
+
+const ObservationConversationIdQueryParam: ParameterSpec = {
+  name: 'conversationId',
+  in: 'query',
+  required: false,
+  description: 'Only the observations of turns in this conversation.',
+  schema: { type: 'string' },
+};
+
+const ObservationSinceQueryParam: ParameterSpec = {
+  name: 'since',
+  in: 'query',
+  required: false,
+  description: 'Only the observations at or after this time (ISO 8601).',
+  schema: { type: 'string', format: 'date-time' },
+};
+
+const ObservationUntilQueryParam: ParameterSpec = {
+  name: 'until',
+  in: 'query',
+  required: false,
+  description: 'Only the observations at or before this time (ISO 8601).',
+  schema: { type: 'string', format: 'date-time' },
+};
+
 const FactIdPathParam: ParameterSpec = {
   name: 'factId',
   in: 'path',
@@ -2758,7 +2790,11 @@ export const OPERATIONS: readonly OperationSpec[] = [
       CursorQueryParam,
       ObservationStatusQueryParam,
       AgentIdQueryParam,
+      ObservationAgentVersionQueryParam,
       SupervisorIdQueryParam,
+      ObservationConversationIdQueryParam,
+      ObservationSinceQueryParam,
+      ObservationUntilQueryParam,
     ],
     responses: {
       '200': {
