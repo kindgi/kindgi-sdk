@@ -306,6 +306,7 @@
           "judge-class-not-found": 404,
           "judge-class-name-taken": 409,
           "judge-class-not-applicable": 400,
+          "judge-class-not-allowed": 403,
           "agent-version-not-found": 404,
           "promotion-not-found": 404,
           "nothing-to-roll-back": 409,
