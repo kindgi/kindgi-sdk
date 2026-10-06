@@ -259,3 +259,45 @@ async def test_check_config_is_validated(client: Any) -> None:
     answer = await call(http, check_call("g.bool", {}, "x"))
     assert answer["code"] == "input-validation-failed"
     assert answer["issues"][0]["params"] == {"missingProperty": "word"}
+
+
+@pytest.mark.anyio
+async def test_several_versions_of_one_tool_run_side_by_side(
+    make_pack: Callable[..., Path],
+) -> None:
+    def version_module(version: str) -> str:
+        return (
+            "from kindgi import tool\n"
+            f'@tool(id="acme.versioned", version="{version}")\n'
+            f"def versioned_{version.replace('.', '_')}(input: dict) -> dict:\n"
+            '    """Answers with its own version."""\n'
+            f'    return {{"version": "{version}"}}\n'
+        )
+
+    root = make_pack(
+        {"tools/v1.py": version_module("1.0.0"), "tools/v2.py": version_module("2.0.0")}
+    )
+    outcome = run_indexer(root, artifact_version="1.1", published_at="2026-10-01T00:00:00.000Z")
+    assert outcome["kind"] == "ok" and outcome["value"]["fileErrors"] == [], outcome
+    index = json.loads(Path(outcome["value"]["outputPath"]).read_text())
+    service = PackService(index, root, "tok")
+    assert service.prewarm() == []
+    transport = httpx.ASGITransport(app=service)
+    async with httpx.AsyncClient(transport=transport, base_url="http://pack") as http:
+        for version in ("1.0.0", "2.0.0"):
+            message = {
+                **tool_call("acme.versioned", {}),
+                "tool": {"id": "acme.versioned", "version": version},
+            }
+            assert (await call(http, message)) == {
+                "v": 2,
+                "kind": "result",
+                "output": {"version": version},
+            }
+        unnamed = await call(http, tool_call("acme.versioned", {}))
+        assert unnamed["code"] == "tool-version-mismatch"
+        assert "1.0.0, 2.0.0" in unnamed["message"] and "named none" in unnamed["message"]
+        info = (await http.get("/v1/info", headers={"kindgi-pack-token": "tok"})).json()
+        assert {"id": "acme.versioned", "version": "1.0.0"} in info["tools"]
+        assert {"id": "acme.versioned", "version": "2.0.0"} in info["tools"]
+    service.close()

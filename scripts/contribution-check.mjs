@@ -14,22 +14,22 @@
  *   - the checks: a `## Checks` list of `- [x] \`<command>\`: <result>`
  *     lines, with no unticked `- [ ]` left.
  *
- * Maintainers' pull requests (OWNER, MEMBER, COLLABORATOR) aren't checked.
- * It's a norm and a workflow, not security: trailers can be written by hand.
+ * Only a pull request from a fork is checked: a branch in this repository
+ * needs push access, so it's a maintainer's (`fromFork`). It's a norm and a
+ * workflow, not security: trailers can be written by hand.
  *
  * Run by `.github/workflows/contribution-check.yml` (`pull_request_target`):
  * it reads the pull request from the event and its commits through the API,
  * and never runs the pull request's code. It comments once, and updates
- * that comment on every run. Tests: `scripts/contribution-check.test.mjs`.
+ * that comment on every run; when it may not comment, the result goes to
+ * the job summary and the check fails (`report`). Tests:
+ * `scripts/contribution-check.test.mjs`.
  * `CONTRIBUTION_CHECK_DRY_RUN=1` reads through the API but prints the
  * comment instead of posting it (to try it against a real pull request).
  */
 
-import { readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-
-/** Authors whose pull requests the check leaves alone. */
-const MAINTAINERS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 
 /** The comment the check owns, found again by this marker. */
 export const COMMENT_MARKER = '<!-- kindgi-contribution-check -->';
@@ -38,12 +38,26 @@ const SKILL_URL =
   'https://github.com/kindgi/kindgi-sdk/blob/main/.claude/skills/kindgi-contributing/SKILL.md';
 
 /**
+ * Whether a pull request (the event's `pull_request`) comes from a fork,
+ * an outside contributor's: its head branch lives in another repository.
+ * `author_association` can't tell, since a private member of the org shows
+ * as `CONTRIBUTOR` in a public repository's events. A fork that was
+ * deleted (no head repository) counts as one.
+ *
+ * @param {{ head?: { repo?: { full_name?: string } | null }, base?: { repo?: { full_name?: string } } }} pr
+ */
+export function fromFork(pr) {
+  const head = pr.head?.repo?.full_name;
+  return head === undefined || head !== pr.base?.repo?.full_name;
+}
+
+/**
  * What the pull request has and lacks.
  *
- * @param {{ association: string, body: string | null | undefined, commitMessages: readonly string[] }} pr
+ * @param {{ fork: boolean, body: string | null | undefined, commitMessages: readonly string[] }} pr
  */
-export function evaluateContribution({ association, body, commitMessages }) {
-  if (MAINTAINERS.has(association)) {
+export function evaluateContribution({ fork, body, commitMessages }) {
+  if (!fork) {
     return { applies: false, missing: [], notes: [], failed: false };
   }
   const text = (body ?? '').replace(/\r\n/g, '\n');
@@ -126,6 +140,31 @@ export function renderComment(result) {
   return lines.join('\n');
 }
 
+/**
+ * Comment on the pull request and exit as the result says. When the token
+ * may not comment (403: the workflow's permissions, or the org capping
+ * them), the result goes to the job summary and the check fails, so an
+ * outside contributor's pull request never fails silently.
+ *
+ * @param {{ failed: boolean }} result
+ * @param {string} body the comment
+ * @param {{ comment: (body: string) => Promise<void>, summary: (text: string) => void }} io
+ * @returns {Promise<number>} the exit code
+ */
+export async function report(result, body, io) {
+  try {
+    await io.comment(body);
+  } catch (err) {
+    if (err?.status !== 403) throw err;
+    io.summary(
+      `${body}\n\n---\n\nThis check couldn't comment on the pull request (403: the workflow's token may not), so the result is here, and the check fails until it can.\n`,
+    );
+    console.log("Couldn't comment on the pull request (403): the result is in the job summary.");
+    return 1;
+  }
+  return result.failed ? 1 : 0;
+}
+
 // ---------------------------------------------------------------------------
 // The run, in GitHub Actions
 // ---------------------------------------------------------------------------
@@ -141,7 +180,11 @@ async function api(path, init = {}) {
     },
   });
   if (!response.ok) {
-    throw new Error(`${init.method ?? 'GET'} ${path}: ${response.status} ${await response.text()}`);
+    const err = new Error(
+      `${init.method ?? 'GET'} ${path}: ${response.status} ${await response.text()}`,
+    );
+    err.status = response.status;
+    throw err;
   }
   return response.status === 204 ? undefined : response.json();
 }
@@ -162,12 +205,12 @@ async function main() {
   const repo = process.env.GITHUB_REPOSITORY;
   const commits = await all(`/repos/${repo}/pulls/${pr.number}/commits`);
   const result = evaluateContribution({
-    association: pr.author_association,
+    fork: fromFork(pr),
     body: pr.body,
     commitMessages: commits.map((c) => c.commit.message),
   });
   if (!result.applies) {
-    console.log(`${pr.author_association}: a maintainer's pull request; nothing to check.`);
+    console.log("A branch of this repository: a maintainer's pull request; nothing to check.");
     return 0;
   }
   const body = renderComment(result);
@@ -175,28 +218,36 @@ async function main() {
     console.log(`Dry run: the comment would be:\n${body}`);
     return result.failed ? 1 : 0;
   }
-  const comments = await all(`/repos/${repo}/issues/${pr.number}/comments`);
-  const mine = comments.find(
-    (c) => typeof c.body === 'string' && c.body.startsWith(COMMENT_MARKER),
-  );
-  if (mine === undefined) {
-    await api(`/repos/${repo}/issues/${pr.number}/comments`, {
-      method: 'POST',
-      body: JSON.stringify({ body }),
-    });
-  } else if (mine.body !== body) {
-    await api(`/repos/${repo}/issues/comments/${mine.id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ body }),
-    });
-  }
   for (const item of [...result.missing, ...result.notes]) console.log(`- ${item}`);
-  if (result.failed) {
-    console.log('The contribution format is incomplete (see the comment on the pull request).');
-    return 1;
-  }
-  console.log('The contribution format is complete.');
-  return 0;
+  console.log(
+    result.failed
+      ? 'The contribution format is incomplete (see the comment on the pull request).'
+      : 'The contribution format is complete.',
+  );
+  return report(result, body, {
+    comment: async (text) => {
+      const comments = await all(`/repos/${repo}/issues/${pr.number}/comments`);
+      const mine = comments.find(
+        (c) => typeof c.body === 'string' && c.body.startsWith(COMMENT_MARKER),
+      );
+      if (mine === undefined) {
+        await api(`/repos/${repo}/issues/${pr.number}/comments`, {
+          method: 'POST',
+          body: JSON.stringify({ body: text }),
+        });
+      } else if (mine.body !== text) {
+        await api(`/repos/${repo}/issues/comments/${mine.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ body: text }),
+        });
+      }
+    },
+    summary: (text) => {
+      const file = process.env.GITHUB_STEP_SUMMARY;
+      if (file === undefined || file === '') console.log(text);
+      else appendFileSync(file, text);
+    },
+  });
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

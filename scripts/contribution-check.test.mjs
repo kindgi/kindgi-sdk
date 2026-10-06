@@ -13,7 +13,13 @@ import { dirname, join } from 'node:path';
 import { describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { COMMENT_MARKER, evaluateContribution, renderComment } from './contribution-check.mjs';
+import {
+  COMMENT_MARKER,
+  evaluateContribution,
+  fromFork,
+  renderComment,
+  report,
+} from './contribution-check.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -33,29 +39,36 @@ Supervised-by: Ada Lovelace <ada@acme.dev>
 `;
 
 const outside = (body, commitMessages = [AGENT_COMMIT]) =>
-  evaluateContribution({ association: 'CONTRIBUTOR', body, commitMessages });
+  evaluateContribution({ fork: true, body, commitMessages });
+
+const pullRequest = (head) => ({
+  head: { repo: head === null ? null : { full_name: head } },
+  base: { repo: { full_name: 'kindgi/kindgi-sdk' } },
+});
+
+describe('fromFork', () => {
+  test('a branch of this repository: not a fork, whoever opened it', () => {
+    assert.equal(fromFork(pullRequest('kindgi/kindgi-sdk')), false);
+  });
+
+  test("another repository's branch, or a deleted fork's: a fork", () => {
+    assert.equal(fromFork(pullRequest('ada/kindgi-sdk')), true);
+    assert.equal(fromFork(pullRequest(null)), true);
+  });
+});
 
 describe('evaluateContribution', () => {
-  test("a maintainer's pull request isn't checked", () => {
-    for (const association of ['OWNER', 'MEMBER', 'COLLABORATOR']) {
-      assert.deepEqual(evaluateContribution({ association, body: '', commitMessages: [] }), {
-        applies: false,
-        missing: [],
-        notes: [],
-        failed: false,
-      });
-    }
+  test("a branch of this repository (a maintainer's) isn't checked", () => {
+    assert.deepEqual(evaluateContribution({ fork: false, body: '', commitMessages: [] }), {
+      applies: false,
+      missing: [],
+      notes: [],
+      failed: false,
+    });
   });
 
   test('a complete pull request passes, with nothing to say', () => {
-    for (const association of ['CONTRIBUTOR', 'FIRST_TIME_CONTRIBUTOR', 'FIRST_TIMER', 'NONE']) {
-      const result = evaluateContribution({
-        association,
-        body: COMPLETE,
-        commitMessages: [AGENT_COMMIT],
-      });
-      assert.deepEqual(result, { applies: true, missing: [], notes: [], failed: false });
-    }
+    assert.deepEqual(outside(COMPLETE), { applies: true, missing: [], notes: [], failed: false });
   });
 
   test('the person: missing, a placeholder, twice, or without an email, fails', () => {
@@ -128,5 +141,57 @@ describe('renderComment', () => {
       renderComment(outside(COMPLETE)),
       /^<!-- kindgi-contribution-check -->\n✓ Thanks!/,
     );
+  });
+});
+
+describe('the workflow', () => {
+  const path = join(ROOT, '.github', 'workflows', 'contribution-check.yml');
+  const workflow = readFileSync(path, 'utf8');
+
+  test("runs only for a fork's pull request, and may comment on it", () => {
+    assert.match(
+      workflow,
+      /^ {4}if: github\.event\.pull_request\.head\.repo\.full_name != github\.repository$/m,
+    );
+    assert.doesNotMatch(workflow, /^\s*(if:|github\.).*author_association/m);
+    assert.match(workflow, /^ {2}pull-requests: write$/m);
+  });
+
+  test("never checks out the pull request's code", () => {
+    assert.match(workflow, /ref: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/);
+    assert.match(workflow, /persist-credentials: false/);
+  });
+});
+
+describe('report', () => {
+  const io = (comment) => {
+    const summaries = [];
+    return { summaries, comment, summary: (text) => summaries.push(text) };
+  };
+  const refused = (status) => async () => {
+    const err = new Error(`POST …/comments: ${status}`);
+    err.status = status;
+    throw err;
+  };
+
+  test('commented: the exit code is the result', async () => {
+    const posted = [];
+    const ok = io(async (body) => posted.push(body));
+    assert.equal(await report({ failed: false }, 'thanks', ok), 0);
+    assert.equal(await report({ failed: true }, 'missing', ok), 1);
+    assert.deepEqual(posted, ['thanks', 'missing']);
+    assert.deepEqual(ok.summaries, []);
+  });
+
+  test('may not comment (403): the result goes to the job summary, and it fails', async () => {
+    const denied = io(refused(403));
+    assert.equal(await report({ failed: false }, 'the comment', denied), 1);
+    assert.equal(denied.summaries.length, 1);
+    assert.ok(denied.summaries[0]?.startsWith('the comment\n'));
+    assert.match(denied.summaries[0] ?? '', /couldn't comment on the pull request \(403/);
+  });
+
+  test('any other failure is thrown, not hidden', async () => {
+    await assert.rejects(report({ failed: false }, 'x', io(refused(500))), /500/);
   });
 });

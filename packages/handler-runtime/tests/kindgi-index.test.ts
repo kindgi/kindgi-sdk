@@ -762,19 +762,34 @@ describe('runIndexer — error variants', () => {
   });
 
   test.each([
-    { kind: 'tool', folder: 'tools', list: 'tools', make: toolModule, id: 'acme.echo' },
+    { kind: 'tool', folder: 'tools', list: 'tools', make: toolModule, id: 'acme.echo', what: '' },
     {
       kind: 'guardrail',
       folder: 'guardrails',
       list: 'guardrails',
       make: guardrailModule,
       id: 'acme.grounded',
+      what: '',
     },
-    { kind: 'agent', folder: 'agents', list: 'agents', make: agentModule, id: 'acme.support' },
-    { kind: 'flow', folder: 'flows', list: 'flows', make: flowModule, id: 'acme.flow' },
+    {
+      kind: 'agent',
+      folder: 'agents',
+      list: 'agents',
+      make: agentModule,
+      id: 'acme.support',
+      what: ' version 1.0.0',
+    },
+    {
+      kind: 'flow',
+      folder: 'flows',
+      list: 'flows',
+      make: flowModule,
+      id: 'acme.flow',
+      what: ' version 1.0.0',
+    },
   ] as const)(
-    'two files with the same $kind id → the first is kept, the second is an error',
-    async ({ kind, folder, list, make, id }) => {
+    'two files with the same $kind id and version → the first is kept, the second is an error',
+    async ({ kind, folder, list, make, id, what }) => {
       const fixture = await makeFixture({
         files: {
           'kindgi.config.mjs': config(),
@@ -792,7 +807,7 @@ describe('runIndexer — error variants', () => {
       expect(outcome.value.fileErrors).toEqual([
         {
           code: 'manifest-validation-failed',
-          message: `${folder}/b.mjs: duplicate ${kind} id '${id}' (also defined in ${folder}/a.mjs)`,
+          message: `${folder}/b.mjs: duplicate ${kind} '${id}'${what} (also defined in ${folder}/a.mjs)`,
           filePath: `${folder}/b.mjs`,
         },
       ]);
@@ -827,6 +842,55 @@ describe('runIndexer — error variants', () => {
     expect(outcome.value.fileErrors).toEqual([]);
     const parsed = await readValidIndex(outcome.value.outputPath);
     expect((parsed.agents as unknown[])[0]).toMatchObject(refs);
+  });
+
+  test('two versions of one tool, or of one agent, are indexed side by side', async () => {
+    const fixture = await makeFixture({
+      files: {
+        'kindgi.config.mjs': config(),
+        'tools/echo.mjs': toolModule({ version: '1.0.0' }),
+        'tools/echo-v2.mjs': toolModule({ version: '2.0.0' }),
+        'agents/support.mjs': agentModule(),
+        'agents/support-v2.mjs': agentModule({ version: '2.0.0' }),
+      },
+    });
+    const outcome = await runIndexer({
+      packDir: fixture.packDir,
+      publishedAt: FIXED_TIMESTAMP,
+      importModule: fixture.importModule,
+    });
+    expect(outcome.kind).toBe('ok');
+    if (outcome.kind !== 'ok') return;
+    expect(outcome.value.fileErrors).toEqual([]);
+    const parsed = await readValidIndex(outcome.value.outputPath);
+    const versions = (list: 'tools' | 'agents') =>
+      (parsed[list] as { id: string; version: string }[]).map((e) => `${e.id}@${e.version}`).sort();
+    expect(versions('tools')).toEqual(['acme.echo@1.0.0', 'acme.echo@2.0.0']);
+    expect(versions('agents')).toEqual(['acme.support@1.0.0', 'acme.support@2.0.0']);
+  });
+
+  test('a tool with no version next to a versioned one of its id is an error: nothing tells them apart', async () => {
+    const fixture = await makeFixture({
+      files: {
+        'kindgi.config.mjs': config(),
+        'tools/a.mjs': toolModule({ version: '1.0.0' }),
+        'tools/b.mjs': toolModule(),
+      },
+    });
+    const outcome = await runIndexer({
+      packDir: fixture.packDir,
+      publishedAt: FIXED_TIMESTAMP,
+      importModule: fixture.importModule,
+    });
+    expect(outcome.kind).toBe('ok');
+    if (outcome.kind !== 'ok') return;
+    expect(outcome.value.fileErrors).toEqual([
+      {
+        code: 'manifest-validation-failed',
+        message: "tools/b.mjs: duplicate tool 'acme.echo' (also defined in tools/a.mjs)",
+        filePath: 'tools/b.mjs',
+      },
+    ]);
   });
 
   test('the same id on two different kinds is not a duplicate', async () => {
