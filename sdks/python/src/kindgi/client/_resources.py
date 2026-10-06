@@ -312,6 +312,13 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         True,
     ),
+    "retention.scheduled": Operation(
+        "retention.scheduled", "GET", "/v1/retention/scheduled", "json", False
+    ),
+    "retention.sweep": Operation("retention.sweep", "POST", "/v1/retention/sweep", "json", False),
+    "retention.sweepDomain": Operation(
+        "retention.sweepDomain", "POST", "/v1/retention/sweep/{domain}", "json", False
+    ),
     "evalSuites.list": Operation("evalSuites.list", "GET", "/v1/eval-suites", "json", False),
     "evalSuites.publish": Operation("evalSuites.publish", "POST", "/v1/eval-suites", "json", True),
     "evalSuites.get": Operation(
@@ -3395,7 +3402,7 @@ class PoliciesResource:
     ) -> _models.PublishPolicyResult:
         """Publish a policy. `POST /v1/policies`
 
-        Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).
+        Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object), and `spec` for `tool-errors`, `hitl` and `retention` (a retention policy with an unknown domain or `mode: archive` is refused with `400 validation-failed`, naming the field). Other kinds' specs are their runtime consumer's to validate. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A tenant has one retention policy per domain, plus one for `*`: a second policy id for a covered domain is refused with `409 policy-scope-taken` (`details.heldBy` names the policy that covers it; publish a new version of that one instead), and a new version can't move a policy to another domain (`409 policy-scope-changed`). A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).
         """
         return self._client._request(
             _OPERATIONS["policies.publish"],
@@ -3437,6 +3444,113 @@ class PoliciesResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.ReinstatePolicyVersionResult,
+            timeout=timeout,
+        )
+
+
+class RetentionResource:
+    """`client.retention` — the `retention` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def scheduled(
+        self,
+        /,
+        *,
+        domain: Literal[
+            "org",
+            "agent",
+            "flow",
+            "tool",
+            "eval_suite",
+            "guardrail",
+            "mcp_endpoint",
+            "env",
+            "secret",
+            "run",
+            "policy",
+            "judgment",
+            "judge_class",
+            "provider",
+            "*",
+        ]
+        | None = None,
+        past_grace_only: bool | None = None,
+        limit: int | None = None,
+        timeout: float | None = None,
+    ) -> _models.RetentionScheduledPage:
+        """List deleted rows scheduled for purging. `GET /v1/retention/scheduled`
+
+        Tombstoned rows in every domain a retention policy covers, with when each is purged (`purgeAt`) and the policy that decides it. `domainsMissingAdapter` names the covered domains this deployment can't purge; `unpolicedDomains` the ones no policy covers, whose tombstones are kept; `conflicts` the domains two policies cover (stored before one policy per domain was enforced). Requires `admin` on the tenant.
+        """
+        return self._client._request(
+            _OPERATIONS["retention.scheduled"],
+            path={},
+            query={"domain": domain, "pastGraceOnly": past_grace_only, "limit": limit},
+            headers={},
+            response=_models.RetentionScheduledPage,
+            timeout=timeout,
+        )
+
+    def sweep(
+        self,
+        body: _models.RetentionSweepBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.RetentionSweepResult:
+        """Purge the deleted rows past their grace. `POST /v1/retention/sweep`
+
+        Purges, for good, every tombstoned row past the grace of the retention policy that covers its domain (or only `domain`'s), up to `maxPerDomain` per domain; `remaining` counts what is left for the next call. Nothing sweeps on its own: call this (or `POST /v1/retention/sweep/{domain}`) from a schedule. A hold (`graceSeconds: -1`) keeps its domain's rows. Idempotent: a second call purges nothing new. Requires `admin` on the tenant.
+        """
+        return self._client._request(
+            _OPERATIONS["retention.sweep"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.RetentionSweepBody, body, fields),
+            response=_models.RetentionSweepResult,
+            timeout=timeout,
+        )
+
+    def sweep_domain(
+        self,
+        domain: Literal[
+            "org",
+            "agent",
+            "flow",
+            "tool",
+            "eval_suite",
+            "guardrail",
+            "mcp_endpoint",
+            "env",
+            "secret",
+            "run",
+            "policy",
+            "judgment",
+            "judge_class",
+            "provider",
+            "*",
+        ],
+        body: _models.RetentionSweepDomainBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.RetentionSweepResult:
+        """Purge one domain's deleted rows past their grace. `POST /v1/retention/sweep/{domain}`
+
+        As `POST /v1/retention/sweep`, for one domain. Requires `admin` on the tenant.
+        """
+        return self._client._request(
+            _OPERATIONS["retention.sweepDomain"],
+            path={"domain": domain},
+            query={},
+            headers={},
+            body=_body(_models.RetentionSweepDomainBody, body, fields),
+            response=_models.RetentionSweepResult,
             timeout=timeout,
         )
 
@@ -8719,7 +8833,7 @@ class AsyncPoliciesResource:
     ) -> _models.PublishPolicyResult:
         """Publish a policy. `POST /v1/policies`
 
-        Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).
+        Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object), and `spec` for `tool-errors`, `hitl` and `retention` (a retention policy with an unknown domain or `mode: archive` is refused with `400 validation-failed`, naming the field). Other kinds' specs are their runtime consumer's to validate. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A tenant has one retention policy per domain, plus one for `*`: a second policy id for a covered domain is refused with `409 policy-scope-taken` (`details.heldBy` names the policy that covers it; publish a new version of that one instead), and a new version can't move a policy to another domain (`409 policy-scope-changed`). A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).
         """
         return await self._client._request(
             _OPERATIONS["policies.publish"],
@@ -8761,6 +8875,113 @@ class AsyncPoliciesResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.ReinstatePolicyVersionResult,
+            timeout=timeout,
+        )
+
+
+class AsyncRetentionResource:
+    """`client.retention` — the `retention` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def scheduled(
+        self,
+        /,
+        *,
+        domain: Literal[
+            "org",
+            "agent",
+            "flow",
+            "tool",
+            "eval_suite",
+            "guardrail",
+            "mcp_endpoint",
+            "env",
+            "secret",
+            "run",
+            "policy",
+            "judgment",
+            "judge_class",
+            "provider",
+            "*",
+        ]
+        | None = None,
+        past_grace_only: bool | None = None,
+        limit: int | None = None,
+        timeout: float | None = None,
+    ) -> _models.RetentionScheduledPage:
+        """List deleted rows scheduled for purging. `GET /v1/retention/scheduled`
+
+        Tombstoned rows in every domain a retention policy covers, with when each is purged (`purgeAt`) and the policy that decides it. `domainsMissingAdapter` names the covered domains this deployment can't purge; `unpolicedDomains` the ones no policy covers, whose tombstones are kept; `conflicts` the domains two policies cover (stored before one policy per domain was enforced). Requires `admin` on the tenant.
+        """
+        return await self._client._request(
+            _OPERATIONS["retention.scheduled"],
+            path={},
+            query={"domain": domain, "pastGraceOnly": past_grace_only, "limit": limit},
+            headers={},
+            response=_models.RetentionScheduledPage,
+            timeout=timeout,
+        )
+
+    async def sweep(
+        self,
+        body: _models.RetentionSweepBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.RetentionSweepResult:
+        """Purge the deleted rows past their grace. `POST /v1/retention/sweep`
+
+        Purges, for good, every tombstoned row past the grace of the retention policy that covers its domain (or only `domain`'s), up to `maxPerDomain` per domain; `remaining` counts what is left for the next call. Nothing sweeps on its own: call this (or `POST /v1/retention/sweep/{domain}`) from a schedule. A hold (`graceSeconds: -1`) keeps its domain's rows. Idempotent: a second call purges nothing new. Requires `admin` on the tenant.
+        """
+        return await self._client._request(
+            _OPERATIONS["retention.sweep"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.RetentionSweepBody, body, fields),
+            response=_models.RetentionSweepResult,
+            timeout=timeout,
+        )
+
+    async def sweep_domain(
+        self,
+        domain: Literal[
+            "org",
+            "agent",
+            "flow",
+            "tool",
+            "eval_suite",
+            "guardrail",
+            "mcp_endpoint",
+            "env",
+            "secret",
+            "run",
+            "policy",
+            "judgment",
+            "judge_class",
+            "provider",
+            "*",
+        ],
+        body: _models.RetentionSweepDomainBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.RetentionSweepResult:
+        """Purge one domain's deleted rows past their grace. `POST /v1/retention/sweep/{domain}`
+
+        As `POST /v1/retention/sweep`, for one domain. Requires `admin` on the tenant.
+        """
+        return await self._client._request(
+            _OPERATIONS["retention.sweepDomain"],
+            path={"domain": domain},
+            query={},
+            headers={},
+            body=_body(_models.RetentionSweepDomainBody, body, fields),
+            response=_models.RetentionSweepResult,
             timeout=timeout,
         )
 
@@ -11317,6 +11538,7 @@ class Resources:
     cost: CostResource
     adapters: AdaptersResource
     policies: PoliciesResource
+    retention: RetentionResource
     eval_suites: EvalSuitesResource
     blocks: BlocksResource
     eval_runs: EvalRunsResource
@@ -11361,6 +11583,7 @@ class Resources:
         self.cost = CostResource(client)
         self.adapters = AdaptersResource(client)
         self.policies = PoliciesResource(client)
+        self.retention = RetentionResource(client)
         self.eval_suites = EvalSuitesResource(client)
         self.blocks = BlocksResource(client)
         self.eval_runs = EvalRunsResource(client)
@@ -11407,6 +11630,7 @@ class AsyncResources:
     cost: AsyncCostResource
     adapters: AsyncAdaptersResource
     policies: AsyncPoliciesResource
+    retention: AsyncRetentionResource
     eval_suites: AsyncEvalSuitesResource
     blocks: AsyncBlocksResource
     eval_runs: AsyncEvalRunsResource
@@ -11451,6 +11675,7 @@ class AsyncResources:
         self.cost = AsyncCostResource(client)
         self.adapters = AsyncAdaptersResource(client)
         self.policies = AsyncPoliciesResource(client)
+        self.retention = AsyncRetentionResource(client)
         self.eval_suites = AsyncEvalSuitesResource(client)
         self.blocks = AsyncBlocksResource(client)
         self.eval_runs = AsyncEvalRunsResource(client)

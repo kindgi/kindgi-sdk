@@ -769,7 +769,7 @@ const PolicyKindFilterQueryParam: ParameterSpec = {
   in: 'query',
   required: false,
   description:
-    'Filter to policies of a single kind. Values: `access-control | model-routing | adapter-allowlist | rate-limit | retention | compliance`.',
+    'Filter to policies of a single kind. Values: `access-control | model-routing | adapter-allowlist | rate-limit | retention | compliance | tool-errors | hitl`.',
   schema: { $ref: '#/components/schemas/PolicyKind' },
 };
 
@@ -779,6 +779,32 @@ const PolicyNameFilterQueryParam: ParameterSpec = {
   required: false,
   description: 'Prefix match on `Policy.id`. Dotted namespaces are the natural filter shape.',
   schema: { type: 'string' },
+};
+
+// Admin plane — retention.
+
+const RetentionDomainQueryParam: ParameterSpec = {
+  name: 'domain',
+  in: 'query',
+  required: false,
+  description: 'Only this domain. Absent: every domain.',
+  schema: { $ref: '#/components/schemas/RetentionDomain' },
+};
+
+const RetentionPastGraceOnlyQueryParam: ParameterSpec = {
+  name: 'pastGraceOnly',
+  in: 'query',
+  required: false,
+  description: '`true`: only rows past their grace, the ones a sweep would purge now.',
+  schema: { type: 'boolean', default: false },
+};
+
+const RetentionDomainPathParam: ParameterSpec = {
+  name: 'domain',
+  in: 'path',
+  required: true,
+  description: 'The domain to sweep (not `*`).',
+  schema: { $ref: '#/components/schemas/RetentionDomain' },
 };
 
 // Admin plane — eval suites.
@@ -3441,7 +3467,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'policies.publish',
     summary: 'Publish a policy',
     description:
-      "Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).",
+      "Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object), and `spec` for `tool-errors`, `hitl` and `retention` (a retention policy with an unknown domain or `mode: archive` is refused with `400 validation-failed`, naming the field). Other kinds' specs are their runtime consumer's to validate. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A tenant has one retention policy per domain, plus one for `*`: a second policy id for a covered domain is refused with `409 policy-scope-taken` (`details.heldBy` names the policy that covers it; publish a new version of that one instead), and a new version can't move a policy to another domain (`409 policy-scope-changed`). A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).",
     tags: ['policies'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -3452,7 +3478,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         'Validation failed (see `details.issues`), or `kind-not-applied`: no runtime consumer applies that kind yet.',
       ),
-      '409': ErrorResponse('Policy already registered at that (id, version).'),
+      '409': ErrorResponse(
+        '`policy-already-registered`: that (id, version) exists. `policy-scope-taken`: another policy covers the retention domain (`details.heldBy`). `policy-scope-changed`: the version would move the policy to another domain.',
+      ),
     },
   },
   {
@@ -3485,6 +3513,65 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Reinstated.', schema: ref('ReinstatePolicyVersionResult') },
       ...CommonMutationErrors,
       '404': ErrorResponse('No policy at that (id, version) under this tenant.'),
+      '409': ErrorResponse(
+        "`policy-scope-taken`: another policy now covers the version's retention domain (`details.heldBy`); unregister it first. `policy-scope-changed`: the version covers a different domain from the policy's other versions.",
+      ),
+    },
+  },
+
+  // ---------- retention (admin plane) ----------
+  {
+    method: 'get',
+    honoPath: '/v1/retention/scheduled',
+    openapiPath: '/v1/retention/scheduled',
+    operationId: 'retention.scheduled',
+    summary: 'List deleted rows scheduled for purging',
+    description:
+      "Tombstoned rows in every domain a retention policy covers, with when each is purged (`purgeAt`) and the policy that decides it. `domainsMissingAdapter` names the covered domains this deployment can't purge; `unpolicedDomains` the ones no policy covers, whose tombstones are kept; `conflicts` the domains two policies cover (stored before one policy per domain was enforced). Requires `admin` on the tenant.",
+    tags: ['retention'],
+    security: 'bearer',
+    parameters: [RetentionDomainQueryParam, RetentionPastGraceOnlyQueryParam, LimitQueryParam],
+    responses: {
+      '200': { description: 'Scheduled rows.', schema: ref('RetentionScheduledPage') },
+      ...CommonAuthErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '400': ErrorResponse('Unknown `domain`.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/retention/sweep',
+    openapiPath: '/v1/retention/sweep',
+    operationId: 'retention.sweep',
+    summary: 'Purge the deleted rows past their grace',
+    description:
+      "Purges, for good, every tombstoned row past the grace of the retention policy that covers its domain (or only `domain`'s), up to `maxPerDomain` per domain; `remaining` counts what is left for the next call. Nothing sweeps on its own: call this (or `POST /v1/retention/sweep/{domain}`) from a schedule. A hold (`graceSeconds: -1`) keeps its domain's rows. Idempotent: a second call purges nothing new. Requires `admin` on the tenant.",
+    tags: ['retention'],
+    security: 'bearer',
+    requestBody: { required: false, schema: ref('RetentionSweepBody') },
+    responses: {
+      '200': { description: 'What was purged, per domain.', schema: ref('RetentionSweepResult') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '400': ErrorResponse('Unknown `domain`, or `maxPerDomain` outside 1..10000.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/retention/sweep/:domain',
+    openapiPath: '/v1/retention/sweep/{domain}',
+    operationId: 'retention.sweepDomain',
+    summary: "Purge one domain's deleted rows past their grace",
+    description: 'As `POST /v1/retention/sweep`, for one domain. Requires `admin` on the tenant.',
+    tags: ['retention'],
+    security: 'bearer',
+    parameters: [RetentionDomainPathParam],
+    requestBody: { required: false, schema: ref('RetentionSweepDomainBody') },
+    responses: {
+      '200': { description: 'What was purged.', schema: ref('RetentionSweepResult') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '400': ErrorResponse('Unknown `domain` (or `*`), or `maxPerDomain` outside 1..10000.'),
     },
   },
 

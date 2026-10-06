@@ -11,11 +11,16 @@
  * `@kindgi/api`.
  *
  * The registry stores this inside the standard `{ v: 1, doc: RetentionSpec }`
- * envelope on `Policy.spec` — one policy per (tenant, domain), or a
- * single `domain: '*'` policy as a tenant-wide default. Resolution when
- * multiple policies match: specific domain wins over `*`; among
- * specifics, the newest-published version wins (the registry already
- * returns "latest active version" from `get`).
+ * envelope on `Policy.spec` (`retentionSpecDoc` unwraps it). A tenant
+ * has one retention policy per domain, plus at most one `domain: '*'`
+ * policy as the tenant-wide default: publishing a second policy id for a
+ * domain is refused (`policyScope`, `scope-taken`), and every version of
+ * a policy id keeps its domain. A domain's own policy wins over `*`.
+ *
+ * Policies stored before that rule can still cover one domain twice.
+ * Then the policy whose latest version is highest applies, and on equal
+ * versions the lower policy id; the retention routes report the overlap
+ * (`conflicts`) so one can be unregistered.
  */
 
 /**
@@ -76,11 +81,22 @@ export type RetentionSpecValidationError =
   | { readonly code: 'missing-field'; readonly field: 'domain' | 'graceSeconds' | 'mode' };
 
 /**
+ * The `RetentionSpec` inside a stored `retention` policy's `spec`: the
+ * `doc` of the `{ v: 1, doc }` envelope, or `spec` itself when it isn't
+ * wrapped.
+ */
+export function retentionSpecDoc(spec: unknown): unknown {
+  if (typeof spec === 'object' && spec !== null && 'doc' in spec) {
+    return (spec as { readonly doc: unknown }).doc;
+  }
+  return spec;
+}
+
+/**
  * Validate an unknown blob (typically the `.doc` inside the versioned
- * envelope) as a `RetentionSpec`. For `PolicyRegistryBinding.publish`
- * implementations to call before persisting a `retention` policy, and
- * for executors reading one back — the `@kindgi/api` policies route
- * checks only the top-level `Policy` shape, not `spec`.
+ * envelope) as a `RetentionSpec`. The `@kindgi/api` policies route
+ * refuses a `retention` policy that fails it (`validatePolicySpec`), and
+ * executors check it again when reading one back.
  *
  * Rejects `mode: 'archive'` with the dedicated `unsupported-mode` error,
  * distinct from `invalid-mode`, because the value is reserved but not

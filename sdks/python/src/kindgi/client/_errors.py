@@ -140,6 +140,7 @@ _CONFLICT = {
     "guardrail-already-registered", "flow-already-registered", "conversation-closed",
     "provider-already-registered", "proposal-invalid-state-transition", "approval-not-decided",
     "slug-conflict", "project-default-already-exists", "registry-read-only",
+    "policy-already-registered", "policy-scope-taken", "policy-scope-changed",
 }  # fmt: skip
 _INVALID = {
     "invalid-request", "validation-failed", "unknown-field", "bad-input", "unresolved-tool",

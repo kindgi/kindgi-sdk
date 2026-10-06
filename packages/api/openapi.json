@@ -105,6 +105,10 @@
       "description": "Tenant policy catalog (list, get, versions, publish, unregister) — part of the admin control plane. Full versioned CRUD, mirrors `flows` 1:1. Registry-only: enforcement is out of scope. `policyKind` selects the shape of `spec` — closed enum, extended additively (`access-control`, `model-routing`, `adapter-allowlist`, `rate-limit`, `retention`, `compliance`). Runtime consumers (e.g. model routing for `model-routing`, retention sweeps for `retention`) read policies from this store and apply them at their own boundary. Caller-plugged via `PolicyRegistryBinding`."
     },
     {
+      "name": "retention",
+      "description": "Deleted rows' retention (scheduled, sweep) — part of the admin control plane. Deleting most things is a tombstone; a `retention` policy per domain (see `policies`) sets how long tombstones stay before a sweep purges them for good. `scheduled` lists what's due and when; `sweep` purges what's past its grace. Nothing sweeps on its own: call `sweep` from a schedule. Caller-plugged via `RetentionBinding`."
+    },
+    {
       "name": "eval-suites",
       "description": "Evaluation suite catalog (list, get, versions, publish, unregister) — part of the admin control plane. Full versioned CRUD, mirrors `policies` 1:1. Registry-only: eval-run execution + per-kind grader dispatch live on the `eval-runs` tag. `evalKind` selects the shape of `spec` — closed enum, extended additively (`accuracy`, `pairwise`, `regression`, `human-review`, `benchmark`, `custom`, `judged`). The cases of a `judged` suite are copies of judged runs built from judgments (`POST .../versions/from-judgments`, listed at `GET .../versions/{version}/cases`; `EvalCaseStoreBinding`). Runs against these suites are started through the `eval-runs` tag. Caller-plugged via `EvalSuiteRegistryBinding`."
     },
@@ -8005,7 +8009,7 @@
           "spec": {
             "type": "object",
             "additionalProperties": true,
-            "description": "Kind-specific policy body. For `access-control`, matches `@kindgi/specs/policy.schema.json` (rules + defaults). For `model-routing`, matches `TenantPolicy` from `@kindgi/capabilities` (providers.allow / providers.deny / models.allow / models.deny / regionAllow / maxCostPerCallUsd / maxTokensPerCall). For `tool-errors`, `ToolErrorsSpec` (maxRetries / retryOn). For `hitl`, `HitlSpec` from `@kindgi/policy-contract` (maxTimeoutMs / minReviewerRole / tools — per tool id a mode or `{ mode, requiredRole }`); it only tightens an agent's approvals. `tool-errors` and `hitl` specs are validated on publish. For other kinds, the shape is defined by the runtime consumer."
+            "description": "Kind-specific policy body. For `access-control`, matches `@kindgi/specs/policy.schema.json` (rules + defaults). For `model-routing`, matches `TenantPolicy` from `@kindgi/capabilities` (providers.allow / providers.deny / models.allow / models.deny / regionAllow / maxCostPerCallUsd / maxTokensPerCall). For `tool-errors`, `ToolErrorsSpec` (maxRetries / retryOn). For `hitl`, `HitlSpec` from `@kindgi/policy-contract` (maxTimeoutMs / minReviewerRole / tools — per tool id a mode or `{ mode, requiredRole }`); it only tightens an agent's approvals. For `retention`, `{ v: 1, doc: RetentionSpec }` from `@kindgi/policy-contract` (domain / graceSeconds / mode, which must be `purge`); a tenant has one retention policy per domain, plus one for `*`. `tool-errors`, `hitl` and `retention` specs are validated on publish. For other kinds, the shape is defined by the runtime consumer."
           }
         }
       },
@@ -8064,7 +8068,7 @@
           "spec": {
             "type": "object",
             "additionalProperties": true,
-            "description": "Kind-specific policy body. For `access-control`, matches `@kindgi/specs/policy.schema.json` (rules + defaults). For `model-routing`, matches `TenantPolicy` from `@kindgi/capabilities` (providers.allow / providers.deny / models.allow / models.deny / regionAllow / maxCostPerCallUsd / maxTokensPerCall). For `tool-errors`, `ToolErrorsSpec` (maxRetries / retryOn). For `hitl`, `HitlSpec` from `@kindgi/policy-contract` (maxTimeoutMs / minReviewerRole / tools — per tool id a mode or `{ mode, requiredRole }`); it only tightens an agent's approvals. `tool-errors` and `hitl` specs are validated on publish. For other kinds, the shape is defined by the runtime consumer."
+            "description": "Kind-specific policy body. For `access-control`, matches `@kindgi/specs/policy.schema.json` (rules + defaults). For `model-routing`, matches `TenantPolicy` from `@kindgi/capabilities` (providers.allow / providers.deny / models.allow / models.deny / regionAllow / maxCostPerCallUsd / maxTokensPerCall). For `tool-errors`, `ToolErrorsSpec` (maxRetries / retryOn). For `hitl`, `HitlSpec` from `@kindgi/policy-contract` (maxTimeoutMs / minReviewerRole / tools — per tool id a mode or `{ mode, requiredRole }`); it only tightens an agent's approvals. For `retention`, `{ v: 1, doc: RetentionSpec }` from `@kindgi/policy-contract` (domain / graceSeconds / mode, which must be `purge`); a tenant has one retention policy per domain, plus one for `*`. `tool-errors`, `hitl` and `retention` specs are validated on publish. For other kinds, the shape is defined by the runtime consumer."
           },
           "unregisteredAt": {
             "type": "string",
@@ -8184,6 +8188,221 @@
           },
           "wasTombstoned": {
             "type": "boolean"
+          }
+        }
+      },
+      "RetentionDomain": {
+        "type": "string",
+        "enum": [
+          "org",
+          "agent",
+          "flow",
+          "tool",
+          "eval_suite",
+          "guardrail",
+          "mcp_endpoint",
+          "env",
+          "secret",
+          "run",
+          "policy",
+          "judgment",
+          "judge_class",
+          "provider",
+          "*"
+        ]
+      },
+      "RetentionPolicyConflict": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "domain",
+          "policyIds",
+          "appliedPolicyId"
+        ],
+        "properties": {
+          "domain": {
+            "$ref": "#/components/schemas/RetentionDomain"
+          },
+          "policyIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 2,
+            "description": "Every policy id that covers the domain, sorted."
+          },
+          "appliedPolicyId": {
+            "type": "string",
+            "description": "The one that applies: the policy whose latest version is highest, and on equal versions the lower policy id. Unregister the others."
+          }
+        }
+      },
+      "RetentionScheduledItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "domain",
+          "id",
+          "unregisteredAt",
+          "purgeAt",
+          "pastGrace",
+          "policyId",
+          "policyVersion",
+          "graceSeconds"
+        ],
+        "properties": {
+          "domain": {
+            "$ref": "#/components/schemas/RetentionDomain"
+          },
+          "id": {
+            "type": "string",
+            "description": "The tombstoned row's id in its domain."
+          },
+          "unregisteredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "purgeAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "`unregisteredAt` plus the policy's grace: when a sweep purges the row."
+          },
+          "pastGrace": {
+            "type": "boolean",
+            "description": "Whether a sweep would purge the row now."
+          },
+          "policyId": {
+            "type": "string",
+            "description": "The retention policy that applies."
+          },
+          "policyVersion": {
+            "type": "string"
+          },
+          "graceSeconds": {
+            "type": "integer",
+            "description": "The policy's grace, in seconds (`-1`: a hold, never purged)."
+          }
+        }
+      },
+      "RetentionScheduledPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "domainsMissingAdapter",
+          "unpolicedDomains"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RetentionScheduledItem"
+            }
+          },
+          "domainsMissingAdapter": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RetentionDomain"
+            },
+            "description": "Domains a retention policy covers that this deployment can't purge (no adapter is wired)."
+          },
+          "unpolicedDomains": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RetentionDomain"
+            },
+            "description": "Domains no retention policy covers: their tombstones are kept."
+          },
+          "conflicts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RetentionPolicyConflict"
+            },
+            "description": "Domains more than one retention policy covers. Absent or empty: none."
+          }
+        }
+      },
+      "RetentionSweepBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "domain": {
+            "$ref": "#/components/schemas/RetentionDomain",
+            "description": "Sweep only this domain. Absent: every domain."
+          },
+          "maxPerDomain": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000,
+            "description": "The most rows one call purges per domain (default 500); the rest are `remaining`."
+          }
+        }
+      },
+      "RetentionSweepDomainBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "maxPerDomain": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000,
+            "description": "The most rows this call purges (default 500); the rest are `remaining`."
+          }
+        }
+      },
+      "RetentionSweepResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "perDomain",
+          "totalPurged"
+        ],
+        "properties": {
+          "perDomain": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "domain",
+                "purged",
+                "remaining"
+              ],
+              "properties": {
+                "domain": {
+                  "$ref": "#/components/schemas/RetentionDomain"
+                },
+                "purged": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "remaining": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Rows past grace this call left (the `maxPerDomain` cap); sweep again."
+                },
+                "policyId": {
+                  "type": "string",
+                  "description": "The retention policy that applied."
+                },
+                "missingAdapter": {
+                  "type": "boolean",
+                  "const": true,
+                  "description": "Present when this deployment can't purge the domain (no adapter)."
+                }
+              }
+            }
+          },
+          "totalPurged": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "conflicts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RetentionPolicyConflict"
+            },
+            "description": "Domains more than one retention policy covers. Absent or empty: none."
           }
         }
       },
@@ -23882,7 +24101,7 @@
               "$ref": "#/components/schemas/PolicyKind"
             },
             "required": false,
-            "description": "Filter to policies of a single kind. Values: `access-control | model-routing | adapter-allowlist | rate-limit | retention | compliance`."
+            "description": "Filter to policies of a single kind. Values: `access-control | model-routing | adapter-allowlist | rate-limit | retention | compliance | tool-errors | hitl`."
           },
           {
             "name": "name",
@@ -23938,7 +24157,7 @@
             }
           },
           "409": {
-            "description": "Policy already registered at that (id, version).",
+            "description": "`policy-already-registered`: that (id, version) exists. `policy-scope-taken`: another policy covers the retention domain (`details.heldBy`). `policy-scope-changed`: the version would move the policy to another domain.",
             "content": {
               "application/json": {
                 "schema": {
@@ -23958,7 +24177,7 @@
             }
           }
         },
-        "description": "Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).",
+        "description": "Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object), and `spec` for `tool-errors`, `hitl` and `retention` (a retention policy with an unknown domain or `mode: archive` is refused with `400 validation-failed`, naming the field). Other kinds' specs are their runtime consumer's to validate. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A tenant has one retention policy per domain, plus one for `*`: a second policy id for a covered domain is refused with `409 policy-scope-taken` (`details.heldBy` names the policy that covers it; publish a new version of that one instead), and a new version can't move a policy to another domain (`409 policy-scope-changed`). A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -24361,7 +24580,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "`policy-scope-taken`: another policy now covers the version's retention domain (`details.heldBy`); unregister it first. `policy-scope-changed`: the version covers a different domain from the policy's other versions.",
             "content": {
               "application/json": {
                 "schema": {
@@ -24414,6 +24633,281 @@
             "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
           }
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/retention/scheduled": {
+      "get": {
+        "operationId": "retention.scheduled",
+        "summary": "List deleted rows scheduled for purging",
+        "tags": [
+          "retention"
+        ],
+        "responses": {
+          "200": {
+            "description": "Scheduled rows.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetentionScheduledPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown `domain`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Tombstoned rows in every domain a retention policy covers, with when each is purged (`purgeAt`) and the policy that decides it. `domainsMissingAdapter` names the covered domains this deployment can't purge; `unpolicedDomains` the ones no policy covers, whose tombstones are kept; `conflicts` the domains two policies cover (stored before one policy per domain was enforced). Requires `admin` on the tenant.",
+        "parameters": [
+          {
+            "name": "domain",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/RetentionDomain"
+            },
+            "required": false,
+            "description": "Only this domain. Absent: every domain."
+          },
+          {
+            "name": "pastGraceOnly",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "`true`: only rows past their grace, the ones a sweep would purge now."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/retention/sweep": {
+      "post": {
+        "operationId": "retention.sweep",
+        "summary": "Purge the deleted rows past their grace",
+        "tags": [
+          "retention"
+        ],
+        "responses": {
+          "200": {
+            "description": "What was purged, per domain.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetentionSweepResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown `domain`, or `maxPerDomain` outside 1..10000.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Purges, for good, every tombstoned row past the grace of the retention policy that covers its domain (or only `domain`'s), up to `maxPerDomain` per domain; `remaining` counts what is left for the next call. Nothing sweeps on its own: call this (or `POST /v1/retention/sweep/{domain}`) from a schedule. A hold (`graceSeconds: -1`) keeps its domain's rows. Idempotent: a second call purges nothing new. Requires `admin` on the tenant.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetentionSweepBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/retention/sweep/{domain}": {
+      "post": {
+        "operationId": "retention.sweepDomain",
+        "summary": "Purge one domain's deleted rows past their grace",
+        "tags": [
+          "retention"
+        ],
+        "responses": {
+          "200": {
+            "description": "What was purged.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetentionSweepResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown `domain` (or `*`), or `maxPerDomain` outside 1..10000.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "As `POST /v1/retention/sweep`, for one domain. Requires `admin` on the tenant.",
+        "parameters": [
+          {
+            "name": "domain",
+            "in": "path",
+            "schema": {
+              "$ref": "#/components/schemas/RetentionDomain"
+            },
+            "required": true,
+            "description": "The domain to sweep (not `*`)."
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetentionSweepDomainBody"
+              }
+            }
+          }
+        },
         "security": [
           {
             "bearerAuth": []

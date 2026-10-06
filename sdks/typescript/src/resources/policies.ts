@@ -17,7 +17,8 @@ import type {
  * Policies resource — versioned tenant policy registry.
  *
  * Each policy carries a `kind` (`access-control`, `model-routing`,
- * `adapter-allowlist`, `rate-limit`, `retention`, `compliance`) and a
+ * `adapter-allowlist`, `rate-limit`, `retention`, `compliance`,
+ * `tool-errors`, `hitl`) and a
  * `spec` object whose shape that kind defines. The API stores and
  * versions policies (semver per id); enforcement happens where each
  * kind is consumed, not in this resource.
@@ -29,10 +30,18 @@ import type {
 export interface PoliciesClient {
   /**
    * Publish a policy version. The server validates the top-level
-   * shape (id, semver version, `kind`, `spec` object) — failures return
-   * `400 validation-failed` with the issue list; deeper validation of
-   * `spec` belongs to the consumer of that kind. Publishing the same
+   * shape (id, semver version, `kind`, `spec` object), and `spec` for
+   * `tool-errors`, `hitl` and `retention` — failures return
+   * `400 validation-failed` with the issue list (a retention policy with
+   * an unknown domain, or `mode: 'archive'`, is refused). Other kinds'
+   * specs belong to the consumer of that kind. Publishing the same
    * `(id, version)` twice returns `409 policy-already-registered`.
+   *
+   * A tenant has one retention policy per domain, plus one for `*`: a
+   * second policy id for a covered domain returns
+   * `409 policy-scope-taken` (`details.heldBy` names the one that covers
+   * it; publish a new version of that one instead), and a new version
+   * can't move a policy to another domain (`409 policy-scope-changed`).
    *
    * @wire `POST /v1/policies` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1policies/post`.

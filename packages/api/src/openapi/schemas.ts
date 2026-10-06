@@ -64,7 +64,12 @@
  */
 
 import { EVIDENCE_KINDS } from '@kindgi/compliance';
-import { MAX_TOOL_ERROR_RETRIES, POLICY_KINDS, TOOL_ERROR_KINDS } from '@kindgi/policy-contract';
+import {
+  MAX_TOOL_ERROR_RETRIES,
+  POLICY_KINDS,
+  RETENTION_DOMAINS,
+  TOOL_ERROR_KINDS,
+} from '@kindgi/policy-contract';
 
 export type JsonSchema = Record<string, unknown>;
 
@@ -4380,7 +4385,7 @@ export const PolicySchema: JsonSchema = {
       type: 'object',
       additionalProperties: true,
       description:
-        "Kind-specific policy body. For `access-control`, matches `@kindgi/specs/policy.schema.json` (rules + defaults). For `model-routing`, matches `TenantPolicy` from `@kindgi/capabilities` (providers.allow / providers.deny / models.allow / models.deny / regionAllow / maxCostPerCallUsd / maxTokensPerCall). For `tool-errors`, `ToolErrorsSpec` (maxRetries / retryOn). For `hitl`, `HitlSpec` from `@kindgi/policy-contract` (maxTimeoutMs / minReviewerRole / tools — per tool id a mode or `{ mode, requiredRole }`); it only tightens an agent's approvals. `tool-errors` and `hitl` specs are validated on publish. For other kinds, the shape is defined by the runtime consumer.",
+        "Kind-specific policy body. For `access-control`, matches `@kindgi/specs/policy.schema.json` (rules + defaults). For `model-routing`, matches `TenantPolicy` from `@kindgi/capabilities` (providers.allow / providers.deny / models.allow / models.deny / regionAllow / maxCostPerCallUsd / maxTokensPerCall). For `tool-errors`, `ToolErrorsSpec` (maxRetries / retryOn). For `hitl`, `HitlSpec` from `@kindgi/policy-contract` (maxTimeoutMs / minReviewerRole / tools — per tool id a mode or `{ mode, requiredRole }`); it only tightens an agent's approvals. For `retention`, `{ v: 1, doc: RetentionSpec }` from `@kindgi/policy-contract` (domain / graceSeconds / mode, which must be `purge`); a tenant has one retention policy per domain, plus one for `*`. `tool-errors`, `hitl` and `retention` specs are validated on publish. For other kinds, the shape is defined by the runtime consumer.",
     },
   },
 };
@@ -4483,6 +4488,170 @@ export const ReinstatePolicyVersionResultSchema: JsonSchema = {
     policyId: { type: 'string' },
     version: { type: 'string' },
     wasTombstoned: { type: 'boolean' },
+  },
+};
+
+// ---------------- retention (admin plane) ----------------
+
+/** A tombstoning domain a retention policy can cover; `*` is the tenant-wide default. */
+export const RetentionDomainSchema: JsonSchema = {
+  type: 'string',
+  enum: [...RETENTION_DOMAINS],
+};
+
+/**
+ * A domain more than one retention policy covers. Publishing refuses a
+ * second policy for a domain, so only policies stored before that rule
+ * can do this.
+ */
+export const RetentionPolicyConflictSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['domain', 'policyIds', 'appliedPolicyId'],
+  properties: {
+    domain: { $ref: '#/components/schemas/RetentionDomain' },
+    policyIds: {
+      type: 'array',
+      items: { type: 'string' },
+      minItems: 2,
+      description: 'Every policy id that covers the domain, sorted.',
+    },
+    appliedPolicyId: {
+      type: 'string',
+      description:
+        'The one that applies: the policy whose latest version is highest, and on equal versions the lower policy id. Unregister the others.',
+    },
+  },
+};
+
+export const RetentionScheduledItemSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'domain',
+    'id',
+    'unregisteredAt',
+    'purgeAt',
+    'pastGrace',
+    'policyId',
+    'policyVersion',
+    'graceSeconds',
+  ],
+  properties: {
+    domain: { $ref: '#/components/schemas/RetentionDomain' },
+    id: { type: 'string', description: "The tombstoned row's id in its domain." },
+    unregisteredAt: { type: 'string', format: 'date-time' },
+    purgeAt: {
+      type: 'string',
+      format: 'date-time',
+      description: "`unregisteredAt` plus the policy's grace: when a sweep purges the row.",
+    },
+    pastGrace: {
+      type: 'boolean',
+      description: 'Whether a sweep would purge the row now.',
+    },
+    policyId: { type: 'string', description: 'The retention policy that applies.' },
+    policyVersion: { type: 'string' },
+    graceSeconds: {
+      type: 'integer',
+      description: "The policy's grace, in seconds (`-1`: a hold, never purged).",
+    },
+  },
+};
+
+export const RetentionScheduledPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'domainsMissingAdapter', 'unpolicedDomains'],
+  properties: {
+    data: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/RetentionScheduledItem' },
+    },
+    domainsMissingAdapter: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/RetentionDomain' },
+      description:
+        "Domains a retention policy covers that this deployment can't purge (no adapter is wired).",
+    },
+    unpolicedDomains: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/RetentionDomain' },
+      description: 'Domains no retention policy covers: their tombstones are kept.',
+    },
+    conflicts: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/RetentionPolicyConflict' },
+      description: 'Domains more than one retention policy covers. Absent or empty: none.',
+    },
+  },
+};
+
+export const RetentionSweepBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    domain: {
+      $ref: '#/components/schemas/RetentionDomain',
+      description: 'Sweep only this domain. Absent: every domain.',
+    },
+    maxPerDomain: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 10000,
+      description:
+        'The most rows one call purges per domain (default 500); the rest are `remaining`.',
+    },
+  },
+};
+
+export const RetentionSweepDomainBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    maxPerDomain: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 10000,
+      description: 'The most rows this call purges (default 500); the rest are `remaining`.',
+    },
+  },
+};
+
+export const RetentionSweepResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['perDomain', 'totalPurged'],
+  properties: {
+    perDomain: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['domain', 'purged', 'remaining'],
+        properties: {
+          domain: { $ref: '#/components/schemas/RetentionDomain' },
+          purged: { type: 'integer', minimum: 0 },
+          remaining: {
+            type: 'integer',
+            minimum: 0,
+            description: 'Rows past grace this call left (the `maxPerDomain` cap); sweep again.',
+          },
+          policyId: { type: 'string', description: 'The retention policy that applied.' },
+          missingAdapter: {
+            type: 'boolean',
+            const: true,
+            description: "Present when this deployment can't purge the domain (no adapter).",
+          },
+        },
+      },
+    },
+    totalPurged: { type: 'integer', minimum: 0 },
+    conflicts: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/RetentionPolicyConflict' },
+      description: 'Domains more than one retention policy covers. Absent or empty: none.',
+    },
   },
 };
 
@@ -7707,6 +7876,13 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['PublishPolicyResult', PublishPolicyResultSchema],
   ['UnregisterPolicyResult', UnregisterPolicyResultSchema],
   ['ReinstatePolicyVersionResult', ReinstatePolicyVersionResultSchema],
+  ['RetentionDomain', RetentionDomainSchema],
+  ['RetentionPolicyConflict', RetentionPolicyConflictSchema],
+  ['RetentionScheduledItem', RetentionScheduledItemSchema],
+  ['RetentionScheduledPage', RetentionScheduledPageSchema],
+  ['RetentionSweepBody', RetentionSweepBodySchema],
+  ['RetentionSweepDomainBody', RetentionSweepDomainBodySchema],
+  ['RetentionSweepResult', RetentionSweepResultSchema],
   ['EvalKind', EvalKindSchema],
   ['EvalSuite', EvalSuiteSchema],
   ['EvalSuiteCollectionPage', EvalSuiteCollectionPageSchema],
