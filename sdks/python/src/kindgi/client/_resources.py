@@ -3070,6 +3070,7 @@ class CostResource:
         /,
         *,
         group_by: str,
+        limit: int | None = None,
         from_: str | None = None,
         to: str | None = None,
         category: str | None = None,
@@ -3088,13 +3089,14 @@ class CostResource:
     ) -> _models.CostAggregateResult:
         """Aggregate cost across a time window. `GET /v1/cost/aggregate`
 
-        Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId` narrow the aggregate to a scope: `org` covers every project in the org, so one call sums an org's spend. Each group, and the total, carries its cost and its token sums (`tokens`). `inherit` has no effect on cost records, which always belong to a project.
+        Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId` narrow the aggregate to a scope: `org` covers every project in the org, so one call sums an org's spend. Each group, and the total, carries its cost and its token sums (`tokens`). `groups` is ordered by `totalUsd`, highest first (ties by key), and capped at `limit` (default 1000): `truncated` and `totalGroups` say when there were more, and the totals still cover every record. For every record, page through `/v1/cost/records`. `inherit` has no effect on cost records, which always belong to a project.
         """
         return self._client._request(
             _OPERATIONS["cost.aggregate"],
             path={},
             query={
                 "groupBy": group_by,
+                "limit": limit,
                 "from": from_,
                 "to": to,
                 "category": category,
@@ -8150,6 +8152,7 @@ class AsyncCostResource:
         /,
         *,
         group_by: str,
+        limit: int | None = None,
         from_: str | None = None,
         to: str | None = None,
         category: str | None = None,
@@ -8168,13 +8171,14 @@ class AsyncCostResource:
     ) -> _models.CostAggregateResult:
         """Aggregate cost across a time window. `GET /v1/cost/aggregate`
 
-        Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId` narrow the aggregate to a scope: `org` covers every project in the org, so one call sums an org's spend. Each group, and the total, carries its cost and its token sums (`tokens`). `inherit` has no effect on cost records, which always belong to a project.
+        Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId` narrow the aggregate to a scope: `org` covers every project in the org, so one call sums an org's spend. Each group, and the total, carries its cost and its token sums (`tokens`). `groups` is ordered by `totalUsd`, highest first (ties by key), and capped at `limit` (default 1000): `truncated` and `totalGroups` say when there were more, and the totals still cover every record. For every record, page through `/v1/cost/records`. `inherit` has no effect on cost records, which always belong to a project.
         """
         return await self._client._request(
             _OPERATIONS["cost.aggregate"],
             path={},
             query={
                 "groupBy": group_by,
+                "limit": limit,
                 "from": from_,
                 "to": to,
                 "category": category,

@@ -631,6 +631,111 @@ describe('API — cost aggregate', () => {
   });
 });
 
+describe('API — cost aggregate: the order and the cap (T171)', () => {
+  const WINDOW = 'from=2026-09-01T00:00:00.000Z&to=2026-09-30T00:00:00.000Z';
+  type Body = {
+    groups: Array<{ key: Record<string, string | null>; totalUsd: number }>;
+    totalUsd: number;
+    totalRecords: number;
+    totalGroups?: number;
+    truncated?: boolean;
+  };
+  const get = async (app: ReturnType<typeof makeApp>['app'], query: string) => {
+    const res = await app.request(`/v1/cost/aggregate?${query}`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    return { status: res.status, body: (await res.json()) as Body };
+  };
+  // Costs: b 3, then a, c and the unattributed group at 1 each.
+  const seed = (): CostRecord[] => [
+    makeRecord({ agentId: 'acme.c', costUsd: 1 }),
+    makeRecord({ costUsd: 1 }),
+    makeRecord({ agentId: 'acme.b', costUsd: 3 }),
+    makeRecord({ agentId: 'acme.a', costUsd: 1 }),
+  ];
+
+  test('groups are the most expensive first, ties by key, the unattributed last; the default limit is 1000', async () => {
+    const inner = makeInMemoryBinding(seed());
+    let limit: number | undefined;
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken,
+      runHandler,
+      cost: {
+        ...inner,
+        async aggregate(input) {
+          limit = input.limit;
+          return inner.aggregate(input);
+        },
+      },
+    });
+    const { status, body } = await get(app, `groupBy=agentId&${WINDOW}`);
+    expect(status).toBe(200);
+    expect(limit).toBe(1000);
+    expect(body.groups.map((g) => g.key.agentId)).toEqual(['acme.b', 'acme.a', 'acme.c', null]);
+    expect(body.totalGroups).toBe(4);
+    expect(body.truncated).toBe(false);
+  });
+
+  test('?limit= caps the groups to the most expensive; the totals still cover every record', async () => {
+    const { app } = makeApp(seed());
+    const { status, body } = await get(app, `groupBy=agentId&limit=2&${WINDOW}`);
+    expect(status).toBe(200);
+    expect(body.groups.map((g) => g.key.agentId)).toEqual(['acme.b', 'acme.a']);
+    expect(body.truncated).toBe(true);
+    expect(body.totalGroups).toBe(4);
+    expect(body.totalUsd).toBeCloseTo(6);
+    expect(body.totalRecords).toBe(4);
+  });
+
+  test('a limit that is not an integer from 1 to 10000 is a 400', async () => {
+    const { app } = makeApp(seed());
+    for (const limit of ['0', '10001', '-1', '1.5', 'abc', '']) {
+      const { status, body } = await get(app, `groupBy=agentId&limit=${limit}&${WINDOW}`);
+      expect(status).toBe(400);
+      expect((body as unknown as { error: { code: string; message: string } }).error).toEqual(
+        expect.objectContaining({
+          code: 'bad-input',
+          message: '`limit` must be an integer from 1 to 10000 (default 1000)',
+        }),
+      );
+    }
+    expect((await get(app, `groupBy=agentId&limit=10000&${WINDOW}`)).status).toBe(200);
+  });
+
+  test("a binding that caps itself: its groups are kept, and its totalGroups says what's missing", async () => {
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken,
+      runHandler,
+      cost: {
+        ...makeInMemoryBinding(),
+        async aggregate(input) {
+          const group = (agentId: string, totalUsd: number) => ({
+            key: { agentId },
+            count: 1,
+            totalUsd,
+            tokens: NO_TOKENS,
+          });
+          return {
+            groups: [group('acme.y', 2), group('acme.z', 5)],
+            totalGroups: 40,
+            totalUsd: 100,
+            totalRecords: 40,
+            tokens: NO_TOKENS,
+            timeRange: { from: input.from.toISOString(), to: input.to.toISOString() },
+          } as never;
+        },
+      },
+    });
+    const { body } = await get(app, `groupBy=agentId&limit=2&${WINDOW}`);
+    expect(body.groups.map((g) => g.key.agentId)).toEqual(['acme.z', 'acme.y']);
+    expect(body.totalGroups).toBe(40);
+    expect(body.truncated).toBe(true);
+    expect(body.totalUsd).toBe(100);
+  });
+});
+
 describe('API — cost surface unmounted when no binding supplied', () => {
   test('no `cost` binding → routes 404 at Hono level', async () => {
     const app = createApp({ ...createStubAppBindings(), resolveToken, runHandler });

@@ -404,7 +404,11 @@ export type {
   EvalSubjectInvoker,
   InProcessEvalRunBindingOptions,
 } from './eval-run-dispatcher.js';
-export { COST_GROUP_DIMENSIONS } from './cost-binding.js';
+export {
+  COST_AGGREGATE_DEFAULT_LIMIT,
+  COST_AGGREGATE_MAX_LIMIT,
+  COST_GROUP_DIMENSIONS,
+} from './cost-binding.js';
 export type {
   CostAggregateGroup,
   CostAggregateInput,
