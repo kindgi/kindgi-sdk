@@ -183,3 +183,24 @@ async function blockProblem(
   }
   return undefined;
 }
+
+/**
+ * The first version after `after` that no version of the agent holds,
+ * active or unregistered (versions never change): what a refused
+ * publish of a taken number suggests, by the deploy rule's numbering.
+ * `undefined` when none is free within the tries.
+ */
+export async function nextFreeAgentVersion(
+  agents: AgentRegistryBinding,
+  tenantId: TenantId,
+  agentId: AgentId,
+  after: string,
+): Promise<string | undefined> {
+  let candidate = nextVersion(after);
+  for (let tries = 0; candidate !== undefined && tries < MAX_TRIES; tries++) {
+    const held = await agents.getVersion({ tenantId, agentId, version: candidate as Semver });
+    if (held === null) return candidate;
+    candidate = nextVersion(candidate);
+  }
+  return undefined;
+}

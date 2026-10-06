@@ -24,5 +24,6 @@
   - TS: `client.agents.versions.derive(agentId, { from, pins, label })`.
   - Python: `client.agents.derive_version(agent_id, from_=..., pins=...)`.
   - CLI: `kindgi agents derive <agent-id> --from=<semver> --prompt=<block-id>=<version> --setting=<block-id>=<version> [--label=<text>]`. Repeat `--prompt` and `--setting` for several blocks.
+- **A taken number is never overwritten.** `POST /v1/agents` with a version that's already registered (a derived version may hold it) still answers `409 agent-already-registered`. It now names the next free version in the message and as `nextFreeVersion`: `… is already registered, and versions never change; publish it as 1.4.2, the next free version`.
 - **Deploys:** a deploy whose definition and pins match a derived version reuses it, reporting the deploy's own reason (`pins-changed`), not `edited`.
 - **`VersionDerivation`:** `reason` adds `'edited'`; new optional `label` and `by`.

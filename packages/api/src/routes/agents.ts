@@ -20,6 +20,7 @@ import {
   type DeriveAgentVersionOutcome,
   type PinSwaps,
   deriveAgentVersion,
+  nextFreeAgentVersion,
 } from '../derive-agent-version.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
@@ -351,18 +352,7 @@ export function agentsRouter(
         ),
     });
     if (outcome.kind === 'already-registered') {
-      c.status(statusFor('agent-already-registered') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'agent-already-registered',
-            message: `Agent "${outcome.agentId as unknown as string}" version "${outcome.version as unknown as string}" is already registered`,
-            agentId: outcome.agentId as unknown as string,
-            version: outcome.version as unknown as string,
-          },
-          requestId,
-        ),
-      );
+      return alreadyRegistered(c, binding, tenantId, outcome.agentId, outcome.version);
     }
     if (outcome.kind === 'project-not-found') {
       // Caller supplied a `projectId` that does not resolve within
@@ -493,6 +483,34 @@ export function agentsRouter(
   });
 
   return r;
+}
+
+/**
+ * The 409 for a publish whose number is taken. Versions never change, so
+ * it names the next free one (an expert's derived version may hold it).
+ */
+async function alreadyRegistered(
+  c: Context<AppEnv>,
+  binding: AgentRegistryBinding,
+  tenantId: TenantId,
+  agentId: AgentId,
+  version: Semver,
+) {
+  const next = await nextFreeAgentVersion(binding, tenantId, agentId, version as unknown as string);
+  const suggestion = next === undefined ? '' : `; publish it as ${next}, the next free version`;
+  c.status(statusFor('agent-already-registered') as never);
+  return c.json(
+    toWireError(
+      {
+        code: 'agent-already-registered',
+        message: `Agent "${agentId as unknown as string}" version "${version as unknown as string}" is already registered, and versions never change${suggestion}`,
+        agentId: agentId as unknown as string,
+        version: version as unknown as string,
+        ...(next !== undefined && { nextFreeVersion: next }),
+      },
+      c.get('requestId'),
+    ),
+  );
 }
 
 /** The request body as an object; undefined when it isn't JSON or isn't an object. */

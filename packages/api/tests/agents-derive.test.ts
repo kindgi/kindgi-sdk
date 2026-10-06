@@ -258,6 +258,37 @@ describe('POST /v1/agents/:agentId/versions derives a version', () => {
   });
 });
 
+describe('POST /v1/agents: a number a derived version took', () => {
+  test('is refused (409), naming the next free version', async () => {
+    const { call, prompt, publishAgent } = await harness();
+    await publishAgent('1.0.0');
+    await prompt('1.1.0', 'Sort it well.');
+    const derived = await call(
+      ...derive({ from: '1.0.0', pins: { prompts: { 'acme.intake-prompt': '1.1.0' } } }),
+    );
+    expect(derived.body.version).toBe('1.0.1');
+
+    // A developer's later publish of 1.0.1 never overwrites the expert's version.
+    const res = await call('POST', '/v1/agents', {
+      id: 'acme.intake',
+      version: '1.0.1',
+      name: 'Intake',
+      instructions: 'Sort the request.',
+      capabilities: [{ needs: [{ feature: 'tool-use' }] }],
+      tools: [],
+      retrieval: [],
+      guardrails: [],
+      projectId,
+    });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'agent-already-registered',
+      details: { version: '1.0.1', nextFreeVersion: '1.0.2' },
+    });
+    expect(res.body.error.message).toContain('publish it as 1.0.2, the next free version');
+  });
+});
+
 describe('POST /v1/agents/:agentId/versions refuses', () => {
   test('an unknown version (404) and one published before pins', async () => {
     const { call, publishAgent } = await harness();
