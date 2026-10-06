@@ -22,7 +22,7 @@ import asyncio
 import random
 import time
 import uuid
-from collections.abc import AsyncIterator, Iterator, Mapping
+from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from functools import cache
 from typing import Any, Literal
@@ -36,7 +36,7 @@ from .._version import __version__
 from ._errors import KindgiApiError, NetworkError, from_wire
 from ._sse import SseParser
 
-__all__ = ["AsyncClientBase", "Operation", "SyncClientBase", "_body"]
+__all__ = ["AsyncClientBase", "Operation", "SyncClientBase", "_body", "_segments"]
 
 DEFAULT_TIMEOUT = 60.0
 DEFAULT_MAX_RETRIES = 2
@@ -56,6 +56,17 @@ class Operation:
 @cache
 def _adapter(model: Any) -> TypeAdapter[Any]:
     return TypeAdapter(model)
+
+
+def _segments(path: Sequence[BaseModel | Mapping[str, Any]] | None) -> list[str] | None:
+    """A segment path as its repeated query value: one `key:value` per step, coarse to fine.
+
+    Each step is a `ScopeSegment` or a mapping with `key` and `value`.
+    """
+    if path is None:
+        return None
+    steps = [step.model_dump() if isinstance(step, BaseModel) else step for step in path]
+    return [f"{step['key']}:{step['value']}" for step in steps]
 
 
 def _body(model: Any, body: Any, fields: Mapping[str, Any]) -> Any:

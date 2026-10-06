@@ -285,6 +285,7 @@ function buildParameter(p: ParameterSpec): Record<string, unknown> {
   if (p.required !== undefined) doc.required = p.required;
   else if (p.in === 'path') doc.required = true;
   if (p.description !== undefined) doc.description = p.description;
+  if (p.segmentPath === true) doc['x-kindgi-segment-path'] = true;
   return doc;
 }
 

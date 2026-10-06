@@ -5,11 +5,11 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Iterator, Mapping
+from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
 from typing import Any, Literal, cast
 
 from . import _models
-from ._base import AsyncClientBase, Operation, SyncClientBase, _body
+from ._base import AsyncClientBase, Operation, SyncClientBase, _body, _segments
 
 __all__ = ["OPERATIONS", "AsyncResources", "Resources"]
 
@@ -1350,7 +1350,7 @@ class AgentsLiveResource:
         /,
         *,
         project_id: str | None = None,
-        segment: list[str] | None = None,
+        segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
     ) -> _models.LiveVersionResolution:
         """The version a run would use. `GET /v1/agents/{agentId}/live`
@@ -1360,7 +1360,7 @@ class AgentsLiveResource:
         return self._client._request(
             _OPERATIONS["agents.live.resolve"],
             path={"agentId": agent_id},
-            query={"projectId": project_id, "segment": segment},
+            query={"projectId": project_id, "segment": _segments(segments)},
             headers={},
             response=_models.LiveVersionResolution,
             timeout=timeout,
@@ -1444,7 +1444,7 @@ class AgentsPromotionsResource:
         cursor: str | None = None,
         scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
         scope_id: str | None = None,
-        segment: list[str] | None = None,
+        segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
     ) -> _models.PromotionPage:
         """List an agent's promotions. `GET /v1/agents/{agentId}/promotions`
@@ -1459,7 +1459,7 @@ class AgentsPromotionsResource:
                 "cursor": cursor,
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
-                "segment": segment,
+                "segment": _segments(segments),
             },
             headers={},
             response=_models.PromotionPage,
@@ -1540,7 +1540,7 @@ class AgentsGatePolicyResource:
         *,
         scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
         scope_id: str | None = None,
-        segment: list[str] | None = None,
+        segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
     ) -> _models.GatePolicyResolution:
         """The gate policy for a scope. `GET /v1/agents/{agentId}/gate-policy`
@@ -1550,7 +1550,7 @@ class AgentsGatePolicyResource:
         return self._client._request(
             _OPERATIONS["agents.gatePolicy.resolve"],
             path={"agentId": agent_id},
-            query={"scopeKind": scope_kind, "scopeId": scope_id, "segment": segment},
+            query={"scopeKind": scope_kind, "scopeId": scope_id, "segment": _segments(segments)},
             headers={},
             response=_models.GatePolicyResolution,
             timeout=timeout,
@@ -1815,7 +1815,7 @@ class GatePoliciesResource:
         agent_id: str | None = None,
         scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
         scope_id: str | None = None,
-        segment: list[str] | None = None,
+        segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
     ) -> _models.GatePolicyPage:
         """List gate policies. `GET /v1/gate-policies`
@@ -1831,7 +1831,7 @@ class GatePoliciesResource:
                 "agentId": agent_id,
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
-                "segment": segment,
+                "segment": _segments(segments),
             },
             headers={},
             response=_models.GatePolicyPage,
@@ -7173,7 +7173,7 @@ class AsyncAgentsLiveResource:
         /,
         *,
         project_id: str | None = None,
-        segment: list[str] | None = None,
+        segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
     ) -> _models.LiveVersionResolution:
         """The version a run would use. `GET /v1/agents/{agentId}/live`
@@ -7183,7 +7183,7 @@ class AsyncAgentsLiveResource:
         return await self._client._request(
             _OPERATIONS["agents.live.resolve"],
             path={"agentId": agent_id},
-            query={"projectId": project_id, "segment": segment},
+            query={"projectId": project_id, "segment": _segments(segments)},
             headers={},
             response=_models.LiveVersionResolution,
             timeout=timeout,
@@ -7267,7 +7267,7 @@ class AsyncAgentsPromotionsResource:
         cursor: str | None = None,
         scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
         scope_id: str | None = None,
-        segment: list[str] | None = None,
+        segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
     ) -> _models.PromotionPage:
         """List an agent's promotions. `GET /v1/agents/{agentId}/promotions`
@@ -7282,7 +7282,7 @@ class AsyncAgentsPromotionsResource:
                 "cursor": cursor,
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
-                "segment": segment,
+                "segment": _segments(segments),
             },
             headers={},
             response=_models.PromotionPage,
@@ -7363,7 +7363,7 @@ class AsyncAgentsGatePolicyResource:
         *,
         scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
         scope_id: str | None = None,
-        segment: list[str] | None = None,
+        segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
     ) -> _models.GatePolicyResolution:
         """The gate policy for a scope. `GET /v1/agents/{agentId}/gate-policy`
@@ -7373,7 +7373,7 @@ class AsyncAgentsGatePolicyResource:
         return await self._client._request(
             _OPERATIONS["agents.gatePolicy.resolve"],
             path={"agentId": agent_id},
-            query={"scopeKind": scope_kind, "scopeId": scope_id, "segment": segment},
+            query={"scopeKind": scope_kind, "scopeId": scope_id, "segment": _segments(segments)},
             headers={},
             response=_models.GatePolicyResolution,
             timeout=timeout,
@@ -7640,7 +7640,7 @@ class AsyncGatePoliciesResource:
         agent_id: str | None = None,
         scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
         scope_id: str | None = None,
-        segment: list[str] | None = None,
+        segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
     ) -> _models.GatePolicyPage:
         """List gate policies. `GET /v1/gate-policies`
@@ -7656,7 +7656,7 @@ class AsyncGatePoliciesResource:
                 "agentId": agent_id,
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
-                "segment": segment,
+                "segment": _segments(segments),
             },
             headers={},
             response=_models.GatePolicyPage,
