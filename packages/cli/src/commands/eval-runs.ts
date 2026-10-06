@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { CommandContext } from '../context.js';
-import { integerFlag, requiredPositional, runSdk, stringFlag } from './helpers.js';
+import { integerFlag, listFlag, requiredPositional, runSdk, stringFlag } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
 const STATUSES = ['pending', 'running', 'completed', 'failed', 'cancelled'] as const;
@@ -47,13 +47,6 @@ export async function followEvalRun<T extends { readonly status: string }>(
       );
     }
   }
-}
-
-/** The values of a repeatable flag, in the order given. */
-function listFlag(ctx: CommandContext, name: string): string[] {
-  const raw: unknown = ctx.options[name];
-  const values = Array.isArray(raw) ? raw : [raw];
-  return values.filter((v): v is string => typeof v === 'string' && v !== '');
 }
 
 type Baseline =

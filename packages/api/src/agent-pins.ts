@@ -116,7 +116,7 @@ export async function publishDeployedAgent(
     definition: agent,
     pins,
     pinsDigest: pinsDigest(pins),
-    existing: await allVersions(agents, tenantId, agent.id),
+    existing: await activeAgentVersions(agents, tenantId, agent.id),
     publish: async (version) => {
       const outcome = await agents.publish({ tenantId, projectId, agent: version, enqueueTuples });
       if (outcome.kind === 'ok') return 'ok';
@@ -126,7 +126,7 @@ export async function publishDeployedAgent(
 }
 
 /** Every active version of an agent. */
-async function allVersions(
+export async function activeAgentVersions(
   agents: AgentRegistryBinding,
   tenantId: TenantId,
   agentId: AgentId,

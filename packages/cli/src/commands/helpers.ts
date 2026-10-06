@@ -131,6 +131,13 @@ export async function projectIdFlag(ctx: CommandContext): Promise<string> {
   return stringFlag(ctx, 'project') ?? (await ctx.client().projects.getDefault()).id;
 }
 
+/** The values of a repeatable flag (`multiple: true`), in the order given. */
+export function listFlag(ctx: CommandContext, name: string): string[] {
+  const raw: unknown = ctx.options[name];
+  const values = Array.isArray(raw) ? raw : [raw];
+  return values.filter((v): v is string => typeof v === 'string' && v !== '');
+}
+
 /** Extract an optional integer flag; throws on non-integer values. */
 export function integerFlag(ctx: CommandContext, name: string): number | undefined {
   const raw = ctx.options[name];

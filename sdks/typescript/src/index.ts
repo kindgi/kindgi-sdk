@@ -17,6 +17,7 @@ export type { KindgiClient } from './client.js';
 export type {
   AgentsClient,
   DefineAgentOptions,
+  DeriveAgentVersionInput,
   ReinstateAgentVersionResult,
 } from './resources/agents.js';
 export type {

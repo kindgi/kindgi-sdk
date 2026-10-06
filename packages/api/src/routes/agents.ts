@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 
 import {
   type Agent,
@@ -16,6 +16,11 @@ import type { Cursor, ProjectId, Semver, TenantId, UserId } from '@kindgi/types'
 import type { AgentRegistryBinding, AgentVersionRecord } from '../agent-binding.js';
 import { resolveAgentPins } from '../agent-pins.js';
 import type { BlockRegistryBinding } from '../block-binding.js';
+import {
+  type DeriveAgentVersionOutcome,
+  type PinSwaps,
+  deriveAgentVersion,
+} from '../derive-agent-version.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
@@ -55,6 +60,7 @@ export function agentsRouter(
   //
   //   POST /                                         → admin on body.projectId
   //   GET /:agentId, GET /:agentId/versions[/…]      → read on the agent
+  //   POST /:agentId/versions                        → publish on the agent (derive)
   //   POST /:agentId/versions/:version/unregister    → admin on the agent
   //   POST /:agentId/versions/:version/reinstate     → admin on the agent
   //   GET / (list)                                   → tenant-scoped fetch;
@@ -93,7 +99,10 @@ export function agentsRouter(
       return mw(c, next);
     });
     r.use('/:agentId/*', async (c, next) => {
-      const action = c.req.method === 'GET' ? 'read' : 'admin';
+      // Deriving a version (POST …/versions) is `publish` on the agent;
+      // unregister and reinstate are `admin`.
+      const action =
+        c.req.method === 'GET' ? 'read' : c.req.path.endsWith('/versions') ? 'publish' : 'admin';
       const agentId = c.req.param('agentId') ?? '';
       const mw = authorizer.authorize(action, () => ref('agent', agentId));
       return mw(c, next);
@@ -379,6 +388,47 @@ export function agentsRouter(
     });
   });
 
+  // ---------- POST /:agentId/versions (derive a version) ----------
+  r.post('/:agentId/versions', async (c) => {
+    const requestId = c.get('requestId');
+    const tenantId = c.get('tenantId') as TenantId;
+    const agentId = c.req.param('agentId') as AgentId;
+    const body = await jsonObject(c);
+    if (body === undefined) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          { code: 'bad-input', message: 'Request body must be a JSON object' },
+          requestId,
+        ),
+      );
+    }
+    const parsed = deriveBody(body);
+    if (typeof parsed === 'string') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(toWireError({ code: 'bad-input', message: parsed }, requestId));
+    }
+    const principal = c.get('principal') as Principal | undefined;
+    const userId = principal?.actor.kind === 'user' ? (principal.actor.id as UserId) : undefined;
+    const outcome = await deriveAgentVersion({
+      agents: binding,
+      blocks: blockRegistry,
+      tenantId,
+      agentId,
+      from: parsed.from,
+      swaps: parsed.pins,
+      ...(parsed.label !== undefined && { label: parsed.label }),
+      ...(userId !== undefined && { by: `user:${userId as unknown as string}` }),
+      ...(parsed.projectId !== undefined && { projectId: parsed.projectId }),
+      tuplesFor: (projectId) => (id) =>
+        tuplesForCreate(
+          { kind: 'agent', id: id as AgentId, tenantId, projectId },
+          userId ?? ('00000000-0000-0000-0000-000000000000' as UserId),
+        ),
+    });
+    return derived(c, agentId, parsed.from, outcome);
+  });
+
   // ---------- POST /:agentId/versions/:version/unregister ----------
   r.post('/:agentId/versions/:version/unregister', async (c) => {
     const requestId = c.get('requestId');
@@ -443,6 +493,114 @@ export function agentsRouter(
   });
 
   return r;
+}
+
+/** The request body as an object; undefined when it isn't JSON or isn't an object. */
+async function jsonObject(c: Context<AppEnv>): Promise<Record<string, unknown> | undefined> {
+  try {
+    const body = await c.req.json();
+    return body !== null && typeof body === 'object' && !Array.isArray(body)
+      ? (body as Record<string, unknown>)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+interface DeriveBody {
+  readonly from: string;
+  readonly pins: PinSwaps;
+  readonly label?: string;
+  readonly projectId?: ProjectId;
+}
+
+/** `{ from, pins: { prompts?, settings? }, label?, projectId? }`, or what's wrong with it. */
+function deriveBody(b: Record<string, unknown>): DeriveBody | string {
+  if (typeof b.from !== 'string' || b.from.length === 0) {
+    return '`from` (the version to derive from) is required';
+  }
+  const pins = pinSwapsOf(b.pins);
+  if (typeof pins === 'string') return pins;
+  for (const key of ['label', 'projectId'] as const) {
+    if (b[key] !== undefined && typeof b[key] !== 'string') return `\`${key}\` must be a string`;
+  }
+  return {
+    from: b.from,
+    pins,
+    ...(typeof b.label === 'string' && { label: b.label }),
+    ...(typeof b.projectId === 'string' && { projectId: b.projectId as ProjectId }),
+  };
+}
+
+/** `pins`: prompt and settings pins only, each block id → exact version; or what's wrong with it. */
+function pinSwapsOf(pins: unknown): PinSwaps | string {
+  if (pins === null || typeof pins !== 'object' || Array.isArray(pins)) {
+    return '`pins` must be { prompts?, settings? }';
+  }
+  for (const [kind, map] of Object.entries(pins)) {
+    if (kind !== 'prompts' && kind !== 'settings') {
+      return `\`pins.${kind}\` can't be swapped: only prompt and settings pins (tool pins come from code)`;
+    }
+    if (!isStringMap(map)) return `\`pins.${kind}\` must map block ids to exact versions`;
+  }
+  return pins as PinSwaps;
+}
+
+function isStringMap(value: unknown): boolean {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Object.values(value).every((v) => typeof v === 'string')
+  );
+}
+
+/** The response to a derive. */
+function derived(
+  c: Context<AppEnv>,
+  agentId: AgentId,
+  from: string,
+  outcome: DeriveAgentVersionOutcome,
+) {
+  const requestId = c.get('requestId');
+  const fail = (
+    status: string,
+    error: { code: string; message: string } & Record<string, unknown>,
+  ) => {
+    c.status(statusFor(status) as never);
+    return c.json(toWireError(error, requestId));
+  };
+  switch (outcome.kind) {
+    case 'ok':
+      c.status(201);
+      return c.json(serializeAgent(outcome.agent));
+    case 'not-found':
+      return fail('agent-not-found', {
+        code: 'agent-not-found',
+        message: `No agent "${agentId as unknown as string}" at version "${from}"`,
+      });
+    case 'unpinned':
+      return fail('validation-failed', {
+        code: 'validation-failed',
+        message: `Agent "${agentId as unknown as string}" version ${from} has no pins (it was published before pins); publish it again to pin it, then derive`,
+      });
+    case 'invalid':
+      return fail('validation-failed', {
+        code: 'validation-failed',
+        message: `Can't derive from version ${from} (${outcome.issues.length} issue${outcome.issues.length === 1 ? '' : 's'})`,
+        issues: outcome.issues as unknown as Record<string, unknown>[],
+      });
+    case 'no-project':
+      return fail('bad-input', {
+        code: 'bad-input',
+        message: "`projectId` is required: this runtime doesn't record the version's project",
+      });
+    case 'project-not-found':
+      return fail('bad-input', {
+        code: 'bad-input',
+        message: `\`projectId\` "${outcome.projectId as unknown as string}" does not resolve to a project in this tenant`,
+      });
+  }
 }
 
 function serializeAgent(a: AgentVersionRecord): Record<string, unknown> {

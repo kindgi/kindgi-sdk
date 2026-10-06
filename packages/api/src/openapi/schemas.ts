@@ -1002,9 +1002,29 @@ export const VersionDerivationSchema: JsonSchema = {
     version: { type: 'string', description: 'The version the definition names.' },
     reason: {
       type: 'string',
-      enum: ['pins-changed', 'unpinned', 'version-taken'],
+      enum: ['pins-changed', 'unpinned', 'version-taken', 'edited'],
       description:
-        "`pins-changed`: a block it uses has a new version; `unpinned`: the definition's version was published before pins existed; `version-taken`: the definition's version holds another definition.",
+        "`pins-changed`: a block it uses has a new version; `unpinned`: the definition's version was published before pins existed; `version-taken`: the definition's version holds another definition; `edited`: derived from `version` with some data-block pins swapped (`POST /v1/agents/{agentId}/versions`).",
+    },
+    label: { type: 'string', description: 'For `edited`: a short label for the version.' },
+    by: { type: 'string', description: 'For `edited`: who derived it (`user:<id>`).' },
+  },
+};
+
+export const DeriveAgentVersionBodySchema: JsonSchema = {
+  description:
+    "Derive a new agent version from a pinned one with some data-block pins swapped: an expert's edit reaching an agent with no code change.",
+  type: 'object',
+  additionalProperties: false,
+  required: ['from', 'pins'],
+  properties: {
+    from: { type: 'string', description: 'The version to derive from (it must be pinned).' },
+    pins: { $ref: '#/components/schemas/AgentPinSwaps' },
+    label: { type: 'string', description: 'A short label for the new version.' },
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description: "The agent's project, when the runtime doesn't record it on the version.",
     },
   },
 };
@@ -1012,6 +1032,17 @@ export const VersionDerivationSchema: JsonSchema = {
 const PinMapSchema: JsonSchema = {
   type: 'object',
   additionalProperties: { type: 'string' },
+};
+
+export const AgentPinSwapsSchema: JsonSchema = {
+  description:
+    'The data-block pins to swap, by block id → exact version. Only blocks the version already references; tool pins come from code.',
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    prompts: { ...PinMapSchema, description: 'Prompt block id → exact version.' },
+    settings: { ...PinMapSchema, description: 'Settings block id → exact version.' },
+  },
 };
 
 export const AgentPinsSchema: JsonSchema = {
@@ -7106,6 +7137,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['BlockRef', BlockRefSchema],
   ['PinChange', PinChangeSchema],
   ['VersionDerivation', VersionDerivationSchema],
+  ['DeriveAgentVersionBody', DeriveAgentVersionBodySchema],
+  ['AgentPinSwaps', AgentPinSwapsSchema],
   ['FlowPins', FlowPinsSchema],
   ['PublishAgentBody', PublishAgentBodySchema],
   ['PublishAgentResult', PublishAgentResultSchema],
