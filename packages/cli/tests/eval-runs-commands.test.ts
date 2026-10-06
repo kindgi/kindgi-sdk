@@ -5,7 +5,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { followEvalRun } from '../src/commands/eval-runs.js';
 import { runCli } from '../src/main.js';
@@ -17,7 +17,6 @@ beforeEach(async () => {
   cwd = await mkdtemp(join(tmpdir(), 'kindgi-cli-cwd-'));
 });
 afterEach(async () => {
-  vi.useRealTimers();
   await rm(home, { recursive: true, force: true });
   await rm(cwd, { recursive: true, force: true });
 });
@@ -181,32 +180,25 @@ describe('kindgi eval-runs start', () => {
 });
 
 describe('kindgi eval-runs start --wait', () => {
-  test('follows the run until it is done, then prints it', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout'] });
+  test('reads the run after starting it, and prints it once it is done', async () => {
+    // One real pause (1 s) before the first read; followEvalRun's own tests
+    // cover the polling with no real time passing.
     const { calls, rec } = recorder();
-    const statuses = ['running', 'completed'];
-    const done = run(
+    const out = await run(
       ['eval-runs', 'start', 'acme.matches', '--project=p-1', '--agent=a', '--wait'],
       {
         evalRuns: {
           start: rec('start', { runId: 'er-1' }),
           get: async (id: string) => {
             calls.push(['get', id]);
-            return { id, status: statuses.shift() };
+            return { id, status: 'completed' };
           },
         },
       },
     );
-    let settled = false;
-    void done.finally(() => {
-      settled = true;
-    });
-    // Each pause is a 1 s timer: move time on until the command is done.
-    for (let i = 0; i < 10 && !settled; i++) await vi.advanceTimersByTimeAsync(1_000);
-    const out = await done;
     expect(out.exitCode, out.stderr).toBe(0);
     expect(JSON.parse(out.stdout)).toEqual({ id: 'er-1', status: 'completed' });
-    expect(calls.map((c) => c[0])).toEqual(['start', 'get', 'get']);
+    expect(calls.map((c) => c[0])).toEqual(['start', 'get']);
   });
 });
 
