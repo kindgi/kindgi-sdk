@@ -109,6 +109,10 @@
       "description": "Evaluation suite catalog (list, get, versions, publish, unregister) — part of the admin control plane. Full versioned CRUD, mirrors `policies` 1:1. Registry-only: eval-run execution + per-kind grader dispatch live on the `eval-runs` tag. `evalKind` selects the shape of `spec` — closed enum, extended additively (`accuracy`, `pairwise`, `regression`, `human-review`, `benchmark`, `custom`, `judged`). The cases of a `judged` suite are copies of judged runs built from judgments (`POST .../versions/from-judgments`, listed at `GET .../versions/{version}/cases`; `EvalCaseStoreBinding`). Runs against these suites are started through the `eval-runs` tag. Caller-plugged via `EvalSuiteRegistryBinding`."
     },
     {
+      "name": "blocks",
+      "description": "Data blocks: versioned prompts and settings an agent version pins when it's published (list, get, versions, publish, unregister, reinstate). A version never changes, nor does a block's kind; a settings block's values satisfy its schema and the latest version's. A block belongs to one project and is authorized through it: `read` on the project to read, `write` to publish, unregister or reinstate. Caller-plugged via `BlockRegistryBinding`."
+    },
+    {
       "name": "eval-runs",
       "description": "Eval-run data plane (start, list, get, cancel, events SSE). Dispatches an eval run against a registered suite. Dispatch is per-`EvalKind`; kinds without a registered dispatcher return `422 dispatcher-not-registered`. `result` is kind-specific opaque JSON on the wire — for `accuracy` it is `{ passCount, totalCount, meanScore, perCase[] }`. SSE events mirror run streaming: per-case progress followed by a terminal frame carrying the aggregate. Caller-plugged via `EvalRunBinding`."
     },
@@ -7913,6 +7917,227 @@
         ],
         "properties": {
           "suiteId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "wasTombstoned": {
+            "type": "boolean"
+          }
+        }
+      },
+      "BlockKind": {
+        "type": "string",
+        "enum": [
+          "prompt",
+          "settings"
+        ],
+        "description": "`prompt`: a Liquid template an agent renders as its instructions. `settings`: a JSON object tools and templates read."
+      },
+      "PromptBlockContent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "template"
+        ],
+        "properties": {
+          "template": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Liquid, rendered as an agent's instructions are (same parameters and auto-injected variables)."
+          },
+          "parameters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PromptParameter"
+            }
+          }
+        }
+      },
+      "SettingsBlockContent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "values"
+        ],
+        "properties": {
+          "values": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "What tools read (`ToolContext.settings[<block id>]`) and templates read (`settings.<block id>.<key>`)."
+          },
+          "schema": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "JSON Schema (draft 2020-12) the values must satisfy. A later version's values must satisfy the latest version's schema too."
+          }
+        }
+      },
+      "Block": {
+        "description": "A data block version: a prompt or settings, versioned like a tool (immutable versions, soft unregister). An agent version pins the block versions it uses when it is published. Belongs to one project and is authorized through it.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "kind",
+          "content",
+          "projectId",
+          "publishedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Dotted lowercase id (e.g. `acme.intake-prompt`)."
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d+\\.\\d+$"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/BlockKind"
+          },
+          "description": {
+            "type": "string"
+          },
+          "content": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PromptBlockContent"
+              },
+              {
+                "$ref": "#/components/schemas/SettingsBlockContent"
+              }
+            ],
+            "description": "`PromptBlockContent` for a prompt, `SettingsBlockContent` for settings."
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "unregisteredAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Present only on an unregistered version; agent versions that pin it still read it."
+          }
+        }
+      },
+      "BlockCollectionPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Block"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PublishBlockBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "projectId",
+          "id",
+          "version",
+          "kind",
+          "content"
+        ],
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`."
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d+\\.\\d+$"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/BlockKind"
+          },
+          "description": {
+            "type": "string"
+          },
+          "content": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PromptBlockContent"
+              },
+              {
+                "$ref": "#/components/schemas/SettingsBlockContent"
+              }
+            ]
+          }
+        }
+      },
+      "PublishBlockResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "blockId",
+          "version"
+        ],
+        "properties": {
+          "blockId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "UnregisterBlockResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "blockId",
+          "version",
+          "unregistered"
+        ],
+        "properties": {
+          "blockId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "unregistered": {
+            "type": "boolean",
+            "const": true
+          }
+        }
+      },
+      "ReinstateBlockResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "blockId",
+          "version",
+          "wasTombstoned"
+        ],
+        "properties": {
+          "blockId": {
             "type": "string"
           },
           "version": {
@@ -23629,6 +23854,656 @@
             },
             "required": true,
             "description": "Semver version string of the eval suite (e.g. `1.2.0`)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/blocks": {
+      "get": {
+        "operationId": "blocks.list",
+        "summary": "List data blocks (latest version of each)",
+        "tags": [
+          "blocks"
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of blocks.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlockCollectionPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed query parameter (unknown `kind`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, `?projectId=` narrows to one project.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Opaque cursor from a prior response. Absent → first page."
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/BlockKind"
+            },
+            "required": false,
+            "description": "Only blocks of this kind: `prompt` or `settings`."
+          },
+          {
+            "name": "name",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Prefix match on the block id."
+          },
+          {
+            "name": "projectId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "description": "Only this project's blocks."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "blocks.publish",
+        "summary": "Publish a data block version",
+        "tags": [
+          "blocks"
+        ],
+        "responses": {
+          "201": {
+            "description": "Published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishBlockResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`validation-failed` (see `details.issues`), or an unknown `projectId`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: no `write` on the project.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`block-already-registered` or `block-project-mismatch`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project (`409 block-project-mismatch`). Idempotency-Key applies.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishBlockBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/blocks/{blockId}": {
+      "get": {
+        "operationId": "blocks.get",
+        "summary": "Fetch a data block (latest version)",
+        "tags": [
+          "blocks"
+        ],
+        "responses": {
+          "200": {
+            "description": "Latest active version.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Block"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`block-not-found`: no such block, or one in a project the caller can't read.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "blockId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "Block id: dotted lowercase (e.g. `acme.intake-prompt`)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/blocks/{blockId}/versions": {
+      "get": {
+        "operationId": "blocks.versions.list",
+        "summary": "List versions of a data block",
+        "tags": [
+          "blocks"
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of versions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlockCollectionPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`block-not-found`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Newest published first. `?includeTombstoned=true` includes unregistered versions, each with `unregisteredAt`.",
+        "parameters": [
+          {
+            "name": "blockId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "Block id: dotted lowercase (e.g. `acme.intake-prompt`)."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Opaque cursor from a prior response. Absent → first page."
+          },
+          {
+            "name": "includeTombstoned",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "When `true`, the response includes soft-tombstoned versions in addition to active ones. Tombstoned rows carry an `unregisteredAt` ISO timestamp; active rows omit the field. Default: `false` (active-only)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/blocks/{blockId}/versions/{version}": {
+      "get": {
+        "operationId": "blocks.versions.get",
+        "summary": "Fetch a specific data block version",
+        "tags": [
+          "blocks"
+        ],
+        "responses": {
+          "200": {
+            "description": "The block at that version.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Block"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`block-not-found`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "An unregistered version is returned too, with `unregisteredAt`.",
+        "parameters": [
+          {
+            "name": "blockId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "Block id: dotted lowercase (e.g. `acme.intake-prompt`)."
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "Exact block version (`major.minor.patch`)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/blocks/{blockId}/versions/{version}/unregister": {
+      "post": {
+        "operationId": "blocks.versions.unregister",
+        "summary": "Unregister a data block version",
+        "tags": [
+          "blocks"
+        ],
+        "responses": {
+          "200": {
+            "description": "Unregistered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnregisterBlockResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: no `write` on the project.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`block-not-found`, or already unregistered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Soft: no range picks it any more, but the agent versions that pin it keep running it, and GET still reads it. Needs `write` on the project.",
+        "parameters": [
+          {
+            "name": "blockId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "Block id: dotted lowercase (e.g. `acme.intake-prompt`)."
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "Exact block version (`major.minor.patch`)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/blocks/{blockId}/versions/{version}/reinstate": {
+      "post": {
+        "operationId": "blocks.versions.reinstate",
+        "summary": "Reinstate an unregistered data block version",
+        "tags": [
+          "blocks"
+        ],
+        "responses": {
+          "200": {
+            "description": "Reinstated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReinstateBlockResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: no `write` on the project.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`block-not-found`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Unchanged, as published. Idempotent. Needs `write` on the project.",
+        "parameters": [
+          {
+            "name": "blockId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "Block id: dotted lowercase (e.g. `acme.intake-prompt`)."
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "Exact block version (`major.minor.patch`)."
           },
           {
             "name": "Idempotency-Key",

@@ -6,6 +6,7 @@ import { agentsCommand } from './agents.js';
 import { approvalsCommand } from './approvals.js';
 import { artifactsCommand } from './artifacts.js';
 import { authCommand } from './auth.js';
+import { blocksCommand } from './blocks.js';
 import { buildCommand } from './build.js';
 import { capabilitiesCommand } from './capabilities.js';
 import { conversationsCommand } from './conversations.js';
@@ -65,6 +66,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   judgmentsCommand,
   judgeClassesCommand,
   evalSuitesCommand,
+  blocksCommand,
   tokensCommand,
   capabilitiesCommand,
   providersCommand,

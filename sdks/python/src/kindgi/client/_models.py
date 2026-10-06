@@ -4237,6 +4237,122 @@ class ReinstateEvalSuiteVersionResult(BaseModel):
     was_tombstoned: Annotated[bool, Field(alias="wasTombstoned")]
 
 
+class PromptBlockContent(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    template: Annotated[str, Field(min_length=1)]
+    """
+    Liquid, rendered as an agent's instructions are (same parameters and auto-injected variables).
+    """
+    parameters: list[PromptParameter] | None = None
+
+
+class SettingsBlockContent(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    values: dict[str, Any]
+    """
+    What tools read (`ToolContext.settings[<block id>]`) and templates read (`settings.<block id>.<key>`).
+    """
+    schema_: Annotated[dict[str, Any] | None, Field(alias="schema")] = None
+    """
+    JSON Schema (draft 2020-12) the values must satisfy. A later version's values must satisfy the latest version's schema too.
+    """
+
+
+class Block(BaseModel):
+    """
+    A data block version: a prompt or settings, versioned like a tool (immutable versions, soft unregister). An agent version pins the block versions it uses when it is published. Belongs to one project and is authorized through it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    Dotted lowercase id (e.g. `acme.intake-prompt`).
+    """
+    version: Annotated[str, Field(pattern="^\\d+\\.\\d+\\.\\d+$")]
+    kind: Literal["prompt", "settings"]
+    """
+    `prompt`: a Liquid template an agent renders as its instructions. `settings`: a JSON object tools and templates read.
+    """
+    description: str | None = None
+    content: PromptBlockContent | SettingsBlockContent
+    """
+    `PromptBlockContent` for a prompt, `SettingsBlockContent` for settings.
+    """
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    published_at: Annotated[AwareDatetime, Field(alias="publishedAt")]
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    Present only on an unregistered version; agent versions that pin it still read it.
+    """
+
+
+class BlockCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Block]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class PublishBlockBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    """
+    Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`.
+    """
+    id: Annotated[str, Field(min_length=1)]
+    version: Annotated[str, Field(pattern="^\\d+\\.\\d+\\.\\d+$")]
+    kind: Literal["prompt", "settings"]
+    """
+    `prompt`: a Liquid template an agent renders as its instructions. `settings`: a JSON object tools and templates read.
+    """
+    description: str | None = None
+    content: PromptBlockContent | SettingsBlockContent
+
+
+class PublishBlockResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    block_id: Annotated[str, Field(alias="blockId")]
+    version: str
+
+
+class UnregisterBlockResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    block_id: Annotated[str, Field(alias="blockId")]
+    version: str
+    unregistered: Literal[True]
+
+
+class ReinstateBlockResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    block_id: Annotated[str, Field(alias="blockId")]
+    version: str
+    was_tombstoned: Annotated[bool, Field(alias="wasTombstoned")]
+
+
 class EvalRunStatus(RootModel[Literal["pending", "running", "completed", "failed", "cancelled"]]):
     root: Literal["pending", "running", "completed", "failed", "cancelled"]
 

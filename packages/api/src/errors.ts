@@ -161,6 +161,9 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'policy-not-found': 404,
   'policy-already-registered': 409,
   // Admin plane — eval suites.
+  'block-not-found': 404,
+  'block-already-registered': 409,
+  'block-project-mismatch': 409,
   'eval-suite-not-found': 404,
   'eval-suite-already-registered': 409,
   // Admin plane — eval-run dispatch.

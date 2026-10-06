@@ -4345,6 +4345,138 @@ export const ReinstateEvalSuiteVersionResultSchema: JsonSchema = {
   },
 };
 
+// ---------------- data blocks ----------------
+
+export const BlockKindSchema: JsonSchema = {
+  type: 'string',
+  enum: ['prompt', 'settings'],
+  description:
+    '`prompt`: a Liquid template an agent renders as its instructions. `settings`: a JSON object tools and templates read.',
+};
+
+export const PromptBlockContentSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['template'],
+  properties: {
+    template: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "Liquid, rendered as an agent's instructions are (same parameters and auto-injected variables).",
+    },
+    parameters: { type: 'array', items: { $ref: '#/components/schemas/PromptParameter' } },
+  },
+};
+
+export const SettingsBlockContentSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['values'],
+  properties: {
+    values: {
+      type: 'object',
+      additionalProperties: true,
+      description:
+        'What tools read (`ToolContext.settings[<block id>]`) and templates read (`settings.<block id>.<key>`).',
+    },
+    schema: {
+      type: 'object',
+      additionalProperties: true,
+      description:
+        "JSON Schema (draft 2020-12) the values must satisfy. A later version's values must satisfy the latest version's schema too.",
+    },
+  },
+};
+
+export const BlockSchema: JsonSchema = {
+  description:
+    'A data block version: a prompt or settings, versioned like a tool (immutable versions, soft unregister). An agent version pins the block versions it uses when it is published. Belongs to one project and is authorized through it.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'version', 'kind', 'content', 'projectId', 'publishedAt'],
+  properties: {
+    id: { type: 'string', description: 'Dotted lowercase id (e.g. `acme.intake-prompt`).' },
+    version: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' },
+    kind: { $ref: '#/components/schemas/BlockKind' },
+    description: { type: 'string' },
+    content: {
+      oneOf: [
+        { $ref: '#/components/schemas/PromptBlockContent' },
+        { $ref: '#/components/schemas/SettingsBlockContent' },
+      ],
+      description: '`PromptBlockContent` for a prompt, `SettingsBlockContent` for settings.',
+    },
+    projectId: { type: 'string', format: 'uuid' },
+    publishedAt: { type: 'string', format: 'date-time' },
+    unregisteredAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'Present only on an unregistered version; agent versions that pin it still read it.',
+    },
+  },
+};
+
+export const BlockCollectionPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/Block' } },
+    nextCursor: { type: 'string' },
+    hasMore: { type: 'boolean' },
+  },
+};
+
+export const PublishBlockBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectId', 'id', 'version', 'kind', 'content'],
+  properties: {
+    projectId: ContentProjectIdProperty,
+    id: { type: 'string', minLength: 1 },
+    version: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' },
+    kind: { $ref: '#/components/schemas/BlockKind' },
+    description: { type: 'string' },
+    content: {
+      oneOf: [
+        { $ref: '#/components/schemas/PromptBlockContent' },
+        { $ref: '#/components/schemas/SettingsBlockContent' },
+      ],
+    },
+  },
+};
+
+export const PublishBlockResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['blockId', 'version'],
+  properties: { blockId: { type: 'string' }, version: { type: 'string' } },
+};
+
+export const UnregisterBlockResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['blockId', 'version', 'unregistered'],
+  properties: {
+    blockId: { type: 'string' },
+    version: { type: 'string' },
+    unregistered: { type: 'boolean', const: true },
+  },
+};
+
+export const ReinstateBlockResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['blockId', 'version', 'wasTombstoned'],
+  properties: {
+    blockId: { type: 'string' },
+    version: { type: 'string' },
+    wasTombstoned: { type: 'boolean' },
+  },
+};
+
 // ---------------- eval runs (admin plane) ----------------
 
 /**
@@ -6891,6 +7023,15 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['PublishEvalSuiteResult', PublishEvalSuiteResultSchema],
   ['UnregisterEvalSuiteResult', UnregisterEvalSuiteResultSchema],
   ['ReinstateEvalSuiteVersionResult', ReinstateEvalSuiteVersionResultSchema],
+  ['BlockKind', BlockKindSchema],
+  ['PromptBlockContent', PromptBlockContentSchema],
+  ['SettingsBlockContent', SettingsBlockContentSchema],
+  ['Block', BlockSchema],
+  ['BlockCollectionPage', BlockCollectionPageSchema],
+  ['PublishBlockBody', PublishBlockBodySchema],
+  ['PublishBlockResult', PublishBlockResultSchema],
+  ['UnregisterBlockResult', UnregisterBlockResultSchema],
+  ['ReinstateBlockResult', ReinstateBlockResultSchema],
   ['EvalRunStatus', EvalRunStatusSchema],
   ['EvalRunAgentRef', EvalRunAgentRefSchema],
   ['EvalRunFlowRef', EvalRunFlowRefSchema],
