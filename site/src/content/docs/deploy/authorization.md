@@ -123,7 +123,9 @@ Python). Changing members takes `admin` on the project.
 ## The access audit
 
 Each decision, allowed or denied, is kept: `GET /v1/audit/authz` lists them,
-newest last, for a tenant admin. They're kept for good, unless the runtime
+oldest first, for a tenant admin; `order=desc` lists the newest first, and its
+cursor goes on in that order (`order: 'desc'` in TypeScript, `order="desc"`
+in Python). They're kept for good, unless the runtime
 purges audit events: with `KINDGI_COMPLIANCE_CLASSIFIER=shipped`, allowed ones
 after 90 days and denied ones after 365 (see
 [Audit events](../retention/#audit-events)).
@@ -144,8 +146,8 @@ after 90 days and denied ones after 365 (see
 
 ### In the console
 
-**Access audit** lists the same decisions, 50 at a time, oldest first:
-**Next page** leads to the newer ones. A denied one has a ✗ and a red row. Narrow
+**Access audit** lists the same decisions, 50 at a time, newest first:
+**Next page** leads to the older ones. A denied one has a ✗ and a red row. Narrow
 the list by who, on what, action, result (allowed or denied), and time with
 From and To, which are in UTC like the times in the list. The filters are in
 the page's address, so you can copy it to share what you see. Clicking a row
