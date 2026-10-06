@@ -158,7 +158,7 @@ produce a typed answer, so this agent fails with `output-schema-violation`.
 Register a model first:
 
 ```sh
-echo 'ANTHROPIC_API_KEY=sk-ant-…' >> .env.local
+pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant   # prompts for the key; it isn't echoed
 pnpm exec kindgi providers register --preset=anthropic
 pnpm exec kindgi runs start --agent=acme-support.triage --input='{"userMessage":"Triage REQ-1002"}'
 ```
