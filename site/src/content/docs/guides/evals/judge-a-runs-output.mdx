@@ -95,7 +95,9 @@ print(judgment.id, judgment.verdict, judgment.asserted_by)
 - **Who judged** comes from the token: `assertedBy`. An app that judges for
   its own users adds `participantId`, its own opaque id for the user.
 - **Judging the same item again,** as the same caller and participant,
-  replaces the earlier judgment; the earlier one stays in the history.
+  under any class or none, replaces the earlier judgment; the earlier one
+  stays in the history. So each person has one verdict per item, and its
+  class only says how much it counts.
 
 Only a finished run can be judged, and the pointer must find something:
 
