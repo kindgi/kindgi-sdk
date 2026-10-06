@@ -11,6 +11,7 @@ import type { AgentRegistryBinding } from './agent-binding.js';
 import { type UnpinnableRef, activeToolVersions } from './agent-pins.js';
 import { type DeployedVersionOutcome, deployVersion } from './deploy-versions.js';
 import type { FlowRegistryBinding } from './flow-binding.js';
+import { PublishRefused } from './publish-refused.js';
 import type { ToolRegistryBinding } from './tool-binding.js';
 
 export type FlowPinsOutcome =
@@ -83,7 +84,8 @@ export async function publishDeployedFlow(
     publish: async (version) => {
       const outcome = await flows.publish({ tenantId, projectId, flow: version, enqueueTuples });
       if (outcome.kind === 'ok') return 'ok';
-      return outcome.kind === 'project-not-found' ? 'skipped' : 'taken';
+      if (outcome.kind === 'already-registered') return 'taken';
+      throw new PublishRefused('flow', `${flow.id}@${version.version}`, outcome.kind);
     },
   });
 }

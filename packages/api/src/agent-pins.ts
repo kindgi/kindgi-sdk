@@ -10,6 +10,7 @@ import type { AgentRegistryBinding } from './agent-binding.js';
 import type { BlockRegistryBinding } from './block-binding.js';
 import { resolveBlockPins } from './block-pins.js';
 import { type DeployedVersionOutcome, deployVersion } from './deploy-versions.js';
+import { PublishRefused } from './publish-refused.js';
 import type { ToolRegistryBinding } from './tool-binding.js';
 
 /** One block reference that matched no published version. */
@@ -120,7 +121,8 @@ export async function publishDeployedAgent(
     publish: async (version) => {
       const outcome = await agents.publish({ tenantId, projectId, agent: version, enqueueTuples });
       if (outcome.kind === 'ok') return 'ok';
-      return outcome.kind === 'project-not-found' ? 'skipped' : 'taken';
+      if (outcome.kind === 'already-registered') return 'taken';
+      throw new PublishRefused('agent', `${agent.id}@${version.version}`, outcome.kind);
     },
   });
 }

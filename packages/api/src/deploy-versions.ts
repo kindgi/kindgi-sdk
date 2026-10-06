@@ -21,8 +21,7 @@ export interface PinnedDefinition {
  *
  * - `registered`: the definition's version was free, and is now
  *   registered with these pins;
- * - `unchanged`: it's registered with the same definition and pins (or
- *   its project is gone, which a deploy has always left as it is);
+ * - `unchanged`: it's registered with the same definition and pins;
  * - `reused`: an earlier deploy already registered this definition and
  *   these pins under another number (`version`), so a redeploy changes
  *   nothing;
@@ -39,8 +38,8 @@ export type DeployedVersionOutcome =
       readonly pinChanges?: readonly PinChange[];
     };
 
-/** What registering one version did: stored it, found the number taken, or left it (no project). */
-export type PublishOutcome = 'ok' | 'taken' | 'skipped';
+/** What registering one version did: stored it, or found the number taken. */
+export type PublishOutcome = 'ok' | 'taken';
 
 export interface DeployVersionInput<T extends PinnedDefinition> {
   /** Names the definition in an error, e.g. `agent "acme.matcher"`. */
@@ -51,7 +50,11 @@ export interface DeployVersionInput<T extends PinnedDefinition> {
   readonly pinsDigest: string;
   /** Every active version registered under the definition's id. */
   readonly existing: readonly T[];
-  /** Register one version. */
+  /**
+   * Register one version: `taken` when the number is (an unregistered
+   * version holds it). A registry's refusal (e.g. `project-not-found`)
+   * throws `PublishRefused`, and the deploy rolls back.
+   */
   readonly publish: (version: T) => Promise<PublishOutcome>;
 }
 
@@ -78,9 +81,7 @@ export async function deployVersion<T extends PinnedDefinition>(
   if (atAuthored !== undefined && same(atAuthored)) return { kind: 'unchanged', version: authored };
   if (atAuthored === undefined) {
     const outcome = await input.publish({ ...definition, pins, pinsDigest });
-    if (outcome !== 'taken') {
-      return { kind: outcome === 'ok' ? 'registered' : 'unchanged', version: authored };
-    }
+    if (outcome === 'ok') return { kind: 'registered', version: authored };
     // Taken with no active version: an unregistered version holds the
     // number. Register the next one.
   }
@@ -103,9 +104,7 @@ export async function deployVersion<T extends PinnedDefinition>(
   }
   const taken = new Set(existing.map((v) => v.version));
   const version = await registerNextFree(input, reason, taken);
-  return version === undefined
-    ? { kind: 'unchanged', version: authored }
-    : { kind: 'renumbered', version, reason, ...changes };
+  return { kind: 'renumbered', version, reason, ...changes };
 }
 
 /** Why the definition's version can't be registered as it is. */
@@ -120,13 +119,12 @@ function derivationReason(
 /**
  * Register the definition with its pins under the first free version
  * after its own (`nextVersion`), recording where it came from.
- * `undefined` when it was left as it is (its project is gone).
  */
 async function registerNextFree<T extends PinnedDefinition>(
   input: DeployVersionInput<T>,
   reason: VersionDerivationReason,
   taken: ReadonlySet<string>,
-): Promise<string | undefined> {
+): Promise<string> {
   const { definition, pins, pinsDigest } = input;
   const authored = definition.version;
   let candidate = nextVersion(authored);
@@ -140,7 +138,6 @@ async function registerNextFree<T extends PinnedDefinition>(
         derivedFrom: { version: authored, reason },
       });
       if (outcome === 'ok') return candidate;
-      if (outcome === 'skipped') return undefined;
       // Taken: an unregistered version holds this one too.
     }
     candidate = nextVersion(candidate);

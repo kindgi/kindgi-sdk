@@ -41,6 +41,7 @@ import type { FlowRegistryBinding } from '../flow-binding.js';
 import { publishDeployedFlow, resolveFlowPins } from '../flow-pins.js';
 import type { GuardrailRegistryBinding } from '../guardrail-binding.js';
 import type { ImageRegistryBinding } from '../image-registry-binding.js';
+import { PublishRefused } from '../publish-refused.js';
 import { type RegistryReadOnly, refuseReadOnly } from '../registry-read-only.js';
 import type { SecretBinding } from '../secrets-binding.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-key-binding.js';
@@ -572,6 +573,8 @@ export function deploymentsRouter(bindings: DeploymentsRouterBindings): Hono<App
             rolled.push(async () => {
               await bindings.toolRegistry?.unregister({ tenantId, toolId, version });
             });
+          } else if (outcome.kind !== 'already-registered') {
+            throw new PublishRefused('tool', `${tool.id}@${tool.version}`, outcome.kind);
           }
         }
       }
@@ -595,6 +598,8 @@ export function deploymentsRouter(bindings: DeploymentsRouterBindings): Hono<App
             rolled.push(async () => {
               await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
             });
+          } else if (outcome.kind !== 'already-registered') {
+            throw new PublishRefused('guardrail', guardrail.id, outcome.kind);
           }
         }
       }
@@ -630,6 +635,22 @@ export function deploymentsRouter(bindings: DeploymentsRouterBindings): Hono<App
       }
     } catch (cause) {
       await rollback(rolled);
+      // A primitive refused with a typed outcome is the caller's to fix:
+      // that outcome's own status and code. Anything thrown is a 500.
+      if (cause instanceof PublishRefused) {
+        c.status(statusFor(cause.code) as never);
+        return c.json(
+          toWireError(
+            {
+              code: cause.code,
+              message: `${cause.message}; nothing was deployed`,
+              primitive: cause.primitive,
+              id: cause.id,
+            },
+            requestId,
+          ),
+        );
+      }
       if (cause instanceof UnpinnableDeploy) {
         c.status(statusFor('invalid-agent') as never);
         return c.json(
@@ -1495,6 +1516,9 @@ async function registerAgents(input: {
     for (const agent of input.defined) {
       const outcome = await agents.publish({ tenantId, projectId, agent, enqueueTuples });
       if (outcome.kind === 'ok') written(outcome.agentId, outcome.version);
+      else if (outcome.kind !== 'already-registered') {
+        throw new PublishRefused('agent', `${agent.id}@${agent.version}`, outcome.kind);
+      }
     }
     return input.defined.map(deployedPrimitive);
   }
@@ -1552,6 +1576,9 @@ async function registerFlows(input: {
     for (const flow of input.defined) {
       const outcome = await flows.publish({ tenantId, projectId, flow, enqueueTuples });
       if (outcome.kind === 'ok') written(outcome.flowId, outcome.version as unknown as string);
+      else if (outcome.kind !== 'already-registered') {
+        throw new PublishRefused('flow', `${flow.id}@${flow.version}`, outcome.kind);
+      }
     }
     return input.defined.map(deployedPrimitive);
   }
