@@ -18,6 +18,8 @@
  *   resolves to `org-not-found`.
  * - Slug uniqueness within a tenant: `create` and `update` resolve to
  *   `slug-conflict`; another tenant may reuse the slug.
+ * - `delete` (a tombstone in a durable binding): the org is unknown to
+ *   every read, its slug is free, and deleting again is a no-op.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -68,6 +70,32 @@ export function runOrgBindingConformance(
       await b.delete(T1, id);
       const got = await b.get(T1, id);
       expect(got).toBeUndefined();
+    });
+
+    it('a deleted Org is unknown to list and update, and deleting it again is a no-op', async () => {
+      const b = makeBinding();
+      const id = await createOrg(b, T1, { name: 'Acme', slug: 'acme' });
+      const kept = await createOrg(b, T1, { name: 'Kept', slug: 'kept' });
+      await b.delete(T1, id);
+      const page = await b.list(T1, {});
+      expect(page.items.map((o) => o.id)).toEqual([kept]);
+      expect(await b.update(T1, id, { name: 'Acme 2' })).toEqual({ kind: 'org-not-found' });
+      await b.delete(T1, id);
+      expect(await b.get(T1, kept)).toBeDefined();
+    });
+
+    it("a deleted Org's slug is free for a new Org", async () => {
+      const b = makeBinding();
+      const id = await createOrg(b, T1, { name: 'Acme', slug: 'acme' });
+      await b.delete(T1, id);
+      const again = await createOrg(b, T1, { name: 'Acme again', slug: 'acme' });
+      expect(again).not.toBe(id);
+      expect((await b.get(T1, again))?.slug).toBe('acme');
+      const other = await createOrg(b, T1, { name: 'Other', slug: 'other' });
+      expect(await b.update(T1, other, { slug: 'acme' })).toEqual({
+        kind: 'slug-conflict',
+        slug: 'acme',
+      });
     });
 
     it('lists orgs (empty tenant)', async () => {
