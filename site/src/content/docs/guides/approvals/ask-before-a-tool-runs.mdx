@@ -260,9 +260,11 @@ says so in `resume`, and the run fails:
 "resume": {
   "kind": "failed",
   "code": "tool-version-unresolvable",
-  "message": "Tool \"acme-ops.post-update\": this turn started with version 0.1.0, which is no longer registered; it doesn't run another version mid-turn. …"
+  "message": "Tool \"acme-ops.post-update\": this turn started with version 0.1.0, which is no longer registered; it doesn't run another version mid-turn."
 }
-``` Its journal (`kindgi runs journal <run-id>`) says who decided which
+```
+
+Its journal (`kindgi runs journal <run-id>`) says who decided which
 approval:
 
 ```json
