@@ -451,11 +451,21 @@ const unpin: LeafCommand = {
     }),
 };
 
+/**
+ * Where a history row stands: a promotion's `status`; a promotion made
+ * before gates (no status) went live, and a rollback or unpin is
+ * immediate. A refused or pending row changed nothing live.
+ */
+function promotionStatus(p: Promotion): string {
+  return p.status ?? (p.action === 'promote' ? 'promoted' : 'done');
+}
+
 const PROMOTIONS_TABLE: TableSpec<PromotionPage, Promotion> = {
   rows: (p) => p.data,
   columns: [
     { header: 'ID', get: (p) => p.id },
     { header: 'ACTION', get: (p) => p.action },
+    { header: 'STATUS', get: promotionStatus },
     { header: 'SCOPE', get: (p) => scopeCell(p.scope) },
     { header: 'FROM', get: (p) => p.fromVersion ?? '-' },
     { header: 'TO', get: (p) => p.toVersion ?? '-' },

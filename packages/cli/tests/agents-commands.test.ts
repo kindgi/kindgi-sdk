@@ -233,6 +233,34 @@ describe('kindgi agents — live versions', () => {
     expect(out.stdout).toContain('1.1.0');
   });
 
+  test('promotions list --table says where each row stands', async () => {
+    const out = await run(['agents', 'promotions', 'list', 'acme.drafter', '--table'], {
+      agents: {
+        promotions: {
+          list: async () => ({
+            data: [
+              promotion({ id: 'p-pending', toVersion: '1.4.0', status: 'pending-approval' }),
+              promotion({ id: 'p-refused', toVersion: '1.3.0', status: 'refused' }),
+              promotion({ id: 'p-live', toVersion: '1.2.0', status: 'promoted' }),
+              promotion({ id: 'p-before-gates', toVersion: '1.1.0' }),
+              promotion({ id: 'p-unpin', action: 'unpin', fromVersion: '1.1.0', toVersion: null }),
+            ],
+            hasMore: false,
+          }),
+        },
+      },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    const lines = out.stdout.split('\n');
+    expect(lines[0]).toMatch(/^ID\s+ACTION\s+STATUS\s+SCOPE/);
+    const status = (id: string) => lines.find((l) => l.startsWith(id))?.split(/\s+/)[2];
+    expect(status('p-pending')).toBe('pending-approval');
+    expect(status('p-refused')).toBe('refused');
+    expect(status('p-live')).toBe('promoted');
+    expect(status('p-before-gates')).toBe('promoted');
+    expect(status('p-unpin')).toBe('done');
+  });
+
   test('promotions list narrows to a scope; promotions get fetches one', async () => {
     const { calls, rec } = recorder();
     const client = {
