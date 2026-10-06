@@ -19,7 +19,7 @@ import type { Cursor, OrgId, TeamId, TenantId, UserId } from '@kindgi/types';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
-import { slugConflictError } from './hierarchy-errors.js';
+import { orgNotFoundError, slugConflictError } from './hierarchy-errors.js';
 import { clampLimit } from './pagination.js';
 
 /**
@@ -201,7 +201,9 @@ export function teamsRouter(
         const error =
           result.error.code === 'slug-conflict'
             ? slugConflictError('team', spec.slug)
-            : { code: 'internal-server-error', message: result.error.message };
+            : result.error.code === 'org-not-found'
+              ? orgNotFoundError(result.error.orgId as unknown as string)
+              : { code: 'internal-server-error', message: result.error.message };
         c.status(statusFor(error.code) as never);
         return c.json(toWireError(error, requestId));
       }
@@ -209,8 +211,11 @@ export function teamsRouter(
       return c.json({ id: result.value.teamId as unknown as string });
     }
     const outcome = await binding.create(tenantId, spec);
-    if (outcome.kind === 'slug-conflict') {
-      const error = slugConflictError('team', outcome.slug);
+    if (outcome.kind === 'slug-conflict' || outcome.kind === 'org-not-found') {
+      const error =
+        outcome.kind === 'slug-conflict'
+          ? slugConflictError('team', outcome.slug)
+          : orgNotFoundError(outcome.orgId as unknown as string);
       c.status(statusFor(error.code) as never);
       return c.json(toWireError(error, requestId));
     }
@@ -542,8 +547,11 @@ export function teamsRouter(
         ),
       );
     }
-    if (outcome.kind === 'slug-conflict') {
-      const error = slugConflictError('team', outcome.slug);
+    if (outcome.kind === 'slug-conflict' || outcome.kind === 'org-not-found') {
+      const error =
+        outcome.kind === 'slug-conflict'
+          ? slugConflictError('team', outcome.slug)
+          : orgNotFoundError(outcome.orgId as unknown as string);
       c.status(statusFor(error.code) as never);
       return c.json(toWireError(error, requestId));
     }

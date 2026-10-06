@@ -39,6 +39,11 @@ const TEAM_A = 'team-A' as TeamId;
 const TEAM_B = 'team-B' as TeamId;
 const ORG_A = 'org-A' as OrgId;
 const ORG_B = 'org-B' as OrgId;
+/**
+ * An org the binding doesn't know (T220), for the `checksOrgs` cases: a
+ * binding that checks orgs is made so this one isn't the tenant's.
+ */
+export const CONFORMANCE_MISSING_ORG = 'org-missing' as OrgId;
 
 /** Create a project the test expects to succeed; its id. */
 async function createProject(
@@ -60,6 +65,14 @@ export function runProjectBindingConformance(
     readonly grants: TeamProjectGrantBinding;
   },
   label = 'ProjectBinding',
+  options: {
+    /**
+     * The binding checks that an org exists (`CONFORMANCE_MISSING_ORG`
+     * doesn't): a project created in or moved to a missing org is
+     * `org-not-found`.
+     */
+    readonly checksOrgs?: boolean;
+  } = {},
 ): void {
   describe(`${label} — project CRUD`, () => {
     it('creates + gets a project', async () => {
@@ -377,4 +390,26 @@ export function runProjectBindingConformance(
       expect(await projects.update(T1, id, { slug: 'c', orgId: ORG_A })).toEqual({ kind: 'ok' });
     });
   });
+
+  if (options.checksOrgs === true) {
+    describe(`${label} — an org that isn't the tenant's (T220)`, () => {
+      it('creating a project in it: org-not-found, and nothing is created', async () => {
+        const { projects } = makeBinding();
+        expect(
+          await projects.create(T1, { name: 'P', slug: 'p', orgId: CONFORMANCE_MISSING_ORG }),
+        ).toEqual({ kind: 'org-not-found', orgId: CONFORMANCE_MISSING_ORG });
+        expect((await projects.list(T1, { orgId: CONFORMANCE_MISSING_ORG })).items).toEqual([]);
+      });
+
+      it('moving a project to it: org-not-found, and the project stays where it was', async () => {
+        const { projects } = makeBinding();
+        const id = await createProject(projects, T1, { name: 'P', slug: 'p', orgId: ORG_A });
+        expect(await projects.update(T1, id, { orgId: CONFORMANCE_MISSING_ORG })).toEqual({
+          kind: 'org-not-found',
+          orgId: CONFORMANCE_MISSING_ORG,
+        });
+        expect((await projects.get(T1, id))?.orgId).toBe(ORG_A);
+      });
+    });
+  }
 }

@@ -18,7 +18,7 @@
  * the tenant's projects without one (`slug-conflict`).
  */
 
-import type { Filter, Page, ProjectId, TeamId, TenantId, UserId } from '@kindgi/types';
+import type { Filter, OrgId, Page, ProjectId, TeamId, TenantId, UserId } from '@kindgi/types';
 
 import type {
   ProjectBinding,
@@ -60,11 +60,20 @@ function grantKey(teamId: TeamId, projectId: ProjectId): string {
 }
 
 /**
+ * `orgExists`: whether an org is the tenant's (live). Given, a project or
+ * team created in or moved to another org is `org-not-found`, as the
+ * durable bindings answer; absent, any `orgId` is taken as it is.
+ */
+export interface InMemoryHierarchyOptions {
+  readonly orgExists?: (tenantId: TenantId, orgId: OrgId) => boolean | Promise<boolean>;
+}
+
+/**
  * Combined factory — returns the three project-related bindings that
  * share underlying storage. Any of them can be plucked out and passed
  * individually to consumers that need just one.
  */
-export function makeInMemoryProjectBinding(): {
+export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {}): {
   readonly projects: ProjectBinding;
   readonly memberships: ProjectMembershipBinding;
   readonly grants: TeamProjectGrantBinding;
@@ -119,6 +128,9 @@ export function makeInMemoryProjectBinding(): {
       // wants to hear that one exists, whatever its slug.
       if (isDefault && tenantAlreadyHasDefault(tenantId)) {
         return { kind: 'project-default-already-exists' };
+      }
+      if (spec.orgId !== undefined && (await options.orgExists?.(tenantId, spec.orgId)) === false) {
+        return { kind: 'org-not-found', orgId: spec.orgId };
       }
       if (slugTaken(tenantId, spec.orgId, spec.slug)) {
         return { kind: 'slug-conflict', slug: spec.slug };
@@ -176,6 +188,13 @@ export function makeInMemoryProjectBinding(): {
       let nextOrgId = row.orgId;
       if (patch.orgId !== undefined) {
         nextOrgId = patch.orgId === null ? undefined : patch.orgId;
+      }
+      if (
+        patch.orgId !== undefined &&
+        patch.orgId !== null &&
+        (await options.orgExists?.(tenantId, patch.orgId)) === false
+      ) {
+        return { kind: 'org-not-found', orgId: patch.orgId };
       }
       // The slug it ends up with, where it ends up: a move to another org
       // (or out of one) can meet a project with the same slug there.

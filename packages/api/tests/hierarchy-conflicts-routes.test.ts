@@ -14,7 +14,7 @@ import {
   makeInMemoryProjectBinding,
   makeInMemoryTeamBinding,
 } from '@kindgi/platform';
-import type { TenantId, UserId } from '@kindgi/types';
+import type { OrgId, TenantId, UserId } from '@kindgi/types';
 
 import { createStubAppBindings } from '@kindgi/testing';
 
@@ -79,8 +79,11 @@ function makeApp(options: Options) {
           ...inMemoryOrgs,
           delete: async () => ({ kind: 'slug-conflict' as const, slugs: conflicting }),
         };
-  const teamPair = makeInMemoryTeamBinding();
-  const projectTrio = makeInMemoryProjectBinding();
+  // The tenant's orgs, as the durable bindings check them (T220).
+  const orgExists = async (tenantId: TenantId, orgId: OrgId) =>
+    (await orgs.get(tenantId, orgId)) !== undefined;
+  const teamPair = makeInMemoryTeamBinding({ orgExists });
+  const projectTrio = makeInMemoryProjectBinding({ orgExists });
 
   const teamMemberships: TeamMembershipBinding =
     options.membershipTargetsGone === true
@@ -100,9 +103,14 @@ function makeApp(options: Options) {
     },
     async createTeam({ tenantId, spec }) {
       const outcome = await teamPair.teams.create(tenantId, spec);
-      return outcome.kind === 'ok'
-        ? { kind: 'ok', value: { teamId: outcome.teamId } }
-        : { kind: 'err', error: { code: 'slug-conflict', message: 'slug taken' } };
+      if (outcome.kind === 'ok') return { kind: 'ok', value: { teamId: outcome.teamId } };
+      return {
+        kind: 'err',
+        error:
+          outcome.kind === 'org-not-found'
+            ? { code: 'org-not-found', message: 'org gone', orgId: outcome.orgId }
+            : { code: 'slug-conflict', message: 'slug taken' },
+      };
     },
     async createProject({ tenantId, spec }) {
       const outcome = await projectTrio.projects.create(tenantId, spec);
@@ -112,7 +120,9 @@ function makeApp(options: Options) {
         error:
           outcome.kind === 'slug-conflict'
             ? { code: 'slug-conflict', message: 'slug taken' }
-            : { code: 'default-conflict', message: 'Default taken' },
+            : outcome.kind === 'org-not-found'
+              ? { code: 'org-not-found', message: 'org gone', orgId: outcome.orgId }
+              : { code: 'default-conflict', message: 'Default taken' },
       };
     },
     async addTeamMember({ tenantId, teamId, userId, role }) {
@@ -300,4 +310,50 @@ describe.each([
       expect(changed.body.error?.code).toBe(code);
     },
   );
+});
+
+describe.each([
+  { mode: 'without an authorizer', authorized: false },
+  { mode: 'with an authorizer', authorized: true },
+])('an org that is not the tenant’s (T220), $mode', ({ authorized }) => {
+  /** An org created, then deleted: gone from the tenant. */
+  async function deletedOrg(app: App): Promise<string> {
+    const orgId = await created(app, '/v1/orgs', { name: 'Gone', slug: `gone-${randomUUID()}` });
+    expect((await send(app, 'DELETE', `/v1/orgs/${orgId}`, {})).status).toBe(204);
+    return orgId;
+  }
+
+  describe.each([
+    { resource: 'team', path: '/v1/teams' },
+    { resource: 'project', path: '/v1/projects' },
+  ] as const)('$path', ({ path }) => {
+    test('created in an unknown or a deleted org → 404 org-not-found, naming it', async () => {
+      const app = makeApp({ authorized });
+      for (const orgId of [randomUUID(), await deletedOrg(app)]) {
+        const answer = await send(app, 'POST', path, {
+          name: 'X',
+          slug: `x-${randomUUID()}`,
+          orgId,
+        });
+        expect(answer.status).toBe(404);
+        expect(answer.body.error).toMatchObject({
+          code: 'org-not-found',
+          message: `No org with id "${orgId}"`,
+        });
+      }
+    });
+
+    test('moved to an unknown or a deleted org → 404 org-not-found, naming it', async () => {
+      const app = makeApp({ authorized });
+      const id = await created(app, path, { name: 'X', slug: `x-${randomUUID()}` });
+      for (const orgId of [randomUUID(), await deletedOrg(app)]) {
+        const answer = await send(app, 'PATCH', `${path}/${id}`, { orgId });
+        expect(answer.status).toBe(404);
+        expect(answer.body.error).toMatchObject({
+          code: 'org-not-found',
+          message: `No org with id "${orgId}"`,
+        });
+      }
+    });
+  });
 });
