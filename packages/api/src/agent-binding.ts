@@ -36,11 +36,13 @@ export interface AgentRegistryBinding {
   get(input: AgentGetInput): Promise<Agent | null>;
   /**
    * Specific `(agentId, version)` lookup, or `null` if unknown.
-   * Returns tombstoned versions too (unlike `list` / `get` which
-   * filter them) — the specific-version lookup is used by provenance
-   * paths that need to resolve historical run references.
+   * Returns unregistered (tombstoned) versions too, unlike `list` /
+   * `get` which filter them, with `unregisteredAt` set. Unregister stops
+   * a version being *chosen*, not the pins that hold it: a resumed run,
+   * provenance, and a flow version that pins it read it, while a new run
+   * that names it is refused.
    */
-  getVersion(input: AgentGetVersionInput): Promise<Agent | null>;
+  getVersion(input: AgentGetVersionInput): Promise<AgentVersionRecord | null>;
   /**
    * Head-row existence check. Returns `true` iff the agent id has been
    * registered in the tenant (regardless of whether any versions are
@@ -87,6 +89,12 @@ export interface AgentRegistryBinding {
    */
   reinstateVersion(input: AgentReinstateVersionInput): Promise<AgentReinstateVersionOutcome>;
 }
+
+/** An agent version as `getVersion` reads it: `unregisteredAt` is set when it's unregistered. */
+export type AgentVersionRecord = Agent & {
+  /** ISO-8601; present only on an unregistered version. */
+  readonly unregisteredAt?: string;
+};
 
 export interface AgentListInput {
   readonly tenantId: TenantId;

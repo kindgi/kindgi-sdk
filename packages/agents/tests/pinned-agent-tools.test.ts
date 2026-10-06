@@ -6,7 +6,8 @@
  * not its ranges resolved again: a newer version in range doesn't reach
  * it, and a pinned version that's gone fails the turn rather than
  * running another. A version with no pins resolves its ranges, as
- * before; a resumed turn's own versions come first.
+ * before; a resumed turn's own versions come first. A pin reaches a
+ * retired (unregistered) version, which no range picks.
  */
 
 import { describe, expect, test } from 'vitest';
@@ -94,5 +95,16 @@ describe('a turn of a pinned agent version', () => {
       'acme.lookup': '1.1.0',
     });
     expect(tools.byName.get('acme.lookup')?.resolvedVersion).toBe('1.1.0');
+  });
+
+  test('a pin reaches a retired (unregistered) version; a range does not', () => {
+    const tools = createToolRegistry([lookup('1.0.0')]);
+    tools.register(lookup('1.1.0'), { retired: true });
+    expect(resolveTurnTools(tools, agent('1.1.0')).byName.get('acme.lookup')?.resolvedVersion).toBe(
+      '1.1.0',
+    );
+    expect(resolveTurnTools(tools, agent()).byName.get('acme.lookup')?.resolvedVersion).toBe(
+      '1.0.0',
+    );
   });
 });
