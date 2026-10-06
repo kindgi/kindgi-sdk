@@ -26149,7 +26149,7 @@
             }
           }
         },
-        "description": "Idempotent — deleting an unknown or already-deleted org returns 204 per the binding contract. The org's projects stay, without an org; when one of them has the slug of a project that has none, nothing is deleted: `409 slug-conflict` names the slugs (rename or move those projects first).",
+        "description": "A tombstone, not an erase: from then on the org is gone from get and list, and its slug is free for a new org. Its projects and teams stay, without an org; when one of those projects has the slug of a project that has none, nothing is deleted: `409 slug-conflict` names the slugs (rename or move those projects first). In the Kindgi runtime, the org's own secrets and secret mappings are deleted with it, for good, and its own environments and MCP endpoints are unregistered. A retention policy on the `org` domain purges the org's row. Idempotent: deleting an unknown or already-deleted org returns 204.",
         "parameters": [
           {
             "name": "orgId",

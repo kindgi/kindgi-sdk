@@ -28,6 +28,7 @@
  * Useful shape for "unless overridden, everything sits for 90 days".
  */
 export const RETENTION_DOMAINS = [
+  'org',
   'agent',
   'flow',
   'tool',
