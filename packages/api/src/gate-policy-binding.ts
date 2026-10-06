@@ -30,8 +30,8 @@ export interface GateMetricSpec {
  * What a policy asks of a promotion. Every part is optional; an empty
  * spec checks nothing (the promotion is still recorded with the policy).
  * A promotion must name a comparison (`evalRunId`) exactly when the spec
- * checks anything one shows: `comparison`, `evidence`, `metrics` or
- * `replay`.
+ * checks anything one shows: `comparison`, `evidence`, `metrics`,
+ * `replay` or `onlyRestrictedClasses`.
  */
 export interface GatePolicySpec {
   readonly comparison?: {
@@ -57,6 +57,12 @@ export interface GatePolicySpec {
     /** Whoever asked can't approve it (default `true`). */
     readonly separateApprover?: boolean;
   };
+  /**
+   * Only restricted judge classes count (T200): the comparison must be
+   * weighted `restricted-only`, so an unrestricted class (anyone may assert
+   * it) can't move the gate.
+   */
+  readonly onlyRestrictedClasses?: boolean;
 }
 
 export interface GatePolicy {

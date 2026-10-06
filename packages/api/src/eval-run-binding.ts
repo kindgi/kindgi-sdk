@@ -139,6 +139,13 @@ export type EvalBaseline =
 export type EvalReads = 'recorded' | 'live';
 
 /** How a comparison eval run runs its cases (absent: the run isn't a comparison). */
+/**
+ * Which judgments a comparison counts: every class at its recorded weight
+ * (`as-recorded`, the default), or only restricted classes' (with
+ * `assertableBy`), the others weighing 0 (`restricted-only`; T200).
+ */
+export type EvalClassWeights = 'as-recorded' | 'restricted-only';
+
 export interface EvalComparison {
   readonly baseline: EvalBaseline;
   readonly reads: EvalReads;
@@ -152,6 +159,8 @@ export interface EvalComparison {
    * at 0.4.0"), without publishing a new flow version.
    */
   readonly versions?: FlowVersionOverrides;
+  /** Which judgments count (absent: `as-recorded`). */
+  readonly classWeights?: EvalClassWeights;
 }
 
 export interface EvalRunStartInput {

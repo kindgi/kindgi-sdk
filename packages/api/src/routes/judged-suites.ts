@@ -167,18 +167,27 @@ interface BuildBody {
   };
 }
 
-/** Each class's weight, read once (an unclassified judgment counts 1; a missing class too). */
+/** What a judgment's class counts for: its weight, and whether it's restricted (`assertableBy`). */
+interface ClassWeight {
+  readonly weight: number;
+  readonly restricted: boolean;
+}
+
+/**
+ * Each class's weight, read once: an unclassified judgment counts 1, and
+ * so does one whose class is missing; neither is restricted.
+ */
 function classWeights(
   judgments: JudgmentRegistryBinding,
   tenantId: TenantId,
-): (judgeClassId: string | undefined) => Promise<number> {
-  const weights = new Map<string, number>();
+): (judgeClassId: string | undefined) => Promise<ClassWeight> {
+  const weights = new Map<string, ClassWeight>();
   return async (judgeClassId) => {
-    if (judgeClassId === undefined) return 1;
+    if (judgeClassId === undefined) return { weight: 1, restricted: false };
     const known = weights.get(judgeClassId);
     if (known !== undefined) return known;
     const k = await judgments.getClass({ tenantId, judgeClassId, includeUnregistered: true });
-    const w = k?.weight ?? 1;
+    const w = { weight: k?.weight ?? 1, restricted: k?.assertableBy !== undefined };
     weights.set(judgeClassId, w);
     return w;
   };
@@ -218,7 +227,7 @@ async function buildCases(
 async function toCase(
   judged: JudgedRunWithJudgments,
   q: BuildBody['query'],
-  weightOf: (judgeClassId: string | undefined) => Promise<number>,
+  weightOf: (judgeClassId: string | undefined) => Promise<ClassWeight>,
 ): Promise<JudgedEvalCase | undefined> {
   const kept =
     q.judgeClassIds === undefined
@@ -246,18 +255,21 @@ async function toCase(
 async function summarize(
   key: string,
   judgments: readonly Judgment[],
-  weightOf: (judgeClassId: string | undefined) => Promise<number>,
+  weightOf: (judgeClassId: string | undefined) => Promise<ClassWeight>,
 ): Promise<JudgedItemSummary> {
   let yes = 0;
   let no = 0;
   let yesWeight = 0;
   let totalWeight = 0;
+  const restricted = { yesWeight: 0, totalWeight: 0 };
   for (const j of judgments) {
-    const w = await weightOf(j.judgeClassId);
+    const { weight: w, restricted: isRestricted } = await weightOf(j.judgeClassId);
     totalWeight += w;
+    if (isRestricted) restricted.totalWeight += w;
     if (j.verdict === 'yes') {
       yes += 1;
       yesWeight += w;
+      if (isRestricted) restricted.yesWeight += w;
     } else {
       no += 1;
     }
@@ -271,6 +283,7 @@ async function summarize(
     no,
     yesWeight,
     totalWeight,
+    restricted,
     reasons: judgments.flatMap((j) =>
       j.reason !== undefined ? [{ verdict: j.verdict, reason: j.reason }] : [],
     ),

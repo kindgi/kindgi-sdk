@@ -70,7 +70,8 @@ function needsComparison(spec: GatePolicySpec): boolean {
     spec.comparison !== undefined ||
     spec.evidence !== undefined ||
     (spec.metrics?.length ?? 0) > 0 ||
-    spec.replay !== undefined
+    spec.replay !== undefined ||
+    spec.onlyRestrictedClasses === true
   );
 }
 
@@ -116,6 +117,19 @@ export function evaluateGate(input: GateInput): GateResult {
   checks.push(sameContentsCheck(input));
   checks.push(baselineCheck(summary, input));
   checks.push(scopeCheck(summary, input));
+  if (spec.onlyRestrictedClasses === true) {
+    const counted = summary.classWeights ?? 'as-recorded';
+    checks.push({
+      name: 'classWeights.restrictedOnly',
+      passed: counted === 'restricted-only',
+      message:
+        counted === 'restricted-only'
+          ? 'The comparison counted only restricted judge classes.'
+          : "The policy counts only restricted judge classes; the comparison counted every class. Re-run it with `classWeights: 'restricted-only'`.",
+      value: counted,
+      threshold: 'restricted-only',
+    });
+  }
   if (spec.replay !== undefined) checks.push(...replayChecks(spec.replay, summary));
   for (const metric of spec.metrics ?? []) checks.push(...metricChecks(metric, spec, summary));
   return result(checks, approval);

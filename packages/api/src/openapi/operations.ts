@@ -3315,7 +3315,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         'Malformed body, or `item-not-found` (the pointer resolves to nothing in the output), or `judge-class-not-applicable`.',
       ),
-      '403': ErrorResponse('`permission-denied`: not allowed to judge this run.'),
+      '403': ErrorResponse(
+        '`permission-denied`: not allowed to judge this run. `judge-class-not-allowed`: the judge class is restricted (`assertableBy`) and the caller may not assert it.',
+      ),
       '404': ErrorResponse('`run-not-found`.'),
       '409': ErrorResponse('`run-not-finished`: the run has no output to judge yet.'),
     },

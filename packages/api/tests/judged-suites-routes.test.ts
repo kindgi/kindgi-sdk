@@ -216,17 +216,35 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
         no: 1,
         yesWeight: 3,
         totalWeight: 4,
+        restricted: { yesWeight: 0, totalWeight: 0 },
         // Newest first.
         reasons: [
           { verdict: 'no', reason: 'wrong city' },
           { verdict: 'yes', reason: 'right' },
         ],
       },
-      { key: 'c2', rank: 1, yes: 0, no: 1, yesWeight: 0, totalWeight: 1, reasons: [] },
+      {
+        key: 'c2',
+        rank: 1,
+        yes: 0,
+        no: 1,
+        yesWeight: 0,
+        totalWeight: 1,
+        restricted: { yesWeight: 0, totalWeight: 0 },
+        reasons: [],
+      },
     ]);
     // An unclassified judgment counts 1; a run without context has none.
     expect(cases.body.data[1].items).toEqual([
-      { key: 'x', yes: 1, no: 0, yesWeight: 1, totalWeight: 1, reasons: [] },
+      {
+        key: 'x',
+        yes: 1,
+        no: 0,
+        yesWeight: 1,
+        totalWeight: 1,
+        restricted: { yesWeight: 0, totalWeight: 0 },
+        reasons: [],
+      },
     ]);
     expect(cases.body.data[1].context).toBeUndefined();
   });
@@ -258,10 +276,34 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
         no: 0,
         yesWeight: 3,
         totalWeight: 3,
+        restricted: { yesWeight: 0, totalWeight: 0 },
         reasons: [{ verdict: 'yes', reason: 'right' }],
       },
     ]);
     expect(byId.has('run-2')).toBe(false);
+  });
+
+  test("a restricted class's judgments are counted apart too, for restricted-only comparisons", async () => {
+    const lifted = await h.judgments.updateClass({
+      tenantId,
+      judgeClassId: h.expertId,
+      assertableBy: { minReviewerRole: 'senior' },
+    });
+    expect(lifted?.assertableBy).toEqual({ minReviewerRole: 'senior' });
+    await h.call('POST', BUILD, base);
+    const cases = await h.call('GET', '/v1/eval-suites/acme.matches/versions/1.0.0/cases');
+    const run1 = cases.body.data.find((c: { caseId: string }) => c.caseId === 'run-1');
+    // c1: the expert's yes (3) is restricted; the unclassified no (1) isn't.
+    expect(run1.items[0]).toMatchObject({
+      key: 'c1',
+      yesWeight: 3,
+      totalWeight: 4,
+      restricted: { yesWeight: 3, totalWeight: 3 },
+    });
+    expect(run1.items[1]).toMatchObject({
+      key: 'c2',
+      restricted: { yesWeight: 0, totalWeight: 0 },
+    });
   });
 
   test('agentVersion without agentId: 400', async () => {

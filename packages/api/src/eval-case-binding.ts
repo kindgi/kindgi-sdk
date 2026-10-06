@@ -31,6 +31,12 @@ export interface JudgedItemSummary extends JudgedItem {
   readonly yesWeight: number;
   /** The weight behind all judgments of the item. */
   readonly totalWeight: number;
+  /**
+   * The same two, counting only judgments of restricted classes (with
+   * `assertableBy`), for a comparison weighted `restricted-only`. Absent
+   * from a test set built before restrictions: no restricted evidence.
+   */
+  readonly restricted?: { readonly yesWeight: number; readonly totalWeight: number };
   /** The reasons given, newest first. */
   readonly reasons: readonly { readonly verdict: 'yes' | 'no'; readonly reason: string }[];
 }

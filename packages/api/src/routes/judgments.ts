@@ -4,7 +4,7 @@
 import { type Context, Hono } from 'hono';
 
 import type { ConversationBinding } from '@kindgi/agents';
-import { ref } from '@kindgi/authz';
+import { REVIEWER_ROLE_RANK, type ReviewerRole, ref } from '@kindgi/authz';
 import type { RunBinding } from '@kindgi/runtime';
 import type { Cursor, ProjectId, RunId, TenantId } from '@kindgi/types';
 
@@ -12,6 +12,7 @@ import { statusFor, toWireError } from '../errors.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
 import {
   type JudgeClass,
+  type JudgeClassAssertableBy,
   type JudgeClassScope,
   type JudgedItem,
   type JudgedRunContext,
@@ -23,8 +24,11 @@ import {
   VERDICTS,
   type Verdict,
   judgeClassApplies,
+  whyNotAssertable,
 } from '../judgment-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import type { ReviewerBinding } from '../reviewer-binding.js';
+import { callerReviewerRole } from '../reviewer-role.js';
 import type { AppEnv } from '../types.js';
 import { captureTurnContext } from './judgment-context.js';
 import { captureFlowContext } from './judgment-flow-context.js';
@@ -52,6 +56,8 @@ export function judgmentsRouter(
   authorizer?: Authorizer,
   conversations?: ConversationBinding,
   flows?: FlowRegistryBinding,
+  /** Whose reviewer role a restricted judge class checks (T200). */
+  reviewers?: ReviewerBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -72,7 +78,10 @@ export function judgmentsRouter(
       return fail('permission-denied', 'Judging needs a user or a service token.');
     }
 
-    const prepared = await prepareJudgment(c, body, runBinding, binding, authorizer);
+    const prepared = await prepareJudgment(c, body, runBinding, binding, authorizer, {
+      asserted,
+      reviewers,
+    });
     if (prepared.kind === 'err') return fail(prepared.code, prepared.message);
     const { run, subject, projectId, itemValue, conversationId } = prepared;
     const context = (await isFirstJudgment(binding, tenantId, body.runId))
@@ -239,7 +248,7 @@ export function judgeClassesRouter(
     };
     const parsed = parseClassBody(await c.req.json().catch(() => null));
     if (parsed.kind === 'err') return fail('bad-input', parsed.message);
-    const { scope, name, weight, description } = parsed.body;
+    const { scope, name, weight, description, assertableBy } = parsed.body;
     if (
       authorizer !== undefined &&
       !(await authorizer.can(c, 'admin', scopeRef(tenantId, scope)))
@@ -252,6 +261,7 @@ export function judgeClassesRouter(
       name,
       weight,
       ...(description !== undefined && { description }),
+      ...(assertableBy !== undefined && { assertableBy }),
     });
     if (outcome.kind === 'name-taken') {
       return fail('judge-class-name-taken', `A judge class named "${name}" already exists here.`);
@@ -332,19 +342,25 @@ export function judgeClassesRouter(
     const raw = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
     const weight = raw?.weight;
     const description = raw?.description;
+    const assertableBy =
+      raw?.assertableBy === undefined ? undefined : parseAssertableBy(raw.assertableBy);
     if (
       raw === null ||
       typeof raw !== 'object' ||
-      (weight === undefined && description === undefined) ||
+      (weight === undefined && description === undefined && assertableBy === undefined) ||
       (weight !== undefined && !isWeight(weight)) ||
-      (description !== undefined && typeof description !== 'string')
+      (description !== undefined && typeof description !== 'string') ||
+      typeof assertableBy === 'string'
     ) {
       c.status(statusFor('bad-input') as never);
       return c.json(
         toWireError(
           {
             code: 'bad-input',
-            message: 'Send weight (a number ≥ 0) and/or description (a string).',
+            message:
+              typeof assertableBy === 'string'
+                ? assertableBy
+                : 'Send weight (a number ≥ 0), description (a string) and/or assertableBy (who may assert the class, or null for anyone).',
           },
           requestId,
         ),
@@ -358,6 +374,7 @@ export function judgeClassesRouter(
       judgeClassId: found.id,
       ...(weight !== undefined && { weight: weight as number }),
       ...(description !== undefined && { description: description as string }),
+      ...(assertableBy !== undefined && { assertableBy }),
     });
     return updated === null ? classNotFound(c, found.id) : c.json(serializeJudgeClass(updated));
   });
@@ -396,6 +413,7 @@ async function prepareJudgment(
   runBinding: RunBinding,
   binding: JudgmentRegistryBinding,
   authorizer: Authorizer | undefined,
+  who: { readonly asserted: JudgmentAssertedBy; readonly reviewers: ReviewerBinding | undefined },
 ): Promise<Prepared> {
   const err = (code: string, message: string): Prepared => ({ kind: 'err', code, message });
   const tenantId = c.get('tenantId') as TenantId;
@@ -417,14 +435,27 @@ async function prepareJudgment(
   }
   const subject = subjectOf(run);
   const projectId = run.projectId as unknown as ProjectId;
-  if (
-    body.judgeClassId !== undefined &&
-    !(await classApplies(binding, tenantId, body.judgeClassId, { projectId, subject }))
-  ) {
-    return err(
-      'judge-class-not-applicable',
-      `Judge class "${body.judgeClassId}" doesn't exist or doesn't apply to this run's project or agent.`,
-    );
+  if (body.judgeClassId !== undefined) {
+    const judgeClass = await applicableClass(binding, tenantId, body.judgeClassId, {
+      projectId,
+      subject,
+    });
+    if (judgeClass === null) {
+      return err(
+        'judge-class-not-applicable',
+        `Judge class "${body.judgeClassId}" doesn't exist or doesn't apply to this run's project or agent.`,
+      );
+    }
+    if (judgeClass.assertableBy !== undefined) {
+      const reviewerRole = await callerReviewerRole(c, who.reviewers);
+      const why = whyNotAssertable(judgeClass.assertableBy, {
+        ...who.asserted,
+        ...(reviewerRole !== undefined && { reviewerRole }),
+      });
+      if (why !== undefined) {
+        return err('judge-class-not-allowed', `You can't judge as "${judgeClass.name}": ${why}.`);
+      }
+    }
   }
   const copy = { input: run.input, output: run.output };
   const turn =
@@ -484,15 +515,15 @@ async function isFirstJudgment(
   return page.data.length === 0;
 }
 
-/** Whether a live class exists and its scope covers the run. */
-async function classApplies(
+/** The live class, when it exists and its scope covers the run; else `null`. */
+async function applicableClass(
   binding: JudgmentRegistryBinding,
   tenantId: TenantId,
   judgeClassId: string,
   run: { readonly projectId: ProjectId; readonly subject: JudgedSubject },
-): Promise<boolean> {
+): Promise<JudgeClass | null> {
   const judgeClass = await binding.getClass({ tenantId, judgeClassId });
-  return judgeClass !== null && judgeClassApplies(judgeClass.scope, run);
+  return judgeClass !== null && judgeClassApplies(judgeClass.scope, run) ? judgeClass : null;
 }
 
 // ---------- request parsing ----------
@@ -573,6 +604,47 @@ interface ClassBody {
   readonly name: string;
   readonly weight: number;
   readonly description?: string;
+  readonly assertableBy?: JudgeClassAssertableBy;
+}
+
+const ASSERTABLE_BY_USAGE =
+  'assertableBy says who may assert the class: { minReviewerRole?: "standard" | "senior" | "admin", principalKinds?: ["user" | "service", …], principalIds?: [id, …] }, with at least one of them.';
+
+/** `assertableBy`: a restriction, `null` (on an update: lift it), or what's wrong. */
+function parseAssertableBy(raw: unknown): JudgeClassAssertableBy | null | string {
+  if (raw === null) return null;
+  if (typeof raw !== 'object' || Array.isArray(raw)) return ASSERTABLE_BY_USAGE;
+  const b = raw as Record<string, unknown>;
+  const keys = Object.keys(b);
+  const known = ['minReviewerRole', 'principalKinds', 'principalIds'];
+  if (keys.length === 0 || keys.some((k) => !known.includes(k))) return ASSERTABLE_BY_USAGE;
+  const role = b.minReviewerRole;
+  if (role !== undefined && !(typeof role === 'string' && role in REVIEWER_ROLE_RANK)) {
+    return ASSERTABLE_BY_USAGE;
+  }
+  const kinds = b.principalKinds;
+  if (
+    kinds !== undefined &&
+    !(
+      Array.isArray(kinds) &&
+      kinds.length > 0 &&
+      kinds.every((k) => k === 'user' || k === 'service')
+    )
+  ) {
+    return ASSERTABLE_BY_USAGE;
+  }
+  const ids = b.principalIds;
+  if (
+    ids !== undefined &&
+    !(Array.isArray(ids) && ids.length > 0 && ids.length <= 100 && ids.every(nonEmpty))
+  ) {
+    return ASSERTABLE_BY_USAGE;
+  }
+  return {
+    ...(role !== undefined && { minReviewerRole: role as ReviewerRole }),
+    ...(kinds !== undefined && { principalKinds: kinds as ('user' | 'service')[] }),
+    ...(ids !== undefined && { principalIds: ids as string[] }),
+  };
 }
 
 function parseClassBody(raw: unknown): Parsed<ClassBody> {
@@ -587,6 +659,8 @@ function parseClassBody(raw: unknown): Parsed<ClassBody> {
   }
   const scope = parseClassScope(b.scope);
   if (typeof scope === 'string') return err(scope);
+  const assertableBy = b.assertableBy === undefined ? undefined : parseAssertableBy(b.assertableBy);
+  if (typeof assertableBy === 'string') return err(assertableBy);
   return {
     kind: 'ok',
     body: {
@@ -594,6 +668,7 @@ function parseClassBody(raw: unknown): Parsed<ClassBody> {
       name: b.name,
       weight: b.weight,
       ...(typeof b.description === 'string' && { description: b.description }),
+      ...(assertableBy !== undefined && assertableBy !== null && { assertableBy }),
     },
   };
 }
@@ -736,6 +811,7 @@ function serializeJudgeClass(k: JudgeClass): Record<string, unknown> {
     name: k.name,
     weight: k.weight,
     ...(k.description !== undefined && { description: k.description }),
+    ...(k.assertableBy !== undefined && { assertableBy: k.assertableBy }),
     createdAt: k.createdAt,
     updatedAt: k.updatedAt,
     ...(k.unregisteredAt !== undefined && { unregisteredAt: k.unregisteredAt }),

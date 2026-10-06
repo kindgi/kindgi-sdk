@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { REVIEWER_ROLE_RANK, type ReviewerRole } from '@kindgi/authz';
 import type { Cursor, ListScope, ProjectId, TenantId } from '@kindgi/types';
 
 /**
@@ -77,6 +78,53 @@ export type JudgeClassScope =
 export const JUDGE_CLASS_SCOPE_KINDS = ['tenant', 'project', 'agent'] as const;
 export type JudgeClassScopeKind = (typeof JUDGE_CLASS_SCOPE_KINDS)[number];
 
+/**
+ * Who may assert a judge class (T200): every part that's set must hold.
+ * Absent: anyone who may judge the run may assert the class, as before.
+ * A class with one is *restricted*; a comparison weighted
+ * `restricted-only` counts only judgments of restricted classes.
+ */
+export interface JudgeClassAssertableBy {
+  /** The caller's reviewer role is at least this (its token's, or the roster's). */
+  readonly minReviewerRole?: ReviewerRole;
+  /** Users, service tokens, or both. */
+  readonly principalKinds?: readonly ('user' | 'service')[];
+  /** Only these principals: user ids, or service token ids. */
+  readonly principalIds?: readonly string[];
+}
+
+/** Who asserts a judgment, as `JudgeClassAssertableBy` checks it. */
+export interface JudgeClassAsserter {
+  readonly kind: 'user' | 'service';
+  readonly id: string;
+  /** The caller's reviewer role; absent for a caller who isn't a reviewer. */
+  readonly reviewerRole?: ReviewerRole;
+}
+
+/** Why `asserter` may not assert a class with `assertableBy`, or `undefined` when they may. */
+export function whyNotAssertable(
+  assertableBy: JudgeClassAssertableBy,
+  asserter: JudgeClassAsserter,
+): string | undefined {
+  if (
+    assertableBy.principalKinds !== undefined &&
+    !assertableBy.principalKinds.includes(asserter.kind)
+  ) {
+    return `only ${assertableBy.principalKinds.map((k) => (k === 'user' ? 'users' : 'service tokens')).join(' and ')} may assert it`;
+  }
+  if (assertableBy.principalIds !== undefined && !assertableBy.principalIds.includes(asserter.id)) {
+    return "it's restricted to named people or tokens, and you aren't one of them";
+  }
+  if (assertableBy.minReviewerRole !== undefined) {
+    const need = assertableBy.minReviewerRole;
+    const role = asserter.reviewerRole;
+    if (role === undefined || REVIEWER_ROLE_RANK[role] < REVIEWER_ROLE_RANK[need]) {
+      return `it needs a ${need} reviewer or above${role === undefined ? ", and you aren't a reviewer" : `; you're a ${role} reviewer`}`;
+    }
+  }
+  return undefined;
+}
+
 export interface JudgeClass {
   readonly id: string;
   readonly tenantId: TenantId;
@@ -86,6 +134,8 @@ export interface JudgeClass {
   /** How much a judgment of this class counts (≥ 0); an unclassified judgment counts 1. */
   readonly weight: number;
   readonly description?: string;
+  /** Who may assert it; absent: anyone who may judge the run (T200). */
+  readonly assertableBy?: JudgeClassAssertableBy;
   readonly createdAt: string;
   readonly updatedAt: string;
   /** Set when the class was retired. */
@@ -98,6 +148,7 @@ export interface JudgeClassCreateInput {
   readonly name: string;
   readonly weight: number;
   readonly description?: string;
+  readonly assertableBy?: JudgeClassAssertableBy;
 }
 
 export type JudgeClassCreateOutcome =
@@ -128,6 +179,8 @@ export interface JudgeClassUpdateInput {
   readonly judgeClassId: string;
   readonly weight?: number;
   readonly description?: string;
+  /** Who may assert it; `null` lifts the restriction. Absent: unchanged. */
+  readonly assertableBy?: JudgeClassAssertableBy | null;
 }
 
 /** Whether a class's scope covers a run in `projectId` whose subject is `subject`. */

@@ -2426,6 +2426,19 @@ export type JudgeClassScope =
   | { readonly kind: 'project'; readonly projectId: string }
   | { readonly kind: 'agent'; readonly projectId: string; readonly agentId: string };
 
+/**
+ * Who may assert a judge class. Each field narrows it; a caller must meet
+ * all that are set. Matches `@kindgi/api/openapi.json#JudgeClassAssertableBy`.
+ */
+export interface JudgeClassAssertableBy {
+  /** The lowest reviewer role that may assert it: `standard`, `senior` or `admin`. */
+  readonly minReviewerRole?: 'standard' | 'senior' | 'admin';
+  /** People (`user`), service tokens (`service`), or both. */
+  readonly principalKinds?: readonly ('user' | 'service')[];
+  /** Only these user or token ids. */
+  readonly principalIds?: readonly string[];
+}
+
 /** Matches `@kindgi/api/openapi.json#JudgeClass`. */
 export interface JudgeClass {
   readonly id: string;
@@ -2436,6 +2449,8 @@ export interface JudgeClass {
   /** How much a judgment of this class counts, relative to the others (≥ 0). */
   readonly weight: number;
   readonly description?: string;
+  /** Who may assert it; absent: anyone who may judge the run. */
+  readonly assertableBy?: JudgeClassAssertableBy;
   readonly createdAt: import('@kindgi/types').Timestamp;
   readonly updatedAt: import('@kindgi/types').Timestamp;
   /** Set when the class was retired. */
@@ -2448,12 +2463,15 @@ export interface CreateJudgeClassInput {
   readonly name: string;
   readonly weight: number;
   readonly description?: string;
+  readonly assertableBy?: JudgeClassAssertableBy;
 }
 
 /** Input for `PATCH /v1/judge-classes/{judgeClassId}` per `#UpdateJudgeClassBody`. */
 export interface UpdateJudgeClassInput {
   readonly weight?: number;
   readonly description?: string;
+  /** A new restriction; `null` lifts it. */
+  readonly assertableBy?: JudgeClassAssertableBy | null;
 }
 
 /** What a judged run ran: an agent at a version, or a flow at a version. */

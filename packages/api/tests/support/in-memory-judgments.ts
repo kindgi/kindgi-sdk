@@ -45,6 +45,7 @@ export function inMemoryJudgments(): JudgmentRegistryBinding {
         name: input.name,
         weight: input.weight,
         ...(input.description !== undefined && { description: input.description }),
+        ...(input.assertableBy !== undefined && { assertableBy: input.assertableBy }),
         createdAt: at,
         updatedAt: at,
       };
@@ -69,10 +70,14 @@ export function inMemoryJudgments(): JudgmentRegistryBinding {
       );
       const current = classes[i];
       if (current === undefined) return null;
+      const { assertableBy: _was, ...rest } = current;
+      const assertableBy =
+        input.assertableBy === undefined ? current.assertableBy : (input.assertableBy ?? undefined);
       const next: JudgeClass = {
-        ...current,
+        ...rest,
         ...(input.weight !== undefined && { weight: input.weight }),
         ...(input.description !== undefined && { description: input.description }),
+        ...(assertableBy !== undefined && { assertableBy }),
         updatedAt: now(),
       };
       classes[i] = next;

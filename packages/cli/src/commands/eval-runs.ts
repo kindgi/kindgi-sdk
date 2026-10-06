@@ -12,7 +12,20 @@ const STATUSES = ['pending', 'running', 'completed', 'failed', 'cancelled'] as c
 type Status = (typeof STATUSES)[number];
 
 const READS = ['recorded', 'live'] as const;
-type Reads = (typeof READS)[number];
+const CLASS_WEIGHTS = ['as-recorded', 'restricted-only'] as const;
+
+/** A flag that takes one of `values`; `undefined` when absent. */
+function oneOfFlag<T extends string>(
+  ctx: CommandContext,
+  name: string,
+  values: readonly T[],
+): T | undefined {
+  const raw = stringFlag(ctx, name);
+  if (raw !== undefined && !(values as readonly string[]).includes(raw)) {
+    throw new Error(`--${name} must be one of ${values.join(', ')}, got "${raw}"`);
+  }
+  return raw as T | undefined;
+}
 
 /** Statuses `start --wait` waits through. */
 const IN_PROGRESS: ReadonlySet<string> = new Set(['pending', 'running']);
@@ -182,7 +195,7 @@ const start: LeafCommand = {
   description:
     "Start an eval run. On a test set (a `judged` suite), the run compares a version (`--agent` with `--agent-version`, or `--flow` with `--flow-version`) with the recorded runs: each case is replayed without doing anything the past run didn't, and the result's summary has the metrics.",
   usage:
-    'kindgi eval-runs start <suite-id> --project=<id> (--agent=<id> [--agent-version=<v>] | --flow=<id> [--flow-version=<v>] [--with=<id>@<version> ...]) [--baseline=recorded|<agentId>@<version>|live] [--baseline-project=<id>] [--baseline-segment=<key>=<value> ...] [--reads=recorded|live] [--repetitions=<n>] [--k=<n>] [--dry-run] [--wait]',
+    'kindgi eval-runs start <suite-id> --project=<id> (--agent=<id> [--agent-version=<v>] | --flow=<id> [--flow-version=<v>] [--with=<id>@<version> ...]) [--baseline=recorded|<agentId>@<version>|live] [--baseline-project=<id>] [--baseline-segment=<key>=<value> ...] [--reads=recorded|live] [--repetitions=<n>] [--k=<n>] [--class-weights=as-recorded|restricted-only] [--dry-run] [--wait]',
   optionSpec: {
     project: { type: 'string', description: 'The project the run belongs to. Required.' },
     agent: { type: 'string', description: 'Run this agent.' },
@@ -230,6 +243,11 @@ const start: LeafCommand = {
       type: 'string',
       description: 'How many ranked items weighted precision@k looks at (1 to 100, default 10).',
     },
+    'class-weights': {
+      type: 'string',
+      description:
+        "Which judgments count: `as-recorded` (the default: each at its judge class's weight) or `restricted-only` (only judgments of classes restricted to some judges; a gate policy with `onlyRestrictedClasses` needs it).",
+    },
     'dry-run': { type: 'boolean', description: 'Check the request without running anything.' },
     wait: {
       type: 'boolean',
@@ -242,10 +260,8 @@ const start: LeafCommand = {
       const projectId = stringFlag(ctx, 'project');
       if (projectId === undefined) throw new Error('--project=<id> is required');
       const target = targetFrom(ctx);
-      const reads = stringFlag(ctx, 'reads');
-      if (reads !== undefined && !(READS as readonly string[]).includes(reads)) {
-        throw new Error(`--reads must be one of ${READS.join(', ')}, got "${reads}"`);
-      }
+      const reads = oneOfFlag(ctx, 'reads', READS);
+      const classWeights = oneOfFlag(ctx, 'class-weights', CLASS_WEIGHTS);
       const baseline = baselineFrom(ctx);
       const repetitions = integerFlag(ctx, 'repetitions');
       const k = integerFlag(ctx, 'k');
@@ -254,9 +270,10 @@ const start: LeafCommand = {
         ...target,
         ...(versions !== undefined && { versions }),
         ...(baseline !== undefined && { baseline }),
-        ...(reads !== undefined && { reads: reads as Reads }),
+        ...(reads !== undefined && { reads }),
         ...(repetitions !== undefined && { repetitions }),
         ...(k !== undefined && { k }),
+        ...(classWeights !== undefined && { classWeights }),
         ...(ctx.options['dry-run'] === true && { dryRun: true }),
       };
       const evalRuns = ctx.client().evalRuns;

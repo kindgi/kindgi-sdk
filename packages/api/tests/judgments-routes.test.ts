@@ -18,7 +18,7 @@ import { createStubAppBindings } from '@kindgi/testing';
 
 import { createApp } from '../src/index.js';
 import type { JudgmentRegistryBinding, RunHandlerBinding, TokenResolver } from '../src/index.js';
-import { judgeClassApplies } from '../src/index.js';
+import { judgeClassApplies, whyNotAssertable } from '../src/index.js';
 import { inMemoryJudgments } from './support/in-memory-judgments.js';
 
 const tenantId = randomUUID() as TenantId;
@@ -26,10 +26,14 @@ const projectA = randomUUID() as ProjectId;
 const projectB = randomUUID() as ProjectId;
 const USER_TOKEN = 'judgments-user-token';
 const KEY_TOKEN = 'judgments-key-token';
+const SENIOR_TOKEN = 'judgments-senior-token';
 
 const resolveToken: TokenResolver = async (token) => {
   if (token === USER_TOKEN) return { tenantId, userId: 'user-1' as UserId };
   if (token === KEY_TOKEN) return { tenantId, tokenId: 'key-1' as never };
+  if (token === SENIOR_TOKEN) {
+    return { tenantId, userId: 'user-2' as UserId, reviewerRole: 'senior' };
+  }
   return null;
 };
 
@@ -675,6 +679,90 @@ describe('/v1/judge-classes', () => {
   });
 });
 
+describe('restricted judge classes (assertableBy, T200)', () => {
+  async function restrictedClass(h: Harness, assertableBy: unknown): Promise<string> {
+    const res = await h.call('POST', '/v1/judge-classes', {
+      scope: { kind: 'tenant' },
+      name: 'arbiter',
+      weight: 5,
+      assertableBy,
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.assertableBy).toEqual(assertableBy);
+    return res.body.id as string;
+  }
+
+  const judge = (h: Harness, runId: string, judgeClassId: string, token?: string) =>
+    h.call(
+      'POST',
+      '/v1/judgments',
+      { runId, item: { key: 'c1' }, verdict: 'yes', judgeClassId },
+      token,
+    );
+
+  test('a class that needs a senior reviewer: refused for a non-reviewer, recorded for a senior one', async () => {
+    const run = row();
+    const h = harness([run]);
+    const classId = await restrictedClass(h, { minReviewerRole: 'senior' });
+    const refused = await judge(h, run.runId, classId);
+    expect(refused.status).toBe(403);
+    expect(refused.body.error).toMatchObject({ code: 'judge-class-not-allowed' });
+    expect(refused.body.error.message).toBe(
+      'You can\'t judge as "arbiter": it needs a senior reviewer or above, and you aren\'t a reviewer.',
+    );
+    expect((await judge(h, run.runId, classId, SENIOR_TOKEN)).status).toBe(201);
+  });
+
+  test('principal kinds and ids', async () => {
+    const run = row();
+    const h = harness([run]);
+    const usersOnly = await restrictedClass(h, { principalKinds: ['user'] });
+    expect((await judge(h, run.runId, usersOnly, KEY_TOKEN)).status).toBe(403);
+    expect((await judge(h, run.runId, usersOnly)).status).toBe(201);
+    const named = await h.call('POST', '/v1/judge-classes', {
+      scope: { kind: 'tenant' },
+      name: 'named',
+      weight: 1,
+      assertableBy: { principalIds: ['user-2'] },
+    });
+    expect((await judge(h, run.runId, named.body.id)).status).toBe(403);
+    expect((await judge(h, run.runId, named.body.id, SENIOR_TOKEN)).status).toBe(201);
+  });
+
+  test('PATCH sets the restriction, and null lifts it', async () => {
+    const run = row();
+    const h = harness([run]);
+    const classId = await tenantClass(h);
+    const set = await h.call('PATCH', `/v1/judge-classes/${classId}`, {
+      assertableBy: { minReviewerRole: 'admin' },
+    });
+    expect(set.body.assertableBy).toEqual({ minReviewerRole: 'admin' });
+    expect((await judge(h, run.runId, classId, SENIOR_TOKEN)).status).toBe(403);
+    const lifted = await h.call('PATCH', `/v1/judge-classes/${classId}`, { assertableBy: null });
+    expect(lifted.status).toBe(200);
+    expect(lifted.body).not.toHaveProperty('assertableBy');
+    expect((await judge(h, run.runId, classId)).status).toBe(201);
+  });
+
+  test.each([
+    ['an empty restriction', {}],
+    ['an unknown key', { roles: ['senior'] }],
+    ['an unknown role', { minReviewerRole: 'boss' }],
+    ['an unknown principal kind', { principalKinds: ['robot'] }],
+    ['no principal ids', { principalIds: [] }],
+  ])('%s: 400', async (_, assertableBy) => {
+    const h = harness([]);
+    const res = await h.call('POST', '/v1/judge-classes', {
+      scope: { kind: 'tenant' },
+      name: 'x',
+      weight: 1,
+      assertableBy,
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toContain('assertableBy');
+  });
+});
+
 describe('judgeClassApplies', () => {
   const subject = { kind: 'agent', id: 'acme.matcher', version: '1.0.0' } as const;
   test('tenant covers everything; project and agent cover their own', () => {
@@ -688,5 +776,28 @@ describe('judgeClassApplies', () => {
     expect(
       judgeClassApplies({ kind: 'agent', projectId: projectA, agentId: 'acme.other' }, run),
     ).toBe(false);
+  });
+});
+
+describe('whyNotAssertable', () => {
+  const user = { kind: 'user', id: 'user-1' } as const;
+  test('each restriction, and nothing for a caller who meets them all', () => {
+    expect(whyNotAssertable({}, user)).toBeUndefined();
+    expect(whyNotAssertable({ principalKinds: ['service'] }, user)).toBe(
+      'only service tokens may assert it',
+    );
+    expect(whyNotAssertable({ principalIds: ['user-2'] }, user)).toContain("aren't one of them");
+    expect(whyNotAssertable({ minReviewerRole: 'senior' }, user)).toBe(
+      "it needs a senior reviewer or above, and you aren't a reviewer",
+    );
+    expect(
+      whyNotAssertable({ minReviewerRole: 'senior' }, { ...user, reviewerRole: 'standard' }),
+    ).toBe("it needs a senior reviewer or above; you're a standard reviewer");
+    expect(
+      whyNotAssertable(
+        { principalKinds: ['user'], principalIds: ['user-1'], minReviewerRole: 'standard' },
+        { ...user, reviewerRole: 'senior' },
+      ),
+    ).toBeUndefined();
   });
 });
