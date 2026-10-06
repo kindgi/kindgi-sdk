@@ -30,7 +30,6 @@ export const UNWIRED_COMMANDS: ReadonlySet<string> = new Set([
   'agents get',
   'agents unregister',
   'agents versions',
-  'tools publish',
   'runs resume',
 ]);
 

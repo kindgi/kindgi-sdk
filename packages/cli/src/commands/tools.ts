@@ -6,10 +6,11 @@ import type { Page, ToolId } from '@kindgi/types';
 
 import {
   type TableSpec,
+  projectIdFlag,
+  readJsonInput,
   requiredPositional,
   runSdk,
   stringFlag,
-  throwUnwired,
   truncateCell,
 } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
@@ -77,15 +78,28 @@ const get: LeafCommand = {
 const publish: LeafCommand = {
   kind: 'leaf',
   name: 'publish',
-  description: 'Publish a tool manifest at a specific version.',
-  usage: 'kindgi tools publish --manifest=<json-or-@file>',
+  description:
+    'Register a tool manifest at its version: the tool minus its handler, which the runtime must already have.',
+  usage: 'kindgi tools publish --manifest=<json-or-@file> [--project=<project-id>]',
   optionSpec: {
     manifest: {
       type: 'string',
       description: 'The tool manifest as JSON, or `@<file>` to read it from a file. Required.',
     },
+    project: {
+      type: 'string',
+      description:
+        "The project to register the tool in, by id (default: the tenant's Default project).",
+    },
   },
-  run: (ctx) => runSdk(ctx, 'tools publish', async () => throwUnwired('tools.publish')),
+  run: (ctx) =>
+    runSdk(ctx, 'tools publish', async () => {
+      const manifestText = stringFlag(ctx, 'manifest');
+      if (manifestText === undefined) throw new Error('--manifest=<json-or-@file> is required');
+      const manifest = (await readJsonInput(manifestText)) as Tool;
+      const projectId = await projectIdFlag(ctx);
+      return await ctx.client().tools.register(manifest, { projectId });
+    }),
 };
 
 const unregister: LeafCommand = {

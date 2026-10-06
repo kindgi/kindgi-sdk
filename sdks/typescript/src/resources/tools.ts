@@ -47,6 +47,22 @@ export interface ToolsClient {
   get(id: ToolId): Promise<Tool>;
 
   /**
+   * Register a tool manifest (the tool minus its handler) at its version,
+   * in a project. Metadata only: the handler isn't uploaded, and must
+   * already be available to the runtime. Registering a version again is
+   * `409 tool-already-registered`; a registry that takes no writes
+   * (under `kindgi dev`, the pack's files are the source) is
+   * `409 registry-read-only`.
+   *
+   * @wire `POST /v1/tools` — see
+   *   `@kindgi/api/openapi.json#/paths/~1v1~1tools/post`.
+   */
+  register(
+    manifest: Tool,
+    options: { readonly projectId: string; readonly idempotencyKey?: string },
+  ): Promise<{ readonly toolId: ToolId }>;
+
+  /**
    * Cursor-paginated list of tool versions. Defaults to active-only.
    * Pass `filter.includeTombstoned = true` to include soft-tombstoned
    * versions alongside active ones — tombstoned rows carry an
@@ -201,6 +217,18 @@ export function makeToolsClient(transport: Transport): ToolsClient {
         items: page.data,
         ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as Cursor }),
       };
+    },
+
+    async register(manifest, options) {
+      const result = await transport.request<{ readonly toolId: string }>({
+        method: 'POST',
+        path: '/v1/tools',
+        body: { ...manifest, projectId: options.projectId },
+        ...(options.idempotencyKey !== undefined && {
+          idempotencyKey: options.idempotencyKey,
+        }),
+      });
+      return { toolId: result.toolId as unknown as ToolId };
     },
 
     async getVersion(id, version) {

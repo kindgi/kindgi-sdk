@@ -748,7 +748,7 @@ Inside a pack that `kindgi dev` runs, they find it on their own (see
 | `projects` | `list`, `get-default`, `get <project-id>`: the ids the `--project=<id>` flags take |
 | `runs` | `list`, `get`, `cancel`, `journal`, `stream` (one JSON event per line), `start`, `resume` |
 | `agents` | `publish` |
-| `tools` | `list`, `get`, `unregister`, `versions`, `get-version`, `reinstate` |
+| `tools` | `list`, `get`, `publish`, `unregister`, `versions`, `get-version`, `reinstate` |
 | `guardrails` | `list`, `get`, `register`, `unregister` |
 | `providers` | `list`, `get`, `register`, `presets`, `unregister` |
 | `adapters` | `prepare` |
