@@ -122,7 +122,7 @@ describe('kindgi eval-runs start', () => {
       ],
       {
         evalRuns: { start: rec('start', { runId: 'er-1' }) },
-        flows: { getVersion: rec('getVersion', flow) },
+        flows: { versions: { get: rec('getVersion', flow) } },
       },
     );
     expect(out.exitCode, out.stderr).toBe(0);
@@ -180,7 +180,7 @@ describe('kindgi eval-runs start', () => {
       const { calls, rec } = recorder();
       const out = await run(['eval-runs', 'start', 'acme.matches', '--project=p-1', ...flags], {
         evalRuns: { start: rec('start', { runId: 'er-1' }) },
-        flows: { getVersion: rec('getVersion', flow) },
+        flows: { versions: { get: rec('getVersion', flow) } },
       });
       expect(out.exitCode).not.toBe(0);
       expect(out.stderr).toContain(message);

@@ -32,7 +32,7 @@ import re
 import subprocess
 import sys
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -140,6 +140,14 @@ def hoist(doc: dict[str, Any], schema: dict[str, Any], name: str) -> str:
     return name
 
 
+# More Python names for an operation, generated beside its own: the name
+# the other resources use for the same call, so the client's names line
+# up (`eval_suites.unregister`, as `agents.unregister`).
+ALIASES: dict[str, tuple[str, ...]] = {
+    "evalSuites.versions.unregister": ("evalSuites.unregister",),
+}
+
+
 def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]:
     doc = copy.deepcopy(source)
     ops: list[Operation] = []
@@ -215,6 +223,7 @@ def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]
                     status=status,
                 )
             )
+    ops += [replace(op, id=alias) for op in list(ops) for alias in ALIASES.get(op.id, ())]
     return doc, ops
 
 

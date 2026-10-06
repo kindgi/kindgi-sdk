@@ -46,51 +46,20 @@ export interface ToolsClient {
    */
   get(id: ToolId): Promise<Tool>;
 
-  /**
-   * Cursor-paginated list of tool versions. Defaults to active-only.
-   * Pass `filter.includeTombstoned = true` to include soft-tombstoned
-   * versions alongside active ones — tombstoned rows carry an
-   * `unregisteredAt` ISO timestamp; active rows do not.
-   *
-   * @wire `GET /v1/tools/{toolId}/versions`
-   */
+  /** A tool's versions: list, get, unregister and reinstate. */
+  readonly versions: ToolVersionsClient;
+
+  /** @deprecated Use `tools.versions.list`; removed in 0.2. */
   listVersions(id: ToolId, filter?: ToolVersionFilter): Promise<Page<ToolVersionRow>>;
-
-  /**
-   * Fetch a specific tool version by exact semver. Returns
-   * `404 tool-not-found` when the (id, version) pair isn't registered
-   * under this tenant.
-   *
-   * @wire `GET /v1/tools/{toolId}/versions/{version}`
-   */
+  /** @deprecated Use `tools.versions.get`; removed in 0.2. */
   getVersion(id: ToolId, version: string): Promise<Tool>;
-
-  /**
-   * Un-tombstone a specific previously-unregistered version.
-   * Restores the manifest bytes verbatim (semver hygiene: reinstate
-   * never mutates). Recomputes the tool's latest active version.
-   * Idempotent — reinstating an active version
-   * returns `wasTombstoned: false`.
-   *
-   * Reinstating any version of a fully-retired tool reactivates the
-   * identity. Publish always works too — this verb is for restoring
-   * previously-published bytes; a fresh publish is the way to bring
-   * a tool back with new bytes.
-   *
-   * @wire `POST /v1/tools/{toolId}/versions/{version}/reinstate`
-   */
+  /** @deprecated Use `tools.versions.reinstate`; removed in 0.2. */
   reinstateVersion(
     id: ToolId,
     version: string,
     options?: { readonly idempotencyKey?: string },
   ): Promise<ReinstateToolVersionResult>;
-
-  /**
-   * Tombstone a specific version. Reversible via `reinstateVersion`.
-   * Idempotent — repeat call returns `unregistered: false`.
-   *
-   * @wire `POST /v1/tools/{toolId}/versions/{version}/unregister`
-   */
+  /** @deprecated Use `tools.versions.unregister`; removed in 0.2. */
   unregisterVersion(
     id: ToolId,
     version: string,
@@ -108,6 +77,56 @@ export interface ToolsClient {
    *   the manifest; use `list`.
    */
   manifests(filter?: ToolFilter): Promise<never>;
+}
+
+export interface ToolVersionsClient {
+  /**
+   * Cursor-paginated list of tool versions. Defaults to active-only.
+   * Pass `filter.includeTombstoned = true` to include soft-tombstoned
+   * versions alongside active ones — tombstoned rows carry an
+   * `unregisteredAt` ISO timestamp; active rows do not.
+   *
+   * @wire `GET /v1/tools/{toolId}/versions`
+   */
+  list(id: ToolId, filter?: ToolVersionFilter): Promise<Page<ToolVersionRow>>;
+  /**
+   * Fetch a specific tool version by exact semver. Returns
+   * `404 tool-not-found` when the (id, version) pair isn't registered
+   * under this tenant.
+   *
+   * @wire `GET /v1/tools/{toolId}/versions/{version}`
+   */
+  get(id: ToolId, version: string): Promise<Tool>;
+  /**
+   * Tombstone a specific version. Reversible via `tools.versions.reinstate`.
+   * Idempotent — repeat call returns `unregistered: false`.
+   *
+   * @wire `POST /v1/tools/{toolId}/versions/{version}/unregister`
+   */
+  unregister(
+    id: ToolId,
+    version: string,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<UnregisterToolVersionResult>;
+  /**
+   * Un-tombstone a specific previously-unregistered version.
+   * Restores the manifest bytes verbatim (semver hygiene: reinstate
+   * never mutates). Recomputes the tool's latest active version.
+   * Idempotent — reinstating an active version
+   * returns `wasTombstoned: false`.
+   *
+   * Reinstating any version of a fully-retired tool reactivates the
+   * identity. Publish always works too — this verb is for restoring
+   * previously-published bytes; a fresh publish is the way to bring
+   * a tool back with new bytes.
+   *
+   * @wire `POST /v1/tools/{toolId}/versions/{version}/reinstate`
+   */
+  reinstate(
+    id: ToolId,
+    version: string,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<ReinstateToolVersionResult>;
 }
 
 export interface ToolFilter {
@@ -163,6 +182,64 @@ interface ReinstateToolVersionWire {
 }
 
 export function makeToolsClient(transport: Transport): ToolsClient {
+  const versions: ToolVersionsClient = {
+    async list(id, filter) {
+      const page = await transport.request<WirePage<ToolVersionRow>>({
+        method: 'GET',
+        path: `/v1/tools/${encodeURIComponent(id as unknown as string)}/versions`,
+        query: {
+          ...(filter?.limit !== undefined && { limit: filter.limit }),
+          ...(filter?.cursor !== undefined && { cursor: filter.cursor as unknown as string }),
+          ...(filter?.includeTombstoned === true && { includeTombstoned: 'true' }),
+        },
+      });
+      return {
+        items: page.data,
+        ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as Cursor }),
+      };
+    },
+
+    async get(id, version) {
+      return transport.request<Tool>({
+        method: 'GET',
+        path: `/v1/tools/${encodeURIComponent(id as unknown as string)}/versions/${encodeURIComponent(version)}`,
+      });
+    },
+
+    async reinstate(id, version, options) {
+      const wire = await transport.request<ReinstateToolVersionWire>({
+        method: 'POST',
+        path: `/v1/tools/${encodeURIComponent(id as unknown as string)}/versions/${encodeURIComponent(version)}/reinstate`,
+        ...(options?.idempotencyKey !== undefined && {
+          idempotencyKey: options.idempotencyKey,
+        }),
+      });
+      return {
+        toolId: wire.toolId as unknown as ToolId,
+        version: wire.version,
+        wasTombstoned: wire.wasTombstoned,
+      };
+    },
+
+    async unregister(id, version, options) {
+      const wire = await transport.request<{
+        readonly toolId: string;
+        readonly version: string;
+        readonly unregistered: boolean;
+      }>({
+        method: 'POST',
+        path: `/v1/tools/${encodeURIComponent(id as unknown as string)}/versions/${encodeURIComponent(version)}/unregister`,
+        ...(options?.idempotencyKey !== undefined && {
+          idempotencyKey: options.idempotencyKey,
+        }),
+      });
+      return {
+        toolId: wire.toolId as unknown as ToolId,
+        version: wire.version,
+        unregistered: wire.unregistered,
+      };
+    },
+  };
   return {
     async list(filter) {
       const page = await transport.request<WirePage<Tool>>({
@@ -187,62 +264,11 @@ export function makeToolsClient(transport: Transport): ToolsClient {
       });
     },
 
-    async listVersions(id, filter) {
-      const page = await transport.request<WirePage<ToolVersionRow>>({
-        method: 'GET',
-        path: `/v1/tools/${encodeURIComponent(id as unknown as string)}/versions`,
-        query: {
-          ...(filter?.limit !== undefined && { limit: filter.limit }),
-          ...(filter?.cursor !== undefined && { cursor: filter.cursor as unknown as string }),
-          ...(filter?.includeTombstoned === true && { includeTombstoned: 'true' }),
-        },
-      });
-      return {
-        items: page.data,
-        ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as Cursor }),
-      };
-    },
-
-    async getVersion(id, version) {
-      return transport.request<Tool>({
-        method: 'GET',
-        path: `/v1/tools/${encodeURIComponent(id as unknown as string)}/versions/${encodeURIComponent(version)}`,
-      });
-    },
-
-    async reinstateVersion(id, version, options) {
-      const wire = await transport.request<ReinstateToolVersionWire>({
-        method: 'POST',
-        path: `/v1/tools/${encodeURIComponent(id as unknown as string)}/versions/${encodeURIComponent(version)}/reinstate`,
-        ...(options?.idempotencyKey !== undefined && {
-          idempotencyKey: options.idempotencyKey,
-        }),
-      });
-      return {
-        toolId: wire.toolId as unknown as ToolId,
-        version: wire.version,
-        wasTombstoned: wire.wasTombstoned,
-      };
-    },
-
-    async unregisterVersion(id, version, options) {
-      const wire = await transport.request<{
-        readonly toolId: string;
-        readonly version: string;
-        readonly unregistered: boolean;
-      }>({
-        method: 'POST',
-        path: `/v1/tools/${encodeURIComponent(id as unknown as string)}/versions/${encodeURIComponent(version)}/unregister`,
-        ...(options?.idempotencyKey !== undefined && {
-          idempotencyKey: options.idempotencyKey,
-        }),
-      });
-      return {
-        toolId: wire.toolId as unknown as ToolId,
-        version: wire.version,
-        unregistered: wire.unregistered,
-      };
-    },
+    versions,
+    listVersions: (id, filter) => versions.list(id, filter),
+    getVersion: (id, version) => versions.get(id, version),
+    reinstateVersion: (id, version, options) => versions.reinstate(id, version, options),
+    unregisterVersion: (id, version, options) => versions.unregister(id, version, options),
 
     async invoke(_id, _input) {
       throw new KindgiApiError(

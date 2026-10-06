@@ -66,48 +66,74 @@ export interface FlowsClient {
   list(filter?: FlowFilter): Promise<Page<Flow>>;
 
   /**
+   * A flow's versions: list, get, unregister and reinstate. Calling it
+   * directly lists them (deprecated: use `flows.versions.list`).
+   */
+  readonly versions: FlowVersionsClient;
+  /** @deprecated Use `flows.versions.get`; removed in 0.2. */
+  getVersion(id: FlowId, version: string): Promise<Flow>;
+  /** @deprecated Use `flows.versions.unregister`; removed in 0.2. */
+  delete(
+    id: FlowId,
+    version: string,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<void>;
+  /** @deprecated Use `flows.versions.reinstate`; removed in 0.2. */
+  reinstateVersion(
+    id: FlowId,
+    version: string,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<ReinstateFlowVersionResult>;
+}
+
+export interface FlowVersionsClient {
+  /** @deprecated Use `flows.versions.list`; removed in 0.2. */
+  (id: FlowId, filter?: PageFilter): Promise<Page<Flow>>;
+  /**
    * Historical versions of a flow.id.
    *
    * @wire `GET /v1/flows/{flowId}/versions` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1flows~1{flowId}~1versions/get`.
    */
-  versions(id: FlowId, filter?: PageFilter): Promise<Page<Flow>>;
-
+  list(id: FlowId, filter?: PageFilter): Promise<Page<Flow>>;
   /**
    * Fetch a specific version of a flow.
    *
    * @wire `GET /v1/flows/{flowId}/versions/{version}` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1flows~1{flowId}~1versions~1{version}/get`.
    */
-  getVersion(id: FlowId, version: string): Promise<Flow>;
-
+  get(id: FlowId, version: string): Promise<Flow>;
   /**
    * Unregister a specific version (an explicit version is required —
    * flows are versioned). Historical runs remain in the journal; only
    * future `runs.start` calls against this `(flowId, version)` fail
-   * with `not-found/flow`.
+   * with `not-found/flow`. Reversible via `flows.versions.reinstate`.
    *
    * @wire `POST /v1/flows/{flowId}/versions/{version}/unregister` —
    *   see `@kindgi/api/openapi.json#/paths/~1v1~1flows~1{flowId}~1versions~1{version}~1unregister/post`.
    */
-  delete(
+  unregister(
     id: FlowId,
     version: string,
     options?: { readonly idempotencyKey?: string },
-  ): Promise<void>;
-
+  ): Promise<UnregisterFlowVersionResult>;
   /**
-   * Un-tombstone a previously-unregistered version — the reverse of
-   * `delete`. Idempotent — reinstating an active version returns
-   * `wasTombstoned: false`.
+   * Un-tombstone a previously-unregistered version. Idempotent —
+   * reinstating an active version returns `wasTombstoned: false`.
    *
    * @wire `POST /v1/flows/{flowId}/versions/{version}/reinstate`
    */
-  reinstateVersion(
+  reinstate(
     id: FlowId,
     version: string,
     options?: { readonly idempotencyKey?: string },
   ): Promise<ReinstateFlowVersionResult>;
+}
+
+export interface UnregisterFlowVersionResult {
+  readonly flowId: FlowId;
+  readonly version: string;
+  readonly unregistered: boolean;
 }
 
 export interface ReinstateFlowVersionResult {
@@ -150,6 +176,79 @@ interface PublishFlowWire {
 }
 
 export function makeFlowsClient(transport: Transport): FlowsClient {
+  const list: FlowVersionsClient['list'] = async (id, filter) => {
+    const page = await transport.request<WirePage<Flow>>({
+      method: 'GET',
+      path: `/v1/flows/${encodeURIComponent(id as unknown as string)}/versions`,
+      query: {
+        ...(filter?.limit !== undefined && { limit: filter.limit }),
+        ...(filter?.cursor !== undefined && { cursor: filter.cursor as unknown as string }),
+      },
+    });
+    return {
+      items: page.data,
+      ...(page.nextCursor !== undefined && {
+        nextCursor: page.nextCursor as unknown as Cursor,
+      }),
+    };
+  };
+  const versions: FlowVersionsClient = Object.assign(
+    (id: FlowId, filter?: PageFilter) => list(id, filter),
+    {
+      list,
+      async get(id: FlowId, version: string) {
+        return transport.request<Flow>({
+          method: 'GET',
+          path: `/v1/flows/${encodeURIComponent(id as unknown as string)}/versions/${encodeURIComponent(version)}`,
+        });
+      },
+      async unregister(
+        id: FlowId,
+        version: string,
+        options?: { readonly idempotencyKey?: string },
+      ): Promise<UnregisterFlowVersionResult> {
+        const wire = await transport.request<{
+          readonly flowId: string;
+          readonly version: string;
+          readonly unregistered: boolean;
+        }>({
+          method: 'POST',
+          path: `/v1/flows/${encodeURIComponent(id as unknown as string)}/versions/${encodeURIComponent(version)}/unregister`,
+          body: {},
+          ...(options?.idempotencyKey !== undefined && {
+            idempotencyKey: options.idempotencyKey,
+          }),
+        });
+        return {
+          flowId: wire.flowId as unknown as FlowId,
+          version: wire.version,
+          unregistered: wire.unregistered,
+        };
+      },
+      async reinstate(
+        id: FlowId,
+        version: string,
+        options?: { readonly idempotencyKey?: string },
+      ): Promise<ReinstateFlowVersionResult> {
+        const wire = await transport.request<{
+          readonly flowId: string;
+          readonly version: string;
+          readonly wasTombstoned: boolean;
+        }>({
+          method: 'POST',
+          path: `/v1/flows/${encodeURIComponent(id as unknown as string)}/versions/${encodeURIComponent(version)}/reinstate`,
+          ...(options?.idempotencyKey !== undefined && {
+            idempotencyKey: options.idempotencyKey,
+          }),
+        });
+        return {
+          flowId: wire.flowId as unknown as FlowId,
+          version: wire.version,
+          wasTombstoned: wire.wasTombstoned,
+        };
+      },
+    },
+  );
   return {
     async define(flow, options) {
       const result = await transport.request<PublishFlowWire>({
@@ -200,63 +299,11 @@ export function makeFlowsClient(transport: Transport): FlowsClient {
       };
     },
 
-    async versions(id, filter) {
-      const page = await transport.request<WirePage<Flow>>({
-        method: 'GET',
-        path: `/v1/flows/${encodeURIComponent(id as unknown as string)}/versions`,
-        query: {
-          ...(filter?.limit !== undefined && { limit: filter.limit }),
-          ...(filter?.cursor !== undefined && { cursor: filter.cursor as unknown as string }),
-        },
-      });
-      return {
-        items: page.data,
-        ...(page.nextCursor !== undefined && {
-          nextCursor: page.nextCursor as unknown as Cursor,
-        }),
-      };
-    },
-
-    async getVersion(id, version) {
-      return transport.request<Flow>({
-        method: 'GET',
-        path: `/v1/flows/${encodeURIComponent(id as unknown as string)}/versions/${encodeURIComponent(version)}`,
-      });
-    },
-
+    versions,
+    getVersion: (id, version) => versions.get(id, version),
     async delete(id, version, options) {
-      await transport.request<{
-        readonly flowId: string;
-        readonly version: string;
-        readonly unregistered: true;
-      }>({
-        method: 'POST',
-        path: `/v1/flows/${encodeURIComponent(id as unknown as string)}/versions/${encodeURIComponent(version)}/unregister`,
-        body: {},
-        discardResponse: true,
-        ...(options?.idempotencyKey !== undefined && {
-          idempotencyKey: options.idempotencyKey,
-        }),
-      });
+      await versions.unregister(id, version, options);
     },
-
-    async reinstateVersion(id, version, options) {
-      const wire = await transport.request<{
-        readonly flowId: string;
-        readonly version: string;
-        readonly wasTombstoned: boolean;
-      }>({
-        method: 'POST',
-        path: `/v1/flows/${encodeURIComponent(id as unknown as string)}/versions/${encodeURIComponent(version)}/reinstate`,
-        ...(options?.idempotencyKey !== undefined && {
-          idempotencyKey: options.idempotencyKey,
-        }),
-      });
-      return {
-        flowId: wire.flowId as unknown as FlowId,
-        version: wire.version,
-        wasTombstoned: wire.wasTombstoned,
-      };
-    },
+    reinstateVersion: (id, version, options) => versions.reinstate(id, version, options),
   };
 }

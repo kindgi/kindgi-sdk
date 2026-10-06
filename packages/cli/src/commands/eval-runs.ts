@@ -164,7 +164,7 @@ async function versionsFrom(
     );
   }
   const { flowId, version } = target.flowRef;
-  const flow = await ctx.client().flows.getVersion(flowId as FlowId, version);
+  const flow = await ctx.client().flows.versions.get(flowId as FlowId, version);
   return splitVersions(entries, overridableRefs(flow), `${flowId} ${version}`);
 }
 
