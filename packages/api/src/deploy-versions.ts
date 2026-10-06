@@ -151,7 +151,7 @@ async function registerNextFree<T extends PinnedDefinition>(
 }
 
 /** A definition: everything but its version and what the runtime sets. */
-function definitionKey(definition: PinnedDefinition): string {
+export function definitionKey(definition: PinnedDefinition): string {
   const { version: _v, pins: _p, pinsDigest: _d, derivedFrom: _f, ...rest } = definition;
   return canonicalize(rest);
 }

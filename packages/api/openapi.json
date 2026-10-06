@@ -16271,6 +16271,16 @@
           "agents"
         ],
         "responses": {
+          "200": {
+            "description": "An active version already holds this definition and these pins (the same swap derived before, or a deploy that registered it): that version, unchanged.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Agent"
+                }
+              }
+            }
+          },
           "201": {
             "description": "The derived agent version.",
             "content": {

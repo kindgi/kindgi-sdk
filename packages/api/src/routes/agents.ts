@@ -330,7 +330,7 @@ export function agentsRouter(
           toWireError(
             {
               code: 'validation-failed',
-              message: `Agent "${defined.value.id as unknown as string}" uses tool versions that aren't published (${resolved.issues.length} issue${resolved.issues.length === 1 ? '' : 's'})`,
+              message: `Agent "${defined.value.id as unknown as string}" uses tool or data-block versions it can't pin (${resolved.issues.length} issue${resolved.issues.length === 1 ? '' : 's'})`,
               issues: resolved.issues as unknown as Record<string, unknown>[],
             },
             requestId,
@@ -598,6 +598,8 @@ function derived(
   switch (outcome.kind) {
     case 'ok':
       c.status(201);
+      return c.json(serializeAgent(outcome.agent));
+    case 'reused':
       return c.json(serializeAgent(outcome.agent));
     case 'not-found':
       return fail('agent-not-found', {

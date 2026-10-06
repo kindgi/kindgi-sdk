@@ -184,14 +184,20 @@ export function blocksRouter(binding: BlockRegistryBinding, authorizer?: Authori
       return validationFailed(c, validated.error.message, validated.error.issues);
     const block = validated.value;
 
-    // A block keeps its kind, and a settings block's latest schema holds.
+    // A block keeps its kind. A settings version without a schema keeps
+    // the latest version's (stored on it, so the check carries forward to
+    // every later version); one that gives a schema replaces it.
     const latest = await binding.get({ tenantId, blockId: block.id });
     const continuity = continuityIssues(latest, block);
     if (continuity.length > 0) {
       return validationFailed(c, `Block "${block.id}" can't take this version`, continuity);
     }
 
-    const outcome = await binding.publish({ tenantId, projectId: projectId as ProjectId, block });
+    const outcome = await binding.publish({
+      tenantId,
+      projectId: projectId as ProjectId,
+      block: withCarriedSchema(latest, block),
+    });
     return published(c, outcome);
   });
 
@@ -243,7 +249,11 @@ function isBlockKind(value: string): value is BlockKind {
   return (BLOCK_KINDS as readonly string[]).includes(value);
 }
 
-/** A new version against the block's latest: same kind, and a settings block's schema holds. */
+/**
+ * A new version against the block's latest: the same kind, and a
+ * settings version without a schema of its own satisfies the schema it
+ * keeps (`carriedSchema`).
+ */
 function continuityIssues(
   latest: BlockRecord | null,
   block: BlockDefinition,
@@ -257,17 +267,32 @@ function continuityIssues(
       },
     ];
   }
-  if (
-    latest.kind === 'settings' &&
-    block.kind === 'settings' &&
-    latest.content.schema !== undefined
-  ) {
-    return settingsSchemaIssues(block.content.values, latest.content.schema).map((i) => ({
-      ...i,
-      message: `${i.message} (the schema of version ${latest.version})`,
-    }));
-  }
-  return [];
+  const carried = carriedSchema(latest, block);
+  if (block.kind !== 'settings' || carried === undefined) return [];
+  return settingsSchemaIssues(block.content.values, carried).map((i) => ({
+    ...i,
+    message: `${i.message} (the schema of version ${latest.version})`,
+  }));
+}
+
+/**
+ * The schema a settings version that gives none keeps: the latest
+ * version's. A version that gives a schema replaces it (`{}` drops the
+ * check on purpose).
+ */
+function carriedSchema(
+  latest: BlockRecord | null,
+  block: BlockDefinition,
+): Readonly<Record<string, unknown>> | undefined {
+  if (latest?.kind !== 'settings' || block.kind !== 'settings') return undefined;
+  return block.content.schema === undefined ? latest.content.schema : undefined;
+}
+
+/** The version as stored: with the schema it keeps, if any. */
+function withCarriedSchema(latest: BlockRecord | null, block: BlockDefinition): BlockDefinition {
+  const schema = carriedSchema(latest, block);
+  if (schema === undefined || block.kind !== 'settings') return block;
+  return { ...block, content: { ...block.content, schema } };
 }
 
 /** The response to a publish outcome. */

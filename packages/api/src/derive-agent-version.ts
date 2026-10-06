@@ -16,6 +16,7 @@ import type { ProjectId, Semver, TenantId } from '@kindgi/types';
 import type { AgentRegistryBinding, AgentVersionRecord } from './agent-binding.js';
 import { activeAgentVersions } from './agent-pins.js';
 import type { BlockRegistryBinding } from './block-binding.js';
+import { definitionKey } from './deploy-versions.js';
 
 /** Which data-block pins to swap, by kind then block id → exact version. */
 export interface PinSwaps {
@@ -48,6 +49,8 @@ export interface SwapIssue {
 
 export type DeriveAgentVersionOutcome =
   | { readonly kind: 'ok'; readonly agent: Agent }
+  /** An active version already has this definition and these pins: that one, unchanged. */
+  | { readonly kind: 'reused'; readonly agent: Agent }
   | { readonly kind: 'not-found' }
   | { readonly kind: 'unpinned' }
   | { readonly kind: 'invalid'; readonly issues: readonly SwapIssue[] }
@@ -63,7 +66,10 @@ const MAX_TRIES = 100;
  * reaching an agent without a code change. The new version is the old
  * one's bag with those pins swapped (`derivedFrom: { version, reason:
  * 'edited', label, by }`), numbered the next free patch after the
- * agent's highest version (versions never change).
+ * agent's highest version (versions never change). If an active version
+ * already holds that definition and those pins (the same swap derived
+ * before, or a deploy that registered it), that version is returned
+ * unchanged (`reused`) rather than a duplicate.
  *
  * Only data-block pins swap: a swap must name a block the version
  * already references (adding one is a code change), at a published,
@@ -114,6 +120,11 @@ async function publishNextFree(
 ): Promise<DeriveAgentVersionOutcome> {
   const { agents, tenantId, agentId } = input;
   const active = await activeAgentVersions(agents, tenantId, agentId);
+  // The same swap again (or a deploy that registered it) finds the
+  // version that already holds it: versions are never duplicated.
+  const key = definitionKey(derived);
+  const same = active.find((a) => a.pinsDigest === derived.pinsDigest && definitionKey(a) === key);
+  if (same !== undefined) return { kind: 'reused', agent: same };
   const highest =
     latestVersion(active.map((a) => a.version as unknown as string)) ??
     (derived.version as unknown as string);
