@@ -177,6 +177,16 @@ Under kindgi dev, the pack is the source of agents: change the agent in the pack
   Agent "acme.greeter@1.0.0" is unregistered; reinstate it or run another version.
   ```
 
+- **A version live somewhere can't be unregistered.** Roll back, unpin or
+  promote another version in each scope where it's live first (see
+  [Release an agent version](../../evals/release-an-agent-version/#roll-back-or-unpin));
+  until then it's refused with `409 agent-version-live`, naming the scopes
+  in `details.scopes`:
+
+  ```text
+  acme.order-desk 1.0.0 is live in a scope: roll back, unpin, or promote another version there first, then unregister it.
+  ```
+
 - **What pins it keeps running:** an agent version pinned to an unregistered
   tool version, or a flow whose step names an unregistered agent version,
   runs as before.
