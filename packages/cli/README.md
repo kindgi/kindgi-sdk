@@ -746,6 +746,7 @@ Inside a pack that `kindgi dev` runs, they find it on their own (see
 | Command | Subcommands |
 |---|---|
 | `projects` | `list`, `get-default`, `get <project-id>`: the ids the `--project=<id>` flags take |
+| `conversations` | `list`, `get`, `open <agent-id> <version>`, `close`, `messages` |
 | `runs` | `list`, `get`, `cancel`, `journal`, `stream` (one JSON event per line), `start`, `resume` |
 | `agents` | `publish` |
 | `tools` | `list`, `get`, `unregister`, `versions`, `get-version`, `reinstate` |
@@ -758,8 +759,11 @@ Inside a pack that `kindgi dev` runs, they find it on their own (see
 | `version` | The CLI's and SDK's versions, and the API's when it's reachable |
 
 `kindgi runs start` starts a run for an agent (`--agent=<id>`) or a flow
-(`--flow=<id>`) and waits until it finishes, or until it waits on an
-approval. It follows the run rather than holding the start request open, so
+(`--flow=<id>`), at its latest version or the one `--agent-version=<v>` /
+`--flow-version=<v>` names (a turn in a conversation needs the version the
+conversation was opened with), in the tenant's Default project or the one
+`--project=<project-id>` names (`kindgi projects list`), and waits until it
+finishes, or until it waits on an approval. It follows the run rather than holding the start request open, so
 a long run doesn't time it out. Stopped (Ctrl+C), the wait ends and the run
 goes on: the CLI prints its id and `kindgi runs get <id>`. `--no-wait`
 prints the run as soon as it exists (follow it with `runs get` or `runs
@@ -768,8 +772,8 @@ false`).
 
 `kindgi <command> --help` prints a command's subcommands and flags.
 
-More of the API (memory, artifacts, provenance, conversations, proposals,
-observations, tokens, capabilities, and listing agents and flows) has
+More of the API (memory, artifacts, provenance, proposals, observations,
+tokens, capabilities, and listing agents and flows) has
 commands in progress. They're left out of `--help` until they work; until
 then, use [`@kindgi/client`](../../sdks/typescript) for those resources.
 

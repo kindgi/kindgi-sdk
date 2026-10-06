@@ -322,6 +322,8 @@ export interface DevRunners {
       readonly debounceMs?: number;
       readonly patterns?: readonly string[];
       readonly files?: readonly string[];
+      /** A watch failed; the once-a-second scan behind it goes on. */
+      readonly onWatchFailed?: (error: unknown) => void;
     },
   ) => Promise<WatchHandle>;
   /**

@@ -21,6 +21,7 @@ import { createPackServiceSupervisor } from '../src/pack-service/index.js';
 import type {
   PackServiceSupervisor,
   PackServiceSupervisorEvent,
+  PackServiceSupervisorOptions,
 } from '../src/pack-service/index.js';
 import { PACK_HEADERS, PACK_PROTOCOL_VERSION } from '../src/protocol.js';
 
@@ -77,6 +78,7 @@ async function supervisor(
   env: Record<string, string> = {},
   events: PackServiceSupervisorEvent[] = [],
   logs: string[] = [],
+  extra: Partial<PackServiceSupervisorOptions> = {},
 ): Promise<Running> {
   const s = createPackServiceSupervisor({
     command: [process.execPath, entrypoint],
@@ -85,6 +87,7 @@ async function supervisor(
     onEvent: (e) => events.push(e),
     onLog: (line, stream) => logs.push(`${stream}: ${line}`),
     restartDelayMs: 50,
+    ...extra,
   });
   supervisors.push(s);
   const { url } = await s.listen();
@@ -248,6 +251,78 @@ describe('createPackServiceSupervisor — children', () => {
     expect(refused).toEqual({ kind: 'err', error: { problems: ['The pack service is closing'] } });
     await running.supervisor.close();
     expect(lifecycle()).toEqual(['started']);
+  });
+
+  describe("a child killed by the terminal's Ctrl+C, which its owner got too", () => {
+    /** The event loop's turns, which the test moves. */
+    function turns(): {
+      readonly nextTurn: (fn: () => void) => void;
+      queued(): number;
+      turn(): void;
+    } {
+      let queue: (() => void)[] = [];
+      return {
+        nextTurn: (fn) => {
+          queue.push(fn);
+        },
+        queued: () => queue.length,
+        turn() {
+          const due = queue;
+          queue = [];
+          for (const fn of due) fn();
+        },
+      };
+    }
+
+    test("isn't a crash when the owner's stop comes just after the child's exit", async () => {
+      const events: PackServiceSupervisorEvent[] = [];
+      const loop = turns();
+      const running = await supervisor({}, events, [], { nextTurn: loop.nextTurn });
+      const lifecycle = (): string[] => events.filter((e) => e.kind !== 'log').map((e) => e.kind);
+      await running.supervisor.start(await writePack({ 'pid.mjs': PID_TOOL }));
+      const { pid } = (await output(running, 'pid')) as { pid: number };
+
+      // Under load the child's exit can be handled before the owner's own SIGINT.
+      process.kill(pid, 'SIGINT');
+      await until(() => loop.queued() > 0);
+      running.supervisor.beginClose();
+      loop.turn();
+      loop.turn();
+      await new Promise((r) => setTimeout(r, 200)); // four restart delays
+      expect(lifecycle()).toEqual(['started']);
+    });
+
+    test('is a crash, restarted, when no stop comes', async () => {
+      const events: PackServiceSupervisorEvent[] = [];
+      const loop = turns();
+      const running = await supervisor({}, events, [], { nextTurn: loop.nextTurn });
+      await running.supervisor.start(await writePack({ 'pid.mjs': PID_TOOL }));
+      const { pid } = (await output(running, 'pid')) as { pid: number };
+
+      process.kill(pid, 'SIGINT');
+      await until(() => loop.queued() > 0);
+      expect(events.some((e) => e.kind === 'exited')).toBe(false);
+      loop.turn();
+      loop.turn();
+      expect(events.find((e) => e.kind === 'exited')).toEqual({
+        kind: 'exited',
+        code: null,
+        signal: 'SIGINT',
+      });
+      await until(() => events.filter((e) => e.kind === 'started').length === 2);
+    });
+
+    test('a crash by any other cause is reported at once', async () => {
+      const events: PackServiceSupervisorEvent[] = [];
+      const loop = turns();
+      const running = await supervisor({}, events, [], { nextTurn: loop.nextTurn });
+      await running.supervisor.start(await writePack({ 'pid.mjs': PID_TOOL }));
+      const { pid } = (await output(running, 'pid')) as { pid: number };
+
+      process.kill(pid, 'SIGKILL');
+      await until(() => events.some((e) => e.kind === 'exited'));
+      expect(loop.queued()).toBe(0);
+    });
   });
 
   test("pack code's output reaches onLog; the service's own lines arrive as events", async () => {

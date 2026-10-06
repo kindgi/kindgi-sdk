@@ -85,7 +85,16 @@ export interface PackServiceSupervisorOptions {
   readonly restartDelayMs?: number;
   /** Largest request body the front accepts. Default 10 MiB (the pack service's own limit). */
   readonly maxBodyBytes?: number;
+  /** Test seam: run `fn` on the event loop's next turn (`setImmediate`). */
+  readonly nextTurn?: (fn: () => void) => void;
 }
+
+/**
+ * What a terminal sends its whole foreground process group: Ctrl+C and a
+ * hangup. A child killed by one shares it with its owner, who is very
+ * likely stopping too.
+ */
+const GROUP_SIGNALS: ReadonlySet<string> = new Set(['SIGINT', 'SIGHUP']);
 
 export type PackServiceSupervisorEvent =
   | { readonly kind: 'started'; readonly port: number; readonly indexPath: string }
@@ -201,6 +210,11 @@ export function createPackServiceSupervisor(
   const token = options.token ?? randomBytes(24).toString('base64url');
   const expectedToken = Buffer.from(token);
   const emit = (event: PackServiceSupervisorEvent): void => options.onEvent?.(event);
+  const nextTurn =
+    options.nextTurn ??
+    ((fn: () => void): void => {
+      setImmediate(fn);
+    });
   let serving: Child | undefined;
   let stopped = false;
   /** Closing for good (`beginClose`): nothing restarts or starts again. */
@@ -266,10 +280,18 @@ export function createPackServiceSupervisor(
   /** A serving child that exits on its own is restarted on the same index. */
   function watch(child: Child): void {
     child.process.once('exit', (code, signal) => {
-      if (child.retiring || stopped || shuttingDown) return;
-      emit({ kind: 'exited', code, signal });
-      if (serving === child) serving = undefined;
-      void recover(child.indexPath);
+      const crashed = (): void => {
+        if (child.retiring || stopped || shuttingDown) return;
+        emit({ kind: 'exited', code, signal });
+        if (serving === child) serving = undefined;
+        void recover(child.indexPath);
+      };
+      // Killed by the terminal's Ctrl+C or hangup: its owner got the same
+      // signal and may not have handled it yet (under load the child's
+      // exit can come first). Give its stop (`beginClose`) two turns of
+      // the event loop before calling this a crash.
+      if (signal !== null && GROUP_SIGNALS.has(signal)) nextTurn(() => nextTurn(crashed));
+      else crashed();
     });
   }
 

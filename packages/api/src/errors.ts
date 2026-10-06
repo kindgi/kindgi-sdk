@@ -180,6 +180,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'item-not-found': 400,
   // The judgment binding can't list judged runs, so no test sets from judgments.
   'test-sets-not-supported': 501,
+  // Authorization is enforced, but a membership change can't be kept in step with it.
+  'authz-membership-unsupported': 501,
   'eval-run-already-terminal': 409,
   'dispatcher-not-registered': 422,
   'dispatcher-input-invalid': 400,

@@ -71,6 +71,10 @@ export function createStubAppBindings(): StubAppBindings {
       createProject: true,
       addTeamMember: true,
       addProjectMember: true,
+      removeTeamMember: true,
+      updateTeamMemberRole: true,
+      removeProjectMember: true,
+      updateProjectMemberRole: true,
       getTenant: true,
     }),
     memoryBinding: createStubBinding<MemoryQueryBinding>('memoryBinding', {

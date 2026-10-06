@@ -27,9 +27,9 @@ import type {
  * Flow:
  *   1. `open()` — establishes the thread; returns the full
  *      `Conversation` row (wire returns 201 with the row body).
- *   2. Each turn: `runs.start({ agent, input, conversation })` — the
- *      SDK's runs surface accepts a conversation reference so the
- *      turn appends to the same thread.
+ *   2. Each turn: `runs.start({ agent, input: { userMessage,
+ *      conversationId } })` — an agent run's input names the
+ *      conversation, and the turn appends to it.
  *   3. `messages(id)` — read the accumulated message history.
  *   4. `close(id)` — freezes the thread; subsequent turns rejected.
  *

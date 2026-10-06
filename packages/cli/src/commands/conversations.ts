@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { integerFlag, requiredPositional, runSdk, stringFlag, throwUnwired } from './helpers.js';
+import { integerFlag, requiredPositional, runSdk, stringFlag } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
 const STATUSES = ['open', 'closed'] as const;
@@ -64,38 +64,67 @@ const get: LeafCommand = {
   usage: 'kindgi conversations get <conversation-id>',
   run: (ctx) =>
     runSdk(ctx, 'conversations get', async () => {
-      requiredPositional(ctx, 0, 'conversation-id');
-      throwUnwired('conversations.get');
+      const id = requiredPositional(ctx, 0, 'conversation-id');
+      return await ctx.client().conversations.get(id as never);
     }),
 };
 
 const open: LeafCommand = {
   kind: 'leaf',
   name: 'open',
-  description: 'Open a new conversation.',
-  usage: 'kindgi conversations open [--agent-id=<id>]',
+  description:
+    'Open a conversation with an agent version, pinned for every turn. A turn names it in its input: `kindgi runs start --agent=<agent-id> --input=\'{"userMessage": "…", "conversationId": "<conversation-id>"}\'`.',
+  usage:
+    'kindgi conversations open <agent-id> <version> [--title=<t>] [--project=<project-id>] [--participant=<id>]',
   optionSpec: {
-    'agent-id': { type: 'string', description: 'The agent the conversation is with, by id.' },
+    title: {
+      type: 'string',
+      description: 'A title for the conversation. Default: "Untitled conversation".',
+    },
+    project: {
+      type: 'string',
+      description:
+        "The project the conversation is in (`kindgi projects list`). Default: the tenant's Default project.",
+    },
+    participant: {
+      type: 'string',
+      description: "Your app's opaque id for the user the conversation is with.",
+    },
   },
-  run: (ctx) => runSdk(ctx, 'conversations open', async () => throwUnwired('conversations.open')),
+  run: (ctx) =>
+    runSdk(ctx, 'conversations open', async () => {
+      const agentId = requiredPositional(ctx, 0, 'agent-id');
+      const agentVersion = requiredPositional(ctx, 1, 'version');
+      const title = stringFlag(ctx, 'title');
+      const projectId = stringFlag(ctx, 'project');
+      const participantId = stringFlag(ctx, 'participant');
+      return await ctx.client().conversations.open({
+        agentId: agentId as never,
+        agentVersion,
+        ...(title !== undefined && { title }),
+        ...(projectId !== undefined && { projectId }),
+        ...(participantId !== undefined && { participantId }),
+      });
+    }),
 };
 
 const close: LeafCommand = {
   kind: 'leaf',
   name: 'close',
-  description: 'Close a conversation.',
+  description:
+    'Close a conversation: it takes no more turns. Closing a closed one changes nothing.',
   usage: 'kindgi conversations close <conversation-id>',
   run: (ctx) =>
     runSdk(ctx, 'conversations close', async () => {
-      requiredPositional(ctx, 0, 'conversation-id');
-      throwUnwired('conversations.close');
+      const id = requiredPositional(ctx, 0, 'conversation-id');
+      return await ctx.client().conversations.close(id as never);
     }),
 };
 
 const messages: LeafCommand = {
   kind: 'leaf',
   name: 'messages',
-  description: "List a conversation's messages.",
+  description: "List a conversation's messages, oldest first.",
   usage: 'kindgi conversations messages <conversation-id> [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
     limit: { type: 'string', description: 'The most messages to return.' },
@@ -106,14 +135,20 @@ const messages: LeafCommand = {
   },
   run: (ctx) =>
     runSdk(ctx, 'conversations messages', async () => {
-      requiredPositional(ctx, 0, 'conversation-id');
-      throwUnwired('conversations.messages');
+      const id = requiredPositional(ctx, 0, 'conversation-id');
+      const limit = integerFlag(ctx, 'limit');
+      const cursor = stringFlag(ctx, 'cursor');
+      return await ctx.client().conversations.messages(id as never, {
+        ...(limit !== undefined && { limit }),
+        ...(cursor !== undefined && { cursor: cursor as never }),
+      });
     }),
 };
 
 export const conversationsCommand: Command = {
   kind: 'group',
   name: 'conversations',
-  description: 'Manage conversation sessions.',
+  description:
+    'Conversations: multi-turn threads with one agent version (list / get / open / close / messages).',
   subcommands: [list, get, open, close, messages],
 };

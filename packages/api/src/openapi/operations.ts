@@ -1611,6 +1611,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Reviewer registered.', schema: ref('Reviewer') },
       ...CommonMutationErrors,
+      '403': ErrorResponse(
+        'With authorization enforced, the caller is not an admin of the tenant.',
+      ),
     },
   },
   {
@@ -1628,6 +1631,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Unregistered.', schema: ref('UnregisterReviewerResult') },
       ...CommonMutationErrors,
       '404': ErrorResponse('No reviewer with that id under this tenant.'),
+      '403': ErrorResponse(
+        'With authorization enforced, the caller is not an admin of the tenant.',
+      ),
     },
   },
   {
@@ -2199,6 +2205,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Conversation.', schema: ref('Conversation') },
       ...CommonAuthErrors,
+      '400': ErrorResponse('`conversationId` is not a conversation id (a UUID).'),
       '404': ErrorResponse('No conversation with that id under this tenant.'),
     },
   },
@@ -2236,6 +2243,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('Conversation'),
       },
       ...CommonMutationErrors,
+      '400': ErrorResponse('`conversationId` is not a conversation id (a UUID).'),
       '404': ErrorResponse('No conversation with that id under this tenant.'),
     },
   },
@@ -2256,7 +2264,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('ConversationMessageCollectionPage'),
       },
       ...CommonAuthErrors,
-      '400': ErrorResponse('Malformed cursor.'),
+      '400': ErrorResponse(
+        'Malformed cursor, or `conversationId` is not a conversation id (a UUID).',
+      ),
       '404': ErrorResponse('No conversation with that id under this tenant.'),
     },
   },
@@ -4932,6 +4942,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '204': { description: 'Removed (or already absent). No body.' },
       ...CommonAuthErrors,
+      '501': ErrorResponse(
+        "With authorization enforced, a runtime whose tenant-hierarchy binding can't change the membership together with its authorization tuple refuses with `authz-membership-unsupported`; nothing is changed.",
+      ),
     },
   },
   {
@@ -4965,6 +4978,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '404': ErrorResponse(
         'No membership for that (team, user) pair, or no such team under this tenant.',
+      ),
+      '501': ErrorResponse(
+        "With authorization enforced, a runtime whose tenant-hierarchy binding can't change the membership together with its authorization tuple refuses with `authz-membership-unsupported`; nothing is changed.",
       ),
     },
   },
@@ -5203,6 +5219,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '204': { description: 'Removed (or already absent). No body.' },
       ...CommonAuthErrors,
+      '501': ErrorResponse(
+        "With authorization enforced, a runtime whose tenant-hierarchy binding can't change the membership together with its authorization tuple refuses with `authz-membership-unsupported`; nothing is changed.",
+      ),
     },
   },
   {
@@ -5236,6 +5255,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '404': ErrorResponse(
         'No membership for that (project, user) pair, or no such project under this tenant.',
+      ),
+      '501': ErrorResponse(
+        "With authorization enforced, a runtime whose tenant-hierarchy binding can't change the membership together with its authorization tuple refuses with `authz-membership-unsupported`; nothing is changed.",
       ),
     },
   },

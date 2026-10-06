@@ -92,6 +92,8 @@ interface Fixtures {
   triggerChange: (build?: PackBuild) => void;
   /** An env-file change (the second watcher). */
   triggerEnvChange: () => void;
+  /** A watch failed, as both `watchPack` watchers hear it. */
+  triggerWatchFailure: (error: Error) => void;
   readonly watchHandle: FakeWatchHandle;
   readonly agentDefineCalls: unknown[];
   readonly guardrailAuthorCalls: unknown[];
@@ -166,6 +168,7 @@ function makeFixtures(
 
   const captureWatchCalls: { packDir: string; debounceMs?: number }[] = [];
   const onChangeRefs: (() => void)[] = [];
+  const watchFailedRefs: ((error: unknown) => void)[] = [];
   let rebuildRef: ((build: PackBuild) => void) | undefined;
   const watchHandle: FakeWatchHandle = {
     closeCount: 0,
@@ -263,6 +266,7 @@ function makeFixtures(
         ...(watchOpts?.debounceMs !== undefined && { debounceMs: watchOpts.debounceMs }),
       });
       onChangeRefs.push(onChange);
+      if (watchOpts?.onWatchFailed !== undefined) watchFailedRefs.push(watchOpts.onWatchFailed);
       return watchHandle;
     },
   };
@@ -276,6 +280,9 @@ function makeFixtures(
     watchHandle,
     triggerChange: (build) => rebuildRef?.(build ?? { kind: 'ok', bundleMap: {} }),
     triggerEnvChange: () => onChangeRefs[1]?.(),
+    triggerWatchFailure: (error) => {
+      for (const failed of watchFailedRefs) failed(error);
+    },
     agentDefineCalls: [],
     guardrailAuthorCalls: [],
     flowDefineCalls: [],
@@ -1151,6 +1158,30 @@ describe('kindgi dev — watch flow', () => {
       'runtime: gone',
       'pack service',
     ]);
+  });
+
+  test('a failed file watch is said once, whichever watchers hear it', async () => {
+    const controller = new AbortController();
+    const fixtures = makeFixtures({ outcomes: [defaultHappyOutcome()] });
+    const promise = runCli({
+      ...baseInputs(fixtures, { stopSignal: controller.signal }),
+      argv: ['dev', `--path=${packDir}`],
+    });
+    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
+    const stderr = vi.spyOn(process.stderr, 'write');
+    try {
+      fixtures.triggerWatchFailure(new Error('the watch of /pack ended'));
+      fixtures.triggerWatchFailure(new Error('too many open files'));
+      const lines = stderr.mock.calls.map(([chunk]) => String(chunk)).join('');
+      expect(lines.match(/file watch failed/g)).toHaveLength(1);
+      expect(lines).toContain(
+        '⚠ file watch failed (the watch of /pack ended): changes are picked up by the once-a-second scan',
+      );
+    } finally {
+      stderr.mockRestore();
+    }
+    controller.abort();
+    expect((await promise).exitCode).toBe(0);
   });
 
   test("a runtime that won't stop still has the watchers and the pack service closed", async () => {
