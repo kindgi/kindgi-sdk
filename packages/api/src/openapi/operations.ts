@@ -1150,8 +1150,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('Run'),
       },
       ...CommonMutationErrors,
-      '404': ErrorResponse('Agent or flow not found.'),
+      '404': ErrorResponse(
+        'Agent or flow not found; or `projectId` names no project of this tenant (`project-not-found`).',
+      ),
       '422': ErrorResponse('Guardrail violation or budget exceeded.'),
+      '400': ErrorResponse(
+        "Malformed request body, or the body's `projectId` isn't a project id (a UUID).",
+      ),
     },
   },
   {
@@ -1421,6 +1426,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Token minted.', schema: ref('MintTokenResult') },
       ...CommonMutationErrors,
       '403': ErrorResponse('Not a tenant admin, or a capability the caller does not hold.'),
+      '400': ErrorResponse(
+        "Malformed request body, or the body's `projectId` isn't a project id (a UUID).",
+      ),
+      '404': ErrorResponse(
+        "The body's `projectId` names no project of this tenant (`project-not-found`).",
+      ),
     },
   },
   {
@@ -1738,9 +1749,11 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
       '400': ErrorResponse(
-        "`validation-failed`: `from` has no pins, a swap names a block it doesn't reference, or a version that isn't published, active or the right kind (see `details.issues`).",
+        "`validation-failed`: `from` has no pins, a swap names a block it doesn't reference, or a version that isn't published, active or the right kind (see `details.issues`); or `projectId` isn't a project id (a UUID).",
       ),
-      '404': ErrorResponse('`agent-not-found`: no agent at `from`.'),
+      '404': ErrorResponse(
+        '`agent-not-found`: no agent at `from`; or `projectId` names no project of this tenant (`project-not-found`).',
+      ),
     },
   },
   {
@@ -1773,9 +1786,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Agent published.', schema: ref('PublishAgentResult') },
       ...CommonMutationErrors,
-      '400': ErrorResponse('Validation failed (see `details.issues`).'),
+      '400': ErrorResponse(
+        "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID).",
+      ),
       '409': ErrorResponse(
         "Agent already registered at that (id, version). Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+      ),
+      '404': ErrorResponse(
+        "The body's `projectId` names no project of this tenant (`project-not-found`).",
       ),
     },
   },
@@ -1904,9 +1922,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Flow published.', schema: ref('PublishFlowResult') },
       ...CommonMutationErrors,
-      '400': ErrorResponse('Validation failed (see `details.issues`).'),
+      '400': ErrorResponse(
+        "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID).",
+      ),
       '409': ErrorResponse(
         "Flow already registered at that (id, version). Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+      ),
+      '404': ErrorResponse(
+        "The body's `projectId` names no project of this tenant (`project-not-found`).",
       ),
     },
   },
@@ -2039,9 +2062,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Tool registered.', schema: ref('RegisterToolResult') },
       ...CommonMutationErrors,
-      '400': ErrorResponse('Validation failed (see `details.issues`).'),
+      '400': ErrorResponse(
+        "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID).",
+      ),
       '409': ErrorResponse(
         "Tool already registered at that id. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+      ),
+      '404': ErrorResponse(
+        "The body's `projectId` names no project of this tenant (`project-not-found`).",
       ),
     },
   },
@@ -2139,9 +2167,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Guardrail registered.', schema: ref('RegisterGuardrailResult') },
       ...CommonMutationErrors,
-      '400': ErrorResponse('Validation failed (see `details.issues`).'),
+      '400': ErrorResponse(
+        "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID).",
+      ),
       '409': ErrorResponse(
         "Guardrail already registered at that id. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+      ),
+      '404': ErrorResponse(
+        "The body's `projectId` names no project of this tenant (`project-not-found`).",
       ),
     },
   },
@@ -3685,8 +3718,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Eval suite published.', schema: ref('PublishEvalSuiteResult') },
       ...CommonMutationErrors,
-      '400': ErrorResponse('Validation failed (see `details.issues`).'),
+      '400': ErrorResponse(
+        "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID).",
+      ),
       '409': ErrorResponse('Eval suite already registered at that (id, version).'),
+      '404': ErrorResponse(
+        "The body's `projectId` names no project of this tenant (`project-not-found`).",
+      ),
     },
   },
   {
@@ -3704,10 +3742,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Version published.', schema: ref('BuildJudgedSuiteResult') },
       ...CommonMutationErrors,
-      '400': ErrorResponse('Malformed body.'),
+      '400': ErrorResponse("Malformed body; or `projectId` isn't a project id (a UUID)."),
       '403': ErrorResponse('`permission-denied`.'),
       '409': ErrorResponse('Eval suite already registered at that (id, version).'),
       '501': ErrorResponse('`test-sets-not-supported`: this deployment cannot build test sets.'),
+      '404': ErrorResponse(
+        "The body's `projectId` names no project of this tenant (`project-not-found`).",
+      ),
     },
   },
   {
@@ -3857,10 +3898,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Published.', schema: ref('PublishBlockResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        '`validation-failed` (see `details.issues`), or an unknown `projectId`.',
+        "`validation-failed` (see `details.issues`), or an unknown `projectId`; or `projectId` isn't a project id (a UUID).",
       ),
       '403': ErrorResponse('`permission-denied`: no `write` on the project.'),
       '409': ErrorResponse('`block-already-registered` or `block-project-mismatch`.'),
+      '404': ErrorResponse(
+        "The body's `projectId` names no project of this tenant (`project-not-found`).",
+      ),
     },
   },
   {
@@ -3914,9 +3958,11 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Eval run started.', schema: ref('StartEvalRunResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        'Malformed body (both / neither of `agentRef` / `flowRef`, dispatcher-input-invalid).',
+        "Malformed body (both / neither of `agentRef` / `flowRef`, dispatcher-input-invalid); or `projectId` isn't a project id (a UUID).",
       ),
-      '404': ErrorResponse('No eval suite with that id under this tenant.'),
+      '404': ErrorResponse(
+        'No eval suite with that id under this tenant; or `projectId` names no project of this tenant (`project-not-found`).',
+      ),
       '422': ErrorResponse('No dispatcher registered for the suite kind.'),
     },
   },

@@ -13817,7 +13817,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body.",
+            "description": "Malformed request body, or the body's `projectId` isn't a project id (a UUID).",
             "content": {
               "application/json": {
                 "schema": {
@@ -13837,7 +13837,7 @@
             }
           },
           "404": {
-            "description": "Agent or flow not found.",
+            "description": "Agent or flow not found; or `projectId` names no project of this tenant (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -14990,7 +14990,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body.",
+            "description": "Malformed request body, or the body's `projectId` isn't a project id (a UUID).",
             "content": {
               "application/json": {
                 "schema": {
@@ -15011,6 +15011,16 @@
           },
           "403": {
             "description": "Not a tenant admin, or a capability the caller does not hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The body's `projectId` names no project of this tenant (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -16337,7 +16347,7 @@
             }
           },
           "400": {
-            "description": "Validation failed (see `details.issues`).",
+            "description": "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID).",
             "content": {
               "application/json": {
                 "schema": {
@@ -16348,6 +16358,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The body's `projectId` names no project of this tenant (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -16570,7 +16590,7 @@
             }
           },
           "400": {
-            "description": "`validation-failed`: `from` has no pins, a swap names a block it doesn't reference, or a version that isn't published, active or the right kind (see `details.issues`).",
+            "description": "`validation-failed`: `from` has no pins, a swap names a block it doesn't reference, or a version that isn't published, active or the right kind (see `details.issues`); or `projectId` isn't a project id (a UUID).",
             "content": {
               "application/json": {
                 "schema": {
@@ -16590,7 +16610,7 @@
             }
           },
           "404": {
-            "description": "`agent-not-found`: no agent at `from`.",
+            "description": "`agent-not-found`: no agent at `from`; or `projectId` names no project of this tenant (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -17063,7 +17083,7 @@
             }
           },
           "400": {
-            "description": "Validation failed (see `details.issues`).",
+            "description": "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID).",
             "content": {
               "application/json": {
                 "schema": {
@@ -17074,6 +17094,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The body's `projectId` names no project of this tenant (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -17673,7 +17703,7 @@
             }
           },
           "400": {
-            "description": "Validation failed (see `details.issues`).",
+            "description": "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID).",
             "content": {
               "application/json": {
                 "schema": {
@@ -17684,6 +17714,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The body's `projectId` names no project of this tenant (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -18304,7 +18344,7 @@
             }
           },
           "400": {
-            "description": "Validation failed (see `details.issues`).",
+            "description": "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID).",
             "content": {
               "application/json": {
                 "schema": {
@@ -18315,6 +18355,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The body's `projectId` names no project of this tenant (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -25094,7 +25144,7 @@
             }
           },
           "400": {
-            "description": "Validation failed (see `details.issues`).",
+            "description": "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID).",
             "content": {
               "application/json": {
                 "schema": {
@@ -25105,6 +25155,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The body's `projectId` names no project of this tenant (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -25389,7 +25449,7 @@
             }
           },
           "400": {
-            "description": "Malformed body.",
+            "description": "Malformed body; or `projectId` isn't a project id (a UUID).",
             "content": {
               "application/json": {
                 "schema": {
@@ -25410,6 +25470,16 @@
           },
           "403": {
             "description": "`permission-denied`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The body's `projectId` names no project of this tenant (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -25920,7 +25990,7 @@
             }
           },
           "400": {
-            "description": "`validation-failed` (see `details.issues`), or an unknown `projectId`.",
+            "description": "`validation-failed` (see `details.issues`), or an unknown `projectId`; or `projectId` isn't a project id (a UUID).",
             "content": {
               "application/json": {
                 "schema": {
@@ -25941,6 +26011,16 @@
           },
           "403": {
             "description": "`permission-denied`: no `write` on the project.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The body's `projectId` names no project of this tenant (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -26474,7 +26554,7 @@
             }
           },
           "400": {
-            "description": "Malformed body (both / neither of `agentRef` / `flowRef`, dispatcher-input-invalid).",
+            "description": "Malformed body (both / neither of `agentRef` / `flowRef`, dispatcher-input-invalid); or `projectId` isn't a project id (a UUID).",
             "content": {
               "application/json": {
                 "schema": {
@@ -26494,7 +26574,7 @@
             }
           },
           "404": {
-            "description": "No eval suite with that id under this tenant.",
+            "description": "No eval suite with that id under this tenant; or `projectId` names no project of this tenant (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
