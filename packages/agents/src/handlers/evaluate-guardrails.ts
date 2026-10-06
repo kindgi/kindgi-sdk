@@ -18,6 +18,7 @@ import type { ConversationMessage } from '../types.js';
 import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
 import { finalIteration } from './final-iteration.js';
+import { replayTag } from './replay.js';
 import { parseJsonAnswer } from './structured-output.js';
 
 /**
@@ -169,6 +170,7 @@ function judgeUsageSink(ctx: TurnContext, kctx: NodeContext): UsageSink | undefi
       sink.record({
         nodeId: kctx.nodeId as unknown as string,
         agentVersion: ctx.input.agent.version,
+        ...(ctx.input.replay !== undefined && { replay: replayTag(ctx.input.replay) }),
         ...call,
       }),
   };

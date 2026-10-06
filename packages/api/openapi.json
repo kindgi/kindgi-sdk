@@ -334,6 +334,15 @@
           "agent": {
             "$ref": "#/components/schemas/RunAgent"
           },
+          "replayOf": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Set on a replay run (an eval run re-running a past run): the run it replays."
+          },
+          "evalRunId": {
+            "type": "string",
+            "description": "Set on a replay run: the eval run that started it."
+          },
           "publicAccessToken": {
             "type": "string",
             "description": "Only in the response to `POST /v1/runs`, when the deployment issues public run tokens: a read-only token for this run (and its descendants) to hand to a browser, for `GET /v1/runs/{runId}/progress` and its stream."
@@ -548,6 +557,15 @@
                 },
                 "agent": {
                   "$ref": "#/components/schemas/RunAgent"
+                },
+                "replayOf": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "Set on a replay run (an eval run re-running a past run): the run it replays."
+                },
+                "evalRunId": {
+                  "type": "string",
+                  "description": "Set on a replay run: the eval run that started it."
                 },
                 "publicAccessToken": {
                   "type": "string",
@@ -2249,7 +2267,7 @@
       "JudgedRunContext": {
         "type": "object",
         "additionalProperties": false,
-        "description": "What a judged agent turn read besides its input, captured when it was first judged: the conversation before it and what its retrievals returned.",
+        "description": "What a judged agent turn read besides its input, captured when it was first judged: the conversation before it, what its retrievals returned, and the decision at its session approval gate.",
         "properties": {
           "history": {
             "type": "array",
@@ -2262,6 +2280,23 @@
           },
           "retrieved": {
             "description": "What the turn's retrievals returned."
+          },
+          "sessionApproval": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "approved"
+            ],
+            "description": "The reviewer's decision at the turn's session approval gate, when the turn waited on one. A replay of the turn follows it.",
+            "properties": {
+              "approved": {
+                "type": "boolean"
+              },
+              "rationale": {
+                "type": "string",
+                "description": "The reviewer's reason for a rejection."
+              }
+            }
           }
         }
       },
@@ -12277,6 +12312,31 @@
             },
             "required": false,
             "description": "Only this agent's turns, at any version. Turns that ran before Kindgi 0.1.3 don't name their agent and aren't matched."
+          },
+          {
+            "name": "replays",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "exclude",
+                "include",
+                "only"
+              ],
+              "default": "exclude"
+            },
+            "required": false,
+            "description": "Replay runs (an eval run re-running a past run). `exclude` (default) leaves them out; `include` lists them with the other runs; `only` lists just them."
+          },
+          {
+            "name": "evalRunId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Only the replay runs of this eval run. Implies replays are included; cannot be combined with `replays=exclude`."
           },
           {
             "name": "include",

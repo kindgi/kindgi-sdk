@@ -185,6 +185,15 @@ export const RunSchema: JsonSchema = {
       description: 'Set on a child run: the node in the parent run that started it.',
     },
     agent: { $ref: '#/components/schemas/RunAgent' },
+    replayOf: {
+      type: 'string',
+      format: 'uuid',
+      description: 'Set on a replay run (an eval run re-running a past run): the run it replays.',
+    },
+    evalRunId: {
+      type: 'string',
+      description: 'Set on a replay run: the eval run that started it.',
+    },
     publicAccessToken: {
       type: 'string',
       description:
@@ -2081,7 +2090,7 @@ export const JudgedRunContextSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'What a judged agent turn read besides its input, captured when it was first judged: the conversation before it and what its retrievals returned.',
+    'What a judged agent turn read besides its input, captured when it was first judged: the conversation before it, what its retrievals returned, and the decision at its session approval gate.',
   properties: {
     history: {
       type: 'array',
@@ -2094,6 +2103,17 @@ export const JudgedRunContextSchema: JsonSchema = {
       description: 'Whether older messages were left out of `history`.',
     },
     retrieved: { description: "What the turn's retrievals returned." },
+    sessionApproval: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['approved'],
+      description:
+        "The reviewer's decision at the turn's session approval gate, when the turn waited on one. A replay of the turn follows it.",
+      properties: {
+        approved: { type: 'boolean' },
+        rationale: { type: 'string', description: "The reviewer's reason for a rejection." },
+      },
+    },
   },
 };
 

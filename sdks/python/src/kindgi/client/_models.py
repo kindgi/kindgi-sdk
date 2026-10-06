@@ -108,6 +108,14 @@ class Run(BaseModel):
     Set on a child run: the node in the parent run that started it.
     """
     agent: RunAgent | None = None
+    replay_of: Annotated[UUID | None, Field(alias="replayOf")] = None
+    """
+    Set on a replay run (an eval run re-running a past run): the run it replays.
+    """
+    eval_run_id: Annotated[str | None, Field(alias="evalRunId")] = None
+    """
+    Set on a replay run: the eval run that started it.
+    """
     public_access_token: Annotated[str | None, Field(alias="publicAccessToken")] = None
     """
     Only in the response to `POST /v1/runs`, when the deployment issues public run tokens: a read-only token for this run (and its descendants) to hand to a browser, for `GET /v1/runs/{runId}/progress` and its stream.
@@ -263,6 +271,14 @@ class Datum(BaseModel):
     Set on a child run: the node in the parent run that started it.
     """
     agent: RunAgent | None = None
+    replay_of: Annotated[UUID | None, Field(alias="replayOf")] = None
+    """
+    Set on a replay run (an eval run re-running a past run): the run it replays.
+    """
+    eval_run_id: Annotated[str | None, Field(alias="evalRunId")] = None
+    """
+    Set on a replay run: the eval run that started it.
+    """
     public_access_token: Annotated[str | None, Field(alias="publicAccessToken")] = None
     """
     Only in the response to `POST /v1/runs`, when the deployment issues public run tokens: a read-only token for this run (and its descendants) to hand to a browser, for `GET /v1/runs/{runId}/progress` and its stream.
@@ -1173,9 +1189,25 @@ class Judgment(BaseModel):
     """
 
 
+class SessionApproval(BaseModel):
+    """
+    The reviewer's decision at the turn's session approval gate, when the turn waited on one. A replay of the turn follows it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    approved: bool
+    rationale: str | None = None
+    """
+    The reviewer's reason for a rejection.
+    """
+
+
 class JudgedRunContext(BaseModel):
     """
-    What a judged agent turn read besides its input, captured when it was first judged: the conversation before it and what its retrievals returned.
+    What a judged agent turn read besides its input, captured when it was first judged: the conversation before it, what its retrievals returned, and the decision at its session approval gate.
     """
 
     model_config = ConfigDict(
@@ -1193,6 +1225,10 @@ class JudgedRunContext(BaseModel):
     retrieved: Any | None = None
     """
     What the turn's retrievals returned.
+    """
+    session_approval: Annotated[SessionApproval | None, Field(alias="sessionApproval")] = None
+    """
+    The reviewer's decision at the turn's session approval gate, when the turn waited on one. A replay of the turn follows it.
     """
 
 

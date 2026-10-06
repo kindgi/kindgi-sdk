@@ -149,6 +149,24 @@ const RunAgentIdQueryParam: ParameterSpec = {
   schema: { type: 'string', minLength: 1 },
 };
 
+const RunReplaysQueryParam: ParameterSpec = {
+  name: 'replays',
+  in: 'query',
+  required: false,
+  description:
+    'Replay runs (an eval run re-running a past run). `exclude` (default) leaves them out; `include` lists them with the other runs; `only` lists just them.',
+  schema: { type: 'string', enum: ['exclude', 'include', 'only'], default: 'exclude' },
+};
+
+const RunEvalRunIdQueryParam: ParameterSpec = {
+  name: 'evalRunId',
+  in: 'query',
+  required: false,
+  description:
+    'Only the replay runs of this eval run. Implies replays are included; cannot be combined with `replays=exclude`.',
+  schema: { type: 'string', minLength: 1 },
+};
+
 const RunIncludeQueryParam: ParameterSpec = {
   name: 'include',
   in: 'query',
@@ -1077,6 +1095,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ParentRunIdQueryParam,
       TopLevelQueryParam,
       RunAgentIdQueryParam,
+      RunReplaysQueryParam,
+      RunEvalRunIdQueryParam,
       RunIncludeQueryParam,
     ],
     responses: {
