@@ -30,6 +30,7 @@ import type {
   CostBinding,
   DeploymentBinding,
   EnvBinding,
+  EvalCaseStoreBinding,
   EvalRunBinding,
   EvalSuiteRegistryBinding,
   ExchangeCodeFn,
@@ -309,6 +310,11 @@ const noopEvalSuiteRegistry: EvalSuiteRegistryBinding = {
   reinstateVersion: async ({ suiteId, version }) => ({ kind: 'not-found', suiteId, version }),
 };
 
+const noopEvalCaseStore: EvalCaseStoreBinding = {
+  putCases: async () => undefined,
+  listCases: async () => ({ data: [], hasMore: false }),
+};
+
 const noopJudgmentRegistry: JudgmentRegistryBinding = {
   createClass: async () => ({ kind: 'name-taken' }),
   listClasses: async () => ({ data: [], hasMore: false }),
@@ -521,6 +527,7 @@ function collectMountedRoutes(): HonoRouteRecord[] {
     evalSuiteRegistry: noopEvalSuiteRegistry,
     evalRunBinding: noopEvalRunBinding,
     judgmentRegistry: noopJudgmentRegistry,
+    evalCaseStore: noopEvalCaseStore,
     sessionStore: noopSessionStore,
     identityProvider: noopIdentityProvider,
     exchangeCode: noopExchangeCode,

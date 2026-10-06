@@ -1,0 +1,348 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Kindgi Inc.
+
+/**
+ * Test sets built from judgments: `POST /v1/eval-suites/:id/versions/from-judgments`
+ * and `GET /v1/eval-suites/:id/versions/:version/cases`.
+ */
+
+import { randomUUID } from 'node:crypto';
+
+import { beforeEach, describe, expect, test } from 'vitest';
+
+import type { Cursor, ProjectId, TenantId, UserId } from '@kindgi/types';
+
+import { createStubAppBindings } from '@kindgi/testing';
+
+import { createApp } from '../src/index.js';
+import type {
+  EvalCaseStoreBinding,
+  EvalSuite,
+  EvalSuiteRegistryBinding,
+  JudgedEvalCase,
+  JudgmentRegistryBinding,
+  RunHandlerBinding,
+  TokenResolver,
+} from '../src/index.js';
+import { inMemoryJudgments } from './support/in-memory-judgments.js';
+
+const tenantId = randomUUID() as TenantId;
+const project = randomUUID() as ProjectId;
+const TOKEN = 'judged-suites-token';
+
+const resolveToken: TokenResolver = async (token) =>
+  token === TOKEN ? { tenantId, userId: 'user-1' as UserId } : null;
+
+const runHandler = {} as RunHandlerBinding;
+
+/** An eval-suite registry that only knows how to publish. */
+function suiteRegistry(): EvalSuiteRegistryBinding & { readonly published: EvalSuite[] } {
+  const published: EvalSuite[] = [];
+  return {
+    published,
+    async publish({ suite }: { suite: EvalSuite }) {
+      if (published.some((s) => s.id === suite.id && s.version === suite.version)) {
+        return { kind: 'already-registered', suiteId: suite.id, version: suite.version };
+      }
+      published.push(suite);
+      return { kind: 'ok', suiteId: suite.id, version: suite.version };
+    },
+  } as unknown as EvalSuiteRegistryBinding & { readonly published: EvalSuite[] };
+}
+
+/** An in-memory case store; the cursor is an offset. */
+function caseStore(): EvalCaseStoreBinding {
+  const sets = new Map<string, readonly JudgedEvalCase[]>();
+  const key = (suiteId: string, version: string) => `${suiteId}@${version}`;
+  return {
+    async putCases({ suiteId, version, cases }) {
+      sets.set(key(suiteId, version), cases);
+    },
+    async listCases({ suiteId, version, cursor, limit }) {
+      const all = sets.get(key(suiteId, version)) ?? [];
+      const from = cursor === undefined ? 0 : Number(cursor);
+      const data = all.slice(from, from + limit);
+      const next = from + data.length;
+      return {
+        data,
+        hasMore: next < all.length,
+        ...(next < all.length && { nextCursor: String(next) as Cursor }),
+      };
+    },
+  };
+}
+
+type Call = (
+  method: string,
+  path: string,
+  body?: unknown,
+) => Promise<{ readonly status: number; readonly body: Record<string, any> }>;
+
+interface Harness {
+  readonly call: Call;
+  readonly judgments: JudgmentRegistryBinding;
+  readonly suites: ReturnType<typeof suiteRegistry>;
+  readonly expertId: string;
+}
+
+const subject = (version = '2.0.0') => ({ kind: 'agent' as const, id: 'acme.matcher', version });
+
+async function seed(judgments: JudgmentRegistryBinding): Promise<string> {
+  const created = await judgments.createClass({
+    tenantId,
+    scope: { kind: 'tenant' },
+    name: 'expert',
+    weight: 3,
+  });
+  if (created.kind !== 'created') throw new Error('class not created');
+  const expertId = created.judgeClass.id;
+  const record = (
+    runId: string,
+    run: { version?: string; input: unknown; output: unknown; context?: object },
+    item: { key: string; rank?: number },
+    verdict: 'yes' | 'no',
+    by: string,
+    extra: { judgeClassId?: string; reason?: string } = {},
+  ) =>
+    judgments.record({
+      tenantId,
+      projectId: project,
+      runId,
+      run: {
+        subject: subject(run.version),
+        input: run.input,
+        output: run.output,
+        ...(run.context !== undefined && { context: run.context }),
+      },
+      item,
+      verdict,
+      assertedBy: { kind: 'user', id: by },
+      ...extra,
+    });
+
+  // run-1 (oldest): c2 is judged before c1, but c1 is rank 0.
+  const one = {
+    input: { query: 'acme' },
+    output: { matches: [{ id: 'c1' }, { id: 'c2' }] },
+    context: { history: [{ sequence: 0 }], retrieved: ['Acme Corp'] },
+  };
+  await record('run-1', one, { key: 'c2', rank: 1 }, 'no', 'u1');
+  await record('run-1', one, { key: 'c1', rank: 0 }, 'yes', 'u1', {
+    judgeClassId: expertId,
+    reason: 'right',
+  });
+  await record('run-1', one, { key: 'c1', rank: 0 }, 'no', 'u2', { reason: 'wrong city' });
+  // run-2: one unclassified judgment.
+  await record(
+    'run-2',
+    { input: { query: 'beta' }, output: { matches: [] } },
+    { key: 'x' },
+    'yes',
+    'u1',
+  );
+  // run-3 (newest): another agent version.
+  await record(
+    'run-3',
+    { version: '3.0.0', input: { query: 'gamma' }, output: { matches: [] } },
+    { key: 'y' },
+    'no',
+    'u3',
+    { judgeClassId: expertId },
+  );
+  return expertId;
+}
+
+async function harness(): Promise<Harness> {
+  const stubs = createStubAppBindings();
+  const judgments = inMemoryJudgments();
+  const suites = suiteRegistry();
+  const expertId = await seed(judgments);
+  return { ...makeCall(stubs, judgments, suites), judgments, suites, expertId };
+}
+
+function makeCall(
+  stubs: ReturnType<typeof createStubAppBindings>,
+  judgments: JudgmentRegistryBinding,
+  suites: EvalSuiteRegistryBinding,
+): { readonly call: Call } {
+  const app = createApp({
+    ...stubs,
+    resolveToken,
+    runHandler,
+    judgmentRegistry: judgments,
+    evalSuiteRegistry: suites,
+    evalCaseStore: caseStore(),
+  });
+  const call: Call = async (method, path, body) => {
+    const res = await app.request(path, {
+      method,
+      headers: {
+        authorization: `Bearer ${TOKEN}`,
+        ...(body !== undefined && { 'content-type': 'application/json' }),
+      },
+      ...(body !== undefined && { body: JSON.stringify(body) }),
+    });
+    return { status: res.status, body: (await res.json()) as Record<string, any> };
+  };
+  return { call };
+}
+
+const BUILD = '/v1/eval-suites/acme.matches/versions/from-judgments';
+const base = { version: '1.0.0', projectId: project, agentId: 'acme.matcher' };
+
+let h: Harness;
+beforeEach(async () => {
+  h = await harness();
+});
+
+describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
+  test('builds cases with the items summed, ranked, and the run copied', async () => {
+    const res = await h.call('POST', BUILD, { ...base, description: 'First set' });
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual({
+      suiteId: 'acme.matches',
+      version: '1.0.0',
+      kind: 'judged',
+      caseCount: 3,
+      truncated: false,
+    });
+    expect(h.suites.published[0]).toMatchObject({
+      id: 'acme.matches',
+      version: '1.0.0',
+      kind: 'judged',
+      description: 'First set',
+      spec: { source: 'judgments', caseCount: 3, truncated: false },
+    });
+
+    const cases = await h.call('GET', '/v1/eval-suites/acme.matches/versions/1.0.0/cases');
+    expect(cases.status).toBe(200);
+    // Newest judged run first.
+    expect(cases.body.data.map((c: { caseId: string }) => c.caseId)).toEqual([
+      'run-3',
+      'run-2',
+      'run-1',
+    ]);
+    const one = cases.body.data[2];
+    expect(one).toMatchObject({
+      caseId: 'run-1',
+      subject: subject(),
+      input: { query: 'acme' },
+      output: { matches: [{ id: 'c1' }, { id: 'c2' }] },
+      context: { history: [{ sequence: 0 }], retrieved: ['Acme Corp'] },
+    });
+    // Sorted by rank, though c2 was judged first.
+    expect(one.items).toEqual([
+      {
+        key: 'c1',
+        rank: 0,
+        yes: 1,
+        no: 1,
+        yesWeight: 3,
+        totalWeight: 4,
+        // Newest first.
+        reasons: [
+          { verdict: 'no', reason: 'wrong city' },
+          { verdict: 'yes', reason: 'right' },
+        ],
+      },
+      { key: 'c2', rank: 1, yes: 0, no: 1, yesWeight: 0, totalWeight: 1, reasons: [] },
+    ]);
+    // An unclassified judgment counts 1; a run without context has none.
+    expect(cases.body.data[1].items).toEqual([
+      { key: 'x', yes: 1, no: 0, yesWeight: 1, totalWeight: 1, reasons: [] },
+    ]);
+    expect(cases.body.data[1].context).toBeUndefined();
+  });
+
+  test('agentVersion narrows to one version of the agent', async () => {
+    const res = await h.call('POST', BUILD, { ...base, agentVersion: '3.0.0' });
+    expect(res.body.caseCount).toBe(1);
+  });
+
+  test('minJudgments leaves out runs with fewer judgments', async () => {
+    const res = await h.call('POST', BUILD, { ...base, minJudgments: 2 });
+    expect(res.status).toBe(201);
+    expect(res.body.caseCount).toBe(1);
+    const cases = await h.call('GET', '/v1/eval-suites/acme.matches/versions/1.0.0/cases');
+    expect(cases.body.data.map((c: { caseId: string }) => c.caseId)).toEqual(['run-1']);
+  });
+
+  test("judgeClassIds counts only those classes' judgments", async () => {
+    const res = await h.call('POST', BUILD, { ...base, judgeClassIds: [h.expertId] });
+    expect(res.body.caseCount).toBe(2);
+    const cases = await h.call('GET', '/v1/eval-suites/acme.matches/versions/1.0.0/cases');
+    const byId = new Map(cases.body.data.map((c: { caseId: string }) => [c.caseId, c]));
+    // run-1 keeps the expert's judgment on c1 and drops the rest.
+    expect((byId.get('run-1') as { items: unknown[] }).items).toEqual([
+      {
+        key: 'c1',
+        rank: 0,
+        yes: 1,
+        no: 0,
+        yesWeight: 3,
+        totalWeight: 3,
+        reasons: [{ verdict: 'yes', reason: 'right' }],
+      },
+    ]);
+    expect(byId.has('run-2')).toBe(false);
+  });
+
+  test('agentVersion without agentId: 400', async () => {
+    const res = await h.call('POST', BUILD, {
+      version: '1.0.0',
+      projectId: project,
+      flowId: 'acme.match',
+      agentVersion: '2.0.0',
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('bad-input');
+  });
+
+  test('neither agent nor flow: 400', async () => {
+    const res = await h.call('POST', BUILD, { version: '1.0.0', projectId: project });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('bad-input');
+  });
+
+  test('a bad semver: 400', async () => {
+    const res = await h.call('POST', BUILD, { ...base, version: 'v1' });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('bad-input');
+  });
+
+  test('the same version twice: 409', async () => {
+    expect((await h.call('POST', BUILD, base)).status).toBe(201);
+    const again = await h.call('POST', BUILD, base);
+    expect(again.status).toBe(409);
+    expect(again.body.error.code).toBe('eval-suite-already-registered');
+  });
+
+  test('a binding that cannot list judged runs: 501', async () => {
+    const { listJudgedRuns: _unsupported, ...without } = h.judgments;
+    const { call } = makeCall(createStubAppBindings(), without, h.suites);
+    const res = await call('POST', BUILD, base);
+    expect(res.status).toBe(501);
+    expect(res.body.error.code).toBe('test-sets-not-supported');
+    expect(h.suites.published).toHaveLength(0);
+  });
+});
+
+describe('GET /v1/eval-suites/:id/versions/:version/cases', () => {
+  test('pages with limit and cursor', async () => {
+    await h.call('POST', BUILD, base);
+    const path = '/v1/eval-suites/acme.matches/versions/1.0.0/cases';
+    const first = await h.call('GET', `${path}?limit=2`);
+    expect(first.status).toBe(200);
+    expect(first.body.data.map((c: { caseId: string }) => c.caseId)).toEqual(['run-3', 'run-2']);
+    expect(first.body.hasMore).toBe(true);
+    const second = await h.call('GET', `${path}?limit=2&cursor=${first.body.nextCursor}`);
+    expect(second.body.data.map((c: { caseId: string }) => c.caseId)).toEqual(['run-1']);
+    expect(second.body.hasMore).toBe(false);
+    expect(second.body.nextCursor).toBeUndefined();
+  });
+
+  test('a version with no cases is an empty page', async () => {
+    const res = await h.call('GET', '/v1/eval-suites/acme.matches/versions/9.9.9/cases');
+    expect(res.body).toEqual({ data: [], hasMore: false });
+  });
+});

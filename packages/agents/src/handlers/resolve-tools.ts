@@ -12,11 +12,14 @@ import { throwAgentTurnFailure } from './errors.js';
 /**
  * Resolve the agent's tool references against one tenant's registry
  * (`ToolRegistry.forTenant`). Throws the turn failure for an unknown
- * tool or an unsatisfiable version range.
+ * tool or an unsatisfiable version range. A tool in `pinned` (a resumed
+ * turn's, from its `setup`) resolves to exactly that version: one that's
+ * gone fails the turn rather than running another.
  */
 export function resolveTurnTools(
   registry: ToolRegistry,
   agent: Agent,
+  pinned?: Readonly<Record<string, string>>,
 ): NonNullable<TurnContext['tools']> {
   const definitions: ModelToolDefinition[] = [];
   const byName = new Map<
@@ -29,9 +32,21 @@ export function resolveTurnTools(
     // (npm-compatible semver, backed by `maxSatisfying`); capture `resolvedVersion` in
     // the byName map so `dispatch-tools` can emit it in provenance +
     // telemetry — a replay can then pin against the same version.
-    const resolved = registry.resolve(ref.id as never, ref.version);
+    const pin = pinned?.[ref.id];
+    const resolved = registry.resolve(ref.id as never, pin ?? ref.version);
     if (resolved.kind === 'err') {
       const err = resolved.error;
+      if (pin !== undefined) {
+        throwAgentTurnFailure({
+          code: 'tool-version-unresolvable',
+          message: `Tool "${ref.id}": this turn started with version ${pin}, which is no longer registered; it doesn't run another version mid-turn. ${err.message}`,
+          toolId: ref.id,
+          requestedRange: ref.version,
+          ...(err.code === 'tool-version-unresolvable' && {
+            availableVersions: err.availableVersions,
+          }),
+        });
+      }
       if (err.code === 'tool-not-found') {
         throwAgentTurnFailure({
           code: 'unresolved-tool',

@@ -451,7 +451,8 @@ def main(argv: list[str] | None = None) -> int:
         for path in generate_into(args.openapi, OUT_DIR):
             print(f"wrote {path.relative_to(ROOT)}")
         return 0
-    with tempfile.TemporaryDirectory() as tmp:
+    # Under ROOT, so ruff finds this project's line length, as it does in OUT_DIR.
+    with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
         stale = []
         for path in generate_into(args.openapi, Path(tmp)):
             committed = OUT_DIR / path.name

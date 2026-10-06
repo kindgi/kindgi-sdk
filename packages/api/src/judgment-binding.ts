@@ -55,6 +55,12 @@ export interface JudgmentRegistryBinding {
   get(input: JudgmentGetInput): Promise<JudgmentWithCopies | null>;
   /** Soft-delete a live judgment. `false` when unknown or already removed. */
   unregister(input: JudgmentGetInput): Promise<{ readonly unregistered: boolean }>;
+  /**
+   * Judged runs with their copies and live judgments, newest first:
+   * what a test set is built from. Optional (a binding without it can't
+   * build test sets from judgments).
+   */
+  listJudgedRuns?(input: JudgedRunListInput): Promise<JudgedRunPage>;
 }
 
 // ---------- judge classes ----------
@@ -193,12 +199,29 @@ export interface Judgment {
   readonly supersededBy?: string;
 }
 
+/**
+ * What a judged agent turn read besides its input, captured when it was
+ * first judged, so the turn can later be replayed faithfully: the
+ * conversation before it and the context its retrievals returned. (Its
+ * tool calls and results, provider and model are in its output.)
+ */
+export interface JudgedRunContext {
+  /** The conversation's messages before the turn, oldest first (at most the last 200). */
+  readonly history?: readonly unknown[];
+  /** Whether older messages were left out of `history`. */
+  readonly historyTruncated?: boolean;
+  /** What the turn's retrievals returned. */
+  readonly retrieved?: unknown;
+}
+
 /** The stored copies of a judged run. */
 export interface JudgedRunCopy {
   readonly runId: string;
   readonly subject: JudgedSubject;
   readonly input: unknown;
   readonly output: unknown;
+  /** Absent for runs judged before context was captured, and for flow runs. */
+  readonly context?: JudgedRunContext;
   readonly capturedAt: string;
 }
 
@@ -218,6 +241,7 @@ export interface JudgmentRecordInput {
     readonly subject: JudgedSubject;
     readonly input: unknown;
     readonly output: unknown;
+    readonly context?: JudgedRunContext;
   };
   readonly item: JudgedItem;
   /** The item's value at `item.pointer`, resolved by the route from the run's output. */
@@ -252,4 +276,31 @@ export interface JudgmentPage {
 export interface JudgmentGetInput {
   readonly tenantId: TenantId;
   readonly judgmentId: string;
+}
+
+export interface JudgedRunListInput {
+  readonly tenantId: TenantId;
+  readonly projectId?: ProjectId;
+  readonly agentId?: string;
+  readonly agentVersion?: string;
+  readonly flowId?: string;
+  /** Runs first judged at or after this time (ISO 8601). */
+  readonly since?: string;
+  /** Runs first judged before this time (ISO 8601). */
+  readonly until?: string;
+  readonly cursor?: Cursor;
+  readonly limit: number;
+}
+
+export interface JudgedRunWithJudgments {
+  readonly projectId: ProjectId;
+  readonly run: JudgedRunCopy;
+  /** The run's live judgments. */
+  readonly judgments: readonly Judgment[];
+}
+
+export interface JudgedRunPage {
+  readonly data: readonly JudgedRunWithJudgments[];
+  readonly hasMore: boolean;
+  readonly nextCursor?: Cursor;
 }

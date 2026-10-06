@@ -18,6 +18,7 @@ import {
   type DeclaredProvider,
   type OwnedProviders,
   type ProvidersClient,
+  adoptLegacyBundledEntries,
   declaredProviders,
   describeReconcile,
   devProvidersKey,
@@ -391,13 +392,51 @@ describe('the record', () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  test('keyed by the dev database (never its credentials) and the tenant', () => {
-    expect(devProvidersKey('postgres://kindgi:secret@localhost:5433/kindgi_acme', 't-1')).toBe(
-      'localhost:5433/kindgi_acme tenant t-1',
+  test('keyed by the runtime (never credentials) and the tenant', () => {
+    // A database the developer names: host, port and name.
+    expect(
+      devProvidersKey(
+        { kind: 'database', url: 'postgres://kindgi:secret@localhost:5433/kindgi_acme' },
+        't-1',
+      ),
+    ).toBe('localhost:5433/kindgi_acme tenant t-1');
+    expect(
+      devProvidersKey({ kind: 'database', url: 'postgres://localhost/kindgi_acme' }, 't-1'),
+    ).toBe('localhost:5432/kindgi_acme tenant t-1');
+    // The bundled Postgres: the project's database, whatever port it's on.
+    expect(devProvidersKey({ kind: 'bundled', database: 'kindgi_acme' }, 't-1')).toBe(
+      'bundled kindgi_acme tenant t-1',
     );
-    expect(devProvidersKey('postgres://localhost/kindgi_acme', 't-1')).toBe(
-      'localhost:5432/kindgi_acme tenant t-1',
+    // A runtime the developer runs: its origin.
+    expect(devProvidersKey({ kind: 'runtime', url: 'http://127.0.0.1:4811/' }, 't-1')).toBe(
+      'runtime http://127.0.0.1:4811 tenant t-1',
     );
+  });
+
+  test("0.1.3's bundled entries (keyed on a host port) are adopted once, for that database and tenant only", async () => {
+    const path = join(dir, '.kindgi', 'dev', 'providers.json');
+    const mine = { anthropic: { declared: 'sha256:1', registered: 'sha256:2' } };
+    const other = { gemini: { declared: 'sha256:3', registered: 'sha256:4' } };
+    await writeOwnedProviders(path, '127.0.0.1:58091/kindgi_acme tenant t-1', mine);
+    await writeOwnedProviders(path, '127.0.0.1:58091/kindgi_other tenant t-1', other);
+    await writeOwnedProviders(path, '127.0.0.1:58091/kindgi_acme tenant t-2', other);
+    await writeOwnedProviders(path, 'db.acme.example:5432/kindgi_acme tenant t-1', other);
+
+    await adoptLegacyBundledEntries(path, 'kindgi_acme', 't-1');
+    expect(await readOwnedProviders(path, 'bundled kindgi_acme tenant t-1')).toEqual(mine);
+    expect(Object.keys(JSON.parse(await readFile(path, 'utf8')).runtimes).sort()).toEqual([
+      '127.0.0.1:58091/kindgi_acme tenant t-2',
+      '127.0.0.1:58091/kindgi_other tenant t-1',
+      'bundled kindgi_acme tenant t-1',
+      'db.acme.example:5432/kindgi_acme tenant t-1',
+    ]);
+
+    // Once: an entry under the new key is never overwritten.
+    await writeOwnedProviders(path, '127.0.0.1:62374/kindgi_acme tenant t-1', other);
+    await adoptLegacyBundledEntries(path, 'kindgi_acme', 't-1');
+    expect(await readOwnedProviders(path, 'bundled kindgi_acme tenant t-1')).toEqual(mine);
+    // No record: nothing to adopt, nothing written.
+    await adoptLegacyBundledEntries(join(dir, 'missing.json'), 'kindgi_acme', 't-1');
   });
 
   test('read back per key; an emptied key is dropped; an unreadable record owns nothing', async () => {
