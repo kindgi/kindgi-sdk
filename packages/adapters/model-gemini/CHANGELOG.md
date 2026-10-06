@@ -1,5 +1,11 @@
 # @kindgi/adapter-model-gemini
 
+## 0.1.4-rc.2
+
+### Patch Changes
+
+- @kindgi/capabilities@0.1.4-rc.2
+
 ## 0.1.4-rc.1
 
 ### Patch Changes

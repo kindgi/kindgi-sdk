@@ -1,5 +1,12 @@
 # @kindgi/pack-conformance
 
+## 0.1.4-rc.2
+
+### Patch Changes
+
+- Updated dependencies [2040daf]
+  - @kindgi/specs@0.1.4-rc.2
+
 ## 0.1.4-rc.1
 
 ### Patch Changes
