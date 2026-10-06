@@ -77,7 +77,12 @@ re-locks `uv.lock` (it needs uv). CI fails when they differ
 prerelease is `-alpha.N`, `-beta.N` or `-rc.N` (`aN`, `bN`, `rcN` on
 PyPI); the script refuses any other.
 
-1. Every user-visible change adds a changeset: `pnpm changeset`.
+1. Every user-visible change adds a changeset: `pnpm changeset`. Before
+   1.0, and while release candidates are out, it's a `patch`: one
+   `minor` moves every package to the next minor, which no installed
+   project reaches. A changeset that means to move the release says so
+   in its body, `Release-decision: <who decided, and when>`
+   (`pnpm run check:changeset-bumps`, in CI).
 2. Merging to `main` updates the "Version Packages" pull request
    (opened by the org's release GitHub App, so CI runs on it like any
    other pull request).
@@ -108,10 +113,11 @@ The steps:
 1. **Start:** `pnpm changeset pre enter rc` in a pull request
    (`.changeset/pre.json`). From then on, the "Version Packages" pull
    request versions `X.Y.Z-rc.0`, then `rc.1`, and so on. Publish each
-   as above.
+   as above. While candidates are out, every changeset is a `patch`: a
+   `minor` would move the release itself.
 2. **Release:** `pnpm changeset pre exit` in a pull request. The next
    "Version Packages" pull request versions `X.Y.Z`, its changelog
    gathering every rc's changesets, and that publishes under `latest`.
 
-The runtime image follows the same versions: sovereign's
-`runtime-release` takes `X.Y.Z-rc.N`, and never moves `preview` for one.
+The runtime image follows the same versions: the runtime's release takes
+`X.Y.Z-rc.N`, and never moves `preview` for one.
