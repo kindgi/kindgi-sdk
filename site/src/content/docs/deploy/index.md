@@ -19,6 +19,8 @@ The runtime image is in private preview: request access at contact@kindgi.com.
   service as containers, with your own Postgres.
 - **[Operate it](operate/):** health and logs, backups and restores,
   upgrades, and rotating its tokens and keys.
+- **[Keep and purge deleted data](retention/):** how long deleted records
+  are kept, and the retention policies and sweeps that purge them.
 - **[Google Cloud Run](cloud-run/):** the runtime and your pack's service as
   two Cloud Run services, with Cloud SQL, from Kindgi's Terraform module.
 - **Kindgi Cloud:** we run it for you. In private preview.
