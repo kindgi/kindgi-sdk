@@ -3948,6 +3948,17 @@ class CostAggregateResult(BaseModel):
         populate_by_name=True,
     )
     groups: list[CostAggregateGroup]
+    """
+    The most expensive groups first (`totalUsd` descending, ties by key), at most `limit`.
+    """
+    total_groups: Annotated[int | None, Field(alias="totalGroups", ge=0)] = None
+    """
+    How many groups there were before the `limit` cap. Absent from a runtime before 0.1.5.
+    """
+    truncated: bool | None = None
+    """
+    `true` when there were more groups than `limit`: `groups` holds the most expensive ones, and `totalUsd` / `totalRecords` / `tokens` still cover every record. Absent from a runtime before 0.1.5.
+    """
     total_usd: Annotated[float, Field(alias="totalUsd", ge=0.0)]
     total_records: Annotated[int, Field(alias="totalRecords", ge=0)]
     tokens: CostTokenTotals
