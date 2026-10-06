@@ -123,22 +123,18 @@ export function stringFlag(ctx: CommandContext, name: string): string | undefine
   return typeof raw === 'string' && raw !== '' ? raw : undefined;
 }
 
-/** Every value of a repeatable string flag (`--segment=a --segment=b`), in order. */
-export function stringListFlag(ctx: CommandContext, name: string): readonly string[] {
-  const raw = ctx.options[name];
-  if (typeof raw === 'string') return raw === '' ? [] : [raw];
-  if (Array.isArray(raw)) return raw.filter((v: string) => v !== '');
-  return [];
-}
-
-/** `--segment=key:value`, repeated: a segment path, in order (coarse to fine). */
+/**
+ * A repeatable `--<name>=key:value` flag (default `--segment`): a segment
+ * path, in order (coarse to fine).
+ */
 export function segmentsFlag(
   ctx: CommandContext,
+  name = 'segment',
 ): readonly { readonly key: string; readonly value: string }[] {
-  return stringListFlag(ctx, 'segment').map((raw) => {
+  return listFlag(ctx, name).map((raw) => {
     const at = raw.indexOf(':');
     if (at <= 0 || at === raw.length - 1) {
-      throw new Error(`--segment must be key:value, got "${raw}"`);
+      throw new Error(`--${name} must be key:value, got "${raw}"`);
     }
     return { key: raw.slice(0, at), value: raw.slice(at + 1) };
   });

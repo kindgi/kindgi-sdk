@@ -11109,7 +11109,8 @@
           "hitl-decision",
           "agent-promotion",
           "agent-rollback",
-          "agent-live-unpinned"
+          "agent-live-unpinned",
+          "agent-live-pin-inactive"
         ]
       },
       "EvidenceActor": {
@@ -11259,7 +11260,8 @@
               "hitl-decision",
               "agent-promotion",
               "agent-rollback",
-              "agent-live-unpinned"
+              "agent-live-unpinned",
+              "agent-live-pin-inactive"
             ]
           },
           "timestamp": {
@@ -11432,7 +11434,8 @@
               "hitl-decision",
               "agent-promotion",
               "agent-rollback",
-              "agent-live-unpinned"
+              "agent-live-unpinned",
+              "agent-live-pin-inactive"
             ]
           },
           "from": {
@@ -11505,7 +11508,8 @@
                   "hitl-decision",
                   "agent-promotion",
                   "agent-rollback",
-                  "agent-live-unpinned"
+                  "agent-live-unpinned",
+                  "agent-live-pin-inactive"
                 ]
               },
               "from": {
