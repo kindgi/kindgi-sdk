@@ -537,3 +537,26 @@ def test_a_second_retention_policy_for_a_domain_is_a_conflict() -> None:
         )
     assert raised.value.server_code == "policy-scope-taken"
     assert raised.value.details["heldBy"] == "acme.keep-providers"
+
+
+def test_observations_list_sends_every_filter_the_route_reads() -> None:
+    """`agentVersion`, `conversationId`, `since` and `until` were missing from the spec."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"data": [], "hasMore": False})
+
+    api, seen = client(handler)
+    api.observations.list(
+        agent_id="acme.helper",
+        agent_version="1.0.0",
+        conversation_id="c-1",
+        since="2026-10-01T00:00:00Z",
+        until="2026-10-06T00:00:00Z",
+    )
+    assert dict(seen[0].url.params) == {
+        "agentId": "acme.helper",
+        "agentVersion": "1.0.0",
+        "conversationId": "c-1",
+        "since": "2026-10-01T00:00:00Z",
+        "until": "2026-10-06T00:00:00Z",
+    }

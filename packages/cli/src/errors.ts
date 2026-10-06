@@ -3,7 +3,7 @@
 
 import { KindgiApiError, type KindgiError } from '@kindgi/client';
 
-import { UNWIRED_REASONS } from './commands/unwired.js';
+import { unwiredReason } from './commands/unwired.js';
 
 /**
  * The CLI-level exit envelope. Every command handler returns one so the
@@ -37,7 +37,7 @@ export function formatThrown(
       const label = options.commandLabel.startsWith('kindgi ')
         ? options.commandLabel
         : `kindgi ${options.commandLabel}`;
-      const reason = UNWIRED_REASONS.get(label.slice('kindgi '.length));
+      const reason = unwiredReason(label.slice('kindgi '.length).split(' '));
       return cliError(
         reason !== undefined
           ? `Command '${label}' is not available: ${reason}`

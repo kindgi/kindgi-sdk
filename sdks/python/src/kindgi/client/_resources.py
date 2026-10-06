@@ -2910,7 +2910,11 @@ class ObservationsResource:
         ]
         | None = None,
         agent_id: str | None = None,
+        agent_version: str | None = None,
         supervisor_id: str | None = None,
+        conversation_id: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
         timeout: float | None = None,
     ) -> _models.ObservationCollectionPage:
         """Query supervisor observations. `GET /v1/observations`
@@ -2925,7 +2929,11 @@ class ObservationsResource:
                 "cursor": cursor,
                 "status": status,
                 "agentId": agent_id,
+                "agentVersion": agent_version,
                 "supervisorId": supervisor_id,
+                "conversationId": conversation_id,
+                "since": since,
+                "until": until,
             },
             headers={},
             response=_models.ObservationCollectionPage,
@@ -8731,7 +8739,11 @@ class AsyncObservationsResource:
         ]
         | None = None,
         agent_id: str | None = None,
+        agent_version: str | None = None,
         supervisor_id: str | None = None,
+        conversation_id: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
         timeout: float | None = None,
     ) -> _models.ObservationCollectionPage:
         """Query supervisor observations. `GET /v1/observations`
@@ -8746,7 +8758,11 @@ class AsyncObservationsResource:
                 "cursor": cursor,
                 "status": status,
                 "agentId": agent_id,
+                "agentVersion": agent_version,
                 "supervisorId": supervisor_id,
+                "conversationId": conversation_id,
+                "since": since,
+                "until": until,
             },
             headers={},
             response=_models.ObservationCollectionPage,

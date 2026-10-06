@@ -23441,12 +23441,50 @@
             "required": false
           },
           {
+            "name": "agentVersion",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Only the observations of this agent version (with `agentId`)."
+          },
+          {
             "name": "supervisorId",
             "in": "query",
             "schema": {
               "type": "string"
             },
             "required": false
+          },
+          {
+            "name": "conversationId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Only the observations of turns in this conversation."
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "description": "Only the observations at or after this time (ISO 8601)."
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "description": "Only the observations at or before this time (ISO 8601)."
           }
         ],
         "security": [
