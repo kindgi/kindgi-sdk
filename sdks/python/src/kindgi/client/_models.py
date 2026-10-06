@@ -1355,6 +1355,22 @@ class ToolErrorsSpec(BaseModel):
     """
 
 
+class DerivedFrom(BaseModel):
+    """
+    Set by the runtime on a version a deploy registered in place of the definition's version (which was registered already with other pins or content). Never in the publish body.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    version: str
+    """
+    The version the agent's definition names.
+    """
+    reason: Literal["pins-changed", "unpinned", "version-taken"]
+
+
 class AgentPins(BaseModel):
     """
     The exact block versions an agent version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool range resolves once to the version every run of that agent version uses, so a new tool version reaches the agent only through a new agent version. Absent on a version published before pins existed (its ranges resolve per run).
@@ -1375,6 +1391,27 @@ class AgentPins(BaseModel):
     settings: dict[str, str]
     """
     Settings block id → exact version.
+    """
+
+
+class PinChange(BaseModel):
+    """
+    One pin that differs between two agent versions.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["tool", "prompt", "setting"]
+    id: str
+    from_: Annotated[str | None, Field(alias="from")] = None
+    """
+    The earlier version's pin; absent when it had none.
+    """
+    to: str | None = None
+    """
+    The later version's pin; absent when it has none.
     """
 
 
@@ -4420,9 +4457,25 @@ class Agent1(BaseModel):
         populate_by_name=True,
     )
     id: str
-    version: str | None = None
+    version: str
     """
-    Absent for guardrails, which have no version.
+    The version the agent is registered as.
+    """
+    authored_version: Annotated[str | None, Field(alias="authoredVersion")] = None
+    """
+    The version the agent's definition names, present when it differs from `version`: that version was registered already with other pins or content, and versions never change, so the deploy registered the next free version in its line (or an earlier deploy did).
+    """
+    reason: Literal["pins-changed", "unpinned", "version-taken"] | None = None
+    """
+    Why `version` differs from `authoredVersion`: `pins-changed` (a tool it uses has another version in range now), `unpinned` (`authoredVersion` was published before pins existed), `version-taken` (`authoredVersion` is registered with other content).
+    """
+    new_version: Annotated[bool | None, Field(alias="newVersion")] = None
+    """
+    `true`: this deploy registered `version`; `false`: an earlier deploy did.
+    """
+    pin_changes: Annotated[list[PinChange] | None, Field(alias="pinChanges")] = None
+    """
+    For `pins-changed`: the pins that differ from `authoredVersion`'s.
     """
 
 
@@ -6401,6 +6454,10 @@ class Agent(BaseModel):
     output: AgentOutputSpec | None = None
     tool_errors: Annotated[ToolErrorsSpec | None, Field(alias="toolErrors")] = None
     pins: AgentPins | None = None
+    derived_from: Annotated[DerivedFrom | None, Field(alias="derivedFrom")] = None
+    """
+    Set by the runtime on a version a deploy registered in place of the definition's version (which was registered already with other pins or content). Never in the publish body.
+    """
     pins_digest: Annotated[
         str | None, Field(alias="pinsDigest", pattern="^sha256:[0-9a-f]{64}$")
     ] = None
