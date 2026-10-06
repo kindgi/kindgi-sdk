@@ -284,6 +284,7 @@ export function fromWire(body: unknown): KindgiError {
     case 'registry-read-only':
     case 'nothing-to-roll-back':
     case 'not-pinned':
+    case 'agent-version-live':
       return { code: 'conflict', message, reason: code };
     case 'invalid-request':
     case 'validation-failed':

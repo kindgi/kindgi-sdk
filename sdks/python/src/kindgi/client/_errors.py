@@ -141,7 +141,7 @@ _CONFLICT = {
     "provider-already-registered", "proposal-invalid-state-transition", "approval-not-decided",
     "slug-conflict", "project-default-already-exists", "registry-read-only",
     "policy-already-registered", "policy-scope-taken", "policy-scope-changed",
-    "nothing-to-roll-back", "not-pinned",
+    "nothing-to-roll-back", "not-pinned", "agent-version-live",
 }  # fmt: skip
 _INVALID = {
     "invalid-request", "validation-failed", "unknown-field", "bad-input", "unresolved-tool",

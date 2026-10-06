@@ -223,6 +223,11 @@ def test_a_list_query_parameter_repeats_its_key_in_order() -> None:
             lambda e: e.server_code == "nothing-to-roll-back",
         ),
         (
+            error(409, "agent-version-live"),
+            ConflictError,
+            lambda e: e.server_code == "agent-version-live",
+        ),
+        (
             error(404, "agent-version-not-found"),
             NotFoundError,
             lambda e: e.kind == "agent-version",

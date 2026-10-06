@@ -34,6 +34,7 @@ import {
   isPromotionWrite,
   mountAgentReleaseRoutes,
 } from './agent-releases.js';
+import { liveScopeToWire } from './live-scope-wire.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams } from './scope-params.js';
 
@@ -455,6 +456,23 @@ export function agentsRouter(
     const version = c.req.param('version') as Semver;
 
     const outcome = await binding.unregister({ tenantId, agentId, version });
+    if (!outcome.unregistered && outcome.live !== undefined && outcome.live.length > 0) {
+      c.status(statusFor('agent-version-live') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'agent-version-live',
+            message: `${agentId as unknown as string} ${version as unknown as string} is live in ${
+              outcome.live.length === 1 ? 'a scope' : `${outcome.live.length} scopes`
+            }: roll back, unpin, or promote another version there first, then unregister it.`,
+            agentId: agentId as unknown as string,
+            version: version as unknown as string,
+            scopes: outcome.live.map(liveScopeToWire),
+          },
+          requestId,
+        ),
+      );
+    }
     if (!outcome.unregistered) {
       c.status(statusFor('agent-not-found') as never);
       return c.json(
