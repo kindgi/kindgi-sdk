@@ -15,7 +15,9 @@ Judgments are new in Kindgi 0.1.4, available now in its release candidates:
 A **judgment** is a yes or no, with an optional reason, about one item of a
 finished run's output: the whole answer, or one element of a list it
 returned. People who know the work, your users or your experts, judge; the
-judgments then tell you how an agent or flow version does.
+judgments then tell you how an agent or flow version does:
+[build a test set](../build-a-test-set/) from them, and
+[compare a new version](../compare-an-agent-version/) on it.
 
 ## Judge an item
 
@@ -103,6 +105,11 @@ Nothing at "/no/such" in run "bc6d1b53-3562-48c9-9f29-719779e3d110"'s output.
 ```
 
 Judging a run takes write access to its project, as cancelling it does.
+
+In the console, a finished run's page has **Judge this run** (a **Judgments**
+tab once it has judgments). It lists the answer and each element of a list in
+the output, each with **Yes** and **No**, the counts so far, and each judgment
+with who made it, its class and its reason.
 
 ## See the judgments
 
