@@ -386,6 +386,23 @@ export type {
   BlockReinstateOutcome,
   BlockVersionInput,
 } from './block-binding.js';
+export type {
+  AgentReleaseBindings,
+  ListPromotionsInput,
+  LivePin,
+  LiveResolution,
+  LiveResolveInput,
+  LiveVersionBinding,
+  PromoteInput,
+  Promotion,
+  PromotionAction,
+  PromotionActor,
+  PromotionBinding,
+  PromotionError,
+  PromotionErrorCode,
+  RollbackInput,
+  UnpinInput,
+} from './live-version-binding.js';
 export { EVAL_KINDS } from './eval-suite-binding.js';
 export type {
   EvalKind,

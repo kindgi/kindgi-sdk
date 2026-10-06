@@ -23,10 +23,12 @@ import {
   nextFreeAgentVersion,
 } from '../derive-agent-version.js';
 import { statusFor, toWireError } from '../errors.js';
+import type { AgentReleaseBindings } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
+import { isPromotionWrite, mountAgentReleaseRoutes } from './agent-releases.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams } from './scope-params.js';
 
@@ -52,6 +54,8 @@ export function agentsRouter(
   authorizer?: Authorizer,
   toolRegistry?: ToolRegistryBinding,
   blockRegistry?: BlockRegistryBinding,
+  /** Live versions per scope and promotions (evals step 4); absent → those routes aren't mounted. */
+  releases?: AgentReleaseBindings,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // A read-only registry (under `kindgi dev`, the pack's files) refuses
@@ -71,6 +75,8 @@ export function agentsRouter(
   //   POST /:agentId/versions                        → publish on the agent (derive)
   //   POST /:agentId/versions/:version/unregister    → admin on the agent
   //   POST /:agentId/versions/:version/reinstate     → admin on the agent
+  //   POST /:agentId/promotions, /live/rollback, /live/unpin → promote on the agent
+  //   GET /:agentId/live, /live-versions, /promotions[/…]    → read on the agent
   //   GET / (list)                                   → tenant-scoped fetch;
   //                                                    with a project scope
   //                                                    (?scopeKind=project&scopeId=),
@@ -108,9 +114,16 @@ export function agentsRouter(
     });
     r.use('/:agentId/*', async (c, next) => {
       // Deriving a version (POST …/versions) is `publish` on the agent;
-      // unregister and reinstate are `admin`.
+      // changing what's live is its own permission (`promote`, granted to
+      // the agent's admins); unregister and reinstate are `admin`.
       const action =
-        c.req.method === 'GET' ? 'read' : c.req.path.endsWith('/versions') ? 'publish' : 'admin';
+        c.req.method === 'GET'
+          ? 'read'
+          : isPromotionWrite(c.req.method, c.req.path)
+            ? 'promote'
+            : c.req.path.endsWith('/versions')
+              ? 'publish'
+              : 'admin';
       const agentId = c.req.param('agentId') ?? '';
       const mw = authorizer.authorize(action, () => ref('agent', agentId));
       return mw(c, next);
@@ -488,6 +501,8 @@ export function agentsRouter(
       wasTombstoned: outcome.wasTombstoned,
     });
   });
+
+  if (releases !== undefined) mountAgentReleaseRoutes(r, binding, releases);
 
   return r;
 }

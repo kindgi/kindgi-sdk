@@ -54,24 +54,232 @@ class RunStatus(
     root: Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]
 
 
-class RunAgent(BaseModel):
+class ScopeSegment(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    key: Annotated[str, Field(pattern="^[a-z][a-z0-9_-]{0,63}$")]
     """
-    Set on an agent's turn (an agent run, or the turn a flow's agent step started): the agent, the version that ran and the conversation. Absent on other runs, and on turns that ran before Kindgi 0.1.3.
+    Lowercase, like an identifier: `company`, `contact-role`.
+    """
+    value: Annotated[str, Field(max_length=256, min_length=1)]
+
+
+class LiveScopeTenant(BaseModel):
+    """
+    The agent's default for the whole tenant.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    id: str
+    kind: Literal["tenant"]
+
+
+class LiveScopeOrg(BaseModel):
     """
-    The agent id.
+    An org's projects.
     """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["org"]
+    org_id: Annotated[UUID, Field(alias="orgId")]
+
+
+class LiveScopeProject(BaseModel):
+    """
+    One project.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["project"]
+    project_id: Annotated[UUID, Field(alias="projectId")]
+
+
+class LiveScopeSegment(BaseModel):
+    """
+    A segment path within a project: it covers every run whose path starts with it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["segment"]
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    path: Annotated[list[ScopeSegment], Field(max_length=8, min_length=1)]
+
+
+class LiveVersionResolution(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    agent_id: Annotated[str, Field(alias="agentId")]
     version: str
     """
-    The agent version that ran (semver).
+    The version a run would use (semver).
     """
-    conversation_id: Annotated[UUID, Field(alias="conversationId")]
+    via: Literal["live", "latest"]
+    """
+    A live pin chose it, or nothing is live on the way up and it is the latest.
+    """
+    live_scope: Annotated[
+        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment | None,
+        Field(alias="liveScope", discriminator="kind"),
+    ] = None
+    """
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    """
+
+
+class LivePin(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    agent_id: Annotated[str, Field(alias="agentId")]
+    scope: Annotated[
+        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment,
+        Field(discriminator="kind"),
+    ]
+    """
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    """
+    version: str
+    promotion_id: Annotated[UUID, Field(alias="promotionId")]
+    """
+    The promotion that set it.
+    """
+    set_at: Annotated[AwareDatetime, Field(alias="setAt")]
+
+
+class LivePinList(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[LivePin]
+
+
+class RequestedBy(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["user", "service"]
+    id: str
+
+
+class Promotion(BaseModel):
+    """
+    One change of a scope's live version, kept for good: what was live before, what is after, who asked and why.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: UUID
+    agent_id: Annotated[str, Field(alias="agentId")]
+    scope: Annotated[
+        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment,
+        Field(discriminator="kind"),
+    ]
+    """
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    """
+    action: Literal["promote", "rollback", "unpin"]
+    from_version: Annotated[str | None, Field(alias="fromVersion")]
+    """
+    The scope's own pin before; null when it had none.
+    """
+    to_version: Annotated[str | None, Field(alias="toVersion")]
+    """
+    The scope's own pin after; null after an unpin.
+    """
+    requested_by: Annotated[RequestedBy, Field(alias="requestedBy")]
+    reason: str | None = None
+    eval_run_id: Annotated[str | None, Field(alias="evalRunId")] = None
+    """
+    The comparison the change was judged on.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+
+
+class PromotionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Promotion]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class PromoteBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    version: str
+    """
+    The agent version to make live (registered, active).
+    """
+    scope: Annotated[
+        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment,
+        Field(discriminator="kind"),
+    ]
+    """
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    """
+    reason: Annotated[str | None, Field(max_length=2000)] = None
+    eval_run_id: Annotated[str | None, Field(alias="evalRunId")] = None
+    """
+    The comparison this promotion was judged on.
+    """
+
+
+class RollbackBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    scope: Annotated[
+        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment,
+        Field(discriminator="kind"),
+    ]
+    """
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    """
+    to_version: Annotated[str | None, Field(alias="toVersion")] = None
+    """
+    An earlier version to go back to; omit → the scope's previous live version.
+    """
+    reason: Annotated[str | None, Field(max_length=2000)] = None
+
+
+class UnpinBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    scope: Annotated[
+        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment,
+        Field(discriminator="kind"),
+    ]
+    """
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    """
+    reason: Annotated[str | None, Field(max_length=2000)] = None
 
 
 class StartRunOptions(BaseModel):
@@ -119,11 +327,15 @@ class StartRunBody1(BaseModel):
     """
     agent_version: Annotated[str | None, Field(alias="agentVersion")] = None
     """
-    Semver; omit → latest.
+    Semver. Omit → the conversation's own version for a follow-up turn, else the version live for the run's scope, else the latest.
     """
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
     Project to run under; omit → the tenant's Default project.
+    """
+    segments: Annotated[list[ScopeSegment] | None, Field(max_length=8)] = None
+    """
+    The run's segment path below its project, coarse to fine (an app-defined finer scope, e.g. company then role). A version live on a prefix of it serves the run.
     """
     input: Any
     """
@@ -152,6 +364,10 @@ class StartRunBody2(BaseModel):
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
     Project to run under; omit → the tenant's Default project.
+    """
+    segments: Annotated[list[ScopeSegment] | None, Field(max_length=8)] = None
+    """
+    The run's segment path below its project, coarse to fine (an app-defined finer scope, e.g. company then role). A version live on a prefix of it serves the run.
     """
     input: Any
     """
@@ -5800,6 +6016,10 @@ class EvidenceKind(RootModel[str]):
                 "secret-revoked",
                 "secret-hard-revoked",
                 "hitl-decision",
+                "agent-promotion",
+                "agent-rollback",
+                "agent-live-unpinned",
+                "agent-live-pin-inactive",
             ],
             min_length=1,
         ),
@@ -5947,6 +6167,10 @@ class ComplianceEvidence(BaseModel):
                 "secret-revoked",
                 "secret-hard-revoked",
                 "hitl-decision",
+                "agent-promotion",
+                "agent-rollback",
+                "agent-live-unpinned",
+                "agent-live-pin-inactive",
             ],
             min_length=1,
         ),
@@ -6019,6 +6243,10 @@ class ExportComplianceEvidenceFilter(BaseModel):
                 "secret-revoked",
                 "secret-hard-revoked",
                 "hitl-decision",
+                "agent-promotion",
+                "agent-rollback",
+                "agent-live-unpinned",
+                "agent-live-pin-inactive",
             ],
             min_length=1,
         ),
@@ -6073,6 +6301,10 @@ class Filter(BaseModel):
                 "secret-revoked",
                 "secret-hard-revoked",
                 "hitl-decision",
+                "agent-promotion",
+                "agent-rollback",
+                "agent-live-unpinned",
+                "agent-live-pin-inactive",
             ],
             min_length=1,
         ),
@@ -7478,6 +7710,37 @@ class AuditAuthzListResponse(BaseModel):
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
+class RunAgent(BaseModel):
+    """
+    Set on an agent's turn (an agent run, or the turn a flow's agent step started): the agent, the version that ran and the conversation. Absent on other runs, and on turns that ran before Kindgi 0.1.3.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    The agent id.
+    """
+    version: str
+    """
+    The agent version that ran (semver).
+    """
+    conversation_id: Annotated[UUID, Field(alias="conversationId")]
+    via: Literal["explicit", "conversation", "live", "latest"] | None = None
+    """
+    Why this version ran: named by the caller, the conversation's own, the version live for the run's scope, or the latest (nothing live). Absent on runs from before Kindgi 0.1.4.
+    """
+    live_scope: Annotated[
+        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment | None,
+        Field(alias="liveScope", discriminator="kind"),
+    ] = None
+    """
+    The pin that chose the version, when `via` is `live`.
+    """
+
+
 class Run(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -7522,6 +7785,10 @@ class Run(BaseModel):
     Set on a replay run: the eval run that started it.
     """
     versions: FlowVersionOverrides | None = None
+    segments: list[ScopeSegment] | None = None
+    """
+    The segment path the run was started with (coarse to fine), which picks live agent versions. A child run has its parent's. Absent when there was none.
+    """
     public_access_token: Annotated[str | None, Field(alias="publicAccessToken")] = None
     """
     Only in the response to `POST /v1/runs`, when the deployment issues public run tokens: a read-only token for this run (and its descendants) to hand to a browser, for `GET /v1/runs/{runId}/progress` and its stream.
@@ -7578,6 +7845,10 @@ class Datum(BaseModel):
     Set on a replay run: the eval run that started it.
     """
     versions: FlowVersionOverrides | None = None
+    segments: list[ScopeSegment] | None = None
+    """
+    The segment path the run was started with (coarse to fine), which picks live agent versions. A child run has its parent's. Absent when there was none.
+    """
     public_access_token: Annotated[str | None, Field(alias="publicAccessToken")] = None
     """
     Only in the response to `POST /v1/runs`, when the deployment issues public run tokens: a read-only token for this run (and its descendants) to hand to a browser, for `GET /v1/runs/{runId}/progress` and its stream.

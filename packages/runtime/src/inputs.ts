@@ -4,7 +4,17 @@
 import type { Principal } from '@kindgi/authz';
 import type { Flow, FlowVersionOverrides } from '@kindgi/flow';
 import type { HandlerRegistry } from '@kindgi/handler';
-import type { ConversationId, NodeId, ProjectId, Result, RunId, TenantId } from '@kindgi/types';
+import type {
+  AgentVersionVia,
+  ConversationId,
+  LiveScope,
+  NodeId,
+  ProjectId,
+  Result,
+  RunId,
+  ScopeSegment,
+  TenantId,
+} from '@kindgi/types';
 
 import type { HandlerMissingError } from './errors.js';
 import type { KernelEventBusBinding } from './event-bus.js';
@@ -54,6 +64,10 @@ export interface RunAgentRef {
   readonly id: string;
   readonly version: string;
   readonly conversationId: ConversationId;
+  /** Why this version ran (absent on runs from before it was recorded). */
+  readonly via?: AgentVersionVia;
+  /** The pin that chose it, when `via` is `live`. */
+  readonly liveScope?: LiveScope;
 }
 
 /** Marks a run as a replay: an eval run re-running a past run (`of`). */
@@ -116,6 +130,11 @@ export interface RunFlowInput {
    * is the flow version as published; the caller applies them to bind.
    */
   readonly versions?: FlowVersionOverrides;
+  /**
+   * The run's segment path (ordered, coarse to fine), which picks live agent
+   * versions; a child run inherits its parent's.
+   */
+  readonly segments?: readonly ScopeSegment[];
   /**
    * Run an existing `pending` row (created by `startRun`) instead of
    * inserting a new one — how a caller hands back a run id before the
@@ -189,6 +208,8 @@ export interface StartRunParams {
   readonly replay?: RunReplayRef;
   /** The versions the run swaps in over its flow version's pins; see `RunFlowInput.versions`. */
   readonly versions?: FlowVersionOverrides;
+  /** The run's segment path; see `RunFlowInput.segments`. */
+  readonly segments?: readonly ScopeSegment[];
 }
 
 export type StartRunError = { readonly code: 'insert-failed'; readonly message: string };
