@@ -60,6 +60,7 @@ kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is orde
 | `live` | the live version of the scope in `liveScope` |
 | `latest` | the latest, because nothing is live for this run |
 | `explicit` | the one the run named (`--agent-version`, `agentVersion`) |
+| `flow-pin` | the one its flow version holds (see below) |
 | `conversation` | the one its conversation started with (see below) |
 
 A version only goes live this way: publishing a newer version doesn't change
@@ -225,6 +226,33 @@ next turn still ran 1.2.0:
 ```
 
 A new conversation gets the live version.
+
+## Flows keep their versions
+
+A published flow version holds the agent versions it was published with:
+each agent step runs the version its node names (`config.version`), or else
+the one it got when the flow version was published. Its turns say
+`"via": "flow-pin"`, and a promotion doesn't change them. Here
+`acme.order-flow` 1.0.0 was published with 1.3.0; after the tenant went back
+to 1.0.0, its step still ran 1.3.0:
+
+```json
+  "agent": {
+    "id": "acme.order-desk",
+    "version": "1.3.0",
+    "conversationId": "5547f2a1-88b2-4b34-8d63-294f21fa5642",
+    "via": "flow-pin"
+  },
+```
+
+To run a new agent version in a flow, publish a new version of the flow.
+
+:::caution[A known gap]
+Today a step that names no version gets the agent's **latest** version when
+the flow version is published, even when another version is live for the
+scope, so it doesn't go through a gate. Until this is fixed, name the version
+a step should run in its `config.version`.
+:::
 
 ## Roll back, or unpin
 
