@@ -402,6 +402,12 @@ export const RunSchema: JsonSchema = {
       description: 'Set on a replay run: the eval run that started it.',
     },
     versions: { $ref: '#/components/schemas/FlowVersionOverrides' },
+    segments: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/ScopeSegment' },
+      description:
+        "The segment path the run was started with (coarse to fine), which picks live agent versions. A child run has its parent's. Absent when there was none.",
+    },
     publicAccessToken: {
       type: 'string',
       description:

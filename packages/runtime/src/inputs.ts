@@ -12,6 +12,7 @@ import type {
   ProjectId,
   Result,
   RunId,
+  ScopeSegment,
   TenantId,
 } from '@kindgi/types';
 
@@ -130,6 +131,11 @@ export interface RunFlowInput {
    */
   readonly versions?: FlowVersionOverrides;
   /**
+   * The run's segment path (ordered, coarse to fine), which picks live agent
+   * versions; a child run inherits its parent's.
+   */
+  readonly segments?: readonly ScopeSegment[];
+  /**
    * Run an existing `pending` row (created by `startRun`) instead of
    * inserting a new one — how a caller hands back a run id before the
    * run finishes. The row keeps what `startRun` stored (`agent` too).
@@ -202,6 +208,8 @@ export interface StartRunParams {
   readonly replay?: RunReplayRef;
   /** The versions the run swaps in over its flow version's pins; see `RunFlowInput.versions`. */
   readonly versions?: FlowVersionOverrides;
+  /** The run's segment path; see `RunFlowInput.segments`. */
+  readonly segments?: readonly ScopeSegment[];
 }
 
 export type StartRunError = { readonly code: 'insert-failed'; readonly message: string };

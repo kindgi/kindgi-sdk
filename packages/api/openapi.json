@@ -734,6 +734,13 @@
           "versions": {
             "$ref": "#/components/schemas/FlowVersionOverrides"
           },
+          "segments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScopeSegment"
+            },
+            "description": "The segment path the run was started with (coarse to fine), which picks live agent versions. A child run has its parent's. Absent when there was none."
+          },
           "publicAccessToken": {
             "type": "string",
             "description": "Only in the response to `POST /v1/runs`, when the deployment issues public run tokens: a read-only token for this run (and its descendants) to hand to a browser, for `GET /v1/runs/{runId}/progress` and its stream."
@@ -976,6 +983,13 @@
                 },
                 "versions": {
                   "$ref": "#/components/schemas/FlowVersionOverrides"
+                },
+                "segments": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ScopeSegment"
+                  },
+                  "description": "The segment path the run was started with (coarse to fine), which picks live agent versions. A child run has its parent's. Absent when there was none."
                 },
                 "publicAccessToken": {
                   "type": "string",

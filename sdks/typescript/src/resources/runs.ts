@@ -294,6 +294,8 @@ export interface Run {
    * started). Absent on other runs, and on turns from before 0.1.3.
    */
   readonly agent?: RunAgent;
+  /** The segment path the run was started with; a child run has its parent's. */
+  readonly segments?: readonly ScopeSegment[];
 }
 
 /**

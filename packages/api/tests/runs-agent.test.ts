@@ -44,6 +44,10 @@ const turn = record({
 });
 const flowRun = record({ flowId: 'acme.desk.triage', flowVersion: '0.1.0' });
 const liveTurn = record({
+  segments: [
+    { key: 'company', value: 'acme' },
+    { key: 'role', value: 'counsel' },
+  ],
   agent: {
     id: 'acme.desk.echo-agent',
     version: '0.2.0',
@@ -115,6 +119,15 @@ describe('a run names its agent', () => {
     const answer = await get(`/v1/runs/${turn.runId}`);
     expect(answer.json.agent).not.toHaveProperty('via');
     expect(answer.json.agent).not.toHaveProperty('liveScope');
+    expect(answer.json).not.toHaveProperty('segments');
+  });
+
+  test('the segment path the run was started with, in order', async () => {
+    const answer = await get(`/v1/runs/${liveTurn.runId}`);
+    expect(answer.json.segments).toEqual([
+      { key: 'company', value: 'acme' },
+      { key: 'role', value: 'counsel' },
+    ]);
   });
 
   test('a flow run has no agent', async () => {

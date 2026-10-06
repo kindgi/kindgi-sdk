@@ -7781,6 +7781,10 @@ class Run(BaseModel):
     Set on a replay run: the eval run that started it.
     """
     versions: FlowVersionOverrides | None = None
+    segments: list[ScopeSegment] | None = None
+    """
+    The segment path the run was started with (coarse to fine), which picks live agent versions. A child run has its parent's. Absent when there was none.
+    """
     public_access_token: Annotated[str | None, Field(alias="publicAccessToken")] = None
     """
     Only in the response to `POST /v1/runs`, when the deployment issues public run tokens: a read-only token for this run (and its descendants) to hand to a browser, for `GET /v1/runs/{runId}/progress` and its stream.
@@ -7837,6 +7841,10 @@ class Datum(BaseModel):
     Set on a replay run: the eval run that started it.
     """
     versions: FlowVersionOverrides | None = None
+    segments: list[ScopeSegment] | None = None
+    """
+    The segment path the run was started with (coarse to fine), which picks live agent versions. A child run has its parent's. Absent when there was none.
+    """
     public_access_token: Annotated[str | None, Field(alias="publicAccessToken")] = None
     """
     Only in the response to `POST /v1/runs`, when the deployment issues public run tokens: a read-only token for this run (and its descendants) to hand to a browser, for `GET /v1/runs/{runId}/progress` and its stream.
