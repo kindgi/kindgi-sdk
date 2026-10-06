@@ -64,9 +64,10 @@ jobs:
       - name: Python SDK version in step with the npm packages
         run: pnpm run check:python-version
 
-      # While release candidates are out (Changesets pre mode), every
-      # changeset is a patch: scripts/check-changeset-bumps.mjs.
-      - name: Changesets are patches while release candidates are out
+      # Before 1.0, and while release candidates are out, a minor or major
+      # changeset needs a `Release-decision:` line:
+      # scripts/check-changeset-bumps.mjs.
+      - name: Changesets move the release only by decision
         run: pnpm run check:changeset-bumps
 
       - name: Validate JSON Schemas (@kindgi/specs)

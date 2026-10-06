@@ -2,8 +2,9 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * `scripts/check-changeset-bumps.mjs`: in pre mode, a `minor` or `major`
- * changeset needs a `Release-decision:` line.
+ * `scripts/check-changeset-bumps.mjs`: before 1.0, or while release
+ * candidates are out, a `minor` or `major` changeset needs a
+ * `Release-decision:` line.
  */
 
 import assert from 'node:assert/strict';
@@ -14,7 +15,7 @@ import { join } from 'node:path';
 import { after, describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { bumpProblems, changesetBumps } from './check-changeset-bumps.mjs';
+import { bumpProblems, changesetBumps, whyDecisionNeeded } from './check-changeset-bumps.mjs';
 
 const SCRIPT = fileURLToPath(new URL('./check-changeset-bumps.mjs', import.meta.url));
 const changeset = (bumps, body = 'A change.') =>
@@ -59,15 +60,39 @@ describe('bumpProblems', () => {
   });
 });
 
+describe('whyDecisionNeeded', () => {
+  test('before 1.0, always; from 1.0, only in pre mode', () => {
+    assert.match(whyDecisionNeeded({ version: '0.1.3' }), /before 1\.0/);
+    assert.match(
+      whyDecisionNeeded({ version: '0.1.4-rc.0', pre: { mode: 'pre', tag: 'rc' } }),
+      /pre mode/,
+    );
+    assert.equal(whyDecisionNeeded({ version: '1.2.0' }), undefined);
+    assert.equal(
+      whyDecisionNeeded({ version: '1.2.0', pre: { mode: 'exit', tag: 'rc' } }),
+      undefined,
+    );
+    assert.match(
+      whyDecisionNeeded({ version: '1.3.0-rc.1', pre: { mode: 'pre', tag: 'rc' } }),
+      /pre mode/,
+    );
+  });
+});
+
 describe('the command', () => {
   const dirs = [];
   after(() => {
     for (const d of dirs) rmSync(d, { recursive: true, force: true });
   });
-  const repo = (files) => {
+  const repo = (files, version = '0.1.3') => {
     const root = mkdtempSync(join(tmpdir(), 'kindgi-changesets-'));
     dirs.push(root);
     mkdirSync(join(root, '.changeset'));
+    mkdirSync(join(root, 'packages', 'sdk'), { recursive: true });
+    writeFileSync(
+      join(root, 'packages', 'sdk', 'package.json'),
+      JSON.stringify({ name: '@kindgi/sdk', version }),
+    );
     for (const [name, text] of Object.entries(files)) {
       writeFileSync(join(root, '.changeset', name), text);
     }
@@ -75,10 +100,17 @@ describe('the command', () => {
   };
   const run = (cwd) => spawnSync(process.execPath, [SCRIPT], { cwd, encoding: 'utf8' });
 
-  test('outside pre mode, a minor passes', () => {
+  test('before 1.0, a minor fails even outside pre mode', () => {
     const out = run(repo({ 'a.md': changeset({ '@kindgi/api': 'minor' }) }));
+    assert.equal(out.status, 1);
+    assert.match(out.stderr, /before 1\.0/);
+    assert.match(out.stderr, /\.changeset\/a\.md: @kindgi\/api: minor/);
+  });
+
+  test('from 1.0, outside pre mode, a minor passes', () => {
+    const out = run(repo({ 'a.md': changeset({ '@kindgi/api': 'minor' }) }, '1.2.0'));
     assert.equal(out.status, 0);
-    assert.match(out.stdout, /not in pre mode/);
+    assert.match(out.stdout, /need no decision/);
   });
 
   test('in pre mode, a minor fails, naming it', () => {
@@ -95,7 +127,7 @@ describe('the command', () => {
     assert.doesNotMatch(out.stderr, /b\.md/);
   });
 
-  test('in pre mode, patches pass; after pre exit, a minor passes', () => {
+  test('in pre mode, patches pass; after pre exit (from 1.0), a minor passes', () => {
     assert.equal(
       run(
         repo({
@@ -107,10 +139,13 @@ describe('the command', () => {
     );
     assert.equal(
       run(
-        repo({
-          'pre.json': JSON.stringify({ mode: 'exit', tag: 'rc' }),
-          'a.md': changeset({ '@kindgi/api': 'minor' }),
-        }),
+        repo(
+          {
+            'pre.json': JSON.stringify({ mode: 'exit', tag: 'rc' }),
+            'a.md': changeset({ '@kindgi/api': 'minor' }),
+          },
+          '1.2.0',
+        ),
       ).status,
       0,
     );
