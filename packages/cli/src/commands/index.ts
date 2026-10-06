@@ -26,6 +26,7 @@ import { keyCommand } from './key.js';
 import { mcpCommand, mcpLaunchCommand } from './mcp.js';
 import { memoryCommand } from './memory.js';
 import { observationsCommand } from './observations.js';
+import { projectsCommand } from './projects.js';
 import { proposalsCommand } from './proposals.js';
 import { provenanceCommand } from './provenance.js';
 import { providersCommand } from './providers.js';
@@ -51,6 +52,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   keyCommand,
   mcpCommand,
   mcpLaunchCommand,
+  projectsCommand,
   runsCommand,
   agentsCommand,
   conversationsCommand,
