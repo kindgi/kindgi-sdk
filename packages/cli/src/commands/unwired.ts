@@ -16,7 +16,6 @@ import type { Command } from './types.js';
 export const UNWIRED_COMMANDS: ReadonlySet<string> = new Set([
   'artifacts',
   'capabilities',
-  'flows',
   'observations',
   'proposals',
   'tokens',
