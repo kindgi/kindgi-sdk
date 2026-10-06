@@ -69,7 +69,7 @@ describe('fromWire — guardrail-violation', () => {
 });
 
 describe('fromWire — conflicts', () => {
-  it.each(['slug-conflict', 'project-default-already-exists'])(
+  it.each(['slug-conflict', 'project-default-already-exists', 'registry-read-only'])(
     'a %s is a conflict, its code the reason',
     (code) => {
       expect(fromWire({ code, message: 'taken' })).toEqual({

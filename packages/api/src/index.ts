@@ -239,6 +239,7 @@ export type {
   AgentUnregisterInput,
   AgentUnregisterOutcome,
 } from './agent-binding.js';
+export type { RegistryReadOnly } from './registry-read-only.js';
 export type {
   FlowGetInput,
   FlowGetVersionInput,

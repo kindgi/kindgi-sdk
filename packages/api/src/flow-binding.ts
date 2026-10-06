@@ -6,6 +6,8 @@ import type { Flow } from '@kindgi/flow';
 import type { Scope } from '@kindgi/platform';
 import type { Cursor, FlowId, ProjectId, TenantId } from '@kindgi/types';
 
+import type { RegistryReadOnly } from './registry-read-only.js';
+
 /**
  * Caller-plugged surface for the flow catalog. Mirrors
  * `AgentRegistryBinding` 1:1 — the API package does NOT own registry
@@ -26,6 +28,13 @@ import type { Cursor, FlowId, ProjectId, TenantId } from '@kindgi/types';
  * cursor round-trips as a string; it never inspects the payload.
  */
 export interface FlowRegistryBinding {
+  /**
+   * Set when this registry takes no writes (under `kindgi dev`, the
+   * pack's files are the source of its flows): every write is refused
+   * with `409 registry-read-only` and this reason, before the binding is
+   * called. See `RegistryReadOnly`.
+   */
+  readonly readOnly?: RegistryReadOnly;
   /**
    * Cursor-paginated list of flows (latest version per id, sorted by
    * flow id ascending). Optional `nameFilter` is a prefix match on the

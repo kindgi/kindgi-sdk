@@ -177,6 +177,11 @@ def test_path_and_query_parameters() -> None:
             lambda e: e.server_code == "project-default-already-exists",
         ),
         (
+            error(409, "registry-read-only"),
+            ConflictError,
+            lambda e: e.server_code == "registry-read-only",
+        ),
+        (
             error(400, "validation-failed", details={"issues": [{"path": "/x", "message": "bad"}]}),
             InvalidRequestError,
             lambda e: e.issues == [{"path": "/x", "message": "bad"}],

@@ -67,6 +67,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'duplicate-edge-id': 409,
   'agent-version-mismatch': 409,
   'agent-already-registered': 409,
+  'registry-read-only': 409,
   'agent-gone': 410,
   'flow-gone': 410,
   'policy-gone': 410,

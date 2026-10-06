@@ -668,6 +668,29 @@ describe("POST /v1/deployments — the image's index is what registers", () => {
     expect(await toolRegistry.get({ tenantId, toolId: 'acme.injected' as never })).toBeNull();
   });
 
+  test('a deployment into a read-only registry is refused before anything is written', async () => {
+    const fixture = buildSignedDeploy();
+    const reason = "Under kindgi dev, the pack is the source of tools: edit the pack's file.";
+    const tools = makeInMemoryToolRegistry();
+    const writes: string[] = [];
+    const toolRegistry: ToolRegistryBinding = {
+      ...tools,
+      readOnly: { reason },
+      publish: async (input) => {
+        writes.push('publish');
+        return tools.publish(input);
+      },
+    };
+    const { app, deploymentRegistry } = makeApp({ fixture, toolRegistry });
+    const res = await post(app, fixture.wire);
+    expect(res.status).toBe(409);
+    expect(
+      ((await res.json()) as { error: { code: string; message: string } }).error,
+    ).toMatchObject({ code: 'registry-read-only', message: reason });
+    expect(writes).toEqual([]);
+    expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
+  });
+
   test('an image whose index names another artifactVersion than the signed one is refused', async () => {
     const fixture = buildSignedDeploy({
       artifactVersion: '20260920.1',

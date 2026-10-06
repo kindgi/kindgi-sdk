@@ -13,6 +13,7 @@ import { statusFor, toWireError } from '../errors.js';
 import type { FlowRegistryBinding, FlowVersionRecord } from '../flow-binding.js';
 import { resolveFlowPins } from '../flow-pins.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
@@ -48,6 +49,12 @@ export function flowsRouter(
   pinning?: { readonly tools: ToolRegistryBinding; readonly agents: AgentRegistryBinding },
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  // A read-only registry (under `kindgi dev`, the pack's files) refuses
+  // every write before anything else runs.
+  r.use(
+    '*',
+    refuseWritesWhenReadOnly(() => binding.readOnly),
+  );
 
   // Authorization — mirrors agents 1:1. Check the resource directly;
   // permissions cascade from the parent project because publish writes
