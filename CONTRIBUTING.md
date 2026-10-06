@@ -81,8 +81,10 @@ PyPI); the script refuses any other.
    1.0, and while release candidates are out, it's a `patch`: one
    `minor` moves every package to the next minor, which no installed
    project reaches. A changeset that means to move the release says so
-   in its body, `Release-decision: <who decided, and when>`
-   (`pnpm run check:changeset-bumps`, in CI).
+   in its body: `Release-decision: <the version, who decided, and
+   when>`, naming a role (the maintainers), never a person, since the
+   body becomes the changelog entry (`pnpm run check:changeset-bumps`,
+   in CI).
 2. Merging to `main` updates the "Version Packages" pull request
    (opened by the org's release GitHub App, so CI runs on it like any
    other pull request).
