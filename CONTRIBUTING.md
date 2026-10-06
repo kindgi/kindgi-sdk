@@ -64,6 +64,16 @@ A check on the pull request asks for any of them that's missing.
   canonical wire contracts. Change a schema there first, then every
   package that bundles a copy (drift tests enforce equality);
   `pnpm run spec:validate` checks the whole set.
+- **Public text.** The repository's files, and a pull request's title,
+  description and commit messages (the squash commit's message is the
+  title and description), leave out internal process notes: development-
+  phase ids, scratch paths, unresolved placeholders. They also leave out a few names the
+  project doesn't use in public, the runtime's internal name among them:
+  describe things by their role ("the runtime", "the runtime's release").
+  `pnpm run check:refs` (CI) checks files; the **PR text** check checks a
+  pull request's own text, and runs again when you edit the description.
+  Both say where a name is, never which; the list is kept hashed
+  (`scripts/forbidden-names.json`, generated outside this repository).
 
 ## Releases
 

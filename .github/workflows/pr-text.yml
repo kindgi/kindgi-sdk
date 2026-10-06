@@ -1,0 +1,42 @@
+name: PR text
+
+# A pull request's own text (its title, description and commit messages)
+# leaves out what the repository's files leave out: internal process
+# markers and the names the repository doesn't use
+# (scripts/check-pr-text.mjs, scripts/text-scan.mjs). The squash commit's
+# message is the title and description, so they're public history once
+# merged.
+#
+# Its own workflow, not CI's: editing a description re-runs only this
+# (`edited`). The merge queue's commit is built from text already checked,
+# so a merge_group run passes at once.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  pr-text:
+    name: PR text
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: The merge queue's commit (checked as a pull request)
+        if: github.event_name == 'merge_group'
+        run: echo "Built from pull requests whose text was checked."
+      - uses: actions/checkout@v5
+        if: github.event_name == 'pull_request'
+        with:
+          # The pull request's own commits, base..head.
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        if: github.event_name == 'pull_request'
+        with:
+          node-version: "22"
+      - name: The title, description and commit messages
+        if: github.event_name == 'pull_request'
+        run: node scripts/check-pr-text.mjs
