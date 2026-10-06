@@ -53,6 +53,7 @@ import type {
 // ---------- Sub-path: /client ----------
 import {
   KindgiApiError,
+  comparisonOf,
   createClient,
   followRun,
   fromWire,
@@ -106,6 +107,7 @@ import * as sdkBuild from '@kindgi/sdk/build';
 // ---------- Source packages (identity checks) ----------
 import { defineAgent as defineAgentFromAgents } from '@kindgi/agents';
 import {
+  comparisonOf as comparisonOfFromClient,
   createClient as createClientFromClient,
   followRun as followRunFromClient,
   subscribeToRun as subscribeToRunFromClient,
@@ -256,6 +258,21 @@ describe('@kindgi/sdk/client — client callsite re-exports', () => {
     expectTypeOf<SseEvent<unknown>>().toEqualTypeOf<import('@kindgi/client').SseEvent<unknown>>();
     expectTypeOf<AuthError>().toEqualTypeOf<import('@kindgi/client').AuthError>();
     expectTypeOf<KindgiError>().toEqualTypeOf<import('@kindgi/client').KindgiError>();
+  });
+});
+
+describe("@kindgi/sdk/client — a comparison's typed result", () => {
+  it('re-exports comparisonOf identically (===) from @kindgi/client', () => {
+    expect(comparisonOf).toBe(comparisonOfFromClient);
+  });
+
+  it('preserves the comparison result types across the facade', () => {
+    expectTypeOf<import('@kindgi/sdk/client').JudgedComparisonResult>().toEqualTypeOf<
+      import('@kindgi/client').JudgedComparisonResult
+    >();
+    expectTypeOf<import('@kindgi/sdk/client').ComparisonMetric>().toEqualTypeOf<
+      import('@kindgi/client').ComparisonMetric
+    >();
   });
 });
 

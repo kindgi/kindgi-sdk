@@ -18,6 +18,7 @@ import type {
 } from '../src/index.js';
 import { DEFAULT_COMPARISON, createJudgedDispatcher } from '../src/index.js';
 import { inMemoryCaseStore } from './support/in-memory-cases.js';
+import { validateAgainst } from './support/openapi-schema.js';
 
 const tenantId = 't-1' as TenantId;
 
@@ -129,7 +130,27 @@ async function compare(options: {
   return { ...result, invoked, progress, error: out.error };
 }
 
+/** A result as it reaches the wire, against the schema the clients read it as. */
+const wireErrors = (result: { summary: unknown; perCase: unknown }) =>
+  validateAgainst(
+    'JudgedComparisonResult',
+    JSON.parse(JSON.stringify({ summary: result.summary, perCase: result.perCase })),
+  );
+
 describe('a comparison eval run', () => {
+  test('its result is the OpenAPI JudgedComparisonResult: what the clients read it as', async () => {
+    const { summary, perCase } = await compare({
+      comparison: { ...DEFAULT_COMPARISON, repetitions: 2 },
+      answer: (input, call) =>
+        call === 1
+          ? { error: 'no model' }
+          : (answers[input.replay?.of as unknown as string] as EvalRunSubjectInvokeOutcome),
+    });
+    expect(wireErrors({ summary, perCase })).toEqual([]);
+    // The schema is closed: a field it doesn't name fails it.
+    expect(wireErrors({ summary: { ...summary, extra: 1 }, perCase })).not.toEqual([]);
+  });
+
   test('replays each case as the candidate, from its message and history', async () => {
     const { invoked } = await compare({});
     expect(invoked.map((i) => [i.input, i.replay, i.history, i.projectId])).toEqual([
@@ -412,6 +433,19 @@ describe('a comparison of a flow version', () => {
     // Same items, reordered: m1 (1/1) and m2 (0/1) in both.
     expect(summary.metrics.weightedYesShare).toMatchObject({ baseline: 0.5, candidate: 0.5, n: 2 });
     expect(summary.metrics.weightedPrecisionAtK.candidate).toBeCloseTo(0.5);
+  });
+
+  test("a flow comparison's result, with a stopped case, is the OpenAPI JudgedComparisonResult", async () => {
+    const result = await compareFlow((caseId) =>
+      caseId === 'run-f2'
+        ? {
+            runId: 'run-stop' as RunId,
+            stopped: { toolId: 'acme.send', arguments: { to: 'desk' }, reason: refusedSend.reason },
+            replay: { of: 'run-f2' as RunId, evalRunId: 'eval-f', tools: [refusedSend] },
+          }
+        : { output: flowOutput([{ id: 'm1' }]), runId: 'run-ok' as RunId },
+    );
+    expect(wireErrors(result)).toEqual([]);
   });
 
   test('a case that stopped at a refused write: counted, with what it would have done, and left out of the metrics', async () => {

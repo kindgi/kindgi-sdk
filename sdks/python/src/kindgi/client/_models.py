@@ -4590,6 +4590,368 @@ class EvalComparison(BaseModel):
     versions: FlowVersionOverrides | None = None
 
 
+class ComparisonMetric(BaseModel):
+    """
+    One metric, the recorded runs beside the candidate. `null` where a side had no judged evidence; `n` / `weight` are the candidate's evidence (cases with judged items, and the judgment weight behind them), `baselineN` / `baselineWeight` the recorded side's.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    baseline: float | None
+    candidate: float | None
+    delta: float | None
+    n: Annotated[int, Field(ge=0)]
+    weight: Annotated[float, Field(ge=0.0)]
+    baseline_n: Annotated[int, Field(alias="baselineN", ge=0)]
+    baseline_weight: Annotated[float, Field(alias="baselineWeight", ge=0.0)]
+    direction: Literal["higher"]
+    k: Annotated[int | None, Field(ge=1)] = None
+    """
+    `weightedPrecisionAtK`: the ranked items it looked at.
+    """
+    spread: float | None = None
+    """
+    With more than one repetition: the candidate's max − min across them.
+    """
+
+
+class ComparisonCandidate1(BaseModel):
+    """
+    What ran on the cases: an agent version, or a flow version (with any versions it swapped in).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["agent"]
+    agent_id: Annotated[str, Field(alias="agentId")]
+    version: str
+
+
+class ComparisonCandidate2(BaseModel):
+    """
+    What ran on the cases: an agent version, or a flow version (with any versions it swapped in).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["flow"]
+    flow_id: Annotated[str, Field(alias="flowId")]
+    version: str
+    versions: FlowVersionOverrides | None = None
+
+
+class Suite(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    version: str
+
+
+class Version(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    agent_id: Annotated[str | None, Field(alias="agentId")] = None
+    flow_id: Annotated[str | None, Field(alias="flowId")] = None
+    version: str
+    cases: Annotated[int, Field(ge=0)]
+
+
+class Baseline(BaseModel):
+    """
+    What the candidate was compared with: `recorded` (the test set's recorded runs, with the versions that served them), or another version.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["recorded"]
+    versions: list[Version]
+
+
+class Baseline1(BaseModel):
+    """
+    What the candidate was compared with: `recorded` (the test set's recorded runs, with the versions that served them), or another version.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["version"]
+    agent_id: Annotated[str, Field(alias="agentId")]
+    version: str
+    via: Literal["explicit", "live"]
+    live_scope: Annotated[dict[str, Any] | None, Field(alias="liveScope")] = None
+
+
+class Scope(BaseModel):
+    """
+    Where the test set's judgments came from.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+
+
+class Model(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    provider_id: Annotated[str, Field(alias="providerId")]
+    model: str
+    runs: Annotated[int, Field(ge=0)]
+
+
+class Sampling(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    models: list[Model]
+    """
+    The models that answered the candidate's replays, and how many replays each.
+    """
+
+
+class Metrics(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    weighted_yes_share: Annotated[ComparisonMetric, Field(alias="weightedYesShare")]
+    judged_coverage: Annotated[ComparisonMetric, Field(alias="judgedCoverage")]
+    weighted_precision_at_k: Annotated[ComparisonMetric, Field(alias="weightedPrecisionAtK")]
+
+
+class JudgedComparisonSummary(BaseModel):
+    """
+    What a comparison concluded: the candidate beside the recorded runs, the case counts, and the metrics. What a promotion gate reads.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    eval_run_id: Annotated[str, Field(alias="evalRunId")]
+    status: Literal["completed", "partial", "failed"]
+    completed_at: Annotated[AwareDatetime, Field(alias="completedAt")]
+    suite: Suite
+    candidate: ComparisonCandidate1 | ComparisonCandidate2
+    """
+    What ran on the cases: an agent version, or a flow version (with any versions it swapped in).
+    """
+    baseline: Baseline | Baseline1
+    """
+    What the candidate was compared with: `recorded` (the test set's recorded runs, with the versions that served them), or another version.
+    """
+    scope: Scope
+    """
+    Where the test set's judgments came from.
+    """
+    cases: Annotated[int, Field(ge=0)]
+    diverged: Annotated[int, Field(ge=0)]
+    """
+    Cases where a read with no recording ran live under `reads: 'recorded'`.
+    """
+    refused_writes: Annotated[int, Field(alias="refusedWrites", ge=0)]
+    """
+    Tool calls refused across the cases (what the candidate would have done).
+    """
+    errors: Annotated[int, Field(ge=0)]
+    """
+    Cases none of whose repetitions ran.
+    """
+    stopped: Annotated[int, Field(ge=0)]
+    """
+    Flow cases that stopped at a write the replay refused: no output to score, so they're left out of the metrics.
+    """
+    reads: Literal["recorded", "live"]
+    sampling: Sampling
+    repetitions: Annotated[int, Field(ge=1)]
+    metrics: Metrics
+
+
+class TopK(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    yes_weight: Annotated[float, Field(alias="yesWeight")]
+    total_weight: Annotated[float, Field(alias="totalWeight")]
+
+
+class Baseline2(BaseModel):
+    """
+    An output's score: Σ yesWeight and Σ totalWeight over its judged items, and over those among the first `k` ranked items.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    yes_weight: Annotated[float, Field(alias="yesWeight")]
+    total_weight: Annotated[float, Field(alias="totalWeight")]
+    items: Annotated[int, Field(ge=0)]
+    judged_items: Annotated[int, Field(alias="judgedItems", ge=0)]
+    top_k: Annotated[TopK, Field(alias="topK")]
+
+
+class CandidateItem(BaseModel):
+    """
+    An output's score: Σ yesWeight and Σ totalWeight over its judged items, and over those among the first `k` ranked items.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    yes_weight: Annotated[float, Field(alias="yesWeight")]
+    total_weight: Annotated[float, Field(alias="totalWeight")]
+    items: Annotated[int, Field(ge=0)]
+    judged_items: Annotated[int, Field(alias="judgedItems", ge=0)]
+    top_k: Annotated[TopK, Field(alias="topK")]
+
+
+class KeptItem(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    key: str
+    rank_before: Annotated[int | None, Field(alias="rankBefore")] = None
+    rank: int | None = None
+
+
+class DroppedItem(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    key: str
+    rank_before: Annotated[int | None, Field(alias="rankBefore")] = None
+
+
+class NewItem(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    key: str
+    pointer: str
+    rank: int | None = None
+
+
+class Changes(BaseModel):
+    """
+    The first repetition's items against the judged ones.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kept: list[KeptItem]
+    dropped: list[DroppedItem]
+    new: list[NewItem]
+
+
+class Tool1(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    step: Annotated[int, Field(ge=0)]
+    call_id: Annotated[str, Field(alias="callId")]
+    tool_id: Annotated[str, Field(alias="toolId")]
+    tool_version: Annotated[str, Field(alias="toolVersion")]
+    arguments: Any
+    source: Literal["live", "recorded", "refused"]
+    reason: str | None = None
+
+
+class Stopped(BaseModel):
+    """
+    Set when the replay stopped at a refused write: what it would have done.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool_id: Annotated[str, Field(alias="toolId")]
+    arguments: Any
+    reason: str | None = None
+
+
+class ComparisonCaseResult(BaseModel):
+    """
+    One case of a comparison: its replay runs, the scores, the items kept, dropped and new, the tool calls, and why it didn't run when it didn't.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    case_id: Annotated[str, Field(alias="caseId")]
+    run_ids: Annotated[list[str], Field(alias="runIds")]
+    """
+    The candidate's replay runs, one per repetition.
+    """
+    baseline: Baseline2
+    """
+    An output's score: Σ yesWeight and Σ totalWeight over its judged items, and over those among the first `k` ranked items.
+    """
+    candidate: list[CandidateItem]
+    """
+    One per repetition that ran.
+    """
+    changes: Changes | None = None
+    """
+    The first repetition's items against the judged ones.
+    """
+    tools: list[Tool1] | None = None
+    """
+    The first repetition's tool calls, and what happened to each.
+    """
+    diverged: bool
+    refused_writes: Annotated[int, Field(alias="refusedWrites", ge=0)]
+    no_context: Annotated[bool, Field(alias="noContext")]
+    approval_skipped: Annotated[bool, Field(alias="approvalSkipped")]
+    error: str | None = None
+    stopped: Stopped | None = None
+    """
+    Set when the replay stopped at a refused write: what it would have done.
+    """
+
+
+class JudgedComparisonResult(BaseModel):
+    """
+    A comparison's `result` (a `judged` eval run's): the summary and each case. `EvalRun.result` stays an open object, since each kind has its own; the clients read it as this (TS `comparisonOf(run)`, Python `comparison_of(run)`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    summary: JudgedComparisonSummary
+    per_case: Annotated[list[ComparisonCaseResult], Field(alias="perCase")]
+
+
 class EvalRun(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -4905,7 +5267,7 @@ class DeploymentPrimitiveCounts(BaseModel):
     flows: Annotated[int, Field(ge=0)]
 
 
-class Tool1(BaseModel):
+class Tool2(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -4990,7 +5352,7 @@ class DeploymentContents(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    tools: list[Tool1]
+    tools: list[Tool2]
     guardrails: list[Guardrail1]
     agents: list[Agent1]
     flows: list[Flow2]
@@ -5859,7 +6221,7 @@ class UpsertTenantConfigResult(BaseModel):
     entry: TenantConfigEntry
 
 
-class Scope1(BaseModel):
+class Scope2(BaseModel):
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
     """
@@ -5872,7 +6234,7 @@ class Scope1(BaseModel):
     tenant_id: Annotated[str, Field(alias="tenantId")]
 
 
-class Scope2(BaseModel):
+class Scope3(BaseModel):
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
     """
@@ -5886,7 +6248,7 @@ class Scope2(BaseModel):
     org_id: Annotated[str, Field(alias="orgId")]
 
 
-class Scope3(BaseModel):
+class Scope4(BaseModel):
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
     """
@@ -5905,7 +6267,7 @@ class EnvRecord(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    scope: Scope1 | Scope2 | Scope3
+    scope: Scope2 | Scope3 | Scope4
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
     """
@@ -5935,7 +6297,7 @@ class EnvSetInput(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    scope: Scope1 | Scope2 | Scope3
+    scope: Scope2 | Scope3 | Scope4
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
     """
@@ -5986,7 +6348,7 @@ class SecretRecord(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    scope: Scope1 | Scope2 | Scope3
+    scope: Scope2 | Scope3 | Scope4
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
     """
@@ -6018,7 +6380,7 @@ class SecretVersionRecord(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    scope: Scope1 | Scope2 | Scope3
+    scope: Scope2 | Scope3 | Scope4
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
     """
@@ -6041,7 +6403,7 @@ class SecretSetInput(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    scope: Scope1 | Scope2 | Scope3
+    scope: Scope2 | Scope3 | Scope4
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
     """
@@ -6161,7 +6523,7 @@ class EnvSetRequest(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    scope: Scope1 | Scope2 | Scope3 | None = None
+    scope: Scope2 | Scope3 | Scope4 | None = None
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
     """
@@ -6206,7 +6568,7 @@ class SecretSetRequest(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    scope: Scope1 | Scope2 | Scope3
+    scope: Scope2 | Scope3 | Scope4
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
     """
@@ -6236,7 +6598,7 @@ class SecretRotateRequest(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    scope: Scope1 | Scope2 | Scope3 | None = None
+    scope: Scope2 | Scope3 | Scope4 | None = None
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
     """

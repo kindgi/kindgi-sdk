@@ -4786,6 +4786,341 @@ export const EvalComparisonSchema: JsonSchema = {
   },
 };
 
+// ---------------- comparison results (a `judged` eval run's `result`) ----------------
+
+const nullableNumber = { type: ['number', 'null'] } as const;
+
+export const ComparisonMetricSchema: JsonSchema = {
+  description:
+    "One metric, the recorded runs beside the candidate. `null` where a side had no judged evidence; `n` / `weight` are the candidate's evidence (cases with judged items, and the judgment weight behind them), `baselineN` / `baselineWeight` the recorded side's.",
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'baseline',
+    'candidate',
+    'delta',
+    'n',
+    'weight',
+    'baselineN',
+    'baselineWeight',
+    'direction',
+  ],
+  properties: {
+    baseline: nullableNumber,
+    candidate: nullableNumber,
+    delta: nullableNumber,
+    n: { type: 'integer', minimum: 0 },
+    weight: { type: 'number', minimum: 0 },
+    baselineN: { type: 'integer', minimum: 0 },
+    baselineWeight: { type: 'number', minimum: 0 },
+    direction: { type: 'string', enum: ['higher'] },
+    k: {
+      type: 'integer',
+      minimum: 1,
+      description: '`weightedPrecisionAtK`: the ranked items it looked at.',
+    },
+    spread: {
+      type: 'number',
+      description: "With more than one repetition: the candidate's max − min across them.",
+    },
+  },
+};
+
+export const ComparisonCandidateSchema: JsonSchema = {
+  description:
+    'What ran on the cases: an agent version, or a flow version (with any versions it swapped in).',
+  oneOf: [
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind', 'agentId', 'version'],
+      properties: {
+        kind: { type: 'string', enum: ['agent'] },
+        agentId: { type: 'string' },
+        version: { type: 'string' },
+      },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind', 'flowId', 'version'],
+      properties: {
+        kind: { type: 'string', enum: ['flow'] },
+        flowId: { type: 'string' },
+        version: { type: 'string' },
+        versions: { $ref: '#/components/schemas/FlowVersionOverrides' },
+      },
+    },
+  ],
+};
+
+export const JudgedComparisonSummarySchema: JsonSchema = {
+  description:
+    'What a comparison concluded: the candidate beside the recorded runs, the case counts, and the metrics. What a promotion gate reads.',
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'evalRunId',
+    'status',
+    'completedAt',
+    'suite',
+    'candidate',
+    'baseline',
+    'scope',
+    'cases',
+    'diverged',
+    'refusedWrites',
+    'errors',
+    'stopped',
+    'reads',
+    'sampling',
+    'repetitions',
+    'metrics',
+  ],
+  properties: {
+    evalRunId: { type: 'string' },
+    status: { type: 'string', enum: ['completed', 'partial', 'failed'] },
+    completedAt: { type: 'string', format: 'date-time' },
+    suite: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['id', 'version'],
+      properties: { id: { type: 'string' }, version: { type: 'string' } },
+    },
+    candidate: { $ref: '#/components/schemas/ComparisonCandidate' },
+    baseline: {
+      description:
+        "What the candidate was compared with: `recorded` (the test set's recorded runs, with the versions that served them), or another version.",
+      oneOf: [
+        {
+          type: 'object',
+          additionalProperties: false,
+          required: ['kind', 'versions'],
+          properties: {
+            kind: { type: 'string', enum: ['recorded'] },
+            versions: {
+              type: 'array',
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['version', 'cases'],
+                properties: {
+                  agentId: { type: 'string' },
+                  flowId: { type: 'string' },
+                  version: { type: 'string' },
+                  cases: { type: 'integer', minimum: 0 },
+                },
+              },
+            },
+          },
+        },
+        {
+          type: 'object',
+          additionalProperties: false,
+          required: ['kind', 'agentId', 'version', 'via'],
+          properties: {
+            kind: { type: 'string', enum: ['version'] },
+            agentId: { type: 'string' },
+            version: { type: 'string' },
+            via: { type: 'string', enum: ['explicit', 'live'] },
+            liveScope: { type: 'object', additionalProperties: true },
+          },
+        },
+      ],
+    },
+    scope: {
+      type: 'object',
+      additionalProperties: false,
+      description: "Where the test set's judgments came from.",
+      properties: { projectId: { type: 'string' } },
+    },
+    cases: { type: 'integer', minimum: 0 },
+    diverged: {
+      type: 'integer',
+      minimum: 0,
+      description: "Cases where a read with no recording ran live under `reads: 'recorded'`.",
+    },
+    refusedWrites: {
+      type: 'integer',
+      minimum: 0,
+      description: 'Tool calls refused across the cases (what the candidate would have done).',
+    },
+    errors: { type: 'integer', minimum: 0, description: 'Cases none of whose repetitions ran.' },
+    stopped: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        "Flow cases that stopped at a write the replay refused: no output to score, so they're left out of the metrics.",
+    },
+    reads: { type: 'string', enum: ['recorded', 'live'] },
+    sampling: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['models'],
+      properties: {
+        models: {
+          type: 'array',
+          description:
+            "The models that answered the candidate's replays, and how many replays each.",
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['providerId', 'model', 'runs'],
+            properties: {
+              providerId: { type: 'string' },
+              model: { type: 'string' },
+              runs: { type: 'integer', minimum: 0 },
+            },
+          },
+        },
+      },
+    },
+    repetitions: { type: 'integer', minimum: 1 },
+    metrics: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['weightedYesShare', 'judgedCoverage', 'weightedPrecisionAtK'],
+      properties: {
+        weightedYesShare: { $ref: '#/components/schemas/ComparisonMetric' },
+        judgedCoverage: { $ref: '#/components/schemas/ComparisonMetric' },
+        weightedPrecisionAtK: { $ref: '#/components/schemas/ComparisonMetric' },
+      },
+    },
+  },
+};
+
+const outputScore = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['yesWeight', 'totalWeight', 'items', 'judgedItems', 'topK'],
+  description:
+    "An output's score: Σ yesWeight and Σ totalWeight over its judged items, and over those among the first `k` ranked items.",
+  properties: {
+    yesWeight: { type: 'number' },
+    totalWeight: { type: 'number' },
+    items: { type: 'integer', minimum: 0 },
+    judgedItems: { type: 'integer', minimum: 0 },
+    topK: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['yesWeight', 'totalWeight'],
+      properties: { yesWeight: { type: 'number' }, totalWeight: { type: 'number' } },
+    },
+  },
+} as const;
+
+export const ComparisonCaseResultSchema: JsonSchema = {
+  description:
+    "One case of a comparison: its replay runs, the scores, the items kept, dropped and new, the tool calls, and why it didn't run when it didn't.",
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'caseId',
+    'runIds',
+    'baseline',
+    'candidate',
+    'diverged',
+    'refusedWrites',
+    'noContext',
+    'approvalSkipped',
+  ],
+  properties: {
+    caseId: { type: 'string' },
+    runIds: {
+      type: 'array',
+      items: { type: 'string' },
+      description: "The candidate's replay runs, one per repetition.",
+    },
+    baseline: outputScore,
+    candidate: { type: 'array', items: outputScore, description: 'One per repetition that ran.' },
+    changes: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kept', 'dropped', 'new'],
+      description: "The first repetition's items against the judged ones.",
+      properties: {
+        kept: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['key'],
+            properties: {
+              key: { type: 'string' },
+              rankBefore: { type: 'integer' },
+              rank: { type: 'integer' },
+            },
+          },
+        },
+        dropped: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['key'],
+            properties: { key: { type: 'string' }, rankBefore: { type: 'integer' } },
+          },
+        },
+        new: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['key', 'pointer'],
+            properties: {
+              key: { type: 'string' },
+              pointer: { type: 'string' },
+              rank: { type: 'integer' },
+            },
+          },
+        },
+      },
+    },
+    tools: {
+      type: 'array',
+      description: "The first repetition's tool calls, and what happened to each.",
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['step', 'callId', 'toolId', 'toolVersion', 'arguments', 'source'],
+        properties: {
+          step: { type: 'integer', minimum: 0 },
+          callId: { type: 'string' },
+          toolId: { type: 'string' },
+          toolVersion: { type: 'string' },
+          arguments: {},
+          source: { type: 'string', enum: ['live', 'recorded', 'refused'] },
+          reason: { type: 'string' },
+        },
+      },
+    },
+    diverged: { type: 'boolean' },
+    refusedWrites: { type: 'integer', minimum: 0 },
+    noContext: { type: 'boolean' },
+    approvalSkipped: { type: 'boolean' },
+    error: { type: 'string' },
+    stopped: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['toolId', 'arguments'],
+      description: 'Set when the replay stopped at a refused write: what it would have done.',
+      properties: { toolId: { type: 'string' }, arguments: {}, reason: { type: 'string' } },
+    },
+  },
+};
+
+export const JudgedComparisonResultSchema: JsonSchema = {
+  description:
+    "A comparison's `result` (a `judged` eval run's): the summary and each case. `EvalRun.result` stays an open object, since each kind has its own; the clients read it as this (TS `comparisonOf(run)`, Python `comparison_of(run)`).",
+  type: 'object',
+  additionalProperties: false,
+  required: ['summary', 'perCase'],
+  properties: {
+    summary: { $ref: '#/components/schemas/JudgedComparisonSummary' },
+    perCase: { type: 'array', items: { $ref: '#/components/schemas/ComparisonCaseResult' } },
+  },
+};
+
 export const EvalRunSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -7371,6 +7706,11 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['EvalRunFlowRef', EvalRunFlowRefSchema],
   ['EvalBaseline', EvalBaselineSchema],
   ['EvalComparison', EvalComparisonSchema],
+  ['ComparisonMetric', ComparisonMetricSchema],
+  ['ComparisonCandidate', ComparisonCandidateSchema],
+  ['JudgedComparisonSummary', JudgedComparisonSummarySchema],
+  ['ComparisonCaseResult', ComparisonCaseResultSchema],
+  ['JudgedComparisonResult', JudgedComparisonResultSchema],
   ['EvalRun', EvalRunSchema],
   ['EvalRunCollectionPage', EvalRunCollectionPageSchema],
   ['StartEvalRunBody', StartEvalRunBodySchema],
