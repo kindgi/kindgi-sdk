@@ -824,24 +824,30 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
     };
     // Code: esbuild rebuilds when any file a bundle read changes —
     // shared libraries outside the discovery folders included.
-    await builder.watch((build) => onRefresh(build));
+    // Each watcher's changes start nothing once the stop begins: the
+    // watchers are closed last (see `stopDev`).
+    await builder.watch(untilStopped(ctx.stopSignal, (build: PackBuild) => onRefresh(build)));
     // A primitive file added or removed changes the entry points.
     watchHandles.push(
       await dev.watchPack(
         args.packDir,
-        () => {
+        untilStopped(ctx.stopSignal, () => {
           void builder.syncEntries();
-        },
+        }),
         { debounceMs: DEFAULT_WATCH_DEBOUNCE_MS, patterns: projectEnv.discoveryPatterns },
       ),
     );
     // The env files: the same code, restarted with the new environment.
     watchHandles.push(
-      await dev.watchPack(args.packDir, () => onRefresh(), {
-        debounceMs: DEFAULT_WATCH_DEBOUNCE_MS,
-        patterns: [],
-        files: devPackEnvFiles(args.packDir, projectEnv.localEnvFiles),
-      }),
+      await dev.watchPack(
+        args.packDir,
+        untilStopped(ctx.stopSignal, () => onRefresh()),
+        {
+          debounceMs: DEFAULT_WATCH_DEBOUNCE_MS,
+          patterns: [],
+          files: devPackEnvFiles(args.packDir, projectEnv.localEnvFiles),
+        },
+      ),
     );
   }
 
@@ -1301,11 +1307,21 @@ function closeOnStop(pack: { beginClose(): void }, stopSignal: AbortSignal | und
   else stopSignal?.addEventListener('abort', () => pack.beginClose(), { once: true });
 }
 
+/** `fn` until the stop begins: a change seen while stopping starts nothing. */
+function untilStopped<A extends unknown[]>(
+  stopSignal: AbortSignal | undefined,
+  fn: (...args: A) => void,
+): (...args: A) => void {
+  return (...args) => {
+    if (stopSignal?.aborted !== true) fn(...args);
+  };
+}
+
 /**
- * Stop everything `kindgi dev` started: the watchers, then the refreshes
- * in flight (drained, so none registers against a server shutting down),
- * the runtime and the pack service. In watch mode, on the one shutdown
- * line.
+ * Stop everything `kindgi dev` started: the refreshes in flight (drained,
+ * so none registers against a server shutting down), the runtime with the
+ * watchers closing meanwhile, then the pack service. In watch mode, on
+ * the one shutdown line.
  */
 async function stopDev(parts: {
   readonly watch: boolean;
@@ -1320,15 +1336,38 @@ async function stopDev(parts: {
   // Every step runs, whichever failed before it: the runtime container is
   // removed (`server.shutdown`) even when, say, the pack service died first.
   const failure = await runEach([
-    ...parts.watchHandles.map((handle) => () => handle.close()),
-    // Nothing starts a refresh any more; drain the ones in flight.
+    // Nothing starts a refresh any more (the watchers' changes are ignored
+    // from the stop on); drain the ones in flight.
     () => parts.builder.dispose(),
     () => Promise.allSettled(parts.inFlightTicks),
     () => parts.refresher.idle(),
-    () => parts.server.shutdown(),
+    // The watchers close while the runtime's container stops: closing a
+    // recursive one holds this event loop for a second or more on macOS,
+    // and `docker stop` doesn't wait on it.
+    () =>
+      whileRunning(
+        () => parts.server.shutdown(),
+        parts.watchHandles.map((handle) => () => handle.close()),
+      ),
     () => parts.pack.close(),
   ]);
   if (parts.watch) endStoppingLine(failure === undefined);
+  if (failure !== undefined) throw failure.cause;
+}
+
+/** Start `first`, run `meanwhile` while it's under way, then wait for it; throws the first failure. */
+async function whileRunning(
+  first: () => Promise<unknown>,
+  meanwhile: readonly (() => Promise<unknown>)[],
+): Promise<void> {
+  // Called now, before `meanwhile` holds the loop; settled at once, so a
+  // failure while `meanwhile` runs isn't unhandled.
+  const started = (async () => first())().then(
+    () => undefined,
+    (cause: unknown) => ({ cause }),
+  );
+  const meanwhileFailure = await runEach(meanwhile);
+  const failure = (await started) ?? meanwhileFailure;
   if (failure !== undefined) throw failure.cause;
 }
 

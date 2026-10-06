@@ -16,9 +16,9 @@
  * in it signals its child too (`npx` and `pnpm run` forward SIGINT;
  * `pnpm exec` sends SIGTERM and exits at once). A signal is the same
  * Ctrl+C when it's handled within `REPEAT_SIGNAL_WINDOW_MS` of the first,
- * or before the event loop has turned twice since: the stop's first steps
- * can hold the loop (closing a recursive file watcher takes over a second
- * on macOS), so a signal that came at once can be handled late. A SIGTERM
+ * or before the event loop has turned twice since: a stop step can hold
+ * the loop (closing a recursive file watcher takes over a second on
+ * macOS), so a signal that came at once can be handled late. A SIGTERM
  * never forces the exit; it asks for the stop already under way. Forcing
  * it left the runtime container running.
  */
