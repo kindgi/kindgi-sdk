@@ -324,6 +324,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     appliesTo: appliesToServer,
     group: 'core',
   },
+  {
+    name: 'KINDGI_COMPLIANCE_CLASSIFIER',
+    description:
+      "Turns on the audit trail's compliance features: `shipped` uses the classifier the runtime ships; or give the absolute path of your own classifier JSON. When set, the server serves `/v1/compliance/*` (audit events as compliance evidence, and their signed export) and **purges audit events by kind, as the classifier says**. With `shipped`: authorization decisions after 90 days (denials after 365), run outcomes and guardrail violations after 730 days; secret changes and approval decisions are kept (legal hold), and so are kinds the classifier doesn't list. Unset (the default): no `/v1/compliance/*`, and no audit event is ever purged.",
+    example: 'shipped',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
 
   // ---- secrets backend --------------------------------------------
   {

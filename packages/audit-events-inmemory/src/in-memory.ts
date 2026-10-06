@@ -83,6 +83,8 @@ export function createInMemoryAuditEventBinding(): AuditEventBinding {
       let deleted = 0;
       for (const [id, event] of bucket) {
         if (event.kind !== input.kind) continue;
+        if (input.outcome !== undefined && event.outcome !== input.outcome) continue;
+        if (input.exceptOutcome !== undefined && event.outcome === input.exceptOutcome) continue;
         const ts = new Date(event.timestamp as unknown as string).getTime();
         if (ts < cutoff) {
           bucket.delete(id);
