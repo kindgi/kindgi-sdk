@@ -116,8 +116,9 @@ describe('KINDGI_LOG_LEVELS', () => {
 });
 
 describe('loggerFromEnv', () => {
-  test('auto is pretty on a terminal and JSON otherwise', () => {
+  test('auto is pretty on a terminal or in development mode, and JSON otherwise', () => {
     expect(resolveLogFormat(undefined, { isTTY: true })).toBe('pretty');
+    expect(resolveLogFormat('auto', { isTTY: false, dev: true })).toBe('pretty');
     expect(resolveLogFormat('auto', { isTTY: false })).toBe('json');
     expect(resolveLogFormat('PRETTY', { isTTY: false })).toBe('pretty');
     expect(resolveLogFormat('xml', { isTTY: false })).toBeUndefined();
@@ -167,6 +168,14 @@ describe('loggerFromEnv', () => {
         'KINDGI_LOG_LEVELS names "kernal", which no subsystem logs under; it has no effect.',
       ],
     });
+  });
+
+  test('KINDGI_DEV=true under auto is pretty: a newer runtime under an older kindgi dev', () => {
+    const lines: string[] = [];
+    const got = loggerFromEnv({ env: { KINDGI_DEV: 'true' }, write: (l) => lines.push(l) });
+    if (got.kind !== 'ok') throw new Error(got.message);
+    got.logger.info('readable');
+    expect(lines[0]).toMatch(/^\d{2}:\d{2}:\d{2}\.\d{3} INFO {2}\[root\] readable$/);
   });
 
   test('NO_COLOR turns colours off on a terminal', () => {

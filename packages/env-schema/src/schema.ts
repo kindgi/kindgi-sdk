@@ -360,7 +360,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_LOG_FORMAT',
     description:
-      '`json`: one record per line (`time`, `level`, `severity`, `subsystem`, `message`, then the ids), for a log collector. `pretty`: for a person at a terminal. `auto` (default): pretty when stdout is a terminal, JSON otherwise. `kindgi dev` sets `pretty`.',
+      '`json`: one record per line (`time`, `level`, `severity`, `subsystem`, `message`, then the ids), for a log collector. `pretty`: for a person at a terminal. `auto` (default): pretty when stdout is a terminal or `KINDGI_DEV=true`, JSON otherwise. `kindgi dev` sets `pretty`.',
     example: 'json',
     required: false,
     // The runtime's; the pack service writes the same records from phase 2.

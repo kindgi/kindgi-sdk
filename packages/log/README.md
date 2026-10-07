@@ -51,7 +51,7 @@ for (const problem of got.problems) got.logger.warn(problem);
 |---|---|---|
 | `KINDGI_LOG_LEVEL` | `error` `warn` `info` `debug` `trace` | `info` |
 | `KINDGI_LOG_LEVELS` | `subsystem=level`, comma-separated: `kernel=debug,http=warn` | none |
-| `KINDGI_LOG_FORMAT` | `auto` `json` `pretty` | `auto`: pretty on a terminal, JSON otherwise |
+| `KINDGI_LOG_FORMAT` | `auto` `json` `pretty` | `auto`: pretty on a terminal or with `KINDGI_DEV=true`, JSON otherwise |
 
 - **What refuses to start:** an unknown level or format, or a malformed `KINDGI_LOG_LEVELS`.
 - **What only warns:** a subsystem no code logs under. It's returned in `problems`, so a typo doesn't stop a server.

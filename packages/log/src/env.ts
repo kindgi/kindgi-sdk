@@ -7,16 +7,20 @@ import type { LogFormat, Logger } from './types.js';
 
 /**
  * `KINDGI_LOG_FORMAT`'s value as a format: `json` or `pretty` as given;
- * `auto` (the default) is pretty on a terminal and JSON otherwise. So the
+ * `auto` (the default) is pretty on a terminal or in development mode
+ * (`dev`: `KINDGI_DEV`, which every `kindgi dev` sets, so an older CLI that
+ * passes no format still shows pretty lines), and JSON otherwise. So the
  * CLI, the runtime and a pack service agree. `undefined` for any other
  * value.
  */
 export function resolveLogFormat(
   raw: string | undefined,
-  context: { readonly isTTY: boolean },
+  context: { readonly isTTY: boolean; readonly dev?: boolean },
 ): LogFormat | undefined {
   const value = (raw ?? '').trim().toLowerCase();
-  if (value === '' || value === 'auto') return context.isTTY ? 'pretty' : 'json';
+  if (value === '' || value === 'auto') {
+    return context.isTTY || context.dev === true ? 'pretty' : 'json';
+  }
   if (value === 'json' || value === 'pretty') return value;
   return undefined;
 }
@@ -85,7 +89,8 @@ export function loggerFromEnv(input: {
     return { kind: 'err', message: `KINDGI_LOG_LEVELS: ${levels.message}.` };
   }
   const isTTY = input.isTTY ?? false;
-  const format = resolveLogFormat(env.KINDGI_LOG_FORMAT, { isTTY });
+  const dev = ['true', '1'].includes((env.KINDGI_DEV ?? '').trim().toLowerCase());
+  const format = resolveLogFormat(env.KINDGI_LOG_FORMAT, { isTTY, dev });
   if (format === undefined) {
     return {
       kind: 'err',

@@ -42,6 +42,7 @@
     "@kindgi/crypto": "workspace:*",
     "@kindgi/flow": "workspace:*",
     "@kindgi/guardrails": "workspace:*",
+    "@kindgi/log": "workspace:*",
     "@kindgi/memory": "workspace:*",
     "@kindgi/platform": "workspace:*",
     "@kindgi/provenance": "workspace:*",
