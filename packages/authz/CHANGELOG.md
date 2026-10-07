@@ -1,5 +1,11 @@
 # @kindgi/authz
 
+## 0.1.4-rc.5
+
+### Patch Changes
+
+- @kindgi/types@0.1.4-rc.5
+
 ## 0.1.4-rc.4
 
 ### Patch Changes

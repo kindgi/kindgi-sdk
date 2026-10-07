@@ -1,5 +1,53 @@
 # @kindgi/cli
 
+## 0.1.4-rc.5
+
+### Patch Changes
+
+- 6eb47c1: Agent instructions name tools by what they do, not by their dotted id. A model sees a tool's id in its provider's form (`my-pack__greet` for Anthropic and OpenAI-compatible models), so `my-pack.greet` in the instructions could make it call a name it wasn't given. The `kindgi init` echo agent (TypeScript and Python) now says "greet them with the greet tool … echo their message with the echo tool", and the authoring-agents skills say to name tools this way.
+- 082f469: `kindgi dev` runs runtime 0.1.4-rc.5.
+- 29fbd56: `kindgi` shows the server's own code for any server-class error that carries one: `Error [gate-failed]: …`, `Error [budget-exceeded]: …`, `Error [secret-store-error]: …`, instead of `Error [server]: …`. A conflict still shows its reason, a typed family (`not-found`, `auth`, `invalid-request`) its family, and a body with no code `server`.
+  
+  `tool-version-unresolvable` (a tool the agent names has no version in its range) is now `422`, as its sibling turn failures (`model-invocation-failed`, `budget-exceeded`) are. It answered `500` before. `capability-unsatisfiable` (no registered provider satisfies the `needs`) gets a `422` entry too; a turn reports it as the cause of `capability-routing-failed`, which was already `422`.
+- 261ef7f: `kindgi dev`'s banner names every LLM provider when only dev-echo can answer: "for a real model: set an LLM provider key, then `kindgi providers register --preset=<anthropic|gemini-api|groq|openai|openrouter>`". It named Anthropic only, while dev-echo's answer, its warning and `kindgi doctor` offer them all. The list comes from the presets the CLI ships.
+- a8e148a: Provider presets follow the providers' model lifecycles:
+  - **`gemini` (Vertex AI):** `gemini-3.8-flash` and `gemini-3.5-flash-lite`, in place of `gemini-2.5-pro` and `gemini-2.5-flash`, which Vertex AI retires on 2026-10-20 (Google names 3.8 Flash as their replacement). Region `global`, as before.
+  - **`gemini` and `gemini-api`:** `gemini-3.8-flash` and `gemini-3.5-flash-lite` declare `structured-output`, so an agent that needs it (`capabilities: [{ needs: [{ feature: 'structured-output' }] }]`) can route to them. Both were checked with typed output on Vertex AI.
+  - **`anthropic`:** `claude-haiku-4-5` is marked as retiring on or after 2026-10-15. Pin another model before then.
+  
+  A registration from an older preset keeps its models: re-register (`kindgi providers register --preset=gemini --project=<id>`) to move to the new ones.
+- 9801f64: **Request logs and trace context.**
+  
+  - **`createApp({ logger })`** takes a `@kindgi/log` logger. Without one, the app stays quiet.
+    - Each request gets `c.var.log`, with subsystem `http` and its `requestId`, `traceId` and `spanId` (plus `tenantId` once authenticated), and `c.var.trace`.
+    - An incoming `traceparent` is honoured, with a new span; a missing or malformed one starts a fresh trace. Every response answers `traceresponse`.
+  - **The access line:** `METHOD /v1/runs/:runId 200 12ms`, with the route's pattern and never the raw path.
+    - Writes and 4xx are logged at `info`, 5xx at `error`.
+    - Successful reads, probes and stream openings are logged at `debug`, so `info` stays readable while a console polls.
+    - A 500 also logs the error itself, redacted.
+  - **Runs carry their trace.** Starting a run hands the request's trace to the run handler (`RunTrace` on the agent and flow invoke inputs). `RunFlowInput`, `StartRunParams` and `KernelRunRecord` take an optional `traceId`. `Run.traceId` is on the wire when a run has one: optional in the TypeScript client, `trace_id` in the Python client.
+  - **Pack protocol 2.4.1:** the optional `traceparent` request header (`PACK_HEADERS.traceparent`), so a pack service's records can carry the run's trace id.
+  - **`KINDGI_LOG_LEVEL`, `KINDGI_LOG_LEVELS` and `KINDGI_LOG_FORMAT`** are in the env schema, for the runtime server. Under `auto`, the format is pretty on a terminal or with `KINDGI_DEV=true`.
+  - **`kindgi dev`** runs the runtime with pretty logs (`KINDGI_LOG_FORMAT=pretty`) and keeps only its last 200 lines in memory.
+- add6a1a: `kindgi runs start` exits `1` when the run it waited for fails, agent or flow. It still prints the run on stdout, and stderr says why. An agent turn's failure shows its own code and message (`Error [budget-exceeded]: Agent turn cost budget exceeded (…)`, `Error [capability-routing-failed]: No registered provider satisfies the capability declaration`). Any other failure shows `Error [run-failed]: <the run's failure message>`. Since `runs start` began following runs, a failed run exited `0` with nothing on stderr, so a script couldn't tell. `--quiet` prints nothing and still exits `1`.
+- Updated dependencies [6eb47c1]
+- Updated dependencies [17f552d]
+- Updated dependencies [52c8f98]
+- Updated dependencies [d69c8e9]
+- Updated dependencies [9801f64]
+- Updated dependencies [c744326]
+  - @kindgi/sdk@0.1.4-rc.5
+  - @kindgi/secrets-dotenv@0.1.4-rc.5
+  - @kindgi/client@0.1.4-rc.5
+  - @kindgi/handler-runtime@0.1.4-rc.5
+  - @kindgi/env-schema@0.1.4-rc.5
+  - @kindgi/agents@0.1.4-rc.5
+  - @kindgi/flow@0.1.4-rc.5
+  - @kindgi/crypto@0.1.4-rc.5
+  - @kindgi/dotenv-file@0.1.4-rc.5
+  - @kindgi/platform@0.1.4-rc.5
+  - @kindgi/types@0.1.4-rc.5
+
 ## 0.1.4-rc.4
 
 ### Patch Changes
