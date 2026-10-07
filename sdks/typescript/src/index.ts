@@ -255,9 +255,12 @@ export type {
 } from './resources/events.js';
 export type { ArtifactFilter, ArtifactsClient } from './resources/artifacts.js';
 export type {
+  ListScheduleFiresFilter,
   ListSchedulesFilter,
   RegisterScheduleInput,
   Schedule,
+  ScheduleFire,
+  ScheduleFirePage,
   SchedulePage,
   SchedulesClient,
   UnregisterScheduleResult,

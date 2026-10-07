@@ -37,7 +37,7 @@ export function eventTriggersRouter(binding: TriggerRegistryBinding): Hono<AppEn
 
     const flowId = requireString(body, 'flowId');
     const flowVersion = requireString(body, 'flowVersion');
-    const eventKind = requireString(body.config, 'config.eventKind');
+    const eventKind = requireString(body, 'config.eventKind');
     if (flowId.kind === 'err') return bad(c, requestId, flowId.message);
     if (flowVersion.kind === 'err') return bad(c, requestId, flowVersion.message);
     if (eventKind.kind === 'err') return bad(c, requestId, eventKind.message);

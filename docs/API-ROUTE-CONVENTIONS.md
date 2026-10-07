@@ -65,7 +65,7 @@ The SDK's `AuthConfig` (`sdks/typescript/src/auth.ts`) already emits this header
 The only fully-public routes are:
 - `GET /health` — liveness. No auth. Returns `{ ok: true }`.
 - `GET /v1/openapi.json` — the OpenAPI document.
-- Webhook receivers (`POST /v1/webhooks/:webhookId/deliver`) — authenticated via HMAC signature header, not Bearer token.
+- Inbound webhook receivers, when a deployment turns them on — authenticated by an HMAC signature header, not a Bearer token. There's no receiver route yet: `/v1/webhooks` only manages the webhook triggers.
 
 ### 2.3 Tenant scoping
 

@@ -4,35 +4,85 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 
-import type { Cursor, TenantId, TriggerId } from '@kindgi/types';
+import { type Action, type ResourceRef, ref } from '@kindgi/authz';
+import type { ProjectBinding } from '@kindgi/platform';
+import type { Cursor, ProjectId, TenantId, TriggerId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
-import type {
-  CronTriggerRecord,
-  RegisterCronTriggerInput,
-  TriggerRegistryBinding,
-  UpdateCronTriggerInput,
+import type { Authorizer } from '../middleware/authorize.js';
+import {
+  type CronTriggerRecord,
+  type RegisterCronTriggerInput,
+  SCHEDULE_DEFAULTS,
+  type ScheduleCatchUp,
+  type ScheduleOverlap,
+  type TriggerFire,
+  type TriggerOwner,
+  type TriggerRegistryBinding,
+  type TriggerTarget,
+  type UpdateCronTriggerInput,
 } from '../trigger-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import { UUID_RE } from './uuid-param.js';
 
 /**
- * Schedules — cron-kind triggers.
+ * Schedules: cron-kind triggers that start a run of an agent or a flow.
  *
- * Seven routes, all soft-delete-shaped per framework convention:
- *   - POST   /v1/schedules                 (register)
- *   - GET    /v1/schedules                 (list, cursor-paginated)
- *   - GET    /v1/schedules/:triggerId      (get)
- *   - PATCH  /v1/schedules/:triggerId      (update cron/label/flowVersion)
- *   - POST   /v1/schedules/:triggerId/pause
- *   - POST   /v1/schedules/:triggerId/resume
- *   - POST   /v1/schedules/:triggerId/unregister  (tombstone — GC per policy)
+ *   POST /v1/schedules                          register
+ *   GET  /v1/schedules                          list (cursor-paginated)
+ *   GET  /v1/schedules/:triggerId[?upcoming=N]  get, with its next N occurrences
+ *   PATCH /v1/schedules/:triggerId              update
+ *   POST /v1/schedules/:triggerId/pause | resume | unregister
+ *   GET  /v1/schedules/:triggerId/fires         its fire history, newest first
+ *   POST /v1/schedules/:triggerId/run-now       fire it now, outside the schedule
+ *   POST /v1/schedules/:triggerId/owner         the caller becomes the owner
  *
- * The `triggerId` URL param is the trigger's id; the response body
- * aliases it as `scheduleId` for a friendlier client surface.
+ * A schedule's runs act as its owner (whoever registered it, until an
+ * admin takes it over), checked again at every fire. With an authorizer:
+ * reads need `read` on the schedule's project, changes `write`, taking
+ * ownership `admin`, and registering or retargeting also needs `execute`
+ * on what it runs, as starting that run does. The `triggerId` is aliased
+ * as `scheduleId` in bodies.
  */
-export function schedulesRouter(binding: TriggerRegistryBinding): Hono<AppEnv> {
+export function schedulesRouter(
+  binding: TriggerRegistryBinding,
+  authorizer?: Authorizer,
+  /** The tenant's Default project: where a schedule that names no project goes. */
+  projects?: Pick<ProjectBinding, 'getDefault'>,
+): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+
+  /** Nothing, when allowed; else the authorizer's own 403. */
+  async function denied(
+    c: Context<AppEnv>,
+    action: Action,
+    resource: ResourceRef,
+  ): Promise<Response | undefined> {
+    if (authorizer === undefined) return undefined;
+    let allowed = false;
+    const answer = await authorizer.authorize(action, async () => resource)(c, async () => {
+      allowed = true;
+    });
+    return allowed ? undefined : (answer as Response);
+  }
+
+  /** The schedule, if it is one (another kind's id is not found here), and the caller may `action` it. */
+  async function scheduleFor(
+    c: Context<AppEnv>,
+    action: Action,
+  ): Promise<{ kind: 'ok'; value: CronTriggerRecord } | { kind: 'err'; response: Response }> {
+    const requestId = c.get('requestId');
+    const tenantId = c.get('tenantId') as TenantId;
+    const triggerId = c.req.param('triggerId') as TriggerId;
+    const rec = UUID_RE.test(triggerId) ? await binding.get({ tenantId, triggerId }) : null;
+    if (rec === null || rec.kind !== 'cron') {
+      return { kind: 'err', response: notFound(c, requestId, triggerId) };
+    }
+    const refused = await denied(c, action, ref('project', rec.projectId as unknown as string));
+    if (refused !== undefined) return { kind: 'err', response: refused };
+    return { kind: 'ok', value: rec };
+  }
 
   // ---------- POST / (register) ----------
   r.post('/', async (c) => {
@@ -43,24 +93,45 @@ export function schedulesRouter(binding: TriggerRegistryBinding): Hono<AppEnv> {
     if (parsed.kind === 'err') return parsed.response;
     const body = parsed.value;
 
-    const flowId = requireString(body, 'flowId');
-    const flowVersion = requireString(body, 'flowVersion');
-    const cronExpression = requireString(body.config, 'config.cronExpression');
-    if (flowId.kind === 'err') return bad(c, requestId, flowId.message);
-    if (flowVersion.kind === 'err') return bad(c, requestId, flowVersion.message);
+    const target = parseTarget(body);
+    if (target.kind === 'err') return bad(c, requestId, target.message);
+    const cronExpression = requireString(body, 'config.cronExpression');
     if (cronExpression.kind === 'err') return bad(c, requestId, cronExpression.message);
-
+    const policy = parsePolicy(body);
+    if (policy.kind === 'err') return bad(c, requestId, policy.message);
+    const projectId = body.projectId;
+    if (projectId !== undefined && (typeof projectId !== 'string' || !UUID_RE.test(projectId))) {
+      return bad(c, requestId, '`projectId` must be a project id (a UUID)');
+    }
     const rawConfig = (body.config ?? {}) as Record<string, unknown>;
+    const inputProblem = agentInputProblem(target.value, rawConfig.input);
+    if (inputProblem !== undefined) return bad(c, requestId, inputProblem);
+
+    // A schedule that names no project goes in the tenant's Default
+    // project: checked and stored as that project. With no Default to
+    // find, the registry picks it, and only a tenant admin may.
+    const project =
+      (projectId as string | undefined) ??
+      ((await projects?.getDefault(tenantId))?.id as string | undefined);
+    const refused =
+      (project === undefined
+        ? await denied(c, 'admin', ref('tenant', tenantId as unknown as string))
+        : await denied(c, 'write', ref('project', project))) ??
+      (await denied(c, 'execute', targetRef(target.value)));
+    if (refused !== undefined) return refused;
+
     const registerInput: RegisterCronTriggerInput = {
       kind: 'cron',
       tenantId,
-      flowId: flowId.value,
-      flowVersion: flowVersion.value,
+      target: target.value,
+      ...(project !== undefined && { projectId: project as ProjectId }),
+      owner: ownerOf(c),
       config: {
         cronExpression: cronExpression.value,
         ...(typeof rawConfig.timezone === 'string' && { timezone: rawConfig.timezone }),
         ...('input' in rawConfig && { input: rawConfig.input }),
       },
+      ...policy.value,
       ...(typeof body.label === 'string' && body.label.length > 0 && { label: body.label }),
     };
 
@@ -76,6 +147,7 @@ export function schedulesRouter(binding: TriggerRegistryBinding): Hono<AppEnv> {
   });
 
   // ---------- GET / (list) ----------
+  // Tenant-scoped, as runs are: rows are not filtered per permission.
   r.get('/', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
     const limit = clampLimit(c.req.query('limit'));
@@ -102,23 +174,44 @@ export function schedulesRouter(binding: TriggerRegistryBinding): Hono<AppEnv> {
   // ---------- GET /:triggerId (get) ----------
   r.get('/:triggerId', async (c) => {
     const requestId = c.get('requestId');
-    const tenantId = c.get('tenantId') as TenantId;
-    const triggerId = c.req.param('triggerId') as TriggerId;
-
-    const rec = await binding.get({ tenantId, triggerId });
-    if (rec === null || rec.kind !== 'cron') return notFound(c, requestId, triggerId);
-    return c.json(serializeSchedule(rec));
+    const upcomingRaw = c.req.query('upcoming');
+    const upcoming = upcomingRaw === undefined ? undefined : Number(upcomingRaw);
+    if (upcoming !== undefined && (!Number.isInteger(upcoming) || upcoming < 1 || upcoming > 20)) {
+      return bad(c, requestId, '`upcoming` must be a whole number from 1 to 20');
+    }
+    const found = await scheduleFor(c, 'read');
+    if (found.kind === 'err') return found.response;
+    if (upcoming === undefined) return c.json(serializeSchedule(found.value));
+    const rec = await binding.get({
+      tenantId: c.get('tenantId') as TenantId,
+      triggerId: found.value.triggerId,
+      upcoming,
+    });
+    return c.json(serializeSchedule((rec ?? found.value) as CronTriggerRecord));
   });
 
   // ---------- PATCH /:triggerId (update) ----------
   r.patch('/:triggerId', async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
-    const triggerId = c.req.param('triggerId') as TriggerId;
 
     const parsed = await parseJsonObject(c, requestId);
     if (parsed.kind === 'err') return parsed.response;
     const body = parsed.value;
+
+    const retarget =
+      'flowId' in body || 'agentId' in body || 'flowVersion' in body || 'agentVersion' in body;
+    const target = retarget ? parseTarget(body) : undefined;
+    if (target?.kind === 'err') return bad(c, requestId, target.message);
+    const policy = parsePolicy(body);
+    if (policy.kind === 'err') return bad(c, requestId, policy.message);
+
+    const found = await scheduleFor(c, 'write');
+    if (found.kind === 'err') return found.response;
+    if (target !== undefined) {
+      const refused = await denied(c, 'execute', targetRef(target.value));
+      if (refused !== undefined) return refused;
+    }
 
     const patchConfig = body.config as Record<string, unknown> | undefined;
     const cfg: Partial<{ cronExpression: string; timezone: string; input: unknown }> = {};
@@ -128,14 +221,23 @@ export function schedulesRouter(binding: TriggerRegistryBinding): Hono<AppEnv> {
       if (typeof patchConfig.timezone === 'string') cfg.timezone = patchConfig.timezone;
       if ('input' in patchConfig) cfg.input = patchConfig.input;
     }
+    if (target !== undefined || 'input' in cfg) {
+      const inputProblem = agentInputProblem(
+        target?.value ?? found.value.target,
+        'input' in cfg ? cfg.input : found.value.config.input,
+      );
+      if (inputProblem !== undefined) return bad(c, requestId, inputProblem);
+    }
 
+    const triggerId = found.value.triggerId;
     const updateInput: UpdateCronTriggerInput = {
       kind: 'cron',
       tenantId,
       triggerId,
       ...(Object.keys(cfg).length > 0 && { config: cfg }),
+      ...(target !== undefined && { target: target.value }),
+      ...policy.value,
       ...('label' in body && { label: body.label === null ? null : (body.label as string) }),
-      ...(typeof body.flowVersion === 'string' && { flowVersion: body.flowVersion }),
     };
 
     const result = await binding.update(updateInput);
@@ -155,35 +257,76 @@ export function schedulesRouter(binding: TriggerRegistryBinding): Hono<AppEnv> {
     return c.json(serializeSchedule(result.value as CronTriggerRecord));
   });
 
-  // ---------- POST /:triggerId/pause ----------
-  r.post('/:triggerId/pause', async (c) => {
-    const requestId = c.get('requestId');
-    const tenantId = c.get('tenantId') as TenantId;
-    const triggerId = c.req.param('triggerId') as TriggerId;
-    const result = await binding.pause({ tenantId, triggerId });
-    if (result.kind === 'err') return lifecycleError(c, requestId, result.error, triggerId);
-    return c.json(serializeSchedule(result.value as CronTriggerRecord));
-  });
-
-  // ---------- POST /:triggerId/resume ----------
-  r.post('/:triggerId/resume', async (c) => {
-    const requestId = c.get('requestId');
-    const tenantId = c.get('tenantId') as TenantId;
-    const triggerId = c.req.param('triggerId') as TriggerId;
-    const result = await binding.resume({ tenantId, triggerId });
-    if (result.kind === 'err') return lifecycleError(c, requestId, result.error, triggerId);
-    return c.json(serializeSchedule(result.value as CronTriggerRecord));
-  });
+  // ---------- POST /:triggerId/pause | resume ----------
+  for (const verb of ['pause', 'resume'] as const) {
+    r.post(`/:triggerId/${verb}`, async (c) => {
+      const requestId = c.get('requestId');
+      const found = await scheduleFor(c, 'write');
+      if (found.kind === 'err') return found.response;
+      const { tenantId, triggerId } = found.value;
+      const result = await binding[verb]({ tenantId, triggerId });
+      if (result.kind === 'err') return lifecycleError(c, requestId, result.error, triggerId);
+      return c.json(serializeSchedule(result.value as CronTriggerRecord));
+    });
+  }
 
   // ---------- POST /:triggerId/unregister (soft delete) ----------
   r.post('/:triggerId/unregister', async (c) => {
-    const tenantId = c.get('tenantId') as TenantId;
-    const triggerId = c.req.param('triggerId') as TriggerId;
+    const found = await scheduleFor(c, 'write');
+    if (found.kind === 'err') return found.response;
+    const { tenantId, triggerId } = found.value;
     const outcome = await binding.unregister({ tenantId, triggerId });
     return c.json({
       scheduleId: triggerId as unknown as string,
       unregistered: outcome.unregistered,
     });
+  });
+
+  // ---------- GET /:triggerId/fires (history) ----------
+  r.get('/:triggerId/fires', async (c) => {
+    const requestId = c.get('requestId');
+    const found = await scheduleFor(c, 'read');
+    if (found.kind === 'err') return found.response;
+    if (binding.listFires === undefined) return unsupported(c, requestId, 'fire history');
+    const cursorRaw = c.req.query('cursor');
+    const page = await binding.listFires({
+      tenantId: found.value.tenantId,
+      triggerId: found.value.triggerId,
+      limit: clampLimit(c.req.query('limit')),
+      ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
+    });
+    return c.json({
+      data: page.data.map(serializeFire),
+      hasMore: page.nextCursor !== undefined,
+      ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
+    });
+  });
+
+  // ---------- POST /:triggerId/run-now ----------
+  r.post('/:triggerId/run-now', async (c) => {
+    const requestId = c.get('requestId');
+    const found = await scheduleFor(c, 'write');
+    if (found.kind === 'err') return found.response;
+    if (binding.fireNow === undefined) return unsupported(c, requestId, 'run-now');
+    const { tenantId, triggerId } = found.value;
+    const result = await binding.fireNow({ tenantId, triggerId });
+    if (result.kind === 'err') return lifecycleError(c, requestId, result.error, triggerId);
+    c.status(202);
+    return c.json(serializeFire(result.value));
+  });
+
+  // ---------- POST /:triggerId/owner (take ownership) ----------
+  r.post('/:triggerId/owner', async (c) => {
+    const requestId = c.get('requestId');
+    const found = await scheduleFor(c, 'admin');
+    if (found.kind === 'err') return found.response;
+    if (binding.setOwner === undefined) return unsupported(c, requestId, 'changing the owner');
+    const refused = await denied(c, 'execute', targetRef(found.value.target));
+    if (refused !== undefined) return refused;
+    const { tenantId, triggerId } = found.value;
+    const result = await binding.setOwner({ tenantId, triggerId, owner: ownerOf(c) });
+    if (result.kind === 'err') return lifecycleError(c, requestId, result.error, triggerId);
+    return c.json(serializeSchedule(result.value as CronTriggerRecord));
   });
 
   return r;
@@ -197,17 +340,149 @@ function serializeSchedule(r: CronTriggerRecord): Record<string, unknown> {
   return {
     scheduleId: r.triggerId as unknown as string,
     triggerId: r.triggerId as unknown as string,
-    flowId: r.flowId,
-    flowVersion: r.flowVersion,
+    ...(r.target.kind === 'flow'
+      ? { flowId: r.target.flowId, flowVersion: r.target.flowVersion }
+      : {
+          agentId: r.target.agentId,
+          ...(r.target.agentVersion !== undefined && { agentVersion: r.target.agentVersion }),
+        }),
+    projectId: r.projectId as unknown as string,
+    owner: { kind: r.owner.kind, id: r.owner.id },
     cronExpression: r.config.cronExpression,
     ...(r.config.timezone !== undefined && { timezone: r.config.timezone }),
     ...(r.config.input !== undefined && { input: r.config.input }),
+    catchUp: r.catchUp,
+    overlap: r.overlap,
+    startingDeadlineSeconds: r.startingDeadlineSeconds,
     label: r.label,
     status: r.status,
+    ...(r.statusReason !== undefined && { statusReason: r.statusReason }),
     nextFireAt: r.nextFireAt,
+    ...(r.upcoming !== undefined && { upcoming: r.upcoming }),
     lastFiredAt: r.lastFiredAt,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
+  };
+}
+
+function serializeFire(f: TriggerFire): Record<string, unknown> {
+  return {
+    fireId: f.fireId,
+    scheduleId: f.triggerId as unknown as string,
+    triggerId: f.triggerId as unknown as string,
+    ...(f.scheduledFor !== undefined && { scheduledFor: f.scheduledFor }),
+    firedAt: f.firedAt,
+    outcome: f.outcome,
+    ...(f.runId !== undefined && { runId: f.runId }),
+    ...(f.detail !== undefined && { detail: f.detail }),
+    ...(f.missedCount !== undefined && { missedCount: f.missedCount }),
+    ...(f.manual === true && { manual: true }),
+  };
+}
+
+/** The resource a run of the target needs `execute` on. */
+function targetRef(target: TriggerTarget): ResourceRef {
+  return target.kind === 'agent' ? ref('agent', target.agentId) : ref('flow', target.flowId);
+}
+
+/** Who a schedule's runs act as: the request's principal. */
+function ownerOf(c: Context<AppEnv>): TriggerOwner {
+  const actor = c.get('principal')?.actor;
+  if (actor === undefined) return { kind: 'service', id: 'unknown' };
+  return { kind: actor.kind === 'user' ? 'user' : 'service', id: actor.id };
+}
+
+/** `flowId` + `flowVersion`, or `agentId` (+ `agentVersion`): exactly one target. */
+function parseTarget(
+  body: Record<string, unknown>,
+): { kind: 'ok'; value: TriggerTarget } | { kind: 'err'; message: string } {
+  const { flowId, flowVersion, agentId, agentVersion } = body;
+  const named = (v: unknown) => typeof v === 'string' && v.length > 0;
+  if (named(flowId) === named(agentId)) {
+    return {
+      kind: 'err',
+      message: 'Name what the schedule runs: `flowId` (with `flowVersion`) or `agentId`, not both',
+    };
+  }
+  if (named(flowId)) {
+    if (!named(flowVersion))
+      return { kind: 'err', message: '`flowVersion` is required with `flowId`' };
+    if (agentVersion !== undefined) {
+      return { kind: 'err', message: '`agentVersion` goes with `agentId`, not `flowId`' };
+    }
+    return {
+      kind: 'ok',
+      value: { kind: 'flow', flowId: flowId as string, flowVersion: flowVersion as string },
+    };
+  }
+  if (flowVersion !== undefined) {
+    return { kind: 'err', message: '`flowVersion` goes with `flowId`, not `agentId`' };
+  }
+  if (agentVersion !== undefined && !named(agentVersion)) {
+    return { kind: 'err', message: '`agentVersion` must be a version (semver)' };
+  }
+  return {
+    kind: 'ok',
+    value: {
+      kind: 'agent',
+      agentId: agentId as string,
+      ...(agentVersion !== undefined && { agentVersion: agentVersion as string }),
+    },
+  };
+}
+
+/**
+ * An agent's run takes the agent payload, so an agent schedule's input
+ * must carry the message each run sends: without it every fire would be
+ * refused. A flow's input is the flow's own.
+ */
+function agentInputProblem(target: TriggerTarget, input: unknown): string | undefined {
+  if (target.kind !== 'agent') return undefined;
+  const message =
+    typeof input === 'object' && input !== null
+      ? (input as Record<string, unknown>).userMessage
+      : undefined;
+  if (typeof message === 'string' && message.length > 0) return undefined;
+  return 'An agent schedule needs `config.input.userMessage`: the message each run sends the agent (`{ userMessage, parameters? }`)';
+}
+
+/** `catchUp`, `overlap` and `startingDeadlineSeconds`, each optional. */
+function parsePolicy(body: Record<string, unknown>):
+  | {
+      kind: 'ok';
+      value: {
+        catchUp?: ScheduleCatchUp;
+        overlap?: ScheduleOverlap;
+        startingDeadlineSeconds?: number;
+      };
+    }
+  | { kind: 'err'; message: string } {
+  const { catchUp, overlap, startingDeadlineSeconds } = body;
+  if (catchUp !== undefined && catchUp !== 'latest' && catchUp !== 'skip') {
+    return { kind: 'err', message: '`catchUp` must be `latest` or `skip`' };
+  }
+  if (overlap !== undefined && overlap !== 'skip' && overlap !== 'allow') {
+    return { kind: 'err', message: '`overlap` must be `skip` or `allow`' };
+  }
+  if (
+    startingDeadlineSeconds !== undefined &&
+    (typeof startingDeadlineSeconds !== 'number' ||
+      !Number.isInteger(startingDeadlineSeconds) ||
+      startingDeadlineSeconds < 1 ||
+      startingDeadlineSeconds > 86_400)
+  ) {
+    return {
+      kind: 'err',
+      message: `\`startingDeadlineSeconds\` must be a whole number of seconds from 1 to 86400 (default ${SCHEDULE_DEFAULTS.startingDeadlineSeconds})`,
+    };
+  }
+  return {
+    kind: 'ok',
+    value: {
+      ...(catchUp !== undefined && { catchUp }),
+      ...(overlap !== undefined && { overlap }),
+      ...(startingDeadlineSeconds !== undefined && { startingDeadlineSeconds }),
+    },
   };
 }
 
@@ -270,13 +545,26 @@ function bad(c: Context<AppEnv>, requestId: string, message: string): Response {
   return c.json(toWireError({ code: 'bad-input', message }, requestId));
 }
 
+function unsupported(c: Context<AppEnv>, requestId: string, what: string): Response {
+  c.status(statusFor('trigger-operation-unsupported') as never);
+  return c.json(
+    toWireError(
+      {
+        code: 'trigger-operation-unsupported',
+        message: `This deployment's schedules don't support ${what} yet.`,
+      },
+      requestId,
+    ),
+  );
+}
+
 function notFound(c: Context<AppEnv>, requestId: string, triggerId: TriggerId): Response {
   c.status(statusFor('trigger-not-found') as never);
   return c.json(
     toWireError(
       {
         code: 'trigger-not-found',
-        message: `No trigger with id "${triggerId as unknown as string}"`,
+        message: `No schedule with id "${triggerId as unknown as string}"`,
         triggerId: triggerId as unknown as string,
       },
       requestId,

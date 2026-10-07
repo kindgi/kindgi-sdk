@@ -169,7 +169,8 @@
       "description": "Sensitive per-env values (`/v1/secrets/*`). The ONLY endpoint that accepts plaintext is `POST /v1/secrets`; every other route is metadata-only (`value` NEVER returns on list / get / listVersions / getVersion — structural redaction). Rotation is discriminated: sync providers return 201 inline, async providers return 202 with a status URL + SSE events URL. Hard-revoke performs cryptographic erasure. Every mutating route is capability-gated (`secrets:write`, `secrets:rotate`, `secrets:revoke`, `secrets:revoke:hard`)."
     },
     {
-      "name": "schedules"
+      "name": "schedules",
+      "description": "Run an agent or a flow on a schedule: a cron expression in a timezone. Each occurrence is one fire, which starts one run as the schedule's owner (re-checked at every fire), through the same path as `POST /v1/runs`; a run a schedule started names it (`Run.trigger`). After a gap, `catchUp` runs once for the latest missed occurrence (or skips them), never once per missed one; `overlap` skips an occurrence while the previous run is still going. `GET …/fires` is the schedule's history; `run-now` fires it outside the schedule. Mounted when the deployment fires schedules."
     },
     {
       "name": "event-triggers"
@@ -398,6 +399,7 @@
           "trigger-register-failed": 500,
           "trigger-update-failed": 500,
           "trigger-lifecycle-failed": 500,
+          "trigger-operation-unsupported": 501,
           "webhook-signature-invalid": 401,
           "webhook-inactive": 410,
           "webhook-secret-missing": 500,
@@ -14508,11 +14510,10 @@
       "ScheduleRecord": {
         "type": "object",
         "additionalProperties": false,
+        "description": "A schedule: what it runs (a flow at a version, or an agent), when (a cron expression in a timezone), as whom (its owner), and what it does after a gap or while a run is still going.",
         "required": [
           "scheduleId",
           "triggerId",
-          "flowId",
-          "flowVersion",
           "cronExpression",
           "label",
           "status",
@@ -14531,11 +14532,30 @@
           },
           "flowId": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "description": "A schedule that runs a flow: the flow, at `flowVersion`."
           },
           "flowVersion": {
             "type": "string",
             "minLength": 1
+          },
+          "agentId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A schedule that runs an agent: the agent, at `agentVersion`, else its version live for the schedule's project (else the latest), as a run that names none."
+          },
+          "agentVersion": {
+            "type": "string",
+            "minLength": 1
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The schedule's project: its runs are this project's."
+          },
+          "owner": {
+            "$ref": "#/components/schemas/TriggerOwner",
+            "description": "Who its runs act as: whoever registered it, until an admin takes it over (`POST …/owner`). Checked again at every fire."
           },
           "cronExpression": {
             "type": "string",
@@ -14547,7 +14567,28 @@
             "description": "IANA timezone (e.g. `UTC`, `America/New_York`). Absent → `UTC`."
           },
           "input": {
-            "description": "Static input handed to the flow on every fire. Absent → `{}`."
+            "description": "Static input handed to the run on every fire. Absent → `{}`."
+          },
+          "catchUp": {
+            "type": "string",
+            "enum": [
+              "latest",
+              "skip"
+            ],
+            "description": "After a gap (the runtime was down, or a fire is later than `startingDeadlineSeconds`): `latest` runs once, for the latest missed occurrence, and its fire says how many it missed; `skip` drops the missed occurrences. Never a run per missed occurrence."
+          },
+          "overlap": {
+            "type": "string",
+            "enum": [
+              "skip",
+              "allow"
+            ],
+            "description": "When an occurrence comes while the previous run of this schedule is still running: `skip` records the fire as skipped; `allow` starts another run."
+          },
+          "startingDeadlineSeconds": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "How late a fire may start and still count as on time; past it, `catchUp` applies."
           },
           "label": {
             "type": [
@@ -14558,6 +14599,10 @@
           "status": {
             "$ref": "#/components/schemas/TriggerStatus"
           },
+          "statusReason": {
+            "type": "string",
+            "description": "Why the runtime paused it: repeated fires that were refused (the owner lost access) or failed."
+          },
           "nextFireAt": {
             "type": [
               "string",
@@ -14565,6 +14610,14 @@
             ],
             "format": "date-time",
             "description": "Wall-clock time of the next scheduled fire. `null` on paused rows if the cron scheduler never re-armed."
+          },
+          "upcoming": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "The next occurrences, when the request asked for them (`?upcoming=N`)."
           },
           "lastFiredAt": {
             "type": [
@@ -14580,6 +14633,108 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "TriggerOwner": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "id"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "user",
+              "service"
+            ]
+          },
+          "id": {
+            "type": "string"
+          }
+        }
+      },
+      "ScheduleFire": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "One fire of a schedule (an occurrence, or a `run-now`) and what came of it. `pending` while its run is being started.",
+        "required": [
+          "fireId",
+          "scheduleId",
+          "triggerId",
+          "firedAt",
+          "outcome"
+        ],
+        "properties": {
+          "fireId": {
+            "type": "string"
+          },
+          "scheduleId": {
+            "type": "string"
+          },
+          "triggerId": {
+            "type": "string"
+          },
+          "scheduledFor": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The occurrence it is for; absent on a `run-now` fire."
+          },
+          "firedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "started",
+              "skipped-overlap",
+              "refused",
+              "failed"
+            ]
+          },
+          "runId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The run it started."
+          },
+          "detail": {
+            "type": "string",
+            "description": "Why it was refused, skipped or failed."
+          },
+          "missedCount": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Occurrences this fire stood in for after a gap (`catchUp: latest`)."
+          },
+          "manual": {
+            "type": "boolean",
+            "description": "A `run-now` fire, outside the schedule."
+          }
+        }
+      },
+      "ScheduleFirePage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScheduleFire"
+            }
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "type": "string"
           }
         }
       },
@@ -14608,19 +14763,33 @@
       "RegisterScheduleBody": {
         "type": "object",
         "additionalProperties": false,
+        "description": "Name what it runs: `flowId` with `flowVersion`, or `agentId` (with an optional `agentVersion`). Registering needs `write` on the project and `execute` on what it runs; its runs act as the caller.",
         "required": [
-          "flowId",
-          "flowVersion",
           "config"
         ],
         "properties": {
           "flowId": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "description": "Run a flow (with `flowVersion`)."
           },
           "flowVersion": {
             "type": "string",
             "minLength": 1
+          },
+          "agentId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Run an agent (instead of a flow): at `agentVersion`, else its live version."
+          },
+          "agentVersion": {
+            "type": "string",
+            "minLength": 1
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The schedule's project. Absent → the tenant's default project."
           },
           "config": {
             "type": "object",
@@ -14636,8 +14805,32 @@
               "timezone": {
                 "type": "string"
               },
-              "input": {}
+              "input": {
+                "description": "What each run gets. An agent schedule's runs take the agent payload, `{ userMessage, parameters? }`, so it needs `userMessage`; a flow's take the flow's input."
+              }
             }
+          },
+          "catchUp": {
+            "type": "string",
+            "enum": [
+              "latest",
+              "skip"
+            ],
+            "description": "Default `latest`."
+          },
+          "overlap": {
+            "type": "string",
+            "enum": [
+              "skip",
+              "allow"
+            ],
+            "description": "Default `skip`."
+          },
+          "startingDeadlineSeconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 86400,
+            "description": "Default 600."
           },
           "label": {
             "type": "string"
@@ -14647,7 +14840,26 @@
       "PatchScheduleBody": {
         "type": "object",
         "additionalProperties": false,
+        "description": "Change what it runs (the target fields, as at registration, which also needs `execute` on the new target), when, or its policies.",
         "properties": {
+          "flowId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Run a flow (with `flowVersion`)."
+          },
+          "flowVersion": {
+            "type": "string",
+            "minLength": 1
+          },
+          "agentId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Run an agent (instead of a flow): at `agentVersion`, else its live version."
+          },
+          "agentVersion": {
+            "type": "string",
+            "minLength": 1
+          },
           "config": {
             "type": "object",
             "additionalProperties": false,
@@ -14658,8 +14870,32 @@
               "timezone": {
                 "type": "string"
               },
-              "input": {}
+              "input": {
+                "description": "What each run gets. An agent schedule's runs take the agent payload, `{ userMessage, parameters? }`, so it needs `userMessage`; a flow's take the flow's input."
+              }
             }
+          },
+          "catchUp": {
+            "type": "string",
+            "enum": [
+              "latest",
+              "skip"
+            ],
+            "description": "Default `latest`."
+          },
+          "overlap": {
+            "type": "string",
+            "enum": [
+              "skip",
+              "allow"
+            ],
+            "description": "Default `skip`."
+          },
+          "startingDeadlineSeconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 86400,
+            "description": "Default 600."
           },
           "label": {
             "type": [
@@ -14667,9 +14903,6 @@
               "null"
             ],
             "description": "`null` clears the label; omit to leave unchanged."
-          },
-          "flowVersion": {
-            "type": "string"
           }
         }
       },
@@ -36080,6 +36313,17 @@
             },
             "required": true,
             "description": "TriggerId — the trigger id (a UUID)."
+          },
+          {
+            "name": "upcoming",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20
+            },
+            "required": false,
+            "description": "Include the next N occurrences (`upcoming`), 1 to 20."
           }
         ],
         "security": [
@@ -36454,6 +36698,314 @@
           }
         },
         "description": "Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window.",
+        "parameters": [
+          {
+            "name": "triggerId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "TriggerId — the trigger id (a UUID)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/schedules/{triggerId}/fires": {
+      "get": {
+        "operationId": "schedules.fires",
+        "summary": "A schedule's fire history",
+        "tags": [
+          "schedules"
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of fires.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleFirePage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No cron trigger with that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`trigger-operation-unsupported`: this deployment keeps no fire history.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Newest first: each occurrence (and `run-now`) the schedule fired for, and what came of it: the run it started, or why it was skipped, refused or failed.",
+        "parameters": [
+          {
+            "name": "triggerId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "TriggerId — the trigger id (a UUID)."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Opaque cursor from a prior response. Absent → first page."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/schedules/{triggerId}/run-now": {
+      "post": {
+        "operationId": "schedules.runNow",
+        "summary": "Run a schedule now",
+        "tags": [
+          "schedules"
+        ],
+        "responses": {
+          "202": {
+            "description": "The fire; its run starts in the background.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleFire"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No cron trigger with that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`trigger-operation-unsupported`: this deployment has no run-now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "One fire outside the schedule (`manual: true` in its history), starting one run as the schedule's owner. The schedule's next occurrence is unchanged.",
+        "parameters": [
+          {
+            "name": "triggerId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "TriggerId — the trigger id (a UUID)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/schedules/{triggerId}/owner": {
+      "post": {
+        "operationId": "schedules.takeOwnership",
+        "summary": "Take over a schedule",
+        "tags": [
+          "schedules"
+        ],
+        "responses": {
+          "200": {
+            "description": "The schedule, with its new owner.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No cron trigger with that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`trigger-operation-unsupported`: this deployment can't change a schedule's owner.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access.",
         "parameters": [
           {
             "name": "triggerId",
