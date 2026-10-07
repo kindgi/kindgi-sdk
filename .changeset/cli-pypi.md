@@ -10,4 +10,6 @@
 
 Every `esbuild` load goes through one loader, which gives the same message.
 
+**`kindgi doctor` under kindgi-cli** passes Node as the one the wheel brings, skips npm (a Python pack doesn't need it), and its fixes say `uv run kindgi …`, or `uvx --from kindgi-cli kindgi …` outside a project.
+
 From the npm CLI, nothing changes.
