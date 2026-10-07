@@ -105,6 +105,9 @@ openssl rand 32 | base64 | gcloud secrets versions add $N-secrets-aad-key --data
 # The key that signs public run tokens: Ed25519, PKCS#8 PEM, base64.
 openssl genpkey -algorithm ed25519 | base64 | gcloud secrets versions add $N-public-token-key --data-file=-
 
+# Only with export_signing = "secret": the key that signs exports (audit bundles, provenance, evidence).
+openssl genpkey -algorithm ed25519 | base64 | gcloud secrets versions add $N-export-signing-key --data-file=-
+
 # The license key: paste it; it never goes in a file.
 read -rs LICENSE_KEY && printf '%s' "$LICENSE_KEY" | gcloud secrets versions add $N-license-key --data-file=- && unset LICENSE_KEY
 ```

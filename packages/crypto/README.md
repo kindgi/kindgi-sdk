@@ -105,6 +105,27 @@ if (priv === null) throw new Error('key not provisioned');
 
 `createInMemorySigningKeyBinding` is for tests and local development. Production deployments implement the interface against their own key store (a cloud KMS, a secrets vault, an HSM). This package never persists key material.
 
+## ExportSigningBinding
+
+The key a deployment signs its exports with (audit bundles, provenance, compliance evidence). It's async, so a KMS that never hands out its private key can implement it, as well as a key file can:
+
+```ts
+import { createEd25519ExportSigner } from '@kindgi/crypto';
+
+const made = createEd25519ExportSigner({ privateKeyPem: await readFile(keyPath, 'utf8') });
+if (made.kind === 'err') throw new Error(made.error.message);
+const signer = made.value;
+
+signer.activeKey(); // { keyId: 'ex_…', algorithm: 'ed25519', publicKeyPem, fingerprint: 'sha256:…' }
+const signed = await signer.sign(bytes); // the active key, or { keyId }
+```
+
+- **Key ids are derived from the public key** (`exportSigningKey`), so the same key keeps its id.
+- **`listKeys()`** is every key a verifier should trust, active first.
+- **`exportSignerFromSigningKeyBinding`** adapts a `SigningKeyBinding`'s Ed25519 keys.
+
+`@kindgi/api` takes one as `createApp({ exportSigning })`. To verify an export, use `verifySignedExport` from `@kindgi/client` (Web Crypto, so it runs in a browser too).
+
 ## Security notes
 
 - **Never log private keys or shared secrets.** Journals, provenance blobs, structured logs, and wire payloads must not contain key material except by explicit caller intent.

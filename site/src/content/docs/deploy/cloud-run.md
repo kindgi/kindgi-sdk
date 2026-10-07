@@ -152,6 +152,8 @@ openssl rand -hex 32 | tr -d '\n' | gcloud secrets versions add $N-pack-service-
 printf 'kgi_bt_%s' "$(openssl rand -hex 32)" | gcloud secrets versions add $N-api-token --data-file=-
 openssl rand 32 | base64 | gcloud secrets versions add $N-secrets-aad-key --data-file=-
 openssl genpkey -algorithm ed25519 | base64 | gcloud secrets versions add $N-public-token-key --data-file=-
+# Only with export_signing = "secret": the key that signs exports.
+openssl genpkey -algorithm ed25519 | base64 | gcloud secrets versions add $N-export-signing-key --data-file=-
 
 # The license key, pasted, never echoed.
 read -rs LICENSE_KEY && printf '%s' "$LICENSE_KEY" | gcloud secrets versions add $N-license-key --data-file=- && unset LICENSE_KEY
@@ -247,6 +249,7 @@ service in about 5.
 | | `roles/cloudsql.client` | the project, conditioned on Kindgi's instance |
 | | `roles/secretmanager.secretAccessor` | each of its secrets |
 | | `roles/aiplatform.user`, only with `vertex_ai = true` | the project: [Gemini](#use-gemini) |
+| | `roles/cloudkms.signerVerifier` and `roles/cloudkms.publicKeyViewer`, only with `export_signing = "kms"` | the export signing key: [signed exports](../../guides/observability/export-signed-evidence/) |
 | The pack's service account | `roles/secretmanager.secretAccessor` | the pack token and your pack's secrets |
 | | what your tools need | your own resources |
 

@@ -1,0 +1,133 @@
+---
+title: Export signed evidence
+description: Export an approval's audit bundle, a run's provenance or compliance evidence, signed by your deployment, and check it anywhere.
+sidebar:
+  order: 3
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+A deployment can sign three exports, for an auditor or for your own records:
+
+- **an approval's audit bundle:** who decided a human review, when, why, and the evidence it was shown;
+- **a run's provenance:** the graph of what ran, with each model call's usage;
+- **compliance evidence:** the audit events a filter matches (by run, agent, flow, kind or time).
+
+Each is one JSON file. It holds the exact bytes that were signed (`bundle`, base64), an Ed25519 `signature` over them, and the public key that signed. Anyone can check it, with no access to your deployment.
+
+## Give the deployment its key
+
+The runtime signs with one key, its **export signing key**. Set exactly one of:
+
+| Setting | What it holds |
+|---|---|
+| `KINDGI_EXPORT_SIGNING_KEY_PATH` | The path of an Ed25519 private key file (PKCS#8 PEM, mode `0600`). |
+| `KINDGI_EXPORT_SIGNING_KEY` | The same PEM file, base64: for a platform that gives secrets as environment variables, such as Cloud Run with Secret Manager. |
+| `KINDGI_EXPORT_SIGNING_KMS_KEY` | A Cloud KMS key version (`EC_SIGN_ED25519`), so the private key never leaves KMS. Optional. |
+
+Make a key for this alone:
+
+```sh
+openssl genpkey -algorithm ed25519 -out export-signing.pem && chmod 600 export-signing.pem
+```
+
+- **`kindgi dev`** signs with a key the runtime makes at startup, so exports work with nothing set. They're signed by a throwaway key, though: set `KINDGI_EXPORT_SIGNING_KEY_PATH` (in the shell or the pack's `.env`) to keep one across restarts.
+- **On Cloud Run,** set `export_signing = "secret"` in the Terraform module, then add the key's version:
+
+  ```sh
+  openssl genpkey -algorithm ed25519 | base64 | gcloud secrets versions add $N-export-signing-key --data-file=-
+  ```
+
+  Or set `export_signing = "kms"` and `export_signing_kms_key` to a key version: the module grants the server's service account `roles/cloudkms.signerVerifier` and `roles/cloudkms.publicKeyViewer` on its key.
+- **Without a key** (outside development), the exports answer `404 signing-not-configured`.
+
+The runtime publishes its key's public half. Pin it, so you can tell your deployment's exports from anyone else's:
+
+```sh
+curl "$KINDGI_API_URL/v1/export-signing-keys" -H "Authorization: Bearer $KINDGI_API_TOKEN"
+```
+
+Each key has an id derived from it (`ex_…`), so the same key keeps its id across restarts, and a `fingerprint` (`sha256:…`) to compare by eye.
+
+## Export
+
+```sh
+kindgi approvals export 0b6e3c1e-2f4f-4a51-9d0e-7a1f2c3d4e5f > approval.json
+kindgi provenance export 11a79b0a-ebdd-4d21-9e66-e0cacaea50e8 > provenance.json
+```
+
+- **An approval** must be decided (approved, rejected, escalated, expired or withdrawn): an open one answers `409 approval-not-decided`. `--include-messages` adds the conversation of the approval's run.
+- **Compliance evidence** is exported over HTTP. With no body, it covers every kind the classifier marks exportable:
+
+  ```sh
+  curl -X POST "$KINDGI_API_URL/v1/compliance/evidence/export" \
+    -H "Authorization: Bearer $KINDGI_API_TOKEN" \
+    -H 'content-type: application/json' \
+    -d '{ "filter": { "runId": "11a79b0a-ebdd-4d21-9e66-e0cacaea50e8" } }' > evidence.json
+  ```
+
+Every export is recorded as an `export-signed` audit event: who exported what, with which key, and the SHA-256 of the signed bytes. That ties a file someone hands you to the moment it was made. If the event can't be recorded, the export isn't handed out.
+
+## Check an export
+
+<Tabs syncKey="lang">
+<TabItem label="CLI">
+
+```sh
+kindgi exports verify approval.json --from-runtime
+```
+
+`--from-runtime` trusts the keys the runtime lists. An auditor without access checks against the key you gave them: `--trust=export-signing.pub.pem` (repeat it for several). It exits 0 when the export checks out and 1 when it doesn't, saying why.
+
+</TabItem>
+<TabItem label="TypeScript">
+
+```ts
+import { readFile } from 'node:fs/promises';
+
+import { createClient, verifySignedExport } from '@kindgi/client';
+
+const client = createClient({
+  apiUrl: process.env.KINDGI_API_URL ?? '',
+  auth: { kind: 'apiToken', token: process.env.KINDGI_API_TOKEN ?? '' },
+});
+const exported = JSON.parse(await readFile('approval.json', 'utf8'));
+const keys = await client.exportSigningKeys.list();
+const checked = await verifySignedExport(exported, {
+  trustedKeys: keys.map((k) => k.publicKeyPem),
+});
+if (!checked.valid) throw new Error(checked.issues?.join('; '));
+```
+
+It uses Web Crypto, so it runs in Node and in a browser.
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+pip install 'kindgi[verify]'
+```
+
+```python
+import json
+from pathlib import Path
+
+from kindgi import exports
+
+exported = json.loads(Path("approval.json").read_text())
+pinned_pem = Path("export-signing.pub.pem").read_text()
+checked = exports.verify_signed_export(exported, trusted_keys=[pinned_pem])
+if not checked.valid:
+    raise SystemExit("; ".join(checked.issues))
+```
+
+</TabItem>
+</Tabs>
+
+Checked without trusted keys, a valid export only proves its bytes weren't changed: anyone could have signed it with a key of their own. Checking against your deployment's keys is what tells you it's yours.
+
+## Rotate the key
+
+Replace the key (the file, the secret's version, or the KMS key version) and restart. New exports carry the new key's id, and `GET /v1/export-signing-keys` lists only the new key. An export signed before still checks out against the old public key, so keep the old key's public half wherever you pinned it.
+
+See [Provenance](../../../reference/api/operations/tags/provenance/) and [Compliance](../../../reference/api/operations/tags/compliance/) in the HTTP API.
