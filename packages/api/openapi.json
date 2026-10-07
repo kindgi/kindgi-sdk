@@ -2839,7 +2839,11 @@
           },
           "algorithm": {
             "type": "string",
-            "const": "ed25519"
+            "enum": [
+              "ed25519",
+              "ecdsa-p256-sha256"
+            ],
+            "description": "An Ed25519 key signs `ed25519`; an EC P-256 key (a KMS without Ed25519) signs `ecdsa-p256-sha256`."
           },
           "publicKeyPem": {
             "type": "string",
@@ -2924,7 +2928,11 @@
           },
           "algorithm": {
             "type": "string",
-            "const": "ed25519"
+            "enum": [
+              "ed25519",
+              "ecdsa-p256-sha256"
+            ],
+            "description": "The signing key's algorithm. `ecdsa-p256-sha256` signatures are IEEE P1363 `r‖s`. A verifier refuses an algorithm it doesn't know."
           },
           "signingKeyId": {
             "type": "string",
@@ -2932,7 +2940,7 @@
           },
           "signature": {
             "type": "string",
-            "description": "Base64 of the 64-byte Ed25519 signature over the `bundle` bytes."
+            "description": "Base64 of the 64-byte signature over the `bundle` bytes: Ed25519's, or ECDSA P-256's as IEEE P1363 `r‖s`."
           },
           "publicKey": {
             "type": "string",
@@ -7595,7 +7603,11 @@
           },
           "algorithm": {
             "type": "string",
-            "const": "ed25519"
+            "enum": [
+              "ed25519",
+              "ecdsa-p256-sha256"
+            ],
+            "description": "The signing key's algorithm. `ecdsa-p256-sha256` signatures are IEEE P1363 `r‖s`. A verifier refuses an algorithm it doesn't know."
           },
           "signingKeyId": {
             "type": "string",
@@ -7603,7 +7615,7 @@
           },
           "signature": {
             "type": "string",
-            "description": "Base64 of the 64-byte Ed25519 signature over the `bundle` bytes."
+            "description": "Base64 of the 64-byte signature over the `bundle` bytes: Ed25519's, or ECDSA P-256's as IEEE P1363 `r‖s`."
           },
           "publicKey": {
             "type": "string",
@@ -12423,7 +12435,11 @@
           },
           "algorithm": {
             "type": "string",
-            "const": "ed25519"
+            "enum": [
+              "ed25519",
+              "ecdsa-p256-sha256"
+            ],
+            "description": "The signing key's algorithm. `ecdsa-p256-sha256` signatures are IEEE P1363 `r‖s`. A verifier refuses an algorithm it doesn't know."
           },
           "signingKeyId": {
             "type": "string",
@@ -12431,7 +12447,7 @@
           },
           "signature": {
             "type": "string",
-            "description": "Base64 of the 64-byte Ed25519 signature over the `bundle` bytes."
+            "description": "Base64 of the 64-byte signature over the `bundle` bytes: Ed25519's, or ECDSA P-256's as IEEE P1363 `r‖s`."
           },
           "publicKey": {
             "type": "string",

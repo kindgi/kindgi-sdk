@@ -20,7 +20,11 @@
 import { createHash, randomUUID } from 'node:crypto';
 
 import type { AuditEvent, AuditEventBinding } from '@kindgi/audit-events';
-import type { ExportSigningBinding, ExportSigningError } from '@kindgi/crypto';
+import type {
+  ExportSigningAlgorithm,
+  ExportSigningBinding,
+  ExportSigningError,
+} from '@kindgi/crypto';
 import { canonicalize } from '@kindgi/schema';
 import type { ProjectId, TenantId, Timestamp } from '@kindgi/types';
 import type { Context } from 'hono';
@@ -39,9 +43,13 @@ export interface SignedExportEnvelope {
   /** Base64 of the signed bytes: the body, as sorted-key JSON. */
   readonly bundle: string;
   readonly bundleSchemaVersion: string;
-  readonly algorithm: 'ed25519';
+  /** The signing key's algorithm: `ed25519`, or `ecdsa-p256-sha256` for a KMS without Ed25519. */
+  readonly algorithm: ExportSigningAlgorithm;
   readonly signingKeyId: string;
-  /** Base64 of the 64-byte Ed25519 signature over the `bundle` bytes. */
+  /**
+   * Base64 of the signature over the `bundle` bytes: 64 bytes either way,
+   * Ed25519's, or ECDSA P-256's as IEEE P1363 `r‖s`.
+   */
   readonly signature: string;
   /** The signing key's public half, PEM SPKI. Check it against `GET /v1/export-signing-keys`. */
   readonly publicKey: string;
@@ -93,7 +101,7 @@ export async function signExport(
     kind: input.kind,
     bundle: Buffer.from(bytes).toString('base64'),
     bundleSchemaVersion: input.bundleSchemaVersion,
-    algorithm: 'ed25519',
+    algorithm: signed.value.key.algorithm,
     signingKeyId: signed.value.key.keyId,
     signature: Buffer.from(signed.value.signature).toString('base64'),
     publicKey: signed.value.key.publicKeyPem,

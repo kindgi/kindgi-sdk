@@ -6,8 +6,12 @@ a run's provenance, compliance evidence.
 
 Each export is one envelope: `bundle` is base64 of the exact bytes that
 were signed (the body, as sorted-key JSON), `signature` is base64 of the
-Ed25519 signature over those bytes, and `publicKey` is the signing key's
-public half (PEM). Verifying checks those bytes; nothing is re-serialized.
+signature over those bytes, and `publicKey` is the signing key's public
+half (PEM). Verifying checks those bytes; nothing is re-serialized.
+
+Two algorithms: `ed25519`, and `ecdsa-p256-sha256` (its signature IEEE
+P1363 `r‖s`, 64 bytes). Any other is refused, naming it, so a newer one
+fails loudly here, never silently.
 
 The export's own `publicKey` only proves the bytes weren't changed. Pass
 `trusted_keys` (the `publicKeyPem` values from `GET /v1/export-signing-keys`,
@@ -20,7 +24,7 @@ or a key you pinned) to know who signed them.
         raise SystemExit("; ".join(checked.issues))
     body = checked.body
 
-Ed25519 needs the `cryptography` package: `pip install 'kindgi[verify]'`.
+Verifying needs the `cryptography` package: `pip install 'kindgi[verify]'`.
 This is the Python counterpart of `verifySignedExport` in `@kindgi/client`.
 """
 
@@ -34,7 +38,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-__all__ = ["SignedExportVerification", "verify_signed_export"]
+__all__ = ["SIGNED_EXPORT_ALGORITHMS", "SignedExportVerification", "verify_signed_export"]
+
+SIGNED_EXPORT_ALGORITHMS: tuple[str, ...] = ("ed25519", "ecdsa-p256-sha256")
+"""The algorithms `verify_signed_export` checks."""
 
 _INSTALL = (
     "Verifying a signed export needs the `cryptography` package: pip install 'kindgi[verify]'."
@@ -67,7 +74,10 @@ def verify_signed_export(
     """
     try:
         from cryptography.exceptions import InvalidSignature
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import ec
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+        from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
         from cryptography.hazmat.primitives.serialization import load_pem_public_key
     except ImportError as err:  # pragma: no cover - exercised without the extra
         raise ImportError(_INSTALL) from err
@@ -83,8 +93,13 @@ def verify_signed_export(
             valid=False, signing_key_id=key_id, checked_against=against, issues=tuple(issues)
         )
 
-    if envelope.get("algorithm") != "ed25519":
-        issues.append(f'algorithm "{envelope.get("algorithm")}" isn\'t ed25519')
+    algorithm = envelope.get("algorithm")
+    if algorithm not in SIGNED_EXPORT_ALGORITHMS:
+        known = ", ".join(SIGNED_EXPORT_ALGORITHMS)
+        issues.append(
+            f'algorithm "{algorithm}" isn\'t one this verifier knows ({known}): '
+            "a newer verifier may check it"
+        )
     if envelope.get("canonicalization") != "sorted-key-json":
         issues.append(
             f'canonicalization "{envelope.get("canonicalization")}" isn\'t sorted-key-json'
@@ -99,10 +114,21 @@ def verify_signed_export(
         data = base64.b64decode(str(envelope.get("bundle", "")), validate=True)
         signature = base64.b64decode(str(envelope.get("signature", "")), validate=True)
         key = load_pem_public_key(pem.encode())
-        if not isinstance(key, Ed25519PublicKey):
-            issues.append("its public key isn't an Ed25519 key")
-            return fail()
-        key.verify(signature, data)
+        if algorithm == "ed25519":
+            if not isinstance(key, Ed25519PublicKey):
+                issues.append("its public key isn't an Ed25519 key")
+                return fail()
+            key.verify(signature, data)
+        else:
+            if not isinstance(key, ec.EllipticCurvePublicKey) or key.curve.name != "secp256r1":
+                issues.append("its public key isn't an EC P-256 key")
+                return fail()
+            if len(signature) != 64:
+                issues.append(f"its signature is {len(signature)} bytes, not P1363's 64")
+                return fail()
+            r = int.from_bytes(signature[:32], "big")
+            s = int.from_bytes(signature[32:], "big")
+            key.verify(encode_dss_signature(r, s), data, ec.ECDSA(hashes.SHA256()))
     except InvalidSignature:
         issues.append(
             "the signature doesn't match the bundle: it was changed, or signed with another key"

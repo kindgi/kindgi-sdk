@@ -12,7 +12,13 @@
  * to pin. The deprecated `signingKey` binding still works.
  */
 
-import { createHash, randomUUID } from 'node:crypto';
+import {
+  createHash,
+  createPublicKey,
+  generateKeyPairSync,
+  verify as nodeVerify,
+  randomUUID,
+} from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 
@@ -23,6 +29,7 @@ import { createInMemoryAuditEventBinding } from '@kindgi/audit-events-inmemory';
 import type { LoadedClassifier } from '@kindgi/compliance';
 import {
   createEd25519ExportSigner,
+  createExportSignerFromPem,
   createInMemorySigningKeyBinding,
   generateEd25519KeyPair,
   parsePublicKeyPem,
@@ -312,5 +319,49 @@ describe('the deprecated signingKey binding', () => {
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ signingKeyId: 'legacy-key', kind: 'provenance' });
+  });
+});
+
+describe('a deployment whose export key is EC P-256', () => {
+  const p256 = () => {
+    const pem = generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
+      .privateKey.export({ format: 'pem', type: 'pkcs8' })
+      .toString();
+    const made = createExportSignerFromPem(pem);
+    if (made.kind !== 'ok') throw new Error(made.error.message);
+    return made.value;
+  };
+
+  test.each(EXPORTS)(
+    'its %s envelope says ecdsa-p256-sha256, verifies as P1363, and is a signed-export.schema.json',
+    async (_kind, path) => {
+      const signerOf = p256();
+      const h = harness({ exportSigning: signerOf });
+      const answer = await h.post(path);
+      expect(answer.status, JSON.stringify(answer.json)).toBe(200);
+      expect(answer.json).toMatchObject({
+        algorithm: 'ecdsa-p256-sha256',
+        signingKeyId: signerOf.activeKey().keyId,
+      });
+      const signature = Buffer.from(answer.json.signature as string, 'base64');
+      expect(signature).toHaveLength(64);
+      expect(
+        nodeVerify(
+          'sha256',
+          Buffer.from(answer.json.bundle as string, 'base64'),
+          { key: createPublicKey(answer.json.publicKey as string), dsaEncoding: 'ieee-p1363' },
+          signature,
+        ),
+      ).toBe(true);
+      const checked = (await specValidator('signed-export')).validate(answer.json);
+      expect(checked.kind, JSON.stringify(checked)).toBe('ok');
+    },
+  );
+
+  test('GET /v1/export-signing-keys lists it with its algorithm', async () => {
+    const signerOf = p256();
+    const listed = (await harness({ exportSigning: signerOf }).get('/v1/export-signing-keys')).json;
+    expect(listed).toEqual({ data: [{ ...signerOf.activeKey(), active: true }] });
+    expect((listed.data as { algorithm: string }[])[0]?.algorithm).toBe('ecdsa-p256-sha256');
   });
 });

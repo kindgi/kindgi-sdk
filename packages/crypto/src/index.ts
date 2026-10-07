@@ -41,12 +41,17 @@ export type {
 export { createInMemorySigningKeyBinding } from './binding.js';
 
 export {
+  EXPORT_SIGNING_ALGORITHMS,
+  createEcdsaP256ExportSigner,
   createEd25519ExportSigner,
+  createExportSignerFromPem,
+  ecdsaDerToP1363,
   exportSignerFromSigningKeyBinding,
   exportSigningKey,
 } from './export-signing.js';
 export type {
   ExportSignature,
+  ExportSigningAlgorithm,
   ExportSigningBinding,
   ExportSigningError,
   ExportSigningKey,

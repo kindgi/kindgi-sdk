@@ -8,11 +8,27 @@
  * install.
  *
  * It checks the signature over the exact bytes shipped (`bundle`):
- * nothing is re-serialized. A signature that checks out against the
+ * nothing is re-serialized. Two algorithms: `ed25519`, and
+ * `ecdsa-p256-sha256` (its signature IEEE P1363 `r‖s`). Any other is
+ * refused, naming it, so a newer one fails loudly here, never silently. A signature that checks out against the
  * export's own `publicKey` proves the bytes weren't changed; pass
  * `trustedKeys` (from `exportSigningKeys.list()`, or a key you pinned)
  * to know who signed them.
  */
+
+/** The algorithms this verifier checks, and Web Crypto's names for each. */
+const ALGORITHMS = {
+  ed25519: { key: { name: 'Ed25519' }, verify: { name: 'Ed25519' } },
+  'ecdsa-p256-sha256': {
+    key: { name: 'ECDSA', namedCurve: 'P-256' },
+    verify: { name: 'ECDSA', hash: 'SHA-256' },
+  },
+} as const;
+
+/** The algorithms `verifySignedExport` checks. */
+export const SIGNED_EXPORT_ALGORITHMS = Object.keys(
+  ALGORITHMS,
+) as readonly (keyof typeof ALGORITHMS)[];
 
 /** The envelope every signed export answers. */
 export interface SignedExportEnvelope {
@@ -58,8 +74,14 @@ export async function verifySignedExport(
     signingKeyId: envelope.signingKeyId,
   });
 
-  if (envelope.algorithm !== 'ed25519')
-    issues.push(`algorithm "${envelope.algorithm}" isn't ed25519`);
+  const algorithm = Object.hasOwn(ALGORITHMS, envelope.algorithm)
+    ? ALGORITHMS[envelope.algorithm as keyof typeof ALGORITHMS]
+    : undefined;
+  if (algorithm === undefined) {
+    issues.push(
+      `algorithm "${envelope.algorithm}" isn't one this verifier knows (${SIGNED_EXPORT_ALGORITHMS.join(', ')}): a newer verifier may check it`,
+    );
+  }
   if (envelope.canonicalization !== 'sorted-key-json') {
     issues.push(`canonicalization "${envelope.canonicalization}" isn't sorted-key-json`);
   }
@@ -69,7 +91,7 @@ export async function verifySignedExport(
   ) {
     issues.push(`it was signed with key "${envelope.signingKeyId}", which isn't one you trust`);
   }
-  if (issues.length > 0) return fail();
+  if (issues.length > 0 || algorithm === undefined) return fail();
 
   let bytes: Uint8Array;
   let signed: boolean;
@@ -78,12 +100,12 @@ export async function verifySignedExport(
     const key = await crypto.subtle.importKey(
       'spki',
       toArrayBuffer(fromPem(envelope.publicKey)),
-      { name: 'Ed25519' },
+      algorithm.key,
       false,
       ['verify'],
     );
     signed = await crypto.subtle.verify(
-      { name: 'Ed25519' },
+      algorithm.verify,
       key,
       toArrayBuffer(fromBase64(envelope.signature)),
       toArrayBuffer(bytes),

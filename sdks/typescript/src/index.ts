@@ -296,7 +296,7 @@ export type {
   ExportSigningKey,
   ExportSigningKeysClient,
 } from './resources/export-signing-keys.js';
-export { verifySignedExport } from './verify-export.js';
+export { SIGNED_EXPORT_ALGORITHMS, verifySignedExport } from './verify-export.js';
 export type {
   SignedExportEnvelope,
   SignedExportVerification,

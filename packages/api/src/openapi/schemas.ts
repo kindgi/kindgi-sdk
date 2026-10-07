@@ -1225,14 +1225,20 @@ function signedExportEnvelope(input: {
           'Base64 of the exact bytes that were signed: the body, as sorted-key JSON with no whitespace. Verify these bytes; nothing needs re-serializing.',
       },
       bundleSchemaVersion: { type: 'string', description: input.versionDescription },
-      algorithm: { type: 'string', const: 'ed25519' },
+      algorithm: {
+        type: 'string',
+        enum: ['ed25519', 'ecdsa-p256-sha256'],
+        description:
+          "The signing key's algorithm. `ecdsa-p256-sha256` signatures are IEEE P1363 `r‖s`. A verifier refuses an algorithm it doesn't know.",
+      },
       signingKeyId: {
         type: 'string',
         description: 'The key that signed it: one of `GET /v1/export-signing-keys`.',
       },
       signature: {
         type: 'string',
-        description: 'Base64 of the 64-byte Ed25519 signature over the `bundle` bytes.',
+        description:
+          "Base64 of the 64-byte signature over the `bundle` bytes: Ed25519's, or ECDSA P-256's as IEEE P1363 `r‖s`.",
       },
       publicKey: {
         type: 'string',
@@ -1264,7 +1270,12 @@ export const ExportSigningKeySchema: JsonSchema = {
       description:
         'Derived from the public key (`ex_` and 16 base64url characters), so the same key keeps its id.',
     },
-    algorithm: { type: 'string', const: 'ed25519' },
+    algorithm: {
+      type: 'string',
+      enum: ['ed25519', 'ecdsa-p256-sha256'],
+      description:
+        'An Ed25519 key signs `ed25519`; an EC P-256 key (a KMS without Ed25519) signs `ecdsa-p256-sha256`.',
+    },
     publicKeyPem: { type: 'string', description: 'PEM SPKI.' },
     fingerprint: {
       type: 'string',

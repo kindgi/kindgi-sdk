@@ -1185,7 +1185,10 @@ class ExportSigningKey(BaseModel):
     """
     Derived from the public key (`ex_` and 16 base64url characters), so the same key keeps its id.
     """
-    algorithm: Literal["ed25519"]
+    algorithm: Literal["ed25519", "ecdsa-p256-sha256"]
+    """
+    An Ed25519 key signs `ed25519`; an EC P-256 key (a KMS without Ed25519) signs `ecdsa-p256-sha256`.
+    """
     public_key_pem: Annotated[str, Field(alias="publicKeyPem")]
     """
     PEM SPKI.
@@ -1252,14 +1255,17 @@ class ExportAuditBundleResult(BaseModel):
     """
     The body's version, semver. `2.0.0`: a string like the other exports' (it was the integer `1`), named `bundleSchemaVersion` in the body too, with `exportedAt` signed once.
     """
-    algorithm: Literal["ed25519"]
+    algorithm: Literal["ed25519", "ecdsa-p256-sha256"]
+    """
+    The signing key's algorithm. `ecdsa-p256-sha256` signatures are IEEE P1363 `r‖s`. A verifier refuses an algorithm it doesn't know.
+    """
     signing_key_id: Annotated[str, Field(alias="signingKeyId")]
     """
     The key that signed it: one of `GET /v1/export-signing-keys`.
     """
     signature: str
     """
-    Base64 of the 64-byte Ed25519 signature over the `bundle` bytes.
+    Base64 of the 64-byte signature over the `bundle` bytes: Ed25519's, or ECDSA P-256's as IEEE P1363 `r‖s`.
     """
     public_key: Annotated[str, Field(alias="publicKey")]
     """
@@ -3885,14 +3891,17 @@ class ExportProvenanceResult(BaseModel):
     """
     The body's version, semver. `1.2.0` adds `exportedAt` to the signed body; `1.1.0` added `callUsage`.
     """
-    algorithm: Literal["ed25519"]
+    algorithm: Literal["ed25519", "ecdsa-p256-sha256"]
+    """
+    The signing key's algorithm. `ecdsa-p256-sha256` signatures are IEEE P1363 `r‖s`. A verifier refuses an algorithm it doesn't know.
+    """
     signing_key_id: Annotated[str, Field(alias="signingKeyId")]
     """
     The key that signed it: one of `GET /v1/export-signing-keys`.
     """
     signature: str
     """
-    Base64 of the 64-byte Ed25519 signature over the `bundle` bytes.
+    Base64 of the 64-byte signature over the `bundle` bytes: Ed25519's, or ECDSA P-256's as IEEE P1363 `r‖s`.
     """
     public_key: Annotated[str, Field(alias="publicKey")]
     """
@@ -6670,14 +6679,17 @@ class SignedComplianceEvidenceBundle(BaseModel):
     """
     The body's version, semver: `1.0.0`.
     """
-    algorithm: Literal["ed25519"]
+    algorithm: Literal["ed25519", "ecdsa-p256-sha256"]
+    """
+    The signing key's algorithm. `ecdsa-p256-sha256` signatures are IEEE P1363 `r‖s`. A verifier refuses an algorithm it doesn't know.
+    """
     signing_key_id: Annotated[str, Field(alias="signingKeyId")]
     """
     The key that signed it: one of `GET /v1/export-signing-keys`.
     """
     signature: str
     """
-    Base64 of the 64-byte Ed25519 signature over the `bundle` bytes.
+    Base64 of the 64-byte signature over the `bundle` bytes: Ed25519's, or ECDSA P-256's as IEEE P1363 `r‖s`.
     """
     public_key: Annotated[str, Field(alias="publicKey")]
     """

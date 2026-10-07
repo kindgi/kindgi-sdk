@@ -13,7 +13,7 @@ A deployment can sign three exports, for an auditor or for your own records:
 - **a run's provenance:** the graph of what ran, with each model call's usage;
 - **compliance evidence:** the audit events a filter matches (by run, agent, flow, kind or time).
 
-Each is one JSON file. It holds the exact bytes that were signed (`bundle`, base64), an Ed25519 `signature` over them, and the public key that signed. Anyone can check it, with no access to your deployment.
+Each is one JSON file. It holds the exact bytes that were signed (`bundle`, base64), a `signature` over them, the `algorithm` it was made with, and the public key that signed. Anyone can check it, with no access to your deployment.
 
 ## Give the deployment its key
 
@@ -21,15 +21,17 @@ The runtime signs with one key, its **export signing key**. Set exactly one of:
 
 | Setting | What it holds |
 |---|---|
-| `KINDGI_EXPORT_SIGNING_KEY_PATH` | The path of an Ed25519 private key file (PKCS#8 PEM, mode `0600`). |
+| `KINDGI_EXPORT_SIGNING_KEY_PATH` | The path of a private key file: Ed25519 or EC P-256 (PKCS#8 PEM, mode `0600`). |
 | `KINDGI_EXPORT_SIGNING_KEY` | The same PEM file, base64: for a platform that gives secrets as environment variables, such as Cloud Run with Secret Manager. |
-| `KINDGI_EXPORT_SIGNING_KMS_KEY` | A Cloud KMS key version (`EC_SIGN_ED25519`), so the private key never leaves KMS. Optional. |
+| `KINDGI_EXPORT_SIGNING_KMS_KEY` | A Cloud KMS key version (`EC_SIGN_ED25519` or `EC_SIGN_P256_SHA256`), so the private key never leaves KMS. Optional. |
 
 Make a key for this alone:
 
 ```sh
 openssl genpkey -algorithm ed25519 -out export-signing.pem && chmod 600 export-signing.pem
 ```
+
+The key's type sets the export's `algorithm`. An Ed25519 key signs `ed25519`, the default. An EC P-256 key signs `ecdsa-p256-sha256`, for a key store that has no Ed25519 (`openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256`). Both verifiers below check either, and refuse an algorithm they don't know.
 
 - **`kindgi dev`** signs with a key the runtime makes at startup, so exports work with nothing set. That key is a throwaway, though. To keep one across restarts, set `KINDGI_EXPORT_SIGNING_KEY_PATH` to the absolute path of a key file on your machine, in the shell or the pack's `.env`. `kindgi dev` mounts that file into the runtime's container, read-only.
 - **On Cloud Run,** set `export_signing = "secret"` in the Terraform module, then add the key's version:

@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import base64
 import json
+from pathlib import Path
+from typing import Any
 
+import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
@@ -66,3 +69,32 @@ def test_a_changed_byte_and_a_changed_envelope_exported_at_fail() -> None:
     moved = exports.verify_signed_export({**envelope, "exportedAt": "2027-01-01T00:00:00.000Z"})
     assert not moved.valid
     assert "isn't the signed one" in " ".join(moved.issues)
+
+
+_VECTORS = Path(__file__).resolve().parents[3] / "packages/specs/test-vectors/signed-export"
+
+
+def _vector(name: str) -> dict[str, Any]:
+    return json.loads((_VECTORS / f"{name}.json").read_text())
+
+
+@pytest.mark.parametrize("name", ["ed25519", "ecdsa-p256-sha256"])
+def test_shared_vector_valid_checks_out_and_tampered_fails(name: str) -> None:
+    v = _vector(name)
+    good = exports.verify_signed_export(v["valid"], trusted_keys=[v["publicKeyPem"]])
+    assert good.valid, good.issues
+    assert good.checked_against == "trusted-keys"
+    assert good.body is not None and good.body["bundleSchemaVersion"] == "2.0.0"
+    bad = exports.verify_signed_export(v["tampered"], trusted_keys=[v["publicKeyPem"]])
+    assert not bad.valid
+    assert "doesn't match the bundle" in " ".join(bad.issues)
+
+
+def test_shared_vector_unknown_algorithm_is_refused_naming_it() -> None:
+    result = exports.verify_signed_export(_vector("unknown-algorithm")["refused"])
+    assert not result.valid
+    known = ", ".join(exports.SIGNED_EXPORT_ALGORITHMS)
+    assert result.issues[0] == (
+        f'algorithm "ecdsa-p384-sha384" isn\'t one this verifier knows ({known}): '
+        "a newer verifier may check it"
+    )

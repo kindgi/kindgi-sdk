@@ -12,12 +12,24 @@
  * public key (`exportSigningKey`), so the same key has the same id
  * across restarts and deployments, with nothing to configure.
  *
+ * Two algorithms, chosen per key (`ExportSigningKey.algorithm`):
+ * `ed25519`, the default for a key in memory or a file, and
+ * `ecdsa-p256-sha256`, for a KMS that has no Ed25519. An ECDSA signature
+ * travels as IEEE P1363 `r‖s` (64 bytes), the form Web Crypto verifies;
+ * a KMS that answers DER converts with `ecdsaDerToP1363`.
+ *
  * Not the same seam as `SigningKeyBinding` (raw key bytes, read
  * synchronously, for public run tokens on the request path).
  * `exportSignerFromSigningKeyBinding` adapts one to the other.
  */
 
-import { createHash, createPrivateKey, createPublicKey } from 'node:crypto';
+import {
+  type KeyObject,
+  createHash,
+  createPrivateKey,
+  createPublicKey,
+  sign as nodeSign,
+} from 'node:crypto';
 
 import type { Result } from '@kindgi/types';
 
@@ -27,11 +39,18 @@ import { ED25519_RAW_KEY_BYTES, unwrapPublicKeySpki, wrapPrivateKeyPkcs8 } from 
 import type { CryptoError } from './errors.js';
 import { malformedKey } from './errors.js';
 
+/** The algorithms an export can be signed with. */
+export const EXPORT_SIGNING_ALGORITHMS = ['ed25519', 'ecdsa-p256-sha256'] as const;
+export type ExportSigningAlgorithm = (typeof EXPORT_SIGNING_ALGORITHMS)[number];
+
 /** A key exports are signed with, as a verifier sees it. No private material. */
 export interface ExportSigningKey {
-  /** `ex_` and 16 base64url characters of the SHA-256 of the raw public key. */
+  /**
+   * `ex_` and 16 base64url characters of the SHA-256 of the raw public
+   * key: Ed25519's 32 bytes, P-256's 65-byte uncompressed point.
+   */
   readonly keyId: string;
-  readonly algorithm: 'ed25519';
+  readonly algorithm: ExportSigningAlgorithm;
   /** The public key, PEM SPKI. */
   readonly publicKeyPem: string;
   /** `sha256:` and the hex SHA-256 of the raw public key: to pin it, or compare by eye. */
@@ -72,9 +91,137 @@ export interface ExportSigningBinding {
   ): Promise<Result<ExportSignature, ExportSigningError>>;
 }
 
-/** The `ExportSigningKey` for a raw 32-byte Ed25519 public key, under its derived id. */
-export function exportSigningKey(publicKey: Uint8Array): ExportSigningKey {
-  return describeKey(`ex_${sha256(publicKey).toString('base64url').slice(0, 16)}`, publicKey);
+/**
+ * The `ExportSigningKey` for a raw public key, under its derived id: a
+ * 32-byte Ed25519 key (the default), or a 65-byte uncompressed P-256 point
+ * for `ecdsa-p256-sha256`.
+ */
+export function exportSigningKey(
+  publicKey: Uint8Array,
+  algorithm: ExportSigningAlgorithm = 'ed25519',
+): ExportSigningKey {
+  const keyId = `ex_${sha256(publicKey).toString('base64url').slice(0, 16)}`;
+  return algorithm === 'ed25519'
+    ? describeKey(keyId, publicKey)
+    : {
+        keyId,
+        algorithm,
+        publicKeyPem: p256PublicKeyPem(publicKey),
+        fingerprint: `sha256:${sha256(publicKey).toString('hex')}`,
+      };
+}
+
+/**
+ * An export signer over an EC P-256 private key held in memory (PKCS#8 or
+ * SEC1 PEM): `ecdsa-p256-sha256`, its signatures as P1363 `r‖s`. `err`
+ * when the key isn't a P-256 private key.
+ */
+export function createEcdsaP256ExportSigner(input: {
+  readonly privateKeyPem: string;
+}): Result<ExportSigningBinding, CryptoError> {
+  let privateKey: KeyObject;
+  try {
+    privateKey = createPrivateKey({ key: input.privateKeyPem, format: 'pem' });
+  } catch (cause) {
+    return malformedKey('the export signing key is not a readable PEM private key', cause);
+  }
+  const curve = privateKey.asymmetricKeyDetails?.namedCurve;
+  if (privateKey.asymmetricKeyType !== 'ec' || curve !== 'prime256v1') {
+    return malformedKey(
+      `the export signing key is ${describeKeyType(privateKey)}, not an EC P-256 key`,
+    );
+  }
+  const jwk = createPublicKey(privateKey).export({ format: 'jwk' });
+  const point = Buffer.concat([
+    Buffer.from([0x04]),
+    Buffer.from(jwk.x as string, 'base64url'),
+    Buffer.from(jwk.y as string, 'base64url'),
+  ]);
+  const key = exportSigningKey(new Uint8Array(point), 'ecdsa-p256-sha256');
+  return ok({
+    activeKey: () => key,
+    listKeys: () => [key],
+    async sign(bytes, options) {
+      if (options?.keyId !== undefined && options.keyId !== key.keyId) {
+        return { kind: 'err', error: keyNotFound(options.keyId, [key]) };
+      }
+      try {
+        const signature = nodeSign('sha256', bytes, { key: privateKey, dsaEncoding: 'ieee-p1363' });
+        return ok({ key, signature: new Uint8Array(signature) });
+      } catch (cause) {
+        return {
+          kind: 'err',
+          error: { code: 'export-signing-failed', message: 'ECDSA P-256 signing failed', cause },
+        };
+      }
+    },
+  });
+}
+
+/**
+ * The export signer for a PEM private key, its algorithm read from the
+ * key: Ed25519 → `ed25519`, EC P-256 → `ecdsa-p256-sha256`. Any other key
+ * is `err`, naming what it is.
+ */
+export function createExportSignerFromPem(
+  privateKeyPem: string,
+): Result<ExportSigningBinding, CryptoError> {
+  let privateKey: KeyObject;
+  try {
+    privateKey = createPrivateKey({ key: privateKeyPem, format: 'pem' });
+  } catch (cause) {
+    return malformedKey('the export signing key is not a readable PEM private key', cause);
+  }
+  if (privateKey.asymmetricKeyType === 'ed25519')
+    return createEd25519ExportSigner({ privateKeyPem });
+  if (privateKey.asymmetricKeyType === 'ec') return createEcdsaP256ExportSigner({ privateKeyPem });
+  return malformedKey(
+    `the export signing key is ${describeKeyType(privateKey)}: exports are signed with an Ed25519 or an EC P-256 key`,
+  );
+}
+
+/**
+ * An ECDSA signature from DER (`SEQUENCE { INTEGER r, INTEGER s }`, what
+ * Cloud KMS and AWS KMS answer) to IEEE P1363 `r‖s`, each half `size`
+ * bytes (32 for P-256): the form exports carry and Web Crypto verifies.
+ */
+export function ecdsaDerToP1363(der: Uint8Array, size = 32): Result<Uint8Array, CryptoError> {
+  const bad = () => malformedKey('the ECDSA signature is not a DER SEQUENCE of two INTEGERs');
+  let at = 0;
+  const readLength = (): number | undefined => {
+    const first = der[at++];
+    if (first === undefined) return undefined;
+    if (first < 0x80) return first;
+    const bytes = first & 0x7f;
+    if (bytes === 0 || bytes > 2) return undefined;
+    let length = 0;
+    for (let i = 0; i < bytes; i += 1) {
+      const b = der[at++];
+      if (b === undefined) return undefined;
+      length = length * 256 + b;
+    }
+    return length;
+  };
+  const readInteger = (): Uint8Array | undefined => {
+    if (der[at++] !== 0x02) return undefined;
+    const length = readLength();
+    if (length === undefined || at + length > der.length) return undefined;
+    let value = der.subarray(at, at + length);
+    at += length;
+    while (value.length > size && value[0] === 0) value = value.subarray(1);
+    if (value.length > size) return undefined;
+    const out = new Uint8Array(size);
+    out.set(value, size - value.length);
+    return out;
+  };
+  if (der[at++] !== 0x30 || readLength() === undefined) return bad();
+  const r = readInteger();
+  const s = readInteger();
+  if (r === undefined || s === undefined || at !== der.length) return bad();
+  const out = new Uint8Array(size * 2);
+  out.set(r, 0);
+  out.set(s, size);
+  return ok(out);
 }
 
 /**
@@ -186,6 +333,26 @@ function publicKeyFromSeed(seed: Uint8Array): Result<Uint8Array, CryptoError> {
   } catch (cause) {
     return malformedKey('Ed25519 private key rejected by underlying primitive', cause);
   }
+}
+
+/** A 65-byte uncompressed P-256 point as a PEM SPKI public key. */
+function p256PublicKeyPem(point: Uint8Array): string {
+  const key = createPublicKey({
+    key: {
+      kty: 'EC',
+      crv: 'P-256',
+      x: Buffer.from(point.subarray(1, 33)).toString('base64url'),
+      y: Buffer.from(point.subarray(33, 65)).toString('base64url'),
+    },
+    format: 'jwk',
+  });
+  return key.export({ format: 'pem', type: 'spki' }).toString();
+}
+
+function describeKeyType(key: KeyObject): string {
+  const type = key.asymmetricKeyType ?? 'an unknown kind of key';
+  const curve = key.asymmetricKeyDetails?.namedCurve;
+  return curve !== undefined ? `an ${type} key on ${curve}` : `an ${type} key`;
 }
 
 function sha256(bytes: Uint8Array): Buffer {

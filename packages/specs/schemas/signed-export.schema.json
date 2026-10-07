@@ -43,7 +43,8 @@
       "description": "The body's version, semver: audit bundle 2.0.0, provenance 1.2.0, compliance 1.0.0."
     },
     "algorithm": {
-      "const": "ed25519"
+      "enum": ["ed25519", "ecdsa-p256-sha256"],
+      "description": "The signing key's algorithm. An `ecdsa-p256-sha256` signature is IEEE P1363 `r‖s`. A verifier refuses an algorithm it doesn't know, naming it."
     },
     "signingKeyId": {
       "type": "string",
@@ -53,7 +54,7 @@
     "signature": {
       "type": "string",
       "contentEncoding": "base64",
-      "description": "Base64 of the 64-byte Ed25519 signature over the `bundle` bytes."
+      "description": "Base64 of the 64-byte signature over the `bundle` bytes: Ed25519's, or ECDSA P-256's as IEEE P1363 `r‖s`."
     },
     "publicKey": {
       "type": "string",

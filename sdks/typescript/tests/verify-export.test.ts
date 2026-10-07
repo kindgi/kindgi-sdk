@@ -2,10 +2,12 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { generateKeyPairSync, sign } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 import { describe, expect, test } from 'vitest';
 
-import { createClient, verifySignedExport } from '../src/index.js';
+import { SIGNED_EXPORT_ALGORITHMS, createClient, verifySignedExport } from '../src/index.js';
 import type { SignedExportEnvelope } from '../src/index.js';
 
 /** A signed export as the API answers one, signed with a fresh key. */
@@ -77,5 +79,49 @@ describe('verifySignedExport', () => {
     expect(await client.provenance.verify(envelope as never, pem)).toEqual({ valid: true });
     const refused = await client.approvals.audit.verify(envelope as never, otherPem());
     expect(refused.valid).toBe(false);
+  });
+});
+
+describe('the shared test vectors (packages/specs/test-vectors/signed-export)', () => {
+  const vector = (name: string) =>
+    JSON.parse(
+      readFileSync(
+        fileURLToPath(
+          new URL(
+            `../../../packages/specs/test-vectors/signed-export/${name}.json`,
+            import.meta.url,
+          ),
+        ),
+        'utf8',
+      ),
+    ) as {
+      publicKeyPem: string;
+      valid: SignedExportEnvelope;
+      tampered: SignedExportEnvelope;
+      refused: SignedExportEnvelope;
+    };
+
+  test.each(['ed25519', 'ecdsa-p256-sha256'])(
+    '%s: the valid one checks out against its key; the tampered one fails',
+    async (name) => {
+      const v = vector(name);
+      const good = await verifySignedExport(v.valid, { trustedKeys: [v.publicKeyPem] });
+      expect(good, JSON.stringify(good.issues)).toMatchObject({
+        valid: true,
+        checkedAgainst: 'trusted-keys',
+      });
+      expect(good.body).toMatchObject({ bundleSchemaVersion: '2.0.0' });
+      const bad = await verifySignedExport(v.tampered, { trustedKeys: [v.publicKeyPem] });
+      expect(bad.valid).toBe(false);
+      expect(bad.issues?.join(' ')).toContain("doesn't match the bundle");
+    },
+  );
+
+  test('an algorithm this verifier does not know is refused, naming it', async () => {
+    const result = await verifySignedExport(vector('unknown-algorithm').refused);
+    expect(result.valid).toBe(false);
+    expect(result.issues?.[0]).toBe(
+      `algorithm "ecdsa-p384-sha384" isn't one this verifier knows (${SIGNED_EXPORT_ALGORITHMS.join(', ')}): a newer verifier may check it`,
+    );
   });
 });
