@@ -298,6 +298,12 @@ export interface Run {
   readonly agent?: RunAgent;
   /** The segment path the run was started with; a child run has its parent's. */
   readonly segments?: readonly ScopeSegment[];
+  /**
+   * The W3C trace id of the request that started the run (yours, when you
+   * sent a `traceparent`). Absent for a run no request started, and from
+   * an older runtime.
+   */
+  readonly traceId?: string;
 }
 
 /**

@@ -12,7 +12,7 @@ const defined = defineAgent({
   description:
     'Uses the pack\'s echo + greet tools; the response-not-empty guardrail guards the output.',
   instructions:
-    'For each user message: if the user sends a name, invoke `{{PACK_ID}}.greet` with it. Otherwise invoke `{{PACK_ID}}.echo` with the message text. Quote the tool result verbatim in your reply.',
+    'For each user message: if the user sends a name, greet them with the greet tool. Otherwise echo their message with the echo tool. Quote the tool result verbatim in your reply.',
   capabilities: [{ needs: [{ feature: 'tool-use' as const }] }],
   tools: [
     { id: '{{PACK_ID}}.echo', version: '{{PACK_VERSION}}' },

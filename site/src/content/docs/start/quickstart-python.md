@@ -147,8 +147,8 @@ echo_agent = Agent(
     name="Echo Agent",
     description="Uses the pack's echo and greet tools; the response-not-empty guardrail guards the output.",
     instructions=(
-        "For each user message: if the user sends a name, invoke `my-pack.greet` with it. "
-        "Otherwise invoke `my-pack.echo` with the message text. Quote the tool result verbatim."
+        "For each user message: if the user sends a name, greet them with the greet tool. "
+        "Otherwise echo their message with the echo tool. Quote the tool result verbatim."
     ),
     capabilities=[{"needs": [{"feature": "tool-use"}]}],
     tools=[echo, greet],
