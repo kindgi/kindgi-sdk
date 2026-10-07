@@ -47,6 +47,7 @@
     "@kindgi/env-schema": "workspace:*",
     "@kindgi/flow": "workspace:*",
     "@kindgi/handler-runtime": "workspace:*",
+    "@kindgi/log": "workspace:*",
     "@kindgi/secrets-dotenv": "workspace:*",
     "@kindgi/platform": "workspace:*",
     "@kindgi/sdk": "workspace:*",
