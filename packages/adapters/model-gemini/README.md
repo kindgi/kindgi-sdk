@@ -54,6 +54,7 @@ One non-streaming `models.generateContent` call per `invoke`:
   - `metadata.region` as the location (`unspecified` means `global`);
   - an optional `secret_ref` holding a service-account key.
 - **`vertexTarget(input)`**: the project and location a registration names, as the factory reads them.
+- **`geminiAdapterEntry`**: the `AdapterFactoryEntry` a runtime registers, `geminiAdapterFactory` plus **`geminiCheckConfig(input)`**. The check reports what the factory would throw on (`adapter_config.api`, `secret_ref` on the Developer API, `adapter_config.project`, `metadata.region`) with the factory's own messages, without building anything.
 - **Cost helpers**: `computeCostUsd(usage, rates)`, `toFrameworkUsage(usageMetadata)`, `GeminiCostRates`, `GeminiModelInfo`, `DEFAULT_CACHED_PROMPT_MULTIPLIER`.
 - **Translation helpers**: `toGeminiRequest(messages)`, `toGeminiFunctions(tools)`, `fromGeminiResponse(response)`, `mapFinishReason(reason)`, `checkFunctionName(name)`.
 

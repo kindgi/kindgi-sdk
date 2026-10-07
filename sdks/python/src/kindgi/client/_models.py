@@ -4188,6 +4188,35 @@ class ProviderCapabilitiesResult(BaseModel):
     data: list[CapabilityDescriptor]
 
 
+class AdapterConfigProblem(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    field: str
+    """
+    The setting at fault, as a registration names it: `adapter_config.<key>`, `secret_ref`, `metadata.region`, `metadata.models`, or `adapter_id` (an adapter this runtime does not have).
+    """
+    message: str
+    """
+    What's wrong and what it takes: the error the runtime would hit building the provider.
+    """
+
+
+class ProviderCheckResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    provider_id: Annotated[str, Field(alias="providerId")]
+    adapter_id: Annotated[str, Field(alias="adapterId")]
+    checked: bool
+    """
+    False when this runtime has no check for the provider's adapter; `problems` is then empty.
+    """
+    problems: list[AdapterConfigProblem]
+
+
 class Config(BaseModel):
     """
     Transport-tagged config union. Server enforces `config.transport === transport` at registration.

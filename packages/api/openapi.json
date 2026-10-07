@@ -292,6 +292,7 @@
           "provider-not-found": 404,
           "provider-already-registered": 409,
           "invalid-provider": 400,
+          "provider-config-invalid": 422,
           "cost-record-not-found": 404,
           "adapter-not-found": 404,
           "policy-not-found": 404,
@@ -8060,6 +8061,52 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/CapabilityDescriptor"
+            }
+          }
+        }
+      },
+      "AdapterConfigProblem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "field",
+          "message"
+        ],
+        "properties": {
+          "field": {
+            "type": "string",
+            "description": "The setting at fault, as a registration names it: `adapter_config.<key>`, `secret_ref`, `metadata.region`, `metadata.models`, or `adapter_id` (an adapter this runtime does not have)."
+          },
+          "message": {
+            "type": "string",
+            "description": "What's wrong and what it takes: the error the runtime would hit building the provider."
+          }
+        }
+      },
+      "ProviderCheckResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "providerId",
+          "adapterId",
+          "checked",
+          "problems"
+        ],
+        "properties": {
+          "providerId": {
+            "type": "string"
+          },
+          "adapterId": {
+            "type": "string"
+          },
+          "checked": {
+            "type": "boolean",
+            "description": "False when this runtime has no check for the provider's adapter; `problems` is then empty."
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdapterConfigProblem"
             }
           }
         }
@@ -24118,6 +24165,16 @@
               }
             }
           },
+          "422": {
+            "description": "`provider-config-invalid`: the provider's adapter refuses the registration (its `adapter_config`, its metadata, or a missing `secret_ref`); `details.problems` names each field. Nothing is stored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Server error (unmapped domain code or framework crash).",
             "content": {
@@ -24129,7 +24186,7 @@
             }
           }
         },
-        "description": "Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped; optional `labels` within their limits — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding.",
+        "description": "Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped; optional `labels` within their limits — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding. When the runtime has the adapter the body names, that adapter checks the registration first (its `adapter_config`, the metadata and the presence of `secret_ref`; static: no network, no secret read): a problem refuses it with `422 provider-config-invalid`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -24257,6 +24314,64 @@
           }
         },
         "description": "Sub-resource: returns the catalog capability descriptors the provider fulfils. Empty array = known provider with no matches; 404 = unknown provider.",
+        "parameters": [
+          {
+            "name": "providerId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "ProviderId — opaque string identifier chosen by the deployment."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/providers/{providerId}/check": {
+      "get": {
+        "operationId": "providers.check",
+        "summary": "Check a provider's registration",
+        "tags": [
+          "providers"
+        ],
+        "responses": {
+          "200": {
+            "description": "The check.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderCheckResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No provider with that id under this tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Runs the provider's adapter check over its stored registration (its `adapter_config`, its metadata, whether it names a `secret_ref`): the check `POST /v1/providers` runs before it stores one. Static: no network call, no secret read. `problems` lists what would keep the runtime from building the provider, each naming its field; an adapter this runtime doesn't have is one (`field: adapter_id`). `checked` is false when this runtime has no check for the provider's adapter.",
         "parameters": [
           {
             "name": "providerId",

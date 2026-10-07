@@ -4208,6 +4208,44 @@ export const UnregisterProviderResultSchema: JsonSchema = {
   },
 };
 
+/** One thing an adapter's check finds wrong with a provider registration. */
+export const AdapterConfigProblemSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['field', 'message'],
+  properties: {
+    field: {
+      type: 'string',
+      description:
+        'The setting at fault, as a registration names it: `adapter_config.<key>`, `secret_ref`, `metadata.region`, `metadata.models`, or `adapter_id` (an adapter this runtime does not have).',
+    },
+    message: {
+      type: 'string',
+      description:
+        "What's wrong and what it takes: the error the runtime would hit building the provider.",
+    },
+  },
+};
+
+export const ProviderCheckResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['providerId', 'adapterId', 'checked', 'problems'],
+  properties: {
+    providerId: { type: 'string' },
+    adapterId: { type: 'string' },
+    checked: {
+      type: 'boolean',
+      description:
+        "False when this runtime has no check for the provider's adapter; `problems` is then empty.",
+    },
+    problems: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/AdapterConfigProblem' },
+    },
+  },
+};
+
 export const ProviderCapabilitiesResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -8428,6 +8466,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RegisterProviderResult', RegisterProviderResultSchema],
   ['UnregisterProviderResult', UnregisterProviderResultSchema],
   ['ProviderCapabilitiesResult', ProviderCapabilitiesResultSchema],
+  ['AdapterConfigProblem', AdapterConfigProblemSchema],
+  ['ProviderCheckResult', ProviderCheckResultSchema],
   ['MCPTransport', MCPTransportSchema],
   ['MCPEndpoint', MCPEndpointSchema],
   ['MCPEndpointSecretRef', MCPEndpointSecretRefSchema],

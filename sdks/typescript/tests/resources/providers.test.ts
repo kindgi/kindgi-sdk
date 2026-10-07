@@ -42,4 +42,19 @@ describe('providers — wire round-trips', () => {
     ]);
     expect(stub.calls[1]?.url).toMatch(/feature=tool-use/);
   });
+
+  it('check reads GET /v1/providers/{id}/check', async () => {
+    const answer = {
+      providerId: 'acme llm',
+      adapterId: '@kindgi/adapter-model-openai-compat',
+      checked: true,
+      problems: [{ field: 'adapter_config.api', message: 'adapter_config.api must be one of …' }],
+    };
+    const stub = recordingFetch([{ status: 200, body: JSON.stringify(answer) }]);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    expect(await client.providers.check('acme llm')).toEqual(answer);
+    expect(stub.calls.map((c) => `${c.method} ${new URL(c.url).pathname}`)).toEqual([
+      'GET /v1/providers/acme%20llm/check',
+    ]);
+  });
 });

@@ -4,6 +4,8 @@
 export { createAdapterFactoryRegistry } from './adapter-factory.js';
 export type {
   AdapterConfig,
+  AdapterConfigCheckInput,
+  AdapterConfigProblem,
   AdapterFactory,
   AdapterFactoryEntry,
   AdapterFactoryInput,

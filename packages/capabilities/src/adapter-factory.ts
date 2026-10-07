@@ -45,6 +45,41 @@ export interface AdapterFactoryEntry {
    * in-process).
    */
   readonly prepare?: (params?: Readonly<Record<string, unknown>>) => AsyncIterable<PrepareEvent>;
+  /**
+   * What's wrong with a provider registration for this adapter, read
+   * statically: its `adapter_config`, its metadata, and whether it names a
+   * secret. No network, no secret resolution (a registration's secret may
+   * be set after it registers), no client built. An empty list means the
+   * factory will take it.
+   *
+   * The runtime runs it when a provider registers (a problem refuses the
+   * registration, naming the field) and when someone checks a registered
+   * provider. It must agree with `factory`: build both from the same
+   * functions, so a registration the check passes is one the factory
+   * accepts, and each problem's message is the error the factory throws.
+   * Absent: the adapter has no check, and registration takes any flat
+   * `adapter_config`.
+   */
+  readonly checkConfig?: (input: AdapterConfigCheckInput) => readonly AdapterConfigProblem[];
+}
+
+/** What `AdapterFactoryEntry.checkConfig` reads: a registration, without its secret. */
+export interface AdapterConfigCheckInput {
+  readonly metadata: ProviderMetadata;
+  readonly config?: AdapterConfig;
+  /** Whether the registration names a secret (`secret_ref`). Its value is never read here. */
+  readonly hasSecretRef: boolean;
+}
+
+/** One thing wrong with a registration (`AdapterFactoryEntry.checkConfig`). */
+export interface AdapterConfigProblem {
+  /**
+   * The setting at fault, as a registration names it: `adapter_config.<key>`,
+   * `secret_ref`, `metadata.region`, `metadata.models`.
+   */
+  readonly field: string;
+  /** What's wrong and what it takes: the error the adapter's factory throws for it. */
+  readonly message: string;
 }
 
 /**

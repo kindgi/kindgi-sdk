@@ -5,6 +5,8 @@ import { Hono } from 'hono';
 
 import {
   type AdapterConfig,
+  type AdapterConfigProblem,
+  type AdapterFactoryRegistry,
   FEATURES,
   type Feature,
   type ModelInfo,
@@ -15,7 +17,11 @@ import type { Cursor, TenantId } from '@kindgi/types';
 
 import type { CapabilityDescriptor } from '../capability-binding.js';
 import { statusFor, toWireError } from '../errors.js';
-import type { ProviderRegistryBinding, ProviderSecretRef } from '../provider-binding.js';
+import type {
+  ProviderRegistryBinding,
+  ProviderRuntimeEntry,
+  ProviderSecretRef,
+} from '../provider-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
 
@@ -46,9 +52,16 @@ export type ProviderWriteHook = (params: {
   readonly kind: 'register' | 'unregister';
 }) => void | Promise<void>;
 
+/**
+ * `factories`: the deployment's in-process adapter factories. With them, a
+ * registration is checked against its adapter's `checkConfig` before it's
+ * stored, and `GET /:providerId/check` answers for a registered one.
+ * Without them, registration takes any flat `adapter_config`.
+ */
 export function providersRouter(
   binding: ProviderRegistryBinding,
   onWrite?: ProviderWriteHook,
+  factories?: AdapterFactoryRegistry,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -216,6 +229,28 @@ export function providersRouter(
       );
     }
 
+    // The adapter's own check of what it'll be built from: refused now,
+    // naming the field, instead of skipped at the first model call.
+    const problems = configProblems(factories, {
+      metadata: validation.value,
+      adapterId: bodyObj.adapter_id,
+      ...(secretRefResult.value !== undefined && { secretRef: secretRefResult.value }),
+      ...(adapterConfigResult.value !== undefined && { adapterConfig: adapterConfigResult.value }),
+    });
+    if (problems !== undefined && problems.length > 0) {
+      c.status(statusFor('provider-config-invalid') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'provider-config-invalid',
+            message: problems.map((p) => p.message).join(' '),
+            problems,
+          },
+          requestId,
+        ),
+      );
+    }
+
     const outcome = await binding.register({
       tenantId,
       metadata: validation.value,
@@ -262,6 +297,31 @@ export function providersRouter(
     }
     c.status(201);
     return c.json({ providerId: outcome.providerId });
+  });
+
+  // ---------- GET /:providerId/check ----------
+  r.get('/:providerId/check', async (c) => {
+    const requestId = c.get('requestId');
+    const tenantId = c.get('tenantId') as TenantId;
+    const providerId = c.req.param('providerId');
+    const entries = await binding.resolveForRuntime({ tenantId });
+    const entry = entries.find((e) => e.metadata.id === providerId);
+    if (entry === undefined) {
+      c.status(statusFor('provider-not-found') as never);
+      return c.json(
+        toWireError(
+          { code: 'provider-not-found', message: `Provider "${providerId}" not found`, providerId },
+          requestId,
+        ),
+      );
+    }
+    const problems = configProblems(factories, entry);
+    return c.json({
+      providerId,
+      adapterId: entry.adapterId,
+      checked: problems !== undefined,
+      problems: problems ?? [],
+    });
   });
 
   // ---------- POST /:providerId/unregister ----------
@@ -578,10 +638,38 @@ function validateModelInfo(
 }
 
 /**
+ * What's wrong with a registration, by its adapter's own static check
+ * (`AdapterFactoryEntry.checkConfig`): no network, no secret read.
+ * `undefined` when there's nothing to check it with (no factories wired, or
+ * an adapter without a check). An adapter the deployment doesn't have is a
+ * problem: the runtime could never build the provider.
+ */
+function configProblems(
+  factories: AdapterFactoryRegistry | undefined,
+  registration: ProviderRuntimeEntry,
+): readonly AdapterConfigProblem[] | undefined {
+  if (factories === undefined) return undefined;
+  const entry = factories.get(registration.adapterId);
+  if (entry === undefined) {
+    return [
+      {
+        field: 'adapter_id',
+        message: `This runtime has no adapter "${registration.adapterId}", so it can't build provider "${registration.metadata.id}".`,
+      },
+    ];
+  }
+  return entry.checkConfig?.({
+    metadata: registration.metadata,
+    ...(registration.adapterConfig !== undefined && { config: registration.adapterConfig }),
+    hasSecretRef: registration.secretRef !== undefined,
+  });
+}
+
+/**
  * Parse the optional `adapter_config` on the register request body: a
  * flat object of string, number or boolean values. Credentials don't
- * belong here (they ride on `secret_ref`); the adapter validates its
- * own keys when it is instantiated.
+ * belong here (they ride on `secret_ref`); the adapter checks its own keys
+ * (`configProblems`).
  */
 function parseAdapterConfig(
   raw: unknown,
