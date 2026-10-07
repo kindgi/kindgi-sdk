@@ -151,6 +151,21 @@ describe('kindgi init — minimal template', () => {
     expect(pkg.dependencies?.zod).toBeTruthy();
   });
 
+  test.each(['minimal', 'sample'])(
+    "the %s template decides esbuild's install script for npm and pnpm alike: off (T277)",
+    async (template) => {
+      await runCli(baseInputs({ argv: ['init', 'my-pack', `--template=${template}`] }));
+      const pkg = JSON.parse(await readFile(join(cwd, 'my-pack', 'package.json'), 'utf8')) as {
+        allowScripts?: Record<string, unknown>;
+      };
+      // npm 11's allowScripts; without it `npm install` warns the script isn't covered.
+      expect(pkg.allowScripts).toEqual({ esbuild: false });
+      expect(await readFile(join(cwd, 'my-pack', 'pnpm-workspace.yaml'), 'utf8')).toContain(
+        'allowBuilds:\n  esbuild: false\n',
+      );
+    },
+  );
+
   test('generated kindgi.config.ts has correct pack id + version', async () => {
     await runCli(baseInputs({ argv: ['init', 'my-pack'] }));
     const raw = await readFile(join(cwd, 'my-pack', 'kindgi.config.ts'), 'utf8');

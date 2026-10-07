@@ -606,3 +606,59 @@ describe('runInitAugment — pnpm-workspace.yaml', () => {
     expect(await exists(workspaceFile())).toBe(false);
   });
 });
+
+describe("runInitAugment — npm's allowScripts (T277)", () => {
+  async function init(packageManager: 'npm' | 'pnpm', pkg: Record<string, unknown> = {}) {
+    await writePkgJson(root, { name: 'my-app', version: '1.0.0', ...pkg });
+    const result = await runInitAugment({
+      targetDir: root,
+      skillsRoot,
+      force: false,
+      packageManager,
+      dependencySpecs: { source: 'published', sdk: '0.1.0', cli: '0.1.0' },
+    });
+    if (result.kind !== 'ok') throw new Error(result.stderr);
+    const summary = JSON.parse(result.rendered.stdout) as {
+      created: string[];
+      skipped: string[];
+      warnings: string[];
+    };
+    const written = JSON.parse(await fileContents(join(root, 'package.json'))) as {
+      allowScripts?: Record<string, unknown>;
+    };
+    return { summary, written, pkgPath: join(root, 'package.json') };
+  }
+
+  test("an npm app gets a decision for esbuild's install script (off), reported like the other edits", async () => {
+    const { summary, written, pkgPath } = await init('npm');
+    expect(written.allowScripts).toEqual({ esbuild: false });
+    expect(summary.created).toContain(`${pkgPath} (patched: +allowScripts.esbuild: false)`);
+    expect(summary.warnings).toEqual([]);
+  });
+
+  test.each([
+    [{ esbuild: true }, 'esbuild', true],
+    [{ 'esbuild@0.28.2': true, sharp: false }, 'esbuild@0.28.2', true],
+  ])("an app's existing decision (%j) is kept", async (allowScripts, key, value) => {
+    const { summary, written, pkgPath } = await init('npm', { allowScripts });
+    expect(written.allowScripts).toEqual(allowScripts);
+    expect(summary.skipped).toContain(`${pkgPath} (allowScripts.${key} already ${value})`);
+    expect(summary.warnings).toEqual([]);
+  });
+
+  test('other packages in allowScripts stay, and esbuild joins them', async () => {
+    const { written } = await init('npm', { allowScripts: { sharp: true } });
+    expect(written.allowScripts).toEqual({ sharp: true, esbuild: false });
+  });
+
+  test('an allowScripts that is not an object is left alone; the warning says what to add', async () => {
+    const { summary, written } = await init('npm', { allowScripts: 'all' });
+    expect(written.allowScripts).toBe('all');
+    expect(summary.warnings.join('\n')).toContain('allowScripts.esbuild: false');
+  });
+
+  test("a pnpm app's package.json gets no allowScripts (pnpm decides in pnpm-workspace.yaml)", async () => {
+    const { written } = await init('pnpm');
+    expect(written.allowScripts).toBeUndefined();
+  });
+});

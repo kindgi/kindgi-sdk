@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import {
   KINDGI_CLI_PKG,
   KINDGI_SDK_PKG,
+  decideAllowScripts,
   detectIndent,
   isDepPresent,
   patchPackageJson,
@@ -303,5 +304,48 @@ describe('patchPackageJson — errors', () => {
     expect(result.kind).toBe('error');
     if (result.kind !== 'error') return;
     expect(result.message).toContain('JSON object');
+  });
+});
+
+describe('decideAllowScripts (T277)', () => {
+  test("adds the decision, keeping the file's indent, newline and other fields", async () => {
+    const path = await writePkg('{\n    "name": "app",\n    "scripts": { "test": "vitest" }\n}\n');
+    expect(await decideAllowScripts(path, 'esbuild', false)).toEqual({ kind: 'patched' });
+    const raw = await readFile(path, 'utf8');
+    expect(raw.endsWith('}\n')).toBe(true);
+    expect(raw).toContain('\n    "allowScripts": {\n        "esbuild": false\n    }');
+    expect(JSON.parse(raw)).toEqual({
+      name: 'app',
+      scripts: { test: 'vitest' },
+      allowScripts: { esbuild: false },
+    });
+  });
+
+  test('a name-only or pinned decision already there is kept, and the file is untouched', async () => {
+    for (const key of ['esbuild', 'esbuild@0.28.2']) {
+      const before = JSON.stringify({ name: 'app', allowScripts: { [key]: true } });
+      const path = await writePkg(before);
+      expect(await decideAllowScripts(path, 'esbuild', false)).toEqual({
+        kind: 'already-decided',
+        key,
+        value: true,
+      });
+      expect(await readFile(path, 'utf8')).toBe(before);
+    }
+  });
+
+  test("another package's entry doesn't count (esbuild-wasm is not esbuild)", async () => {
+    const path = await writePkg(JSON.stringify({ allowScripts: { 'esbuild-wasm': true } }));
+    expect((await decideAllowScripts(path, 'esbuild', false)).kind).toBe('patched');
+    expect(JSON.parse(await readFile(path, 'utf8')).allowScripts).toEqual({
+      'esbuild-wasm': true,
+      esbuild: false,
+    });
+  });
+
+  test('an allowScripts that is not an object is refused, not rewritten', async () => {
+    const path = await writePkg(JSON.stringify({ allowScripts: ['esbuild'] }));
+    expect((await decideAllowScripts(path, 'esbuild', false)).kind).toBe('refused');
+    expect(JSON.parse(await readFile(path, 'utf8')).allowScripts).toEqual(['esbuild']);
   });
 });
