@@ -24,17 +24,32 @@ describe('guardrailConfigProblems', () => {
     expect(guardrailConfigProblems(input({ maxChars: 60 }))).toEqual([]);
   });
 
-  test('each issue: a JSON pointer into the guardrail, and what is wrong there', () => {
+  test('each issue: a JSON pointer into the guardrail, and the setting with what it takes', () => {
     expect(guardrailConfigProblems(input({ maxChars: -5, extra: true }))).toEqual([
-      { path: '/config', message: 'must NOT have additional properties' },
-      { path: '/config/maxChars', message: 'must be > 0' },
+      { path: '/config', message: 'config must NOT have additional properties.' },
+      { path: '/config/maxChars', message: 'config.maxChars must be > 0.' },
     ]);
   });
 
   test('checked as declared: a default does not stand in for a required setting', () => {
     expect(guardrailConfigProblems(input(undefined))).toEqual([
-      { path: '/config', message: "must have required property 'maxChars'" },
+      { path: '/config', message: "config must have required property 'maxChars'." },
     ]);
+  });
+
+  test('a nested setting is named by its steps', () => {
+    const nested = {
+      type: 'object',
+      properties: {
+        rules: {
+          type: 'array',
+          items: { type: 'object', properties: { 'a/b': { type: 'string' } } },
+        },
+      },
+    };
+    expect(
+      guardrailConfigProblems({ configSchema: nested, config: { rules: [{ 'a/b': 1 }] } }),
+    ).toEqual([{ path: '/config/rules/0/a~1b', message: 'config.rules.0.a/b must be string.' }]);
   });
 
   test("a schema that doesn't compile: none (the pack's to fix; its pack service refuses every call)", () => {
@@ -57,24 +72,24 @@ describe('guardrailConfigProblems', () => {
 });
 
 describe('describeGuardrailConfigProblems', () => {
-  test('the guardrail, the check and the first problem, worded as the indexer words it', () => {
+  test('one sentence: the guardrail, the check and the first problem', () => {
     expect(
       describeGuardrailConfigProblems(named, [
-        { path: '/config/maxChars', message: 'must be > 0' },
+        { path: '/config/maxChars', message: 'config.maxChars must be > 0.' },
       ]),
     ).toBe(
-      'Guardrail "acme.strict-length"\'s config doesn\'t fit check "my-pack.checks.answer-length"\'s configSchema at /maxChars: must be > 0',
+      'Guardrail "acme.strict-length" doesn\'t fit check "my-pack.checks.answer-length": config.maxChars must be > 0.',
     );
   });
 
-  test('at the root, no location; more than one, how many more', () => {
+  test('more than one: how many more', () => {
     expect(
       describeGuardrailConfigProblems(named, [
-        { path: '/config', message: "must have required property 'maxChars'" },
-        { path: '/config/mode', message: 'must be string' },
+        { path: '/config', message: "config must have required property 'maxChars'." },
+        { path: '/config/mode', message: 'config.mode must be string.' },
       ]),
     ).toBe(
-      "Guardrail \"acme.strict-length\"'s config doesn't fit check \"my-pack.checks.answer-length\"'s configSchema: must have required property 'maxChars' (and 1 more)",
+      'Guardrail "acme.strict-length" doesn\'t fit check "my-pack.checks.answer-length": config must have required property \'maxChars\' (and 1 more).',
     );
   });
 });

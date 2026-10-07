@@ -428,11 +428,11 @@ describe("API — guardrails register: the config against its check's configSche
       error: { code: string; message: string; details: { issues: unknown[] } };
     };
     const message =
-      'Guardrail "acme.strict-length"\'s config doesn\'t fit check "my-pack.checks.answer-length"\'s configSchema at /maxChars: must be > 0';
+      'Guardrail "acme.strict-length" doesn\'t fit check "my-pack.checks.answer-length": config.maxChars must be > 0.';
     expect(body.error.code).toBe('guardrail-config-invalid');
     expect(body.error.message).toBe(message);
     expect(body.error.details.issues).toEqual([
-      { path: '/config/maxChars', message: 'must be > 0' },
+      { path: '/config/maxChars', message: 'config.maxChars must be > 0.' },
     ]);
     expect(
       (await binding.list({ tenantId, limit: 10 })).data.map((g) => g.id as unknown as string),

@@ -23,9 +23,10 @@ const addFormats: AddFormatsFn =
 /**
  * One way a guardrail's config doesn't fit its check: `path` is a JSON
  * pointer into the guardrail (`/config/maxChars`, `/config` at the root),
- * `message` what is wrong there (`must be > 0`). The shape of
- * `details.issues` in an API error; `describeGuardrailConfigProblems`
- * words the error's message.
+ * `message` the setting and what it takes (`config.maxChars must be > 0.`).
+ * The shape of `details.issues` in an API error, as the provider check's
+ * (`provider-config-invalid`); `describeGuardrailConfigProblems` words the
+ * error's message.
  */
 export interface GuardrailConfigProblem {
   readonly path: string;
@@ -54,29 +55,37 @@ export function guardrailConfigProblems(
 ): readonly GuardrailConfigProblem[] {
   const validate = validatorFor(input.configSchema);
   if (validate === null || validate(input.config ?? {})) return [];
-  return (validate.errors ?? []).map((issue) => ({
-    path: `/config${issue.instancePath}`,
-    message: issue.message ?? 'invalid',
-  }));
+  return (validate.errors ?? []).map((issue) => {
+    const path = `/config${issue.instancePath}`;
+    return { path, message: `${settingName(path)} ${issue.message ?? 'is invalid'}.` };
+  });
+}
+
+/** `/config/rules/0/pattern` → `config.rules.0.pattern`, as a message names it. */
+function settingName(pointer: string): string {
+  return pointer
+    .slice(1)
+    .split('/')
+    .map((step) => step.replaceAll('~1', '/').replaceAll('~0', '~'))
+    .join('.');
 }
 
 /**
- * An error message for `problems`: the guardrail, the check and the first
- * problem, worded as the indexer words a declared config that doesn't fit
- * (`Guardrail "acme.strict"'s config doesn't fit check "my-pack.checks.
- * answer-length"'s configSchema at /maxChars: must be > 0`), and how many
- * more there are. A CLI prints it before each problem's line.
+ * An error message for `problems`, one sentence as the provider check's:
+ * the guardrail, the check, the first problem and how many more
+ * (`Guardrail "acme.strict" doesn't fit check "my-pack.checks.answer-length":
+ * config.maxChars must be > 0 (and 1 more).`). A CLI prints it before each
+ * problem's line.
  */
 export function describeGuardrailConfigProblems(
   input: { readonly guardrailId: string; readonly check: string },
   problems: readonly GuardrailConfigProblem[],
 ): string {
   const first = problems[0];
-  if (first === undefined) return `Guardrail "${input.guardrailId}"'s config fits its check`;
-  const inConfig = first.path.startsWith('/config/') ? first.path.slice('/config'.length) : '';
-  const at = inConfig === '' ? '' : ` at ${inConfig}`;
+  const head = `Guardrail "${input.guardrailId}"`;
+  if (first === undefined) return `${head} fits check "${input.check}".`;
   const more = problems.length > 1 ? ` (and ${problems.length - 1} more)` : '';
-  return `Guardrail "${input.guardrailId}"'s config doesn't fit check "${input.check}"'s configSchema${at}: ${first.message}${more}`;
+  return `${head} doesn't fit check "${input.check}": ${first.message.replace(/\.$/, '')}${more}.`;
 }
 
 function validatorFor(schema: Readonly<Record<string, unknown>>): ValidateFunction | null {
