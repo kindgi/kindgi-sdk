@@ -55,6 +55,8 @@ export interface ResponsesCall {
   readonly modelInfo: ModelInfo;
   readonly providerId: string;
   readonly extraBody: Readonly<Record<string, unknown>>;
+  /** The endpoint is a data-residency host: the model's uplift applies (`computeCost`). */
+  readonly dataResidency: boolean;
   /** The temperature to send; absent sends none. */
   readonly temperature?: number;
   /** Warnings about the call, for the answer's `warnings`. */
@@ -106,7 +108,7 @@ export async function invokeResponses(call: ResponsesCall): Promise<ModelCallRes
     },
     finishReason: finishReasonOf(response, output.toolCalls.length > 0),
     usage,
-    costUsd: computeCost(call.modelInfo, usage.promptTokens, usage.completionTokens),
+    costUsd: computeCost(call.modelInfo, usage, { dataResidency: call.dataResidency }),
     durationMs,
     provider: { id: call.providerId, model: input.model },
     ...(typeof response.model === 'string' &&

@@ -99,6 +99,46 @@ describe('the bundled presets', () => {
     expect(vertex.kind === 'ok' && vertex.input.secret_ref).toBeUndefined();
   });
 
+  test("the openai preset's GPT-6 rates are OpenAI's prices (pricing page, 2026-10-07)", async () => {
+    const { openai } = await loadProviderPresets();
+    if (openai === undefined) throw new Error('preset missing');
+    // Per 1M tokens: input, cached input, cache writes, output; then past 272K input tokens.
+    const table: Record<string, readonly number[]> = {
+      'gpt-6-astra': [10, 1, 12.5, 50, 20, 2, 25, 75],
+      'gpt-6.1-sol': [2, 0.1, 2.5, 10, 4, 0.2, 5, 15],
+      'gpt-6-luna': [0.1, 0.01, 0.125, 0.5, 0.2, 0.02, 0.25, 0.75],
+    };
+    for (const model of openai.metadata.models) {
+      const cost = model.cost as typeof model.cost & {
+        readonly cachedPromptMultiplier: number;
+        readonly promptCacheCreationMultiplier: number;
+        readonly longContext: {
+          readonly thresholdTokens: number;
+          readonly promptUsdPer1kTokens: number;
+          readonly completionUsdPer1kTokens: number;
+        };
+        readonly dataResidencyMultiplier: number;
+      };
+      const perM = (per1k: number) => per1k * 1000;
+      const long = cost.longContext;
+      const prices = [
+        perM(cost.promptUsdPer1kTokens),
+        perM(cost.promptUsdPer1kTokens) * cost.cachedPromptMultiplier,
+        perM(cost.promptUsdPer1kTokens) * cost.promptCacheCreationMultiplier,
+        perM(cost.completionUsdPer1kTokens),
+        perM(long.promptUsdPer1kTokens),
+        perM(long.promptUsdPer1kTokens) * cost.cachedPromptMultiplier,
+        perM(long.promptUsdPer1kTokens) * cost.promptCacheCreationMultiplier,
+        perM(long.completionUsdPer1kTokens),
+      ];
+      const expected = table[model.name];
+      if (expected === undefined) throw new Error(`no published prices for ${model.name}`);
+      prices.forEach((price, i) => expect(price).toBeCloseTo(expected[i] as number, 9));
+      expect(long.thresholdTokens).toBe(272000);
+      expect(cost.dataResidencyMultiplier).toBe(1.1);
+    }
+  });
+
   test("the openai preset speaks OpenAI's Responses API, the one GPT-6 calls tools through", async () => {
     const { openai } = await loadProviderPresets();
     if (openai === undefined) throw new Error('preset missing');

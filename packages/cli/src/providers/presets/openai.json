@@ -20,7 +20,15 @@
         "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
         "cost": {
           "promptUsdPer1kTokens": 0.002,
-          "completionUsdPer1kTokens": 0.01
+          "completionUsdPer1kTokens": 0.01,
+          "cachedPromptMultiplier": 0.05,
+          "promptCacheCreationMultiplier": 1.25,
+          "longContext": {
+            "thresholdTokens": 272000,
+            "promptUsdPer1kTokens": 0.004,
+            "completionUsdPer1kTokens": 0.015
+          },
+          "dataResidencyMultiplier": 1.1
         },
         "description": "Balanced performance and cost."
       },
@@ -31,7 +39,15 @@
         "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
         "cost": {
           "promptUsdPer1kTokens": 0.01,
-          "completionUsdPer1kTokens": 0.05
+          "completionUsdPer1kTokens": 0.05,
+          "cachedPromptMultiplier": 0.1,
+          "promptCacheCreationMultiplier": 1.25,
+          "longContext": {
+            "thresholdTokens": 272000,
+            "promptUsdPer1kTokens": 0.02,
+            "completionUsdPer1kTokens": 0.075
+          },
+          "dataResidencyMultiplier": 1.1
         },
         "description": "Most capable — hard reasoning and long agentic work."
       },
@@ -42,7 +58,15 @@
         "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
         "cost": {
           "promptUsdPer1kTokens": 0.0001,
-          "completionUsdPer1kTokens": 0.0005
+          "completionUsdPer1kTokens": 0.0005,
+          "cachedPromptMultiplier": 0.1,
+          "promptCacheCreationMultiplier": 1.25,
+          "longContext": {
+            "thresholdTokens": 272000,
+            "promptUsdPer1kTokens": 0.0002,
+            "completionUsdPer1kTokens": 0.00075
+          },
+          "dataResidencyMultiplier": 1.1
         },
         "description": "Fastest and cheapest — routing, classification, simple calls."
       }

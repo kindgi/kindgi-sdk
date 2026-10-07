@@ -90,16 +90,27 @@ export type OpenAICompatApi = (typeof OPENAI_COMPAT_APIS)[number];
 
 /** The API a provider speaks when it doesn't say (`OpenAICompatProviderOptions.api`). */
 export function defaultOpenAICompatApi(baseURL: string): OpenAICompatApi {
-  let host: string | undefined;
+  // OpenAI's own API, its data-residency hosts (`eu.api.openai.com`) included.
+  return openAIHostOf(baseURL) !== undefined ? 'responses' : 'chat-completions';
+}
+
+/**
+ * Whether a base URL is one of OpenAI's data-residency hosts
+ * (`eu.api.openai.com`), where a model's `dataResidencyMultiplier` applies.
+ */
+export function isDataResidencyHost(baseURL: string): boolean {
+  return openAIHostOf(baseURL) === 'data-residency';
+}
+
+function openAIHostOf(baseURL: string): 'global' | 'data-residency' | undefined {
+  let host: string;
   try {
     host = new URL(baseURL).hostname;
   } catch {
-    host = undefined;
+    return undefined;
   }
-  // OpenAI's own API, its data-residency hosts (`eu.api.openai.com`) included.
-  return host === 'api.openai.com' || host?.endsWith('.api.openai.com') === true
-    ? 'responses'
-    : 'chat-completions';
+  if (host === 'api.openai.com') return 'global';
+  return host.endsWith('.api.openai.com') ? 'data-residency' : undefined;
 }
 
 /** Request fields the adapter sets itself on Chat Completions; `extraBody` can't override them. */
@@ -129,6 +140,7 @@ export function createOpenAICompatModelProvider(
     );
   }
   const api = options.api ?? defaultOpenAICompatApi(options.baseURL);
+  const dataResidency = isDataResidencyHost(options.baseURL);
   const problem = extraBodyProblem(options.extraBody, api);
   if (problem !== undefined) {
     throw new Error(`${OPENAI_COMPAT_ADAPTER_ID}: provider "${metadata.id}": ${problem}`);
@@ -174,6 +186,7 @@ export function createOpenAICompatModelProvider(
           modelInfo,
           providerId: metadata.id,
           extraBody,
+          dataResidency,
           ...(input.temperature !== undefined && { temperature: input.temperature }),
           startedAt,
         });
@@ -226,7 +239,7 @@ export function createOpenAICompatModelProvider(
         message: responseMessage,
         finishReason: mapFinishReason(choice?.finish_reason),
         usage,
-        costUsd: computeCost(modelInfo, usage.promptTokens, usage.completionTokens),
+        costUsd: computeCost(modelInfo, usage, { dataResidency }),
         durationMs,
         provider: { id: metadata.id, model: input.model },
         ...(completion.model !== undefined &&
