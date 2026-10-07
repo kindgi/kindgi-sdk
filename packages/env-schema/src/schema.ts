@@ -45,7 +45,7 @@ export interface EnvTarget {
    */
   readonly component?: 'server' | 'pack-service';
   readonly secretsBackend?: 'none' | 'postgres' | 'secret-manager' | 'dotenv';
-  readonly secretsBackendKms?: 'gcp' | 'aws' | 'libsodium' | 'vault';
+  readonly secretsBackendKms?: 'gcp' | 'azure' | 'aws' | 'libsodium' | 'vault';
   /**
    * How the server reaches the pack service: `http` when
    * `KINDGI_PACK_SERVICE_URL` is set. Absent: the server has no pack
@@ -106,6 +106,7 @@ export const ENV_GROUPS = {
   logging: 'Logging',
   secrets: 'Secrets backend selection',
   gcp: 'GCP vendor config (postgres + gcp KMS)',
+  azure: "Azure vendor config (the server's managed identity; postgres + azure KMS)",
   'local-key': 'Local key (postgres + libsodium: a key this runtime holds, single-node)',
   'pack-service': 'Pack service (runs the pack code: tools and guardrail checks)',
   'image-registry': "Image registry (where deployments' images are read from)",
@@ -127,6 +128,9 @@ const appliesToDotenvBackend = (t: EnvTarget): boolean =>
 
 const appliesToPostgresGcp = (t: EnvTarget): boolean =>
   appliesToPostgresBackend(t) && t.secretsBackendKms === 'gcp';
+
+const appliesToPostgresAzure = (t: EnvTarget): boolean =>
+  appliesToPostgresBackend(t) && t.secretsBackendKms === 'azure';
 
 const appliesToPostgresLocalKey = (t: EnvTarget): boolean =>
   appliesToPostgresBackend(t) && t.secretsBackendKms === 'libsodium';
@@ -401,12 +405,12 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_SECRETS_BACKEND_KMS',
     description:
-      'Which KMS wraps DEKs (postgres backend only): `gcp` (Google Cloud KMS), or `libsodium`, a key this runtime holds (see `KINDGI_SECRETS_LOCAL_KEY_PATH`). Reserved: `aws`.',
+      'Which KMS wraps DEKs (postgres backend only): `gcp` (Google Cloud KMS), `azure` (an Azure Key Vault key, see `KINDGI_SECRETS_AZURE_KEY_ID`), or `libsodium`, a key this runtime holds (see `KINDGI_SECRETS_LOCAL_KEY_PATH`). Reserved: `aws`.',
     example: 'gcp',
     required: true,
     appliesTo: appliesToPostgresBackend,
     group: 'secrets',
-    allowedValues: ['gcp', 'aws', 'libsodium'],
+    allowedValues: ['gcp', 'azure', 'aws', 'libsodium'],
   },
   {
     name: 'KINDGI_SECRETS_AAD_KEY_PATH',
@@ -420,7 +424,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_SECRETS_AAD_KEY',
     description:
-      "The 32-byte AAD/HMAC key itself, base64: for platforms that give secrets as environment variables (Cloud Run with Secret Manager), where a key file's mode can't be 0600. The postgres backend needs this or `KINDGI_SECRETS_AAD_KEY_PATH`, not both.",
+      "The 32-byte AAD/HMAC key itself, base64: for platforms that give secrets as environment variables (Cloud Run with Secret Manager, Container Apps with Key Vault), where a key file's mode can't be 0600. Reference one fixed version of it, never the latest: a new version would make every stored secret unreadable. The postgres backend needs this or `KINDGI_SECRETS_AAD_KEY_PATH`, not both.",
     example: '',
     required: false,
     appliesTo: appliesToPostgresBackend,
@@ -459,6 +463,26 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     required: true,
     appliesTo: appliesToPostgresGcp,
     group: 'gcp',
+  },
+
+  // ---- Azure vendor -----------------------------------------------
+  {
+    name: 'KINDGI_AZURE_CLIENT_ID',
+    description:
+      "Client id of the user-assigned managed identity the server signs in to Azure with, for its Azure settings (`KINDGI_SECRETS_BACKEND_KMS=azure`, `KINDGI_IMAGE_REGISTRY_AUTH=azure`). Unset: the service's system-assigned identity. With `KINDGI_DEV=true` and no managed identity, the Azure CLI's sign-in (`az login`). Kindgi keeps no key or secret for it.",
+    example: '11111111-2222-3333-4444-555555555555',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'azure',
+  },
+  {
+    name: 'KINDGI_SECRETS_AZURE_KEY_ID',
+    description:
+      "The Azure Key Vault key that wraps DEKs (postgres backend, KMS `azure`): its URL without a version, `https://<vault>.vault.azure.net/keys/<name>`. New secrets are wrapped with the key's current version and remember it, so rotating the key needs no rewrite. A URL with a version is refused. The server's identity needs wrap and unwrap on the key (the Key Vault Crypto Service Encryption User role).",
+    example: 'https://my-vault.vault.azure.net/keys/kindgi-secrets',
+    required: true,
+    appliesTo: appliesToPostgresAzure,
+    group: 'azure',
   },
 
   // ---- local key (libsodium) --------------------------------------
@@ -605,12 +629,12 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_IMAGE_REGISTRY_AUTH',
     description:
-      "How the server signs in to `KINDGI_IMAGE_REGISTRY_HOST`. `static` (default): `KINDGI_IMAGE_REGISTRY_USERNAME` and `_PASSWORD`. `google`: the server's own Google identity (Application Default Credentials: the service's identity on Cloud Run), for Artifact Registry; no username or password is set, and Kindgi keeps no key file.",
+      "How the server signs in to `KINDGI_IMAGE_REGISTRY_HOST`. `static` (default): `KINDGI_IMAGE_REGISTRY_USERNAME` and `_PASSWORD`. `google`: the server's own Google identity (Application Default Credentials: the service's identity on Cloud Run), for Artifact Registry; no username or password is set, and Kindgi keeps no key file. `azure`: the server's own managed identity (see `KINDGI_AZURE_CLIENT_ID`), for Azure Container Registry, where it needs the AcrPull role; no username or password is set either.",
     example: 'static',
     required: false,
     appliesTo: appliesToServer,
     group: 'image-registry',
-    allowedValues: ['static', 'google'],
+    allowedValues: ['static', 'google', 'azure'],
   },
 
   // ---- development (`kindgi dev`) ---------------------------------

@@ -11,12 +11,15 @@ export {
   validateEnvForTarget,
 } from './schema.js';
 export {
+  AZURE_KEY_ID_VAR,
+  type AzureKeyId,
   CORS_ORIGINS_VAR,
   PUBLIC_URL_VAR,
   LICENSE_KEY_VAR,
   PACK_SERVICE_TOKEN_VAR,
   PUBLIC_TOKEN_KEY_PATH_VAR,
   PUBLIC_TOKEN_KEY_VAR,
+  parseAzureKeyId,
   parseCorsOrigins,
   parsePublicUrl,
   parsePackServiceToken,
