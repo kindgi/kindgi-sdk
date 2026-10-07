@@ -56,7 +56,14 @@ function inputs(argv: readonly string[]): RunCliInputs {
 describe('the bundled presets', () => {
   test('load, each named after its file, with models', async () => {
     const presets = await loadProviderPresets();
-    expect(Object.keys(presets).sort()).toEqual(['anthropic', 'gemini', 'openai', 'openrouter']);
+    expect(Object.keys(presets).sort()).toEqual([
+      'anthropic',
+      'gemini',
+      'gemini-api',
+      'groq',
+      'openai',
+      'openrouter',
+    ]);
     expect(presets.anthropic?.metadata.models.map((m) => m.name)).toEqual([
       'claude-opus-5-5',
       'claude-sonnet-5-5',
@@ -109,6 +116,25 @@ describe('the bundled presets', () => {
     expect(routed.kind === 'ok' && routed.input.metadata.models.map((m) => m.name)).toContain(
       'anthropic/claude-sonnet-5.5',
     );
+  });
+
+  test("gemini-api: Gemini on the Developer API with its key; groq: Groq's endpoint", async () => {
+    const presets = await loadProviderPresets();
+    const gemini = presets['gemini-api'];
+    const groq = presets.groq;
+    if (gemini === undefined || groq === undefined) throw new Error('presets missing');
+    const g = presetRegistration(gemini, { envName: 'local', settings: {} });
+    expect(g.kind === 'ok' && g.input).toMatchObject({
+      adapter_id: '@kindgi/adapter-model-gemini',
+      adapter_config: { api: 'developer' },
+      secret_ref: { name: 'GEMINI_API_KEY' },
+    });
+    const q = presetRegistration(groq, { envName: 'local', settings: {} });
+    expect(q.kind === 'ok' && q.input).toMatchObject({
+      adapter_id: '@kindgi/adapter-model-openai-compat',
+      adapter_config: { baseURL: 'https://api.groq.com/openai/v1' },
+      secret_ref: { name: 'GROQ_API_KEY' },
+    });
   });
 
   test('a preset whose fixed settings are not plain values is refused, naming the file', async () => {
@@ -191,7 +217,7 @@ describe('kindgi providers register --preset', () => {
     expect(both.stderr).toContain('one of --spec=<json-or-@file> or --preset=<name> is required');
     const unknown = await runCli(inputs(['providers', 'register', '--preset=nope']));
     expect(unknown.stderr).toContain(
-      'no provider preset "nope" — available: anthropic, gemini, openai, openrouter',
+      'no provider preset "nope" — available: anthropic, gemini-api, gemini, groq, openai, openrouter',
     );
   });
 });
@@ -202,7 +228,9 @@ describe('kindgi providers presets', () => {
     expect(out.exitCode).toBe(0);
     expect(JSON.parse(out.stdout)).toMatchObject([
       { name: 'anthropic', secret: 'ANTHROPIC_API_KEY' },
+      { name: 'gemini-api', secret: 'GEMINI_API_KEY' },
       { name: 'gemini', needs: ['--project'], models: ['gemini-2.5-pro', 'gemini-2.5-flash'] },
+      { name: 'groq', secret: 'GROQ_API_KEY' },
       {
         name: 'openai',
         secret: 'OPENAI_API_KEY',

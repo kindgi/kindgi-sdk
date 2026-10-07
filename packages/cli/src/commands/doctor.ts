@@ -489,6 +489,13 @@ async function pythonPackageInstalled(dir: string): Promise<boolean> {
   return false;
 }
 
+/** `a`, `a or b`, `a, b or c`. */
+function orList(items: readonly string[]): string {
+  return items.length <= 1
+    ? (items[0] ?? '')
+    : `${items.slice(0, -1).join(', ')} or ${items[items.length - 1]}`;
+}
+
 /** The presets that take an LLM provider key, with the key's name, in preset order. */
 async function keyedPresets(
   seam: DoctorSeam,
@@ -523,7 +530,7 @@ async function modelKeyCheck(
   return fail(
     'model-key',
     `No model key in ${files} (looked for ${names.join(', ')})${inShell !== undefined ? `; ${inShell} is set in your shell, but kindgi dev reads keys from the project's env files` : ''}.`,
-    `With kindgi dev running, set one LLM provider's key: ${kindgi('secrets', 'set', want, '--env=local', '--scope=tenant')}${others.length > 0 ? `, or the same with ${others.join(' or ')}` : ''} (it prompts without echoing; or pipe it in with --from-stdin). Never paste a key into a chat.`,
+    `With kindgi dev running, set one LLM provider's key: ${kindgi('secrets', 'set', want, '--env=local', '--scope=tenant')}${others.length > 0 ? `, or the same with ${orList(others)}` : ''} (it prompts without echoing; or pipe it in with --from-stdin). Never paste a key into a chat.`,
   );
 }
 
@@ -583,7 +590,7 @@ async function providerCheck(
     const presets = (await keyedPresets(seam)).map((p) => p.name);
     const register =
       presets.length > 1
-        ? `Register the provider whose key you set: ${kindgi('providers', 'register', '--preset=<preset>')}, where <preset> is ${presets.join(', ')} (see Model key).`
+        ? `Register the provider whose key you set: ${kindgi('providers', 'register', '--preset=<preset>')}, where <preset> is ${orList(presets)} (see Model key).`
         : `Register one: ${kindgi('providers', 'register', `--preset=${presets[0] ?? 'anthropic'}`)} (its key must be set first; see Model key).`;
     if (models.length > 0) {
       return pass(

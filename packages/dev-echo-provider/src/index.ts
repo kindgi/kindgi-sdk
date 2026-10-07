@@ -70,13 +70,13 @@ export const DEV_ECHO_WARNING_CODE = 'dev-echo-not-a-model';
  * `structuredOutput`; the warning in `warnings` says the same there.
  */
 export const DEV_ECHO_WARNING_LINE =
-  "⚠ dev-echo isn't a real model: it only repeats what it's given. Add an LLM provider key (Anthropic, OpenAI, OpenRouter…) to get real answers.";
+  "⚠ dev-echo isn't a real model: it only repeats what it's given. Add an LLM provider key (Anthropic, OpenAI, Gemini, Groq, OpenRouter…) to get real answers.";
 
 /** The warning, with the commands that add a model. */
 export const DEV_ECHO_WARNING: ModelCallWarning = {
   code: DEV_ECHO_WARNING_CODE,
   message:
-    "dev-echo answered, and it isn't a real model: it only repeats what it's given. Add an LLM provider key: kindgi secrets set <KEY> --env=local --scope=tenant (ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY…), then kindgi providers register --preset=<anthropic|openai|openrouter>. kindgi providers presets lists them.",
+    "dev-echo answered, and it isn't a real model: it only repeats what it's given. Add an LLM provider key: kindgi secrets set <KEY> --env=local --scope=tenant (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY…), then kindgi providers register --preset=<anthropic|openai|gemini-api|groq|openrouter>. kindgi providers presets lists them.",
 };
 
 /** An answer that is a JSON object or array: what a typed-output agent parses. */

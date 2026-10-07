@@ -14,9 +14,10 @@ starts with `_`. The config is `[tool.kindgi]` in `pyproject.toml`.
   `dev-echo`, a fallback that isn't a model: it calls the first tool and
   replies "Tool responded: …" after a warning line, while no other provider
   fits. For a real model, put one LLM provider's key in `.env`
-  (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY` or `OPENROUTER_API_KEY`) and add a
-  `[[tool.kindgi.providers]]` table with its preset (`preset = "anthropic"`,
-  `"openai"` or `"openrouter"`) to `pyproject.toml`: `kindgi dev` then registers it
+  (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY` or
+  `OPENROUTER_API_KEY`) and add a `[[tool.kindgi.providers]]` table with its
+  preset (`preset = "anthropic"`, `"openai"`, `"gemini-api"`, `"groq"` or
+  `"openrouter"`) to `pyproject.toml`: `kindgi dev` then registers it
   on every boot, in every worktree. Other providers and per-agent model
   choice: `.claude/skills/kindgi-authoring-providers/SKILL.md`.
 

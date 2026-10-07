@@ -18,7 +18,7 @@ Emits a two-message script (tool-call → text):
 `DEV_ECHO_WARNING_LINE`:
 
 ```text
-⚠ dev-echo isn't a real model: it only repeats what it's given. Add an LLM provider key (Anthropic, OpenAI, OpenRouter…) to get real answers.
+⚠ dev-echo isn't a real model: it only repeats what it's given. Add an LLM provider key (Anthropic, OpenAI, Gemini, Groq, OpenRouter…) to get real answers.
 ```
 
 An answer that is JSON (what a typed-output agent parses; dev-echo hands
