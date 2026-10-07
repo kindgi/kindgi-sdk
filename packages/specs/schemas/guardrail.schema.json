@@ -37,6 +37,10 @@
       "additionalProperties": true,
       "description": "Check-specific configuration. Interpreted by the check implementation."
     },
+    "configSchema": {
+      "type": "object",
+      "description": "JSON Schema (Draft 2020-12) of the check's config, for a check that is pack code: the pack index's `configSchema`, which a deployment keeps on the guardrails it registers. The runtime checks a guardrail's `config` against it at registration, for any guardrail naming that check, and the pack service checks it on every call. Optional; a runtime-declaration field like `codeArtifactRef`."
+    },
     "action": {
       "$ref": "#/$defs/Action"
     },

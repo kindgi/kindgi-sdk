@@ -1286,12 +1286,9 @@ function validatePrimitives(
       details.push({ primitive: 'guardrail', index: i, path: '', message: 'must be an object' });
       return;
     }
-    const {
-      checkModulePath,
-      checkId,
-      configSchema: _configSchema,
-      ...rest
-    } = raw as Record<string, unknown>;
+    // The rest is the guardrail as registered, its `configSchema` included:
+    // the runtime checks a guardrail naming this check against it.
+    const { checkModulePath, checkId, ...rest } = raw as Record<string, unknown>;
     const r = validateGuardrailSpec({
       ...rest,
       check: checkId ?? rest.check ?? rest.id,

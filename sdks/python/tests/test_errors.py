@@ -92,6 +92,14 @@ def test_a_documented_422_is_still_a_server_error(code: str) -> None:
     assert error.server_code == code
 
 
+def test_a_guardrail_config_invalid_is_an_invalid_request_with_its_issues() -> None:
+    issue = {"path": "/config/maxChars", "message": "must be > 0"}
+    error = from_wire(body("guardrail-config-invalid", issues=[issue]), 422)
+    assert type(error) is InvalidRequestError
+    assert error.server_code == "guardrail-config-invalid"
+    assert error.issues == [issue]
+
+
 def test_every_4xx_code_but_409_and_422_is_a_typed_error() -> None:
     spec = json.loads(OPENAPI.read_text())
     codes: dict[str, int] = spec["components"]["schemas"]["WireError"]["x-error-codes"]
