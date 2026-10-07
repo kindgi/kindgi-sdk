@@ -30,8 +30,8 @@ thing at a time, and wait until they say they've done it.
   you guess.
 - **`kindgi` in the commands below** means `npx --yes @kindgi/cli@next`,
   until step 2 makes a project. From then on, from the project's folder:
-  - a TypeScript project: `pnpm exec kindgi` when `init` set it up for pnpm
-    (its "Next steps" say `pnpm install`), else `npx --no kindgi`;
+  - a TypeScript project: `pnpm exec kindgi` if `pnpm --version` works,
+    else `npx --no kindgi` (`init`'s "Next steps" say pnpm either way);
   - a Python project: `npx --yes @kindgi/cli@next`.
 
 ## Step 0: check the machine
@@ -119,7 +119,7 @@ runtime: skip this step.
    # TypeScript
    npx --yes @kindgi/cli@next init my-agents
    cd my-agents
-   pnpm install     # what init's "Next steps" say when pnpm is installed; else: npm install
+   pnpm install     # if pnpm --version works; else: npm install
    ```
 
    ```sh
@@ -141,9 +141,13 @@ Start `kindgi dev` from the project's folder so that it keeps running after
 your turn ends: detached, with its output in a log, and note its process id:
 
 ```sh
-mkdir -p .kindgi && nohup kindgi dev > .kindgi/dev.log 2>&1 &
+mkdir -p .kindgi
+nohup kindgi dev > .kindgi/dev.log 2>&1 &
 echo $!
 ```
+
+Keep `mkdir` on its own line: with `mkdir … && nohup … &`, `$!` is a
+subshell's id, and stopping it leaves `kindgi dev` running.
 
 (with `kindgi` as the project runs it; `.kindgi/` is git-ignored). It starts
 the runtime in Docker and answers with a stand-in model, `dev-echo`, until
