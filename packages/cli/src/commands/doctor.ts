@@ -31,8 +31,9 @@ import { renderJson } from '../output.js';
 import {
   type PackageManager,
   binCommand,
-  detectPackageManager,
+  defaultDetectIo,
   publishedCliSpec,
+  usablePackageManager,
 } from '../package-manager.js';
 import { type ProviderPreset, loadProviderPresets } from '../providers/preset-loader.js';
 import { CLI_VERSION } from '../version-info.js';
@@ -590,18 +591,17 @@ async function kindgiCommand(
 }
 
 /**
- * The package manager the project declares (`packageManager`, a lockfile,
- * a workspace file), when it's installed here; npm when it isn't, so a
- * fix never names a tool this machine doesn't have. `declared` is set
- * when that fallback happened.
+ * The package manager that runs here (`usablePackageManager`), asking
+ * through doctor's tool seam whether a declared one is installed.
  */
-async function installedPackageManager(
+function installedPackageManager(
   dir: string,
   tool: NonNullable<DoctorSeam['tool']>,
 ): Promise<{ readonly pm: PackageManager; readonly declared?: PackageManager }> {
-  const pm = await detectPackageManager(dir);
-  if (pm === 'npm') return { pm };
-  return (await tool(pm, ['--version'])).code === 0 ? { pm } : { pm: 'npm', declared: pm };
+  return usablePackageManager(dir, {
+    ...defaultDetectIo,
+    runs: async (pm) => (await tool(pm, ['--version'])).code === 0,
+  });
 }
 
 /** Run a tool to completion; `code: null` when it isn't installed. Gives up after 15 s. */

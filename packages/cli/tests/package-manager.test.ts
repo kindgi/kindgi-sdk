@@ -14,6 +14,7 @@ import {
   installCommand,
   localLinkProtocol,
   publishedCliSpec,
+  usablePackageManager,
 } from '../src/package-manager.js';
 import { CLI_VERSION } from '../src/version-info.js';
 
@@ -90,6 +91,39 @@ describe('binCommand — runs the project-local bin, never downloads', () => {
     expect(installCommand('bun')).toBe('bun install');
     expect(localLinkProtocol('npm')).toBe('file:');
     expect(localLinkProtocol('pnpm')).toBe('link:');
+  });
+});
+
+describe('usablePackageManager (T280)', () => {
+  const pnpmProject = { '/app/pnpm-workspace.yaml': '' };
+  test('the declared manager when it runs here', async () => {
+    expect(
+      await usablePackageManager('/app', { ...io(pnpmProject), runs: async () => true }),
+    ).toEqual({
+      pm: 'pnpm',
+    });
+  });
+
+  test("npm when the declared one doesn't run here, naming it", async () => {
+    const asked: string[] = [];
+    const runs = async (pm: string) => {
+      asked.push(pm);
+      return false;
+    };
+    expect(await usablePackageManager('/app', { ...io(pnpmProject), runs })).toEqual({
+      pm: 'npm',
+      declared: 'pnpm',
+    });
+    expect(asked).toEqual(['pnpm']);
+    expect(await detectBinRunner('/app', 'node', { ...io(pnpmProject), runs })).toBe('npm');
+  });
+
+  test('npm is never probed; no probe means the declared manager is assumed to run', async () => {
+    const runs = async () => {
+      throw new Error('npm is never probed');
+    };
+    expect(await usablePackageManager('/app', { ...io({}), runs })).toEqual({ pm: 'npm' });
+    expect(await usablePackageManager('/app', io(pnpmProject))).toEqual({ pm: 'pnpm' });
   });
 });
 
