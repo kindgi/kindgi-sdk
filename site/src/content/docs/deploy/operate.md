@@ -17,7 +17,7 @@ docker rm kindgi-server
 docker run -d --name kindgi-server --network kindgi \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.3
+  quay.io/kindgi/runtime:0.1.4
 ```
 
 On a stop, the runtime stops taking requests and gives the runs it's executing up to 7 seconds to finish, then exits with code 0. `--time 30` gives it that time before Docker kills it.
@@ -229,6 +229,11 @@ Migrations only go forward, and an older runtime isn't guaranteed to work on a d
 - **Deleting an org keeps its record** until a retention policy on `org` purges it. It still answers `404 org-not-found`, its projects and teams stay without an org, and its slug is free at once ([Delete an org](../../guides/projects/organize-by-org-and-project/#delete-an-org)). 0.1.3 removed the record at once.
 - **Unregistering a provider keeps its record** until a retention policy on `provider` purges it; its id is free to register again at once ([List, change and remove](../../guides/models/#list-change-and-remove)). 0.1.3 removed the record at once.
 - **`KINDGI_PUBLIC_URL`** is new: the address clients use when it isn't the one the runtime binds, behind a proxy or a load balancer ([Check it](../self-host/#6-check-it)).
+- **The runtime's logs are structured.** Each line is a record with a level and a subsystem: JSON when the output isn't a terminal (as on a server), readable lines on one. `KINDGI_LOG_LEVEL`, `KINDGI_LOG_LEVELS` and `KINDGI_LOG_FORMAT` choose what's written, and a request's `traceparent` is joined ([Logs](../logs/)).
+- **A conversation's turns run the agent version it was opened with.** A turn that names another version is refused (`agent-version-mismatch`); one whose version is no longer registered answers `404` ([A conversation keeps its agent version](../../guides/agents/conversations/#a-conversation-keeps-its-agent-version)). 0.1.3 ran the current version and refused the turn when it differed.
+- **`kindgi runs start` exits `1` for a failed run,** with `Error [<code>]: <message>` naming the error's own code, such as `budget-exceeded` or `model-invocation-failed`. 0.1.3 printed `Error [server]` and exited `0` for a run that failed. A script that checks the exit code now sees the failure; the run itself is still printed on stdout.
+- **`dev-echo` says it isn't a real model.** Its answers start with `⚠ dev-echo isn't a real model`, and a turn it answers carries a `dev-echo-not-a-model` warning.
+- **On Cloud Run,** the Terraform module pins the version of the secrets' AAD key it reads: add `secrets_aad_key_version` (normally `"1"`) to your `.tfvars` before you apply ([Deploy on Google Cloud Run](../cloud-run/#operate-it)).
 
 ## Rotate the API token
 
@@ -372,7 +377,7 @@ docker run -d --name kindgi-server --network kindgi \
   --add-host registry.localhost:host-gateway \
   -v "$PWD/public-token-signing.pem:/etc/kindgi/public-token-signing.pem:ro" \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.3
+  quay.io/kindgi/runtime:0.1.4
 ```
 
 The file must have mode 0600, and the runtime's user in the container (uid 10001) must be able to read it. The log says:
