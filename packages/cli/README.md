@@ -83,8 +83,11 @@ Three modes:
   (`allowBuilds.esbuild: false`) in the `pnpm-workspace.yaml` pnpm reads,
   creating it if needed and keeping the rest of the file: pnpm 11+ won't
   install `@kindgi/cli` until that script has a decision, and esbuild works
-  without it (its binary comes from its `@esbuild/<platform>` package). A
-  decision the app already has, `true` or `false`, is kept. It creates
+  without it (its binary comes from its `@esbuild/<platform>` package). In an
+  npm app the same decision goes in `package.json`'s `allowScripts`
+  (`"esbuild": false`), without which npm 11 warns that the script isn't
+  covered. A decision the app already has, `true` or `false`, is kept. A new
+  pack's `package.json` has it too. It creates
   no env files: `kindgi dev` reads the app's own `.env` / `.env.local`.
   `--new-repo` scaffolds a separate pack inside the app instead.
 - **`kindgi init`** in a directory with a `pyproject.toml` and no

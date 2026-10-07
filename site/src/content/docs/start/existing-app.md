@@ -52,6 +52,11 @@ pnpm install          # or the app's own package manager
   install script has a decision, and esbuild (the CLI's bundler) doesn't
   need its script. A decision the app already has, `true` or `false`, is
   kept;
+- from 0.1.4, in an npm app, the same decision in `package.json`'s
+  `allowScripts` (`"esbuild": false`): without it, npm 11 warns on the first
+  install that esbuild's script is "not yet covered by allowScripts". npm 10
+  ignores the field. A decision the app already has, for `esbuild` or a
+  pinned `esbuild@<version>`, is kept;
 - the skills for your coding agent under `.claude/skills/`, and
   `.gitignore` entries (`.kindgi/`, `.kindgirc.json`, `.env.local`).
 
