@@ -189,7 +189,9 @@ describe('kindgi init — python template, from the PyPI CLI (kindgi-cli)', () =
     );
     expect(out.exitCode).toBe(0);
     const pyproject = await readFile(join(cwd, 'my-pack', 'pyproject.toml'), 'utf8');
-    expect(pyproject).toMatch(/^dev = \["pytest>=8", "kindgi-cli>=\d+\.\d+(\.\d+)?((a|b|rc)\d+)?,<\d+\.\d+"\]$/m);
+    expect(pyproject).toMatch(
+      /^dev = \["pytest>=8", "kindgi-cli>=\d+\.\d+(\.\d+)?((a|b|rc)\d+)?,<\d+\.\d+"\]$/m,
+    );
     expect(out.stderr).toContain('uv run kindgi dev');
     expect(out.stderr).not.toContain('npx');
   });
