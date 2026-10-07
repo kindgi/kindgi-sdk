@@ -1165,7 +1165,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   if (input.triggerRegistry !== undefined) {
     const kinds = new Set<TriggerKind>(input.triggerKinds ?? TRIGGER_KINDS);
     if (kinds.has('cron')) {
-      v1.route('/schedules', schedulesRouter(input.triggerRegistry, authorizer));
+      v1.route(
+        '/schedules',
+        schedulesRouter(input.triggerRegistry, authorizer, input.projectBinding),
+      );
     }
     if (kinds.has('event')) {
       v1.route('/event-triggers', eventTriggersRouter(input.triggerRegistry));

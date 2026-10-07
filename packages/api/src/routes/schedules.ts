@@ -5,6 +5,7 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 
 import { type Action, type ResourceRef, ref } from '@kindgi/authz';
+import type { ProjectBinding } from '@kindgi/platform';
 import type { Cursor, ProjectId, TenantId, TriggerId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
@@ -47,6 +48,8 @@ import { UUID_RE } from './uuid-param.js';
 export function schedulesRouter(
   binding: TriggerRegistryBinding,
   authorizer?: Authorizer,
+  /** The tenant's Default project: where a schedule that names no project goes. */
+  projects?: Pick<ProjectBinding, 'getDefault'>,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -104,19 +107,24 @@ export function schedulesRouter(
     const inputProblem = agentInputProblem(target.value, rawConfig.input);
     if (inputProblem !== undefined) return bad(c, requestId, inputProblem);
 
-    const where =
-      projectId === undefined
-        ? ref('tenant', tenantId as unknown as string)
-        : ref('project', projectId);
+    // A schedule that names no project goes in the tenant's Default
+    // project: checked and stored as that project. With no Default to
+    // find, the registry picks it, and only a tenant admin may.
+    const project =
+      (projectId as string | undefined) ??
+      ((await projects?.getDefault(tenantId))?.id as string | undefined);
     const refused =
-      (await denied(c, 'write', where)) ?? (await denied(c, 'execute', targetRef(target.value)));
+      (project === undefined
+        ? await denied(c, 'admin', ref('tenant', tenantId as unknown as string))
+        : await denied(c, 'write', ref('project', project))) ??
+      (await denied(c, 'execute', targetRef(target.value)));
     if (refused !== undefined) return refused;
 
     const registerInput: RegisterCronTriggerInput = {
       kind: 'cron',
       tenantId,
       target: target.value,
-      ...(projectId !== undefined && { projectId: projectId as ProjectId }),
+      ...(project !== undefined && { projectId: project as ProjectId }),
       owner: ownerOf(c),
       config: {
         cronExpression: cronExpression.value,

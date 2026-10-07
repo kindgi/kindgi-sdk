@@ -299,6 +299,35 @@ describe('what each route asks the authorizer', () => {
     expect(checked).toEqual([`write project:${PROJECT}`, 'execute flow:acme.nightly']);
   });
 
+  test("registering with no project: write on the tenant's Default project, and it's stored there", async () => {
+    const DEFAULT = randomUUID();
+    for (const [projects, expected] of [
+      [{ getDefault: async () => ({ id: DEFAULT }) as never }, `write project:${DEFAULT}`],
+      // No Default to find: only a tenant admin may let the registry pick.
+      [undefined, `admin tenant:${tenantId}`],
+    ] as const) {
+      const checked: string[] = [];
+      const registry = createInMemoryTriggerRegistry({ defaultProjectId: PROJECT });
+      const r = new Hono<AppEnv>();
+      r.use('*', async (c, next) => {
+        c.set('tenantId' as never, tenantId as never);
+        c.set('requestId' as never, 'req-schedules' as never);
+        return next();
+      });
+      r.route('/', schedulesRouter(registry, recordingAuthorizer(checked), projects));
+      const res = await r.request('/', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(nightly),
+      });
+      expect(res.status).toBe(201);
+      expect(checked[0]).toBe(expected);
+      if (projects !== undefined) {
+        expect(((await res.json()) as { projectId: string }).projectId).toBe(DEFAULT);
+      }
+    }
+  });
+
   test.each([
     ['GET', '', undefined, ['read']],
     ['PATCH', '', { label: 'x' }, ['write']],
