@@ -12,7 +12,7 @@ import type {
 } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
 
-import { computeCostUsd, toFrameworkUsage } from './cost.js';
+import { type CostRates, computeCostUsd, toFrameworkUsage } from './cost.js';
 import {
   fromAnthropicResponse,
   mapStopReason,
@@ -24,16 +24,14 @@ import {
  * Anthropic-specific `ModelInfo` extension. Widens the framework's
  * `ModelInfo.cost` with the two Anthropic prompt-cache multipliers
  * (`promptCacheCreationMultiplier`, `promptCacheReadMultiplier`) that
- * `computeCostUsd` uses to bill cache activity per invocation.
+ * `computeCostUsd` uses to bill cache activity per invocation, and a
+ * `longContext` tier for a model that prices long prompts higher.
  *
  * When either multiplier is omitted the framework falls back to
  * Anthropic's 5-minute-tier defaults (1.25 / 0.1) inside `cost.ts`.
  */
 export interface AnthropicModelInfo extends ModelInfo {
-  readonly cost: ModelInfo['cost'] & {
-    readonly promptCacheCreationMultiplier?: number;
-    readonly promptCacheReadMultiplier?: number;
-  };
+  readonly cost: ModelInfo['cost'] & Omit<CostRates, keyof ModelInfo['cost']>;
 }
 
 /**
