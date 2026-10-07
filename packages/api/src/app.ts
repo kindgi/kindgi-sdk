@@ -1058,6 +1058,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           // new state (running / completed / re-suspended).
           runHandler: input.runHandler,
         },
+        authorizer,
       ),
     );
   }
