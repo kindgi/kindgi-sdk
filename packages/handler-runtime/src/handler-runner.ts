@@ -28,6 +28,7 @@ import type { ValidateFunction } from 'ajv';
 import * as addFormatsModule from 'ajv-formats';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 
+import type { Logger } from '@kindgi/log';
 import { type ZodLikeSchema, isZodSchema, parseWithSchema } from '@kindgi/schema';
 import type { Result } from '@kindgi/types';
 
@@ -59,6 +60,12 @@ export interface HandlerContext {
    * should pass it on so they stop promptly.
    */
   readonly abortSignal?: AbortSignal;
+  /**
+   * Never on the wire; the pack service adds it: a logger bound to the
+   * call (its tenant, run, request and trace). Not enumerable, like
+   * `secrets`.
+   */
+  readonly log?: Logger;
 }
 
 /**

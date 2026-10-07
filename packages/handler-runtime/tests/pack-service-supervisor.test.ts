@@ -23,6 +23,7 @@ import type {
   PackServiceSupervisorEvent,
   PackServiceSupervisorOptions,
 } from '../src/pack-service/index.js';
+import { serviceEvent } from '../src/pack-service/supervisor.js';
 import { PACK_HEADERS, PACK_PROTOCOL_VERSION } from '../src/protocol.js';
 
 /** vitest has no `import.meta.resolve`; ask Node, from this package (needs the build). */
@@ -164,8 +165,11 @@ describe('createPackServiceSupervisor — children', () => {
       expect(names).toContain('DATABASE_URL');
       expect(names).not.toContain('PARENT_SENTINEL');
       // The token authenticates the service's callers; the service takes
-      // it out of the environment before it loads the pack's code.
-      expect(names.filter((n) => n.startsWith('KINDGI_'))).toEqual([]);
+      // it out of the environment before it loads the pack's code. The one
+      // KINDGI_ name left is the supervisor's: the service writes JSON
+      // records for it to read.
+      expect(names).not.toContain('KINDGI_PACK_SERVICE_TOKEN');
+      expect(names.filter((n) => n.startsWith('KINDGI_'))).toEqual(['KINDGI_LOG_FORMAT']);
     } finally {
       Reflect.deleteProperty(process.env, 'PARENT_SENTINEL');
     }
@@ -488,3 +492,51 @@ async function until(condition: () => boolean, timeoutMs = 5000): Promise<void> 
     await new Promise((r) => setTimeout(r, 10));
   }
 }
+
+describe('the service lines the supervisor reads', () => {
+  const record = (fields: Record<string, unknown>) =>
+    JSON.stringify({
+      time: '2026-10-08T00:00:00.000Z',
+      level: 'info',
+      severity: 'INFO',
+      ...fields,
+    });
+
+  test("the service's own records: their event is the kind; `listening` keeps its port", () => {
+    expect(
+      serviceEvent(
+        record({
+          subsystem: 'pack',
+          message: 'Listening on port 9',
+          event: 'listening',
+          kind: 'listening',
+          port: 9,
+        }),
+      ),
+    ).toMatchObject({ kind: 'listening', port: 9 });
+    expect(
+      serviceEvent(
+        record({ subsystem: 'pack', message: 'tool x ok 3ms', event: 'call', outcome: 'ok' }),
+      ),
+    ).toMatchObject({ kind: 'call', outcome: 'ok' });
+  });
+
+  test("an author's ctx.log record is shown, never acted on, whatever its fields", () => {
+    const event = serviceEvent(
+      record({ subsystem: 'pack.tool', message: 'looked up order', event: 'listening', port: 1 }),
+    );
+    expect(event).toMatchObject({ kind: 'record', message: 'looked up order' });
+  });
+
+  test("an older service's bare events still count; the pack's own JSON output is its own", () => {
+    expect(serviceEvent('{"kind":"listening","port":7}')).toEqual({ kind: 'listening', port: 7 });
+    expect(serviceEvent('{"kind":"call","id":"x","outcome":"tool-error"}')).toMatchObject({
+      kind: 'call',
+    });
+    // Before records, any JSON line with a `kind` was swallowed as an event.
+    expect(serviceEvent('{"kind":"refund","amount":3}')).toBeUndefined();
+    expect(serviceEvent('{"orderId":"o-1"}')).toBeUndefined();
+    expect(serviceEvent('plain text')).toBeUndefined();
+    expect(serviceEvent('[1,2]')).toBeUndefined();
+  });
+});

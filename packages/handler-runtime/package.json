@@ -60,6 +60,7 @@
   "dependencies": {
     "@kindgi/env-schema": "workspace:*",
     "@kindgi/flow": "workspace:*",
+    "@kindgi/log": "workspace:*",
     "@kindgi/sandbox": "workspace:*",
     "@kindgi/schema": "workspace:*",
     "@kindgi/types": "workspace:*",
