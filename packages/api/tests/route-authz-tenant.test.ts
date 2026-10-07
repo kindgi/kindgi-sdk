@@ -1,0 +1,151 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Kindgi Inc.
+
+/**
+ * Tenant-wide routes ask for the tenant (T243 A, finding g): providers,
+ * policies, adapters, capabilities, signing keys and deployments need
+ * `read` on the tenant to read and `admin` to change; webhook endpoints
+ * and compliance evidence need `admin` for every call. Each route, with
+ * no grants, is refused 403 having asked the PDP for exactly that, and
+ * every pair asked is one the authorization model defines
+ * (`OBJECT_ACTIONS`: the tenant has no `write`).
+ */
+
+import { randomUUID } from 'node:crypto';
+
+import { describe, expect, test } from 'vitest';
+
+import {
+  type Action,
+  type AuthzCheckBinding,
+  type Decision,
+  OBJECT_ACTIONS,
+  type ObjectType,
+  type ResourceRef,
+} from '@kindgi/authz';
+import { createStubAppBindings } from '@kindgi/testing';
+import type { TenantId, UserId } from '@kindgi/types';
+
+import { createApp } from '../src/index.js';
+import type { RunHandlerBinding, TokenResolver } from '../src/index.js';
+
+const tenantId = randomUUID() as TenantId;
+const TOKEN = 'route-authz-token';
+const resolveToken: TokenResolver = async (token) =>
+  token === TOKEN ? { tenantId, userId: 'user-1' as UserId } : null;
+
+/** A binding whose every method fails: a refused request never reaches it. */
+const unreached = () =>
+  new Proxy(
+    {},
+    {
+      get: () => async () => {
+        throw new Error('a refused request reached the binding');
+      },
+    },
+  ) as never;
+
+function harness() {
+  const asked: string[] = [];
+  const decide = (action: Action, resource: ResourceRef): Decision => {
+    asked.push(`${action} ${resource.type}`);
+    return {
+      allowed: false,
+      reason: 'test: no grants',
+      evidence: {
+        action,
+        relation: '',
+        resource: `${resource.type}:${resource.id}`,
+        actorSubject: '',
+      },
+    };
+  };
+  const app = createApp({
+    ...createStubAppBindings(),
+    resolveToken,
+    runHandler: {} as RunHandlerBinding,
+    capabilityRegistry: unreached(),
+    providerRegistry: unreached(),
+    adapterRegistry: unreached(),
+    webhookEndpoints: unreached(),
+    policyRegistry: unreached(),
+    signingKeyRegistry: unreached(),
+    deploymentRegistry: unreached(),
+    imageRegistry: unreached(),
+    auditEvents: unreached(),
+    complianceClassifier: unreached(),
+    complianceGenerator: unreached(),
+    authz: {
+      fgaApiUrl: 'http://fga.invalid',
+      authzCheckBinding: {
+        check: async (_p, action, resource) => decide(action, resource),
+        checkBatch: async (_p, action, resources) => resources.map((r) => decide(action, r)),
+      } satisfies AuthzCheckBinding,
+    },
+  });
+  return { app, asked };
+}
+
+const READ = 'read tenant';
+const ADMIN = 'admin tenant';
+
+const ROUTES: readonly (readonly [string, string, string])[] = [
+  ['GET', '/v1/capabilities', READ],
+  ['GET', '/v1/capabilities/x', READ],
+  ['GET', '/v1/providers', READ],
+  ['GET', '/v1/providers/p', READ],
+  ['GET', '/v1/providers/p/capabilities', READ],
+  ['POST', '/v1/providers', ADMIN],
+  ['POST', '/v1/providers/p/unregister', ADMIN],
+  ['GET', '/v1/policies', READ],
+  ['GET', '/v1/policies/p', READ],
+  ['GET', '/v1/policies/p/versions', READ],
+  ['GET', '/v1/policies/p/versions/1.0.0', READ],
+  ['POST', '/v1/policies', ADMIN],
+  ['POST', '/v1/policies/p/versions/1.0.0/unregister', ADMIN],
+  ['POST', '/v1/policies/p/versions/1.0.0/reinstate', ADMIN],
+  ['GET', '/v1/adapters', READ],
+  ['GET', '/v1/adapters/a', READ],
+  ['POST', '/v1/adapters/a/test', ADMIN],
+  ['POST', '/v1/adapters/a/prepare', ADMIN],
+  ['GET', '/v1/signing-keys', READ],
+  ['GET', '/v1/signing-keys/k', READ],
+  ['POST', '/v1/signing-keys', ADMIN],
+  ['POST', '/v1/signing-keys/k/revoke', ADMIN],
+  ['GET', '/v1/deployments', READ],
+  ['GET', '/v1/deployments/d', READ],
+  ['POST', '/v1/deployments', ADMIN],
+  ['POST', '/v1/deployments/d/secrets', ADMIN],
+  ['GET', '/v1/webhook-endpoints', ADMIN],
+  ['GET', '/v1/webhook-endpoints/e', ADMIN],
+  ['POST', '/v1/webhook-endpoints', ADMIN],
+  ['POST', '/v1/webhook-endpoints/generate-secret', ADMIN],
+  ['PATCH', '/v1/webhook-endpoints/e', ADMIN],
+  ['POST', '/v1/webhook-endpoints/e/unregister', ADMIN],
+  ['GET', '/v1/webhook-endpoints/e/deliveries', ADMIN],
+  ['POST', '/v1/webhook-endpoints/e/deliveries/d/redeliver', ADMIN],
+  ['POST', '/v1/webhook-endpoints/e/test', ADMIN],
+  ['GET', '/v1/compliance/evidence', ADMIN],
+  ['GET', '/v1/compliance/evidence/x', ADMIN],
+  ['POST', '/v1/compliance/evidence/export', ADMIN],
+];
+
+describe('tenant-wide routes ask for the tenant', () => {
+  test.each(ROUTES)('%s %s needs %s', async (method, path, needs) => {
+    const { app, asked } = harness();
+    const res = await app.request(path, {
+      method,
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      ...(method !== 'GET' && { body: '{}' }),
+    });
+    expect(res.status).toBe(403);
+    expect(asked).toEqual([needs]);
+  });
+
+  test('every pair asked is one the authorization model defines', () => {
+    for (const [, , needs] of ROUTES) {
+      const [action, type] = needs.split(' ') as [Action, ObjectType];
+      expect(OBJECT_ACTIONS[type], needs).toContain(action);
+    }
+  });
+});
