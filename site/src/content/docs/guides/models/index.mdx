@@ -26,10 +26,12 @@ it offers: each model's features, context window and price.
 How a turn picks among them is on
 [Choose the model an agent uses](../agents/choose-a-model/).
 
-A model call that fails on a passing error, a rate limit (`429`) or an
-overloaded model (`503`), is retried with a backoff before the turn fails:
-three attempts in all. The Gemini adapter sets that; the Anthropic and
-OpenAI-compatible adapters keep their SDKs' defaults, also three attempts.
+A model call that fails with a temporary error (a timeout, `408`; a rate
+limit, `429`; an overloaded or failing server, `500`, `502`, `503` or `504`)
+is tried again, waiting longer each time, three attempts in all, before the
+turn fails. Every adapter does this: the Gemini adapter sets it, and the
+Anthropic and OpenAI-compatible ones keep their SDKs' defaults. The waits
+count against the turn's time budget (`maxWallMs`).
 
 ## Before you register one
 
