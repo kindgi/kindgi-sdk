@@ -48,4 +48,12 @@ export interface LogEntry {
   readonly prevHash: string;
   readonly entryHash: string;
   readonly causedByLogId?: string;
+  /**
+   * How `entryHash` was computed. `2`: over the payload's hash
+   * (`contentHash`), so a payload cleared by an erasure still verifies.
+   * `1` (entries from before): over the payload itself. Absent: 1.
+   */
+  readonly hashVersion?: 1 | 2;
+  /** When an erasure cleared `payload` (its `contentHash` stays). */
+  readonly payloadErasedAt?: Timestamp;
 }
