@@ -20,7 +20,9 @@ export { defineAgent } from './define.js';
 export {
   BLOCK_KINDS,
   MODEL_SETTINGS_SCHEMA,
+  TUNABLE_MARKER,
   settingsSchemaIssues,
+  tunableKeys,
   validateBlock,
 } from './blocks.js';
 export type {
@@ -32,6 +34,7 @@ export type {
   ModelSettings,
   PromptBlockContent,
   SettingsBlockContent,
+  TunableKey,
 } from './blocks.js';
 export type { DefineAgentSpec } from './define.js';
 export { resolveEffectiveHitlPolicy } from './hitl-policy.js';
