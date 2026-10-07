@@ -84,6 +84,7 @@ const entry = (over: Partial<MemoryErasureLedgerEntry> = {}): MemoryErasureLedge
 function harness(behaviour: { refuse?: boolean; unmatchable?: boolean } = {}) {
   const created: { selector: MemoryErasureSelector; requestedBy: string }[] = [];
   const replayed: MemoryErasureLedgerEntry[][] = [];
+  const resumed: { id: string; force: boolean }[] = [];
   const known = erasure({ status: 'completed', phase: 'done' });
   const binding: MemoryErasureBinding = {
     async create({ selector, requestedBy }) {
@@ -113,6 +114,12 @@ function harness(behaviour: { refuse?: boolean; unmatchable?: boolean } = {}) {
     async exportLedger() {
       return [entry()];
     },
+    async resume(_t, id, options) {
+      resumed.push({ id, force: options.force === true });
+      return id === known.id
+        ? { ...known, ...(options.force === true && { forced: true as const }) }
+        : undefined;
+    },
     async replay(_t, entries) {
       replayed.push([...entries]);
       return { replayed: entries.map((e) => e.id), restored: [], unmatched: [] };
@@ -136,7 +143,7 @@ function harness(behaviour: { refuse?: boolean; unmatchable?: boolean } = {}) {
     });
     return { status: res.status, body: (await res.json()) as Record<string, any> };
   };
-  return { call, created, replayed, known };
+  return { call, created, replayed, resumed, known };
 }
 
 describe('POST /v1/memory/erasures', () => {
@@ -251,5 +258,32 @@ describe('POST /v1/memory/erasures/replay', () => {
     const res = await harness().call('POST', '/v1/memory/erasures/replay', body);
     expect(res.status).toBe(400);
     expect(res.body.error.message).toContain(message);
+  });
+});
+
+describe('POST /v1/memory/erasures/{erasureId}/resume', () => {
+  test('tries again now; `force` stops the wait; 404 for an unknown one; 400 for a bad body', async () => {
+    const h = harness();
+    const plain = await h.call('POST', `/v1/memory/erasures/${h.known.id}/resume`, {});
+    expect(plain.status).toBe(200);
+    expect(plain.body.forced).toBeUndefined();
+    const forced = await h.call('POST', `/v1/memory/erasures/${h.known.id}/resume`, {
+      force: true,
+    });
+    expect(forced.body.forced).toBe(true);
+    expect(h.resumed).toEqual([
+      { id: h.known.id, force: false },
+      { id: h.known.id, force: true },
+    ]);
+    expect((await h.call('POST', `/v1/memory/erasures/${randomUUID()}/resume`, {})).status).toBe(
+      404,
+    );
+    expect(
+      (await h.call('POST', `/v1/memory/erasures/${h.known.id}/resume`, { force: 'yes' })).status,
+    ).toBe(400);
+    expect(
+      (await h.call('POST', `/v1/memory/erasures/${h.known.id}/resume`, { force: true }, MEMBER))
+        .status,
+    ).toBe(403);
   });
 });

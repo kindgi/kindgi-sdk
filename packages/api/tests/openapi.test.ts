@@ -366,6 +366,7 @@ const noopMemoryErasures: MemoryErasureBinding = {
   get: async () => undefined,
   list: async () => ({ data: [] }),
   exportLedger: async () => [],
+  resume: async () => undefined,
   replay: async () => ({ replayed: [], restored: [], unmatched: [] }),
 };
 

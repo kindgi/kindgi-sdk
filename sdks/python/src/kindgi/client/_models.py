@@ -3479,6 +3479,19 @@ class MemoryErasureSelector3(BaseModel):
 CountsAdditionalProperty = TypeAliasType("CountsAdditionalProperty", Annotated[int, Field(ge=0)])
 
 
+class WaitingOn(BaseModel):
+    """
+    The run it waits (or waited) for, and until when; kept as the record of the wait.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    run_id: Annotated[UUID, Field(alias="runId")]
+    until: AwareDatetime | None = None
+
+
 class MemoryErasure(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -3493,7 +3506,10 @@ class MemoryErasure(BaseModel):
     """
     Only while it runs: a completed or failed erasure keeps no identifier.
     """
-    status: Literal["pending", "running", "completed", "failed"]
+    status: Literal["pending", "running", "waiting-on-run", "completed", "failed"]
+    """
+    `waiting-on-run`: a turn of the person's sits in a flow that serves other people; the erasure waits for it (`waitingOn`) until its deadline, then cancels it.
+    """
     phase: Literal["seed", "expand", "erase", "done"]
     requested_by: Annotated[str, Field(alias="requestedBy")]
     """
@@ -3514,6 +3530,14 @@ class MemoryErasure(BaseModel):
     last_error: Annotated[str | None, Field(alias="lastError")] = None
     """
     The last failure's code, or `not-yet:<reason>` while it waits. Never content.
+    """
+    waiting_on: Annotated[WaitingOn | None, Field(alias="waitingOn")] = None
+    """
+    The run it waits (or waited) for, and until when; kept as the record of the wait.
+    """
+    forced: Literal[True] | None = None
+    """
+    A tenant admin said not to wait.
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     started_at: Annotated[AwareDatetime | None, Field(alias="startedAt")] = None
@@ -3572,7 +3596,10 @@ class MemoryErasureLedgerEntry(BaseModel):
     Which ledger key made `selectorHmac`.
     """
     requested_by: Annotated[str, Field(alias="requestedBy")]
-    status: Literal["pending", "running", "completed", "failed"]
+    status: Literal["pending", "running", "waiting-on-run", "completed", "failed"]
+    """
+    `waiting-on-run`: a turn of the person's sits in a flow that serves other people; the erasure waits for it (`waitingOn`) until its deadline, then cancels it.
+    """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
 
@@ -3593,6 +3620,17 @@ class ReplayMemoryErasuresBody(BaseModel):
     erasures: Annotated[list[MemoryErasureLedgerEntry], Field(max_length=10000)]
     """
     The ledger as `GET /v1/memory/erasures/export` gave it.
+    """
+
+
+class ResumeMemoryErasureBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    force: bool | None = None
+    """
+    Stop waiting for a run in a flow that serves other people: it's cancelled, and the erasure goes on.
     """
 
 

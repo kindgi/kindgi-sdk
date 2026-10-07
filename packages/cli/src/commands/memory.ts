@@ -471,11 +471,40 @@ const erasuresReplay: LeafCommand = {
     }),
 };
 
+const erasuresResume: LeafCommand = {
+  kind: 'leaf',
+  name: 'resume',
+  description:
+    'Try an erasure again now; --force stops one waiting on a run in a flow that serves other people (that run is cancelled).',
+  usage: 'kindgi memory erasures resume <erasure-id> [--force]',
+  optionSpec: {
+    force: {
+      type: 'boolean',
+      description:
+        "Don't wait for the shared flow's run: cancel it and go on (it would otherwise wait until its deadline).",
+    },
+  },
+  run: (ctx) =>
+    runSdk(ctx, 'memory erasures resume', async () =>
+      ctx.client().memory.erasures.resume(requiredPositional(ctx, 0, '<erasure-id>'), {
+        ...(ctx.options.force === true && { force: true }),
+      }),
+    ),
+};
+
 const erasuresGroup: Command = {
   kind: 'group',
   name: 'erasures',
-  description: "Erasing a person's words: create, get, list, export, replay (a tenant admin only).",
-  subcommands: [erasuresCreate, erasuresGet, erasuresList, erasuresExport, erasuresReplay],
+  description:
+    "Erasing a person's words: create, get, list, resume, export, replay (a tenant admin only).",
+  subcommands: [
+    erasuresCreate,
+    erasuresGet,
+    erasuresList,
+    erasuresResume,
+    erasuresExport,
+    erasuresReplay,
+  ],
 };
 
 export const memoryCommand: Command = {

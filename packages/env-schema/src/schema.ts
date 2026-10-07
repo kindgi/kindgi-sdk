@@ -361,6 +361,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_ERASURE_SHARED_WAIT_MS',
+    description:
+      "How long an erasure waits for a turn of the person's that sits in a flow serving other people (cancelling it now could end their work), in milliseconds. The erasure shows `waiting-on-run`, naming the run, until then; at the deadline it cancels the run and goes on, and a tenant admin can stop the wait sooner (`kindgi memory erasures resume <id> --force`). Default 604800000 (7 days).",
+    example: '604800000',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_COMPLIANCE_CLASSIFIER',
     description:
       "Turns on the audit trail's compliance features: `shipped` uses the classifier the runtime ships; or give the absolute path of your own classifier JSON. When set, the server serves `/v1/compliance/*` (audit events as compliance evidence, and their signed export) and **purges audit events by kind, as the classifier says**. With `shipped`: authorization decisions after 90 days (denials after 365), run outcomes and guardrail violations after 730 days; secret changes and approval decisions are kept (legal hold), and so are kinds the classifier doesn't list. Unset (the default): no `/v1/compliance/*`, and no audit event is ever purged.",

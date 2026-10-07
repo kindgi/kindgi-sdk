@@ -98,6 +98,14 @@ export interface MemoryErasuresClient {
   /** The whole ledger, content-free, to keep off-box. @wire `GET /v1/memory/erasures/export` */
   export(): Promise<readonly MemoryErasureLedgerEntry[]>;
   /**
+   * Try an unfinished erasure again now. With `force`, one
+   * `waiting-on-run` (a turn of the person's in a flow serving other
+   * people) stops waiting: the run is cancelled and it goes on.
+   *
+   * @wire `POST /v1/memory/erasures/{erasureId}/resume`
+   */
+  resume(id: string, options?: { readonly force?: boolean }): Promise<MemoryErasure>;
+  /**
    * After restoring a backup: the exported ledger back, and its
    * erasures run again for whoever the tenant holds again.
    *
@@ -238,6 +246,13 @@ export function makeMemoryClient(transport: Transport): MemoryClient {
           },
         });
         return listPage(page);
+      },
+      async resume(id, options) {
+        return transport.request<MemoryErasure>({
+          method: 'POST',
+          path: `/v1/memory/erasures/${encodeURIComponent(id)}/resume`,
+          body: { ...(options?.force === true && { force: true }) },
+        });
       },
       async export() {
         const ledger = await transport.request<{

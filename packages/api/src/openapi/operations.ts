@@ -3039,6 +3039,26 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'post',
+    honoPath: '/v1/memory/erasures/:erasureId/resume',
+    openapiPath: '/v1/memory/erasures/{erasureId}/resume',
+    operationId: 'memory.resumeErasure',
+    summary: 'Resume an erasure',
+    description:
+      "Tries an unfinished erasure again now. With `force: true`, an erasure `waiting-on-run` (a turn of the person's in a flow that serves other people) stops waiting: the run is cancelled and the erasure goes on; without it, it waits until its deadline (`waitingOn.until`). A finished erasure comes back as it is. Requires `admin` on the tenant.",
+    tags: ['memory'],
+    security: 'bearer',
+    parameters: [ErasureIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: false, schema: ref('ResumeMemoryErasureBody') },
+    responses: {
+      '200': { description: 'The erasure.', schema: ref('MemoryErasure') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('The body is `{force?: boolean}`.'),
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse('No such erasure in this tenant.'),
+    },
+  },
+  {
     method: 'get',
     honoPath: '/v1/memory/erasures/:erasureId',
     openapiPath: '/v1/memory/erasures/{erasureId}',

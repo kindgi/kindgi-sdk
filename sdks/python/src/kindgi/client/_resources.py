@@ -258,6 +258,9 @@ OPERATIONS: dict[str, Operation] = {
     "memory.replayErasures": Operation(
         "memory.replayErasures", "POST", "/v1/memory/erasures/replay", "json", True
     ),
+    "memory.resumeErasure": Operation(
+        "memory.resumeErasure", "POST", "/v1/memory/erasures/{erasureId}/resume", "json", True
+    ),
     "memory.getErasure": Operation(
         "memory.getErasure", "GET", "/v1/memory/erasures/{erasureId}", "json", False
     ),
@@ -2709,6 +2712,30 @@ class MemoryResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.ReplayMemoryErasuresBody, body, fields),
             response=_models.ReplayMemoryErasuresResult,
+            timeout=timeout,
+        )
+
+    def resume_erasure(
+        self,
+        erasure_id: str,
+        body: _models.ResumeMemoryErasureBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.MemoryErasure:
+        """Resume an erasure. `POST /v1/memory/erasures/{erasureId}/resume`
+
+        Tries an unfinished erasure again now. With `force: true`, an erasure `waiting-on-run` (a turn of the person's in a flow that serves other people) stops waiting: the run is cancelled and the erasure goes on; without it, it waits until its deadline (`waitingOn.until`). A finished erasure comes back as it is. Requires `admin` on the tenant.
+        """
+        return self._client._request(
+            _OPERATIONS["memory.resumeErasure"],
+            path={"erasureId": erasure_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ResumeMemoryErasureBody, body, fields),
+            response=_models.MemoryErasure,
             timeout=timeout,
         )
 
@@ -8739,6 +8766,30 @@ class AsyncMemoryResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.ReplayMemoryErasuresBody, body, fields),
             response=_models.ReplayMemoryErasuresResult,
+            timeout=timeout,
+        )
+
+    async def resume_erasure(
+        self,
+        erasure_id: str,
+        body: _models.ResumeMemoryErasureBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.MemoryErasure:
+        """Resume an erasure. `POST /v1/memory/erasures/{erasureId}/resume`
+
+        Tries an unfinished erasure again now. With `force: true`, an erasure `waiting-on-run` (a turn of the person's in a flow that serves other people) stops waiting: the run is cancelled and the erasure goes on; without it, it waits until its deadline (`waitingOn.until`). A finished erasure comes back as it is. Requires `admin` on the tenant.
+        """
+        return await self._client._request(
+            _OPERATIONS["memory.resumeErasure"],
+            path={"erasureId": erasure_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ResumeMemoryErasureBody, body, fields),
+            response=_models.MemoryErasure,
             timeout=timeout,
         )
 

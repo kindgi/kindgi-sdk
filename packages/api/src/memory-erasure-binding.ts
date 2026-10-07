@@ -30,6 +30,16 @@ export interface MemoryErasureBinding {
   ): Promise<{ readonly data: readonly MemoryErasure[]; readonly nextCursor?: string } | undefined>;
   /** The whole ledger, content-free, oldest first. */
   exportLedger(tenantId: TenantId): Promise<readonly MemoryErasureLedgerEntry[]>;
+  /**
+   * Try an unfinished erasure again now; with `force`, stop waiting for a
+   * run in a flow that serves other people (it's cancelled). A finished
+   * one comes back as it is; `undefined` when there's no such erasure.
+   */
+  resume(
+    tenantId: TenantId,
+    id: string,
+    options: { readonly force?: boolean },
+  ): Promise<MemoryErasure | undefined>;
   /** After a backup restore: restore the ledger and run its erasures again. */
   replay(
     tenantId: TenantId,
@@ -59,7 +69,12 @@ export type MemoryErasureSelectorKind =
   | 'external'
   | 'conversation';
 
-export type MemoryErasureStatus = 'pending' | 'running' | 'completed' | 'failed';
+/**
+ * `waiting-on-run`: a turn of the person's sits in a flow that serves
+ * other people; the erasure waits for it (`waitingOn`) until its
+ * deadline, then cancels it. `resume` with `force` stops the wait.
+ */
+export type MemoryErasureStatus = 'pending' | 'running' | 'waiting-on-run' | 'completed' | 'failed';
 
 export interface MemoryErasure {
   readonly id: string;
@@ -78,6 +93,10 @@ export interface MemoryErasure {
   readonly attempts: number;
   /** The last failure's code, or why it's waiting (`not-yet:<reason>`). Never content. */
   readonly lastError?: string;
+  /** The run it waits (or waited) for, and until when; kept as the record of the wait. */
+  readonly waitingOn?: { readonly runId: string; readonly until?: string };
+  /** A tenant admin said not to wait. */
+  readonly forced?: true;
   readonly createdAt: string;
   readonly startedAt?: string;
   readonly completedAt?: string;

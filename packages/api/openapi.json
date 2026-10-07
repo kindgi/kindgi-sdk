@@ -6957,9 +6957,11 @@
             "enum": [
               "pending",
               "running",
+              "waiting-on-run",
               "completed",
               "failed"
-            ]
+            ],
+            "description": "`waiting-on-run`: a turn of the person's sits in a flow that serves other people; the erasure waits for it (`waitingOn`) until its deadline, then cancels it."
           },
           "phase": {
             "type": "string",
@@ -6994,6 +6996,29 @@
           "lastError": {
             "type": "string",
             "description": "The last failure's code, or `not-yet:<reason>` while it waits. Never content."
+          },
+          "waitingOn": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "runId"
+            ],
+            "properties": {
+              "runId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "until": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "description": "The run it waits (or waited) for, and until when; kept as the record of the wait."
+          },
+          "forced": {
+            "type": "boolean",
+            "const": true,
+            "description": "A tenant admin said not to wait."
           },
           "createdAt": {
             "type": "string",
@@ -7112,9 +7137,11 @@
             "enum": [
               "pending",
               "running",
+              "waiting-on-run",
               "completed",
               "failed"
-            ]
+            ],
+            "description": "`waiting-on-run`: a turn of the person's sits in a flow that serves other people; the erasure waits for it (`waitingOn`) until its deadline, then cancels it."
           },
           "createdAt": {
             "type": "string",
@@ -7155,6 +7182,16 @@
               "$ref": "#/components/schemas/MemoryErasureLedgerEntry"
             },
             "description": "The ledger as `GET /v1/memory/erasures/export` gave it."
+          }
+        }
+      },
+      "ResumeMemoryErasureBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "force": {
+            "type": "boolean",
+            "description": "Stop waiting for a run in a flow that serves other people: it's cancelled, and the erasure goes on."
           }
         }
       },
@@ -23633,6 +23670,125 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ReplayMemoryErasuresBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/memory/erasures/{erasureId}/resume": {
+      "post": {
+        "operationId": "memory.resumeErasure",
+        "summary": "Resume an erasure",
+        "tags": [
+          "memory"
+        ],
+        "responses": {
+          "200": {
+            "description": "The erasure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryErasure"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is `{force?: boolean}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such erasure in this tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Tries an unfinished erasure again now. With `force: true`, an erasure `waiting-on-run` (a turn of the person's in a flow that serves other people) stops waiting: the run is cancelled and the erasure goes on; without it, it waits until its deadline (`waitingOn.until`). A finished erasure comes back as it is. Requires `admin` on the tenant.",
+        "parameters": [
+          {
+            "name": "erasureId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The erasure (a UUID)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResumeMemoryErasureBody"
               }
             }
           }

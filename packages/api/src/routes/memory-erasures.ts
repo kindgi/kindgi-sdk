@@ -27,6 +27,8 @@ import { clampLimit } from './pagination.js';
  *   - `GET  /v1/memory/erasures/export`   the whole ledger, content-free,
  *                                         to keep off-box
  *   - `GET  /v1/memory/erasures/:id`      one, and how far it got
+ *   - `POST /v1/memory/erasures/:id/resume`  try again now; `force`: stop
+ *                                         waiting for a shared flow's run
  *   - `POST /v1/memory/erasures/replay`   after a backup restore: the
  *                                         exported ledger back, its
  *                                         erasures run again
@@ -96,6 +98,25 @@ export function memoryErasuresRouter(
     return c.json(await binding.replay(tenantId, entries));
   });
 
+  r.post('/:erasureId/resume', async (c) => {
+    const tenantId = c.get('tenantId') as TenantId;
+    const id = c.req.param('erasureId');
+    const body = (await jsonBody(c)) ?? {};
+    const force = (body as { force?: unknown }).force;
+    if (
+      typeof body !== 'object' ||
+      Array.isArray(body) ||
+      (force !== undefined && typeof force !== 'boolean')
+    ) {
+      return fail(c, 'bad-input', 'The body is `{force?: boolean}`');
+    }
+    const erasure = UUID.test(id)
+      ? await binding.resume(tenantId, id, { ...(force === true && { force: true }) })
+      : undefined;
+    if (erasure === undefined) return fail(c, 'not-found', `No erasure ${id}`);
+    return c.json(erasure);
+  });
+
   r.get('/:erasureId', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
     const id = c.req.param('erasureId');
@@ -116,7 +137,7 @@ const SELECTOR_KINDS: readonly MemoryErasureSelectorKind[] = [
   'external',
   'conversation',
 ];
-const STATUSES = ['pending', 'running', 'completed', 'failed'] as const;
+const STATUSES = ['pending', 'running', 'waiting-on-run', 'completed', 'failed'] as const;
 const MAX_ID = 256;
 const MAX_LEDGER = 10_000;
 

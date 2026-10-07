@@ -1252,7 +1252,7 @@ export type MemoryErasureSelector =
     }
   | { readonly conversationId: string };
 
-export type MemoryErasureStatus = 'pending' | 'running' | 'completed' | 'failed';
+export type MemoryErasureStatus = 'pending' | 'running' | 'waiting-on-run' | 'completed' | 'failed';
 
 /** An erasure and how far it got. Matches `@kindgi/api/openapi.json#MemoryErasure`. */
 export interface MemoryErasure {
@@ -1270,6 +1270,13 @@ export interface MemoryErasure {
   readonly attempts: number;
   /** The last failure's code, or `not-yet:<reason>` while it waits. Never content. */
   readonly lastError?: string;
+  /**
+   * The run it waits (or waited) for, and until when: a turn of the
+   * person's in a flow that serves other people (`waiting-on-run`).
+   */
+  readonly waitingOn?: { readonly runId: string; readonly until?: string };
+  /** A tenant admin said not to wait. */
+  readonly forced?: true;
   readonly createdAt: string;
   readonly startedAt?: string;
   readonly completedAt?: string;

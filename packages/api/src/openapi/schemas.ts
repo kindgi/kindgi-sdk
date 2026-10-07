@@ -3488,7 +3488,9 @@ const ErasureSelectorKindSchema: JsonSchema = {
 
 const ErasureStatusSchema: JsonSchema = {
   type: 'string',
-  enum: ['pending', 'running', 'completed', 'failed'],
+  enum: ['pending', 'running', 'waiting-on-run', 'completed', 'failed'],
+  description:
+    "`waiting-on-run`: a turn of the person's sits in a flow that serves other people; the erasure waits for it (`waitingOn`) until its deadline, then cancels it.",
 };
 
 /** Whose words to erase: exactly one of a fact, a person or a conversation. */
@@ -3566,10 +3568,34 @@ export const MemoryErasureSchema: JsonSchema = {
       type: 'string',
       description: "The last failure's code, or `not-yet:<reason>` while it waits. Never content.",
     },
+    waitingOn: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['runId'],
+      properties: {
+        runId: { type: 'string', format: 'uuid' },
+        until: { type: 'string', format: 'date-time' },
+      },
+      description:
+        'The run it waits (or waited) for, and until when; kept as the record of the wait.',
+    },
+    forced: { type: 'boolean', const: true, description: 'A tenant admin said not to wait.' },
     createdAt: { type: 'string', format: 'date-time' },
     startedAt: { type: 'string', format: 'date-time' },
     completedAt: { type: 'string', format: 'date-time' },
     replayedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const ResumeMemoryErasureBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    force: {
+      type: 'boolean',
+      description:
+        "Stop waiting for a run in a flow that serves other people: it's cancelled, and the erasure goes on.",
+    },
   },
 };
 
@@ -8834,6 +8860,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['MemoryErasureLedgerEntry', MemoryErasureLedgerEntrySchema],
   ['MemoryErasureLedger', MemoryErasureLedgerSchema],
   ['ReplayMemoryErasuresBody', ReplayMemoryErasuresBodySchema],
+  ['ResumeMemoryErasureBody', ResumeMemoryErasureBodySchema],
   ['ReplayMemoryErasuresResult', ReplayMemoryErasuresResultSchema],
   ['ProposalTier', ProposalTierSchema],
   ['FixProposalStatus', FixProposalStatusSchema],

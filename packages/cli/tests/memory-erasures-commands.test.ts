@@ -70,6 +70,7 @@ async function erasures(argv: readonly string[]) {
             list: record('list', { data: [ERASURE], hasMore: false, items: [ERASURE] }),
             export: record('export', [ENTRY]),
             replay: record('replay', { replayed: [ENTRY.id], restored: [], unmatched: [] }),
+            resume: record('resume', { ...ERASURE, forced: true }),
           },
         },
       }) as never,
@@ -130,5 +131,12 @@ describe('kindgi memory erasures (T273 M-5)', () => {
     const refused = await erasures(['replay', bad]);
     expect(refused.out.exitCode).not.toBe(0);
     expect(refused.out.stderr).toContain("isn't an export");
+  });
+
+  test('resume, with and without --force', async () => {
+    expect((await erasures(['resume', ERASURE.id])).calls).toEqual([['resume', ERASURE.id, {}]]);
+    expect((await erasures(['resume', ERASURE.id, '--force'])).calls).toEqual([
+      ['resume', ERASURE.id, { force: true }],
+    ]);
   });
 });

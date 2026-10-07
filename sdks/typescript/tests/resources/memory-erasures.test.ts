@@ -74,4 +74,14 @@ describe('memory.erasures', () => {
     expect(result.replayed).toEqual([ENTRY.id]);
     expect(JSON.parse(replay.stub.calls[0]?.body ?? '{}')).toEqual({ erasures: [ENTRY] });
   });
+
+  it('resume POSTs force', async () => {
+    const { stub, kindgi } = client({ ...ERASURE, forced: true });
+    const resumed = await kindgi.memory.erasures.resume(ERASURE.id, { force: true });
+    expect(resumed.forced).toBe(true);
+    expect(stub.calls[0]?.url).toBe(
+      `https://api.example.com/v1/memory/erasures/${ERASURE.id}/resume`,
+    );
+    expect(JSON.parse(stub.calls[0]?.body ?? '{}')).toEqual({ force: true });
+  });
 });
