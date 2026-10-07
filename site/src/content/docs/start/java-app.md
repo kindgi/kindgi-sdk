@@ -30,24 +30,32 @@ cd kindgi-sdk/sdks/java
 ./mvnw -q help:evaluate -Dexpression=project.version -DforceStdout
 ```
 
-The last command prints the version you built (`VERSION`). In your app,
-it's one dependency:
+The last command prints the version you built:
+
+```text
+0.1.4-rc.4
+```
+
+In your app, the client is one dependency, at that version:
 
 ```xml
 <dependency>
   <groupId>com.kindgi</groupId>
   <artifactId>kindgi-client</artifactId>
-  <version>VERSION</version>
+  <version>0.1.4-rc.4</version>
 </dependency>
 ```
 
-It brings `kindgi-models` (the API's records) and no JSON library of its
-own that you'd see: your app's Jackson, if it has one, stays as it is.
+It brings `kindgi-models`, the API's records. It uses its own copy of
+Jackson, inside its jar, so your app's Jackson (its version and its
+settings) is left alone; that's checked with Spring Boot 3.2 to 4.1.
 
 ## 2. Start a run and follow it
 
-To try it, make a small app in a folder inside the pack, `my-pack/hello-java`,
-with this `pom.xml` (put your `VERSION` in it):
+To try it, make a small app in a folder inside the pack, `my-pack/hello-java`:
+`Kindgi.create()` finds the running `kindgi dev` through the nearest
+`.kindgirc.json` above the folder the app runs in, which is the pack's. Its
+`pom.xml`:
 
 ```xml
 <!-- my-pack/hello-java/pom.xml -->
@@ -64,7 +72,7 @@ with this `pom.xml` (put your `VERSION` in it):
     <dependency>
       <groupId>com.kindgi</groupId>
       <artifactId>kindgi-client</artifactId>
-      <version>VERSION</version>
+      <version>0.1.4-rc.4</version>
     </dependency>
   </dependencies>
 </project>
@@ -107,7 +115,9 @@ public final class StartRun {
 }
 ```
 
-Run it, with `kindgi dev` still running:
+Run it, with `kindgi dev` still running. This needs Maven 3.9 or later
+(`mvn`); without it, use the wrapper in the SDK you cloned
+(`…/kindgi-sdk/sdks/java/mvnw` in place of `mvn`):
 
 ```sh
 cd my-pack/hello-java
@@ -170,9 +180,10 @@ try {
 }
 ```
 
-A call that's safe to repeat (a read, or a start with an idempotency key,
-which the client adds for you) is retried after a dropped connection or a
-busy server.
+A call that's safe to repeat (a read, or a call that takes an idempotency
+key, such as starting a run: the client adds one for you) is retried, with
+backoff, after a dropped connection, a timeout, or a 429, 502, 503 or 504
+answer.
 
 **Async:** `client.async()` has the same methods, answering
 `CompletableFuture`s.
@@ -184,9 +195,8 @@ and every request body has a builder that checks it against the API's
 rules before it's sent (a `ValidationException` lists what's wrong).
 
 A newer Kindgi runtime may answer with an enum value or a kind of object
-this client doesn't know yet; the Java client keeps it
-(`status().value()` is `UNRECOGNIZED`) instead of failing, which is
-different from the Python client, on purpose.
+this client doesn't know yet. The Java client keeps it (`status().value()`
+is `UNRECOGNIZED`), where the Python client refuses the whole answer.
 
 More detail is in the client's
 [README](https://github.com/kindgi/kindgi-sdk/tree/main/sdks/java#readme):
