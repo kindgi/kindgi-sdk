@@ -37,7 +37,7 @@ cd ../../..
 ## 2. Create the pack
 
 ```sh tutorial=run
-npx @kindgi/cli init my-pack --template=java
+npx --yes @kindgi/cli@0.1 init my-pack --template=java
 cd my-pack
 ./mvnw -q test    # the template's tests: the tools, called directly
 ```
@@ -62,6 +62,10 @@ The package comes from the pack's id (`my-pack` → `mypack`). A tool, a
 guardrail, an agent or a flow is a `public static final` field of a class
 in its package.
 
+A Java project doesn't pin the Kindgi CLI the way a TypeScript project's
+`package.json` does: run it as `npx --yes @kindgi/cli@0.1`, the minor
+version this page is for, as below.
+
 :::note[No skills for coding agents yet]
 A TypeScript or Python pack gets Kindgi's skills in `.claude/skills/`,
 which teach a coding agent how to write tools and agents. Java has none
@@ -72,7 +76,7 @@ yet: point your agent at the pack's `README.md` and `AGENTS.md` and at
 ## 3. Run it
 
 ```sh tutorial=background ready="Kindgi is up"
-npx @kindgi/cli dev
+npx --yes @kindgi/cli@0.1 dev
 ```
 
 `kindgi dev` checks the JDK (`JAVA_HOME`'s) and Maven (the pack's
@@ -87,8 +91,8 @@ Leave it running.
 In a second terminal, in `my-pack`:
 
 ```sh tutorial=run
-npx @kindgi/cli runs start --agent=my-pack.echo-agent --input='{"userMessage":"Ada"}'
-npx @kindgi/cli runs start --flow=my-pack.echo-flow --input='{"message":"Ada"}'
+npx --yes @kindgi/cli@0.1 runs start --agent=my-pack.echo-agent --input='{"userMessage":"Ada"}'
+npx --yes @kindgi/cli@0.1 runs start --flow=my-pack.echo-flow --input='{"message":"Ada"}'
 ```
 
 ```text tutorial=expect
@@ -184,12 +188,16 @@ Store an Anthropic key as a secret (you're prompted for it; it isn't
 echoed), then register the provider:
 
 ```sh
-npx @kindgi/cli secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
-npx @kindgi/cli providers register --preset=anthropic
+npx --yes @kindgi/cli@0.1 secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
+npx --yes @kindgi/cli@0.1 providers register --preset=anthropic
 ```
 
-It takes over from `dev-echo` at the next turn. Gemini on Vertex AI has a
-preset too; any OpenAI-compatible endpoint registers from a short spec file.
+It takes over from `dev-echo` at the next turn. OpenAI (`OPENAI_API_KEY`,
+`--preset=openai`), Gemini (`GEMINI_API_KEY`, `--preset=gemini-api`), Groq
+(`GROQ_API_KEY`, `--preset=groq`) and OpenRouter (`OPENROUTER_API_KEY`,
+`--preset=openrouter`) work the same way; `kindgi providers presets` lists
+them, Gemini on Vertex AI too. Any OpenAI-compatible endpoint registers from
+a short spec file.
 
 The registration is in this project's dev database. To have `kindgi dev`
 register the model on every boot, in each worktree and after `--reset`,
