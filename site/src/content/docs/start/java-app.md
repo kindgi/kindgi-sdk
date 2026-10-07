@@ -125,9 +125,9 @@ mvn -q compile exec:java
 ```
 
 ```text
-Oct. 07, 2026 3:26:52 P.M. com.kindgi.client.internal.RuntimeSettings warnOnce
+Oct. 07, 2026 4:54:34 P.M. com.kindgi.client.internal.RuntimeSettings warnOnce
 WARNING: [kindgi] Using the running kindgi dev from …/my-pack/.kindgirc.json for KINDGI_API_URL and KINDGI_API_TOKEN. Set them in your env file (.env / .env.local), and in production, where there's no .kindgirc.json.
-started 54fb11a6-2c70-424e-84b4-2facbf9a1dd8
+started 0f5a3f72-7b3e-464c-9936-7ab4b4898e03
 run.started
 run.step-started
 run.step-completed
@@ -135,7 +135,7 @@ run.step-completed
 run.completed
 completed: ⚠ dev-echo isn't a real model: it only repeats what it's given. Add an LLM provider key (Anthropic, OpenAI, Gemini, Groq, OpenRouter…) to get real answers.
 
-Tool responded: {"echo":"hi","echoedAt":"2026-10-07T19:26:53.907Z","characterCount":2}
+Tool responded: {"echo":"hi","echoedAt":"2026-10-07T20:54:35.179Z","characterCount":2}
 ```
 
 The run's events come in as they happen, and `follow` ends with the run. A
