@@ -59,6 +59,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'flow-not-found': 404,
   // 409 — conflict
   'already-terminal': 409,
+  'fact-changed': 409,
+  'legal-hold': 409,
   'run-already-terminal': 409,
   'run-lease-lost': 409,
   'idempotency-key-body-mismatch': 409,
@@ -201,6 +203,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'item-not-found': 400,
   // The judgment binding can't list judged runs, so no test sets from judgments.
   'test-sets-not-supported': 501,
+  'memory-operation-unsupported': 501,
   // Authorization is enforced, but a membership change can't be kept in step with it.
   'authz-membership-unsupported': 501,
   'eval-run-already-terminal': 409,

@@ -3013,7 +3013,7 @@ class ConversationMessageCollectionPage(BaseModel):
 
 class FactScope(BaseModel):
     """
-    Fact scope object. `tenantId` is required; every optional key narrows the fact (`userId`, `orgId`, `projectId`, `threadId`, `sessionId`). Additional keys accepted for forward compatibility.
+    Fact scope object. `tenantId` is required; every optional key narrows the fact (`userId`, `orgId`, `projectId`, `threadId`, `sessionId`, `participantId`). A fact is readable by whoever has every container it names. Additional keys accepted for forward compatibility.
     """
 
     model_config = ConfigDict(
@@ -3026,6 +3026,10 @@ class FactScope(BaseModel):
     project_id: Annotated[str | None, Field(alias="projectId")] = None
     thread_id: Annotated[str | None, Field(alias="threadId")] = None
     session_id: Annotated[str | None, Field(alias="sessionId")] = None
+    participant_id: Annotated[str | None, Field(alias="participantId", min_length=1)] = None
+    """
+    An app's end user, by the app's own id: a fact private to that participant's runs. Needs `projectId`.
+    """
 
 
 class Retention(BaseModel):
@@ -3070,6 +3074,47 @@ class FactSource(BaseModel):
     refresh: SourceRefresh
 
 
+class FactSubject(BaseModel):
+    """
+    Whom a fact is about: what access and erasure requests by person find.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["participant", "user", "external"]
+    id: Annotated[str, Field(min_length=1)]
+
+
+class FactAttribution(BaseModel):
+    """
+    Who asserted a fact, set by the server from the writer.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["user", "service", "agent"]
+    id: str
+    agent_version: Annotated[str | None, Field(alias="agentVersion")] = None
+
+
+class FactGeneratedBy(BaseModel):
+    """
+    The run step that wrote a fact, for one an agent wrote.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    run_id: Annotated[str, Field(alias="runId")]
+    step_id: Annotated[str | None, Field(alias="stepId")] = None
+    tool_call_id: Annotated[str | None, Field(alias="toolCallId")] = None
+
+
 class Fact(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -3077,7 +3122,11 @@ class Fact(BaseModel):
     )
     id: str
     """
-    FactId.
+    The fact id, kept across revisions (for a fact never superseded, also its one revision id).
+    """
+    revision_id: Annotated[str | None, Field(alias="revisionId")] = None
+    """
+    This revision's own id; absent where it equals `id`.
     """
     type: str
     """
@@ -3086,7 +3135,7 @@ class Fact(BaseModel):
     scope: FactScope
     version: Annotated[int, Field(ge=1)]
     """
-    Monotonic version within (scope, id). Supersession increments.
+    The revision number within the fact: 1, then one more per supersede or verify.
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     updated_at: Annotated[AwareDatetime | None, Field(alias="updatedAt")] = None
@@ -3106,7 +3155,44 @@ class Fact(BaseModel):
     caused_by_log_id: Annotated[list[str] | None, Field(alias="causedByLogId")] = None
     supersedes: str | None = None
     """
-    FactId of the predecessor when this row supersedes another.
+    The revision this one replaced.
+    """
+    trust: Literal["verified", "asserted", "unverified"] | None = None
+    """
+    `verified`: a person with the right checked it. `asserted`: an app or a person wrote it. `unverified`: an agent remembered it during a conversation. Absent on facts from before trust was recorded: `asserted`.
+    """
+    verified_by: Annotated[str | None, Field(alias="verifiedBy")] = None
+    verified_at: Annotated[AwareDatetime | None, Field(alias="verifiedAt")] = None
+    attributed_to: Annotated[FactAttribution | None, Field(alias="attributedTo")] = None
+    generated_by: Annotated[FactGeneratedBy | None, Field(alias="generatedBy")] = None
+    subjects: list[FactSubject] | None = None
+    valid_from: Annotated[AwareDatetime | None, Field(alias="validFrom")] = None
+    """
+    When the fact starts being true in the world; absent: always.
+    """
+    valid_until: Annotated[AwareDatetime | None, Field(alias="validUntil")] = None
+    """
+    When the fact stops being true in the world; absent: still true.
+    """
+    observed_at: Annotated[AwareDatetime | None, Field(alias="observedAt")] = None
+    """
+    When it was said or seen.
+    """
+    invalidated_at: Annotated[AwareDatetime | None, Field(alias="invalidatedAt")] = None
+    """
+    When this revision stopped being current; absent: it is current.
+    """
+    invalidated_by: Annotated[str | None, Field(alias="invalidatedBy")] = None
+    """
+    `user:<id>` or `service:<id>`.
+    """
+    invalidation_reason: Annotated[
+        Literal["superseded", "deleted", "erased", "expired"] | None,
+        Field(alias="invalidationReason"),
+    ] = None
+    review: Literal["pending"] | None = None
+    """
+    `pending` while a person must approve it: a pending fact is never retrieved.
     """
 
 
@@ -3125,7 +3211,7 @@ class FactCollectionPage(BaseModel):
 
 class WriteFactBody(BaseModel):
     """
-    Write a fact. `type` selects the retrieval-policy (which indexes populate); `scope.tenantId` MUST match the caller's tenant. Optional `retention` overrides tenant defaults; optional `contentHash` is a caller-supplied idempotence hint (runtime computes its own hash regardless).
+    Write a fact. `type` selects the retrieval-policy (which indexes populate); `scope.tenantId` MUST match the caller's tenant. Optional `retention` overrides tenant defaults; optional `contentHash` is a caller-supplied idempotence hint (runtime computes its own hash regardless). `subjects` names whom it is about; `validFrom`/`validUntil` when it is true in the world; `observedAt` when it was said or seen.
     """
 
     model_config = ConfigDict(
@@ -3140,15 +3226,50 @@ class WriteFactBody(BaseModel):
     """
     retention: Retention | None = None
     content_hash: Annotated[str | None, Field(alias="contentHash")] = None
+    subjects: Annotated[list[FactSubject] | None, Field(max_length=20)] = None
+    valid_from: Annotated[AwareDatetime | None, Field(alias="validFrom")] = None
+    valid_until: Annotated[AwareDatetime | None, Field(alias="validUntil")] = None
+    observed_at: Annotated[AwareDatetime | None, Field(alias="observedAt")] = None
 
 
-class SupersedeFactResult(BaseModel):
+class SupersedeFactBody(BaseModel):
+    """
+    The fact's next revision: new `content`, and optionally new `retention`, `subjects` and times (absent ones keep their current values). Its scope and type stay. `expectVersion`: only if the current revision is still this one.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    fact_id: Annotated[str, Field(alias="factId")]
-    superseded: Literal[True]
+    content: Any
+    """
+    Free-form structured payload.
+    """
+    expect_version: Annotated[int | None, Field(alias="expectVersion", ge=1)] = None
+    retention: Retention | None = None
+    subjects: Annotated[list[FactSubject] | None, Field(max_length=20)] = None
+    valid_from: Annotated[AwareDatetime | None, Field(alias="validFrom")] = None
+    valid_until: Annotated[AwareDatetime | None, Field(alias="validUntil")] = None
+    observed_at: Annotated[AwareDatetime | None, Field(alias="observedAt")] = None
+
+
+class VerifyFactBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    expect_version: Annotated[int | None, Field(alias="expectVersion", ge=1)] = None
+
+
+class FactRevisionList(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Fact]
+    """
+    Every revision, newest first.
+    """
 
 
 class RetrieveIntent(BaseModel):

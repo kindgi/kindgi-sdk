@@ -183,7 +183,10 @@ const noopMemory: MemoryBinding = {
     code: 'persistence-error',
     message: 'noop',
   }),
-  supersedeFact: async () => ({ superseded: false }),
+  supersedeFact: async () => ({ kind: 'not-found' }),
+  deleteFact: async () => ({ kind: 'not-found' }),
+  verifyFact: async () => ({ kind: 'not-found' }),
+  listRevisions: async () => null,
   retrieve: async () => ({ kind: 'ok', results: [] }),
 };
 const noopBlobStorage: BlobStorageBinding = {

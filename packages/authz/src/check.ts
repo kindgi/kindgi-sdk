@@ -93,4 +93,18 @@ export interface AuthzCheckBinding {
     resources: readonly ResourceRef[],
     ctx?: AuthzCheckContext,
   ): Promise<readonly Decision[]>;
+
+  /**
+   * The ids of every object of `type` the principal may `action`, after
+   * its downscope, and only those its `onBehalfOf` may too (OpenFGA
+   * `ListObjects`). For a guard compiled into a query, such as which
+   * projects' memory a caller reads. Optional: without it, callers fall
+   * back to `checkBatch` over the objects they can enumerate.
+   */
+  listObjects?(
+    principal: Principal,
+    action: Action,
+    type: ResourceRef['type'],
+    ctx?: AuthzCheckContext,
+  ): Promise<readonly string[]>;
 }

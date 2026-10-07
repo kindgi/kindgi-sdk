@@ -3068,7 +3068,7 @@ export const FactScopeSchema: JsonSchema = {
   additionalProperties: true,
   required: ['tenantId'],
   description:
-    'Fact scope object. `tenantId` is required; every optional key narrows the fact (`userId`, `orgId`, `projectId`, `threadId`, `sessionId`). Additional keys accepted for forward compatibility.',
+    'Fact scope object. `tenantId` is required; every optional key narrows the fact (`userId`, `orgId`, `projectId`, `threadId`, `sessionId`, `participantId`). A fact is readable by whoever has every container it names. Additional keys accepted for forward compatibility.',
   properties: {
     tenantId: { type: 'string' },
     userId: { type: 'string' },
@@ -3076,6 +3076,47 @@ export const FactScopeSchema: JsonSchema = {
     projectId: { type: 'string' },
     threadId: { type: 'string' },
     sessionId: { type: 'string' },
+    participantId: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "An app's end user, by the app's own id: a fact private to that participant's runs. Needs `projectId`.",
+    },
+  },
+};
+
+export const FactSubjectSchema: JsonSchema = {
+  description: 'Whom a fact is about: what access and erasure requests by person find.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'id'],
+  properties: {
+    kind: { type: 'string', enum: ['participant', 'user', 'external'] },
+    id: { type: 'string', minLength: 1 },
+  },
+};
+
+export const FactAttributionSchema: JsonSchema = {
+  description: 'Who asserted a fact, set by the server from the writer.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'id'],
+  properties: {
+    kind: { type: 'string', enum: ['user', 'service', 'agent'] },
+    id: { type: 'string' },
+    agentVersion: { type: 'string' },
+  },
+};
+
+export const FactGeneratedBySchema: JsonSchema = {
+  description: 'The run step that wrote a fact, for one an agent wrote.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['runId'],
+  properties: {
+    runId: { type: 'string' },
+    stepId: { type: 'string' },
+    toolCallId: { type: 'string' },
   },
 };
 
@@ -3131,7 +3172,15 @@ export const FactSchema: JsonSchema = {
   additionalProperties: false,
   required: ['id', 'type', 'scope', 'version', 'createdAt'],
   properties: {
-    id: { type: 'string', description: 'FactId.' },
+    id: {
+      type: 'string',
+      description:
+        'The fact id, kept across revisions (for a fact never superseded, also its one revision id).',
+    },
+    revisionId: {
+      type: 'string',
+      description: "This revision's own id; absent where it equals `id`.",
+    },
     type: {
       type: 'string',
       description: 'Fact type identifier (pack-defined; a few are framework-standard).',
@@ -3140,7 +3189,7 @@ export const FactSchema: JsonSchema = {
     version: {
       type: 'integer',
       minimum: 1,
-      description: 'Monotonic version within (scope, id). Supersession increments.',
+      description: 'The revision number within the fact: 1, then one more per supersede or verify.',
     },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
@@ -3157,7 +3206,57 @@ export const FactSchema: JsonSchema = {
     causedByLogId: { type: 'array', items: { type: 'string' } },
     supersedes: {
       type: 'string',
-      description: 'FactId of the predecessor when this row supersedes another.',
+      description: 'The revision this one replaced.',
+    },
+    trust: {
+      type: 'string',
+      enum: ['verified', 'asserted', 'unverified'],
+      description:
+        '`verified`: a person with the right checked it. `asserted`: an app or a person wrote it. `unverified`: an agent remembered it during a conversation. Absent on facts from before trust was recorded: `asserted`.',
+    },
+    verifiedBy: { type: 'string' },
+    verifiedAt: { type: 'string', format: 'date-time' },
+    attributedTo: { $ref: '#/components/schemas/FactAttribution' },
+    generatedBy: { $ref: '#/components/schemas/FactGeneratedBy' },
+    subjects: { type: 'array', items: { $ref: '#/components/schemas/FactSubject' } },
+    validFrom: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When the fact starts being true in the world; absent: always.',
+    },
+    validUntil: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When the fact stops being true in the world; absent: still true.',
+    },
+    observedAt: { type: 'string', format: 'date-time', description: 'When it was said or seen.' },
+    invalidatedAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When this revision stopped being current; absent: it is current.',
+    },
+    invalidatedBy: { type: 'string', description: '`user:<id>` or `service:<id>`.' },
+    invalidationReason: {
+      type: 'string',
+      enum: ['superseded', 'deleted', 'erased', 'expired'],
+    },
+    review: {
+      type: 'string',
+      enum: ['pending'],
+      description: '`pending` while a person must approve it: a pending fact is never retrieved.',
+    },
+  },
+};
+
+export const FactRevisionListSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: {
+    data: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/Fact' },
+      description: 'Every revision, newest first.',
     },
   },
 };
@@ -3178,7 +3277,7 @@ export const FactCollectionPageSchema: JsonSchema = {
 
 export const WriteFactBodySchema: JsonSchema = {
   description:
-    "Write a fact. `type` selects the retrieval-policy (which indexes populate); `scope.tenantId` MUST match the caller's tenant. Optional `retention` overrides tenant defaults; optional `contentHash` is a caller-supplied idempotence hint (runtime computes its own hash regardless).",
+    "Write a fact. `type` selects the retrieval-policy (which indexes populate); `scope.tenantId` MUST match the caller's tenant. Optional `retention` overrides tenant defaults; optional `contentHash` is a caller-supplied idempotence hint (runtime computes its own hash regardless). `subjects` names whom it is about; `validFrom`/`validUntil` when it is true in the world; `observedAt` when it was said or seen.",
   type: 'object',
   additionalProperties: false,
   required: ['type', 'scope', 'content'],
@@ -3188,16 +3287,43 @@ export const WriteFactBodySchema: JsonSchema = {
     content: { description: 'Free-form structured payload.' },
     retention: { $ref: '#/components/schemas/Retention' },
     contentHash: { type: 'string' },
+    subjects: {
+      type: 'array',
+      maxItems: 20,
+      items: { $ref: '#/components/schemas/FactSubject' },
+    },
+    validFrom: { type: 'string', format: 'date-time' },
+    validUntil: { type: 'string', format: 'date-time' },
+    observedAt: { type: 'string', format: 'date-time' },
   },
 };
 
-export const SupersedeFactResultSchema: JsonSchema = {
+export const SupersedeFactBodySchema: JsonSchema = {
+  description:
+    "The fact's next revision: new `content`, and optionally new `retention`, `subjects` and times (absent ones keep their current values). Its scope and type stay. `expectVersion`: only if the current revision is still this one.",
   type: 'object',
   additionalProperties: false,
-  required: ['factId', 'superseded'],
+  required: ['content'],
   properties: {
-    factId: { type: 'string' },
-    superseded: { type: 'boolean', const: true },
+    content: { description: 'Free-form structured payload.' },
+    expectVersion: { type: 'integer', minimum: 1 },
+    retention: { $ref: '#/components/schemas/Retention' },
+    subjects: {
+      type: 'array',
+      maxItems: 20,
+      items: { $ref: '#/components/schemas/FactSubject' },
+    },
+    validFrom: { type: 'string', format: 'date-time' },
+    validUntil: { type: 'string', format: 'date-time' },
+    observedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const VerifyFactBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    expectVersion: { type: 'integer', minimum: 1 },
   },
 };
 
@@ -8371,10 +8497,15 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['SourceFreshness', SourceFreshnessSchema],
   ['SourceRefresh', SourceRefreshSchema],
   ['FactSource', FactSourceSchema],
+  ['FactSubject', FactSubjectSchema],
+  ['FactAttribution', FactAttributionSchema],
+  ['FactGeneratedBy', FactGeneratedBySchema],
   ['Fact', FactSchema],
   ['FactCollectionPage', FactCollectionPageSchema],
   ['WriteFactBody', WriteFactBodySchema],
-  ['SupersedeFactResult', SupersedeFactResultSchema],
+  ['SupersedeFactBody', SupersedeFactBodySchema],
+  ['VerifyFactBody', VerifyFactBodySchema],
+  ['FactRevisionList', FactRevisionListSchema],
   ['RetrieveIntent', RetrieveIntentSchema],
   ['RetrieveMemoryBody', RetrieveMemoryBodySchema],
   ['RetrievalHit', RetrievalHitSchema],

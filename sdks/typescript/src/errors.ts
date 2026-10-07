@@ -303,6 +303,8 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'gate-policy-scope-changed':
     case 'gate-policy-scope-unpinned':
     case 'gate-policy-needs-pin':
+    case 'fact-changed':
+    case 'legal-hold':
       return { code: 'conflict', message, reason: code };
     case 'invalid-request':
     case 'validation-failed':

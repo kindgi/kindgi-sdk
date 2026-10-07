@@ -454,6 +454,8 @@ export type {
   Fact,
   FactFilter,
   FactId,
+  FactRetention,
+  FactSubject,
   GetArtifactResult,
   InstallationId,
   InstalledPack,
@@ -600,6 +602,7 @@ export type {
   WebhookEndpointId,
   WhoamiResult,
   WriteFactInput,
+  SupersedeFactInput,
   UpdateJudgeClassInput,
   Verdict,
 } from './types.js';
