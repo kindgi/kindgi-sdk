@@ -89,9 +89,8 @@ const TARGET_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
   improve: {
     type: 'string',
     description:
-      'Start improvement passes on this agent (instead of runs), when enough new trusted "no" judgments have come in: for the whole tenant (--tenant) or the project (--project), or a segment of it (--segment). `--input` takes the pass options, `threshold` and `monthlyCapUsd`.',
+      'Start improvement passes on this agent (instead of runs), when enough new trusted "no" judgments have come in: for the project (--project), or a segment of it (--segment). `--input` takes the pass options, `threshold` and `monthlyCapUsd`.',
   },
-  tenant: { type: 'boolean', description: 'With --improve: for the whole tenant.' },
   segment: {
     type: 'string',
     multiple: true,
@@ -130,17 +129,16 @@ const WHEN_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
   label: { type: 'string', description: 'A short label.' },
 };
 
-/** `--improve`'s scope: `--tenant`, or `--project` with its `--segment`s. */
+/**
+ * `--improve`'s scope: `--project` with its `--segment`s. A pass learns
+ * from one project's runs, so its scope is that project or a segment of it.
+ */
 function improveScope(ctx: CommandContext): NonNullable<RegisterInput['improve']>['scope'] {
   const project = stringFlag(ctx, 'project');
   const segments = segmentsFlag(ctx);
-  if (ctx.options.tenant === true) {
-    if (segments.length > 0) throw new Error('--segment goes with --project, not --tenant');
-    return { kind: 'tenant' };
-  }
   if (project === undefined) {
     throw new Error(
-      '--improve needs its scope: --tenant, or --project=<id> [--segment=<key:value>]…',
+      '--improve needs its scope: --project=<id> [--segment=<key:value>]… (a pass learns from one project; promote to the tenant by hand after review)',
     );
   }
   return segments.length > 0
@@ -248,7 +246,7 @@ const create: LeafCommand = {
   description:
     "Run an agent or a flow on a schedule, or start improvement passes on an agent (--improve). Its runs act as you, checked again at every run; they're in your project's runs, naming the schedule.",
   usage:
-    'kindgi schedules create --cron=<expr> (--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v> | --improve=<agent-id> (--tenant | --project=<id> [--segment=<key:value>]…)) [--timezone=<tz>] [--input=<json-or-@file>] [--project=<project-id>] [--catch-up=latest|skip] [--overlap=skip|allow] [--starting-deadline=<s>] [--label=<text>]',
+    'kindgi schedules create --cron=<expr> (--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v> | --improve=<agent-id> --project=<id> [--segment=<key:value>]…) [--timezone=<tz>] [--input=<json-or-@file>] [--project=<project-id>] [--catch-up=latest|skip] [--overlap=skip|allow] [--starting-deadline=<s>] [--label=<text>]',
   optionSpec: {
     ...TARGET_FLAGS,
     ...WHEN_FLAGS,
@@ -276,7 +274,7 @@ const update: LeafCommand = {
   name: 'update',
   description: 'Change a schedule: when it runs, what it runs, or its policies.',
   usage:
-    'kindgi schedules update <schedule-id> [--cron=<expr>] [--timezone=<tz>] [--input=<json-or-@file>] [--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v> | --improve=<agent-id> (--tenant | --project=<id> [--segment=<key:value>]…)] [--catch-up=…] [--overlap=…] [--starting-deadline=<s>] [--label=<text>]',
+    'kindgi schedules update <schedule-id> [--cron=<expr>] [--timezone=<tz>] [--input=<json-or-@file>] [--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v> | --improve=<agent-id> --project=<id> [--segment=<key:value>]…] [--catch-up=…] [--overlap=…] [--starting-deadline=<s>] [--label=<text>]',
   optionSpec: {
     ...TARGET_FLAGS,
     ...WHEN_FLAGS,

@@ -186,7 +186,11 @@ describe('an improve schedule', () => {
     [{ ...hourly, agentVersion: '1.0.0' }, "don't go with it"],
     [
       { ...hourly, improve: { agentId: 'acme.scorer', scope: { kind: 'org', orgId: PROJECT } } },
-      'an org spans several',
+      'promote to the org by hand after review',
+    ],
+    [
+      { ...hourly, improve: { agentId: 'acme.scorer', scope: { kind: 'tenant' } } },
+      "a pass's evidence must cover the scope it changes",
     ],
     [{ ...hourly, projectId: randomUUID() }, "in the schedule's project"],
     [

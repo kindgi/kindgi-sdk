@@ -481,17 +481,19 @@ function scopeProjectOf(target: TriggerTarget): string | undefined {
 }
 
 /**
- * An improve schedule learns from its project's runs (for a segment
- * scope, that segment's): its scope is the tenant, or the schedule's own
- * project or a segment of it. An org spans projects, so it isn't one.
+ * A pass's evidence must cover the scope it changes: an improve schedule
+ * learns from its project's runs (for a segment scope, that segment's),
+ * so its scope is the schedule's own project or a segment of it. The
+ * tenant and an org span projects: going wider stays a promotion by hand,
+ * through that scope's gate.
  */
 function improveScopeProblem(
   target: TriggerTarget,
   project: string | undefined,
 ): string | undefined {
   if (target.kind !== 'improve') return undefined;
-  if (target.scope.kind === 'org') {
-    return "An improve schedule's scope is the tenant, a project or a segment: it learns from one project's runs, and an org spans several";
+  if (target.scope.kind === 'tenant' || target.scope.kind === 'org') {
+    return `An improve schedule's scope is a project or a segment of it, not the ${target.scope.kind === 'org' ? 'org' : 'tenant'}: a pass's evidence must cover the scope it changes, and it learns from one project's runs. Use the project (or a segment) scope; promote to the ${target.scope.kind === 'org' ? 'org' : 'tenant'} by hand after review.`;
   }
   const own = scopeProjectOf(target);
   if (own !== undefined && project !== undefined && own !== project) {

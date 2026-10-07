@@ -157,22 +157,22 @@ describe('kindgi schedules', () => {
         },
       ],
     ]);
-    const tenant = await schedules([
+    const project = await schedules([
       'create',
       '--cron=0 * * * *',
       '--improve=acme.scorer',
-      '--tenant',
+      '--project=p-1',
     ]);
-    expect(tenant.calls[0]?.[1]).toMatchObject({
-      improve: { agentId: 'acme.scorer', scope: { kind: 'tenant' } },
+    expect(project.calls[0]?.[1]).toMatchObject({
+      improve: { agentId: 'acme.scorer', scope: { kind: 'project', projectId: 'p-1' } },
     });
     for (const [argv, message] of [
       [['--improve=acme.scorer'], '--improve needs its scope'],
-      [['--improve=acme.scorer', '--agent=acme.digest', '--tenant'], 'not with --agent or --flow'],
       [
-        ['--improve=acme.scorer', '--tenant', '--segment=company:acme'],
-        '--segment goes with --project',
+        ['--improve=acme.scorer', '--agent=acme.digest', '--project=p-1'],
+        'not with --agent or --flow',
       ],
+      [['--improve=acme.scorer', '--segment=company:acme'], '--improve needs its scope'],
     ] as const) {
       const bad = await schedules(['create', '--cron=0 * * * *', ...argv]);
       expect(bad.out.exitCode).not.toBe(0);
@@ -184,7 +184,7 @@ describe('kindgi schedules', () => {
     const improving = {
       ...SCHEDULE,
       agentId: undefined,
-      improve: { agentId: 'acme.scorer', scope: { kind: 'tenant' } },
+      improve: { agentId: 'acme.scorer', scope: { kind: 'project', projectId: 'p-1' } },
     };
     const out = await runCli({
       argv: ['schedules', 'list', '--table', '--url=https://x', '--token=t'],
@@ -195,7 +195,7 @@ describe('kindgi schedules', () => {
         ({ schedules: { list: async () => ({ data: [improving], hasMore: false }) } }) as never,
     });
     expect(out.exitCode, out.stderr).toBe(0);
-    expect(out.stdout).toContain('improve acme.scorer (tenant)');
+    expect(out.stdout).toContain('improve acme.scorer (project p-1)');
     const passId = '33333333-3333-4333-8333-333333333333';
     const fires = await runCli({
       argv: ['schedules', 'fires', ID, '--table', '--url=https://x', '--token=t'],
