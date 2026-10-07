@@ -25,7 +25,7 @@ import type {
 import type { AppEnv } from '../types.js';
 import { clampLimit, decodeCursor, encodeCursor } from './pagination.js';
 import { parseListScope } from './scope-params.js';
-import { UUID_RE } from './uuid-param.js';
+import { UUID_RE, refuseMalformedUuidParam } from './uuid-param.js';
 
 /**
  * Provenance resource routes.
@@ -60,6 +60,9 @@ export interface ProvenanceRouterOptions {
 /** Bundle schema version — bump when the wire shape of `bundle.body` changes. */
 /** 1.1.0 adds `callUsage`: the model calls' usage from the cost ledger, when the run has any. */
 const BUNDLE_SCHEMA_VERSION = '1.1.0';
+
+/** A `:runId` that isn't a run id is a 400, before the store's uuid cast fails it as a 500. */
+const refuseMalformedRunId = refuseMalformedUuidParam('runId', 'a run id');
 
 export function provenanceRouter(
   binding: ProvenanceBinding,
@@ -175,7 +178,7 @@ export function provenanceRouter(
   });
 
   // ---------- GET /:runId (full DAG) ----------
-  r.get('/:runId', async (c) => {
+  r.get('/:runId', refuseMalformedRunId, async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const runId = c.req.param('runId') as RunId;
@@ -230,7 +233,7 @@ export function provenanceRouter(
   });
 
   // ---------- POST /:runId/export (signed bundle) ----------
-  r.post('/:runId/export', async (c) => {
+  r.post('/:runId/export', refuseMalformedRunId, async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const runId = c.req.param('runId') as RunId;
