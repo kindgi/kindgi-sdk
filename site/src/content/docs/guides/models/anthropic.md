@@ -105,11 +105,10 @@ others (`--models=claude-opus-5-5,claude-sonnet-5-5`), or set
 A wrong key fails the turn with Anthropic's own message:
 
 ```text
-Error [server]: Model call to anthropic (claude-haiku-4-5) failed: 401 {"type":"error","error":{"type":"authentication_error","message":"API key is invalid."},"request_id":null}
+Error [model-invocation-failed]: Model call to anthropic (claude-sonnet-5-5) failed: 401 {"type":"error","error":{"type":"authentication_error","message":"API key is invalid."},"request_id":null}
 ```
 
-This one was captured on `claude-haiku-4-5`; another model's call names that
-model instead. To change the key, set it again with `--write-mode=add-version`;
+To change the key, set it again with `--write-mode=add-version`;
 the next turn uses the new one.
 
 If `dev-echo` still answers (the turn has a `fallback-provider` warning), the

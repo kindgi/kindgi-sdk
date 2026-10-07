@@ -153,11 +153,12 @@ When no registered model qualifies, the turn fails instead of falling back to
 another one:
 
 ```text
-Error [server]: No registered provider satisfies the capability declaration
+Error [capability-routing-failed]: No registered provider satisfies the capability declaration
 ```
 
 The run's journal says why, model by model, in the failed `setup` step
-(`kindgi runs journal <run-id>`, with the `runId` that `--verbose` prints).
+(`kindgi runs journal <run-id>`, with the run's `id` from the JSON that
+`kindgi runs start` prints).
 For `models: { allow: ['gpt-5'] }`:
 
 ```json
