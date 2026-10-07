@@ -91,7 +91,8 @@ const WHEN_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
   },
   input: {
     type: 'string',
-    description: 'The input each run gets, as JSON or `@<file>` (default `{}`).',
+    description:
+      'The input each run gets, as JSON or `@<file>`. An agent needs `{"userMessage": "…"}`; a flow takes its own input (default `{}`).',
   },
   'catch-up': {
     type: 'string',

@@ -10,6 +10,7 @@ Schedules run an agent or a flow, as their owner, with a catch-up and an overlap
 
 **`/v1/schedules`:**
 - **What it runs:** a schedule names `flowId` with `flowVersion`, or `agentId` (with an optional `agentVersion`; without one, its live version, as a run that names none).
+- **An agent schedule's input** is the agent payload, so `config.input.userMessage` is required (400 without it, on register or when a change would leave it out); a flow schedule's input is the flow's own.
 - **`projectId`:** default, the tenant's default project.
 - **`owner`:** the principal that registered it. Its runs act as the owner, checked again at every fire.
 - **`catchUp`:** after a gap, `latest` (the default) runs once for the latest missed occurrence, and its fire says how many it missed; `skip` drops them. Never a run per missed occurrence.

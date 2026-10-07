@@ -86,7 +86,7 @@ describe('kindgi schedules', () => {
       '--cron=0 7 * * 1-5',
       '--timezone=America/Toronto',
       '--agent=acme.digest',
-      '--input={"team":"ops"}',
+      '--input={"userMessage":"Summarize the new tickets"}',
       '--catch-up=skip',
       '--overlap=allow',
       '--starting-deadline=120',
@@ -101,7 +101,7 @@ describe('kindgi schedules', () => {
           config: {
             cronExpression: '0 7 * * 1-5',
             timezone: 'America/Toronto',
-            input: { team: 'ops' },
+            input: { userMessage: 'Summarize the new tickets' },
           },
           catchUp: 'skip',
           overlap: 'allow',

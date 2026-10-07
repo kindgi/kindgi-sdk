@@ -7451,6 +7451,9 @@ class Config6(BaseModel):
     cron_expression: Annotated[str, Field(alias="cronExpression", min_length=1)]
     timezone: str | None = None
     input: Any | None = None
+    """
+    What each run gets. An agent schedule's runs take the agent payload, `{ userMessage, parameters? }`, so it needs `userMessage`; a flow's take the flow's input.
+    """
 
 
 class RegisterScheduleBody(BaseModel):
@@ -7502,6 +7505,9 @@ class Config7(BaseModel):
     cron_expression: Annotated[str | None, Field(alias="cronExpression")] = None
     timezone: str | None = None
     input: Any | None = None
+    """
+    What each run gets. An agent schedule's runs take the agent payload, `{ userMessage, parameters? }`, so it needs `userMessage`; a flow's take the flow's input.
+    """
 
 
 class PatchScheduleBody(BaseModel):

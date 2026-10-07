@@ -7746,7 +7746,10 @@ export const RegisterScheduleBodySchema: JsonSchema = {
       properties: {
         cronExpression: { type: 'string', minLength: 1 },
         timezone: { type: 'string' },
-        input: {},
+        input: {
+          description:
+            "What each run gets. An agent schedule's runs take the agent payload, `{ userMessage, parameters? }`, so it needs `userMessage`; a flow's take the flow's input.",
+        },
       },
     },
     catchUp: { type: 'string', enum: ['latest', 'skip'], description: 'Default `latest`.' },
@@ -7781,7 +7784,10 @@ export const PatchScheduleBodySchema: JsonSchema = {
       properties: {
         cronExpression: { type: 'string' },
         timezone: { type: 'string' },
-        input: {},
+        input: {
+          description:
+            "What each run gets. An agent schedule's runs take the agent payload, `{ userMessage, parameters? }`, so it needs `userMessage`; a flow's take the flow's input.",
+        },
       },
     },
     catchUp: { type: 'string', enum: ['latest', 'skip'], description: 'Default `latest`.' },

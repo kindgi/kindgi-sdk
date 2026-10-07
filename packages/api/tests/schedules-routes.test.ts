@@ -84,7 +84,7 @@ describe('registering a schedule', () => {
       '/v1/schedules',
       send('POST', {
         agentId: 'acme.digest',
-        config: { cronExpression: '0 7 * * 1-5' },
+        config: { cronExpression: '0 7 * * 1-5', input: { userMessage: 'Morning digest' } },
         catchUp: 'skip',
         overlap: 'allow',
         startingDeadlineSeconds: 120,
@@ -111,6 +111,14 @@ describe('registering a schedule', () => {
     [{ ...nightly, startingDeadlineSeconds: 0 }, '`startingDeadlineSeconds`'],
     [{ ...nightly, projectId: 'nope' }, '`projectId`'],
     [{ flowId: 'acme.nightly', flowVersion: '1.0.0' }, '`config.cronExpression` is required'],
+    [
+      { agentId: 'acme.digest', config: { cronExpression: '0 7 * * *' } },
+      '`config.input.userMessage`',
+    ],
+    [
+      { agentId: 'acme.digest', config: { cronExpression: '0 7 * * *', input: { batch: 'all' } } },
+      '`config.input.userMessage`',
+    ],
   ])('a bad body is a 400: %j', async (body, message) => {
     const res = await app().built.request('/v1/schedules', send('POST', body));
     expect(res.status).toBe(400);
@@ -132,7 +140,12 @@ describe("a schedule's life", () => {
     expect((await built.request(`/v1/schedules/${id}?upcoming=21`, send('GET'))).status).toBe(400);
     const patched = await built.request(
       `/v1/schedules/${id}`,
-      send('PATCH', { agentId: 'acme.digest', agentVersion: '2.1.0', overlap: 'allow' }),
+      send('PATCH', {
+        agentId: 'acme.digest',
+        agentVersion: '2.1.0',
+        overlap: 'allow',
+        config: { input: { userMessage: 'Nightly digest' } },
+      }),
     );
     expect(patched.status).toBe(200);
     expect(await patched.json()).toMatchObject({
@@ -140,7 +153,33 @@ describe("a schedule's life", () => {
       agentVersion: '2.1.0',
       overlap: 'allow',
       cronExpression: '0 2 * * *',
+      input: { userMessage: 'Nightly digest' },
     });
+  });
+
+  test("an agent schedule's input keeps a user message: retargeting or patching without one is a 400", async () => {
+    const { built, id } = await registered();
+    // The flow's input has no user message; an agent can't run on it.
+    const retarget = await built.request(
+      `/v1/schedules/${id}`,
+      send('PATCH', { agentId: 'acme.digest' }),
+    );
+    expect(retarget.status).toBe(400);
+    expect(JSON.stringify(await retarget.json())).toContain('`config.input.userMessage`');
+    const ok = await built.request(
+      `/v1/schedules/${id}`,
+      send('PATCH', { agentId: 'acme.digest', config: { input: { userMessage: 'hi' } } }),
+    );
+    expect(ok.status).toBe(200);
+    const cleared = await built.request(
+      `/v1/schedules/${id}`,
+      send('PATCH', { config: { input: {} } }),
+    );
+    expect(cleared.status).toBe(400);
+    // Other fields patch as before.
+    expect(
+      (await built.request(`/v1/schedules/${id}`, send('PATCH', { label: 'digest' }))).status,
+    ).toBe(200);
   });
 
   test('pause, resume, unregister; then it is gone', async () => {

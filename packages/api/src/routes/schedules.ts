@@ -100,6 +100,9 @@ export function schedulesRouter(
     if (projectId !== undefined && (typeof projectId !== 'string' || !UUID_RE.test(projectId))) {
       return bad(c, requestId, '`projectId` must be a project id (a UUID)');
     }
+    const rawConfig = (body.config ?? {}) as Record<string, unknown>;
+    const inputProblem = agentInputProblem(target.value, rawConfig.input);
+    if (inputProblem !== undefined) return bad(c, requestId, inputProblem);
 
     const where =
       projectId === undefined
@@ -109,7 +112,6 @@ export function schedulesRouter(
       (await denied(c, 'write', where)) ?? (await denied(c, 'execute', targetRef(target.value)));
     if (refused !== undefined) return refused;
 
-    const rawConfig = (body.config ?? {}) as Record<string, unknown>;
     const registerInput: RegisterCronTriggerInput = {
       kind: 'cron',
       tenantId,
@@ -210,6 +212,13 @@ export function schedulesRouter(
         cfg.cronExpression = patchConfig.cronExpression;
       if (typeof patchConfig.timezone === 'string') cfg.timezone = patchConfig.timezone;
       if ('input' in patchConfig) cfg.input = patchConfig.input;
+    }
+    if (target !== undefined || 'input' in cfg) {
+      const inputProblem = agentInputProblem(
+        target?.value ?? found.value.target,
+        'input' in cfg ? cfg.input : found.value.config.input,
+      );
+      if (inputProblem !== undefined) return bad(c, requestId, inputProblem);
     }
 
     const triggerId = found.value.triggerId;
@@ -412,6 +421,21 @@ function parseTarget(
       ...(agentVersion !== undefined && { agentVersion: agentVersion as string }),
     },
   };
+}
+
+/**
+ * An agent's run takes the agent payload, so an agent schedule's input
+ * must carry the message each run sends: without it every fire would be
+ * refused. A flow's input is the flow's own.
+ */
+function agentInputProblem(target: TriggerTarget, input: unknown): string | undefined {
+  if (target.kind !== 'agent') return undefined;
+  const message =
+    typeof input === 'object' && input !== null
+      ? (input as Record<string, unknown>).userMessage
+      : undefined;
+  if (typeof message === 'string' && message.length > 0) return undefined;
+  return 'An agent schedule needs `config.input.userMessage`: the message each run sends the agent (`{ userMessage, parameters? }`)';
 }
 
 /** `catchUp`, `overlap` and `startingDeadlineSeconds`, each optional. */
