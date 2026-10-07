@@ -378,3 +378,39 @@ describe('createAnthropicProvider — what the vendor says about the call', () =
     });
   });
 });
+
+describe("createAnthropicProvider — a model that doesn't take sampling", () => {
+  // Claude 4.7 and later answer a non-default temperature with a 400.
+  const NO_SAMPLING = { ...OPUS_MODEL, name: 'claude-sonnet-5-5', sampling: false };
+  const provider = (client: Anthropic) =>
+    createAnthropicProvider({
+      apiKey: 'sk-unused',
+      metadata: { id: 'anthropic', region: 'us-east-1', models: [OPUS_MODEL, NO_SAMPLING] },
+      client,
+    });
+  const ask = (model: string): ModelCallInput => ({
+    model,
+    messages: [{ role: 'user', content: 'Hi' }],
+    temperature: 0.2,
+  });
+
+  test('the call goes without the temperature, and the answer says so', async () => {
+    const { client, create } = fakeClient();
+    const result = await provider(client).invoke(ask('claude-sonnet-5-5'));
+    expect(create.mock.calls[0]?.[0]).not.toHaveProperty('temperature');
+    expect(result.warnings).toEqual([
+      {
+        code: 'sampling-unsupported',
+        message:
+          "claude-sonnet-5-5 doesn't take a temperature, so the call went without one (it asked for 0.2).",
+      },
+    ]);
+  });
+
+  test('a model that takes it still gets it, with no warning', async () => {
+    const { client, create } = fakeClient();
+    const result = await provider(client).invoke(ask('claude-opus-4-7'));
+    expect(create.mock.calls[0]?.[0]).toMatchObject({ temperature: 0.2 });
+    expect(result).not.toHaveProperty('warnings');
+  });
+});

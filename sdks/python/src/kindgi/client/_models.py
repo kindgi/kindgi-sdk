@@ -4069,6 +4069,10 @@ class ModelInfo(BaseModel):
     """
     Fallback cap on output tokens. Adapters that require `max_tokens` on every request (e.g. Anthropic) use this when `ModelCallInput.maxOutputTokens` is unset.
     """
+    sampling: bool | None = None
+    """
+    Whether the model takes sampling settings (`temperature`). `false`: its API rejects a non-default value, so the call goes without one and the answer's `warnings` say so (`sampling-unsupported`). Absent: it takes them.
+    """
     description: str | None = None
     """
     Short per-model description surfaced in logs.

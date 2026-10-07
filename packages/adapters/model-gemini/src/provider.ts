@@ -14,6 +14,7 @@ import type {
   ModelProvider,
   ProviderMetadata,
 } from '@kindgi/capabilities';
+import { samplingFor } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
 
 import { type GeminiModelInfo, computeCostUsd, toFrameworkUsage } from './cost.js';
@@ -125,6 +126,7 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
       const startedAt = Date.now();
       const { systemInstruction, contents } = toGeminiRequest(input.messages);
       const maxOutputTokens = input.maxOutputTokens ?? model.maxOutputTokens;
+      const sampling = samplingFor(model, input);
       const config: GenerateContentConfig = {
         ...(systemInstruction !== undefined && { systemInstruction }),
         ...(input.tools !== undefined &&
@@ -135,7 +137,7 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
           responseMimeType: 'application/json',
           responseJsonSchema: input.structuredOutput.schema,
         }),
-        ...(input.temperature !== undefined && { temperature: input.temperature }),
+        ...(sampling.temperature !== undefined && { temperature: sampling.temperature }),
         ...(maxOutputTokens !== undefined && { maxOutputTokens }),
         ...(input.abortSignal !== undefined && { abortSignal: input.abortSignal }),
       };
@@ -164,6 +166,7 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
         // An injected client sends with its own fetch: nothing was counted.
         ...(counted.attempts > 0 && { attempts: counted.attempts }),
         ...(response.usageMetadata !== undefined && { rawUsage: { ...response.usageMetadata } }),
+        ...(sampling.warnings.length > 0 && { warnings: sampling.warnings }),
       };
     },
   };

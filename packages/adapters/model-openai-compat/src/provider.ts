@@ -17,6 +17,7 @@ import type {
   ProviderMetadata,
   UsageCounters,
 } from '@kindgi/capabilities';
+import { samplingFor } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
 
 /**
@@ -161,6 +162,7 @@ export function createOpenAICompatModelProvider(
           }
         : undefined;
 
+      const sampling = samplingFor(modelInfo, input);
       const counted = await attempts.count(() =>
         openai.chat.completions.create(
           {
@@ -169,7 +171,7 @@ export function createOpenAICompatModelProvider(
             messages,
             ...(tools !== undefined && tools.length > 0 && { tools }),
             ...(responseFormat !== undefined && { response_format: responseFormat }),
-            ...(input.temperature !== undefined && { temperature: input.temperature }),
+            ...(sampling.temperature !== undefined && { temperature: sampling.temperature }),
             ...(input.maxOutputTokens !== undefined && { max_tokens: input.maxOutputTokens }),
             stream: false,
           },
@@ -207,6 +209,7 @@ export function createOpenAICompatModelProvider(
         // An injected client sends with its own fetch: nothing was counted.
         ...(counted.attempts > 0 && { attempts: counted.attempts }),
         ...(completion.usage !== undefined && { rawUsage: { ...completion.usage } }),
+        ...(sampling.warnings.length > 0 && { warnings: sampling.warnings }),
       };
     },
   };

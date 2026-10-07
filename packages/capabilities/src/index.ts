@@ -21,6 +21,8 @@ export {
 export { createProviderRegistry } from './registry.js';
 export { matchTuples, route } from './router.js';
 export type { RouteInput } from './router.js';
+export { SAMPLING_UNSUPPORTED, samplingFor } from './sampling.js';
+export type { Sampling } from './sampling.js';
 export { recordModelUsage } from './usage.js';
 export type { RecordModelUsageOptions } from './usage.js';
 export { BUILT_IN_CAPABILITY_KINDS, DEFAULT_CAPABILITY_KIND, FEATURES } from './types.js';

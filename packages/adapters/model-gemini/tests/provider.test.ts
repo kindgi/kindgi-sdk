@@ -291,3 +291,27 @@ describe('geminiAdapterFactory', () => {
     ).toEqual({ project: 'acme-dev', location: 'northamerica-northeast1' });
   });
 });
+
+describe("a model that doesn't take sampling", () => {
+  test('the call goes without the temperature, and the answer says so', async () => {
+    const client = fakeClient(OK_ANSWER);
+    const provider = createGeminiProvider({
+      metadata: { ...METADATA, models: METADATA.models.map((m) => ({ ...m, sampling: false })) },
+      vertex: { project: 'acme-dev', location: 'global' },
+      client,
+    });
+    const result = await provider.invoke({
+      model: 'gemini-2.5-pro',
+      messages: [{ role: 'user', content: 'hi' }],
+      temperature: 0.2,
+    });
+    expect(client.calls[0]?.config).not.toHaveProperty('temperature');
+    expect(result.warnings).toEqual([
+      {
+        code: 'sampling-unsupported',
+        message:
+          "gemini-2.5-pro doesn't take a temperature, so the call went without one (it asked for 0.2).",
+      },
+    ]);
+  });
+});

@@ -124,6 +124,13 @@ export function createProviderRegistry(
           reason: 'invalid-max-output-tokens',
         };
       }
+      if (m.sampling !== undefined && typeof m.sampling !== 'boolean') {
+        return {
+          code: 'invalid-provider',
+          message: `provider "${p.metadata.id}" model "${m.name}" sampling must be true or false`,
+          reason: 'invalid-sampling',
+        };
+      }
     }
     const defaultModel = p.metadata.defaultModel;
     if (defaultModel !== undefined && !p.metadata.models.some((m) => m.name === defaultModel)) {

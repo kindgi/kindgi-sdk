@@ -10,6 +10,7 @@ import type {
   ModelProvider,
   ProviderMetadata,
 } from '@kindgi/capabilities';
+import { samplingFor } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
 
 import { computeCostUsd, toFrameworkUsage } from './cost.js';
@@ -165,6 +166,7 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
       const requestOptions: Record<string, unknown> =
         input.abortSignal !== undefined ? { signal: input.abortSignal } : {};
       const maxTokens = input.maxOutputTokens ?? modelInfo.maxOutputTokens ?? DEFAULT_MAX_TOKENS;
+      const sampling = samplingFor(modelInfo, input);
 
       const counted = await attempts.count(() =>
         client.messages.create(
@@ -174,7 +176,7 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
             ...(system !== undefined && { system }),
             messages: [...messages],
             ...(tools !== undefined && { tools: [...tools] }),
-            ...(input.temperature !== undefined && { temperature: input.temperature }),
+            ...(sampling.temperature !== undefined && { temperature: sampling.temperature }),
           },
           requestOptions,
         ),
@@ -200,6 +202,7 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
         // An injected client sends with its own fetch: nothing was counted.
         ...(counted.attempts > 0 && { attempts: counted.attempts }),
         rawUsage: { ...response.usage },
+        ...(sampling.warnings.length > 0 && { warnings: sampling.warnings }),
       };
     },
   };

@@ -456,6 +456,38 @@ describe('API — providers register + get', () => {
     expect(body.error.details?.reason).toBe('unknown-default-model');
   });
 
+  test("a model's sampling round-trips through register + get; a non-boolean → 400 invalid-sampling", async () => {
+    const { app } = makeApp();
+    const spec = providerSpec({ id: 'no-sampling' });
+    const models = spec.models.map((m, i) => (i === 0 ? { ...m, sampling: false } : m));
+    const register = await app.request('/v1/providers', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ metadata: { ...spec, models }, adapter_id: TEST_ADAPTER_ID }),
+    });
+    expect(register.status).toBe(201);
+    const get = await app.request('/v1/providers/no-sampling', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    const got = (await get.json()) as { models: { sampling?: boolean }[] };
+    expect(got.models[0]?.sampling).toBe(false);
+    expect(got.models.slice(1).every((m) => m.sampling === undefined)).toBe(true);
+    const bad = await app.request('/v1/providers', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        metadata: {
+          ...providerSpec({ id: 'bad-sampling' }),
+          models: spec.models.map((m) => ({ ...m, sampling: 'off' })),
+        },
+        adapter_id: TEST_ADAPTER_ID,
+      }),
+    });
+    expect(bad.status).toBe(400);
+    const body = (await bad.json()) as { error: { code: string; details?: { reason?: string } } };
+    expect(body.error.details?.reason).toBe('invalid-sampling');
+  });
+
   test('validation failure (non-boolean fallback) → 400 invalid-provider', async () => {
     const { app } = makeApp();
     const res = await app.request('/v1/providers', {

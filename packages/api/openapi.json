@@ -7878,6 +7878,10 @@
             "minimum": 1,
             "description": "Fallback cap on output tokens. Adapters that require `max_tokens` on every request (e.g. Anthropic) use this when `ModelCallInput.maxOutputTokens` is unset."
           },
+          "sampling": {
+            "type": "boolean",
+            "description": "Whether the model takes sampling settings (`temperature`). `false`: its API rejects a non-default value, so the call goes without one and the answer's `warnings` say so (`sampling-unsupported`). Absent: it takes them."
+          },
           "description": {
             "type": "string",
             "description": "Short per-model description surfaced in logs."

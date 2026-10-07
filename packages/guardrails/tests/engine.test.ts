@@ -332,6 +332,61 @@ describe('evaluateGuardrail — llm-judge routing', () => {
   });
 });
 
+describe('evaluateGuardrail — a judge on a model that takes no temperature', () => {
+  test("the judge's temperature goes to the provider, whose adapter decides; a sampling warning doesn't stop the verdict", async () => {
+    const registry = createCheckRegistry();
+    registry.register({
+      id: 'judge-t',
+      kind: 'llm-judge',
+      evaluate: async () => ({ passed: true }),
+    });
+    const guardrail: Guardrail = {
+      id: 'inv-j3' as GuardrailId,
+      kind: 'llm-judge',
+      check: 'judge-t',
+      config: { rubric: 'Is the output helpful?', temperature: 0.2 },
+      action: { 'on-violation': 'log-only' },
+      judgeCapabilities: { needs: [{ feature: 'tool-use' }] },
+    };
+    const seen: unknown[] = [];
+    const bindings: EvaluationBindings = {
+      judgeProvider: {
+        metadata: {
+          id: 'acme-llm',
+          region: 'test',
+          models: [
+            {
+              name: 'acme-large',
+              contextWindow: 8000,
+              features: ['tool-use'],
+              sampling: false,
+              cost: { promptUsdPer1kTokens: 0, completionUsdPer1kTokens: 0 },
+            },
+          ],
+        },
+        invoke: async (input) => {
+          seen.push(input.temperature);
+          return {
+            message: { role: 'assistant', content: 'PASS\nOn topic.' },
+            finishReason: 'stop',
+            usage: { promptTokens: 100, completionTokens: 20 },
+            costUsd: 0,
+            durationMs: 50,
+            provider: { id: 'acme-llm', model: 'acme-large' },
+            warnings: [
+              { code: 'sampling-unsupported', message: 'acme-large takes no temperature' },
+            ],
+          };
+        },
+      },
+    };
+    const outcome = await evaluateGuardrail(guardrail, registry, baseTrace(), bindings);
+    if (outcome.kind !== 'ok') throw new Error('expected ok');
+    expect(seen).toEqual([0.2]);
+    expect(outcome.value.result.passed).toBe(true);
+  });
+});
+
 describe('evaluateGuardrail — llm-judge under the tenant policy', () => {
   function judgeGuardrail(): Guardrail {
     return {

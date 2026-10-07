@@ -311,6 +311,7 @@ function serializeProvider(m: ProviderMetadata): Record<string, unknown> {
       },
       ...(model.p95LatencyMs !== undefined && { p95LatencyMs: model.p95LatencyMs }),
       ...(model.maxOutputTokens !== undefined && { maxOutputTokens: model.maxOutputTokens }),
+      ...(model.sampling !== undefined && { sampling: model.sampling }),
       ...(model.description !== undefined && { description: model.description }),
     })),
     ...(m.defaultModel !== undefined && { defaultModel: m.defaultModel }),
@@ -564,6 +565,15 @@ function validateModelInfo(
       };
     }
   }
+  if (m.sampling !== undefined && typeof m.sampling !== 'boolean') {
+    return {
+      kind: 'err',
+      error: {
+        message: `provider "${providerId}" model "${m.name}" sampling must be true or false`,
+        reason: 'invalid-sampling',
+      },
+    };
+  }
   if (m.description !== undefined && typeof m.description !== 'string') {
     return {
       kind: 'err',
@@ -583,6 +593,7 @@ function validateModelInfo(
     },
     ...(m.p95LatencyMs !== undefined && { p95LatencyMs: m.p95LatencyMs }),
     ...(m.maxOutputTokens !== undefined && { maxOutputTokens: m.maxOutputTokens }),
+    ...(m.sampling !== undefined && { sampling: m.sampling }),
     ...(m.description !== undefined && { description: m.description }),
   };
   return { kind: 'ok', value };

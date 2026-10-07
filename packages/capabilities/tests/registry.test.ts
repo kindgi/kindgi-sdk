@@ -164,6 +164,31 @@ describe('createProviderRegistry', () => {
     }
   });
 
+  test('sampling: a boolean is kept; anything else is refused', () => {
+    const { registry, register } = createProviderRegistry();
+    const model = {
+      name: 'sonnet',
+      contextWindow: 200000,
+      features: ['tool-use' as const],
+      cost: { promptUsdPer1kTokens: 0.003, completionUsdPer1kTokens: 0.015 },
+    };
+    expect(
+      register(
+        TENANT_A,
+        fakeProvider({ id: 'a', region: 'us', models: [{ ...model, sampling: false }] }),
+      ).kind,
+    ).toBe('ok');
+    expect(registry.get(TENANT_A, 'a')?.metadata.models[0]?.sampling).toBe(false);
+    const bad = register(
+      TENANT_A,
+      fakeProvider({ id: 'b', region: 'us', models: [{ ...model, sampling: 'no' as never }] }),
+    );
+    expect(bad.kind).toBe('err');
+    if (bad.kind === 'err' && bad.error.code === 'invalid-provider') {
+      expect(bad.error.reason).toBe('invalid-sampling');
+    }
+  });
+
   test('labels: kept as given, and out-of-bounds labels are refused', () => {
     const { registry, register } = createProviderRegistry();
     const labels = {

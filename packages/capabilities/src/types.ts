@@ -256,6 +256,14 @@ export interface ModelInfo {
    * `ModelCallInput.maxOutputTokens` is unset.
    */
   readonly maxOutputTokens?: number;
+  /**
+   * Whether the model takes sampling settings (`temperature`). `false`:
+   * its API rejects a non-default value (Anthropic's Claude 4.7 and
+   * later, OpenAI's GPT-6), so an adapter sends the call without one and
+   * says so in the answer's `warnings` (`sampling-unsupported`), instead
+   * of failing it. Absent: it takes them.
+   */
+  readonly sampling?: boolean;
   /** Short per-model description surfaced in logs. */
   readonly description?: string;
 }
