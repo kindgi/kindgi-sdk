@@ -15,7 +15,7 @@ import type {
   TenantId,
 } from '@kindgi/types';
 
-import { ref } from '@kindgi/authz';
+import { type Principal, ref } from '@kindgi/authz';
 
 import { type WireErrorBody, statusFor, toWireError } from '../errors.js';
 import type { EventBusBinding, EventPayload, Subscription } from '../event-bus-binding.js';
@@ -161,7 +161,12 @@ export function runsRouter(
       return c.json(toWireError(parsed.error, requestId));
     }
 
-    const invocation = await invokeFromBody(binding, tenantId, parsed.value);
+    const invocation = await invokeFromBody(
+      binding,
+      tenantId,
+      parsed.value,
+      c.get('principal') as Principal | undefined,
+    );
 
     if (invocation.kind === 'err') {
       c.status(statusFor(invocation.error.code) as never);
@@ -624,9 +629,12 @@ function invokeFromBody(
   binding: RunHandlerBinding,
   tenantId: TenantId,
   body: ParsedStartRunBody,
+  principal: Principal | undefined,
 ): Promise<RunHandlerOutcome> {
   const common = {
     tenantId,
+    // Whom the run acts for: the authenticated caller, never the body.
+    ...(principal !== undefined && { principal }),
     ...(body.projectId !== undefined && { projectId: body.projectId }),
     input: body.input,
     ...(body.segments !== undefined && { segments: body.segments }),
