@@ -180,7 +180,9 @@ cases. One of them:
 - **`output`** is the run's output, as it was judged.
 - **`context`**, for an agent turn, is what the turn had before it answered:
   the conversation so far (up to 200 messages) and what it retrieved. A
-  comparison replays the turn with the same context.
+  comparison replays the turn with the same context. Its `toolEnv` has the
+  [env values](../../tools/give-a-tool-env-values/) each tool was sent, by
+  tool id: a read-only tool the comparison runs live gets those, not today's.
 
 ## In the console
 
