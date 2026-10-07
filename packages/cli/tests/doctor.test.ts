@@ -161,6 +161,7 @@ describe('outside a project', () => {
       'model-key',
       'runtime',
       'provider',
+      'erasures',
     ]);
     expect(check('node')).toMatchObject({ status: 'pass', message: 'Node 22.12.0.' });
     expect(check('python')).toMatchObject({ status: 'skip' });
@@ -169,7 +170,7 @@ describe('outside a project', () => {
     expect(check('registry')).toMatchObject({ status: 'pass' });
     expect(check('project')).toMatchObject({ status: 'skip' });
     expect(check('project')?.fix).toMatch(/^Create one: npx @kindgi\/cli@\S+ init <name> /);
-    for (const id of ['dependencies', 'model-key', 'runtime', 'provider']) {
+    for (const id of ['dependencies', 'model-key', 'runtime', 'provider', 'erasures']) {
       expect(check(id)).toMatchObject({
         status: 'skip',
         message: 'Not checked: it needs a project.',
@@ -282,6 +283,35 @@ describe('a TypeScript project', () => {
     const { out, check } = await doctor({ env: { ANTHROPIC_API_KEY: SECRET } });
     expect(check('model-key')?.message).toContain('ANTHROPIC_API_KEY is set in your shell');
     expect(out.stdout).not.toContain(SECRET);
+  });
+
+  test("erasures: replayable passes; without the AAD key it says so, never failing; an older runtime doesn't say", async () => {
+    await tsProject({ installed: true, rc: RC, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+    const ready =
+      (erasures?: string): typeof fetch =>
+      async (input) =>
+        String(input).endsWith('/ready')
+          ? new Response(
+              JSON.stringify({ ok: true, ...(erasures !== undefined && { erasures }) }),
+              {
+                status: 200,
+              },
+            )
+          : new Response('{"status":"ok"}', { status: 200 });
+    const replayable = await doctor({
+      fetchImpl: ready('replayable'),
+      providers: [{ id: 'anthropic' }],
+    });
+    expect(replayable.check('erasures')).toMatchObject({ status: 'pass' });
+    const unreplayable = await doctor({
+      fetchImpl: ready('unreplayable'),
+      providers: [{ id: 'anthropic' }],
+    });
+    expect(unreplayable.check('erasures')).toMatchObject({ status: 'skip' });
+    expect(unreplayable.check('erasures')?.message).toContain('no KINDGI_SECRETS_AAD_KEY');
+    expect(unreplayable.out.exitCode).toBe(0);
+    const older = await doctor({ fetchImpl: ready(), providers: [{ id: 'anthropic' }] });
+    expect(older.check('erasures')?.message).toContain("this runtime doesn't say");
   });
 
   test('a running runtime with a provider: everything passes, exit 0', async () => {

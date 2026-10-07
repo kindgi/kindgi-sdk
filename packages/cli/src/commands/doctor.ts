@@ -68,7 +68,8 @@ export type DoctorCheckId =
   | 'dependencies'
   | 'model-key'
   | 'runtime'
-  | 'provider';
+  | 'provider'
+  | 'erasures';
 
 export interface DoctorCheck {
   readonly id: DoctorCheckId;
@@ -120,6 +121,7 @@ const TITLES: Readonly<Record<DoctorCheckId, string>> = {
   'model-key': 'Model key',
   runtime: 'Runtime',
   provider: 'Provider',
+  erasures: 'Erasures',
 };
 
 export const doctorCommand: LeafCommand = {
@@ -175,7 +177,7 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
       message: `No Kindgi project in ${dir}: no kindgi.config.ts, and no pyproject.toml with [tool.kindgi].`,
       fix: createProjectFix(kindgi, pypi),
     });
-    for (const id of ['dependencies', 'model-key', 'runtime', 'provider'] as const) {
+    for (const id of ['dependencies', 'model-key', 'runtime', 'provider', 'erasures'] as const) {
       checks.push(skip(id, 'Not checked: it needs a project.'));
     }
     return report(checks, null);
@@ -191,6 +193,11 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
     runtime.check.status === 'pass' && runtime.url !== undefined && rc.token !== undefined
       ? await providerCheck(ctx, runtime.url, rc.token, kindgi)
       : skip('provider', `Not checked: it needs the runtime running (${kindgi('dev')}).`),
+  );
+  checks.push(
+    runtime.check.status === 'pass' && runtime.url !== undefined
+      ? await erasuresCheck(ctx, runtime.url)
+      : skip('erasures', `Not checked: it needs the runtime running (${kindgi('dev')}).`),
   );
   return report(checks, { dir, language });
 }
@@ -517,6 +524,39 @@ async function modelKeyCheck(
     `No model key in ${files} (looked for ${names.join(', ')})${inShell !== undefined ? `; ${inShell} is set in your shell, but kindgi dev reads keys from the project's env files` : ''}.`,
     `With kindgi dev running: ${kindgi('secrets', 'set', want, '--env=local', '--scope=tenant')} (it prompts without echoing; or pipe it in with --from-stdin). Never paste a key into a chat.`,
   );
+}
+
+// ---------- erasures ----------
+
+/**
+ * Whether the runtime can replay erasures after a backup restore: it
+ * needs the secrets AAD key, which `kindgi dev` doesn't set (fine for
+ * development), so this check never fails: it passes, or says why not.
+ */
+async function erasuresCheck(ctx: CommandContext, url: string): Promise<DoctorCheck> {
+  let said: unknown;
+  try {
+    const res = await ctx.fetch(`${url.replace(/\/+$/, '')}/ready`, {
+      method: 'GET',
+      signal: AbortSignal.timeout(5000),
+    });
+    said = ((await res.json()) as { erasures?: unknown }).erasures;
+  } catch {
+    said = undefined;
+  }
+  if (said === 'replayable') {
+    return pass(
+      'erasures',
+      'Erasures can be replayed after a backup restore: the runtime has the secrets AAD key.',
+    );
+  }
+  if (said === 'unreplayable') {
+    return skip(
+      'erasures',
+      "Erasures run, but a replay after a backup restore can't find whom they erased: the runtime has no KINDGI_SECRETS_AAD_KEY (the postgres secrets backend's). Fine for development; set it where you run in production.",
+    );
+  }
+  return skip('erasures', "Not checked: this runtime doesn't say (it's from before 0.1.5).");
 }
 
 // ---------- the runtime ----------
