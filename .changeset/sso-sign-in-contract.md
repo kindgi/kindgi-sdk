@@ -1,6 +1,7 @@
 ---
 "@kindgi/api": patch
 "@kindgi/client": patch
+"@kindgi/env-schema": patch
 ---
 
 Sign-in contract for identity providers and browser sessions.
@@ -10,3 +11,4 @@ Sign-in contract for identity providers and browser sessions.
 - **Browser sessions in a cookie** (`SessionConfig.cookie`): the session token is read from `__Host-kindgi_session` when there's no `Authorization` header; a cookie-authenticated unsafe request needs an allowed `Origin` (403 `csrf-origin-mismatch`, a missing `Origin` too). Logout clears the cookie; refresh of a cookie session is refused (400 `cookie-session-not-refreshable`).
 - **The provider catalog, refresh and logout mount without `exchangeCode`**; only this API's own OAuth flow (`/v1/auth/login` + callback) needs it.
 - **For `SessionStoreBinding` implementers:** `SessionCreateInput.accessToken` and `Session.accessToken` are optional (a deployment may keep no identity-provider tokens). Copy them conditionally.
+- **Runtime settings for sign-in** (`@kindgi/env-schema`): `KINDGI_AUTH_SECRET_PATH` / `KINDGI_AUTH_SECRET` (turn sign-in with identity providers on; need `KINDGI_PUBLIC_URL`), `KINDGI_AUTH_PRIVATE_IDP_ORIGINS` (private-network identity providers the operator allows), `KINDGI_SESSION_TTL_MS` (default 12 hours) and `KINDGI_SESSION_IDLE_TIMEOUT_MS` (default 60 minutes).
