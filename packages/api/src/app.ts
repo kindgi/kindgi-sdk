@@ -1091,8 +1091,27 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   if (input.memory !== undefined) {
     v1.route('/memory', memoryRouter(input.memory));
   }
-  if (input.supervisor !== undefined) {
-    v1.route('/proposals', proposalsRouter(input.supervisor));
+  if (
+    input.supervisor !== undefined &&
+    input.agentRegistry !== undefined &&
+    input.blockRegistry !== undefined &&
+    input.evalRunBinding !== undefined &&
+    input.agentReleases !== undefined
+  ) {
+    v1.route(
+      '/proposals',
+      proposalsRouter(
+        input.supervisor,
+        {
+          agents: input.agentRegistry,
+          blocks: input.blockRegistry,
+          evalRuns: input.evalRunBinding,
+          releases: input.agentReleases,
+          ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+        },
+        authorizer,
+      ),
+    );
   }
   v1.route(
     '/provenance',

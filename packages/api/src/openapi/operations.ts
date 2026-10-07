@@ -531,20 +531,11 @@ const InheritQueryParam: ParameterSpec = {
   schema: { type: 'boolean', default: true },
 };
 
-const SupervisorIdHeaderParam: ParameterSpec = {
-  name: 'X-Supervisor-Id',
-  in: 'header',
-  required: true,
-  description:
-    'SupervisorId scoping this request. Every /v1/proposals route requires this header — proposals are supervisor-owned, and the API does not derive supervisor scope from the token.',
-  schema: { type: 'string', minLength: 1 },
-};
-
 const ProposalIdPathParam: ParameterSpec = {
   name: 'proposalId',
   in: 'path',
   required: true,
-  description: 'FixProposalId — opaque branded string (a UUID).',
+  description: 'The proposal id (a UUID).',
   schema: { type: 'string', format: 'uuid' },
 };
 
@@ -577,7 +568,7 @@ const ProposalStatusQueryParam: ParameterSpec = {
   name: 'status',
   in: 'query',
   required: false,
-  description: 'Filter by proposal status.',
+  description: 'Only proposals with this (derived) status.',
   schema: { $ref: '#/components/schemas/FixProposalStatus' },
 };
 
@@ -585,7 +576,7 @@ const ProposalTierQueryParam: ParameterSpec = {
   name: 'tier',
   in: 'query',
   required: false,
-  description: 'Filter by artifact tier.',
+  description: 'Only proposals of this tier.',
   schema: { $ref: '#/components/schemas/ProposalTier' },
 };
 
@@ -2819,19 +2810,18 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
 
-  // ---------- proposals (supervisor fix lifecycle) ----------
+  // ---------- improvement proposals ----------
   {
     method: 'get',
     honoPath: '/v1/proposals',
     openapiPath: '/v1/proposals',
     operationId: 'proposals.list',
-    summary: 'List supervisor fix proposals',
+    summary: 'List improvement proposals',
     description:
-      'Cursor-paginated list scoped to `(tenantId, supervisorId)`. Filters: `?status=`, `?agentId=`, `?tier=`. Sort order is binding-defined (typically `createdAt desc, id desc`).',
+      "Newest first, cursor-paginated, only the proposals of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and `scopeKind`/`scopeId` for the proposals of one project's agents (or every project's in an org).",
     tags: ['proposals'],
     security: 'bearer',
     parameters: [
-      SupervisorIdHeaderParam,
       LimitQueryParam,
       CursorQueryParam,
       ProposalStatusQueryParam,
@@ -2839,12 +2829,11 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ProposalTierQueryParam,
       ScopeKindQueryParam,
       ScopeIdQueryParam,
-      InheritQueryParam,
     ],
     responses: {
       '200': { description: 'Page of proposals.', schema: ref('FixProposalCollectionPage') },
       ...CommonAuthErrors,
-      '400': ErrorResponse('Missing `X-Supervisor-Id` header or malformed query parameter.'),
+      '400': ErrorResponse('A malformed query parameter.'),
     },
   },
   {
@@ -2852,93 +2841,82 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/proposals/:proposalId',
     openapiPath: '/v1/proposals/{proposalId}',
     operationId: 'proposals.get',
-    summary: 'Fetch a fix proposal',
+    summary: 'Fetch an improvement proposal',
+    description: 'Needs `read` on its agent.',
     tags: ['proposals'],
     security: 'bearer',
-    parameters: [SupervisorIdHeaderParam, ProposalIdPathParam],
+    parameters: [ProposalIdPathParam],
     responses: {
-      '200': { description: 'Proposal.', schema: ref('FixProposal') },
+      '200': { description: 'The proposal.', schema: ref('FixProposal') },
       ...CommonAuthErrors,
-      '400': ErrorResponse('Missing `X-Supervisor-Id` header.'),
-      '404': ErrorResponse('No proposal visible under this supervisor with that id.'),
+      '404': ErrorResponse('No such proposal (or none the caller can read).'),
     },
   },
   {
     method: 'post',
     honoPath: '/v1/proposals',
     openapiPath: '/v1/proposals',
-    operationId: 'proposals.draft',
-    summary: 'Draft a fix proposal',
+    operationId: 'proposals.create',
+    summary: 'Propose new content for a data block',
     description:
-      'Inserts a new proposal in `draft` state. Duplicate proposals (same `(supervisor, fingerprint)` non-terminal) short-circuit to the pre-existing row and mark the response with `X-Proposal-Deduped: true`.',
+      'A hand-written proposal: new settings values or a new prompt template for a block `fromVersion` pins, for a live scope. Checked as publishing that block version would be (its schema carries over), and refused when it equals the pinned content. The same change from the same version for the same scope is one proposal: answered `200` with `X-Proposal-Deduped: true`. Needs `publish` on the agent.',
     tags: ['proposals'],
     security: 'bearer',
-    parameters: [SupervisorIdHeaderParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('DraftProposalBody') },
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('CreateProposalBody') },
     responses: {
-      '201': { description: 'Proposal drafted (or deduped).', schema: ref('FixProposal') },
+      '201': { description: 'The proposal, a `draft`.', schema: ref('FixProposal') },
+      '200': { description: 'The same proposal, made before.', schema: ref('FixProposal') },
       ...CommonMutationErrors,
+      '404': ErrorResponse(
+        "`fromVersion` isn't an active version of the agent (`agent-version-not-found`).",
+      ),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/proposals/:proposalId/dry-run',
-    openapiPath: '/v1/proposals/{proposalId}/dry-run',
-    operationId: 'proposals.dryRun',
-    summary: 'Dry-run a proposal against an eval dataset',
+    honoPath: '/v1/proposals/:proposalId/evaluate',
+    openapiPath: '/v1/proposals/{proposalId}/evaluate',
+    operationId: 'proposals.evaluate',
+    summary: 'Compare a proposal on a test set',
     description:
-      'Runs the candidate agent against the caller-supplied dataset + criterion. Transitions the proposal to `dry-run-passed` or `dry-run-failed`. Legal only from `draft` or `dry-run-failed`.',
+      "The first evaluation publishes the block version and derives the agent version (`derivedFrom.proposalId`); they serve no scope until a promotion makes them live. Then a comparison eval run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a live version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would go live there at once (`409 proposal-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.",
     tags: ['proposals'],
     security: 'bearer',
-    parameters: [SupervisorIdHeaderParam, ProposalIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('DryRunProposalBody') },
+    parameters: [ProposalIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('EvaluateProposalBody') },
     responses: {
-      '200': { description: 'Dry-run completed.', schema: ref('DryRunProposalResult') },
+      '202': { description: 'The proposal, `evaluating`.', schema: ref('FixProposal') },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No proposal visible under this supervisor with that id.'),
-      '422': ErrorResponse('Baseline mismatch, apply-change failure, or runtime dry-run error.'),
+      '404': ErrorResponse('No such proposal, or no such test set.'),
+      '409': ErrorResponse(
+        "`proposal-needs-pin`: the agent has no live version for the whole tenant. `proposal-invalid-state-transition`: the proposal's status doesn't allow it.",
+      ),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/proposals/:proposalId/submit-review',
-    openapiPath: '/v1/proposals/{proposalId}/submit-review',
-    operationId: 'proposals.submitReview',
-    summary: 'Submit a dry-run-passed proposal for HITL review',
+    honoPath: '/v1/proposals/:proposalId/request',
+    openapiPath: '/v1/proposals/{proposalId}/request',
+    operationId: 'proposals.request',
+    summary: "Request a proposal's promotion for its scope",
     description:
-      'Enqueues a HITL approval and transitions the proposal to `proposed-for-review`. Legal only from `dry-run-passed`. Body is optional; defaults auto-derive the reviewer role (meta-fixes → senior).',
+      "A promotion of the candidate for the proposal's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/promotions` answers. Needs `promote` on the agent. Allowed from `evaluated`, `refused`, `superseded` and `expired`.",
     tags: ['proposals'],
     security: 'bearer',
-    parameters: [SupervisorIdHeaderParam, ProposalIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: false, schema: ref('SubmitReviewProposalBody') },
+    parameters: [ProposalIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: false, schema: ref('ProposalReasonBody') },
     responses: {
-      '200': {
-        description: 'Review enqueued.',
-        schema: ref('SubmitReviewProposalResult'),
+      '201': { description: 'Promoted: the proposal, `promoted`.', schema: ref('FixProposal') },
+      '202': {
+        description: 'The gate passed and an approval is open: the proposal, `in-review`.',
+        schema: ref('FixProposal'),
       },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No proposal visible under this supervisor with that id.'),
-      '422': ErrorResponse('Ground-layer guardrail violation.'),
-    },
-  },
-  {
-    method: 'post',
-    honoPath: '/v1/proposals/:proposalId/apply',
-    openapiPath: '/v1/proposals/{proposalId}/apply',
-    operationId: 'proposals.apply',
-    summary: 'Apply an approved proposal',
-    description:
-      'Materializes the proposed change into a new agent version, registers it in the agent registry, and transitions the proposal to `applied`. Legal only from `approved`.',
-    tags: ['proposals'],
-    security: 'bearer',
-    parameters: [SupervisorIdHeaderParam, ProposalIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: false, schema: ref('ApplyProposalBody') },
-    responses: {
-      '200': { description: 'Proposal applied.', schema: ref('ApplyProposalResult') },
-      ...CommonMutationErrors,
-      '404': ErrorResponse('No proposal visible under this supervisor with that id.'),
+      '404': ErrorResponse('No such proposal.'),
+      '409': ErrorResponse("The proposal's status doesn't allow it."),
       '422': ErrorResponse(
-        'Baseline agent not in registry, invalid new version, or apply-change failure.',
+        '`gate-failed`: the gate refused it (the error carries the checks and `proposalId`).',
       ),
     },
   },
@@ -2947,17 +2925,18 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/proposals/:proposalId/rollback',
     openapiPath: '/v1/proposals/{proposalId}/rollback',
     operationId: 'proposals.rollback',
-    summary: 'Roll back an applied proposal',
+    summary: 'Roll back a promoted proposal',
     description:
-      'Unregisters the applied version from the agent registry and transitions the proposal to `rolled-back`. Legal only from `applied`.',
+      "The scope goes back to the version its own pin held before the proposal's promotion (or, with none, falls back to the scope above). Only while the proposal's version still serves the scope. Needs `promote` on the agent.",
     tags: ['proposals'],
     security: 'bearer',
-    parameters: [SupervisorIdHeaderParam, ProposalIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('RollbackProposalBody') },
+    parameters: [ProposalIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: false, schema: ref('ProposalReasonBody') },
     responses: {
-      '200': { description: 'Proposal rolled back.', schema: ref('RollbackProposalResult') },
+      '200': { description: 'The proposal, `rolled-back`.', schema: ref('FixProposal') },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No proposal visible under this supervisor with that id.'),
+      '404': ErrorResponse('No such proposal.'),
+      '409': ErrorResponse("It isn't promoted, or its version doesn't serve the scope anymore."),
     },
   },
   {
@@ -2965,17 +2944,18 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/proposals/:proposalId/withdraw',
     openapiPath: '/v1/proposals/{proposalId}/withdraw',
     operationId: 'proposals.withdraw',
-    summary: 'Withdraw a non-terminal proposal',
+    summary: 'Withdraw a proposal',
     description:
-      'Transitions the proposal to `withdrawn`. Legal from any non-terminal state (`draft | dry-running | dry-run-passed | dry-run-failed | proposed-for-review`). Terminal states surface as `409 proposal-invalid-state-transition`.',
+      "Closes it. Not while it's in review (decide its approval instead), nor once promoted, rejected or rolled back. Needs `publish` on the agent.",
     tags: ['proposals'],
     security: 'bearer',
-    parameters: [SupervisorIdHeaderParam, ProposalIdPathParam, IdempotencyKeyParam],
+    parameters: [ProposalIdPathParam, IdempotencyKeyParam],
     requestBody: { required: true, schema: ref('WithdrawProposalBody') },
     responses: {
-      '200': { description: 'Proposal withdrawn.', schema: ref('FixProposal') },
+      '200': { description: 'The proposal, `withdrawn`.', schema: ref('FixProposal') },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No proposal visible under this supervisor with that id.'),
+      '404': ErrorResponse('No such proposal.'),
+      '409': ErrorResponse("The proposal's status doesn't allow it."),
     },
   },
 

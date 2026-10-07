@@ -12,11 +12,12 @@ import type { AgentRegistryBinding } from '../agent-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { EvalRun, EvalRunBinding } from '../eval-run-binding.js';
 import type { GatePolicy } from '../gate-policy-binding.js';
-import { type GateResult, evaluateGate } from '../gate.js';
+import { type GateCheck, type GateResult, evaluateGate } from '../gate.js';
 import type { JudgedComparisonSummary } from '../judged-dispatcher.js';
 import type {
   AgentReleaseBindings,
   LiveResolveInput,
+  PromoteInput,
   Promotion,
   PromotionActor,
 } from '../live-version-binding.js';
@@ -137,78 +138,17 @@ export function mountAgentReleaseRoutes(
     const requestId = c.get('requestId');
     const parsed = await readPromotionBody(c);
     if (parsed.kind === 'err') return badInput(c, requestId, parsed.message);
-    const tenantId = c.get('tenantId') as TenantId;
     const agentId = c.req.param('agentId');
-    const input = {
-      tenantId,
+    const outcome = await requestPromotion(registry, releases, deps, {
+      tenantId: c.get('tenantId') as TenantId,
       agentId,
       version: parsed.value.version,
       scope: parsed.value.scope,
       requestedBy: actorOf(c),
       ...(parsed.value.reason !== undefined && { reason: parsed.value.reason }),
       ...(parsed.value.evalRunId !== undefined && { evalRunId: parsed.value.evalRunId }),
-    };
-    const policy = await policyFor(releases, tenantId, agentId, parsed.value.scope);
-    if (releases.promotions.request === undefined) {
-      if (policy !== null) {
-        c.status(statusFor('promotion-gate-unsupported') as never);
-        return c.json(
-          toWireError(
-            {
-              code: 'promotion-gate-unsupported',
-              message: `Gate policy ${policy.id} ${policy.version} applies to this promotion, and this deployment can't record a gated promotion yet.`,
-            },
-            requestId,
-          ),
-        );
-      }
-      // No gate, and a binding from before gates: promote as before.
-      const outcome = await releases.promotions.promote(input);
-      if (outcome.kind === 'err') return failed(c, requestId, outcome.error);
-      c.status(201);
-      return c.json(serializePromotion(outcome.value));
-    }
-    const gate = await runGate(
-      registry,
-      releases,
-      deps,
-      { ...parsed.value, tenantId, agentId },
-      policy,
-    );
-    if (gate.kind === 'err') return failed(c, requestId, gate.error);
-    const outcome = await releases.promotions.request({
-      ...input,
-      gate: {
-        policy: policy === null ? null : { id: policy.id, version: policy.version },
-        checks: gate.result.checks,
-        passed: gate.result.passed,
-        ...(gate.result.approval !== undefined && { approval: gate.result.approval }),
-        servingVersion: gate.servingVersion as Semver,
-      },
     });
-    if (outcome.kind === 'err') return failed(c, requestId, outcome.error);
-    const promotion = outcome.value;
-    if (promotion.status === 'refused') {
-      const checks = promotion.checks ?? gate.result.checks;
-      c.status(statusFor('gate-failed') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'gate-failed',
-            message: `The gate refused ${agentId} ${parsed.value.version}: ${checks
-              .filter((check) => !check.passed)
-              .map((check) => check.message)
-              .join(' ')}`,
-            promotionId: promotion.id,
-            policy: promotion.policy ?? null,
-            checks,
-          },
-          requestId,
-        ),
-      );
-    }
-    c.status(promotion.status === 'pending-approval' ? 202 : 201);
-    return c.json(serializePromotion(promotion));
+    return promotionResponse(c, outcome);
   });
 
   r.post('/:agentId/promotions/check', async (c) => {
@@ -340,6 +280,103 @@ export function mountAgentReleaseRoutes(
 
 type Ctx = Context<AppEnv>;
 
+/** A promotion request's outcome: recorded, refused before recording, or unsupported here. */
+export type PromotionRequestOutcome =
+  | {
+      readonly kind: 'ok';
+      readonly promotion: Promotion;
+      /** The gate's checks as they ran (a binding may not echo them on the row). */
+      readonly checks?: readonly GateCheck[];
+    }
+  | { readonly kind: 'err'; readonly error: { code: string; message: string } }
+  | { readonly kind: 'gate-unsupported'; readonly policy: GatePolicy };
+
+/**
+ * Request that `version` go live for `scope`, through the scope's gate:
+ * the binding records it as promoted, waiting for approval, or refused
+ * (`promotion.status`). Without gated requests in this deployment, an
+ * ungated scope promotes as before and a gated one is unsupported.
+ */
+export async function requestPromotion(
+  registry: AgentRegistryBinding,
+  releases: AgentReleaseBindings,
+  deps: AgentReleaseGateDeps,
+  input: PromoteInput,
+): Promise<PromotionRequestOutcome> {
+  const policy = await policyFor(releases, input.tenantId, input.agentId, input.scope);
+  if (releases.promotions.request === undefined) {
+    if (policy !== null) return { kind: 'gate-unsupported', policy };
+    // No gate, and a binding from before gates: promote as before.
+    const outcome = await releases.promotions.promote(input);
+    return outcome.kind === 'err'
+      ? { kind: 'err', error: outcome.error }
+      : { kind: 'ok', promotion: outcome.value };
+  }
+  const gate = await runGate(registry, releases, deps, input, policy);
+  if (gate.kind === 'err') return gate;
+  const outcome = await releases.promotions.request({
+    ...input,
+    gate: {
+      policy: policy === null ? null : { id: policy.id, version: policy.version },
+      checks: gate.result.checks,
+      passed: gate.result.passed,
+      ...(gate.result.approval !== undefined && { approval: gate.result.approval }),
+      servingVersion: gate.servingVersion as Semver,
+    },
+  });
+  return outcome.kind === 'err'
+    ? { kind: 'err', error: outcome.error }
+    : { kind: 'ok', promotion: outcome.value, checks: gate.result.checks };
+}
+
+/**
+ * The answer to a promotion request: 201 promoted, 202 waiting for
+ * approval, 422 `gate-failed` with the checks, or the error.
+ */
+export function promotionResponse(
+  c: Ctx,
+  outcome: PromotionRequestOutcome,
+  extra: Readonly<Record<string, unknown>> = {},
+) {
+  const requestId = c.get('requestId');
+  if (outcome.kind === 'gate-unsupported') {
+    c.status(statusFor('promotion-gate-unsupported') as never);
+    return c.json(
+      toWireError(
+        {
+          code: 'promotion-gate-unsupported',
+          message: `Gate policy ${outcome.policy.id} ${outcome.policy.version} applies to this promotion, and this deployment can't record a gated promotion yet.`,
+        },
+        requestId,
+      ),
+    );
+  }
+  if (outcome.kind === 'err') return failed(c, requestId, outcome.error);
+  const { promotion } = outcome;
+  if (promotion.status === 'refused') {
+    const checks = promotion.checks ?? outcome.checks ?? [];
+    c.status(statusFor('gate-failed') as never);
+    return c.json(
+      toWireError(
+        {
+          code: 'gate-failed',
+          message: `The gate refused ${promotion.agentId} ${promotion.toVersion as unknown as string}: ${checks
+            .filter((check) => !check.passed)
+            .map((check) => check.message)
+            .join(' ')}`,
+          promotionId: promotion.id,
+          policy: promotion.policy ?? null,
+          checks,
+          ...extra,
+        },
+        requestId,
+      ),
+    );
+  }
+  c.status(promotion.status === 'pending-approval' ? 202 : 201);
+  return c.json({ ...serializePromotion(promotion), ...extra });
+}
+
 async function readBody(c: Ctx): Promise<Record<string, unknown> | undefined> {
   try {
     const body: unknown = await c.req.json();
@@ -408,7 +445,7 @@ async function readPromotionBody(c: Ctx): Promise<
 }
 
 /** The gate policy for a promotion of `agentId` for `scope`; `null` when none applies. */
-async function policyFor(
+export async function policyFor(
   releases: AgentReleaseBindings,
   tenantId: TenantId,
   agentId: string,
@@ -420,7 +457,7 @@ async function policyFor(
 }
 
 /** The scope's coordinates, as a run in it would resolve its version. */
-function coordinatesOf(scope: LiveScope): Omit<LiveResolveInput, 'tenantId' | 'agentId'> {
+export function coordinatesOf(scope: LiveScope): Omit<LiveResolveInput, 'tenantId' | 'agentId'> {
   switch (scope.kind) {
     case 'tenant':
       return {};
@@ -522,7 +559,7 @@ async function runGate(
 }
 
 /** Who asked, from the request's principal. */
-function actorOf(c: Ctx): PromotionActor {
+export function actorOf(c: Ctx): PromotionActor {
   const actor = c.get('principal')?.actor;
   if (actor === undefined) return { kind: 'service', id: 'unknown' };
   return { kind: actor.kind === 'user' ? 'user' : 'service', id: actor.id };

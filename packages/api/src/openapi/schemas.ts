@@ -1491,6 +1491,11 @@ export const VersionDerivationSchema: JsonSchema = {
     },
     label: { type: 'string', description: 'For `edited`: a short label for the version.' },
     by: { type: 'string', description: 'For `edited`: who derived it (`user:<id>`).' },
+    proposalId: {
+      type: 'string',
+      description:
+        'For `edited`: the improvement proposal it was derived for. Such a version serves no scope until a promotion makes it live.',
+    },
   },
 };
 
@@ -3330,110 +3335,207 @@ export const RevokeSigningKeyResultSchema: JsonSchema = {
   },
 };
 
-// ---------------- supervisor (fix proposals) ----------------
+// ---------------- improvement proposals ----------------
 
 export const ProposalTierSchema: JsonSchema = {
   type: 'string',
-  enum: ['prompt', 'retrieval', 'tool-config'],
+  enum: ['settings-block', 'prompt-block'],
+  description:
+    'What a proposal changes: a settings block (new values) or a prompt block (a new template) the agent version pins.',
 };
 
 export const FixProposalStatusSchema: JsonSchema = {
   type: 'string',
   enum: [
     'draft',
-    'dry-running',
-    'dry-run-passed',
-    'dry-run-failed',
-    'proposed-for-review',
-    'approved',
+    'evaluating',
+    'evaluated',
+    'not-better',
+    'evaluation-failed',
+    'in-review',
+    'promoted',
+    'refused',
     'rejected',
-    'applied',
+    'expired',
+    'superseded',
     'rolled-back',
     'withdrawn',
   ],
+  description:
+    "Where a proposal stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `promoted`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the proposal. `withdrawn`: withdrawn.",
 };
 
-export const PatternRefSchema: JsonSchema = {
+export const ProposalChangeSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['kind', 'key', 'count', 'firstSeenAt', 'lastSeenAt', 'sampleConversations'],
+  required: ['blockId', 'fromVersion', 'content'],
   properties: {
-    kind: {
+    blockId: { type: 'string', description: 'The data block the change is to.' },
+    fromVersion: {
       type: 'string',
-      enum: ['guardrail-violation', 'tool-error', 'budget-exceeded', 'model-error', 'aborted'],
+      description: "The block version the agent version pins: what's being changed.",
     },
-    key: { type: 'string' },
-    count: { type: 'integer', minimum: 1 },
-    firstSeenAt: { type: 'string', format: 'date-time' },
-    lastSeenAt: { type: 'string', format: 'date-time' },
-    sampleConversations: {
-      type: 'array',
-      items: { type: 'string', format: 'uuid' },
+    content: {
+      type: 'object',
+      description:
+        'The new content: `{ values }` for a settings block (its schema carries over), `{ template }` for a prompt block (its parameters carry over).',
+      additionalProperties: false,
+      properties: {
+        values: { type: 'object', additionalProperties: true },
+        template: { type: 'string' },
+      },
     },
   },
 };
 
-export const ProposedChangeSchema: JsonSchema = {
-  description:
-    'Polymorphic change payload. Shape depends on the sibling `tier` on the proposal (prompt / retrieval / tool-config).',
+export const ProposalDrafterSchema: JsonSchema = {
   type: 'object',
-  additionalProperties: true,
+  additionalProperties: false,
+  required: ['kind'],
+  description: "Who wrote the proposal: a person, or one of the runtime's drafters.",
+  properties: {
+    kind: { type: 'string', enum: ['person', 'settings-optimizer', 'prompt-drafter'] },
+    by: { type: 'string', description: 'For a person: `user:<id>` (or `service:<id>`).' },
+    version: { type: 'string', description: "For a drafter: the drafter's version." },
+    model: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['providerId', 'model'],
+      description: 'For a drafter that used a model: which.',
+      properties: { providerId: { type: 'string' }, model: { type: 'string' } },
+    },
+  },
+};
+
+export const ProposalCandidateSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['agentVersion', 'blockVersion', 'pinsDigest'],
+  description:
+    'The versions evaluating the proposal published. They serve no scope until a promotion makes the agent version live.',
+  properties: {
+    agentVersion: {
+      type: 'string',
+      description: 'The derived agent version (its `derivedFrom.proposalId` names the proposal).',
+    },
+    blockVersion: {
+      type: 'string',
+      description: "The block version published from the proposal's content.",
+    },
+    pinsDigest: { type: 'string' },
+  },
+};
+
+export const ProposalEvaluationSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['evalRunId', 'suiteId', 'objective', 'startedAt'],
+  description:
+    "The comparison the proposal was evaluated with, and what it found on the objective metric (the full summary is the eval run's).",
+  properties: {
+    evalRunId: { type: 'string', format: 'uuid' },
+    suiteId: { type: 'string', description: 'The test set (a judged eval suite).' },
+    objective: { type: 'string', enum: ['weightedYesShare', 'weightedPrecisionAtK'] },
+    startedAt: { type: 'string', format: 'date-time' },
+    runStatus: {
+      type: 'string',
+      enum: ['pending', 'running', 'completed', 'failed', 'cancelled'],
+      description: "The eval run's status. Absent when the run can't be read.",
+    },
+    baseline: {
+      type: ['number', 'null'],
+      description: "The recorded outputs' score; `null` without judged evidence.",
+    },
+    candidate: { type: ['number', 'null'], description: "The candidate's score." },
+    delta: { type: ['number', 'null'] },
+    spread: {
+      type: 'number',
+      description:
+        "With more than one repetition: the candidate's max − min, the noise a delta must beat.",
+    },
+    cases: { type: 'integer' },
+    better: { type: 'boolean', description: 'Set once the comparison finished.' },
+  },
+};
+
+export const ProposalPromotionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'status'],
+  description: "The promotion the proposal's request made.",
+  properties: {
+    id: { type: 'string' },
+    status: {
+      type: 'string',
+      enum: ['promoted', 'pending-approval', 'refused', 'superseded', 'rejected', 'expired'],
+    },
+    approvalId: { type: 'string', description: 'The approval a request in review waits on.' },
+    liveNow: {
+      type: 'boolean',
+      description: 'For a promoted proposal: whether its version still serves the scope.',
+    },
+  },
 };
 
 export const FixProposalSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
+  description:
+    'An improvement proposal: a change to one data block an agent version pins, for one live scope, taken through the same comparison, gate and promotion as any other version.',
   required: [
     'id',
-    'tenantId',
-    'supervisorId',
     'agentId',
-    'agentVersion',
+    'fromVersion',
+    'scope',
     'tier',
     'change',
-    'patternRefs',
     'hypothesis',
-    'proposerRuleId',
+    'drafter',
     'status',
-    'fingerprint',
     'createdAt',
     'updatedAt',
   ],
   properties: {
-    id: { type: 'string', format: 'uuid', description: 'FixProposalId.' },
-    tenantId: { type: 'string', format: 'uuid' },
-    supervisorId: { type: 'string' },
+    id: { type: 'string', format: 'uuid' },
     agentId: { type: 'string' },
-    agentVersion: { type: 'string', description: 'Semver of the baseline agent version.' },
-    tier: ProposalTierSchema,
-    change: ProposedChangeSchema,
-    patternRefs: {
-      type: 'array',
-      items: { $ref: '#/components/schemas/PatternRef' },
+    fromVersion: { type: 'string', description: 'The agent version the change applies to.' },
+    scope: { $ref: '#/components/schemas/LiveScope' },
+    tier: { $ref: '#/components/schemas/ProposalTier' },
+    change: { $ref: '#/components/schemas/ProposalChange' },
+    hypothesis: { type: 'string', description: 'What the change should improve, and why.' },
+    evidence: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { judgmentIds: { type: 'array', items: { type: 'string' } } },
     },
-    hypothesis: { type: 'string' },
-    proposerRuleId: { type: 'string' },
-    status: FixProposalStatusSchema,
-    fingerprint: {
-      type: 'string',
-      description: 'sha256(tier + agentId + agentVersion + canonical(change)). Dedup key.',
+    drafter: { $ref: '#/components/schemas/ProposalDrafter' },
+    status: { $ref: '#/components/schemas/FixProposalStatus' },
+    candidate: { $ref: '#/components/schemas/ProposalCandidate' },
+    evaluation: { $ref: '#/components/schemas/ProposalEvaluation' },
+    promotion: { $ref: '#/components/schemas/ProposalPromotion' },
+    rolledBack: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['at', 'promotionId', 'by'],
+      properties: {
+        at: { type: 'string', format: 'date-time' },
+        promotionId: { type: 'string', description: "The rollback's own promotion row." },
+        by: { type: 'string' },
+        reason: { type: 'string' },
+      },
     },
-    resolutionReason: { type: 'string' },
-    reviewApprovalId: {
-      type: 'string',
-      format: 'uuid',
-      description: 'HITL approval id created when the proposal was submitted for review.',
+    withdrawn: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['at', 'by', 'reason'],
+      properties: {
+        at: { type: 'string', format: 'date-time' },
+        by: { type: 'string' },
+        reason: { type: 'string' },
+      },
     },
-    appliedVersion: {
-      type: 'string',
-      description:
-        'Semver of the new agent version the proposal materialized as. Present on `applied` and `rolled-back` proposals.',
-    },
-    appliedAt: { type: 'string', format: 'date-time' },
-    rolledBackAt: { type: 'string', format: 'date-time' },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
-    resolvedAt: { type: 'string', format: 'date-time' },
   },
 };
 
@@ -3443,159 +3545,75 @@ export const FixProposalCollectionPageSchema: JsonSchema = {
   required: ['data', 'hasMore'],
   properties: {
     data: { type: 'array', items: { $ref: '#/components/schemas/FixProposal' } },
-    nextCursor: {
-      type: 'string',
-      description: 'Opaque cursor for the next page. Absent when `hasMore: false`.',
-    },
     hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
   },
 };
 
-export const DraftProposalBodySchema: JsonSchema = {
+export const CreateProposalBodySchema: JsonSchema = {
   description:
-    'Draft a fix proposal for `(agentId, agentVersion)`. The supervisor context comes from the `X-Supervisor-Id` header; the caller supplies the target agent + change payload + supporting evidence. Duplicate proposals (same `(supervisor, fingerprint)` in a non-terminal state) short-circuit to the pre-existing row and set `X-Proposal-Deduped: true` on the response.',
+    'A hand-written proposal: new content for a data block that `fromVersion` pins, for a live scope. The same change from the same version for the same scope is one proposal (answered with `X-Proposal-Deduped: true`).',
   type: 'object',
   additionalProperties: false,
-  required: [
-    'agentId',
-    'agentVersion',
-    'tier',
-    'change',
-    'patternRefs',
-    'hypothesis',
-    'proposerRuleId',
-  ],
+  required: ['agentId', 'fromVersion', 'scope', 'tier', 'change', 'hypothesis'],
   properties: {
     agentId: { type: 'string' },
-    agentVersion: { type: 'string' },
-    tier: ProposalTierSchema,
-    change: ProposedChangeSchema,
-    patternRefs: {
-      type: 'array',
-      items: { $ref: '#/components/schemas/PatternRef' },
-    },
-    hypothesis: { type: 'string', minLength: 1 },
-    proposerRuleId: { type: 'string', minLength: 1 },
-  },
-};
-
-export const PassCriterionSchema: JsonSchema = {
-  description:
-    'How the dry-run judges whether the candidate is good enough to submit for review. Two kinds: `min-pass-rate` (candidate pass rate ≥ threshold) or `strict-improvement` (candidate pass rate exceeds baseline by ≥ delta).',
-  oneOf: [
-    {
+    fromVersion: { type: 'string', description: 'The agent version the change applies to.' },
+    scope: { $ref: '#/components/schemas/LiveScope' },
+    tier: { $ref: '#/components/schemas/ProposalTier' },
+    change: {
       type: 'object',
       additionalProperties: false,
-      required: ['kind', 'minPassRate'],
+      required: ['blockId', 'content'],
       properties: {
-        kind: { type: 'string', const: 'min-pass-rate' },
-        minPassRate: { type: 'number', minimum: 0, maximum: 1 },
+        blockId: { type: 'string', description: "A block `fromVersion` pins, of the tier's kind." },
+        content: {
+          type: 'object',
+          description:
+            '`{ values }` for a settings block (they must satisfy its schema), `{ template }` for a prompt block.',
+          additionalProperties: false,
+          properties: {
+            values: { type: 'object', additionalProperties: true },
+            template: { type: 'string' },
+          },
+        },
       },
     },
-    {
+    hypothesis: { type: 'string', minLength: 1, maxLength: 2000 },
+    evidence: {
       type: 'object',
       additionalProperties: false,
-      required: ['kind', 'baselinePassRate', 'minDelta'],
-      properties: {
-        kind: { type: 'string', const: 'strict-improvement' },
-        baselinePassRate: { type: 'number', minimum: 0, maximum: 1 },
-        minDelta: { type: 'number' },
-      },
-    },
-  ],
-};
-
-export const DryRunProposalBodySchema: JsonSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['datasetId', 'datasetVersion', 'criterion'],
-  properties: {
-    datasetId: { type: 'string', minLength: 1 },
-    datasetVersion: { type: 'string', minLength: 1 },
-    criterion: PassCriterionSchema,
-  },
-};
-
-export const DryRunProposalResultSchema: JsonSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['proposal', 'passed'],
-  properties: {
-    proposal: { $ref: '#/components/schemas/FixProposal' },
-    passed: {
-      type: 'boolean',
-      description:
-        'True when the candidate met the criterion — proposal moves to `dry-run-passed`. False → `dry-run-failed` (still a legitimate response, not an error).',
+      properties: { judgmentIds: { type: 'array', items: { type: 'string' } } },
     },
   },
 };
 
-export const SubmitReviewProposalBodySchema: JsonSchema = {
+export const EvaluateProposalBodySchema: JsonSchema = {
   description:
-    'Body is optional — omit to accept every default. `requiredRole` overrides the auto-derivation (meta-fixes → senior). `expiresAt` sets the HITL approval deadline.',
+    "Compare the proposal's candidate on a test set. The first evaluation publishes the block version and derives the agent version (both serve nowhere until promoted).",
   type: 'object',
   additionalProperties: false,
+  required: ['suiteId'],
   properties: {
-    requiredRole: { $ref: '#/components/schemas/ReviewerRole' },
-    expiresAt: { type: 'string', format: 'date-time' },
-  },
-};
-
-export const SubmitReviewProposalResultSchema: JsonSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['proposal', 'approvalId', 'metaFix'],
-  properties: {
-    proposal: { $ref: '#/components/schemas/FixProposal' },
-    approvalId: { type: 'string', format: 'uuid' },
-    metaFix: {
-      type: 'boolean',
-      description:
-        "True when the proposal targets one of the supervisor's own agent ids — reviewer role auto-bumps to `senior` unless overridden.",
-    },
-  },
-};
-
-export const ApplyProposalBodySchema: JsonSchema = {
-  description:
-    'Body is optional. `newVersion` overrides the auto-derived patch bump of the baseline; omit to let the runtime bump `1.0.0 → 1.0.1`.',
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    newVersion: {
+    suiteId: { type: 'string', description: 'The test set: a judged eval suite.' },
+    objective: {
       type: 'string',
-      description: 'Semver, strictly greater than the baseline.',
+      enum: ['weightedYesShare', 'weightedPrecisionAtK'],
+      default: 'weightedYesShare',
+      description: 'The metric that says whether the candidate is better.',
     },
+    reads: { type: 'string', enum: ['recorded', 'live'] },
+    repetitions: { type: 'integer', minimum: 1, maximum: 10 },
+    k: { type: 'integer', minimum: 1, maximum: 100 },
+    classWeights: { type: 'string', enum: ['as-recorded', 'restricted-only'] },
   },
 };
 
-export const ApplyProposalResultSchema: JsonSchema = {
+export const ProposalReasonBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['proposalId', 'appliedVersion', 'appliedAt'],
   properties: {
-    proposalId: { type: 'string', format: 'uuid' },
-    appliedVersion: { type: 'string' },
-    appliedAt: { type: 'string', format: 'date-time' },
-  },
-};
-
-export const RollbackProposalBodySchema: JsonSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['reason'],
-  properties: {
-    reason: { type: 'string', minLength: 1 },
-  },
-};
-
-export const RollbackProposalResultSchema: JsonSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['proposalId', 'rolledBackAt'],
-  properties: {
-    proposalId: { type: 'string', format: 'uuid' },
-    rolledBackAt: { type: 'string', format: 'date-time' },
+    reason: { type: 'string', minLength: 1, maxLength: 2000 },
   },
 };
 
@@ -3604,7 +3622,7 @@ export const WithdrawProposalBodySchema: JsonSchema = {
   additionalProperties: false,
   required: ['reason'],
   properties: {
-    reason: { type: 'string', minLength: 1 },
+    reason: { type: 'string', minLength: 1, maxLength: 2000 },
   },
 };
 
@@ -8381,20 +8399,16 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RetrieveMemoryResult', RetrieveMemoryResultSchema],
   ['ProposalTier', ProposalTierSchema],
   ['FixProposalStatus', FixProposalStatusSchema],
-  ['PatternRef', PatternRefSchema],
-  ['ProposedChange', ProposedChangeSchema],
+  ['ProposalChange', ProposalChangeSchema],
+  ['ProposalDrafter', ProposalDrafterSchema],
+  ['ProposalCandidate', ProposalCandidateSchema],
+  ['ProposalEvaluation', ProposalEvaluationSchema],
+  ['ProposalPromotion', ProposalPromotionSchema],
   ['FixProposal', FixProposalSchema],
   ['FixProposalCollectionPage', FixProposalCollectionPageSchema],
-  ['PassCriterion', PassCriterionSchema],
-  ['DraftProposalBody', DraftProposalBodySchema],
-  ['DryRunProposalBody', DryRunProposalBodySchema],
-  ['DryRunProposalResult', DryRunProposalResultSchema],
-  ['SubmitReviewProposalBody', SubmitReviewProposalBodySchema],
-  ['SubmitReviewProposalResult', SubmitReviewProposalResultSchema],
-  ['ApplyProposalBody', ApplyProposalBodySchema],
-  ['ApplyProposalResult', ApplyProposalResultSchema],
-  ['RollbackProposalBody', RollbackProposalBodySchema],
-  ['RollbackProposalResult', RollbackProposalResultSchema],
+  ['CreateProposalBody', CreateProposalBodySchema],
+  ['EvaluateProposalBody', EvaluateProposalBodySchema],
+  ['ProposalReasonBody', ProposalReasonBodySchema],
   ['WithdrawProposalBody', WithdrawProposalBodySchema],
   ['ProvenanceNodeKind', ProvenanceNodeKindSchema],
   ['ProvenanceEdgeKind', ProvenanceEdgeKindSchema],

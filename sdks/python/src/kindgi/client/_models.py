@@ -991,6 +991,13 @@ class MintPublicRunTokenResult(BaseModel):
     run_ids: Annotated[list[str], Field(alias="runIds")]
 
 
+class ReviewerRole(RootModel[Literal["standard", "senior", "admin"]]):
+    root: Literal["standard", "senior", "admin"]
+    """
+    Reviewer role class. Hierarchy: standard < senior < admin.
+    """
+
+
 class ApprovalStatus(
     RootModel[
         Literal[
@@ -2026,6 +2033,10 @@ class VersionDerivation(BaseModel):
     by: str | None = None
     """
     For `edited`: who derived it (`user:<id>`).
+    """
+    proposal_id: Annotated[str | None, Field(alias="proposalId")] = None
+    """
+    For `edited`: the improvement proposal it was derived for. Such a version serves no scope until a promotion makes it live.
     """
 
 
@@ -3211,118 +3222,249 @@ class RetrieveMemoryResult(BaseModel):
     results: list[RetrievalHit]
 
 
-class ProposalTier(RootModel[Literal["prompt", "retrieval", "tool-config"]]):
-    root: Literal["prompt", "retrieval", "tool-config"]
-
-
-class FixProposalStatus(
-    RootModel[
-        Literal[
-            "draft",
-            "dry-running",
-            "dry-run-passed",
-            "dry-run-failed",
-            "proposed-for-review",
-            "approved",
-            "rejected",
-            "applied",
-            "rolled-back",
-            "withdrawn",
-        ]
-    ]
-):
-    root: Literal[
-        "draft",
-        "dry-running",
-        "dry-run-passed",
-        "dry-run-failed",
-        "proposed-for-review",
-        "approved",
-        "rejected",
-        "applied",
-        "rolled-back",
-        "withdrawn",
-    ]
-
-
-class PatternRef(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    kind: Literal["guardrail-violation", "tool-error", "budget-exceeded", "model-error", "aborted"]
-    key: str
-    count: Annotated[int, Field(ge=1)]
-    first_seen_at: Annotated[AwareDatetime, Field(alias="firstSeenAt")]
-    last_seen_at: Annotated[AwareDatetime, Field(alias="lastSeenAt")]
-    sample_conversations: Annotated[list[UUID], Field(alias="sampleConversations")]
-
-
-class ProposedChange(BaseModel):
+class Content(BaseModel):
     """
-    Polymorphic change payload. Shape depends on the sibling `tier` on the proposal (prompt / retrieval / tool-config).
+    The new content: `{ values }` for a settings block (its schema carries over), `{ template }` for a prompt block (its parameters carry over).
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
+    values: dict[str, Any] | None = None
+    template: str | None = None
+
+
+class ProposalChange(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    block_id: Annotated[str, Field(alias="blockId")]
+    """
+    The data block the change is to.
+    """
+    from_version: Annotated[str, Field(alias="fromVersion")]
+    """
+    The block version the agent version pins: what's being changed.
+    """
+    content: Content
+    """
+    The new content: `{ values }` for a settings block (its schema carries over), `{ template }` for a prompt block (its parameters carry over).
+    """
+
+
+class Model(BaseModel):
+    """
+    For a drafter that used a model: which.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    provider_id: Annotated[str, Field(alias="providerId")]
+    model: str
+
+
+class ProposalDrafter(BaseModel):
+    """
+    Who wrote the proposal: a person, or one of the runtime's drafters.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["person", "settings-optimizer", "prompt-drafter"]
+    by: str | None = None
+    """
+    For a person: `user:<id>` (or `service:<id>`).
+    """
+    version: str | None = None
+    """
+    For a drafter: the drafter's version.
+    """
+    model: Model | None = None
+    """
+    For a drafter that used a model: which.
+    """
+
+
+class ProposalCandidate(BaseModel):
+    """
+    The versions evaluating the proposal published. They serve no scope until a promotion makes the agent version live.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    agent_version: Annotated[str, Field(alias="agentVersion")]
+    """
+    The derived agent version (its `derivedFrom.proposalId` names the proposal).
+    """
+    block_version: Annotated[str, Field(alias="blockVersion")]
+    """
+    The block version published from the proposal's content.
+    """
+    pins_digest: Annotated[str, Field(alias="pinsDigest")]
+
+
+class ProposalEvaluation(BaseModel):
+    """
+    The comparison the proposal was evaluated with, and what it found on the objective metric (the full summary is the eval run's).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    eval_run_id: Annotated[UUID, Field(alias="evalRunId")]
+    suite_id: Annotated[str, Field(alias="suiteId")]
+    """
+    The test set (a judged eval suite).
+    """
+    objective: Literal["weightedYesShare", "weightedPrecisionAtK"]
+    started_at: Annotated[AwareDatetime, Field(alias="startedAt")]
+    run_status: Annotated[
+        Literal["pending", "running", "completed", "failed", "cancelled"] | None,
+        Field(alias="runStatus"),
+    ] = None
+    """
+    The eval run's status. Absent when the run can't be read.
+    """
+    baseline: float | None = None
+    """
+    The recorded outputs' score; `null` without judged evidence.
+    """
+    candidate: float | None = None
+    """
+    The candidate's score.
+    """
+    delta: float | None = None
+    spread: float | None = None
+    """
+    With more than one repetition: the candidate's max − min, the noise a delta must beat.
+    """
+    cases: int | None = None
+    better: bool | None = None
+    """
+    Set once the comparison finished.
+    """
+
+
+class ProposalPromotion(BaseModel):
+    """
+    The promotion the proposal's request made.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    status: Literal["promoted", "pending-approval", "refused", "superseded", "rejected", "expired"]
+    approval_id: Annotated[str | None, Field(alias="approvalId")] = None
+    """
+    The approval a request in review waits on.
+    """
+    live_now: Annotated[bool | None, Field(alias="liveNow")] = None
+    """
+    For a promoted proposal: whether its version still serves the scope.
+    """
+
+
+class Evidence1(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    judgment_ids: Annotated[list[str] | None, Field(alias="judgmentIds")] = None
+
+
+class RolledBack(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    at: AwareDatetime
+    promotion_id: Annotated[str, Field(alias="promotionId")]
+    """
+    The rollback's own promotion row.
+    """
+    by: str
+    reason: str | None = None
+
+
+class Withdrawn(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    at: AwareDatetime
+    by: str
+    reason: str
 
 
 class FixProposal(BaseModel):
+    """
+    An improvement proposal: a change to one data block an agent version pins, for one live scope, taken through the same comparison, gate and promotion as any other version.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
     id: UUID
-    """
-    FixProposalId.
-    """
-    tenant_id: Annotated[UUID, Field(alias="tenantId")]
-    supervisor_id: Annotated[str, Field(alias="supervisorId")]
     agent_id: Annotated[str, Field(alias="agentId")]
-    agent_version: Annotated[str, Field(alias="agentVersion")]
+    from_version: Annotated[str, Field(alias="fromVersion")]
     """
-    Semver of the baseline agent version.
+    The agent version the change applies to.
     """
-    tier: Literal["prompt", "retrieval", "tool-config"]
-    change: dict[str, Any]
+    scope: Annotated[
+        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment,
+        Field(discriminator="kind"),
+    ]
     """
-    Polymorphic change payload. Shape depends on the sibling `tier` on the proposal (prompt / retrieval / tool-config).
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
     """
-    pattern_refs: Annotated[list[PatternRef], Field(alias="patternRefs")]
+    tier: Literal["settings-block", "prompt-block"]
+    """
+    What a proposal changes: a settings block (new values) or a prompt block (a new template) the agent version pins.
+    """
+    change: ProposalChange
     hypothesis: str
-    proposer_rule_id: Annotated[str, Field(alias="proposerRuleId")]
+    """
+    What the change should improve, and why.
+    """
+    evidence: Evidence1 | None = None
+    drafter: ProposalDrafter
     status: Literal[
         "draft",
-        "dry-running",
-        "dry-run-passed",
-        "dry-run-failed",
-        "proposed-for-review",
-        "approved",
+        "evaluating",
+        "evaluated",
+        "not-better",
+        "evaluation-failed",
+        "in-review",
+        "promoted",
+        "refused",
         "rejected",
-        "applied",
+        "expired",
+        "superseded",
         "rolled-back",
         "withdrawn",
     ]
-    fingerprint: str
     """
-    sha256(tier + agentId + agentVersion + canonical(change)). Dedup key.
+    Where a proposal stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `promoted`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the proposal. `withdrawn`: withdrawn.
     """
-    resolution_reason: Annotated[str | None, Field(alias="resolutionReason")] = None
-    review_approval_id: Annotated[UUID | None, Field(alias="reviewApprovalId")] = None
-    """
-    HITL approval id created when the proposal was submitted for review.
-    """
-    applied_version: Annotated[str | None, Field(alias="appliedVersion")] = None
-    """
-    Semver of the new agent version the proposal materialized as. Present on `applied` and `rolled-back` proposals.
-    """
-    applied_at: Annotated[AwareDatetime | None, Field(alias="appliedAt")] = None
-    rolled_back_at: Annotated[AwareDatetime | None, Field(alias="rolledBackAt")] = None
+    candidate: ProposalCandidate | None = None
+    evaluation: ProposalEvaluation | None = None
+    promotion: ProposalPromotion | None = None
+    rolled_back: Annotated[RolledBack | None, Field(alias="rolledBack")] = None
+    withdrawn: Withdrawn | None = None
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
-    resolved_at: Annotated[AwareDatetime | None, Field(alias="resolvedAt")] = None
 
 
 class FixProposalCollectionPage(BaseModel):
@@ -3331,50 +3473,41 @@ class FixProposalCollectionPage(BaseModel):
         populate_by_name=True,
     )
     data: list[FixProposal]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    """
-    Opaque cursor for the next page. Absent when `hasMore: false`.
-    """
     has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
-class PassCriterion1(BaseModel):
+class Content1(BaseModel):
     """
-    How the dry-run judges whether the candidate is good enough to submit for review. Two kinds: `min-pass-rate` (candidate pass rate ≥ threshold) or `strict-improvement` (candidate pass rate exceeds baseline by ≥ delta).
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    kind: Literal["min-pass-rate"]
-    min_pass_rate: Annotated[float, Field(alias="minPassRate", ge=0.0, le=1.0)]
-
-
-class PassCriterion2(BaseModel):
-    """
-    How the dry-run judges whether the candidate is good enough to submit for review. Two kinds: `min-pass-rate` (candidate pass rate ≥ threshold) or `strict-improvement` (candidate pass rate exceeds baseline by ≥ delta).
+    `{ values }` for a settings block (they must satisfy its schema), `{ template }` for a prompt block.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    kind: Literal["strict-improvement"]
-    baseline_pass_rate: Annotated[float, Field(alias="baselinePassRate", ge=0.0, le=1.0)]
-    min_delta: Annotated[float, Field(alias="minDelta")]
+    values: dict[str, Any] | None = None
+    template: str | None = None
 
 
-class PassCriterion(RootModel[PassCriterion1 | PassCriterion2]):
-    root: PassCriterion1 | PassCriterion2
+class Change(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    block_id: Annotated[str, Field(alias="blockId")]
     """
-    How the dry-run judges whether the candidate is good enough to submit for review. Two kinds: `min-pass-rate` (candidate pass rate ≥ threshold) or `strict-improvement` (candidate pass rate exceeds baseline by ≥ delta).
+    A block `fromVersion` pins, of the tier's kind.
+    """
+    content: Content1
+    """
+    `{ values }` for a settings block (they must satisfy its schema), `{ template }` for a prompt block.
     """
 
 
-class DraftProposalBody(BaseModel):
+class CreateProposalBody(BaseModel):
     """
-    Draft a fix proposal for `(agentId, agentVersion)`. The supervisor context comes from the `X-Supervisor-Id` header; the caller supplies the target agent + change payload + supporting evidence. Duplicate proposals (same `(supervisor, fingerprint)` in a non-terminal state) short-circuit to the pre-existing row and set `X-Proposal-Deduped: true` on the response.
+    A hand-written proposal: new content for a data block that `fromVersion` pins, for a live scope. The same change from the same version for the same scope is one proposal (answered with `X-Proposal-Deduped: true`).
     """
 
     model_config = ConfigDict(
@@ -3382,140 +3515,57 @@ class DraftProposalBody(BaseModel):
         populate_by_name=True,
     )
     agent_id: Annotated[str, Field(alias="agentId")]
-    agent_version: Annotated[str, Field(alias="agentVersion")]
-    tier: Literal["prompt", "retrieval", "tool-config"]
-    change: dict[str, Any]
+    from_version: Annotated[str, Field(alias="fromVersion")]
     """
-    Polymorphic change payload. Shape depends on the sibling `tier` on the proposal (prompt / retrieval / tool-config).
+    The agent version the change applies to.
     """
-    pattern_refs: Annotated[list[PatternRef], Field(alias="patternRefs")]
-    hypothesis: Annotated[str, Field(min_length=1)]
-    proposer_rule_id: Annotated[str, Field(alias="proposerRuleId", min_length=1)]
+    scope: Annotated[
+        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment,
+        Field(discriminator="kind"),
+    ]
+    """
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    """
+    tier: Literal["settings-block", "prompt-block"]
+    """
+    What a proposal changes: a settings block (new values) or a prompt block (a new template) the agent version pins.
+    """
+    change: Change
+    hypothesis: Annotated[str, Field(max_length=2000, min_length=1)]
+    evidence: Evidence1 | None = None
 
 
-class Criterion(BaseModel):
+class EvaluateProposalBody(BaseModel):
     """
-    How the dry-run judges whether the candidate is good enough to submit for review. Two kinds: `min-pass-rate` (candidate pass rate ≥ threshold) or `strict-improvement` (candidate pass rate exceeds baseline by ≥ delta).
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    kind: Literal["min-pass-rate"]
-    min_pass_rate: Annotated[float, Field(alias="minPassRate", ge=0.0, le=1.0)]
-
-
-class Criterion1(BaseModel):
-    """
-    How the dry-run judges whether the candidate is good enough to submit for review. Two kinds: `min-pass-rate` (candidate pass rate ≥ threshold) or `strict-improvement` (candidate pass rate exceeds baseline by ≥ delta).
+    Compare the proposal's candidate on a test set. The first evaluation publishes the block version and derives the agent version (both serve nowhere until promoted).
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    kind: Literal["strict-improvement"]
-    baseline_pass_rate: Annotated[float, Field(alias="baselinePassRate", ge=0.0, le=1.0)]
-    min_delta: Annotated[float, Field(alias="minDelta")]
-
-
-class DryRunProposalBody(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    dataset_id: Annotated[str, Field(alias="datasetId", min_length=1)]
-    dataset_version: Annotated[str, Field(alias="datasetVersion", min_length=1)]
-    criterion: Criterion | Criterion1
+    suite_id: Annotated[str, Field(alias="suiteId")]
     """
-    How the dry-run judges whether the candidate is good enough to submit for review. Two kinds: `min-pass-rate` (candidate pass rate ≥ threshold) or `strict-improvement` (candidate pass rate exceeds baseline by ≥ delta).
+    The test set: a judged eval suite.
     """
-
-
-class DryRunProposalResult(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    proposal: FixProposal
-    passed: bool
+    objective: Literal["weightedYesShare", "weightedPrecisionAtK"] | None = "weightedYesShare"
     """
-    True when the candidate met the criterion — proposal moves to `dry-run-passed`. False → `dry-run-failed` (still a legitimate response, not an error).
+    The metric that says whether the candidate is better.
     """
-
-
-class SubmitReviewProposalBody(BaseModel):
-    """
-    Body is optional — omit to accept every default. `requiredRole` overrides the auto-derivation (meta-fixes → senior). `expiresAt` sets the HITL approval deadline.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    required_role: Annotated[
-        Literal["standard", "senior", "admin"] | None, Field(alias="requiredRole")
+    reads: Literal["recorded", "live"] | None = None
+    repetitions: Annotated[int | None, Field(ge=1, le=10)] = None
+    k: Annotated[int | None, Field(ge=1, le=100)] = None
+    class_weights: Annotated[
+        Literal["as-recorded", "restricted-only"] | None, Field(alias="classWeights")
     ] = None
-    """
-    Reviewer role class. Hierarchy: standard < senior < admin.
-    """
-    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
 
 
-class SubmitReviewProposalResult(BaseModel):
+class ProposalReasonBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    proposal: FixProposal
-    approval_id: Annotated[UUID, Field(alias="approvalId")]
-    meta_fix: Annotated[bool, Field(alias="metaFix")]
-    """
-    True when the proposal targets one of the supervisor's own agent ids — reviewer role auto-bumps to `senior` unless overridden.
-    """
-
-
-class ApplyProposalBody(BaseModel):
-    """
-    Body is optional. `newVersion` overrides the auto-derived patch bump of the baseline; omit to let the runtime bump `1.0.0 → 1.0.1`.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    new_version: Annotated[str | None, Field(alias="newVersion")] = None
-    """
-    Semver, strictly greater than the baseline.
-    """
-
-
-class ApplyProposalResult(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    proposal_id: Annotated[UUID, Field(alias="proposalId")]
-    applied_version: Annotated[str, Field(alias="appliedVersion")]
-    applied_at: Annotated[AwareDatetime, Field(alias="appliedAt")]
-
-
-class RollbackProposalBody(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    reason: Annotated[str, Field(min_length=1)]
-
-
-class RollbackProposalResult(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    proposal_id: Annotated[UUID, Field(alias="proposalId")]
-    rolled_back_at: Annotated[AwareDatetime, Field(alias="rolledBackAt")]
+    reason: Annotated[str | None, Field(max_length=2000, min_length=1)] = None
 
 
 class WithdrawProposalBody(BaseModel):
@@ -3523,7 +3573,7 @@ class WithdrawProposalBody(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    reason: Annotated[str, Field(min_length=1)]
+    reason: Annotated[str, Field(max_length=2000, min_length=1)]
 
 
 class ProvenanceNodeKind(
@@ -4373,7 +4423,7 @@ class MCPPromptCollection(BaseModel):
     data: list[MCPPrompt]
 
 
-class Content(BaseModel):
+class Content2(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -4382,7 +4432,7 @@ class Content(BaseModel):
     text: str
 
 
-class Content1(BaseModel):
+class Content3(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -4401,7 +4451,7 @@ class MCPPromptMessage(BaseModel):
         populate_by_name=True,
     )
     role: Literal["user", "assistant"]
-    content: Content | Content1
+    content: Content2 | Content3
 
 
 class GetMCPPromptBody(BaseModel):
@@ -5390,7 +5440,7 @@ class Scope(BaseModel):
     project_id: Annotated[str | None, Field(alias="projectId")] = None
 
 
-class Model(BaseModel):
+class Model1(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -5405,7 +5455,7 @@ class Sampling(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    models: list[Model]
+    models: list[Model1]
     """
     The models that answered the candidate's replays, and how many replays each.
     """

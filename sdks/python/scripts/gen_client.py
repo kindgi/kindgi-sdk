@@ -152,6 +152,38 @@ ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 
+# Operations a patch release removed from the API: each stays a method that
+# raises, naming its replacement, until the next minor (`id: (release,
+# replacement)`). Old calls still import and fail with a clear message.
+REMOVED: dict[str, tuple[str, str]] = {
+    "proposals.draft": ("0.1.5", "proposals.create"),
+    "proposals.dryRun": ("0.1.5", "proposals.evaluate"),
+    "proposals.submitReview": ("0.1.5", "proposals.request"),
+    "proposals.apply": ("0.1.5", "proposals.request"),
+}
+
+
+def removed_stubs(node: Resource, asynchronous: bool) -> list[str]:
+    out: list[str] = []
+    for op_id, (release, replacement) in REMOVED.items():
+        *resource, method = op_id.split(".")
+        if tuple(resource) != node.path:
+            continue
+        name = snake(method)
+        message = (
+            f"{'.'.join(snake(p) for p in resource)}.{name} was removed in {release}: "
+            f"use client.{'.'.join(snake(p) for p in replacement.split('.'))}"
+        )
+        prefix = "async def" if asynchronous else "def"
+        out += [
+            "",
+            f"    {prefix} {name}(self, *args: Any, **kwargs: Any) -> NoReturn:",
+            f'        """Removed in {release}: use `client.{replacement}`."""',
+            f'        raise InvalidRequestError("{message}", issues=[])',
+        ]
+    return out
+
+
 def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]:
     doc = copy.deepcopy(source)
     ops: list[Operation] = []
@@ -352,6 +384,7 @@ def render_resource(node: Resource, asynchronous: bool) -> list[str]:
         )
     for op in node.operations:
         out += ["", signature(op, asynchronous), docstring(op, "        "), call(op, asynchronous)]
+    out += removed_stubs(node, asynchronous)
     return out
 
 
@@ -365,10 +398,11 @@ def render_resources(root: Resource, ops: list[Operation]) -> str:
         "from __future__ import annotations",
         "",
         "from collections.abc import AsyncIterator, Iterator, Mapping, Sequence",
-        "from typing import Any, Literal, cast",
+        "from typing import Any, Literal, NoReturn, cast",
         "",
         "from . import _models",
         "from ._base import AsyncClientBase, Operation, SyncClientBase, _body, _segments",
+        "from ._errors import InvalidRequestError",
         "",
         '__all__ = ["OPERATIONS", "AsyncResources", "Resources"]',
         "",

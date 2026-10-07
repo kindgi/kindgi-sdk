@@ -6,10 +6,11 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
-from typing import Any, Literal, cast
+from typing import Any, Literal, NoReturn, cast
 
 from . import _models
 from ._base import AsyncClientBase, Operation, SyncClientBase, _body, _segments
+from ._errors import InvalidRequestError
 
 __all__ = ["OPERATIONS", "AsyncResources", "Resources"]
 
@@ -231,16 +232,13 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "memory.retrieve": Operation("memory.retrieve", "POST", "/v1/memory/retrieve", "json", True),
     "proposals.list": Operation("proposals.list", "GET", "/v1/proposals", "json", False),
-    "proposals.draft": Operation("proposals.draft", "POST", "/v1/proposals", "json", True),
+    "proposals.create": Operation("proposals.create", "POST", "/v1/proposals", "json", True),
     "proposals.get": Operation("proposals.get", "GET", "/v1/proposals/{proposalId}", "json", False),
-    "proposals.dryRun": Operation(
-        "proposals.dryRun", "POST", "/v1/proposals/{proposalId}/dry-run", "json", True
+    "proposals.evaluate": Operation(
+        "proposals.evaluate", "POST", "/v1/proposals/{proposalId}/evaluate", "json", True
     ),
-    "proposals.submitReview": Operation(
-        "proposals.submitReview", "POST", "/v1/proposals/{proposalId}/submit-review", "json", True
-    ),
-    "proposals.apply": Operation(
-        "proposals.apply", "POST", "/v1/proposals/{proposalId}/apply", "json", True
+    "proposals.request": Operation(
+        "proposals.request", "POST", "/v1/proposals/{proposalId}/request", "json", True
     ),
     "proposals.rollback": Operation(
         "proposals.rollback", "POST", "/v1/proposals/{proposalId}/rollback", "json", True
@@ -2513,32 +2511,33 @@ class ProposalsResource:
         self,
         /,
         *,
-        supervisor_id: str,
         limit: int | None = None,
         cursor: str | None = None,
         status: Literal[
             "draft",
-            "dry-running",
-            "dry-run-passed",
-            "dry-run-failed",
-            "proposed-for-review",
-            "approved",
+            "evaluating",
+            "evaluated",
+            "not-better",
+            "evaluation-failed",
+            "in-review",
+            "promoted",
+            "refused",
             "rejected",
-            "applied",
+            "expired",
+            "superseded",
             "rolled-back",
             "withdrawn",
         ]
         | None = None,
         agent_id: str | None = None,
-        tier: Literal["prompt", "retrieval", "tool-config"] | None = None,
+        tier: Literal["settings-block", "prompt-block"] | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | None = None,
-        inherit: bool | None = None,
         timeout: float | None = None,
     ) -> _models.FixProposalCollectionPage:
-        """List supervisor fix proposals. `GET /v1/proposals`
+        """List improvement proposals. `GET /v1/proposals`
 
-        Cursor-paginated list scoped to `(tenantId, supervisorId)`. Filters: `?status=`, `?agentId=`, `?tier=`. Sort order is binding-defined (typically `createdAt desc, id desc`).
+        Newest first, cursor-paginated, only the proposals of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and `scopeKind`/`scopeId` for the proposals of one project's agents (or every project's in an org).
         """
         return self._client._request(
             _OPERATIONS["proposals.list"],
@@ -2551,147 +2550,118 @@ class ProposalsResource:
                 "tier": tier,
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
-                "inherit": inherit,
             },
-            headers={"X-Supervisor-Id": supervisor_id},
+            headers={},
             response=_models.FixProposalCollectionPage,
             timeout=timeout,
         )
 
-    def draft(
+    def create(
         self,
-        body: _models.DraftProposalBody | Mapping[str, Any] | None = None,
+        body: _models.CreateProposalBody | Mapping[str, Any] | None = None,
         /,
         *,
-        supervisor_id: str,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.FixProposal:
-        """Draft a fix proposal. `POST /v1/proposals`
+        """Propose new content for a data block. `POST /v1/proposals`
 
-        Inserts a new proposal in `draft` state. Duplicate proposals (same `(supervisor, fingerprint)` non-terminal) short-circuit to the pre-existing row and mark the response with `X-Proposal-Deduped: true`.
+        A hand-written proposal: new settings values or a new prompt template for a block `fromVersion` pins, for a live scope. Checked as publishing that block version would be (its schema carries over), and refused when it equals the pinned content. The same change from the same version for the same scope is one proposal: answered `200` with `X-Proposal-Deduped: true`. Needs `publish` on the agent.
         """
         return self._client._request(
-            _OPERATIONS["proposals.draft"],
+            _OPERATIONS["proposals.create"],
             path={},
             query={},
-            headers={"X-Supervisor-Id": supervisor_id, "Idempotency-Key": idempotency_key},
-            body=_body(_models.DraftProposalBody, body, fields),
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.CreateProposalBody, body, fields),
             response=_models.FixProposal,
             timeout=timeout,
         )
 
-    def get(
-        self, proposal_id: str, /, *, supervisor_id: str, timeout: float | None = None
-    ) -> _models.FixProposal:
-        """Fetch a fix proposal. `GET /v1/proposals/{proposalId}`"""
+    def get(self, proposal_id: str, /, *, timeout: float | None = None) -> _models.FixProposal:
+        """Fetch an improvement proposal. `GET /v1/proposals/{proposalId}`
+
+        Needs `read` on its agent.
+        """
         return self._client._request(
             _OPERATIONS["proposals.get"],
             path={"proposalId": proposal_id},
             query={},
-            headers={"X-Supervisor-Id": supervisor_id},
+            headers={},
             response=_models.FixProposal,
             timeout=timeout,
         )
 
-    def dry_run(
+    def evaluate(
         self,
         proposal_id: str,
-        body: _models.DryRunProposalBody | Mapping[str, Any] | None = None,
+        body: _models.EvaluateProposalBody | Mapping[str, Any] | None = None,
         /,
         *,
-        supervisor_id: str,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.DryRunProposalResult:
-        """Dry-run a proposal against an eval dataset. `POST /v1/proposals/{proposalId}/dry-run`
+    ) -> _models.FixProposal:
+        """Compare a proposal on a test set. `POST /v1/proposals/{proposalId}/evaluate`
 
-        Runs the candidate agent against the caller-supplied dataset + criterion. Transitions the proposal to `dry-run-passed` or `dry-run-failed`. Legal only from `draft` or `dry-run-failed`.
+        The first evaluation publishes the block version and derives the agent version (`derivedFrom.proposalId`); they serve no scope until a promotion makes them live. Then a comparison eval run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a live version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would go live there at once (`409 proposal-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.
         """
         return self._client._request(
-            _OPERATIONS["proposals.dryRun"],
+            _OPERATIONS["proposals.evaluate"],
             path={"proposalId": proposal_id},
             query={},
-            headers={"X-Supervisor-Id": supervisor_id, "Idempotency-Key": idempotency_key},
-            body=_body(_models.DryRunProposalBody, body, fields),
-            response=_models.DryRunProposalResult,
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.EvaluateProposalBody, body, fields),
+            response=_models.FixProposal,
             timeout=timeout,
         )
 
-    def submit_review(
+    def request(
         self,
         proposal_id: str,
-        body: _models.SubmitReviewProposalBody | Mapping[str, Any] | None = None,
+        body: _models.ProposalReasonBody | Mapping[str, Any] | None = None,
         /,
         *,
-        supervisor_id: str,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.SubmitReviewProposalResult:
-        """Submit a dry-run-passed proposal for HITL review. `POST /v1/proposals/{proposalId}/submit-review`
+    ) -> _models.FixProposal:
+        """Request a proposal's promotion for its scope. `POST /v1/proposals/{proposalId}/request`
 
-        Enqueues a HITL approval and transitions the proposal to `proposed-for-review`. Legal only from `dry-run-passed`. Body is optional; defaults auto-derive the reviewer role (meta-fixes → senior).
+        A promotion of the candidate for the proposal's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/promotions` answers. Needs `promote` on the agent. Allowed from `evaluated`, `refused`, `superseded` and `expired`.
         """
         return self._client._request(
-            _OPERATIONS["proposals.submitReview"],
+            _OPERATIONS["proposals.request"],
             path={"proposalId": proposal_id},
             query={},
-            headers={"X-Supervisor-Id": supervisor_id, "Idempotency-Key": idempotency_key},
-            body=_body(_models.SubmitReviewProposalBody, body, fields),
-            response=_models.SubmitReviewProposalResult,
-            timeout=timeout,
-        )
-
-    def apply(
-        self,
-        proposal_id: str,
-        body: _models.ApplyProposalBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        supervisor_id: str,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.ApplyProposalResult:
-        """Apply an approved proposal. `POST /v1/proposals/{proposalId}/apply`
-
-        Materializes the proposed change into a new agent version, registers it in the agent registry, and transitions the proposal to `applied`. Legal only from `approved`.
-        """
-        return self._client._request(
-            _OPERATIONS["proposals.apply"],
-            path={"proposalId": proposal_id},
-            query={},
-            headers={"X-Supervisor-Id": supervisor_id, "Idempotency-Key": idempotency_key},
-            body=_body(_models.ApplyProposalBody, body, fields),
-            response=_models.ApplyProposalResult,
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ProposalReasonBody, body, fields),
+            response=_models.FixProposal,
             timeout=timeout,
         )
 
     def rollback(
         self,
         proposal_id: str,
-        body: _models.RollbackProposalBody | Mapping[str, Any] | None = None,
+        body: _models.ProposalReasonBody | Mapping[str, Any] | None = None,
         /,
         *,
-        supervisor_id: str,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.RollbackProposalResult:
-        """Roll back an applied proposal. `POST /v1/proposals/{proposalId}/rollback`
+    ) -> _models.FixProposal:
+        """Roll back a promoted proposal. `POST /v1/proposals/{proposalId}/rollback`
 
-        Unregisters the applied version from the agent registry and transitions the proposal to `rolled-back`. Legal only from `applied`.
+        The scope goes back to the version its own pin held before the proposal's promotion (or, with none, falls back to the scope above). Only while the proposal's version still serves the scope. Needs `promote` on the agent.
         """
         return self._client._request(
             _OPERATIONS["proposals.rollback"],
             path={"proposalId": proposal_id},
             query={},
-            headers={"X-Supervisor-Id": supervisor_id, "Idempotency-Key": idempotency_key},
-            body=_body(_models.RollbackProposalBody, body, fields),
-            response=_models.RollbackProposalResult,
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ProposalReasonBody, body, fields),
+            response=_models.FixProposal,
             timeout=timeout,
         )
 
@@ -2701,23 +2671,46 @@ class ProposalsResource:
         body: _models.WithdrawProposalBody | Mapping[str, Any] | None = None,
         /,
         *,
-        supervisor_id: str,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.FixProposal:
-        """Withdraw a non-terminal proposal. `POST /v1/proposals/{proposalId}/withdraw`
+        """Withdraw a proposal. `POST /v1/proposals/{proposalId}/withdraw`
 
-        Transitions the proposal to `withdrawn`. Legal from any non-terminal state (`draft | dry-running | dry-run-passed | dry-run-failed | proposed-for-review`). Terminal states surface as `409 proposal-invalid-state-transition`.
+        Closes it. Not while it's in review (decide its approval instead), nor once promoted, rejected or rolled back. Needs `publish` on the agent.
         """
         return self._client._request(
             _OPERATIONS["proposals.withdraw"],
             path={"proposalId": proposal_id},
             query={},
-            headers={"X-Supervisor-Id": supervisor_id, "Idempotency-Key": idempotency_key},
+            headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.WithdrawProposalBody, body, fields),
             response=_models.FixProposal,
             timeout=timeout,
+        )
+
+    def draft(self, *args: Any, **kwargs: Any) -> NoReturn:
+        """Removed in 0.1.5: use `client.proposals.create`."""
+        raise InvalidRequestError(
+            "proposals.draft was removed in 0.1.5: use client.proposals.create", issues=[]
+        )
+
+    def dry_run(self, *args: Any, **kwargs: Any) -> NoReturn:
+        """Removed in 0.1.5: use `client.proposals.evaluate`."""
+        raise InvalidRequestError(
+            "proposals.dry_run was removed in 0.1.5: use client.proposals.evaluate", issues=[]
+        )
+
+    def submit_review(self, *args: Any, **kwargs: Any) -> NoReturn:
+        """Removed in 0.1.5: use `client.proposals.request`."""
+        raise InvalidRequestError(
+            "proposals.submit_review was removed in 0.1.5: use client.proposals.request", issues=[]
+        )
+
+    def apply(self, *args: Any, **kwargs: Any) -> NoReturn:
+        """Removed in 0.1.5: use `client.proposals.request`."""
+        raise InvalidRequestError(
+            "proposals.apply was removed in 0.1.5: use client.proposals.request", issues=[]
         )
 
 
@@ -8342,32 +8335,33 @@ class AsyncProposalsResource:
         self,
         /,
         *,
-        supervisor_id: str,
         limit: int | None = None,
         cursor: str | None = None,
         status: Literal[
             "draft",
-            "dry-running",
-            "dry-run-passed",
-            "dry-run-failed",
-            "proposed-for-review",
-            "approved",
+            "evaluating",
+            "evaluated",
+            "not-better",
+            "evaluation-failed",
+            "in-review",
+            "promoted",
+            "refused",
             "rejected",
-            "applied",
+            "expired",
+            "superseded",
             "rolled-back",
             "withdrawn",
         ]
         | None = None,
         agent_id: str | None = None,
-        tier: Literal["prompt", "retrieval", "tool-config"] | None = None,
+        tier: Literal["settings-block", "prompt-block"] | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | None = None,
-        inherit: bool | None = None,
         timeout: float | None = None,
     ) -> _models.FixProposalCollectionPage:
-        """List supervisor fix proposals. `GET /v1/proposals`
+        """List improvement proposals. `GET /v1/proposals`
 
-        Cursor-paginated list scoped to `(tenantId, supervisorId)`. Filters: `?status=`, `?agentId=`, `?tier=`. Sort order is binding-defined (typically `createdAt desc, id desc`).
+        Newest first, cursor-paginated, only the proposals of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and `scopeKind`/`scopeId` for the proposals of one project's agents (or every project's in an org).
         """
         return await self._client._request(
             _OPERATIONS["proposals.list"],
@@ -8380,147 +8374,120 @@ class AsyncProposalsResource:
                 "tier": tier,
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
-                "inherit": inherit,
             },
-            headers={"X-Supervisor-Id": supervisor_id},
+            headers={},
             response=_models.FixProposalCollectionPage,
             timeout=timeout,
         )
 
-    async def draft(
+    async def create(
         self,
-        body: _models.DraftProposalBody | Mapping[str, Any] | None = None,
+        body: _models.CreateProposalBody | Mapping[str, Any] | None = None,
         /,
         *,
-        supervisor_id: str,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.FixProposal:
-        """Draft a fix proposal. `POST /v1/proposals`
+        """Propose new content for a data block. `POST /v1/proposals`
 
-        Inserts a new proposal in `draft` state. Duplicate proposals (same `(supervisor, fingerprint)` non-terminal) short-circuit to the pre-existing row and mark the response with `X-Proposal-Deduped: true`.
+        A hand-written proposal: new settings values or a new prompt template for a block `fromVersion` pins, for a live scope. Checked as publishing that block version would be (its schema carries over), and refused when it equals the pinned content. The same change from the same version for the same scope is one proposal: answered `200` with `X-Proposal-Deduped: true`. Needs `publish` on the agent.
         """
         return await self._client._request(
-            _OPERATIONS["proposals.draft"],
+            _OPERATIONS["proposals.create"],
             path={},
             query={},
-            headers={"X-Supervisor-Id": supervisor_id, "Idempotency-Key": idempotency_key},
-            body=_body(_models.DraftProposalBody, body, fields),
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.CreateProposalBody, body, fields),
             response=_models.FixProposal,
             timeout=timeout,
         )
 
     async def get(
-        self, proposal_id: str, /, *, supervisor_id: str, timeout: float | None = None
+        self, proposal_id: str, /, *, timeout: float | None = None
     ) -> _models.FixProposal:
-        """Fetch a fix proposal. `GET /v1/proposals/{proposalId}`"""
+        """Fetch an improvement proposal. `GET /v1/proposals/{proposalId}`
+
+        Needs `read` on its agent.
+        """
         return await self._client._request(
             _OPERATIONS["proposals.get"],
             path={"proposalId": proposal_id},
             query={},
-            headers={"X-Supervisor-Id": supervisor_id},
+            headers={},
             response=_models.FixProposal,
             timeout=timeout,
         )
 
-    async def dry_run(
+    async def evaluate(
         self,
         proposal_id: str,
-        body: _models.DryRunProposalBody | Mapping[str, Any] | None = None,
+        body: _models.EvaluateProposalBody | Mapping[str, Any] | None = None,
         /,
         *,
-        supervisor_id: str,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.DryRunProposalResult:
-        """Dry-run a proposal against an eval dataset. `POST /v1/proposals/{proposalId}/dry-run`
+    ) -> _models.FixProposal:
+        """Compare a proposal on a test set. `POST /v1/proposals/{proposalId}/evaluate`
 
-        Runs the candidate agent against the caller-supplied dataset + criterion. Transitions the proposal to `dry-run-passed` or `dry-run-failed`. Legal only from `draft` or `dry-run-failed`.
+        The first evaluation publishes the block version and derives the agent version (`derivedFrom.proposalId`); they serve no scope until a promotion makes them live. Then a comparison eval run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a live version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would go live there at once (`409 proposal-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.
         """
         return await self._client._request(
-            _OPERATIONS["proposals.dryRun"],
+            _OPERATIONS["proposals.evaluate"],
             path={"proposalId": proposal_id},
             query={},
-            headers={"X-Supervisor-Id": supervisor_id, "Idempotency-Key": idempotency_key},
-            body=_body(_models.DryRunProposalBody, body, fields),
-            response=_models.DryRunProposalResult,
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.EvaluateProposalBody, body, fields),
+            response=_models.FixProposal,
             timeout=timeout,
         )
 
-    async def submit_review(
+    async def request(
         self,
         proposal_id: str,
-        body: _models.SubmitReviewProposalBody | Mapping[str, Any] | None = None,
+        body: _models.ProposalReasonBody | Mapping[str, Any] | None = None,
         /,
         *,
-        supervisor_id: str,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.SubmitReviewProposalResult:
-        """Submit a dry-run-passed proposal for HITL review. `POST /v1/proposals/{proposalId}/submit-review`
+    ) -> _models.FixProposal:
+        """Request a proposal's promotion for its scope. `POST /v1/proposals/{proposalId}/request`
 
-        Enqueues a HITL approval and transitions the proposal to `proposed-for-review`. Legal only from `dry-run-passed`. Body is optional; defaults auto-derive the reviewer role (meta-fixes → senior).
+        A promotion of the candidate for the proposal's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/promotions` answers. Needs `promote` on the agent. Allowed from `evaluated`, `refused`, `superseded` and `expired`.
         """
         return await self._client._request(
-            _OPERATIONS["proposals.submitReview"],
+            _OPERATIONS["proposals.request"],
             path={"proposalId": proposal_id},
             query={},
-            headers={"X-Supervisor-Id": supervisor_id, "Idempotency-Key": idempotency_key},
-            body=_body(_models.SubmitReviewProposalBody, body, fields),
-            response=_models.SubmitReviewProposalResult,
-            timeout=timeout,
-        )
-
-    async def apply(
-        self,
-        proposal_id: str,
-        body: _models.ApplyProposalBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        supervisor_id: str,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.ApplyProposalResult:
-        """Apply an approved proposal. `POST /v1/proposals/{proposalId}/apply`
-
-        Materializes the proposed change into a new agent version, registers it in the agent registry, and transitions the proposal to `applied`. Legal only from `approved`.
-        """
-        return await self._client._request(
-            _OPERATIONS["proposals.apply"],
-            path={"proposalId": proposal_id},
-            query={},
-            headers={"X-Supervisor-Id": supervisor_id, "Idempotency-Key": idempotency_key},
-            body=_body(_models.ApplyProposalBody, body, fields),
-            response=_models.ApplyProposalResult,
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ProposalReasonBody, body, fields),
+            response=_models.FixProposal,
             timeout=timeout,
         )
 
     async def rollback(
         self,
         proposal_id: str,
-        body: _models.RollbackProposalBody | Mapping[str, Any] | None = None,
+        body: _models.ProposalReasonBody | Mapping[str, Any] | None = None,
         /,
         *,
-        supervisor_id: str,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.RollbackProposalResult:
-        """Roll back an applied proposal. `POST /v1/proposals/{proposalId}/rollback`
+    ) -> _models.FixProposal:
+        """Roll back a promoted proposal. `POST /v1/proposals/{proposalId}/rollback`
 
-        Unregisters the applied version from the agent registry and transitions the proposal to `rolled-back`. Legal only from `applied`.
+        The scope goes back to the version its own pin held before the proposal's promotion (or, with none, falls back to the scope above). Only while the proposal's version still serves the scope. Needs `promote` on the agent.
         """
         return await self._client._request(
             _OPERATIONS["proposals.rollback"],
             path={"proposalId": proposal_id},
             query={},
-            headers={"X-Supervisor-Id": supervisor_id, "Idempotency-Key": idempotency_key},
-            body=_body(_models.RollbackProposalBody, body, fields),
-            response=_models.RollbackProposalResult,
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ProposalReasonBody, body, fields),
+            response=_models.FixProposal,
             timeout=timeout,
         )
 
@@ -8530,23 +8497,46 @@ class AsyncProposalsResource:
         body: _models.WithdrawProposalBody | Mapping[str, Any] | None = None,
         /,
         *,
-        supervisor_id: str,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.FixProposal:
-        """Withdraw a non-terminal proposal. `POST /v1/proposals/{proposalId}/withdraw`
+        """Withdraw a proposal. `POST /v1/proposals/{proposalId}/withdraw`
 
-        Transitions the proposal to `withdrawn`. Legal from any non-terminal state (`draft | dry-running | dry-run-passed | dry-run-failed | proposed-for-review`). Terminal states surface as `409 proposal-invalid-state-transition`.
+        Closes it. Not while it's in review (decide its approval instead), nor once promoted, rejected or rolled back. Needs `publish` on the agent.
         """
         return await self._client._request(
             _OPERATIONS["proposals.withdraw"],
             path={"proposalId": proposal_id},
             query={},
-            headers={"X-Supervisor-Id": supervisor_id, "Idempotency-Key": idempotency_key},
+            headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.WithdrawProposalBody, body, fields),
             response=_models.FixProposal,
             timeout=timeout,
+        )
+
+    async def draft(self, *args: Any, **kwargs: Any) -> NoReturn:
+        """Removed in 0.1.5: use `client.proposals.create`."""
+        raise InvalidRequestError(
+            "proposals.draft was removed in 0.1.5: use client.proposals.create", issues=[]
+        )
+
+    async def dry_run(self, *args: Any, **kwargs: Any) -> NoReturn:
+        """Removed in 0.1.5: use `client.proposals.evaluate`."""
+        raise InvalidRequestError(
+            "proposals.dry_run was removed in 0.1.5: use client.proposals.evaluate", issues=[]
+        )
+
+    async def submit_review(self, *args: Any, **kwargs: Any) -> NoReturn:
+        """Removed in 0.1.5: use `client.proposals.request`."""
+        raise InvalidRequestError(
+            "proposals.submit_review was removed in 0.1.5: use client.proposals.request", issues=[]
+        )
+
+    async def apply(self, *args: Any, **kwargs: Any) -> NoReturn:
+        """Removed in 0.1.5: use `client.proposals.request`."""
+        raise InvalidRequestError(
+            "proposals.apply was removed in 0.1.5: use client.proposals.request", issues=[]
         )
 
 
