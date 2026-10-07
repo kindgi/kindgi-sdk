@@ -3,7 +3,7 @@
   "description": "Claude on the Anthropic API (key: ANTHROPIC_API_KEY).",
   "adapterId": "@kindgi/adapter-model-anthropic",
   "secret": "ANTHROPIC_API_KEY",
-  "pricesCheckedAt": "2026-10-08",
+  "pricesCheckedAt": "2026-10-07",
   "metadata": {
     "id": "anthropic",
     "region": "unspecified",

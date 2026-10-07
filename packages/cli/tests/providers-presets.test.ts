@@ -186,6 +186,25 @@ describe('the bundled presets', () => {
       ),
     ).toBe('--max-output-tokens must be a whole number of at least 1, got 0');
   });
+
+  test('Gemini models checked live with typed output declare structured-output, so an agent that needs it routes to them', async () => {
+    const presets = await loadProviderPresets();
+    const typed = (name: 'gemini' | 'gemini-api', settings: Record<string, string>) => {
+      const preset = presets[name];
+      if (preset === undefined) throw new Error(`preset ${name} missing`);
+      const r = presetRegistration(preset, { envName: 'local', settings });
+      if (r.kind !== 'ok') throw new Error(r.message);
+      return r.input.metadata.models
+        .filter((m) => m.features.includes('structured-output'))
+        .map((m) => m.name);
+    };
+    expect(typed('gemini', { project: 'acme' })).toEqual([
+      'gemini-3.8-flash',
+      'gemini-3.5-flash-lite',
+    ]);
+    // gemini-3.1-pro-preview hasn't been checked with typed output.
+    expect(typed('gemini-api', {})).toEqual(['gemini-3.8-flash', 'gemini-3.5-flash-lite']);
+  });
 });
 
 describe('kindgi providers register --preset', () => {
