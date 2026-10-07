@@ -322,6 +322,7 @@
           "gate-policy-scope-unpinned": 409,
           "gate-policy-needs-pin": 409,
           "agent-version-live": 409,
+          "artifact-too-large": 413,
           "run-not-finished": 409,
           "item-not-found": 400,
           "test-sets-not-supported": 501,
@@ -7595,6 +7596,14 @@
             "format": "uuid",
             "description": "Optional back-ref to the RunId that produced this blob."
           },
+          "projectId": {
+            "type": "string",
+            "description": "The project the artifact belongs to: its owner run's, else the upload's `projectId`, else the tenant's default project. Reading it needs `read` there; deleting it, `write`. Absent on blobs stored before projects were recorded."
+          },
+          "createdBy": {
+            "type": "string",
+            "description": "Who uploaded it: `user:<id>` or `service_account:<id>`."
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -7663,6 +7672,14 @@
                   "format": "uuid",
                   "description": "Optional back-ref to the RunId that produced this blob."
                 },
+                "projectId": {
+                  "type": "string",
+                  "description": "The project the artifact belongs to: its owner run's, else the upload's `projectId`, else the tenant's default project. Reading it needs `read` there; deleting it, `write`. Absent on blobs stored before projects were recorded."
+                },
+                "createdBy": {
+                  "type": "string",
+                  "description": "Who uploaded it: `user:<id>` or `service_account:<id>`."
+                },
                 "createdAt": {
                   "type": "string",
                   "format": "date-time"
@@ -7702,6 +7719,10 @@
           "ownerRunId": {
             "type": "string",
             "format": "uuid"
+          },
+          "projectId": {
+            "type": "string",
+            "description": "The project it belongs to, when there's no `ownerRunId` (with one, the run's project, and this must agree). Default: the tenant's default project."
           },
           "expectedHash": {
             "type": "string",
@@ -7780,6 +7801,34 @@
             "type": "object",
             "additionalProperties": true,
             "description": "Optional JSON Schema fragment describing the parameters an agent may attach to `{ feature, params }` in a `Requirement`."
+          },
+          "providers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CapabilityProvider"
+            },
+            "description": "The tenant's registered providers with a model that has the feature, and those models. Absent from servers that don't read the provider registry; `[]` when no provider of the tenant has one."
+          }
+        }
+      },
+      "CapabilityProvider": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "providerId",
+          "models"
+        ],
+        "description": "A provider of the tenant with a model that has the feature.",
+        "properties": {
+          "providerId": {
+            "type": "string"
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Its models that have it."
           }
         }
       },
@@ -9324,6 +9373,7 @@
           "env",
           "secret",
           "run",
+          "artifact",
           "policy",
           "judgment",
           "judge_class",
@@ -23377,7 +23427,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`).",
+        "description": "Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?projectId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`). With authorization on, only artifacts in projects the caller can read are listed.",
         "parameters": [
           {
             "name": "limit",
@@ -23418,6 +23468,15 @@
             },
             "required": false,
             "description": "Filter by exact content-type match."
+          },
+          {
+            "name": "projectId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Filter to the artifacts of one project."
           }
         ],
         "security": [
@@ -23444,7 +23503,7 @@
             }
           },
           "400": {
-            "description": "Malformed multipart body, bad tag JSON, hash mismatch, or declared size mismatch.",
+            "description": "Malformed multipart body, bad tag JSON, hash mismatch, declared size mismatch, or a `projectId` that isn't the owner run's.",
             "content": {
               "application/json": {
                 "schema": {
@@ -23463,8 +23522,38 @@
               }
             }
           },
+          "403": {
+            "description": "No `write` on the project (`permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such owner run (`run-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "409": {
             "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Over the upload cap (`artifact-too-large`; `details.maxBytes` says how much).",
             "content": {
               "application/json": {
                 "schema": {
@@ -23484,7 +23573,7 @@
             }
           }
         },
-        "description": "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller.",
+        "description": "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the tenant's default project; uploading needs `write` there. An upload over the runtime's cap (default 100 MB) is `413 artifact-too-large`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -23552,7 +23641,7 @@
             }
           },
           "404": {
-            "description": "No blob with that id under this tenant.",
+            "description": "No blob with that id under this tenant, or one in a project the caller can't read.",
             "content": {
               "application/json": {
                 "schema": {
@@ -23652,6 +23741,26 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No `write` on its project (`permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "An artifact in a project the caller can't read (`blob-not-found`).",
             "content": {
               "application/json": {
                 "schema": {

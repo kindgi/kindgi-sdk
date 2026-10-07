@@ -481,6 +481,45 @@ def test_every_operation_is_a_method() -> None:
     assert len(OPERATIONS) > 150
 
 
+def test_an_artifact_belongs_to_a_project_and_a_feature_names_its_providers() -> None:
+    meta = {
+        "blobId": "b-1",
+        "tenantId": RUN["tenantId"],
+        "name": "note.txt",
+        "contentType": "text/plain",
+        "size": 5,
+        "hash": "0" * 64,
+        "tags": {},
+        "projectId": "p-1",
+        "createdBy": "user:u-1",
+        "createdAt": "2026-10-07T00:00:00.000Z",
+    }
+    capability = {
+        "id": "feature:vision",
+        "feature": "vision",
+        "description": "Reads images in its input.",
+        "providers": [{"providerId": "acme-openai", "models": ["gpt-acme"]}],
+    }
+    api, seen = client(
+        lambda r: (
+            httpx.Response(201, json=meta)
+            if r.url.path == "/v1/artifacts"
+            else httpx.Response(200, json=capability)
+        )
+    )
+    up = api.artifacts.upload(
+        {"file": ("note.txt", b"hello", "text/plain")}, data={"projectId": "p-1"}
+    )
+    assert (
+        isinstance(up, models.BlobMeta) and up.project_id == "p-1" and up.created_by == "user:u-1"
+    )
+    assert b'name="projectId"' in seen[0].content and b"hello" in seen[0].content
+    vision = api.capabilities.get("feature:vision")
+    assert vision.providers is not None
+    assert isinstance(vision.providers[0], models.CapabilityProvider)
+    assert vision.providers[0].models == ["gpt-acme"]
+
+
 OPENAPI = Path(__file__).resolve().parents[3] / "packages" / "api" / "openapi.json"
 
 

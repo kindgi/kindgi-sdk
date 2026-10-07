@@ -126,3 +126,139 @@ describe('artifacts not-yet-wired surface', () => {
     expect(stub.calls.length).toBe(0);
   });
 });
+
+describe('artifacts.upload / download', () => {
+  /** A fetch that keeps the request (FormData included) and answers with `res`. */
+  function capture(res: () => Response) {
+    const seen: { url: string; init: RequestInit }[] = [];
+    const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
+      seen.push({ url: String(url), init: init ?? {} });
+      return res();
+    }) as typeof fetch;
+    return { seen, fetchImpl };
+  }
+
+  it('upload POSTs a multipart form with the file and its fields', async () => {
+    const stub = capture(
+      () =>
+        new Response(JSON.stringify({ ...WIRE_BLOB, projectId: 'p-1' }), {
+          status: 201,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetchImpl,
+    });
+    const meta = await client.artifacts.upload(
+      {
+        body: 'hello',
+        name: 'note.txt',
+        contentType: 'text/plain',
+        projectId: 'p-1',
+        tags: { k: 'v' },
+      },
+      { idempotencyKey: 'idem-a' },
+    );
+    expect(meta).toMatchObject({ blobId: 'blob-1', projectId: 'p-1' });
+    const { url, init } = stub.seen[0]!;
+    expect([url, init.method]).toEqual(['https://api.example.com/v1/artifacts', 'POST']);
+    expect((init.headers as Record<string, string>)['Idempotency-Key']).toBe('idem-a');
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer t');
+    const form = init.body as FormData;
+    expect(await (form.get('file') as Blob).text()).toBe('hello');
+    expect([
+      form.get('name'),
+      form.get('contentType'),
+      form.get('projectId'),
+      form.get('tags'),
+    ]).toEqual(['note.txt', 'text/plain', 'p-1', '{"k":"v"}']);
+  });
+
+  it('download streams the bytes with what the headers say', async () => {
+    const stub = capture(
+      () =>
+        new Response('hello', {
+          status: 200,
+          headers: {
+            'content-type': 'text/plain',
+            'content-length': '5',
+            'x-kindgi-blob-hash': 'b'.repeat(64),
+            'x-kindgi-blob-name': encodeURIComponent('my note.txt'),
+          },
+        }),
+    );
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetchImpl,
+    });
+    const got = await client.artifacts.download('blob 1' as never);
+    expect(stub.seen[0]!.url).toBe('https://api.example.com/v1/artifacts/blob%201');
+    expect([got.name, got.contentType, got.size, got.hash]).toEqual([
+      'my note.txt',
+      'text/plain',
+      5,
+      'b'.repeat(64),
+    ]);
+    expect(await new Response(got.body).text()).toBe('hello');
+  });
+
+  it('head reads the headers with HEAD, no body', async () => {
+    const stub = capture(
+      () =>
+        new Response(null, {
+          status: 200,
+          headers: {
+            'content-type': 'text/plain',
+            'content-length': '5',
+            'x-kindgi-blob-hash': 'c'.repeat(64),
+          },
+        }),
+    );
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetchImpl,
+    });
+    expect(await client.artifacts.head('b-1' as never)).toEqual({
+      blobId: 'b-1',
+      name: '',
+      contentType: 'text/plain',
+      size: 5,
+      hash: 'c'.repeat(64),
+    });
+    expect(stub.seen[0]!.init.method).toBe('HEAD');
+  });
+
+  it('a refusal throws the wire error: over the cap, or not found', async () => {
+    const tooBig = capture(
+      () =>
+        new Response(
+          JSON.stringify({
+            error: { code: 'artifact-too-large', message: 'too big', requestId: 'r' },
+          }),
+          { status: 413, headers: { 'content-type': 'application/json' } },
+        ),
+    );
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: tooBig.fetchImpl,
+    });
+    await expect(client.artifacts.upload({ body: 'x' })).rejects.toMatchObject({
+      message: 'too big',
+      error: { code: 'invalid-request' },
+    });
+    const missing = errorFetch(404, { code: 'blob-not-found', message: 'none' });
+    const c2 = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: missing.fetch,
+    });
+    await expect(c2.artifacts.download('b' as never)).rejects.toMatchObject({
+      error: { code: 'not-found' },
+    });
+  });
+});

@@ -3,16 +3,19 @@
 
 import type { Filter, Timestamp } from '@kindgi/types';
 
-import { KindgiApiError, notYetWired } from '../errors.js';
+import { KindgiApiError, fromWire, notYetWired } from '../errors.js';
 import { type ListPage, type WirePage, listPage } from '../list-page.js';
-import type { Transport } from '../transport.js';
+import { type Transport, unwrapErrorEnvelope } from '../transport.js';
 import type {
+  ArtifactHead,
   BlobMeta,
   BlobRef,
+  DownloadedArtifact,
   GetArtifactResult,
   PresignInput,
   PresignedUrl,
   PutArtifactInput,
+  UploadArtifactInput,
 } from '../types.js';
 
 /**
@@ -21,31 +24,63 @@ import type {
  * Content-addressed (sha256), streaming semantics (never
  * load-in-memory), policy-checked at every operation.
  *
- * The SDK wires `list` (`GET /v1/artifacts`) + `delete`
- * (`DELETE /v1/artifacts/{blobId}`), which are JSON round-trips. The
- * API also has `POST /v1/artifacts` (multipart upload) and
- * `GET /v1/artifacts/{blobId}` (binary download), but the SDK's
- * `Transport` is JSON-only, so `put` and `get` throw `not-yet-wired`.
+ * The SDK wires `upload` (`POST /v1/artifacts`, multipart),
+ * `download` (`GET /v1/artifacts/{blobId}`, streamed bytes), `list` and
+ * `delete`. Every artifact belongs to a project (its owner run's, else
+ * `projectId`, else the tenant's default): reading it needs `read`
+ * there, uploading and deleting `write`.
  *
- * `presign` and `setRetentionLock` have no API route.
+ * `put` and `get` (content-addressed `BlobRef`s), `presign` and
+ * `setRetentionLock` have no API route: use `upload` and `download`.
  */
 export interface ArtifactsClient {
   /**
-   * @unwired `POST /v1/artifacts` is a multipart-form upload; the SDK
-   *   transport is JSON-only, so the SDK does not call it.
+   * Upload bytes as an artifact. Over the runtime's cap (default 100 MB)
+   * is `413 artifact-too-large`; no `write` on its project is `403`.
+   *
+   * @wire `POST /v1/artifacts` (multipart) — see
+   *   `@kindgi/api/openapi.json#/paths/~1v1~1artifacts/post`.
+   */
+  upload(
+    input: UploadArtifactInput,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<BlobMeta>;
+
+  /**
+   * Download an artifact's bytes, streamed. One in a project the caller
+   * can't read is `404`, as if absent.
+   *
+   * @wire `GET /v1/artifacts/{blobId}` — see
+   *   `@kindgi/api/openapi.json#/paths/~1v1~1artifacts~1{blobId}/get`.
+   */
+  download(blobId: import('@kindgi/types').ArtifactId): Promise<DownloadedArtifact>;
+
+  /**
+   * An artifact's name, type, size and hash, from its headers (no bytes).
+   * One in a project the caller can't read is `404`, as if absent.
+   *
+   * @wire `HEAD /v1/artifacts/{blobId}` — see
+   *   `@kindgi/api/openapi.json#/paths/~1v1~1artifacts~1{blobId}/head`.
+   */
+  head(blobId: import('@kindgi/types').ArtifactId): Promise<ArtifactHead>;
+
+  /**
+   * @unwired No API route takes a content-addressed `BlobRef`: use
+   *   `upload`, which returns the artifact's `BlobMeta`.
    */
   put(input: PutArtifactInput): Promise<BlobRef>;
 
   /**
-   * @unwired `GET /v1/artifacts/{blobId}` streams binary bytes; the SDK
-   *   transport hydrates JSON only, so the SDK does not call it.
+   * @unwired No API route takes a content-addressed `BlobRef`: use
+   *   `download(blobId)`.
    */
   get(ref: BlobRef): Promise<GetArtifactResult>;
 
   /**
    * Paginated list of artifact metadata (`BlobMeta`, the wire's
-   * artifact-metadata shape). Only `contentType` and `ownerRunId` from
-   * the filter are sent.
+   * artifact-metadata shape): those in projects the caller can read.
+   * Only `contentType`, `ownerRunId` and `projectId` from the filter are
+   * sent.
    *
    * @wire `GET /v1/artifacts` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1artifacts/get`.
@@ -83,17 +118,111 @@ export interface ArtifactsClient {
 export interface ArtifactFilter extends Filter {
   readonly contentType?: string;
   readonly ownerRunId?: import('@kindgi/types').RunId;
+  /** One project's artifacts. */
+  readonly projectId?: string;
   readonly hasRetentionLock?: boolean;
   readonly sha256?: string;
 }
 
+/**
+ * A request outside the JSON transport (a multipart body, or a streamed
+ * response), with its auth headers; a non-2xx answer throws the wire
+ * error, as the transport does.
+ */
+async function raw(
+  transport: Transport,
+  req: {
+    readonly method: 'GET' | 'HEAD' | 'POST';
+    readonly path: string;
+    readonly body?: FormData;
+    readonly headers?: Readonly<Record<string, string>>;
+  },
+): Promise<Response> {
+  const res = await transport.fetchImpl(`${transport.apiUrl}${req.path}`, {
+    method: req.method,
+    headers: { ...transport.authHeaders(), ...(req.headers ?? {}) },
+    ...(req.body !== undefined && { body: req.body }),
+  });
+  if (!res.ok) {
+    const body: unknown = await res.json().catch(() => null);
+    throw new KindgiApiError(fromWire(unwrapErrorEnvelope(body, res.status), res.status));
+  }
+  return res;
+}
+
+/** What an artifact's download headers say. */
+function headOf(blobId: string, res: Response): ArtifactHead {
+  const name = res.headers.get('X-Kindgi-Blob-Name');
+  return {
+    blobId,
+    name: name !== null ? decodeURIComponent(name) : '',
+    contentType: res.headers.get('Content-Type') ?? 'application/octet-stream',
+    size: Number(res.headers.get('Content-Length') ?? '0'),
+    hash: res.headers.get('X-Kindgi-Blob-Hash') ?? '',
+  };
+}
+
+function uploadForm(input: UploadArtifactInput): FormData {
+  const contentType =
+    input.contentType ??
+    (input.body instanceof Blob && input.body.type !== ''
+      ? input.body.type
+      : 'application/octet-stream');
+  const blob =
+    input.body instanceof Blob
+      ? input.body
+      : new Blob([input.body as ConstructorParameters<typeof Blob>[0][number]], {
+          type: contentType,
+        });
+  const form = new FormData();
+  form.set('file', blob, input.name ?? 'file');
+  form.set('contentType', contentType);
+  if (input.name !== undefined) form.set('name', input.name);
+  if (input.tags !== undefined) form.set('tags', JSON.stringify(input.tags));
+  if (input.ownerRunId !== undefined) form.set('ownerRunId', input.ownerRunId as string);
+  if (input.projectId !== undefined) form.set('projectId', input.projectId);
+  if (input.expectedHash !== undefined) form.set('expectedHash', input.expectedHash);
+  return form;
+}
+
 export function makeArtifactsClient(transport: Transport): ArtifactsClient {
   return {
+    async upload(input, options) {
+      const res = await raw(transport, {
+        method: 'POST',
+        path: '/v1/artifacts',
+        body: uploadForm(input),
+        ...(options?.idempotencyKey !== undefined && {
+          headers: { 'Idempotency-Key': options.idempotencyKey },
+        }),
+      });
+      return (await res.json()) as BlobMeta;
+    },
+
+    async download(blobId) {
+      const res = await raw(transport, {
+        method: 'GET',
+        path: `/v1/artifacts/${encodeURIComponent(blobId as unknown as string)}`,
+      });
+      return {
+        ...headOf(blobId as unknown as string, res),
+        body: res.body ?? new Response('').body!,
+      };
+    },
+
+    async head(blobId) {
+      const res = await raw(transport, {
+        method: 'HEAD',
+        path: `/v1/artifacts/${encodeURIComponent(blobId as unknown as string)}`,
+      });
+      return headOf(blobId as unknown as string, res);
+    },
+
     async put(_input) {
       throw new KindgiApiError(
         notYetWired(
           'artifacts.put',
-          'POST /v1/artifacts is a multipart-form upload; the SDK transport is JSON-only. Multipart / raw-stream body support is a planned follow-up',
+          'no route takes a content-addressed BlobRef: use artifacts.upload, which returns the artifact metadata',
         ),
       );
     },
@@ -102,7 +231,7 @@ export function makeArtifactsClient(transport: Transport): ArtifactsClient {
       throw new KindgiApiError(
         notYetWired(
           'artifacts.get',
-          'GET /v1/artifacts/{blobId} streams binary bytes; the SDK transport hydrates JSON only. Raw-stream response support is a planned follow-up',
+          'no route takes a content-addressed BlobRef: use artifacts.download(blobId)',
         ),
       );
     },
@@ -118,6 +247,7 @@ export function makeArtifactsClient(transport: Transport): ArtifactsClient {
             ownerRunId: filter.ownerRunId as unknown as string,
           }),
           ...(filter?.contentType !== undefined && { contentType: filter.contentType }),
+          ...(filter?.projectId !== undefined && { projectId: filter.projectId }),
         },
       });
       return listPage(page);

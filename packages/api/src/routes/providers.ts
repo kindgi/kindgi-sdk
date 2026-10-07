@@ -328,6 +328,9 @@ function serializeCapability(d: CapabilityDescriptor): Record<string, unknown> {
     description: d.description,
     ...(d.kind !== undefined && { kind: d.kind }),
     ...(d.paramsSchema !== undefined && { paramsSchema: d.paramsSchema }),
+    ...(d.providers !== undefined && {
+      providers: d.providers.map((p) => ({ providerId: p.providerId, models: [...p.models] })),
+    }),
   };
 }
 

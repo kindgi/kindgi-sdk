@@ -214,7 +214,7 @@ function authTokenFor(auth: AuthConfig): string {
  * malformed still produce a synthetic entry so `fromWire` returns a
  * meaningful `ServerError`.
  */
-function unwrapErrorEnvelope(body: unknown, status: number): unknown {
+export function unwrapErrorEnvelope(body: unknown, status: number): unknown {
   if (body !== null && typeof body === 'object' && !Array.isArray(body)) {
     const inner = (body as Record<string, unknown>).error;
     if (inner !== null && typeof inner === 'object' && !Array.isArray(inner)) {

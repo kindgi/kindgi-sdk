@@ -3882,6 +3882,15 @@ export const BlobMetaSchema: JsonSchema = {
       format: 'uuid',
       description: 'Optional back-ref to the RunId that produced this blob.',
     },
+    projectId: {
+      type: 'string',
+      description:
+        "The project the artifact belongs to: its owner run's, else the upload's `projectId`, else the tenant's default project. Reading it needs `read` there; deleting it, `write`. Absent on blobs stored before projects were recorded.",
+    },
+    createdBy: {
+      type: 'string',
+      description: 'Who uploaded it: `user:<id>` or `service_account:<id>`.',
+    },
     createdAt: { type: 'string', format: 'date-time' },
   },
 };
@@ -3911,6 +3920,11 @@ export const UploadArtifactBodySchema: JsonSchema = {
       description: 'JSON-encoded `Record<string, string>` — parsed server-side.',
     },
     ownerRunId: { type: 'string', format: 'uuid' },
+    projectId: {
+      type: 'string',
+      description:
+        "The project it belongs to, when there's no `ownerRunId` (with one, the run's project, and this must agree). Default: the tenant's default project.",
+    },
     expectedHash: {
       type: 'string',
       pattern: '^[0-9a-f]{64}$',
@@ -3993,6 +4007,23 @@ export const CapabilityDescriptorSchema: JsonSchema = {
       description:
         'Optional JSON Schema fragment describing the parameters an agent may attach to `{ feature, params }` in a `Requirement`.',
     },
+    providers: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/CapabilityProvider' },
+      description:
+        "The tenant's registered providers with a model that has the feature, and those models. Absent from servers that don't read the provider registry; `[]` when no provider of the tenant has one.",
+    },
+  },
+};
+
+export const CapabilityProviderSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['providerId', 'models'],
+  description: 'A provider of the tenant with a model that has the feature.',
+  properties: {
+    providerId: { type: 'string' },
+    models: { type: 'array', items: { type: 'string' }, description: 'Its models that have it.' },
   },
 };
 
@@ -8413,6 +8444,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['DeleteArtifactResult', DeleteArtifactResultSchema],
   ['Feature', FeatureSchema],
   ['CapabilityDescriptor', CapabilityDescriptorSchema],
+  ['CapabilityProvider', CapabilityProviderSchema],
   ['CapabilityCollectionPage', CapabilityCollectionPageSchema],
   ['ProviderCost', ProviderCostSchema],
   ['ModelInfo', ModelInfoSchema],

@@ -1520,6 +1520,14 @@ export interface CapabilityDeclaration {
   /** Capability kind (`llm-inference`, `embedding`, `gpu-compute`, ...). Absent = `llm-inference`. */
   readonly kind?: string;
   readonly paramsSchema?: Readonly<Record<string, unknown>>;
+  /**
+   * The tenant's providers with a model that has the feature, and those
+   * models. Absent from servers that don't read the provider registry.
+   */
+  readonly providers?: readonly {
+    readonly providerId: string;
+    readonly models: readonly string[];
+  }[];
 }
 
 export interface CapabilityNeed {
@@ -1699,6 +1707,7 @@ export type RetentionDomain =
   | 'env'
   | 'secret'
   | 'run'
+  | 'artifact'
   | 'policy'
   | 'judgment'
   | 'judge_class'
@@ -2256,7 +2265,43 @@ export interface BlobMeta {
   readonly hash: string;
   readonly tags: Readonly<Record<string, string>>;
   readonly ownerRunId?: import('@kindgi/types').RunId;
+  /** The project it belongs to (who may read and delete it). Absent from older servers. */
+  readonly projectId?: string;
+  /** Who uploaded it: `user:<id>` or `service_account:<id>`. */
+  readonly createdBy?: string;
   readonly createdAt: import('@kindgi/types').Timestamp;
+}
+
+/** Input for `artifacts.upload` (`POST /v1/artifacts`, multipart). */
+export interface UploadArtifactInput {
+  /** The bytes. */
+  readonly body: Blob | Uint8Array | string;
+  /** Default: `file`. */
+  readonly name?: string;
+  /** Default: the Blob's type, else `application/octet-stream`. */
+  readonly contentType?: string;
+  readonly tags?: Readonly<Record<string, string>>;
+  /** The run that produced it: the artifact belongs to its project. */
+  readonly ownerRunId?: import('@kindgi/types').RunId;
+  /** With no `ownerRunId`: the project it belongs to (default: the tenant's default project). */
+  readonly projectId?: string;
+  /** sha256, hex, lowercase: the upload is refused when the bytes differ. */
+  readonly expectedHash?: string;
+}
+
+/** What `artifacts.head` returns: an artifact's download headers, no bytes. */
+export interface ArtifactHead {
+  readonly blobId: string;
+  readonly name: string;
+  readonly contentType: string;
+  readonly size: number;
+  /** sha256, hex, lowercase. */
+  readonly hash: string;
+}
+
+/** What `artifacts.download` returns: the bytes, streamed, and what the headers say. */
+export interface DownloadedArtifact extends ArtifactHead {
+  readonly body: ReadableStream<Uint8Array>;
 }
 
 export interface PutArtifactInput {

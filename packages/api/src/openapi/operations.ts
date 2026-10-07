@@ -3051,7 +3051,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'artifacts.list',
     summary: 'List artifact metadata',
     description:
-      'Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`).',
+      'Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?projectId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`). With authorization on, only artifacts in projects the caller can read are listed.',
     tags: ['artifacts'],
     security: 'bearer',
     parameters: [
@@ -3071,6 +3071,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
         description: 'Filter by exact content-type match.',
         schema: { type: 'string' },
       },
+      {
+        name: 'projectId',
+        in: 'query',
+        required: false,
+        description: 'Filter to the artifacts of one project.',
+        schema: { type: 'string' },
+      },
     ],
     responses: {
       '200': { description: 'Page of blob metadata.', schema: ref('ArtifactCollectionPage') },
@@ -3085,7 +3092,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'artifacts.upload',
     summary: 'Upload an artifact',
     description:
-      'Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller.',
+      "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the tenant's default project; uploading needs `write` there. An upload over the runtime's cap (default 100 MB) is `413 artifact-too-large`.",
     tags: ['artifacts'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -3102,7 +3109,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Upload accepted; metadata returned.', schema: ref('BlobMeta') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        'Malformed multipart body, bad tag JSON, hash mismatch, or declared size mismatch.',
+        "Malformed multipart body, bad tag JSON, hash mismatch, declared size mismatch, or a `projectId` that isn't the owner run's.",
+      ),
+      '403': ErrorResponse('No `write` on the project (`permission-denied`).'),
+      '404': ErrorResponse('No such owner run (`run-not-found`).'),
+      '413': ErrorResponse(
+        'Over the upload cap (`artifact-too-large`; `details.maxBytes` says how much).',
       ),
     },
   },
@@ -3132,7 +3144,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: { type: 'string', format: 'binary' },
       },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No blob with that id under this tenant.'),
+      '404': ErrorResponse(
+        "No blob with that id under this tenant, or one in a project the caller can't read.",
+      ),
     },
   },
   {
@@ -3185,6 +3199,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Delete acknowledged.', schema: ref('DeleteArtifactResult') },
       ...CommonMutationErrors,
+      '403': ErrorResponse('No `write` on its project (`permission-denied`).'),
+      '404': ErrorResponse("An artifact in a project the caller can't read (`blob-not-found`)."),
     },
   },
 
