@@ -9,6 +9,7 @@ import {
   type Feature,
   type ModelInfo,
   type ProviderMetadata,
+  validateProviderLabels,
 } from '@kindgi/capabilities';
 import type { Cursor, TenantId } from '@kindgi/types';
 
@@ -316,6 +317,7 @@ function serializeProvider(m: ProviderMetadata): Record<string, unknown> {
     ...(m.description !== undefined && { description: m.description }),
     ...(m.capabilityKind !== undefined && { capabilityKind: m.capabilityKind }),
     ...(m.fallback !== undefined && { fallback: m.fallback }),
+    ...(m.labels !== undefined && { labels: m.labels }),
   };
 }
 
@@ -432,6 +434,8 @@ function validateProviderMetadata(
       },
     };
   }
+  const badLabels = validateProviderLabels(b.id, b.labels);
+  if (badLabels !== undefined) return { kind: 'err', error: badLabels };
   const value: ProviderMetadata = {
     id: b.id,
     region: b.region,
@@ -440,6 +444,7 @@ function validateProviderMetadata(
     ...(b.description !== undefined && { description: b.description }),
     ...(b.capabilityKind !== undefined && { capabilityKind: b.capabilityKind as string }),
     ...(b.fallback !== undefined && { fallback: b.fallback as boolean }),
+    ...(b.labels !== undefined && { labels: b.labels as Readonly<Record<string, string>> }),
   };
   return { kind: 'ok', value };
 }

@@ -155,8 +155,39 @@ def test_a_duplicate_id_is_a_file_error(make_pack: Callable[..., Path]) -> None:
     report, index = index_of(root)
     (error,) = report["fileErrors"]
     assert error["code"] == "manifest-validation-failed"
-    assert "duplicate tool id 'acme.shout'" in error["message"]
+    assert "duplicate tool 'acme.shout'" in error["message"]
     assert [t["id"] for t in index["tools"]] == ["acme.shout", "acme.whisper", "acme.whisper2"]
+
+
+def test_several_versions_of_one_tool_sit_side_by_side(make_pack: Callable[..., Path]) -> None:
+    newer = (
+        "from kindgi import tool\n"
+        '@tool(id="acme.whisper", version="3.0.0")\n'
+        "def whisper_v3(input: dict) -> dict:\n"
+        '    """Whisper, louder."""\n'
+        "    return {}\n"
+    )
+    report, index = index_of(full_pack(make_pack, **{"tools/whisper_v3.py": newer}))
+    assert report["fileErrors"] == []
+    assert sorted((t["id"], t.get("version")) for t in index["tools"]) == [
+        ("acme.shout", "1.2.3"),
+        ("acme.whisper", "2.0.0"),
+        ("acme.whisper", "3.0.0"),
+    ]
+
+
+def test_the_same_version_twice_is_a_file_error(make_pack: Callable[..., Path]) -> None:
+    again = (
+        "from kindgi import tool\n"
+        '@tool(id="acme.whisper", version="2.0.0")\n'
+        "def whisper_again(input: dict) -> dict:\n"
+        '    """Whisper again."""\n'
+        "    return {}\n"
+    )
+    report, _ = index_of(full_pack(make_pack, **{"tools/whisper_again.py": again}))
+    (error,) = report["fileErrors"]
+    assert error["code"] == "manifest-validation-failed"
+    assert "duplicate tool 'acme.whisper' version 2.0.0" in error["message"]
 
 
 def test_a_bare_string_tool_on_an_agent_is_a_file_error(make_pack: Callable[..., Path]) -> None:
@@ -171,6 +202,23 @@ def test_a_bare_string_tool_on_an_agent_is_a_file_error(make_pack: Callable[...,
     assert error["code"] == "manifest-validation-failed"
     assert "each tool is a Tool or an {id, version} ref, got 'acme.shout'" in error["message"]
     assert "acme.bad" not in [a["id"] for a in index["agents"]]
+
+
+def test_an_agent_can_reference_data_blocks(make_pack: Callable[..., Path]) -> None:
+    blocks_agent = (
+        "from kindgi import Agent\n"
+        'blocks = Agent(id="acme.blocks", version="1.0.0", name="Blocks",'
+        ' instructions={"prompt": "acme.intake-prompt", "version": "^1.0.0"},'
+        ' settings=[{"id": "acme.weights", "version": "^1.0.0"}],'
+        ' model_settings={"id": "acme.model", "version": "^1.0.0"})\n'
+    )
+    root = full_pack(make_pack, **{"agents/blocks.py": blocks_agent})
+    report, index = index_of(root)
+    assert report["fileErrors"] == []
+    (entry,) = [a for a in index["agents"] if a["id"] == "acme.blocks"]
+    assert entry["instructions"] == {"prompt": "acme.intake-prompt", "version": "^1.0.0"}
+    assert entry["settings"] == [{"id": "acme.weights", "version": "^1.0.0"}]
+    assert entry["modelSettings"] == {"id": "acme.model", "version": "^1.0.0"}
 
 
 def test_an_invalid_flow_is_a_file_error(make_pack: Callable[..., Path]) -> None:

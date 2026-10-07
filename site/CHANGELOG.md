@@ -1,5 +1,78 @@
 # kindgi-docs
 
+## 0.0.5-rc.2
+
+### Patch Changes
+
+- Updated dependencies [9a7f43b]
+- Updated dependencies [3255928]
+- Updated dependencies [0f413b2]
+- Updated dependencies [86538d0]
+- Updated dependencies [1328f5c]
+- Updated dependencies [09d71f7]
+- Updated dependencies [769444e]
+- Updated dependencies [22ab7e6]
+- Updated dependencies [cf2b8c8]
+- Updated dependencies [4f08024]
+- Updated dependencies [4287798]
+- Updated dependencies [149a8c9]
+- Updated dependencies [e97958c]
+- Updated dependencies [f96bd58]
+- Updated dependencies [e272d62]
+- Updated dependencies [00a4dca]
+- Updated dependencies [81eb352]
+- Updated dependencies [8491dd8]
+- Updated dependencies [2040daf]
+- Updated dependencies [ba2f212]
+- Updated dependencies [42a2e66]
+- Updated dependencies [7c084e1]
+- Updated dependencies [1a9b8e3]
+- Updated dependencies [e0c1f42]
+  - @kindgi/cli@0.1.4-rc.2
+  - @kindgi/env-schema@0.1.4-rc.2
+  - @kindgi/specs@0.1.4-rc.2
+
+## 0.0.5-rc.1
+
+### Patch Changes
+
+- Updated dependencies [3694313]
+- Updated dependencies [eec9748]
+- Updated dependencies [0bfd27b]
+- Updated dependencies [846dd9c]
+- Updated dependencies [b8ff156]
+- Updated dependencies [c0f1b56]
+- Updated dependencies [8861bf8]
+  - @kindgi/cli@0.1.4-rc.1
+  - @kindgi/env-schema@0.1.4-rc.1
+  - @kindgi/specs@0.1.4-rc.1
+
+## 0.0.5-rc.0
+
+### Patch Changes
+
+- Updated dependencies [024a47f]
+- Updated dependencies [6260a59]
+- Updated dependencies [08341ff]
+- Updated dependencies [d0ebeb6]
+- Updated dependencies [a0652ac]
+- Updated dependencies [fa6680c]
+- Updated dependencies [fac7472]
+- Updated dependencies [5a64700]
+- Updated dependencies [49c5921]
+- Updated dependencies [f4592c4]
+- Updated dependencies [b169c3f]
+- Updated dependencies [26b2a23]
+- Updated dependencies [263afd1]
+- Updated dependencies [a0921a1]
+- Updated dependencies [dde7fdb]
+- Updated dependencies [8b2e3a3]
+- Updated dependencies [d0ebeb6]
+- Updated dependencies [eb60481]
+  - @kindgi/specs@0.1.4-rc.0
+  - @kindgi/cli@0.1.4-rc.0
+  - @kindgi/env-schema@0.1.4-rc.0
+
 ## 0.0.4
 
 ### Patch Changes

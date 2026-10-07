@@ -32,7 +32,7 @@ import re
 import subprocess
 import sys
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -77,6 +77,7 @@ class Param:
     required: bool
     annotation: str
     description: str
+    encode: str | None = None  # a `_base` helper that writes the wire value
 
 
 @dataclass
@@ -124,6 +125,9 @@ def param_annotation(doc: dict[str, Any], schema: dict[str, Any]) -> str:
     if "enum" in resolved:
         return "Literal[" + ", ".join(json.dumps(v) for v in resolved["enum"]) + "]"
     kind = resolved.get("type")
+    if kind == "array":
+        # A repeated query parameter (`segment=a&segment=b`): httpx repeats a list's key.
+        return f"list[{param_annotation(doc, resolved.get('items', {}))}]"
     return {"string": "str", "integer": "int", "number": "float", "boolean": "bool"}.get(
         kind if isinstance(kind, str) else "", "Any"
     )
@@ -138,6 +142,14 @@ def hoist(doc: dict[str, Any], schema: dict[str, Any], name: str) -> str:
         raise SystemExit(f"gen_client: hoisted name {name} collides with a component")
     components[name] = schema
     return name
+
+
+# More Python names for an operation, generated beside its own: the name
+# the other resources use for the same call, so the client's names line
+# up (`eval_suites.unregister`, as `agents.unregister`).
+ALIASES: dict[str, tuple[str, ...]] = {
+    "evalSuites.versions.unregister": ("evalSuites.unregister",),
+}
 
 
 def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]:
@@ -155,6 +167,21 @@ def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]
                 py = {"Idempotency-Key": "idempotency_key", "Last-Event-Id": "last_event_id"}.get(
                     p["name"], snake(p["name"].removeprefix("X-").replace("-", "_"))
                 )
+                if p.get("x-kindgi-segment-path"):
+                    # A segment path: `{key, value}` steps, as TypeScript and
+                    # `runs.start` take it, written as repeated `key:value`.
+                    params.append(
+                        Param(
+                            name=p["name"],
+                            py="segments",
+                            where=p["in"],
+                            required=bool(p.get("required", False)),
+                            annotation="Sequence[_models.ScopeSegment | Mapping[str, str]]",
+                            description=p.get("description", ""),
+                            encode="_segments",
+                        )
+                    )
+                    continue
                 params.append(
                     Param(
                         name=p["name"],
@@ -215,6 +242,7 @@ def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]
                     status=status,
                 )
             )
+    ops += [replace(op, id=alias) for op in list(ops) for alias in ALIASES.get(op.id, ())]
     return doc, ops
 
 
@@ -277,7 +305,11 @@ def signature(op: Operation, asynchronous: bool) -> str:
 
 def call(op: Operation, asynchronous: bool) -> str:
     def mapping(where: str) -> str:
-        items = [f'"{p.name}": {p.py}' for p in op.params if p.where == where]
+        items = [
+            f'"{p.name}": {p.encode}({p.py})' if p.encode else f'"{p.name}": {p.py}'
+            for p in op.params
+            if p.where == where
+        ]
         return "{" + ", ".join(items) + "}"
 
     args = [f'_OPERATIONS["{op.id}"]', f"path={mapping('path')}", f"query={mapping('query')}"]
@@ -332,11 +364,11 @@ def render_resources(root: Resource, ops: list[Operation]) -> str:
         HEADER,
         "from __future__ import annotations",
         "",
-        "from collections.abc import AsyncIterator, Iterator, Mapping",
+        "from collections.abc import AsyncIterator, Iterator, Mapping, Sequence",
         "from typing import Any, Literal, cast",
         "",
         "from . import _models",
-        "from ._base import AsyncClientBase, Operation, SyncClientBase, _body",
+        "from ._base import AsyncClientBase, Operation, SyncClientBase, _body, _segments",
         "",
         '__all__ = ["OPERATIONS", "AsyncResources", "Resources"]',
         "",
@@ -451,7 +483,8 @@ def main(argv: list[str] | None = None) -> int:
         for path in generate_into(args.openapi, OUT_DIR):
             print(f"wrote {path.relative_to(ROOT)}")
         return 0
-    with tempfile.TemporaryDirectory() as tmp:
+    # Under ROOT, so ruff finds this project's line length, as it does in OUT_DIR.
+    with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
         stale = []
         for path in generate_into(args.openapi, Path(tmp)):
             committed = OUT_DIR / path.name

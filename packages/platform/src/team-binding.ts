@@ -10,7 +10,9 @@
  * truth.
  *
  * Same convention as `org-binding.ts`: `tenantId` first, `Page<T>`
- * return, `Filter`-extending filter shapes.
+ * return, `Filter`-extending filter shapes, and writes the caller can
+ * get wrong resolve to an outcome discriminated on `kind` instead of
+ * rejecting.
  */
 
 import type { Filter, OrgId, Page, TeamId, TenantId, UserId } from '@kindgi/types';
@@ -46,10 +48,11 @@ export interface TeamMembershipAddInput {
 export interface TeamBinding {
   /**
    * Create a `Team` within the tenant. `spec.orgId` optional (a team
-   * may be cross-org — nullable FK). Returns the assigned
-   * `TeamId`.
+   * may be cross-org — nullable FK). Resolves to `ok` with the
+   * assigned `TeamId`, or to `slug-conflict` when another team in the
+   * tenant has `spec.slug`.
    */
-  create(tenantId: TenantId, spec: TeamSpec): Promise<TeamId>;
+  create(tenantId: TenantId, spec: TeamSpec): Promise<TeamCreateOutcome>;
   /**
    * Look up a `Team` by id. `undefined` when unknown or in a different
    * tenant.
@@ -63,9 +66,11 @@ export interface TeamBinding {
   /**
    * Partially update a `Team`. `TeamPatch.orgId` supports `null` to
    * explicitly re-assign the team out of any org (cross-org), and
-   * `undefined` to leave the FK untouched.
+   * `undefined` to leave the FK untouched. Resolves to `team-not-found`
+   * when no team has `teamId` in the tenant, and to `slug-conflict`
+   * when `patch.slug` is another team's slug.
    */
-  update(tenantId: TenantId, teamId: TeamId, patch: TeamPatch): Promise<void>;
+  update(tenantId: TenantId, teamId: TeamId, patch: TeamPatch): Promise<TeamUpdateOutcome>;
   /**
    * Delete a `Team`. Its membership rows are removed with it (the
    * in-memory adapter deletes them from its map).
@@ -88,9 +93,10 @@ export interface TeamMembershipBinding {
    * silently mutate a differing role).
    *
    * The conformance suite pins this: adding an existing member whose
-   * stored role differs is a no-op (not a role overwrite).
+   * stored role differs is a no-op (not a role overwrite). Resolves to
+   * `team-not-found` when no team has `input.teamId` in the tenant.
    */
-  add(tenantId: TenantId, input: TeamMembershipAddInput): Promise<void>;
+  add(tenantId: TenantId, input: TeamMembershipAddInput): Promise<TeamMembershipAddOutcome>;
   /**
    * Remove a user from a team. Missing membership is a no-op (not an
    * error) — matches every peer platform's membership-remove shape.
@@ -108,9 +114,73 @@ export interface TeamMembershipBinding {
    */
   listForUser(tenantId: TenantId, userId: UserId, filter: Filter): Promise<Page<TeamMembership>>;
   /**
-   * Update an existing membership's role. Errors when the membership
-   * doesn't exist — role mutation of a non-member is a caller mistake,
-   * not a silent add. Conformance suite pins the not-found behaviour.
+   * Update an existing membership's role. Resolves to `team-not-found`
+   * when the team isn't in the tenant, and to
+   * `team-membership-not-found` when the user isn't a member — role
+   * mutation of a non-member is a caller mistake, not a silent add.
    */
-  updateRole(tenantId: TenantId, teamId: TeamId, userId: UserId, role: TeamRole): Promise<void>;
+  updateRole(
+    tenantId: TenantId,
+    teamId: TeamId,
+    userId: UserId,
+    role: TeamRole,
+  ): Promise<TeamMembershipUpdateRoleOutcome>;
 }
+
+/** What `TeamBinding.create` did. */
+export type TeamCreateOutcome =
+  | { readonly kind: 'ok'; readonly teamId: TeamId }
+  | {
+      /** Another team in the tenant already has this slug. */
+      readonly kind: 'slug-conflict';
+      readonly slug: string;
+    }
+  | {
+      /**
+       * The org the team would be in isn't one of the tenant's: it never
+       * existed, or it was deleted. Nothing changed.
+       */
+      readonly kind: 'org-not-found';
+      readonly orgId: OrgId;
+    };
+
+/** What `TeamBinding.update` did. */
+export type TeamUpdateOutcome =
+  | { readonly kind: 'ok' }
+  | {
+      /** No team with this id in the tenant. */
+      readonly kind: 'team-not-found';
+    }
+  | {
+      /** Another team in the tenant already has the patched slug. */
+      readonly kind: 'slug-conflict';
+      readonly slug: string;
+    }
+  | {
+      /**
+       * The org the team would be in isn't one of the tenant's: it never
+       * existed, or it was deleted. Nothing changed.
+       */
+      readonly kind: 'org-not-found';
+      readonly orgId: OrgId;
+    };
+
+/** What `TeamMembershipBinding.add` did (`ok` when already a member, too). */
+export type TeamMembershipAddOutcome =
+  | { readonly kind: 'ok' }
+  | {
+      /** No team with this id in the tenant. */
+      readonly kind: 'team-not-found';
+    };
+
+/** What `TeamMembershipBinding.updateRole` did. */
+export type TeamMembershipUpdateRoleOutcome =
+  | { readonly kind: 'ok' }
+  | {
+      /** No team with this id in the tenant. */
+      readonly kind: 'team-not-found';
+    }
+  | {
+      /** The user isn't a member of the team. */
+      readonly kind: 'team-membership-not-found';
+    };

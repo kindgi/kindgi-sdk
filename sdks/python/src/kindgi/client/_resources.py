@@ -5,11 +5,11 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Iterator, Mapping
+from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
 from typing import Any, Literal, cast
 
 from . import _models
-from ._base import AsyncClientBase, Operation, SyncClientBase, _body
+from ._base import AsyncClientBase, Operation, SyncClientBase, _body, _segments
 
 __all__ = ["OPERATIONS", "AsyncResources", "Resources"]
 
@@ -74,6 +74,9 @@ OPERATIONS: dict[str, Operation] = {
     "agents.listVersions": Operation(
         "agents.listVersions", "GET", "/v1/agents/{agentId}/versions", "json", False
     ),
+    "agents.deriveVersion": Operation(
+        "agents.deriveVersion", "POST", "/v1/agents/{agentId}/versions", "json", True
+    ),
     "agents.getVersion": Operation(
         "agents.getVersion", "GET", "/v1/agents/{agentId}/versions/{version}", "json", False
     ),
@@ -90,6 +93,68 @@ OPERATIONS: dict[str, Operation] = {
         "/v1/agents/{agentId}/versions/{version}/reinstate",
         "json",
         True,
+    ),
+    "agents.live.resolve": Operation(
+        "agents.live.resolve", "GET", "/v1/agents/{agentId}/live", "json", False
+    ),
+    "agents.live.list": Operation(
+        "agents.live.list", "GET", "/v1/agents/{agentId}/live-versions", "json", False
+    ),
+    "agents.promotions.list": Operation(
+        "agents.promotions.list", "GET", "/v1/agents/{agentId}/promotions", "json", False
+    ),
+    "agents.promotions.create": Operation(
+        "agents.promotions.create", "POST", "/v1/agents/{agentId}/promotions", "json", True
+    ),
+    "agents.promotions.check": Operation(
+        "agents.promotions.check", "POST", "/v1/agents/{agentId}/promotions/check", "json", False
+    ),
+    "agents.gatePolicy.resolve": Operation(
+        "agents.gatePolicy.resolve", "GET", "/v1/agents/{agentId}/gate-policy", "json", False
+    ),
+    "gatePolicies.list": Operation("gatePolicies.list", "GET", "/v1/gate-policies", "json", False),
+    "gatePolicies.publish": Operation(
+        "gatePolicies.publish", "POST", "/v1/gate-policies", "json", True
+    ),
+    "gatePolicies.get": Operation(
+        "gatePolicies.get", "GET", "/v1/gate-policies/{policyId}", "json", False
+    ),
+    "gatePolicies.versions.list": Operation(
+        "gatePolicies.versions.list", "GET", "/v1/gate-policies/{policyId}/versions", "json", False
+    ),
+    "gatePolicies.versions.get": Operation(
+        "gatePolicies.versions.get",
+        "GET",
+        "/v1/gate-policies/{policyId}/versions/{version}",
+        "json",
+        False,
+    ),
+    "gatePolicies.versions.unregister": Operation(
+        "gatePolicies.versions.unregister",
+        "POST",
+        "/v1/gate-policies/{policyId}/versions/{version}/unregister",
+        "json",
+        False,
+    ),
+    "gatePolicies.versions.reinstate": Operation(
+        "gatePolicies.versions.reinstate",
+        "POST",
+        "/v1/gate-policies/{policyId}/versions/{version}/reinstate",
+        "json",
+        False,
+    ),
+    "agents.promotions.get": Operation(
+        "agents.promotions.get",
+        "GET",
+        "/v1/agents/{agentId}/promotions/{promotionId}",
+        "json",
+        False,
+    ),
+    "agents.live.rollback": Operation(
+        "agents.live.rollback", "POST", "/v1/agents/{agentId}/live/rollback", "json", True
+    ),
+    "agents.live.unpin": Operation(
+        "agents.live.unpin", "POST", "/v1/agents/{agentId}/live/unpin", "json", True
     ),
     "flows.list": Operation("flows.list", "GET", "/v1/flows", "json", False),
     "flows.publish": Operation("flows.publish", "POST", "/v1/flows", "json", True),
@@ -210,6 +275,29 @@ OPERATIONS: dict[str, Operation] = {
     "providers.unregister": Operation(
         "providers.unregister", "POST", "/v1/providers/{providerId}/unregister", "json", True
     ),
+    "judgments.list": Operation("judgments.list", "GET", "/v1/judgments", "json", False),
+    "judgments.create": Operation("judgments.create", "POST", "/v1/judgments", "json", True),
+    "judgments.get": Operation("judgments.get", "GET", "/v1/judgments/{judgmentId}", "json", False),
+    "judgments.unregister": Operation(
+        "judgments.unregister", "POST", "/v1/judgments/{judgmentId}/unregister", "json", True
+    ),
+    "judgeClasses.list": Operation("judgeClasses.list", "GET", "/v1/judge-classes", "json", False),
+    "judgeClasses.create": Operation(
+        "judgeClasses.create", "POST", "/v1/judge-classes", "json", True
+    ),
+    "judgeClasses.get": Operation(
+        "judgeClasses.get", "GET", "/v1/judge-classes/{judgeClassId}", "json", False
+    ),
+    "judgeClasses.update": Operation(
+        "judgeClasses.update", "PATCH", "/v1/judge-classes/{judgeClassId}", "json", True
+    ),
+    "judgeClasses.unregister": Operation(
+        "judgeClasses.unregister",
+        "POST",
+        "/v1/judge-classes/{judgeClassId}/unregister",
+        "json",
+        True,
+    ),
     "mcp.endpoints.list": Operation(
         "mcp.endpoints.list", "GET", "/v1/mcp/endpoints", "json", False
     ),
@@ -286,6 +374,13 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         True,
     ),
+    "retention.scheduled": Operation(
+        "retention.scheduled", "GET", "/v1/retention/scheduled", "json", False
+    ),
+    "retention.sweep": Operation("retention.sweep", "POST", "/v1/retention/sweep", "json", False),
+    "retention.sweepDomain": Operation(
+        "retention.sweepDomain", "POST", "/v1/retention/sweep/{domain}", "json", False
+    ),
     "evalSuites.list": Operation("evalSuites.list", "GET", "/v1/eval-suites", "json", False),
     "evalSuites.publish": Operation("evalSuites.publish", "POST", "/v1/eval-suites", "json", True),
     "evalSuites.get": Operation(
@@ -301,6 +396,20 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         False,
     ),
+    "evalSuites.buildFromJudgments": Operation(
+        "evalSuites.buildFromJudgments",
+        "POST",
+        "/v1/eval-suites/{suiteId}/versions/from-judgments",
+        "json",
+        True,
+    ),
+    "evalSuites.listCases": Operation(
+        "evalSuites.listCases",
+        "GET",
+        "/v1/eval-suites/{suiteId}/versions/{version}/cases",
+        "json",
+        False,
+    ),
     "evalSuites.versions.unregister": Operation(
         "evalSuites.versions.unregister",
         "POST",
@@ -312,6 +421,29 @@ OPERATIONS: dict[str, Operation] = {
         "evalSuites.reinstateVersion",
         "POST",
         "/v1/eval-suites/{suiteId}/versions/{version}/reinstate",
+        "json",
+        True,
+    ),
+    "blocks.list": Operation("blocks.list", "GET", "/v1/blocks", "json", False),
+    "blocks.publish": Operation("blocks.publish", "POST", "/v1/blocks", "json", True),
+    "blocks.get": Operation("blocks.get", "GET", "/v1/blocks/{blockId}", "json", False),
+    "blocks.versions.list": Operation(
+        "blocks.versions.list", "GET", "/v1/blocks/{blockId}/versions", "json", False
+    ),
+    "blocks.versions.get": Operation(
+        "blocks.versions.get", "GET", "/v1/blocks/{blockId}/versions/{version}", "json", False
+    ),
+    "blocks.versions.unregister": Operation(
+        "blocks.versions.unregister",
+        "POST",
+        "/v1/blocks/{blockId}/versions/{version}/unregister",
+        "json",
+        True,
+    ),
+    "blocks.versions.reinstate": Operation(
+        "blocks.versions.reinstate",
+        "POST",
+        "/v1/blocks/{blockId}/versions/{version}/reinstate",
         "json",
         True,
     ),
@@ -580,6 +712,13 @@ OPERATIONS: dict[str, Operation] = {
     "webhookEndpoints.sendTest": Operation(
         "webhookEndpoints.sendTest", "POST", "/v1/webhook-endpoints/{endpointId}/test", "json", True
     ),
+    "evalSuites.unregister": Operation(
+        "evalSuites.unregister",
+        "POST",
+        "/v1/eval-suites/{suiteId}/versions/{version}/unregister",
+        "json",
+        True,
+    ),
 }
 _OPERATIONS = OPERATIONS
 
@@ -636,6 +775,8 @@ class RunsResource:
         parent_run_id: str | None = None,
         top_level: bool | None = None,
         agent_id: str | None = None,
+        replays: Literal["exclude", "include", "only"] | None = None,
+        eval_run_id: str | None = None,
         include: Literal["output"] | None = None,
         timeout: float | None = None,
     ) -> _models.RunCollectionPage:
@@ -654,6 +795,8 @@ class RunsResource:
                 "parentRunId": parent_run_id,
                 "topLevel": top_level,
                 "agentId": agent_id,
+                "replays": replays,
+                "evalRunId": eval_run_id,
                 "include": include,
             },
             headers={},
@@ -1109,6 +1252,7 @@ class ApprovalsResource:
         | None = None,
         required_role: Literal["standard", "senior", "admin"] | None = None,
         created_after: str | None = None,
+        wait_token_id: list[str] | None = None,
         timeout: float | None = None,
     ) -> _models.ApprovalCollectionPage:
         """List approvals visible to the caller. `GET /v1/approvals`
@@ -1126,6 +1270,7 @@ class ApprovalsResource:
                 "status": status,
                 "requiredRole": required_role,
                 "createdAfter": created_after,
+                "waitTokenId": wait_token_id,
             },
             headers={},
             response=_models.ApprovalCollectionPage,
@@ -1195,11 +1340,233 @@ class ApprovalsResource:
         )
 
 
+class AgentsLiveResource:
+    """`client.agents.live` — the `agents.live` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def resolve(
+        self,
+        agent_id: str,
+        /,
+        *,
+        project_id: str | None = None,
+        segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
+        timeout: float | None = None,
+    ) -> _models.LiveVersionResolution:
+        """The version a run would use. `GET /v1/agents/{agentId}/live`
+
+        Resolves the version a run of this agent would use for a project and segment path: the most specific live version (segment path, project, org, tenant), else the latest registered. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.live.resolve"],
+            path={"agentId": agent_id},
+            query={"projectId": project_id, "segment": _segments(segments)},
+            headers={},
+            response=_models.LiveVersionResolution,
+            timeout=timeout,
+        )
+
+    def list(self, agent_id: str, /, *, timeout: float | None = None) -> _models.LivePinList:
+        """List an agent's live versions. `GET /v1/agents/{agentId}/live-versions`
+
+        Every scope with a live version pinned, and the promotion that set it.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.live.list"],
+            path={"agentId": agent_id},
+            query={},
+            headers={},
+            response=_models.LivePinList,
+            timeout=timeout,
+        )
+
+    def rollback(
+        self,
+        agent_id: str,
+        body: _models.RollbackBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Promotion:
+        """Roll a scope back to its previous live version. `POST /v1/agents/{agentId}/live/rollback`
+
+        Back to the scope's previous live version, or `toVersion`. Recorded like a promotion. Needs `promote` on the agent.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.live.rollback"],
+            path={"agentId": agent_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RollbackBody, body, fields),
+            response=_models.Promotion,
+            timeout=timeout,
+        )
+
+    def unpin(
+        self,
+        agent_id: str,
+        body: _models.UnpinBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Promotion:
+        """Remove a scope's live version. `POST /v1/agents/{agentId}/live/unpin`
+
+        Removes the scope's own pin: its runs use the next scope up (and the latest when nothing is pinned). Recorded like a promotion. Needs `promote` on the agent.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.live.unpin"],
+            path={"agentId": agent_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UnpinBody, body, fields),
+            response=_models.Promotion,
+            timeout=timeout,
+        )
+
+
+class AgentsPromotionsResource:
+    """`client.agents.promotions` — the `agents.promotions` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        agent_id: str,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
+        scope_id: str | None = None,
+        segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
+        timeout: float | None = None,
+    ) -> _models.PromotionPage:
+        """List an agent's promotions. `GET /v1/agents/{agentId}/promotions`
+
+        The history of live-version changes (promotions, rollbacks, unpins), newest first. `scopeKind` (`tenant`, `org`, `project`, `segment`) with `scopeId` and `segment` narrows it to one scope.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.promotions.list"],
+            path={"agentId": agent_id},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+                "segment": _segments(segments),
+            },
+            headers={},
+            response=_models.PromotionPage,
+            timeout=timeout,
+        )
+
+    def create(
+        self,
+        agent_id: str,
+        body: _models.PromoteBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Promotion:
+        """Make a version live for a scope. `POST /v1/agents/{agentId}/promotions`
+
+        Pins `version` live for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every promotion is recorded, with who asked and why. Needs `promote` on the agent.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.promotions.create"],
+            path={"agentId": agent_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PromoteBody, body, fields),
+            response=_models.Promotion,
+            timeout=timeout,
+        )
+
+    def check(
+        self,
+        agent_id: str,
+        body: _models.PromoteBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PromotionCheck:
+        """Check a promotion against its gate. `POST /v1/agents/{agentId}/promotions/check`
+
+        What `POST …/promotions` with the same body would do, with nothing recorded: `would-promote`, `needs-approval` (with the approval it needs) or `gate-failed`, with every check. For a pipeline: evaluate, check, promote. Needs `read` on the agent.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.promotions.check"],
+            path={"agentId": agent_id},
+            query={},
+            headers={},
+            body=_body(_models.PromoteBody, body, fields),
+            response=_models.PromotionCheck,
+            timeout=timeout,
+        )
+
+    def get(
+        self, agent_id: str, promotion_id: str, /, *, timeout: float | None = None
+    ) -> _models.Promotion:
+        """Get a promotion. `GET /v1/agents/{agentId}/promotions/{promotionId}`"""
+        return self._client._request(
+            _OPERATIONS["agents.promotions.get"],
+            path={"agentId": agent_id, "promotionId": promotion_id},
+            query={},
+            headers={},
+            response=_models.Promotion,
+            timeout=timeout,
+        )
+
+
+class AgentsGatePolicyResource:
+    """`client.agents.gate_policy` — the `agents.gatePolicy` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def resolve(
+        self,
+        agent_id: str,
+        /,
+        *,
+        scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
+        scope_id: str | None = None,
+        segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
+        timeout: float | None = None,
+    ) -> _models.GatePolicyResolution:
+        """The gate policy for a scope. `GET /v1/agents/{agentId}/gate-policy`
+
+        The gate policy a promotion of the agent for the scope would be checked against: the most specific scope with an active policy (a segment path's longer prefixes first, then its project, the project's org, the tenant), at its latest active version. `policy: null` when none applies.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.gatePolicy.resolve"],
+            path={"agentId": agent_id},
+            query={"scopeKind": scope_kind, "scopeId": scope_id, "segment": _segments(segments)},
+            headers={},
+            response=_models.GatePolicyResolution,
+            timeout=timeout,
+        )
+
+
 class AgentsResource:
     """`client.agents` — the `agents` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
+        self.live = AgentsLiveResource(client)
+        self.promotions = AgentsPromotionsResource(client)
+        self.gate_policy = AgentsGatePolicyResource(client)
 
     def list(
         self,
@@ -1289,6 +1656,30 @@ class AgentsResource:
             timeout=timeout,
         )
 
+    def derive_version(
+        self,
+        agent_id: str,
+        body: _models.DeriveAgentVersionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Agent:
+        """Derive an agent version with data-block pins swapped. `POST /v1/agents/{agentId}/versions`
+
+        An expert's edit, without a code change: a new agent version that is `from`'s bag with some prompt or settings pins swapped (`derivedFrom: { version, reason: 'edited', label, by }`), numbered the next free patch after the agent's highest version. Only blocks `from` already references swap, to a published, active version of the right kind (model settings for the model-settings block); tool pins come from code. Needs `publish` on the agent.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.deriveVersion"],
+            path={"agentId": agent_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.DeriveAgentVersionBody, body, fields),
+            response=_models.Agent,
+            timeout=timeout,
+        )
+
     def get_version(
         self, agent_id: str, version: str, /, *, timeout: float | None = None
     ) -> _models.Agent:
@@ -1340,6 +1731,149 @@ class AgentsResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.ReinstateAgentVersionResult,
+            timeout=timeout,
+        )
+
+
+class GatePoliciesVersionsResource:
+    """`client.gate_policies.versions` — the `gatePolicies.versions` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(self, policy_id: str, /, *, timeout: float | None = None) -> _models.GatePolicyPage:
+        """List a gate policy's versions. `GET /v1/gate-policies/{policyId}/versions`
+
+        Every version, oldest first, unregistered ones too (with `unregisteredAt`).
+        """
+        return self._client._request(
+            _OPERATIONS["gatePolicies.versions.list"],
+            path={"policyId": policy_id},
+            query={},
+            headers={},
+            response=_models.GatePolicyPage,
+            timeout=timeout,
+        )
+
+    def get(
+        self, policy_id: str, version: str, /, *, timeout: float | None = None
+    ) -> _models.GatePolicy:
+        """Get a gate policy version. `GET /v1/gate-policies/{policyId}/versions/{version}`"""
+        return self._client._request(
+            _OPERATIONS["gatePolicies.versions.get"],
+            path={"policyId": policy_id, "version": version},
+            query={},
+            headers={},
+            response=_models.GatePolicy,
+            timeout=timeout,
+        )
+
+    def unregister(
+        self, policy_id: str, version: str, /, *, timeout: float | None = None
+    ) -> _models.GatePolicy:
+        """Unregister a gate policy version. `POST /v1/gate-policies/{policyId}/versions/{version}/unregister`
+
+        The version stops applying; the policy's latest remaining active version applies, or, with none, the scope above's policy. Promotions keep the version they were checked against. Needs `admin` on the tenant.
+        """
+        return self._client._request(
+            _OPERATIONS["gatePolicies.versions.unregister"],
+            path={"policyId": policy_id, "version": version},
+            query={},
+            headers={},
+            response=_models.GatePolicy,
+            timeout=timeout,
+        )
+
+    def reinstate(
+        self, policy_id: str, version: str, /, *, timeout: float | None = None
+    ) -> _models.GatePolicy:
+        """Reinstate a gate policy version. `POST /v1/gate-policies/{policyId}/versions/{version}/reinstate`
+
+        Needs `admin` on the tenant.
+        """
+        return self._client._request(
+            _OPERATIONS["gatePolicies.versions.reinstate"],
+            path={"policyId": policy_id, "version": version},
+            query={},
+            headers={},
+            response=_models.GatePolicy,
+            timeout=timeout,
+        )
+
+
+class GatePoliciesResource:
+    """`client.gate_policies` — the `gatePolicies` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+        self.versions = GatePoliciesVersionsResource(client)
+
+    def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        agent_id: str | None = None,
+        scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
+        scope_id: str | None = None,
+        segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
+        timeout: float | None = None,
+    ) -> _models.GatePolicyPage:
+        """List gate policies. `GET /v1/gate-policies`
+
+        Each gate policy's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's.
+        """
+        return self._client._request(
+            _OPERATIONS["gatePolicies.list"],
+            path={},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "agentId": agent_id,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+                "segment": _segments(segments),
+            },
+            headers={},
+            response=_models.GatePolicyPage,
+            timeout=timeout,
+        )
+
+    def publish(
+        self,
+        body: _models.PublishGatePolicyBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.GatePolicy:
+        """Publish a gate policy. `POST /v1/gate-policies`
+
+        Registers a gate policy, or a new version of one: what a promotion of `agentId` for `scope` must show. One policy per agent and scope: another policy id for a scope that has one is refused with `409 gate-policy-scope-taken` (`details.heldBy` names it; publish a new version of that one instead), and a new version can't change the agent or scope (`409 gate-policy-scope-changed`). The `spec` is checked strictly: an unknown key is refused (`400 validation-failed`, `details.issues`). Needs `admin` on the tenant: whoever may promote can't loosen their own gate.
+        """
+        return self._client._request(
+            _OPERATIONS["gatePolicies.publish"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PublishGatePolicyBody, body, fields),
+            response=_models.GatePolicy,
+            timeout=timeout,
+        )
+
+    def get(self, policy_id: str, /, *, timeout: float | None = None) -> _models.GatePolicy:
+        """Get a gate policy. `GET /v1/gate-policies/{policyId}`
+
+        The policy's latest active version.
+        """
+        return self._client._request(
+            _OPERATIONS["gatePolicies.get"],
+            path={"policyId": policy_id},
+            query={},
+            headers={},
+            response=_models.GatePolicy,
             timeout=timeout,
         )
 
@@ -1753,11 +2287,12 @@ class ConversationsResource:
         scope_id: str | None = None,
         agent_id: str | None = None,
         status: Literal["open", "closed"] | None = None,
+        replays: Literal["exclude", "include", "only"] | None = None,
         timeout: float | None = None,
     ) -> _models.ConversationCollectionPage:
         """List conversations. `GET /v1/conversations`
 
-        Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations from before Kindgi 0.1.3 have no project and are listed only without a scope.
+        Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, `?replays=exclude|include|only` (default `exclude`: a comparison's replay conversations are left out), and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations from before Kindgi 0.1.3 have no project and are listed only without a scope.
         """
         return self._client._request(
             _OPERATIONS["conversations.list"],
@@ -1769,6 +2304,7 @@ class ConversationsResource:
                 "scopeId": scope_id,
                 "agentId": agent_id,
                 "status": status,
+                "replays": replays,
             },
             headers={},
             response=_models.ConversationCollectionPage,
@@ -2376,7 +2912,11 @@ class ObservationsResource:
         ]
         | None = None,
         agent_id: str | None = None,
+        agent_version: str | None = None,
         supervisor_id: str | None = None,
+        conversation_id: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
         timeout: float | None = None,
     ) -> _models.ObservationCollectionPage:
         """Query supervisor observations. `GET /v1/observations`
@@ -2391,7 +2931,11 @@ class ObservationsResource:
                 "cursor": cursor,
                 "status": status,
                 "agentId": agent_id,
+                "agentVersion": agent_version,
                 "supervisorId": supervisor_id,
+                "conversationId": conversation_id,
+                "since": since,
+                "until": until,
             },
             headers={},
             response=_models.ObservationCollectionPage,
@@ -2480,7 +3024,7 @@ class ProvidersResource:
     ) -> _models.RegisterProviderResult:
         """Register a model provider. `POST /v1/providers`
 
-        Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding.
+        Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped; optional `labels` within their limits — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding.
         """
         return self._client._request(
             _OPERATIONS["providers.register"],
@@ -2530,13 +3074,241 @@ class ProvidersResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
     ) -> _models.UnregisterProviderResult:
-        """Unregister a model provider. `POST /v1/providers/{providerId}/unregister`"""
+        """Unregister a model provider. `POST /v1/providers/{providerId}/unregister`
+
+        A tombstone, not an erase: from then on the provider is gone from list, get and capabilities, and the router never picks it. Its id is free to register again. A retention policy on the `provider` domain purges the row.
+        """
         return self._client._request(
             _OPERATIONS["providers.unregister"],
             path={"providerId": provider_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.UnregisterProviderResult,
+            timeout=timeout,
+        )
+
+
+class JudgmentsResource:
+    """`client.judgments` — the `judgments` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        run_id: str | None = None,
+        agent_id: str | None = None,
+        agent_version: str | None = None,
+        flow_id: str | None = None,
+        verdict: Literal["yes", "no"] | None = None,
+        judge_class_id: str | None = None,
+        participant_id: str | None = None,
+        scope_kind: Literal["tenant", "org", "project"] | None = None,
+        scope_id: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgmentCollectionPage:
+        """List judgments. `GET /v1/judgments`
+
+        Live judgments (not removed or superseded), newest first, cursor-paginated. Filter by run, agent (and version), flow, verdict, judge class or participant; `?scopeKind + ?scopeId` narrow to a project.
+        """
+        return self._client._request(
+            _OPERATIONS["judgments.list"],
+            path={},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "runId": run_id,
+                "agentId": agent_id,
+                "agentVersion": agent_version,
+                "flowId": flow_id,
+                "verdict": verdict,
+                "judgeClassId": judge_class_id,
+                "participantId": participant_id,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+            },
+            headers={},
+            response=_models.JudgmentCollectionPage,
+            timeout=timeout,
+        )
+
+    def create(
+        self,
+        body: _models.CreateJudgmentBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Judgment:
+        """Judge an item of a run's output. `POST /v1/judgments`
+
+        Records yes or no, with an optional reason, about one item of a finished run's output, optionally under a judge class that applies to the run's project or agent (unclassified judgments count with weight 1). `item.pointer` (a JSON Pointer) must resolve in the run's output; its value is kept as `itemValue`. The first judgment of a run also stores a copy of the run's input and output. `assertedBy` is the authenticated caller, never the body. Judging again as the same caller for the same run, item key and `participantId` supersedes the earlier judgment. Needs `judge` on the run.
+        """
+        return self._client._request(
+            _OPERATIONS["judgments.create"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.CreateJudgmentBody, body, fields),
+            response=_models.Judgment,
+            timeout=timeout,
+        )
+
+    def get(
+        self, judgment_id: str, /, *, timeout: float | None = None
+    ) -> _models.JudgmentWithCopies:
+        """Fetch a judgment with its copies. `GET /v1/judgments/{judgmentId}`
+
+        Returns the judgment (live or not) with the stored copy of the run's input and output and, when the judgment pointed at an item, its value.
+        """
+        return self._client._request(
+            _OPERATIONS["judgments.get"],
+            path={"judgmentId": judgment_id},
+            query={},
+            headers={},
+            response=_models.JudgmentWithCopies,
+            timeout=timeout,
+        )
+
+    def unregister(
+        self,
+        judgment_id: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.UnregisterJudgmentResult:
+        """Remove a judgment. `POST /v1/judgments/{judgmentId}/unregister`
+
+        Soft delete: the judgment stops listing; retention policy decides when it is purged.
+        """
+        return self._client._request(
+            _OPERATIONS["judgments.unregister"],
+            path={"judgmentId": judgment_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterJudgmentResult,
+            timeout=timeout,
+        )
+
+
+class JudgeClassesResource:
+    """`client.judge_classes` — the `judgeClasses` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        scope_kind: Literal["tenant", "project", "agent"] | None = None,
+        project_id: str | None = None,
+        agent_id: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgeClassCollectionPage:
+        """List judge classes. `GET /v1/judge-classes`
+
+        Live classes, newest first, cursor-paginated. `?scopeKind=tenant|project|agent` (with `projectId` / `agentId`) narrows to one scope.
+        """
+        return self._client._request(
+            _OPERATIONS["judgeClasses.list"],
+            path={},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "scopeKind": scope_kind,
+                "projectId": project_id,
+                "agentId": agent_id,
+            },
+            headers={},
+            response=_models.JudgeClassCollectionPage,
+            timeout=timeout,
+        )
+
+    def create(
+        self,
+        body: _models.CreateJudgeClassBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JudgeClass:
+        """Create a judge class. `POST /v1/judge-classes`
+
+        A named kind of judge with a weight, scoped to the tenant, a project, or an agent in a project. Names are unique among the live classes of a scope. Needs `admin` on the tenant (tenant scope) or the project.
+        """
+        return self._client._request(
+            _OPERATIONS["judgeClasses.create"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.CreateJudgeClassBody, body, fields),
+            response=_models.JudgeClass,
+            timeout=timeout,
+        )
+
+    def get(self, judge_class_id: str, /, *, timeout: float | None = None) -> _models.JudgeClass:
+        """Fetch a judge class. `GET /v1/judge-classes/{judgeClassId}`
+
+        Also returns a retired class (`unregisteredAt` set): judgments keep naming theirs.
+        """
+        return self._client._request(
+            _OPERATIONS["judgeClasses.get"],
+            path={"judgeClassId": judge_class_id},
+            query={},
+            headers={},
+            response=_models.JudgeClass,
+            timeout=timeout,
+        )
+
+    def update(
+        self,
+        judge_class_id: str,
+        body: _models.UpdateJudgeClassBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JudgeClass:
+        """Change a judge class's weight or description. `PATCH /v1/judge-classes/{judgeClassId}`"""
+        return self._client._request(
+            _OPERATIONS["judgeClasses.update"],
+            path={"judgeClassId": judge_class_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UpdateJudgeClassBody, body, fields),
+            response=_models.JudgeClass,
+            timeout=timeout,
+        )
+
+    def unregister(
+        self,
+        judge_class_id: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.UnregisterJudgeClassResult:
+        """Retire a judge class. `POST /v1/judge-classes/{judgeClassId}/unregister`
+
+        No new judgments may name it; existing judgments keep it.
+        """
+        return self._client._request(
+            _OPERATIONS["judgeClasses.unregister"],
+            path={"judgeClassId": judge_class_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterJudgeClassResult,
             timeout=timeout,
         )
 
@@ -2822,6 +3594,7 @@ class CostResource:
         /,
         *,
         group_by: str,
+        limit: int | None = None,
         from_: str | None = None,
         to: str | None = None,
         category: str | None = None,
@@ -2840,13 +3613,14 @@ class CostResource:
     ) -> _models.CostAggregateResult:
         """Aggregate cost across a time window. `GET /v1/cost/aggregate`
 
-        Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId` narrow the aggregate to a scope: `org` covers every project in the org, so one call sums an org's spend. Each group, and the total, carries its cost and its token sums (`tokens`). `inherit` has no effect on cost records, which always belong to a project.
+        Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId` narrow the aggregate to a scope: `org` covers every project in the org, so one call sums an org's spend. Each group, and the total, carries its cost and its token sums (`tokens`). `groups` is ordered by `totalUsd`, highest first (ties by key), and capped at `limit` (default 1000): `truncated` and `totalGroups` say when there were more, and the totals still cover every record. For every record, page through `/v1/cost/records`. `inherit` has no effect on cost records, which always belong to a project.
         """
         return self._client._request(
             _OPERATIONS["cost.aggregate"],
             path={},
             query={
                 "groupBy": group_by,
+                "limit": limit,
                 "from": from_,
                 "to": to,
                 "category": category,
@@ -3074,7 +3848,7 @@ class PoliciesResource:
     ) -> _models.PublishPolicyResult:
         """Publish a policy. `POST /v1/policies`
 
-        Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).
+        Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object), and `spec` for `tool-errors`, `hitl` and `retention` (a retention policy with an unknown domain or `mode: archive` is refused with `400 validation-failed`, naming the field). Other kinds' specs are their runtime consumer's to validate. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A tenant has one retention policy per domain, plus one for `*`: a second policy id for a covered domain is refused with `409 policy-scope-taken` (`details.heldBy` names the policy that covers it; publish a new version of that one instead), and a new version can't move a policy to another domain (`409 policy-scope-changed`). A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).
         """
         return self._client._request(
             _OPERATIONS["policies.publish"],
@@ -3116,6 +3890,119 @@ class PoliciesResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.ReinstatePolicyVersionResult,
+            timeout=timeout,
+        )
+
+
+class RetentionResource:
+    """`client.retention` — the `retention` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def scheduled(
+        self,
+        /,
+        *,
+        domain: Literal[
+            "org",
+            "agent",
+            "flow",
+            "tool",
+            "eval_suite",
+            "guardrail",
+            "mcp_endpoint",
+            "env",
+            "secret",
+            "run",
+            "policy",
+            "judgment",
+            "judge_class",
+            "provider",
+            "*",
+        ]
+        | None = None,
+        past_grace_only: bool | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.RetentionScheduledPage:
+        """List deleted rows scheduled for purging. `GET /v1/retention/scheduled`
+
+        Tombstoned rows in every domain a retention policy covers, with when each is purged (`purgeAt`) and the policy that decides it. `domainsMissingAdapter` names the covered domains this deployment can't purge; `unpolicedDomains` the ones no policy covers, whose tombstones are kept; `conflicts` the domains two policies cover (stored before one policy per domain was enforced). `limit` caps the rows **per domain**; `hasMore` says some domain has more than it returned, and `nextCursor` (when the runtime can continue) is the `cursor` for the next page. Requires `admin` on the tenant.
+        """
+        return self._client._request(
+            _OPERATIONS["retention.scheduled"],
+            path={},
+            query={
+                "domain": domain,
+                "pastGraceOnly": past_grace_only,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.RetentionScheduledPage,
+            timeout=timeout,
+        )
+
+    def sweep(
+        self,
+        body: _models.RetentionSweepBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.RetentionSweepResult:
+        """Purge the deleted rows past their grace. `POST /v1/retention/sweep`
+
+        Purges, for good, every tombstoned row past the grace of the retention policy that covers its domain (or only `domain`'s), up to `maxPerDomain` per domain; `remaining` counts what is left for the next call. Nothing sweeps on its own: call this (or `POST /v1/retention/sweep/{domain}`) from a schedule. A hold (`graceSeconds: -1`) keeps its domain's rows. Idempotent: a second call purges nothing new. Requires `admin` on the tenant.
+        """
+        return self._client._request(
+            _OPERATIONS["retention.sweep"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.RetentionSweepBody, body, fields),
+            response=_models.RetentionSweepResult,
+            timeout=timeout,
+        )
+
+    def sweep_domain(
+        self,
+        domain: Literal[
+            "org",
+            "agent",
+            "flow",
+            "tool",
+            "eval_suite",
+            "guardrail",
+            "mcp_endpoint",
+            "env",
+            "secret",
+            "run",
+            "policy",
+            "judgment",
+            "judge_class",
+            "provider",
+            "*",
+        ],
+        body: _models.RetentionSweepDomainBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.RetentionSweepResult:
+        """Purge one domain's deleted rows past their grace. `POST /v1/retention/sweep/{domain}`
+
+        As `POST /v1/retention/sweep`, for one domain. Requires `admin` on the tenant.
+        """
+        return self._client._request(
+            _OPERATIONS["retention.sweepDomain"],
+            path={"domain": domain},
+            query={},
+            headers={},
+            body=_body(_models.RetentionSweepDomainBody, body, fields),
+            response=_models.RetentionSweepResult,
             timeout=timeout,
         )
 
@@ -3194,7 +4081,9 @@ class EvalSuitesResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
-        kind: Literal["accuracy", "pairwise", "regression", "human-review", "benchmark", "custom"]
+        kind: Literal[
+            "accuracy", "pairwise", "regression", "human-review", "benchmark", "custom", "judged"
+        ]
         | None = None,
         name: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
@@ -3257,6 +4146,53 @@ class EvalSuitesResource:
             timeout=timeout,
         )
 
+    def build_from_judgments(
+        self,
+        suite_id: str,
+        body: _models.BuildJudgedSuiteBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.BuildJudgedSuiteResult:
+        """Build a test set from judgments. `POST /v1/eval-suites/{suiteId}/versions/from-judgments`
+
+        Publishes a `judged` eval suite version whose cases are copies of judged runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the judged output, and each item's judgments summed up: yes and no counts, the weight behind yes and behind all judgments (an unclassified judgment counts 1), and the reasons. `judgeClassIds` counts only judgments of those classes; `minJudgments` leaves out runs with fewer. Needs `admin` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["evalSuites.buildFromJudgments"],
+            path={"suiteId": suite_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.BuildJudgedSuiteBody, body, fields),
+            response=_models.BuildJudgedSuiteResult,
+            timeout=timeout,
+        )
+
+    def list_cases(
+        self,
+        suite_id: str,
+        version: str,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgedEvalCaseCollectionPage:
+        """List the cases of a judged eval suite version. `GET /v1/eval-suites/{suiteId}/versions/{version}/cases`
+
+        Cursor-paginated, in the order the cases were stored (newest judged run first).
+        """
+        return self._client._request(
+            _OPERATIONS["evalSuites.listCases"],
+            path={"suiteId": suite_id, "version": version},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.JudgedEvalCaseCollectionPage,
+            timeout=timeout,
+        )
+
     def reinstate_version(
         self,
         suite_id: str,
@@ -3276,6 +4212,187 @@ class EvalSuitesResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.ReinstateEvalSuiteVersionResult,
+            timeout=timeout,
+        )
+
+    def unregister(
+        self,
+        suite_id: str,
+        version: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.UnregisterEvalSuiteResult:
+        """Unregister an eval suite version. `POST /v1/eval-suites/{suiteId}/versions/{version}/unregister`"""
+        return self._client._request(
+            _OPERATIONS["evalSuites.unregister"],
+            path={"suiteId": suite_id, "version": version},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterEvalSuiteResult,
+            timeout=timeout,
+        )
+
+
+class BlocksVersionsResource:
+    """`client.blocks.versions` — the `blocks.versions` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        block_id: str,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        include_tombstoned: bool | None = None,
+        timeout: float | None = None,
+    ) -> _models.BlockCollectionPage:
+        """List versions of a data block. `GET /v1/blocks/{blockId}/versions`
+
+        Newest published first. `?includeTombstoned=true` includes unregistered versions, each with `unregisteredAt`.
+        """
+        return self._client._request(
+            _OPERATIONS["blocks.versions.list"],
+            path={"blockId": block_id},
+            query={"limit": limit, "cursor": cursor, "includeTombstoned": include_tombstoned},
+            headers={},
+            response=_models.BlockCollectionPage,
+            timeout=timeout,
+        )
+
+    def get(self, block_id: str, version: str, /, *, timeout: float | None = None) -> _models.Block:
+        """Fetch a specific data block version. `GET /v1/blocks/{blockId}/versions/{version}`
+
+        An unregistered version is returned too, with `unregisteredAt`.
+        """
+        return self._client._request(
+            _OPERATIONS["blocks.versions.get"],
+            path={"blockId": block_id, "version": version},
+            query={},
+            headers={},
+            response=_models.Block,
+            timeout=timeout,
+        )
+
+    def unregister(
+        self,
+        block_id: str,
+        version: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.UnregisterBlockResult:
+        """Unregister a data block version. `POST /v1/blocks/{blockId}/versions/{version}/unregister`
+
+        Soft: no range picks it any more, but the agent versions that pin it keep running it, and GET still reads it. Needs `write` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["blocks.versions.unregister"],
+            path={"blockId": block_id, "version": version},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterBlockResult,
+            timeout=timeout,
+        )
+
+    def reinstate(
+        self,
+        block_id: str,
+        version: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ReinstateBlockResult:
+        """Reinstate an unregistered data block version. `POST /v1/blocks/{blockId}/versions/{version}/reinstate`
+
+        Unchanged, as published. Idempotent. Needs `write` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["blocks.versions.reinstate"],
+            path={"blockId": block_id, "version": version},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ReinstateBlockResult,
+            timeout=timeout,
+        )
+
+
+class BlocksResource:
+    """`client.blocks` — the `blocks` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+        self.versions = BlocksVersionsResource(client)
+
+    def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        kind: Literal["prompt", "settings"] | None = None,
+        name: str | None = None,
+        scope_kind: Literal["tenant", "org", "project"] | None = None,
+        scope_id: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.BlockCollectionPage:
+        """List data blocks (latest version of each). `GET /v1/blocks`
+
+        Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, and `?scopeKind=` + `?scopeId=` narrow to a project or an org, as the other lists do.
+        """
+        return self._client._request(
+            _OPERATIONS["blocks.list"],
+            path={},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "kind": kind,
+                "name": name,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+            },
+            headers={},
+            response=_models.BlockCollectionPage,
+            timeout=timeout,
+        )
+
+    def publish(
+        self,
+        body: _models.PublishBlockBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PublishBlockResult:
+        """Publish a data block version. `POST /v1/blocks`
+
+        Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project (`409 block-project-mismatch`). Idempotency-Key applies.
+        """
+        return self._client._request(
+            _OPERATIONS["blocks.publish"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PublishBlockBody, body, fields),
+            response=_models.PublishBlockResult,
+            timeout=timeout,
+        )
+
+    def get(self, block_id: str, /, *, timeout: float | None = None) -> _models.Block:
+        """Fetch a data block (latest version). `GET /v1/blocks/{blockId}`"""
+        return self._client._request(
+            _OPERATIONS["blocks.get"],
+            path={"blockId": block_id},
+            query={},
+            headers={},
+            response=_models.Block,
             timeout=timeout,
         )
 
@@ -3841,11 +4958,12 @@ class AuditAuthzResource:
         run_id: str | None = None,
         from_: str | None = None,
         to: str | None = None,
+        order: Literal["asc", "desc"] | None = None,
         timeout: float | None = None,
     ) -> _models.AuditAuthzListResponse:
         """List authz decision audit events. `GET /v1/audit/authz`
 
-        Cursor-paginated read of `authz-decision` audit events for the tenant. Filters (all AND-composed): `?actorSubject=` / `?onBehalfOf=` / `?action=` / `?resource=` / `?outcome=` / `?runId=` / `?from=` / `?to=`. Admin@tenant only. Only mounted when `CreateAppInput.auditEvents` is wired.
+        Cursor-paginated read of `authz-decision` audit events for the tenant. Filters (all AND-composed): `?actorSubject=` / `?onBehalfOf=` / `?action=` / `?resource=` / `?outcome=` / `?runId=` / `?from=` / `?to=`. Oldest first; `?order=desc` for newest first. Admin@tenant only. Only mounted when `CreateAppInput.auditEvents` is wired.
         """
         return self._client._request(
             _OPERATIONS["audit.authz.list"],
@@ -3861,6 +4979,7 @@ class AuditAuthzResource:
                 "runId": run_id,
                 "from": from_,
                 "to": to,
+                "order": order,
             },
             headers={},
             response=_models.AuditAuthzListResponse,
@@ -3960,7 +5079,7 @@ class OrgsResource:
     ) -> None:
         """Delete an org (idempotent). `DELETE /v1/orgs/{orgId}`
 
-        Idempotent — deleting an unknown or already-deleted org returns 204 per the binding contract.
+        A tombstone, not an erase: from then on the org is gone from get and list, and its slug is free for a new org. Its projects and teams stay, without an org; when one of those projects has the slug of a project that has none, nothing is deleted: `409 slug-conflict` names the slugs (rename or move those projects first). In the Kindgi runtime, the org's own secrets and secret mappings are deleted with it, for good, and its own environments and MCP endpoints are unregistered. A retention policy on the `org` domain purges the org's row. Idempotent: deleting an unknown or already-deleted org returns 204.
         """
         return self._client._request(
             _OPERATIONS["orgs.delete"],
@@ -4312,7 +5431,10 @@ class ProjectsResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.CreateResourceResult:
-        """Create a project. `POST /v1/projects`"""
+        """Create a project. `POST /v1/projects`
+
+        A project's slug is unique within its org, and a project without an org's among the tenant's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second Default, `409 project-default-already-exists`.
+        """
         return self._client._request(
             _OPERATIONS["projects.create"],
             path={},
@@ -4344,7 +5466,10 @@ class ProjectsResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> None:
-        """Partially update a project. `PATCH /v1/projects/{projectId}`"""
+        """Partially update a project. `PATCH /v1/projects/{projectId}`
+
+        A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up.
+        """
         return self._client._request(
             _OPERATIONS["projects.update"],
             path={"projectId": project_id},
@@ -5471,6 +6596,8 @@ class AsyncRunsResource:
         parent_run_id: str | None = None,
         top_level: bool | None = None,
         agent_id: str | None = None,
+        replays: Literal["exclude", "include", "only"] | None = None,
+        eval_run_id: str | None = None,
         include: Literal["output"] | None = None,
         timeout: float | None = None,
     ) -> _models.RunCollectionPage:
@@ -5489,6 +6616,8 @@ class AsyncRunsResource:
                 "parentRunId": parent_run_id,
                 "topLevel": top_level,
                 "agentId": agent_id,
+                "replays": replays,
+                "evalRunId": eval_run_id,
                 "include": include,
             },
             headers={},
@@ -5948,6 +7077,7 @@ class AsyncApprovalsResource:
         | None = None,
         required_role: Literal["standard", "senior", "admin"] | None = None,
         created_after: str | None = None,
+        wait_token_id: list[str] | None = None,
         timeout: float | None = None,
     ) -> _models.ApprovalCollectionPage:
         """List approvals visible to the caller. `GET /v1/approvals`
@@ -5965,6 +7095,7 @@ class AsyncApprovalsResource:
                 "status": status,
                 "requiredRole": required_role,
                 "createdAfter": created_after,
+                "waitTokenId": wait_token_id,
             },
             headers={},
             response=_models.ApprovalCollectionPage,
@@ -6034,11 +7165,233 @@ class AsyncApprovalsResource:
         )
 
 
+class AsyncAgentsLiveResource:
+    """`client.agents.live` — the `agents.live` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def resolve(
+        self,
+        agent_id: str,
+        /,
+        *,
+        project_id: str | None = None,
+        segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
+        timeout: float | None = None,
+    ) -> _models.LiveVersionResolution:
+        """The version a run would use. `GET /v1/agents/{agentId}/live`
+
+        Resolves the version a run of this agent would use for a project and segment path: the most specific live version (segment path, project, org, tenant), else the latest registered. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.live.resolve"],
+            path={"agentId": agent_id},
+            query={"projectId": project_id, "segment": _segments(segments)},
+            headers={},
+            response=_models.LiveVersionResolution,
+            timeout=timeout,
+        )
+
+    async def list(self, agent_id: str, /, *, timeout: float | None = None) -> _models.LivePinList:
+        """List an agent's live versions. `GET /v1/agents/{agentId}/live-versions`
+
+        Every scope with a live version pinned, and the promotion that set it.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.live.list"],
+            path={"agentId": agent_id},
+            query={},
+            headers={},
+            response=_models.LivePinList,
+            timeout=timeout,
+        )
+
+    async def rollback(
+        self,
+        agent_id: str,
+        body: _models.RollbackBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Promotion:
+        """Roll a scope back to its previous live version. `POST /v1/agents/{agentId}/live/rollback`
+
+        Back to the scope's previous live version, or `toVersion`. Recorded like a promotion. Needs `promote` on the agent.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.live.rollback"],
+            path={"agentId": agent_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RollbackBody, body, fields),
+            response=_models.Promotion,
+            timeout=timeout,
+        )
+
+    async def unpin(
+        self,
+        agent_id: str,
+        body: _models.UnpinBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Promotion:
+        """Remove a scope's live version. `POST /v1/agents/{agentId}/live/unpin`
+
+        Removes the scope's own pin: its runs use the next scope up (and the latest when nothing is pinned). Recorded like a promotion. Needs `promote` on the agent.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.live.unpin"],
+            path={"agentId": agent_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UnpinBody, body, fields),
+            response=_models.Promotion,
+            timeout=timeout,
+        )
+
+
+class AsyncAgentsPromotionsResource:
+    """`client.agents.promotions` — the `agents.promotions` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        agent_id: str,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
+        scope_id: str | None = None,
+        segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
+        timeout: float | None = None,
+    ) -> _models.PromotionPage:
+        """List an agent's promotions. `GET /v1/agents/{agentId}/promotions`
+
+        The history of live-version changes (promotions, rollbacks, unpins), newest first. `scopeKind` (`tenant`, `org`, `project`, `segment`) with `scopeId` and `segment` narrows it to one scope.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.promotions.list"],
+            path={"agentId": agent_id},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+                "segment": _segments(segments),
+            },
+            headers={},
+            response=_models.PromotionPage,
+            timeout=timeout,
+        )
+
+    async def create(
+        self,
+        agent_id: str,
+        body: _models.PromoteBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Promotion:
+        """Make a version live for a scope. `POST /v1/agents/{agentId}/promotions`
+
+        Pins `version` live for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every promotion is recorded, with who asked and why. Needs `promote` on the agent.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.promotions.create"],
+            path={"agentId": agent_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PromoteBody, body, fields),
+            response=_models.Promotion,
+            timeout=timeout,
+        )
+
+    async def check(
+        self,
+        agent_id: str,
+        body: _models.PromoteBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PromotionCheck:
+        """Check a promotion against its gate. `POST /v1/agents/{agentId}/promotions/check`
+
+        What `POST …/promotions` with the same body would do, with nothing recorded: `would-promote`, `needs-approval` (with the approval it needs) or `gate-failed`, with every check. For a pipeline: evaluate, check, promote. Needs `read` on the agent.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.promotions.check"],
+            path={"agentId": agent_id},
+            query={},
+            headers={},
+            body=_body(_models.PromoteBody, body, fields),
+            response=_models.PromotionCheck,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, agent_id: str, promotion_id: str, /, *, timeout: float | None = None
+    ) -> _models.Promotion:
+        """Get a promotion. `GET /v1/agents/{agentId}/promotions/{promotionId}`"""
+        return await self._client._request(
+            _OPERATIONS["agents.promotions.get"],
+            path={"agentId": agent_id, "promotionId": promotion_id},
+            query={},
+            headers={},
+            response=_models.Promotion,
+            timeout=timeout,
+        )
+
+
+class AsyncAgentsGatePolicyResource:
+    """`client.agents.gate_policy` — the `agents.gatePolicy` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def resolve(
+        self,
+        agent_id: str,
+        /,
+        *,
+        scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
+        scope_id: str | None = None,
+        segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
+        timeout: float | None = None,
+    ) -> _models.GatePolicyResolution:
+        """The gate policy for a scope. `GET /v1/agents/{agentId}/gate-policy`
+
+        The gate policy a promotion of the agent for the scope would be checked against: the most specific scope with an active policy (a segment path's longer prefixes first, then its project, the project's org, the tenant), at its latest active version. `policy: null` when none applies.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.gatePolicy.resolve"],
+            path={"agentId": agent_id},
+            query={"scopeKind": scope_kind, "scopeId": scope_id, "segment": _segments(segments)},
+            headers={},
+            response=_models.GatePolicyResolution,
+            timeout=timeout,
+        )
+
+
 class AsyncAgentsResource:
     """`client.agents` — the `agents` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
+        self.live = AsyncAgentsLiveResource(client)
+        self.promotions = AsyncAgentsPromotionsResource(client)
+        self.gate_policy = AsyncAgentsGatePolicyResource(client)
 
     async def list(
         self,
@@ -6128,6 +7481,30 @@ class AsyncAgentsResource:
             timeout=timeout,
         )
 
+    async def derive_version(
+        self,
+        agent_id: str,
+        body: _models.DeriveAgentVersionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Agent:
+        """Derive an agent version with data-block pins swapped. `POST /v1/agents/{agentId}/versions`
+
+        An expert's edit, without a code change: a new agent version that is `from`'s bag with some prompt or settings pins swapped (`derivedFrom: { version, reason: 'edited', label, by }`), numbered the next free patch after the agent's highest version. Only blocks `from` already references swap, to a published, active version of the right kind (model settings for the model-settings block); tool pins come from code. Needs `publish` on the agent.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.deriveVersion"],
+            path={"agentId": agent_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.DeriveAgentVersionBody, body, fields),
+            response=_models.Agent,
+            timeout=timeout,
+        )
+
     async def get_version(
         self, agent_id: str, version: str, /, *, timeout: float | None = None
     ) -> _models.Agent:
@@ -6179,6 +7556,151 @@ class AsyncAgentsResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.ReinstateAgentVersionResult,
+            timeout=timeout,
+        )
+
+
+class AsyncGatePoliciesVersionsResource:
+    """`client.gate_policies.versions` — the `gatePolicies.versions` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self, policy_id: str, /, *, timeout: float | None = None
+    ) -> _models.GatePolicyPage:
+        """List a gate policy's versions. `GET /v1/gate-policies/{policyId}/versions`
+
+        Every version, oldest first, unregistered ones too (with `unregisteredAt`).
+        """
+        return await self._client._request(
+            _OPERATIONS["gatePolicies.versions.list"],
+            path={"policyId": policy_id},
+            query={},
+            headers={},
+            response=_models.GatePolicyPage,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, policy_id: str, version: str, /, *, timeout: float | None = None
+    ) -> _models.GatePolicy:
+        """Get a gate policy version. `GET /v1/gate-policies/{policyId}/versions/{version}`"""
+        return await self._client._request(
+            _OPERATIONS["gatePolicies.versions.get"],
+            path={"policyId": policy_id, "version": version},
+            query={},
+            headers={},
+            response=_models.GatePolicy,
+            timeout=timeout,
+        )
+
+    async def unregister(
+        self, policy_id: str, version: str, /, *, timeout: float | None = None
+    ) -> _models.GatePolicy:
+        """Unregister a gate policy version. `POST /v1/gate-policies/{policyId}/versions/{version}/unregister`
+
+        The version stops applying; the policy's latest remaining active version applies, or, with none, the scope above's policy. Promotions keep the version they were checked against. Needs `admin` on the tenant.
+        """
+        return await self._client._request(
+            _OPERATIONS["gatePolicies.versions.unregister"],
+            path={"policyId": policy_id, "version": version},
+            query={},
+            headers={},
+            response=_models.GatePolicy,
+            timeout=timeout,
+        )
+
+    async def reinstate(
+        self, policy_id: str, version: str, /, *, timeout: float | None = None
+    ) -> _models.GatePolicy:
+        """Reinstate a gate policy version. `POST /v1/gate-policies/{policyId}/versions/{version}/reinstate`
+
+        Needs `admin` on the tenant.
+        """
+        return await self._client._request(
+            _OPERATIONS["gatePolicies.versions.reinstate"],
+            path={"policyId": policy_id, "version": version},
+            query={},
+            headers={},
+            response=_models.GatePolicy,
+            timeout=timeout,
+        )
+
+
+class AsyncGatePoliciesResource:
+    """`client.gate_policies` — the `gatePolicies` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+        self.versions = AsyncGatePoliciesVersionsResource(client)
+
+    async def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        agent_id: str | None = None,
+        scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
+        scope_id: str | None = None,
+        segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
+        timeout: float | None = None,
+    ) -> _models.GatePolicyPage:
+        """List gate policies. `GET /v1/gate-policies`
+
+        Each gate policy's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's.
+        """
+        return await self._client._request(
+            _OPERATIONS["gatePolicies.list"],
+            path={},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "agentId": agent_id,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+                "segment": _segments(segments),
+            },
+            headers={},
+            response=_models.GatePolicyPage,
+            timeout=timeout,
+        )
+
+    async def publish(
+        self,
+        body: _models.PublishGatePolicyBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.GatePolicy:
+        """Publish a gate policy. `POST /v1/gate-policies`
+
+        Registers a gate policy, or a new version of one: what a promotion of `agentId` for `scope` must show. One policy per agent and scope: another policy id for a scope that has one is refused with `409 gate-policy-scope-taken` (`details.heldBy` names it; publish a new version of that one instead), and a new version can't change the agent or scope (`409 gate-policy-scope-changed`). The `spec` is checked strictly: an unknown key is refused (`400 validation-failed`, `details.issues`). Needs `admin` on the tenant: whoever may promote can't loosen their own gate.
+        """
+        return await self._client._request(
+            _OPERATIONS["gatePolicies.publish"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PublishGatePolicyBody, body, fields),
+            response=_models.GatePolicy,
+            timeout=timeout,
+        )
+
+    async def get(self, policy_id: str, /, *, timeout: float | None = None) -> _models.GatePolicy:
+        """Get a gate policy. `GET /v1/gate-policies/{policyId}`
+
+        The policy's latest active version.
+        """
+        return await self._client._request(
+            _OPERATIONS["gatePolicies.get"],
+            path={"policyId": policy_id},
+            query={},
+            headers={},
+            response=_models.GatePolicy,
             timeout=timeout,
         )
 
@@ -6592,11 +8114,12 @@ class AsyncConversationsResource:
         scope_id: str | None = None,
         agent_id: str | None = None,
         status: Literal["open", "closed"] | None = None,
+        replays: Literal["exclude", "include", "only"] | None = None,
         timeout: float | None = None,
     ) -> _models.ConversationCollectionPage:
         """List conversations. `GET /v1/conversations`
 
-        Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations from before Kindgi 0.1.3 have no project and are listed only without a scope.
+        Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, `?replays=exclude|include|only` (default `exclude`: a comparison's replay conversations are left out), and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations from before Kindgi 0.1.3 have no project and are listed only without a scope.
         """
         return await self._client._request(
             _OPERATIONS["conversations.list"],
@@ -6608,6 +8131,7 @@ class AsyncConversationsResource:
                 "scopeId": scope_id,
                 "agentId": agent_id,
                 "status": status,
+                "replays": replays,
             },
             headers={},
             response=_models.ConversationCollectionPage,
@@ -7219,7 +8743,11 @@ class AsyncObservationsResource:
         ]
         | None = None,
         agent_id: str | None = None,
+        agent_version: str | None = None,
         supervisor_id: str | None = None,
+        conversation_id: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
         timeout: float | None = None,
     ) -> _models.ObservationCollectionPage:
         """Query supervisor observations. `GET /v1/observations`
@@ -7234,7 +8762,11 @@ class AsyncObservationsResource:
                 "cursor": cursor,
                 "status": status,
                 "agentId": agent_id,
+                "agentVersion": agent_version,
                 "supervisorId": supervisor_id,
+                "conversationId": conversation_id,
+                "since": since,
+                "until": until,
             },
             headers={},
             response=_models.ObservationCollectionPage,
@@ -7323,7 +8855,7 @@ class AsyncProvidersResource:
     ) -> _models.RegisterProviderResult:
         """Register a model provider. `POST /v1/providers`
 
-        Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding.
+        Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped; optional `labels` within their limits — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding.
         """
         return await self._client._request(
             _OPERATIONS["providers.register"],
@@ -7375,13 +8907,243 @@ class AsyncProvidersResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
     ) -> _models.UnregisterProviderResult:
-        """Unregister a model provider. `POST /v1/providers/{providerId}/unregister`"""
+        """Unregister a model provider. `POST /v1/providers/{providerId}/unregister`
+
+        A tombstone, not an erase: from then on the provider is gone from list, get and capabilities, and the router never picks it. Its id is free to register again. A retention policy on the `provider` domain purges the row.
+        """
         return await self._client._request(
             _OPERATIONS["providers.unregister"],
             path={"providerId": provider_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.UnregisterProviderResult,
+            timeout=timeout,
+        )
+
+
+class AsyncJudgmentsResource:
+    """`client.judgments` — the `judgments` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        run_id: str | None = None,
+        agent_id: str | None = None,
+        agent_version: str | None = None,
+        flow_id: str | None = None,
+        verdict: Literal["yes", "no"] | None = None,
+        judge_class_id: str | None = None,
+        participant_id: str | None = None,
+        scope_kind: Literal["tenant", "org", "project"] | None = None,
+        scope_id: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgmentCollectionPage:
+        """List judgments. `GET /v1/judgments`
+
+        Live judgments (not removed or superseded), newest first, cursor-paginated. Filter by run, agent (and version), flow, verdict, judge class or participant; `?scopeKind + ?scopeId` narrow to a project.
+        """
+        return await self._client._request(
+            _OPERATIONS["judgments.list"],
+            path={},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "runId": run_id,
+                "agentId": agent_id,
+                "agentVersion": agent_version,
+                "flowId": flow_id,
+                "verdict": verdict,
+                "judgeClassId": judge_class_id,
+                "participantId": participant_id,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+            },
+            headers={},
+            response=_models.JudgmentCollectionPage,
+            timeout=timeout,
+        )
+
+    async def create(
+        self,
+        body: _models.CreateJudgmentBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Judgment:
+        """Judge an item of a run's output. `POST /v1/judgments`
+
+        Records yes or no, with an optional reason, about one item of a finished run's output, optionally under a judge class that applies to the run's project or agent (unclassified judgments count with weight 1). `item.pointer` (a JSON Pointer) must resolve in the run's output; its value is kept as `itemValue`. The first judgment of a run also stores a copy of the run's input and output. `assertedBy` is the authenticated caller, never the body. Judging again as the same caller for the same run, item key and `participantId` supersedes the earlier judgment. Needs `judge` on the run.
+        """
+        return await self._client._request(
+            _OPERATIONS["judgments.create"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.CreateJudgmentBody, body, fields),
+            response=_models.Judgment,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, judgment_id: str, /, *, timeout: float | None = None
+    ) -> _models.JudgmentWithCopies:
+        """Fetch a judgment with its copies. `GET /v1/judgments/{judgmentId}`
+
+        Returns the judgment (live or not) with the stored copy of the run's input and output and, when the judgment pointed at an item, its value.
+        """
+        return await self._client._request(
+            _OPERATIONS["judgments.get"],
+            path={"judgmentId": judgment_id},
+            query={},
+            headers={},
+            response=_models.JudgmentWithCopies,
+            timeout=timeout,
+        )
+
+    async def unregister(
+        self,
+        judgment_id: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.UnregisterJudgmentResult:
+        """Remove a judgment. `POST /v1/judgments/{judgmentId}/unregister`
+
+        Soft delete: the judgment stops listing; retention policy decides when it is purged.
+        """
+        return await self._client._request(
+            _OPERATIONS["judgments.unregister"],
+            path={"judgmentId": judgment_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterJudgmentResult,
+            timeout=timeout,
+        )
+
+
+class AsyncJudgeClassesResource:
+    """`client.judge_classes` — the `judgeClasses` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        scope_kind: Literal["tenant", "project", "agent"] | None = None,
+        project_id: str | None = None,
+        agent_id: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgeClassCollectionPage:
+        """List judge classes. `GET /v1/judge-classes`
+
+        Live classes, newest first, cursor-paginated. `?scopeKind=tenant|project|agent` (with `projectId` / `agentId`) narrows to one scope.
+        """
+        return await self._client._request(
+            _OPERATIONS["judgeClasses.list"],
+            path={},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "scopeKind": scope_kind,
+                "projectId": project_id,
+                "agentId": agent_id,
+            },
+            headers={},
+            response=_models.JudgeClassCollectionPage,
+            timeout=timeout,
+        )
+
+    async def create(
+        self,
+        body: _models.CreateJudgeClassBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JudgeClass:
+        """Create a judge class. `POST /v1/judge-classes`
+
+        A named kind of judge with a weight, scoped to the tenant, a project, or an agent in a project. Names are unique among the live classes of a scope. Needs `admin` on the tenant (tenant scope) or the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["judgeClasses.create"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.CreateJudgeClassBody, body, fields),
+            response=_models.JudgeClass,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, judge_class_id: str, /, *, timeout: float | None = None
+    ) -> _models.JudgeClass:
+        """Fetch a judge class. `GET /v1/judge-classes/{judgeClassId}`
+
+        Also returns a retired class (`unregisteredAt` set): judgments keep naming theirs.
+        """
+        return await self._client._request(
+            _OPERATIONS["judgeClasses.get"],
+            path={"judgeClassId": judge_class_id},
+            query={},
+            headers={},
+            response=_models.JudgeClass,
+            timeout=timeout,
+        )
+
+    async def update(
+        self,
+        judge_class_id: str,
+        body: _models.UpdateJudgeClassBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JudgeClass:
+        """Change a judge class's weight or description. `PATCH /v1/judge-classes/{judgeClassId}`"""
+        return await self._client._request(
+            _OPERATIONS["judgeClasses.update"],
+            path={"judgeClassId": judge_class_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UpdateJudgeClassBody, body, fields),
+            response=_models.JudgeClass,
+            timeout=timeout,
+        )
+
+    async def unregister(
+        self,
+        judge_class_id: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.UnregisterJudgeClassResult:
+        """Retire a judge class. `POST /v1/judge-classes/{judgeClassId}/unregister`
+
+        No new judgments may name it; existing judgments keep it.
+        """
+        return await self._client._request(
+            _OPERATIONS["judgeClasses.unregister"],
+            path={"judgeClassId": judge_class_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterJudgeClassResult,
             timeout=timeout,
         )
 
@@ -7669,6 +9431,7 @@ class AsyncCostResource:
         /,
         *,
         group_by: str,
+        limit: int | None = None,
         from_: str | None = None,
         to: str | None = None,
         category: str | None = None,
@@ -7687,13 +9450,14 @@ class AsyncCostResource:
     ) -> _models.CostAggregateResult:
         """Aggregate cost across a time window. `GET /v1/cost/aggregate`
 
-        Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId` narrow the aggregate to a scope: `org` covers every project in the org, so one call sums an org's spend. Each group, and the total, carries its cost and its token sums (`tokens`). `inherit` has no effect on cost records, which always belong to a project.
+        Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId` narrow the aggregate to a scope: `org` covers every project in the org, so one call sums an org's spend. Each group, and the total, carries its cost and its token sums (`tokens`). `groups` is ordered by `totalUsd`, highest first (ties by key), and capped at `limit` (default 1000): `truncated` and `totalGroups` say when there were more, and the totals still cover every record. For every record, page through `/v1/cost/records`. `inherit` has no effect on cost records, which always belong to a project.
         """
         return await self._client._request(
             _OPERATIONS["cost.aggregate"],
             path={},
             query={
                 "groupBy": group_by,
+                "limit": limit,
                 "from": from_,
                 "to": to,
                 "category": category,
@@ -7921,7 +9685,7 @@ class AsyncPoliciesResource:
     ) -> _models.PublishPolicyResult:
         """Publish a policy. `POST /v1/policies`
 
-        Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).
+        Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object), and `spec` for `tool-errors`, `hitl` and `retention` (a retention policy with an unknown domain or `mode: archive` is refused with `400 validation-failed`, naming the field). Other kinds' specs are their runtime consumer's to validate. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A tenant has one retention policy per domain, plus one for `*`: a second policy id for a covered domain is refused with `409 policy-scope-taken` (`details.heldBy` names the policy that covers it; publish a new version of that one instead), and a new version can't move a policy to another domain (`409 policy-scope-changed`). A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).
         """
         return await self._client._request(
             _OPERATIONS["policies.publish"],
@@ -7963,6 +9727,119 @@ class AsyncPoliciesResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.ReinstatePolicyVersionResult,
+            timeout=timeout,
+        )
+
+
+class AsyncRetentionResource:
+    """`client.retention` — the `retention` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def scheduled(
+        self,
+        /,
+        *,
+        domain: Literal[
+            "org",
+            "agent",
+            "flow",
+            "tool",
+            "eval_suite",
+            "guardrail",
+            "mcp_endpoint",
+            "env",
+            "secret",
+            "run",
+            "policy",
+            "judgment",
+            "judge_class",
+            "provider",
+            "*",
+        ]
+        | None = None,
+        past_grace_only: bool | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.RetentionScheduledPage:
+        """List deleted rows scheduled for purging. `GET /v1/retention/scheduled`
+
+        Tombstoned rows in every domain a retention policy covers, with when each is purged (`purgeAt`) and the policy that decides it. `domainsMissingAdapter` names the covered domains this deployment can't purge; `unpolicedDomains` the ones no policy covers, whose tombstones are kept; `conflicts` the domains two policies cover (stored before one policy per domain was enforced). `limit` caps the rows **per domain**; `hasMore` says some domain has more than it returned, and `nextCursor` (when the runtime can continue) is the `cursor` for the next page. Requires `admin` on the tenant.
+        """
+        return await self._client._request(
+            _OPERATIONS["retention.scheduled"],
+            path={},
+            query={
+                "domain": domain,
+                "pastGraceOnly": past_grace_only,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.RetentionScheduledPage,
+            timeout=timeout,
+        )
+
+    async def sweep(
+        self,
+        body: _models.RetentionSweepBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.RetentionSweepResult:
+        """Purge the deleted rows past their grace. `POST /v1/retention/sweep`
+
+        Purges, for good, every tombstoned row past the grace of the retention policy that covers its domain (or only `domain`'s), up to `maxPerDomain` per domain; `remaining` counts what is left for the next call. Nothing sweeps on its own: call this (or `POST /v1/retention/sweep/{domain}`) from a schedule. A hold (`graceSeconds: -1`) keeps its domain's rows. Idempotent: a second call purges nothing new. Requires `admin` on the tenant.
+        """
+        return await self._client._request(
+            _OPERATIONS["retention.sweep"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.RetentionSweepBody, body, fields),
+            response=_models.RetentionSweepResult,
+            timeout=timeout,
+        )
+
+    async def sweep_domain(
+        self,
+        domain: Literal[
+            "org",
+            "agent",
+            "flow",
+            "tool",
+            "eval_suite",
+            "guardrail",
+            "mcp_endpoint",
+            "env",
+            "secret",
+            "run",
+            "policy",
+            "judgment",
+            "judge_class",
+            "provider",
+            "*",
+        ],
+        body: _models.RetentionSweepDomainBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.RetentionSweepResult:
+        """Purge one domain's deleted rows past their grace. `POST /v1/retention/sweep/{domain}`
+
+        As `POST /v1/retention/sweep`, for one domain. Requires `admin` on the tenant.
+        """
+        return await self._client._request(
+            _OPERATIONS["retention.sweepDomain"],
+            path={"domain": domain},
+            query={},
+            headers={},
+            body=_body(_models.RetentionSweepDomainBody, body, fields),
+            response=_models.RetentionSweepResult,
             timeout=timeout,
         )
 
@@ -8041,7 +9918,9 @@ class AsyncEvalSuitesResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
-        kind: Literal["accuracy", "pairwise", "regression", "human-review", "benchmark", "custom"]
+        kind: Literal[
+            "accuracy", "pairwise", "regression", "human-review", "benchmark", "custom", "judged"
+        ]
         | None = None,
         name: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
@@ -8104,6 +9983,53 @@ class AsyncEvalSuitesResource:
             timeout=timeout,
         )
 
+    async def build_from_judgments(
+        self,
+        suite_id: str,
+        body: _models.BuildJudgedSuiteBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.BuildJudgedSuiteResult:
+        """Build a test set from judgments. `POST /v1/eval-suites/{suiteId}/versions/from-judgments`
+
+        Publishes a `judged` eval suite version whose cases are copies of judged runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the judged output, and each item's judgments summed up: yes and no counts, the weight behind yes and behind all judgments (an unclassified judgment counts 1), and the reasons. `judgeClassIds` counts only judgments of those classes; `minJudgments` leaves out runs with fewer. Needs `admin` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["evalSuites.buildFromJudgments"],
+            path={"suiteId": suite_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.BuildJudgedSuiteBody, body, fields),
+            response=_models.BuildJudgedSuiteResult,
+            timeout=timeout,
+        )
+
+    async def list_cases(
+        self,
+        suite_id: str,
+        version: str,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgedEvalCaseCollectionPage:
+        """List the cases of a judged eval suite version. `GET /v1/eval-suites/{suiteId}/versions/{version}/cases`
+
+        Cursor-paginated, in the order the cases were stored (newest judged run first).
+        """
+        return await self._client._request(
+            _OPERATIONS["evalSuites.listCases"],
+            path={"suiteId": suite_id, "version": version},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.JudgedEvalCaseCollectionPage,
+            timeout=timeout,
+        )
+
     async def reinstate_version(
         self,
         suite_id: str,
@@ -8123,6 +10049,189 @@ class AsyncEvalSuitesResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.ReinstateEvalSuiteVersionResult,
+            timeout=timeout,
+        )
+
+    async def unregister(
+        self,
+        suite_id: str,
+        version: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.UnregisterEvalSuiteResult:
+        """Unregister an eval suite version. `POST /v1/eval-suites/{suiteId}/versions/{version}/unregister`"""
+        return await self._client._request(
+            _OPERATIONS["evalSuites.unregister"],
+            path={"suiteId": suite_id, "version": version},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterEvalSuiteResult,
+            timeout=timeout,
+        )
+
+
+class AsyncBlocksVersionsResource:
+    """`client.blocks.versions` — the `blocks.versions` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        block_id: str,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        include_tombstoned: bool | None = None,
+        timeout: float | None = None,
+    ) -> _models.BlockCollectionPage:
+        """List versions of a data block. `GET /v1/blocks/{blockId}/versions`
+
+        Newest published first. `?includeTombstoned=true` includes unregistered versions, each with `unregisteredAt`.
+        """
+        return await self._client._request(
+            _OPERATIONS["blocks.versions.list"],
+            path={"blockId": block_id},
+            query={"limit": limit, "cursor": cursor, "includeTombstoned": include_tombstoned},
+            headers={},
+            response=_models.BlockCollectionPage,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, block_id: str, version: str, /, *, timeout: float | None = None
+    ) -> _models.Block:
+        """Fetch a specific data block version. `GET /v1/blocks/{blockId}/versions/{version}`
+
+        An unregistered version is returned too, with `unregisteredAt`.
+        """
+        return await self._client._request(
+            _OPERATIONS["blocks.versions.get"],
+            path={"blockId": block_id, "version": version},
+            query={},
+            headers={},
+            response=_models.Block,
+            timeout=timeout,
+        )
+
+    async def unregister(
+        self,
+        block_id: str,
+        version: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.UnregisterBlockResult:
+        """Unregister a data block version. `POST /v1/blocks/{blockId}/versions/{version}/unregister`
+
+        Soft: no range picks it any more, but the agent versions that pin it keep running it, and GET still reads it. Needs `write` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["blocks.versions.unregister"],
+            path={"blockId": block_id, "version": version},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterBlockResult,
+            timeout=timeout,
+        )
+
+    async def reinstate(
+        self,
+        block_id: str,
+        version: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ReinstateBlockResult:
+        """Reinstate an unregistered data block version. `POST /v1/blocks/{blockId}/versions/{version}/reinstate`
+
+        Unchanged, as published. Idempotent. Needs `write` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["blocks.versions.reinstate"],
+            path={"blockId": block_id, "version": version},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ReinstateBlockResult,
+            timeout=timeout,
+        )
+
+
+class AsyncBlocksResource:
+    """`client.blocks` — the `blocks` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+        self.versions = AsyncBlocksVersionsResource(client)
+
+    async def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        kind: Literal["prompt", "settings"] | None = None,
+        name: str | None = None,
+        scope_kind: Literal["tenant", "org", "project"] | None = None,
+        scope_id: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.BlockCollectionPage:
+        """List data blocks (latest version of each). `GET /v1/blocks`
+
+        Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, and `?scopeKind=` + `?scopeId=` narrow to a project or an org, as the other lists do.
+        """
+        return await self._client._request(
+            _OPERATIONS["blocks.list"],
+            path={},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "kind": kind,
+                "name": name,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+            },
+            headers={},
+            response=_models.BlockCollectionPage,
+            timeout=timeout,
+        )
+
+    async def publish(
+        self,
+        body: _models.PublishBlockBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PublishBlockResult:
+        """Publish a data block version. `POST /v1/blocks`
+
+        Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project (`409 block-project-mismatch`). Idempotency-Key applies.
+        """
+        return await self._client._request(
+            _OPERATIONS["blocks.publish"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PublishBlockBody, body, fields),
+            response=_models.PublishBlockResult,
+            timeout=timeout,
+        )
+
+    async def get(self, block_id: str, /, *, timeout: float | None = None) -> _models.Block:
+        """Fetch a data block (latest version). `GET /v1/blocks/{blockId}`"""
+        return await self._client._request(
+            _OPERATIONS["blocks.get"],
+            path={"blockId": block_id},
+            query={},
+            headers={},
+            response=_models.Block,
             timeout=timeout,
         )
 
@@ -8690,11 +10799,12 @@ class AsyncAuditAuthzResource:
         run_id: str | None = None,
         from_: str | None = None,
         to: str | None = None,
+        order: Literal["asc", "desc"] | None = None,
         timeout: float | None = None,
     ) -> _models.AuditAuthzListResponse:
         """List authz decision audit events. `GET /v1/audit/authz`
 
-        Cursor-paginated read of `authz-decision` audit events for the tenant. Filters (all AND-composed): `?actorSubject=` / `?onBehalfOf=` / `?action=` / `?resource=` / `?outcome=` / `?runId=` / `?from=` / `?to=`. Admin@tenant only. Only mounted when `CreateAppInput.auditEvents` is wired.
+        Cursor-paginated read of `authz-decision` audit events for the tenant. Filters (all AND-composed): `?actorSubject=` / `?onBehalfOf=` / `?action=` / `?resource=` / `?outcome=` / `?runId=` / `?from=` / `?to=`. Oldest first; `?order=desc` for newest first. Admin@tenant only. Only mounted when `CreateAppInput.auditEvents` is wired.
         """
         return await self._client._request(
             _OPERATIONS["audit.authz.list"],
@@ -8710,6 +10820,7 @@ class AsyncAuditAuthzResource:
                 "runId": run_id,
                 "from": from_,
                 "to": to,
+                "order": order,
             },
             headers={},
             response=_models.AuditAuthzListResponse,
@@ -8809,7 +10920,7 @@ class AsyncOrgsResource:
     ) -> None:
         """Delete an org (idempotent). `DELETE /v1/orgs/{orgId}`
 
-        Idempotent — deleting an unknown or already-deleted org returns 204 per the binding contract.
+        A tombstone, not an erase: from then on the org is gone from get and list, and its slug is free for a new org. Its projects and teams stay, without an org; when one of those projects has the slug of a project that has none, nothing is deleted: `409 slug-conflict` names the slugs (rename or move those projects first). In the Kindgi runtime, the org's own secrets and secret mappings are deleted with it, for good, and its own environments and MCP endpoints are unregistered. A retention policy on the `org` domain purges the org's row. Idempotent: deleting an unknown or already-deleted org returns 204.
         """
         return await self._client._request(
             _OPERATIONS["orgs.delete"],
@@ -9161,7 +11272,10 @@ class AsyncProjectsResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.CreateResourceResult:
-        """Create a project. `POST /v1/projects`"""
+        """Create a project. `POST /v1/projects`
+
+        A project's slug is unique within its org, and a project without an org's among the tenant's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second Default, `409 project-default-already-exists`.
+        """
         return await self._client._request(
             _OPERATIONS["projects.create"],
             path={},
@@ -9193,7 +11307,10 @@ class AsyncProjectsResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> None:
-        """Partially update a project. `PATCH /v1/projects/{projectId}`"""
+        """Partially update a project. `PATCH /v1/projects/{projectId}`
+
+        A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up.
+        """
         return await self._client._request(
             _OPERATIONS["projects.update"],
             path={"projectId": project_id},
@@ -10283,6 +12400,7 @@ class Resources:
     tokens: TokensResource
     approvals: ApprovalsResource
     agents: AgentsResource
+    gate_policies: GatePoliciesResource
     flows: FlowsResource
     tools: ToolsResource
     guardrails: GuardrailsResource
@@ -10294,11 +12412,15 @@ class Resources:
     observations: ObservationsResource
     capabilities: CapabilitiesResource
     providers: ProvidersResource
+    judgments: JudgmentsResource
+    judge_classes: JudgeClassesResource
     mcp: McpResource
     cost: CostResource
     adapters: AdaptersResource
     policies: PoliciesResource
+    retention: RetentionResource
     eval_suites: EvalSuitesResource
+    blocks: BlocksResource
     eval_runs: EvalRunsResource
     auth: AuthResource
     identity: IdentityResource
@@ -10324,6 +12446,7 @@ class Resources:
         self.tokens = TokensResource(client)
         self.approvals = ApprovalsResource(client)
         self.agents = AgentsResource(client)
+        self.gate_policies = GatePoliciesResource(client)
         self.flows = FlowsResource(client)
         self.tools = ToolsResource(client)
         self.guardrails = GuardrailsResource(client)
@@ -10335,11 +12458,15 @@ class Resources:
         self.observations = ObservationsResource(client)
         self.capabilities = CapabilitiesResource(client)
         self.providers = ProvidersResource(client)
+        self.judgments = JudgmentsResource(client)
+        self.judge_classes = JudgeClassesResource(client)
         self.mcp = McpResource(client)
         self.cost = CostResource(client)
         self.adapters = AdaptersResource(client)
         self.policies = PoliciesResource(client)
+        self.retention = RetentionResource(client)
         self.eval_suites = EvalSuitesResource(client)
+        self.blocks = BlocksResource(client)
         self.eval_runs = EvalRunsResource(client)
         self.auth = AuthResource(client)
         self.identity = IdentityResource(client)
@@ -10367,6 +12494,7 @@ class AsyncResources:
     tokens: AsyncTokensResource
     approvals: AsyncApprovalsResource
     agents: AsyncAgentsResource
+    gate_policies: AsyncGatePoliciesResource
     flows: AsyncFlowsResource
     tools: AsyncToolsResource
     guardrails: AsyncGuardrailsResource
@@ -10378,11 +12506,15 @@ class AsyncResources:
     observations: AsyncObservationsResource
     capabilities: AsyncCapabilitiesResource
     providers: AsyncProvidersResource
+    judgments: AsyncJudgmentsResource
+    judge_classes: AsyncJudgeClassesResource
     mcp: AsyncMcpResource
     cost: AsyncCostResource
     adapters: AsyncAdaptersResource
     policies: AsyncPoliciesResource
+    retention: AsyncRetentionResource
     eval_suites: AsyncEvalSuitesResource
+    blocks: AsyncBlocksResource
     eval_runs: AsyncEvalRunsResource
     auth: AsyncAuthResource
     identity: AsyncIdentityResource
@@ -10408,6 +12540,7 @@ class AsyncResources:
         self.tokens = AsyncTokensResource(client)
         self.approvals = AsyncApprovalsResource(client)
         self.agents = AsyncAgentsResource(client)
+        self.gate_policies = AsyncGatePoliciesResource(client)
         self.flows = AsyncFlowsResource(client)
         self.tools = AsyncToolsResource(client)
         self.guardrails = AsyncGuardrailsResource(client)
@@ -10419,11 +12552,15 @@ class AsyncResources:
         self.observations = AsyncObservationsResource(client)
         self.capabilities = AsyncCapabilitiesResource(client)
         self.providers = AsyncProvidersResource(client)
+        self.judgments = AsyncJudgmentsResource(client)
+        self.judge_classes = AsyncJudgeClassesResource(client)
         self.mcp = AsyncMcpResource(client)
         self.cost = AsyncCostResource(client)
         self.adapters = AsyncAdaptersResource(client)
         self.policies = AsyncPoliciesResource(client)
+        self.retention = AsyncRetentionResource(client)
         self.eval_suites = AsyncEvalSuitesResource(client)
+        self.blocks = AsyncBlocksResource(client)
         self.eval_runs = AsyncEvalRunsResource(client)
         self.auth = AsyncAuthResource(client)
         self.identity = AsyncIdentityResource(client)

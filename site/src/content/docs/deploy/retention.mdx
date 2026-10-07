@@ -1,0 +1,292 @@
+---
+title: Keep and purge deleted data
+description: How long Kindgi keeps what you delete, the retention policies that purge it, sweeps, keeping records for good, and how long the audit trail is kept.
+sidebar:
+  order: 4
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Most deletes in Kindgi are soft. A deleted record drops out of lists and reads
+at once, and stays in the database, marked deleted, until a **retention
+policy** says to purge it and a **sweep** does. Without a policy, it stays for
+good.
+
+## What a policy covers
+
+A retention policy names one **domain**: a kind of record. The console calls
+each one by the name in the second column.
+
+| Domain | In the console | What it purges |
+| --- | --- | --- |
+| `agent` | Deleted agents | unregistered agent versions |
+| `flow` | Deleted flows | unregistered flow versions |
+| `tool` | Deleted tools | unregistered tool versions |
+| `eval_suite` | Deleted eval suites | unregistered versions of test sets and other eval suites |
+| `guardrail` | Deleted guardrails | unregistered guardrails |
+| `mcp_endpoint` | Removed MCP servers | unregistered MCP endpoints |
+| `env` | Deleted environment values | deleted environment values |
+| `secret` | Deleted secrets | revoked secrets |
+| `run` | Deleted runs | **finished runs**, counted from when they finished |
+| `policy` | Retired policy versions | unregistered policy versions |
+| `judgment` | Removed judgments | removed judgments |
+| `judge_class` | Retired judge classes | retired judge classes |
+| `org` | Deleted orgs | deleted orgs, once their environments' and MCP endpoints' records are purged |
+| `provider` | Removed model providers | unregistered model providers |
+| `*` | All deleted records | every domain that has no policy of its own |
+
+:::caution[`run` and `*` purge finished runs]
+Runs aren't deleted first: a policy on `run`, or a `*` policy, purges every
+finished run once its grace has passed since the run finished. To keep runs
+while purging the rest, give `run` a policy of its own.
+:::
+
+## Set a policy
+
+A retention policy is a policy of kind `retention`, whose `spec` is
+`{ domain, graceSeconds, mode: "purge" }`. `graceSeconds` counts from the
+delete: `0` purges at the next sweep, and `-1` keeps records for good.
+Publishing a policy takes `admin` on the tenant.
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// retention-policy.ts
+import { createClient } from '@kindgi/sdk/client';
+import type { PolicyId } from '@kindgi/sdk/types';
+
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+// Removed model providers are kept 7 days, then the next sweep purges them.
+const published = await kindgi.policies.publish({
+  id: 'acme.keep-providers' as PolicyId,
+  version: '1.0.0',
+  kind: 'retention',
+  spec: { domain: 'provider', graceSeconds: 7 * 86_400, mode: 'purge' },
+});
+console.log(published);
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# retention_policy.py
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+# Removed model providers are purged at the next sweep: no grace.
+published = kindgi.policies.publish(
+    id="acme.keep-providers",
+    version="1.0.1",
+    kind="retention",
+    spec={"domain": "provider", "graceSeconds": 0, "mode": "purge"},
+)
+print(published)
+```
+
+</TabItem>
+</Tabs>
+
+```text
+{ policyId: 'acme.keep-providers', version: '1.0.0' }
+policy_id='acme.keep-providers' version='1.0.1'
+```
+
+- **One policy per domain,** plus one for `*`. To change a domain's grace,
+  publish the next version of its policy, as the Python example does. A
+  second policy for a covered domain is refused (`409 policy-scope-taken`):
+
+  ```text
+  Retention domain "provider" is already covered by policy "acme.keep-providers": a tenant has one retention policy per domain, and one for "*". Publish a new version of "acme.keep-providers" instead, or unregister it first.
+  ```
+
+  A new version can't move a policy to another domain either
+  (`409 policy-scope-changed`): publish a policy for that domain under a new id.
+- **A spec that doesn't fit is refused** (`400 validation-failed`), naming the
+  field: `policy.spec/mode can't be "archive" yet: use "purge"`, or
+  `policy.spec/domain must be one of: org, agent, …, provider, * (got "blocks")`.
+- **Policies published before 0.1.4** can still cover one domain twice. The
+  console warns, and lists, sweeps and the runtime's log say which one
+  applies: unregister the others.
+
+## See what will be purged, and purge it
+
+A sweep purges what's due. The runtime sweeps on its own only when you set
+`KINDGI_RETENTION_SWEEP_INTERVAL_MS` (below); otherwise, you sweep.
+`retention.scheduled` lists each deleted record a policy will purge, and when;
+`retention.sweep` purges every record past its grace, or one domain's. Both
+take `admin` on the tenant.
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// retention-sweep.ts
+import { createClient } from '@kindgi/sdk/client';
+
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+// What a sweep would purge now, then purge it.
+const due = await kindgi.retention.scheduled({ pastGraceOnly: true });
+console.log(due.data.map((row) => `${row.domain} ${row.id} (policy ${row.policyId})`));
+
+const swept = await kindgi.retention.sweep({ domain: 'provider' });
+console.log(`${swept.totalPurged} purged`);
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# retention_sweep.py
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+# What a sweep would purge now, then purge it.
+due = kindgi.retention.scheduled(past_grace_only=True)
+print([f"{row.domain} {row.id} (policy {row.policy_id})" for row in due.data])
+
+swept = kindgi.retention.sweep(domain="provider")
+print(f"{swept.total_purged} purged")
+```
+
+</TabItem>
+</Tabs>
+
+```text
+[ 'provider 01d0afee-d2c1-4532-aa24-1f85b3da395b (policy acme.keep-providers)' ]
+1 purged
+```
+
+Each scheduled record has the policy that decides it and when it will be
+purged:
+
+```json
+{
+  "domain": "provider",
+  "id": "4b8cfaf3-c18a-4afd-b0e4-1574984fa45f",
+  "unregisteredAt": "2026-10-06T11:23:45.358Z",
+  "purgeAt": "2026-10-13T11:23:45.358Z",
+  "pastGrace": false,
+  "policyId": "acme.keep-providers",
+  "policyVersion": "1.0.0",
+  "graceSeconds": 604800
+}
+```
+
+- **`domain`** narrows either call to one domain, and **`pastGraceOnly`**
+  (`past_grace_only` in Python) the list to what a sweep would purge now.
+- **`unpolicedDomains`**, in the list's answer, names the domains no policy
+  covers: their deleted records are kept.
+- **A long list comes in pages.** `limit` is how many records per domain
+  (25 unless you say, at most 100); `hasMore` says there are more, and
+  `nextCursor`, passed back as `cursor`, gets the next page. In Python,
+  `paginate(kindgi.retention.scheduled, limit=…)` (from `kindgi.client`) walks
+  every page.
+- **A purged record is gone for good.** Sweeping again purges nothing new
+  until more records pass their grace. Over HTTP: `GET /v1/retention/scheduled`
+  and `POST /v1/retention/sweep` (or `/v1/retention/sweep/<domain>`).
+
+**To sweep on a schedule,** set `KINDGI_RETENTION_SWEEP_INTERVAL_MS` in
+`kindgi.env`: how often, in milliseconds, at least `60000` (`3600000` is
+hourly). Each pass is the same sweep, for every tenant the runtime serves, and
+purges up to 500 records per domain; the rest wait for the next pass. The
+startup log says which way it runs:
+
+```text
+  Retention: purges deleted rows past their grace every 1 min
+  Retention: manual (POST /v1/retention/sweep; KINDGI_RETENTION_SWEEP_INTERVAL_MS purges on its own)
+```
+
+A pass that purged something logs it, per tenant:
+
+```text
+[retention] tenant e8dd7ea4-2909-41f3-9f99-8f4da875b444: purged 1 (run 1)
+```
+
+A value under `60000` stops the runtime at start:
+`KINDGI_RETENTION_SWEEP_INTERVAL_MS must be at least 60000 milliseconds. Got 59999.`
+
+## Keep records for good
+
+A policy with `graceSeconds: -1` keeps a domain's deleted records, and sweeps
+skip it. With `"domain": "*"`, nothing is purged except in the domains that
+have a policy of their own:
+
+```json
+{ "id": "acme.keep-everything", "version": "1.0.0", "kind": "retention",
+  "spec": { "domain": "*", "graceSeconds": -1, "mode": "purge" } }
+```
+
+Records kept for good aren't listed by `retention.scheduled`, since nothing
+will purge them.
+
+## Audit events
+
+Retention policies don't touch the audit trail: each access decision, each
+approval decision, each run's outcome. Kindgi keeps it for good, unless you
+start the runtime with `KINDGI_COMPLIANCE_CLASSIFIER` set to:
+
+- `shipped`, the classifier the runtime ships;
+- or the absolute path of a classifier JSON of your own.
+
+With `shipped`, the runtime purges audit events by kind, when it starts and
+then every hour, in the tenants it serves:
+
+| Audit events | Kept for |
+| --- | --- |
+| Access decisions (`authz-decision`) | 90 days; denied ones 365 days |
+| Run outcomes (`run-outcome`), guardrail violations (`guardrail-violation`) | 730 days |
+| Approval decisions (`hitl-decision`), secret changes (`secret-set`, `secret-rotation`) | For good: they're on legal hold |
+| Any other kind | For good |
+
+The banner says it's on:
+
+```text
+  Compliance: on, the shipped classifier: /v1/compliance/*, and audit events purged by kind as it says
+```
+
+Without the setting, it says
+`Compliance: off (KINDGI_COMPLIANCE_CLASSIFIER turns on /v1/compliance/* and purging audit events by kind)`,
+and no audit event is ever purged. With it on, a pass that purged something
+logs it, per tenant:
+
+```text
+[audit retention] tenant 5c0a7e11-0000-4000-8000-00000000c0de: purged 2 (authz-decision 1, run-outcome 1)
+```
+
+Any other value stops the runtime at start:
+`` KINDGI_COMPLIANCE_CLASSIFIER must be `shipped` or the absolute path of a classifier JSON. Got "nonsense". ``
+
+Your own classifier lists the kinds to purge under `byKind`, each with its
+`days`, and `onDenyDays` for denied ones; `legalHold: true` keeps a kind for
+good. A kind it doesn't list is kept. This one keeps run outcomes 50 days:
+
+```json
+{
+  "version": 1,
+  "default": { "retention": { "days": 90 }, "signed": false, "exportable": false },
+  "byKind": {
+    "authz-decision": { "retention": { "days": 90, "onDenyDays": 365 }, "signed": false, "exportable": true },
+    "run-outcome": { "retention": { "days": 50 }, "signed": true, "exportable": true },
+    "hitl-decision": { "retention": { "days": 2555, "legalHold": true }, "signed": true, "exportable": true }
+  }
+}
+```
+
+The setting also turns on `GET /v1/compliance/evidence`, which lists the audit
+events as compliance evidence. Without it, that route answers `404`.
+
+## In the console
+
+- **Policies → Publish policy → Deleted data** sets a policy: which records,
+  how long to keep them ("Purge right away" to "Keep forever"), and the
+  sentence it will publish, such as "Deleted records are purged for good
+  after 30 days."
+- **Deleted data** lists each deleted record with when it was deleted, when
+  it will be purged and the policy that decides it, and has **Purge what's
+  due now**, the same sweep as the API.

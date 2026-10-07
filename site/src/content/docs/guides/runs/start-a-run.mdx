@@ -42,6 +42,19 @@ kindgi runs start --flow=acme.reserve-order --input='{"orderId":"A-300"}' --no-w
 
 `kindgi runs get <run-id>` shows it again, with its output once it's done.
 
+`--agent-version=<version>` (or `--flow-version`) runs that version instead of
+the latest, and `--project=<project-id>` runs in that project instead of the
+Default one (`kindgi projects list` lists the projects with their ids):
+
+```sh
+kindgi runs start --agent=acme.order-desk --agent-version=0.1.0 --project=<project-id> --input='{"userMessage":"Where is order A-1002?"}'
+```
+
+A `--project` that isn't a project in your tenant stops before anything runs,
+with `No project with id "<project-id>" in this tenant` (the API answers 404
+`project-not-found`). One that isn't an id at all, like `--project=support`,
+gets `` `projectId` must be a project id (a UUID) ``.
+
 ## From your app
 
 Create a client. With no arguments it reads the API's URL and a token from

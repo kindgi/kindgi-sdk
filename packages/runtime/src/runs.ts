@@ -8,7 +8,17 @@
 // is not part of this shape.
 //
 
-import type { Cursor, NodeId, OrgId, ProjectId, RunId, TenantId, Timestamp } from '@kindgi/types';
+import type { FlowVersionOverrides } from '@kindgi/flow';
+import type {
+  Cursor,
+  NodeId,
+  OrgId,
+  ProjectId,
+  RunId,
+  ScopeSegment,
+  TenantId,
+  Timestamp,
+} from '@kindgi/types';
 
 import type { RunAgentRef } from './inputs.js';
 import type { RunStatus } from './types.js';
@@ -42,6 +52,20 @@ export interface KernelRunRecord {
    * every other run, and on agent runs started before runs recorded it.
    */
   readonly agent?: RunAgentRef;
+  /** Set on a replay run: the run it re-ran and the eval run that did so (`RunReplayRef`). */
+  readonly replayOf?: RunId | null;
+  readonly evalRunId?: string | null;
+  /**
+   * The versions the run swaps in over its flow version's pins
+   * (`RunFlowInput.versions`). Absent on a run that has none.
+   */
+  readonly versions?: FlowVersionOverrides;
+  /**
+   * The segment path the run was started with (ordered, coarse to fine),
+   * which picks live agent versions: the run's own, and its agent steps'
+   * when it is a flow run. Absent when it was started without one.
+   */
+  readonly segments?: readonly ScopeSegment[];
 }
 
 /**
@@ -84,6 +108,10 @@ export interface ListRunsInput {
   readonly topLevelOnly?: boolean;
   /** Only the turns of this agent (`RunAgentRef.id`), at any version. */
   readonly agentId?: string;
+  /** Replay runs: `exclude` leaves them out, `only` returns just them. Absent = include, so internal callers see every run. */
+  readonly replays?: 'exclude' | 'include' | 'only';
+  /** Only the replays of this eval run. */
+  readonly evalRunId?: string;
 }
 
 export interface ListRunsPage {

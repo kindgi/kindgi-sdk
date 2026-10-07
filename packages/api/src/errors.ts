@@ -31,6 +31,7 @@ export interface WireError {
 export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // 400 — bad request
   'validation-failed': 400,
+  'kind-not-applied': 400,
   'unknown-field': 400,
   'bad-input': 400,
   'unresolved-tool': 400,
@@ -66,6 +67,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'duplicate-edge-id': 409,
   'agent-version-mismatch': 409,
   'agent-already-registered': 409,
+  'registry-read-only': 409,
   'agent-gone': 410,
   'flow-gone': 410,
   'policy-gone': 410,
@@ -159,11 +161,48 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // Admin plane — policies.
   'policy-not-found': 404,
   'policy-already-registered': 409,
+  'policy-scope-taken': 409,
+  'policy-scope-changed': 409,
   // Admin plane — eval suites.
+  'block-not-found': 404,
+  'block-already-registered': 409,
+  'block-project-mismatch': 409,
   'eval-suite-not-found': 404,
   'eval-suite-already-registered': 409,
   // Admin plane — eval-run dispatch.
   'eval-run-not-found': 404,
+  // Judgments (yes/no on a run's output items) and judge classes.
+  'judgment-not-found': 404,
+  'judge-class-not-found': 404,
+  'judge-class-name-taken': 409,
+  'judge-class-not-applicable': 400,
+  // The judge class is restricted (`assertableBy`), and the caller isn't one who may assert it.
+  'judge-class-not-allowed': 403,
+  // Live versions of agents and their promotions.
+  'agent-version-not-found': 404,
+  'promotion-not-found': 404,
+  'nothing-to-roll-back': 409,
+  'not-pinned': 409,
+  // The gate (evals step 4b).
+  'gate-failed': 422,
+  'promotion-superseded': 409,
+  // The binding can't record a gated promotion, so one a policy applies to is refused.
+  'promotion-gate-unsupported': 501,
+  'separate-approver-required': 403,
+  'gate-policy-not-found': 404,
+  'gate-policy-already-registered': 409,
+  'gate-policy-scope-taken': 409,
+  'gate-policy-scope-changed': 409,
+  'gate-policy-scope-unpinned': 409,
+  'gate-policy-needs-pin': 409,
+  /** Unregister: the version is live in a scope; move that pin first. */
+  'agent-version-live': 409,
+  'run-not-finished': 409,
+  'item-not-found': 400,
+  // The judgment binding can't list judged runs, so no test sets from judgments.
+  'test-sets-not-supported': 501,
+  // Authorization is enforced, but a membership change can't be kept in step with it.
+  'authz-membership-unsupported': 501,
   'eval-run-already-terminal': 409,
   'dispatcher-not-registered': 422,
   'dispatcher-input-invalid': 400,
@@ -215,6 +254,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'project-not-found': 404,
   'team-membership-not-found': 404,
   'project-membership-not-found': 404,
+  // A slug another org, team or project in the tenant already has; a
+  // second Default project.
+  'slug-conflict': 409,
+  'project-default-already-exists': 409,
   'tenant-not-found': 404,
   'tenant-config-not-found': 404,
   'tenant-config-revision-conflict': 409,

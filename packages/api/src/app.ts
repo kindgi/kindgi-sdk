@@ -26,11 +26,13 @@ import type { MemoryQueryBinding } from '@kindgi/memory';
 import type { PolicyRegistryBinding } from '@kindgi/policy-contract';
 import type { AdapterRegistryBinding } from './adapter-binding.js';
 import type { AgentRegistryBinding } from './agent-binding.js';
+import type { BlockRegistryBinding } from './block-binding.js';
 import type { CapabilityRegistryBinding } from './capability-binding.js';
 import type { CostBinding } from './cost-binding.js';
 import type { DeploymentBinding } from './deployment-binding.js';
 import type { EnvBinding } from './env-binding.js';
 import type { WireErrorBody } from './errors.js';
+import type { EvalCaseStoreBinding } from './eval-case-binding.js';
 import type { EvalRunBinding } from './eval-run-binding.js';
 import type { EvalSuiteRegistryBinding } from './eval-suite-binding.js';
 import type { EventBusBinding } from './event-bus-binding.js';
@@ -45,6 +47,8 @@ import type {
   RefreshTokenFn,
 } from './identity-provider-binding.js';
 import type { ImageRegistryBinding } from './image-registry-binding.js';
+import type { JudgmentRegistryBinding } from './judgment-binding.js';
+import type { AgentReleaseBindings } from './live-version-binding.js';
 import type { MCPClientProbeBinding, MCPEndpointRegistryBinding } from './mcp-endpoint-binding.js';
 import type { MemoryBinding } from './memory-binding.js';
 import { type TokenResolver, bearerAuthMiddleware } from './middleware/auth.js';
@@ -56,6 +60,7 @@ import {
   idempotencyMiddleware,
 } from './middleware/idempotency.js';
 import { principalMiddleware } from './middleware/principal.js';
+import { PROJECT_REF_ROUTES, refuseBadProjectId } from './middleware/project-ref.js';
 import { publicRunCorsMiddleware, publicRunRouteMatcher } from './middleware/public-run-routes.js';
 import { requestIdMiddleware } from './middleware/request-id.js';
 import { sigv4Middleware } from './middleware/sigv4.js';
@@ -79,6 +84,7 @@ import { approvalsRouter } from './routes/approvals.js';
 import { artifactsRouter } from './routes/artifacts.js';
 import { auditRouter } from './routes/audit.js';
 import { authRouters } from './routes/auth.js';
+import { blocksRouter } from './routes/blocks.js';
 import { capabilitiesRouter } from './routes/capabilities.js';
 import { complianceRouter } from './routes/compliance.js';
 import { conversationsRouter } from './routes/conversations.js';
@@ -89,8 +95,11 @@ import { evalRunsRouters } from './routes/eval-runs.js';
 import { evalSuitesRouter } from './routes/eval-suites.js';
 import { eventTriggersRouter } from './routes/event-triggers.js';
 import { flowsRouter } from './routes/flows.js';
+import { gatePoliciesRouter } from './routes/gate-policies.js';
 import { guardrailsRouter } from './routes/guardrails.js';
 import { identityRouter } from './routes/identity.js';
+import { judgedSuitesRouter } from './routes/judged-suites.js';
+import { judgeClassesRouter, judgmentsRouter } from './routes/judgments.js';
 import { mcpRouter } from './routes/mcp.js';
 import { memoryRouter } from './routes/memory.js';
 import { observationsRouter } from './routes/observations.js';
@@ -572,6 +581,12 @@ export interface CreateAppInput {
    */
   readonly evalSuiteRegistry?: EvalSuiteRegistryBinding;
   /**
+   * Data blocks (`/v1/blocks`): versioned prompts and settings that agent
+   * versions pin. Mounted when supplied. Authorized through each block's
+   * project; the binding writes no authorization tuples.
+   */
+  readonly blockRegistry?: BlockRegistryBinding;
+  /**
    * Optional. When present alongside `evalSuiteRegistry`, mounts the
    * evaluation-run data-plane surface: `POST /v1/eval-suites/:suiteId/runs`
    * (start), `GET /v1/eval-runs` (list, cursor-paginated),
@@ -584,6 +599,26 @@ export interface CreateAppInput {
    * `422 dispatcher-not-registered`.
    */
   readonly evalRunBinding?: EvalRunBinding;
+  /**
+   * Optional. Mounts judgments, yes or no with an optional reason about
+   * one item of a run's output (`/v1/judgments`), and the judge classes
+   * they're recorded under, each with a weight (`/v1/judge-classes`).
+   * Caller-plugged: the API package doesn't own their storage.
+   */
+  readonly judgmentRegistry?: JudgmentRegistryBinding;
+  /**
+   * Optional. With `evalSuiteRegistry` and `judgmentRegistry`, mounts test
+   * sets built from judgments: `POST /v1/eval-suites/:suiteId/versions/from-judgments`
+   * and `GET /v1/eval-suites/:suiteId/versions/:version/cases`.
+   */
+  readonly evalCaseStore?: EvalCaseStoreBinding;
+  /**
+   * Optional. Live versions of agents per scope, and their promotions
+   * (`/v1/agents/{id}/live`, `/live-versions`, `/promotions`,
+   * `/live/rollback`, `/live/unpin`). Absent → a run takes the latest
+   * version, as before.
+   */
+  readonly agentReleases?: AgentReleaseBindings;
   /**
    * Optional. Push-based pub/sub binding used by SSE endpoints to
    * deliver run events without polling. When present, `GET
@@ -938,6 +973,11 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
 
   const tenantHierarchyBinding: TenantHierarchyBinding = input.tenantHierarchyBinding;
   v1.use('*', idempotencyMiddleware(input.idempotencyStore ?? createInMemoryIdempotencyStore()));
+  // A `projectId` in a write's body that the route can't use is refused
+  // before any binding sees it: a 400 if it isn't a UUID, a 404 if it
+  // names no project (T247).
+  const projectRef = refuseBadProjectId(input.projectBinding);
+  for (const path of PROJECT_REF_ROUTES) v1.use(path, projectRef);
   v1.route(
     '/runs',
     runsRouter(
@@ -976,7 +1016,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // so `/v1/approvals/reviewers/*` resolves here rather than being
   // captured by the `:approvalId` param on the approvals router.
   if (input.reviewerRegistry !== undefined) {
-    v1.route('/approvals/reviewers', reviewersRouter(input.reviewerRegistry));
+    v1.route('/approvals/reviewers', reviewersRouter(input.reviewerRegistry, authorizer));
   }
   if (input.reviewerBinding !== undefined && input.hitlBinding !== undefined) {
     v1.route(
@@ -1002,10 +1042,39 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     v1.route('/observations', observationsRouter(input.supervisor));
   }
   if (input.agentRegistry !== undefined) {
-    v1.route('/agents', agentsRouter(input.agentRegistry, authorizer));
+    v1.route(
+      '/agents',
+      agentsRouter(
+        input.agentRegistry,
+        authorizer,
+        input.toolRegistry,
+        input.blockRegistry,
+        input.agentReleases,
+        {
+          ...(input.evalRunBinding !== undefined && { evalRuns: input.evalRunBinding }),
+          ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+        },
+      ),
+    );
+  }
+  if (input.agentReleases?.gatePolicies !== undefined) {
+    v1.route('/gate-policies', gatePoliciesRouter(input.agentReleases.gatePolicies, authorizer));
   }
   if (input.flowRegistry !== undefined) {
-    v1.route('/flows', flowsRouter(input.flowRegistry, authorizer));
+    v1.route(
+      '/flows',
+      flowsRouter(
+        input.flowRegistry,
+        authorizer,
+        input.toolRegistry !== undefined && input.agentRegistry !== undefined
+          ? {
+              tools: input.toolRegistry,
+              agents: input.agentRegistry,
+              ...(input.agentReleases !== undefined && { live: input.agentReleases.live }),
+            }
+          : undefined,
+      ),
+    );
   }
   if (input.toolRegistry !== undefined) {
     v1.route('/tools', toolsRouter(input.toolRegistry, authorizer, input.onToolWrite));
@@ -1100,6 +1169,38 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   if (input.evalSuiteRegistry !== undefined) {
     v1.route('/eval-suites', evalSuitesRouter(input.evalSuiteRegistry, authorizer));
   }
+  if (input.blockRegistry !== undefined) {
+    v1.route('/blocks', blocksRouter(input.blockRegistry, authorizer));
+  }
+  if (input.judgmentRegistry !== undefined) {
+    v1.route(
+      '/judgments',
+      judgmentsRouter(
+        input.judgmentRegistry,
+        runBinding,
+        authorizer,
+        input.conversationBinding,
+        input.flowRegistry,
+        input.reviewerBinding,
+      ),
+    );
+    v1.route('/judge-classes', judgeClassesRouter(input.judgmentRegistry, authorizer));
+  }
+  if (
+    input.evalSuiteRegistry !== undefined &&
+    input.judgmentRegistry !== undefined &&
+    input.evalCaseStore !== undefined
+  ) {
+    v1.route(
+      '/eval-suites',
+      judgedSuitesRouter(
+        input.evalSuiteRegistry,
+        input.judgmentRegistry,
+        input.evalCaseStore,
+        authorizer,
+      ),
+    );
+  }
   // ---------- platform hierarchy ----------
   // Mounts are independent: `/v1/orgs`, `/v1/teams`, `/v1/projects`,
   // `/v1/tenant`. Each requires its own binding. Team + Project
@@ -1191,11 +1292,13 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         signingKeyRegistry: input.signingKeyRegistry,
         imageRegistry: input.imageRegistry,
         ...(input.toolRegistry !== undefined && { toolRegistry: input.toolRegistry }),
+        ...(input.blockRegistry !== undefined && { blockRegistry: input.blockRegistry }),
         ...(input.guardrailRegistry !== undefined && {
           guardrailRegistry: input.guardrailRegistry,
         }),
         ...(input.agentRegistry !== undefined && { agentRegistry: input.agentRegistry }),
         ...(input.flowRegistry !== undefined && { flowRegistry: input.flowRegistry }),
+        ...(input.agentReleases !== undefined && { liveVersions: input.agentReleases.live }),
         // The deployments router's agents publish loop resolves the
         // Default project through this binding. Optional at wiring so
         // app compositions without a project binding still boot; the loop
@@ -1220,7 +1323,16 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     // `evalSuiteRegistry` binding: the dispatcher itself surfaces
     // `suite-not-found` when the caller-plugged binding can't resolve
     // the suite id, so the API layer stays consumer-neutral.
-    const evalRuns = evalRunsRouters(input.evalRunBinding);
+    const evalRuns = evalRunsRouters(
+      input.evalRunBinding,
+      input.flowRegistry !== undefined
+        ? {
+            flows: input.flowRegistry,
+            ...(input.agentRegistry !== undefined && { agents: input.agentRegistry }),
+            ...(input.toolRegistry !== undefined && { tools: input.toolRegistry }),
+          }
+        : undefined,
+    );
     v1.route('/eval-suites', evalRuns.start);
     v1.route('/eval-runs', evalRuns.readback);
   }

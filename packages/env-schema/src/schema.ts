@@ -162,6 +162,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_PUBLIC_URL',
+    description:
+      "The URL clients reach the API server at, when it isn't the address the server binds: behind a proxy or a load balancer, or in a container whose port is published on another one (`kindgi dev` sets it). The startup banner names it, with the docs and console links. An http(s) URL with no query or fragment. Default: the address the server binds.",
+    example: 'https://kindgi.example.com',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_DATABASE_URL',
     description:
       'Postgres connection string. Default `postgres://localhost:5432/kindgi` (dev only).',
@@ -291,7 +300,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_RUN_LEASE_MS',
     description:
-      "How long a run's executor lease lasts without renewal, in milliseconds. Every unfinished run holds one, renewed every quarter of this by the server executing it. When a server stops without a shutdown (killed, out of memory, a crash), its runs' leases run out, and a server's sweep fails them, sending `run.finished`. Default 300000 (5 minutes); at least 10000, or the server refuses to start. A shorter lease finds such runs sooner, at the cost of more renewals.",
+      "How long a run's executor lease lasts without renewal, in milliseconds. Every unfinished run and every running eval run holds one, renewed every quarter of this by the server executing it. When a server stops without a shutdown (killed, out of memory, a crash), their leases run out, and a server's sweep fails them: a run sending `run.finished`, an eval run ending `failed`, interrupted, with its finished cases kept. Default 300000 (5 minutes); at least 10000, or the server refuses to start. A shorter lease finds such runs sooner, at the cost of more renewals.",
     example: '300000',
     required: false,
     appliesTo: appliesToServer,
@@ -300,8 +309,26 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_RUN_SWEEP_INTERVAL_MS',
     description:
-      'How often each server sweeps for runs whose executor lease ran out, in milliseconds. A run whose server stopped without a shutdown is failed within about `KINDGI_RUN_LEASE_MS` plus this. Default 60000; at least 1000, and shorter than `KINDGI_RUN_LEASE_MS`, or the server refuses to start.',
+      'How often each server sweeps for runs and eval runs whose executor lease ran out, in milliseconds. A run or eval run whose server stopped without a shutdown is failed within about `KINDGI_RUN_LEASE_MS` plus this. Default 60000; at least 1000, and shorter than `KINDGI_RUN_LEASE_MS`, or the server refuses to start.',
     example: '60000',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_RETENTION_SWEEP_INTERVAL_MS',
+    description:
+      "How often the server purges deleted rows on its own, in milliseconds: in every tenant it serves, it purges for good the tombstones past their retention policy's grace, as `POST /v1/retention/sweep` does, holds (`graceSeconds: -1`) kept, and logs what it purged. Unset (the default): nothing purges on its own; sweep with `POST /v1/retention/sweep` or the console. At least 60000, or the server refuses to start.",
+    example: '3600000',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_COMPLIANCE_CLASSIFIER',
+    description:
+      "Turns on the audit trail's compliance features: `shipped` uses the classifier the runtime ships; or give the absolute path of your own classifier JSON. When set, the server serves `/v1/compliance/*` (audit events as compliance evidence, and their signed export) and **purges audit events by kind, as the classifier says**. With `shipped`: authorization decisions after 90 days (denials after 365), run outcomes and guardrail violations after 730 days; secret changes and approval decisions are kept (legal hold), and so are kinds the classifier doesn't list. Unset (the default): no `/v1/compliance/*`, and no audit event is ever purged.",
+    example: 'shipped',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',

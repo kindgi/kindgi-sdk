@@ -1,5 +1,101 @@
 # @kindgi/sdk
 
+## 0.1.4-rc.2
+
+### Patch Changes
+
+- 53f87a6: The kindgi-getting-started skill reads a run's cost records from `.data`, as every list call answers now (`items` is deprecated).
+- Updated dependencies [0b1f48d]
+- Updated dependencies [9a7f43b]
+- Updated dependencies [4287798]
+- Updated dependencies [fcc6a97]
+- Updated dependencies [c7e27fb]
+- Updated dependencies [fd011d4]
+- Updated dependencies [e97958c]
+- Updated dependencies [f8deed1]
+- Updated dependencies [f96bd58]
+- Updated dependencies [8491dd8]
+- Updated dependencies [ba55da0]
+- Updated dependencies [933e00a]
+- Updated dependencies [2040daf]
+- Updated dependencies [ba2f212]
+- Updated dependencies [fe0ad36]
+- Updated dependencies [42a2e66]
+- Updated dependencies [dc5cfb1]
+- Updated dependencies [e2ba026]
+- Updated dependencies [1bec998]
+- Updated dependencies [376d9e4]
+- Updated dependencies [cfba46a]
+- Updated dependencies [ffb6096]
+- Updated dependencies [ae417f7]
+  - @kindgi/client@0.1.4-rc.2
+  - @kindgi/agents@0.1.4-rc.2
+  - @kindgi/handler-runtime@0.1.4-rc.2
+  - @kindgi/types@0.1.4-rc.2
+  - @kindgi/guardrails@0.1.4-rc.2
+  - @kindgi/crypto@0.1.4-rc.2
+  - @kindgi/flow@0.1.4-rc.2
+  - @kindgi/schema@0.1.4-rc.2
+  - @kindgi/tools@0.1.4-rc.2
+
+## 0.1.4-rc.1
+
+### Patch Changes
+
+- f90c285: A comparison's result is typed in both clients. `openapi.json` names its shape as `JudgedComparisonResult`: the `summary` (`JudgedComparisonSummary`, with `ComparisonCandidate` and each `ComparisonMetric`) and each case (`ComparisonCaseResult`). `EvalRun.result` stays an open object, since each kind of eval run has its own.
+  
+  The TypeScript client exports the types and `comparisonOf(run)` (also from `@kindgi/sdk/client`), which returns a `judged` eval run's result as `JudgedComparisonResult`, or `undefined` for another kind of run, a dry run, or one not finished. The Python client has `comparison_of(run)`, which returns the validated `models.JudgedComparisonResult`, or `None`.
+- Updated dependencies [0359caf]
+- Updated dependencies [b8ff156]
+- Updated dependencies [8861bf8]
+- Updated dependencies [f90c285]
+  - @kindgi/agents@0.1.4-rc.1
+  - @kindgi/flow@0.1.4-rc.1
+  - @kindgi/client@0.1.4-rc.1
+  - @kindgi/handler-runtime@0.1.4-rc.1
+  - @kindgi/guardrails@0.1.4-rc.1
+  - @kindgi/crypto@0.1.4-rc.1
+  - @kindgi/schema@0.1.4-rc.1
+  - @kindgi/tools@0.1.4-rc.1
+  - @kindgi/types@0.1.4-rc.1
+
+## 0.1.4-rc.0
+
+### Patch Changes
+
+- Updated dependencies [c313224]
+- Updated dependencies [024a47f]
+- Updated dependencies [6260a59]
+- Updated dependencies [d0ebeb6]
+- Updated dependencies [a311b81]
+- Updated dependencies [a0652ac]
+- Updated dependencies [fa6680c]
+- Updated dependencies [fac7472]
+- Updated dependencies [e197294]
+- Updated dependencies [d3dffb5]
+- Updated dependencies [26b2a23]
+- Updated dependencies [b67eee6]
+- Updated dependencies [7a8e764]
+- Updated dependencies [a0921a1]
+- Updated dependencies [dde7fdb]
+- Updated dependencies [8b28a25]
+- Updated dependencies [b52d890]
+- Updated dependencies [3d23304]
+- Updated dependencies [2923703]
+- Updated dependencies [bfeabfd]
+- Updated dependencies [d0ebeb6]
+- Updated dependencies [a5560d7]
+- Updated dependencies [62608e3]
+  - @kindgi/agents@0.1.4-rc.0
+  - @kindgi/client@0.1.4-rc.0
+  - @kindgi/tools@0.1.4-rc.0
+  - @kindgi/handler-runtime@0.1.4-rc.0
+  - @kindgi/types@0.1.4-rc.0
+  - @kindgi/flow@0.1.4-rc.0
+  - @kindgi/guardrails@0.1.4-rc.0
+  - @kindgi/schema@0.1.4-rc.0
+  - @kindgi/crypto@0.1.4-rc.0
+
 ## 0.1.3
 
 ### Patch Changes

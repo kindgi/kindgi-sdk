@@ -152,6 +152,7 @@ The SDK's `fromWire(json)` (`sdks/typescript/src/errors.ts`) matches on `code`.
 | `already-terminal`, `run-already-terminal`       | 409         |
 | `idempotency-key-body-mismatch`                  | 409         |
 | `duplicate-*`                                    | 409         |
+| `slug-conflict`, `project-default-already-exists`| 409         |
 | `validation-failed`, `unknown-field`, `bad-input`| 400         |
 | `unresolved-tool`, `unresolved-guardrail`        | 400         |
 | `hitl-required`                                  | 409         |

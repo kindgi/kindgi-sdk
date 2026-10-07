@@ -17,6 +17,7 @@
       "**/routeTree.gen.ts",
       "packages/api/openapi.json",
       "sdks/python-cli/src/kindgi_cli/_cli/**",
+      "scripts/forbidden-names.json",
       "pnpm-lock.yaml",
       "**/.astro/**",
       "**/*.astro"

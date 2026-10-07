@@ -7,8 +7,12 @@ on:
     # `ready_for_review` fires when a draft is marked ready; the job-level
     # `if:` below skips runs while a PR is still a draft.
     types: [opened, synchronize, reopened, ready_for_review]
-  # Every job runs on pull requests (not drafts), on pushes to main, and on a
-  # manual run (`gh workflow run ci.yml --ref <branch>`). One step stays on
+  # The merge queue (T139): each queued PR is tested on top of main and the
+  # PRs ahead of it, under the same job names the ruleset requires. This
+  # trigger has to be on main before the queue is turned on.
+  merge_group:
+  # Every job runs on pull requests (not drafts), merge-queue groups, pushes
+  # to main, and on a manual run (`gh workflow run ci.yml --ref <branch>`). One step stays on
   # the developer's machine: the docs tutorials, which run `kindgi dev` with
   # the private runtime image (`pnpm run docs:tutorials`, or all of CI with
   # `pnpm run ci:local`, before a release).
@@ -59,6 +63,12 @@ jobs:
       # scripts/sync-python-version.mjs.
       - name: Python SDK version in step with the npm packages
         run: pnpm run check:python-version
+
+      # Before 1.0, and while release candidates are out, a minor or major
+      # changeset needs a `Release-decision:` line:
+      # scripts/check-changeset-bumps.mjs.
+      - name: Changesets move the release only by decision
+        run: pnpm run check:changeset-bumps
 
       - name: Validate JSON Schemas (@kindgi/specs)
         run: pnpm run spec:validate

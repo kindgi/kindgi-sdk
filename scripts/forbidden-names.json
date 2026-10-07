@@ -1,0 +1,14 @@
+{
+  "v": 1,
+  "salt": "kindgi-names-v1",
+  "maxPhrase": 3,
+  "tokens": [
+    "b572501917216a4bc6b2bcdc6d09066a4ec3bb68c75eff45df2bd2df68495977"
+  ],
+  "allowed": [
+    "76c9651f00d27002a5df3836755884f9f98bd70f47fa363c3e3ee2daa4b497fa",
+    "a024e8e7c02122657f8a3de725468bd241c808ec205f1bbdf91f3ceaeb08085c",
+    "d2e3fd24e7e7fe835e37636dd37659c0a3d67f94ea6f08e5bb567194ed8f8081",
+    "f66176e41ca30980b710938c6ea1b85acf82c277f11886dc5594f1fb54fdd436"
+  ]
+}

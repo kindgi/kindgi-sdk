@@ -153,17 +153,30 @@ export type KindgiPythonSource =
  * CLI's minor (`0.x`) or major (from `1.0`). The Python SDK's minors follow
  * the npm packages'; its patches needn't, so a CLI patch release with no
  * Python release still resolves.
+ *
+ * A release candidate's floor is its own version in PEP 440
+ * (`kindgi>=0.1.4rc0,<0.2`): installers skip pre-releases unless the
+ * requirement names one, so the rc is tried with its own Python SDK, and
+ * the same requirement takes the release once it's out.
  */
 export function kindgiRequirement(cliVersion: string): string | undefined {
-  const match = /^(\d+)\.(\d+)\.\d+/.exec(cliVersion);
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-(alpha|beta|rc)\.(\d+))?/.exec(cliVersion);
   if (match === null) return undefined;
   const major = Number(match[1]);
   const minor = Number(match[2]);
-  return major === 0
-    ? `kindgi>=0.${minor},<0.${minor + 1}`
-    : `kindgi>=${major}.${minor},<${major + 1}`;
+  const ceiling = major === 0 ? `0.${minor + 1}` : `${major + 1}`;
+  const pre = match[4] === undefined ? undefined : PEP440_PRE[match[4]];
+  const floor =
+    pre === undefined
+      ? major === 0
+        ? `0.${minor}`
+        : `${major}.${minor}`
+      : `${major}.${minor}.${match[3]}${pre}${match[5]}`;
+  return `kindgi>=${floor},<${ceiling}`;
 }
 
+/** npm's pre-release names, as PEP 440 spells them (`scripts/sync-python-version.mjs`). */
+const PEP440_PRE: Readonly<Record<string, string>> = { alpha: 'a', beta: 'b', rc: 'rc' };
 /**
  * The `kindgi-cli` requirement the PyPI CLI writes into a Python pack's dev
  * group: the same range as `kindgi` (`kindgi-cli` ships with every npm

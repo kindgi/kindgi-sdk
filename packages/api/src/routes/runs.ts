@@ -2,11 +2,18 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { Hono } from 'hono';
-import type { MiddlewareHandler } from 'hono';
 
 import type { AgentId } from '@kindgi/agents';
 import type { KernelRunRecord, ListRunsInput, RunBinding } from '@kindgi/runtime';
-import type { FlowId, ListScope, ProjectId, RunId, Semver, TenantId } from '@kindgi/types';
+import type {
+  FlowId,
+  ListScope,
+  ProjectId,
+  RunId,
+  ScopeSegment,
+  Semver,
+  TenantId,
+} from '@kindgi/types';
 
 import { ref } from '@kindgi/authz';
 
@@ -20,9 +27,11 @@ import type {
 import type { Authorizer } from '../middleware/authorize.js';
 import type { MintPublicRunTokenResult } from '../public-run-token.js';
 import type { AppEnv } from '../types.js';
+import { liveScopeToWire } from './live-scope-wire.js';
 import type { DecodedCursor } from './pagination.js';
 import { clampLimit, decodeCursor } from './pagination.js';
 import { parseListScope } from './scope-params.js';
+import { parseSegmentsBody } from './segments.js';
 import {
   formatSseFrame,
   isTerminalWireKind,
@@ -30,6 +39,7 @@ import {
   projectJournalEntry,
   toRunProgressEvent,
 } from './sse.js';
+import { UUID_RE, refuseMalformedUuidParam } from './uuid-param.js';
 
 const KERNEL_RUN_CHANNEL_PREFIX = 'kernel:run:';
 
@@ -61,23 +71,8 @@ const MAX_RUN_ANCESTRY = 16;
  * `POST /:runId/cancel`, `POST /:runId/resume`, `GET /:runId/stream`
  * (SSE), `GET /:runId/journal`.
  */
-/** A run id: a UUID. */
-const RUN_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/**
- * A `:runId` that isn't a run id is a 400, before it reaches a query (where
- * Postgres's uuid cast would fail it as a 500).
- */
-const refuseMalformedRunId: MiddlewareHandler<AppEnv> = async (c, next) => {
-  if (RUN_ID_RE.test(c.req.param('runId') ?? '')) return next();
-  c.status(statusFor('bad-input') as never);
-  return c.json(
-    toWireError(
-      { code: 'bad-input', message: '`runId` must be a run id (a UUID)' },
-      c.get('requestId'),
-    ),
-  );
-};
+/** A `:runId` that isn't a run id is a 400 (`uuid-param.ts`). */
+const refuseMalformedRunId = refuseMalformedUuidParam('runId', 'a run id');
 
 export function runsRouter(
   binding: RunHandlerBinding,
@@ -634,6 +629,7 @@ function invokeFromBody(
     tenantId,
     ...(body.projectId !== undefined && { projectId: body.projectId }),
     input: body.input,
+    ...(body.segments !== undefined && { segments: body.segments }),
     ...(body.dryRun !== undefined && { dryRun: body.dryRun }),
     ...(body.wait !== undefined && { wait: body.wait }),
   };
@@ -654,7 +650,8 @@ function invokeFromBody(
  * Wire row for a run. `output` is the run's output once it completed;
  * single-run responses carry it, lists only with `?include=output`
  * (outputs can be large). Child runs carry their parent's run + node;
- * an agent's turns, the agent, its version and the conversation.
+ * an agent's turns, the agent, its version and the conversation; a
+ * replay run, the run it replays and its eval run.
  */
 function serializeRun(
   row: KernelRunRecord,
@@ -680,8 +677,19 @@ function serializeRun(
         id: row.agent.id,
         version: row.agent.version,
         conversationId: row.agent.conversationId as unknown as string,
+        ...(row.agent.via !== undefined && { via: row.agent.via }),
+        ...(row.agent.liveScope !== undefined && {
+          liveScope: liveScopeToWire(row.agent.liveScope),
+        }),
       },
     }),
+    ...(row.replayOf != null && { replayOf: row.replayOf as unknown as string }),
+    ...(row.evalRunId != null && { evalRunId: row.evalRunId }),
+    ...(row.versions != null && { versions: row.versions }),
+    ...(row.segments !== undefined &&
+      row.segments.length > 0 && {
+        segments: row.segments.map(({ key, value }) => ({ key, value })),
+      }),
   };
 }
 
@@ -742,6 +750,8 @@ function listRunsInput(input: {
     ...(filter.parentRunId !== undefined && { parent: { runId: filter.parentRunId } }),
     ...(filter.topLevelOnly && { topLevelOnly: true }),
     ...(filter.agentId !== undefined && { agentId: filter.agentId }),
+    replays: filter.replays,
+    ...(filter.evalRunId !== undefined && { evalRunId: filter.evalRunId }),
   };
 }
 
@@ -749,17 +759,21 @@ interface RunListFilter {
   readonly parentRunId?: RunId;
   readonly topLevelOnly: boolean;
   readonly agentId?: string;
+  readonly replays: 'exclude' | 'include' | 'only';
+  readonly evalRunId?: string;
   readonly includeOutput: boolean;
 }
 
 /**
  * `?parentRunId=` (children of a run), `?topLevel=true`, `?agentId=` (an
- * agent's turns), `?include=output`.
+ * agent's turns), `?replays=exclude|include|only` (default `exclude`),
+ * `?evalRunId=` (one eval run's replays; implies they are included),
+ * `?include=output`.
  */
 function parseRunListFilter(
   query: Readonly<Record<string, string>>,
 ): { kind: 'ok'; value: RunListFilter } | { kind: 'err'; message: string } {
-  const { parentRunId, topLevel, agentId, include } = query;
+  const { parentRunId, topLevel, agentId, replays, evalRunId, include } = query;
   if (agentId !== undefined && agentId.trim() === '') {
     return { kind: 'err', message: '`agentId` must not be empty' };
   }
@@ -767,11 +781,25 @@ function parseRunListFilter(
     return { kind: 'err', message: '`topLevel` must be `true` or `false`' };
   }
   const topLevelOnly = topLevel === 'true';
-  if (parentRunId !== undefined && !RUN_ID_RE.test(parentRunId)) {
+  if (parentRunId !== undefined && !UUID_RE.test(parentRunId)) {
     return { kind: 'err', message: '`parentRunId` must be a run id (a UUID)' };
   }
   if (parentRunId !== undefined && topLevelOnly) {
     return { kind: 'err', message: '`parentRunId` and `topLevel=true` cannot be combined' };
+  }
+  if (
+    replays !== undefined &&
+    replays !== 'exclude' &&
+    replays !== 'include' &&
+    replays !== 'only'
+  ) {
+    return { kind: 'err', message: '`replays` must be `exclude`, `include` or `only`' };
+  }
+  if (evalRunId !== undefined && evalRunId.trim() === '') {
+    return { kind: 'err', message: '`evalRunId` must not be empty' };
+  }
+  if (evalRunId !== undefined && replays === 'exclude') {
+    return { kind: 'err', message: '`evalRunId` and `replays=exclude` cannot be combined' };
   }
   const includes = include === undefined ? [] : include.split(',').map((i) => i.trim());
   const unknown = includes.filter((i) => i !== 'output');
@@ -784,6 +812,8 @@ function parseRunListFilter(
       ...(parentRunId !== undefined && { parentRunId: parentRunId as RunId }),
       topLevelOnly,
       ...(agentId !== undefined && { agentId }),
+      replays: replays ?? (evalRunId !== undefined ? 'include' : 'exclude'),
+      ...(evalRunId !== undefined && { evalRunId }),
       includeOutput: includes.includes('output'),
     },
   };
@@ -823,6 +853,7 @@ type ParsedStartRunBody =
       readonly agentId: AgentId;
       readonly agentVersion?: Semver;
       readonly projectId?: ProjectId;
+      readonly segments?: readonly ScopeSegment[];
       readonly input: unknown;
       readonly dryRun?: boolean;
       readonly wait?: boolean;
@@ -832,6 +863,7 @@ type ParsedStartRunBody =
       readonly flowId: FlowId;
       readonly flowVersion?: Semver;
       readonly projectId?: ProjectId;
+      readonly segments?: readonly ScopeSegment[];
       readonly input: unknown;
       readonly dryRun?: boolean;
       readonly wait?: boolean;
@@ -867,6 +899,11 @@ function parseStartRunBody(
   const options = parseStartOptions(b.options);
   if (options.kind === 'err') return options;
   const { dryRun, wait } = options.value;
+  const parsedSegments = parseSegmentsBody(b.segments);
+  if (parsedSegments.kind === 'err') {
+    return { kind: 'err', error: { code: 'bad-input', message: parsedSegments.message } };
+  }
+  const { segments } = parsedSegments;
   if (hasAgent) {
     const agentVersion = b.agentVersion;
     if (agentVersion !== undefined && typeof agentVersion !== 'string') {
@@ -889,6 +926,7 @@ function parseStartRunBody(
         agentId: b.agent as AgentId,
         ...(agentVersion !== undefined && { agentVersion: agentVersion as Semver }),
         ...(agentProjectIdRaw !== undefined && { projectId: agentProjectIdRaw as ProjectId }),
+        ...(segments !== undefined && { segments }),
         input: b.input,
         ...(dryRun !== undefined && { dryRun }),
         ...(wait !== undefined && { wait }),
@@ -916,6 +954,7 @@ function parseStartRunBody(
       flowId: b.flow as FlowId,
       ...(flowVersion !== undefined && { flowVersion: flowVersion as Semver }),
       ...(projectId !== undefined && { projectId: projectId as ProjectId }),
+      ...(segments !== undefined && { segments }),
       input: b.input,
       ...(dryRun !== undefined && { dryRun }),
       ...(wait !== undefined && { wait }),

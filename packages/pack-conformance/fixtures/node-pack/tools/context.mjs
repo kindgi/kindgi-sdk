@@ -17,5 +17,6 @@ export default {
     env: ctx.env ?? {},
     secrets: ctx.secrets ?? {},
     config: ctx.config ?? {},
+    ...(ctx.settings !== undefined && { settings: ctx.settings }),
   }),
 };

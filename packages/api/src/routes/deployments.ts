@@ -5,9 +5,10 @@ import { createHash } from 'node:crypto';
 
 import { Hono } from 'hono';
 
-import type { AgentId } from '@kindgi/agents';
+import type { Agent, AgentId, AgentPins } from '@kindgi/agents';
 import { tuplesForCreate } from '@kindgi/authz';
 import { parsePublicKeyPem, verifyEd25519 } from '@kindgi/crypto';
+import type { Flow, FlowPins } from '@kindgi/flow';
 import { type Guardrail, validateGuardrailSpec } from '@kindgi/guardrails';
 import type { ProjectBinding, Scope } from '@kindgi/platform';
 import { validateToolManifest } from '@kindgi/tools';
@@ -16,13 +17,20 @@ import type {
   FlowId,
   GuardrailId,
   ProjectId,
+  Semver,
   SigningKeyId,
   TenantId,
   ToolId,
 } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from '../agent-binding.js';
+import { type UnpinnableRef, publishDeployedAgent, resolveAgentPins } from '../agent-pins.js';
+import type { BlockRegistryBinding } from '../block-binding.js';
+import type { DeployedVersionOutcome } from '../deploy-versions.js';
 import type {
+  DeployedAgent,
+  DeployedFlow,
+  DeployedVersion,
   Deployment,
   DeploymentBinding,
   DeploymentPrimitiveCounts,
@@ -30,8 +38,12 @@ import type {
 } from '../deployment-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
+import { type FlowPinsLive, publishDeployedFlow, resolveFlowPins } from '../flow-pins.js';
 import type { GuardrailRegistryBinding } from '../guardrail-binding.js';
 import type { ImageRegistryBinding } from '../image-registry-binding.js';
+import type { LiveVersionBinding } from '../live-version-binding.js';
+import { PublishRefused } from '../publish-refused.js';
+import { type RegistryReadOnly, refuseReadOnly } from '../registry-read-only.js';
 import type { SecretBinding } from '../secrets-binding.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-key-binding.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
@@ -112,6 +124,13 @@ export interface DeploymentsRouterBindings {
   readonly guardrailRegistry?: GuardrailRegistryBinding;
   readonly agentRegistry?: AgentRegistryBinding;
   readonly flowRegistry?: FlowRegistryBinding;
+  /**
+   * The agents' live versions: a deployed flow's agent step that names no
+   * version pins the one live for the deploy's project, else the latest.
+   */
+  readonly liveVersions?: LiveVersionBinding;
+  /** Data blocks: an agent's block references are pinned at deploy with its tools. */
+  readonly blockRegistry?: BlockRegistryBinding;
   /**
    * REQUIRED at runtime for `POST /v1/deployments/:deploymentId/secrets`.
    * Optional at the type level so app compositions without a secrets
@@ -476,6 +495,11 @@ export function deploymentsRouter(bindings: DeploymentsRouterBindings): Hono<App
     }
     const validated = validation.value;
 
+    // A read-only registry (under `kindgi dev`, the pack's files) takes
+    // nothing a deployment brings: refuse before any write.
+    const readOnly = readOnlyTarget(validated, bindings);
+    if (readOnly !== undefined) return refuseReadOnly(c, readOnly);
+
     // ---- Registry upserts (with rollback tracking) ----
     //
     // Agent-registry, flow-registry, tool-registry, and
@@ -529,6 +553,10 @@ export function deploymentsRouter(bindings: DeploymentsRouterBindings): Hono<App
     }
 
     const rolled: RollbackAction[] = [];
+    // The version each agent is registered under: its definition's, or
+    // the one a deploy registered in its place (`publishDeployedAgent`).
+    const deployedAgents: DeployedAgent[] = [];
+    const deployedFlows: DeployedFlow[] = [];
     try {
       if (bindings.toolRegistry !== undefined && defaultProjectId !== undefined) {
         for (const tool of validated.tools) {
@@ -551,6 +579,8 @@ export function deploymentsRouter(bindings: DeploymentsRouterBindings): Hono<App
             rolled.push(async () => {
               await bindings.toolRegistry?.unregister({ tenantId, toolId, version });
             });
+          } else if (outcome.kind !== 'already-registered') {
+            throw new PublishRefused('tool', `${tool.id}@${tool.version}`, outcome.kind);
           }
         }
       }
@@ -574,62 +604,73 @@ export function deploymentsRouter(bindings: DeploymentsRouterBindings): Hono<App
             rolled.push(async () => {
               await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
             });
+          } else if (outcome.kind !== 'already-registered') {
+            throw new PublishRefused('guardrail', guardrail.id, outcome.kind);
           }
         }
       }
       if (bindings.agentRegistry !== undefined && defaultProjectId !== undefined) {
-        for (const agent of validated.agents) {
-          const projectIdForAgent = defaultProjectId;
-          const outcome = await bindings.agentRegistry.publish({
+        deployedAgents.push(
+          ...(await registerAgents({
+            agents: bindings.agentRegistry,
+            tools: bindings.toolRegistry,
+            blocks: bindings.blockRegistry,
             tenantId,
-            projectId: projectIdForAgent,
-            agent,
-            // Signed deploys have no per-request principal — pass parent-
-            // only tuples (no owner grant). Tenant admins keep access via
-            // `admin from parent` cascade.
-            enqueueTuples: (agentId) =>
-              tuplesForCreate({
-                kind: 'agent',
-                id: agentId as AgentId,
-                tenantId,
-                projectId: projectIdForAgent,
-              }),
-          });
-          if (outcome.kind === 'ok') {
-            const agentId = outcome.agentId;
-            const version = outcome.version;
-            rolled.push(async () => {
-              await bindings.agentRegistry?.unregister({ tenantId, agentId, version });
-            });
-          }
-        }
+            projectId: defaultProjectId,
+            defined: validated.agents,
+            rolled,
+          })),
+        );
+      } else {
+        deployedAgents.push(...validated.agents.map(deployedPrimitive));
       }
       if (bindings.flowRegistry !== undefined && defaultProjectId !== undefined) {
-        for (const flow of validated.flows) {
-          const projectIdForGraph = defaultProjectId;
-          const outcome = await bindings.flowRegistry.publish({
+        deployedFlows.push(
+          ...(await registerFlows({
+            flows: bindings.flowRegistry,
+            tools: bindings.toolRegistry,
+            agents: bindings.agentRegistry,
+            ...(bindings.liveVersions !== undefined && { live: bindings.liveVersions }),
             tenantId,
-            projectId: projectIdForGraph,
-            flow,
-            enqueueTuples: (flowId) =>
-              tuplesForCreate({
-                kind: 'flow',
-                id: flowId as FlowId,
-                tenantId,
-                projectId: projectIdForGraph,
-              }),
-          });
-          if (outcome.kind === 'ok') {
-            const flowId = outcome.flowId;
-            const version = outcome.version;
-            rolled.push(async () => {
-              await bindings.flowRegistry?.unregister({ tenantId, flowId, version });
-            });
-          }
-        }
+            projectId: defaultProjectId,
+            defined: validated.flows,
+            rolled,
+          })),
+        );
+      } else {
+        deployedFlows.push(...validated.flows.map(deployedPrimitive));
       }
     } catch (cause) {
       await rollback(rolled);
+      // A primitive refused with a typed outcome is the caller's to fix:
+      // that outcome's own status and code. Anything thrown is a 500.
+      if (cause instanceof PublishRefused) {
+        c.status(statusFor(cause.code) as never);
+        return c.json(
+          toWireError(
+            {
+              code: cause.code,
+              message: `${cause.message}; nothing was deployed`,
+              primitive: cause.primitive,
+              id: cause.id,
+            },
+            requestId,
+          ),
+        );
+      }
+      if (cause instanceof UnpinnableDeploy) {
+        c.status(statusFor('invalid-agent') as never);
+        return c.json(
+          toWireError(
+            {
+              code: 'validation-failed',
+              message: `The deployment's agents or flows use tool or agent versions that aren't published (${cause.issues.length} issue${cause.issues.length === 1 ? '' : 's'}); nothing was deployed`,
+              issues: cause.issues as unknown as Record<string, unknown>[],
+            },
+            requestId,
+          ),
+        );
+      }
       c.status(statusFor('internal-server-error') as never);
       return c.json(
         toWireError(
@@ -669,14 +710,8 @@ export function deploymentsRouter(bindings: DeploymentsRouterBindings): Hono<App
             version: t.version,
           })),
           guardrails: validated.guardrails.map((g) => ({ id: g.id as unknown as string })),
-          agents: validated.agents.map((a) => ({
-            id: a.id as unknown as string,
-            version: a.version as unknown as string,
-          })),
-          flows: validated.flows.map((f) => ({
-            id: f.id as unknown as string,
-            version: f.version as unknown as string,
-          })),
+          agents: deployedAgents,
+          flows: deployedFlows,
         },
       });
     } catch (cause) {
@@ -1374,8 +1409,18 @@ function validateAgentIndexShape(
   if (typeof spec.name !== 'string' || (spec.name as string).length === 0) {
     out.push({ path: '/name', message: 'agent.name must be a non-empty string' });
   }
-  if (typeof spec.instructions !== 'string' || (spec.instructions as string).length === 0) {
-    out.push({ path: '/instructions', message: 'agent.instructions must be a non-empty string' });
+  const instructions = spec.instructions as { prompt?: unknown; version?: unknown } | string;
+  const promptRef =
+    typeof instructions === 'object' &&
+    instructions !== null &&
+    typeof instructions.prompt === 'string' &&
+    typeof instructions.version === 'string';
+  if (!promptRef && (typeof instructions !== 'string' || instructions.length === 0)) {
+    out.push({
+      path: '/instructions',
+      message:
+        'agent.instructions must be a non-empty string, or a prompt block { prompt, version }',
+    });
   }
   if (!Array.isArray(spec.capabilities)) {
     out.push({ path: '/capabilities', message: 'agent.capabilities must be an array' });
@@ -1410,6 +1455,222 @@ function validateFlowIndexShape(
 // ------------------------------------------------------------
 
 type RollbackAction = () => Promise<void>;
+
+/** A deploy whose agents or flows use a tool or agent with no published version in range. */
+class UnpinnableDeploy extends Error {
+  constructor(readonly issues: readonly UnpinnableRef[]) {
+    super('the deployment uses tools or agents that are not published');
+  }
+}
+
+/** A deployed agent or flow registered under its definition's version. */
+function deployedPrimitive(definition: { readonly id: string; readonly version: string }): {
+  id: string;
+  version: string;
+} {
+  return { id: definition.id, version: definition.version };
+}
+
+/** A deployed agent or flow, under the version the deploy rule registered it as. */
+function deployedVersion(
+  definition: { readonly id: string; readonly version: string },
+  outcome: DeployedVersionOutcome,
+): DeployedVersion {
+  return outcome.kind === 'reused' || outcome.kind === 'renumbered'
+    ? {
+        id: definition.id,
+        version: outcome.version,
+        authoredVersion: definition.version,
+        reason: outcome.reason,
+        newVersion: outcome.kind === 'renumbered',
+        ...(outcome.pinChanges !== undefined && { pinChanges: outcome.pinChanges }),
+      }
+    : deployedPrimitive(definition);
+}
+
+/**
+ * Register a deployment's agents, each under the version it's registered
+ * as (`DeployedAgent`), pushing a rollback for each version it writes.
+ *
+ * With a tool registry, every agent is pinned first (the pack's tools
+ * are registered by now): one whose range matches no published version
+ * throws `UnpinnableDeploy` before any agent is written, and the deploy
+ * rolls back. Each is then registered by `publishDeployedAgent`, which
+ * never keeps a version's old pins. Without one, agents register
+ * unpinned, as before pins existed.
+ */
+async function registerAgents(input: {
+  readonly agents: AgentRegistryBinding;
+  readonly tools: ToolRegistryBinding | undefined;
+  readonly blocks: BlockRegistryBinding | undefined;
+  readonly tenantId: TenantId;
+  readonly projectId: ProjectId;
+  readonly defined: readonly Agent[];
+  readonly rolled: RollbackAction[];
+}): Promise<DeployedAgent[]> {
+  const { agents, tools, blocks, tenantId, projectId, rolled } = input;
+  // Signed deploys have no per-request principal — pass parent-only
+  // tuples (no owner grant). Tenant admins keep access via
+  // `admin from parent` cascade.
+  const enqueueTuples = (agentId: string) =>
+    tuplesForCreate({ kind: 'agent', id: agentId as AgentId, tenantId, projectId });
+  const written = (agentId: AgentId, version: Semver) =>
+    rolled.push(async () => {
+      await agents.unregister({ tenantId, agentId, version });
+    });
+
+  if (tools === undefined) {
+    for (const agent of input.defined) {
+      const outcome = await agents.publish({ tenantId, projectId, agent, enqueueTuples });
+      if (outcome.kind === 'ok') written(outcome.agentId, outcome.version);
+      else if (outcome.kind !== 'already-registered') {
+        throw new PublishRefused('agent', `${agent.id}@${agent.version}`, outcome.kind);
+      }
+    }
+    return input.defined.map(deployedPrimitive);
+  }
+
+  const pinsOf = await pinAgents(tools, blocks, tenantId, input.defined);
+  const deployed: DeployedAgent[] = [];
+  for (const [i, agent] of input.defined.entries()) {
+    const pins = pinsOf[i] as AgentPins;
+    const outcome = await publishDeployedAgent({
+      agents,
+      tenantId,
+      projectId,
+      agent,
+      pins,
+      enqueueTuples,
+    });
+    if (outcome.kind === 'registered' || outcome.kind === 'renumbered') {
+      written(agent.id, outcome.version as unknown as Semver);
+    }
+    deployed.push(deployedVersion(agent, outcome));
+  }
+  return deployed;
+}
+
+/**
+ * Register a deployment's flows, each under the version it's registered
+ * as, pushing a rollback for each version it writes. Runs after the
+ * agents, so a flow's agent pins see the versions this deploy
+ * registered: a tool change cascades through an agent into a flow
+ * within the one deploy, each derived once. An agent step that names no
+ * version pins what a run in the project gets: the agent's live version
+ * there, with `live`, else the latest (this deploy's, when it registered
+ * one).
+ *
+ * With the tool and agent registries, every flow is pinned first; one
+ * that runs a tool or agent with no published version throws
+ * `UnpinnableDeploy` before any flow is written, and the deploy rolls
+ * back. Without them, flows register unpinned, as before pins existed.
+ */
+async function registerFlows(input: {
+  readonly flows: FlowRegistryBinding;
+  readonly tools: ToolRegistryBinding | undefined;
+  readonly agents: AgentRegistryBinding | undefined;
+  readonly live?: LiveVersionBinding;
+  readonly tenantId: TenantId;
+  readonly projectId: ProjectId;
+  readonly defined: readonly Flow[];
+  readonly rolled: RollbackAction[];
+}): Promise<DeployedFlow[]> {
+  const { flows, tools, agents, live, tenantId, projectId, rolled } = input;
+  const enqueueTuples = (flowId: string) =>
+    tuplesForCreate({ kind: 'flow', id: flowId as FlowId, tenantId, projectId });
+  const written = (flowId: FlowId, version: string) =>
+    rolled.push(async () => {
+      await flows.unregister({ tenantId, flowId, version: version as never });
+    });
+
+  if (tools === undefined || agents === undefined) {
+    for (const flow of input.defined) {
+      const outcome = await flows.publish({ tenantId, projectId, flow, enqueueTuples });
+      if (outcome.kind === 'ok') written(outcome.flowId, outcome.version as unknown as string);
+      else if (outcome.kind !== 'already-registered') {
+        throw new PublishRefused('flow', `${flow.id}@${flow.version}`, outcome.kind);
+      }
+    }
+    return input.defined.map(deployedPrimitive);
+  }
+
+  const pinsOf = await pinFlows(
+    tools,
+    agents,
+    tenantId,
+    input.defined,
+    live !== undefined ? { binding: live, projectId } : undefined,
+  );
+  const deployed: DeployedFlow[] = [];
+  for (const [i, flow] of input.defined.entries()) {
+    const outcome = await publishDeployedFlow({
+      flows,
+      tenantId,
+      projectId,
+      flow,
+      pins: pinsOf[i] as FlowPins,
+      enqueueTuples,
+    });
+    if (outcome.kind === 'registered' || outcome.kind === 'renumbered') {
+      written(flow.id, outcome.version);
+    }
+    deployed.push(deployedVersion(flow, outcome));
+  }
+  return deployed;
+}
+
+/** Each flow's pins, in order; throws `UnpinnableDeploy` naming every tool or agent with no published version. */
+async function pinFlows(
+  tools: ToolRegistryBinding,
+  agents: AgentRegistryBinding,
+  tenantId: TenantId,
+  defined: readonly Flow[],
+  live: FlowPinsLive | undefined,
+): Promise<FlowPins[]> {
+  const pins: FlowPins[] = [];
+  const unpinnable: UnpinnableRef[] = [];
+  for (const [i, flow] of defined.entries()) {
+    const resolved = await resolveFlowPins(tools, agents, tenantId, flow, live);
+    if (resolved.kind === 'ok') {
+      pins.push(resolved.pins);
+      continue;
+    }
+    for (const issue of resolved.issues) {
+      unpinnable.push({
+        path: `/flows/${i}${issue.path}`,
+        message: `flow "${flow.id as unknown as string}": ${issue.message}`,
+      });
+    }
+  }
+  if (unpinnable.length > 0) throw new UnpinnableDeploy(unpinnable);
+  return pins;
+}
+
+/** Each agent's pins, in order; throws `UnpinnableDeploy` naming every range that matches nothing. */
+async function pinAgents(
+  tools: ToolRegistryBinding,
+  blocks: BlockRegistryBinding | undefined,
+  tenantId: TenantId,
+  defined: readonly Agent[],
+): Promise<AgentPins[]> {
+  const pins: AgentPins[] = [];
+  const unpinnable: UnpinnableRef[] = [];
+  for (const [i, agent] of defined.entries()) {
+    const resolved = await resolveAgentPins(tools, tenantId, agent, blocks);
+    if (resolved.kind === 'ok') {
+      pins.push(resolved.pins);
+      continue;
+    }
+    for (const issue of resolved.issues) {
+      unpinnable.push({
+        path: `/agents/${i}${issue.path}`,
+        message: `agent "${agent.id as unknown as string}": ${issue.message}`,
+      });
+    }
+  }
+  if (unpinnable.length > 0) throw new UnpinnableDeploy(unpinnable);
+  return pins;
+}
 
 async function rollback(actions: readonly RollbackAction[]): Promise<void> {
   // Reverse order — last-in, first-out — so registrations are undone in
@@ -1490,4 +1751,23 @@ function errMessage(cause: unknown): string {
 export function sha256HexPrefixed(bytes: Uint8Array): string {
   const hex = createHash('sha256').update(bytes).digest('hex');
   return `sha256:${hex}`;
+}
+
+/** The first read-only registry a deployment would publish into, if any. */
+function readOnlyTarget(
+  validated: {
+    readonly tools: readonly unknown[];
+    readonly agents: readonly unknown[];
+    readonly flows: readonly unknown[];
+    readonly guardrails: readonly unknown[];
+  },
+  bindings: DeploymentsRouterBindings,
+): RegistryReadOnly | undefined {
+  const targets = [
+    [validated.tools, bindings.toolRegistry?.readOnly],
+    [validated.agents, bindings.agentRegistry?.readOnly],
+    [validated.flows, bindings.flowRegistry?.readOnly],
+    [validated.guardrails, bindings.guardrailRegistry?.readOnly],
+  ] as const;
+  return targets.find(([brought, readOnly]) => brought.length > 0 && readOnly !== undefined)?.[1];
 }

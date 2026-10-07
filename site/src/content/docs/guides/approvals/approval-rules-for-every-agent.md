@@ -61,7 +61,9 @@ kindgi runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkou
 ```
 
 The approval needs a `senior` reviewer, so a `standard` reviewer doesn't see
-it:
+it. (Under `kindgi dev` you're an `admin`, who sees everything; to try this,
+register yourself as `standard` first:
+`kindgi reviewers register --spec='{"role":"standard"}'`.)
 
 ```sh
 kindgi approvals list --status=pending
@@ -69,7 +71,8 @@ kindgi approvals list --status=pending
 
 ```json
 {
-  "items": []
+  "data": [],
+  "hasMore": false
 }
 ```
 
@@ -78,7 +81,7 @@ Once you're registered as `senior`
 
 ```json
 {
-  "items": [
+  "data": [
     {
       "id": "a7a223bd-ac2f-4f69-9961-b00bd2501625",
       …
@@ -87,7 +90,8 @@ Once you're registered as `senior`
       "title": "HITL review: acme-ops.post-update",
       …
     }
-  ]
+  ],
+  "hasMore": false
 }
 ```
 

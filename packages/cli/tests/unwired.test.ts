@@ -42,17 +42,26 @@ describe('commands the API does not wire yet', () => {
   test('root help and the reference leave them out; a partly wired group lists only what works', () => {
     const root = rootHelpText();
     expect(root).toContain('  runs');
-    expect(root).not.toMatch(/^ {2}memory /m);
-    expect(root).not.toMatch(/^ {2}flows /m);
+    expect(root).not.toMatch(/^ {2}capabilities /m);
+    expect(root).not.toMatch(/^ {2}artifacts /m);
 
-    const agents = ROOT_COMMANDS.find((c) => c.name === 'agents')!;
-    const help = commandHelpText(agents, ['agents']);
-    expect(help).toContain('publish');
-    expect(help).not.toMatch(/^ {2}list /m);
+    const memory = ROOT_COMMANDS.find((c) => c.name === 'memory')!;
+    const facts = (memory.kind === 'group' ? memory.subcommands : []).find(
+      (c) => c.name === 'facts',
+    )!;
+    const help = commandHelpText(facts, ['memory', 'facts']);
+    expect(help).toContain('write');
+    expect(help).not.toMatch(/^ {2}supersede /m);
+    expect(help).not.toMatch(/^ {2}retrieve /m);
 
     const reference = describeCommands();
-    expect(reference.map((c) => c.name)).not.toContain('memory');
-    const agentsRef = reference.find((c) => c.name === 'agents')!;
-    expect(agentsRef.subcommands.map((s) => s.name)).toEqual(['publish']);
+    expect(reference.map((c) => c.name)).not.toContain('capabilities');
+    const memoryRef = reference.find((c) => c.name === 'memory')!;
+    const factsRef = memoryRef.subcommands.find((s) => s.name === 'facts')!;
+    expect(factsRef.subcommands.map((s) => s.name)).toContain('write');
+    expect(factsRef.subcommands.map((s) => s.name)).not.toContain('supersede');
+    // `runs resume` is wired (T272): it says what a run waits for.
+    const runsRef = reference.find((c) => c.name === 'runs')!;
+    expect(runsRef.subcommands.map((s) => s.name)).toContain('resume');
   });
 });

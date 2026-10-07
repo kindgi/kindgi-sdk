@@ -17,6 +17,22 @@ export type {
   RunSnapshotWriteInput,
 } from './run-snapshot-binding.js';
 export { defineAgent } from './define.js';
+export {
+  BLOCK_KINDS,
+  MODEL_SETTINGS_SCHEMA,
+  settingsSchemaIssues,
+  validateBlock,
+} from './blocks.js';
+export type {
+  BlockDefinition,
+  BlockIssue,
+  BlockKind,
+  BlockReader,
+  InvalidBlock,
+  ModelSettings,
+  PromptBlockContent,
+  SettingsBlockContent,
+} from './blocks.js';
 export type { DefineAgentSpec } from './define.js';
 export { resolveEffectiveHitlPolicy } from './hitl-policy.js';
 export {
@@ -28,6 +44,18 @@ export {
 export type { GateDecision, GateDecisionValue } from './handlers/gate-decision.js';
 export type { EffectiveHitlPolicy } from './hitl-policy.js';
 export { agentStepOutput, invokeAgent, resumeAgentTurn } from './invoke.js';
+export { parseFailureMessage, turnFailureMessage } from './handlers/errors.js';
+export { isReadOnlyTool } from './handlers/replay.js';
+export { SESSION_GATE_RECORD } from './handlers/setup.js';
+export type {
+  ReplayApproval,
+  ReplayBinding,
+  ReplayToolDecision,
+  ReplayToolInput,
+  ReplayToolTrace,
+  ReplayTurnRef,
+  ReplayTurnReport,
+} from './handlers/replay.js';
 export type {
   AgentStepOutput,
   AgentTurnAbortedError,
@@ -87,6 +115,14 @@ export type {
   RenderFailureError,
   RenderResult,
 } from './prompt.js';
+export { pinChanges, pinsDigest } from './pins.js';
+export type {
+  AgentDerivation,
+  AgentDerivationReason,
+  AgentPins,
+  PinChange,
+  PinSet,
+} from './pins.js';
 export { createAgentRegistry } from './registry.js';
 export type { AgentRegistry } from './registry.js';
 export {
@@ -105,12 +141,14 @@ export type {
   AgentBindings,
   AgentId,
   AgentOutputSpec,
+  BlockRef,
   Conversation,
   ConversationId,
   ConversationMessage,
   ConversationPolicy,
   MessageRole,
   PromptParameter,
+  PromptRef,
   RetrievalIntent,
   RetrievedFact,
   ToolRef,

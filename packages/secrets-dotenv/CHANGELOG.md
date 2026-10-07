@@ -1,5 +1,81 @@
 # @kindgi/secrets-dotenv
 
+## 0.1.4-rc.2
+
+### Patch Changes
+
+- Updated dependencies [0b1f48d]
+- Updated dependencies [2b34f78]
+- Updated dependencies [9a7f43b]
+- Updated dependencies [fcc6a97]
+- Updated dependencies [86ec2ef]
+- Updated dependencies [e97958c]
+- Updated dependencies [e2ab2ac]
+- Updated dependencies [7528aca]
+- Updated dependencies [e58e35c]
+- Updated dependencies [8491dd8]
+- Updated dependencies [933e00a]
+- Updated dependencies [2040daf]
+- Updated dependencies [71412f6]
+- Updated dependencies [ba2f212]
+- Updated dependencies [e7e2f86]
+- Updated dependencies [42a2e66]
+- Updated dependencies [7155588]
+- Updated dependencies [7471e05]
+- Updated dependencies [dc5cfb1]
+- Updated dependencies [e2ba026]
+- Updated dependencies [1bec998]
+- Updated dependencies [ffb6096]
+- Updated dependencies [ae417f7]
+  - @kindgi/api@0.1.4-rc.2
+  - @kindgi/types@0.1.4-rc.2
+  - @kindgi/platform@0.1.4-rc.2
+  - @kindgi/dotenv-file@0.1.4-rc.2
+
+## 0.1.4-rc.1
+
+### Patch Changes
+
+- Updated dependencies [0359caf]
+- Updated dependencies [b8ff156]
+- Updated dependencies [06b5fc0]
+- Updated dependencies [8861bf8]
+- Updated dependencies [f90c285]
+  - @kindgi/api@0.1.4-rc.1
+  - @kindgi/platform@0.1.4-rc.1
+  - @kindgi/dotenv-file@0.1.4-rc.1
+  - @kindgi/types@0.1.4-rc.1
+
+## 0.1.4-rc.0
+
+### Patch Changes
+
+- Updated dependencies [c313224]
+- Updated dependencies [024a47f]
+- Updated dependencies [6260a59]
+- Updated dependencies [d0ebeb6]
+- Updated dependencies [a311b81]
+- Updated dependencies [a0652ac]
+- Updated dependencies [fa6680c]
+- Updated dependencies [fac7472]
+- Updated dependencies [d3dffb5]
+- Updated dependencies [26b2a23]
+- Updated dependencies [b67eee6]
+- Updated dependencies [7a8e764]
+- Updated dependencies [a0921a1]
+- Updated dependencies [d9cee7c]
+- Updated dependencies [dde7fdb]
+- Updated dependencies [e17b230]
+- Updated dependencies [3d23304]
+- Updated dependencies [2923703]
+- Updated dependencies [bfeabfd]
+- Updated dependencies [d0ebeb6]
+- Updated dependencies [62608e3]
+  - @kindgi/api@0.1.4-rc.0
+  - @kindgi/types@0.1.4-rc.0
+  - @kindgi/platform@0.1.4-rc.0
+  - @kindgi/dotenv-file@0.1.4-rc.0
+
 ## 0.1.3
 
 ### Patch Changes

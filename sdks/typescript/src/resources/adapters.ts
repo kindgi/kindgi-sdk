@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Cursor, Page } from '@kindgi/types';
+import type { Cursor } from '@kindgi/types';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
+import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import { postSse, unwrapSseData } from '../streaming.js';
 import type { Transport } from '../transport.js';
 import type { Adapter, AdapterKind, AdapterStatus, AdapterTestOutcome } from '../types.js';
@@ -44,7 +45,7 @@ export interface AdaptersClient {
    * @wire `GET /v1/adapters` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1adapters/get`.
    */
-  list(filter?: AdapterFilter): Promise<Page<Adapter>>;
+  list(filter?: AdapterFilter): Promise<ListPage<Adapter>>;
 
   /**
    * Fetch a single wired adapter.
@@ -132,12 +133,6 @@ export interface AdapterConfigureInput {
   readonly config: Readonly<Record<string, unknown>>;
 }
 
-interface WirePage<T> {
-  readonly data: readonly T[];
-  readonly hasMore: boolean;
-  readonly nextCursor?: string;
-}
-
 export function makeAdaptersClient(transport: Transport): AdaptersClient {
   return {
     async list(filter) {
@@ -151,10 +146,7 @@ export function makeAdaptersClient(transport: Transport): AdaptersClient {
           ...(filter?.status !== undefined && { status: filter.status }),
         },
       });
-      return {
-        items: page.data,
-        ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as Cursor }),
-      };
+      return listPage(page);
     },
 
     async get(adapterId) {

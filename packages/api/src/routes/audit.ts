@@ -21,6 +21,7 @@
 //   ?from=<iso>&to=<iso>
 //   ?runId=<id>
 //   ?limit=<n>&cursor=<opaque>
+//   ?order=asc|desc   (asc, oldest first, by default)
 //
 
 import { Hono } from 'hono';
@@ -83,6 +84,14 @@ export function auditRouter(binding: AuditEventBinding, authorizer?: Authorizer)
     const from = c.req.query('from');
     const to = c.req.query('to');
     const runId = c.req.query('runId');
+    const orderRaw = c.req.query('order');
+
+    if (orderRaw !== undefined && orderRaw !== 'asc' && orderRaw !== 'desc') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError({ code: 'bad-input', message: '`order` must be "asc" or "desc"' }, requestId),
+      );
+    }
 
     let outcome: 'allowed' | 'denied' | undefined;
     if (outcomeRaw === 'allowed' || outcomeRaw === 'denied') outcome = outcomeRaw;
@@ -130,6 +139,7 @@ export function auditRouter(binding: AuditEventBinding, authorizer?: Authorizer)
         ...(to !== undefined && to.length > 0 && { to }),
       },
       ...(cursor !== undefined && cursor.length > 0 && { cursor }),
+      ...(orderRaw !== undefined && { order: orderRaw }),
       limit,
     });
 

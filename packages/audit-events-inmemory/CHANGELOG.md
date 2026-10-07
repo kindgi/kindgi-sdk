@@ -1,5 +1,48 @@
 # @kindgi/audit-events-inmemory
 
+## 0.1.4-rc.2
+
+### Patch Changes
+
+- 0b1f48d: `GET /v1/audit/authz` takes `?order=asc|desc`. `asc` (the default, as before) lists the oldest decisions first; `desc` lists the newest first, and `nextCursor` continues in the same order. Any other value is `400 bad-input`. The TypeScript client's `audit.authz.list({ order })` and the Python client's `audit.authz.list(order=…)` send it. `AuditEventBinding.query` takes an optional `order` (`AuditEventOrder`); the in-memory binding implements it, and a binding that doesn't pages oldest first.
+- 149a8c9: **`KINDGI_COMPLIANCE_CLASSIFIER` turns on the audit trail's compliance features**, off by default. Set it to `shipped` (the classifier the runtime ships) or to the absolute path of your own classifier JSON. When set, the runtime serves `/v1/compliance/*` and **purges audit events by kind, as the classifier says**.
+  
+  With `shipped`:
+  
+  | Audit events | Purged after |
+  |---|---|
+  | Authorization decisions | 90 days |
+  | Authorization denials | 365 days |
+  | Run outcomes and guardrail violations | 730 days |
+  | Secret changes and approval decisions | never (legal hold) |
+  | Kinds the classifier doesn't list | never |
+  
+  Unset: no `/v1/compliance/*`, and no audit event is ever purged.
+  
+  `AuditEventPurgeInput` gains optional `outcome` / `exceptOutcome`, so a kind's denials can be kept longer than the rest (a classifier's `onDenyDays`). The in-memory binding honors both.
+- Updated dependencies [0b1f48d]
+- Updated dependencies [149a8c9]
+- Updated dependencies [2040daf]
+- Updated dependencies [ae417f7]
+  - @kindgi/audit-events@0.1.4-rc.2
+  - @kindgi/types@0.1.4-rc.2
+
+## 0.1.4-rc.1
+
+### Patch Changes
+
+- @kindgi/audit-events@0.1.4-rc.1
+  - @kindgi/types@0.1.4-rc.1
+
+## 0.1.4-rc.0
+
+### Patch Changes
+
+- Updated dependencies [fac7472]
+- Updated dependencies [26b2a23]
+  - @kindgi/types@0.1.4-rc.0
+  - @kindgi/audit-events@0.1.4-rc.0
+
 ## 0.1.3
 
 ### Patch Changes

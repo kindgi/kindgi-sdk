@@ -85,7 +85,16 @@ export interface PackServiceSupervisorOptions {
   readonly restartDelayMs?: number;
   /** Largest request body the front accepts. Default 10 MiB (the pack service's own limit). */
   readonly maxBodyBytes?: number;
+  /** Test seam: run `fn` on the event loop's next turn (`setImmediate`). */
+  readonly nextTurn?: (fn: () => void) => void;
 }
+
+/**
+ * What a terminal sends its whole foreground process group: Ctrl+C and a
+ * hangup. A child killed by one shares it with its owner, who is very
+ * likely stopping too.
+ */
+const GROUP_SIGNALS: ReadonlySet<string> = new Set(['SIGINT', 'SIGHUP']);
 
 export type PackServiceSupervisorEvent =
   | { readonly kind: 'started'; readonly port: number; readonly indexPath: string }
@@ -156,6 +165,14 @@ export interface PackServiceSupervisor {
   start(indexPath: string): Promise<Result<{ readonly port: number }, BootFailure>>;
   /** Stop the serving child; the front then answers 503. */
   stop(): Promise<void>;
+  /**
+   * The supervisor is closing (its owner is shutting down): from now on a
+   * child that exits is expected, not restarted, and no new child starts.
+   * `close()` does this too; calling it the moment a shutdown begins keeps
+   * a child that dies first (a terminal's Ctrl+C signals the whole process
+   * group) from being restarted while the owner shuts down.
+   */
+  beginClose(): void;
   /** Stop the serving child and close the front. */
   close(): Promise<void>;
 }
@@ -193,8 +210,15 @@ export function createPackServiceSupervisor(
   const token = options.token ?? randomBytes(24).toString('base64url');
   const expectedToken = Buffer.from(token);
   const emit = (event: PackServiceSupervisorEvent): void => options.onEvent?.(event);
+  const nextTurn =
+    options.nextTurn ??
+    ((fn: () => void): void => {
+      setImmediate(fn);
+    });
   let serving: Child | undefined;
   let stopped = false;
+  /** Closing for good (`beginClose`): nothing restarts or starts again. */
+  let shuttingDown = false;
   let restarts = 0;
   let front: { readonly server: Server; readonly url: string; readonly port: number } | undefined;
 
@@ -256,27 +280,38 @@ export function createPackServiceSupervisor(
   /** A serving child that exits on its own is restarted on the same index. */
   function watch(child: Child): void {
     child.process.once('exit', (code, signal) => {
-      if (child.retiring || stopped) return;
-      emit({ kind: 'exited', code, signal });
-      if (serving === child) serving = undefined;
-      void recover(child.indexPath);
+      const crashed = (): void => {
+        if (child.retiring || stopped || shuttingDown) return;
+        emit({ kind: 'exited', code, signal });
+        if (serving === child) serving = undefined;
+        void recover(child.indexPath);
+      };
+      // Killed by the terminal's Ctrl+C or hangup: its owner got the same
+      // signal and may not have handled it yet (under load the child's
+      // exit can come first). Give its stop (`beginClose`) two turns of
+      // the event loop before calling this a crash.
+      if (signal !== null && GROUP_SIGNALS.has(signal)) nextTurn(() => nextTurn(crashed));
+      else crashed();
     });
   }
 
   async function recover(indexPath: string): Promise<void> {
     while (
       !stopped &&
+      !shuttingDown &&
       serving === undefined &&
       restarts < (options.maxRestarts ?? DEFAULT_MAX_RESTARTS)
     ) {
       restarts += 1;
       emit({ kind: 'restarting', attempt: restarts });
       await new Promise((r) => setTimeout(r, options.restartDelayMs ?? DEFAULT_RESTART_DELAY_MS));
-      if (stopped || serving !== undefined) return;
+      if (stopped || shuttingDown || serving !== undefined) return;
       const booted = await start(indexPath);
       if (booted.kind === 'ok') return;
     }
-    if (!stopped && serving === undefined) emit({ kind: 'gave-up', attempts: restarts });
+    if (!stopped && !shuttingDown && serving === undefined) {
+      emit({ kind: 'gave-up', attempts: restarts });
+    }
   }
 
   async function retire(child: Child | undefined): Promise<void> {
@@ -294,6 +329,9 @@ export function createPackServiceSupervisor(
   }
 
   async function start(indexPath: string): Promise<Result<{ readonly port: number }, BootFailure>> {
+    if (shuttingDown) {
+      return { kind: 'err', error: { problems: ['The pack service is closing'] } };
+    }
     stopped = false;
     const booted = await boot(indexPath);
     if (booted.kind === 'err') {
@@ -396,7 +434,11 @@ export function createPackServiceSupervisor(
     },
     start,
     stop,
+    beginClose() {
+      shuttingDown = true;
+    },
     async close() {
+      shuttingDown = true;
       await stop();
       const closing = front;
       front = undefined;

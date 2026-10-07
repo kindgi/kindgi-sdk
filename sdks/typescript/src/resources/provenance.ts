@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { AgentId, Cursor, Page, RunId, Timestamp } from '@kindgi/types';
+import type { AgentId, RunId, Timestamp } from '@kindgi/types';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
+import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import { scopeToQuery } from '../scope-wire.js';
 import type { Transport } from '../transport.js';
 import type {
@@ -38,7 +39,7 @@ export interface ProvenanceClient {
    * @wire `GET /v1/provenance` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1provenance/get`.
    */
-  query(filter?: ProvenanceQueryFilter): Promise<Page<ProvenanceRecordMetadata>>;
+  query(filter?: ProvenanceQueryFilter): Promise<ListPage<ProvenanceRecordMetadata>>;
 
   /**
    * Export a signed JSON bundle for a run. The server canonicalizes the
@@ -75,12 +76,6 @@ export interface ProvenanceExportInput {
   readonly idempotencyKey?: string;
 }
 
-interface WirePage<T> {
-  readonly data: readonly T[];
-  readonly hasMore: boolean;
-  readonly nextCursor?: string;
-}
-
 export function makeProvenanceClient(transport: Transport): ProvenanceClient {
   return {
     async get(runId) {
@@ -107,10 +102,7 @@ export function makeProvenanceClient(transport: Transport): ProvenanceClient {
           }),
         },
       });
-      return {
-        items: page.data,
-        ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as Cursor }),
-      };
+      return listPage(page);
     },
 
     async export(input) {

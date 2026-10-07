@@ -35,9 +35,12 @@ export interface RetentionBinding {
 export interface RetentionScheduledInput {
   readonly tenantId: TenantId;
   readonly domain?: RetentionDomain;
+  /** Rows per domain at most: each domain is read up to `limit`. */
   readonly limit: number;
   readonly pastGraceOnly?: boolean;
   readonly now?: Date;
+  /** Where a previous page stopped (its `nextCursor`, the runtime's own encoding). */
+  readonly cursor?: string;
 }
 
 export interface RetentionScheduledItem {
@@ -57,6 +60,31 @@ export interface RetentionScheduledPage {
   readonly domainsMissingAdapter: readonly RetentionDomain[];
   /** Domains that have an adapter but no matching policy — tombstones sit forever. */
   readonly unpolicedDomains: readonly RetentionDomain[];
+  /** Domains more than one retention policy covers (see `RetentionPolicyConflict`). */
+  readonly conflicts?: readonly RetentionPolicyConflict[];
+  /**
+   * More rows are scheduled than this page holds: some domain stopped at
+   * `limit`. A runtime that doesn't say leaves it out, and the route then
+   * reports `true` when some domain's rows fill `limit` (there may be more).
+   */
+  readonly hasMore?: boolean;
+  /** Pass as `cursor` to continue where this page stopped. Absent: nothing more, or no way to continue. */
+  readonly nextCursor?: string;
+}
+
+/**
+ * A domain more than one retention policy covers. Publishing refuses a
+ * second policy for a domain (`409 policy-scope-taken`), so only policies
+ * stored before that rule can do this. The one whose latest version is
+ * highest applies, and on equal versions the lower policy id; unregister
+ * the others.
+ */
+export interface RetentionPolicyConflict {
+  readonly domain: RetentionDomain;
+  /** Every policy id that covers the domain, sorted. */
+  readonly policyIds: readonly string[];
+  /** The one of them that applies. */
+  readonly appliedPolicyId: string;
 }
 
 export interface RetentionSweepInput {
@@ -75,4 +103,6 @@ export interface RetentionSweepResult {
     readonly missingAdapter?: true;
   }[];
   readonly totalPurged: number;
+  /** Domains more than one retention policy covers (see `RetentionPolicyConflict`). */
+  readonly conflicts?: readonly RetentionPolicyConflict[];
 }

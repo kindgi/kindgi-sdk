@@ -107,3 +107,33 @@ describe('GET /v1/audit/authz — filters outside the binding columns', () => {
     });
   }
 });
+
+describe('GET /v1/audit/authz — ?order=', () => {
+  const ALL = decisions().map((e) => e.id);
+
+  test('oldest first without it', async () => {
+    const pages = await readAll(await appWith(decisions()), 'limit=5');
+    expect(pages[0]?.data.map((e) => e.id)).toEqual(ALL.slice(0, 5));
+    expect(pages.flatMap((p) => p.data.map((e) => e.id))).toEqual(ALL);
+  });
+
+  test('?order=desc: newest first, every decision once', async () => {
+    const pages = await readAll(await appWith(decisions()), 'order=desc&limit=5');
+    expect(pages[0]?.data.map((e) => e.id)).toEqual(ALL.slice(-5).reverse());
+    expect(pages.flatMap((p) => p.data.map((e) => e.id))).toEqual([...ALL].reverse());
+  });
+
+  test('?order=desc with a filter pages through the matches, newest first', async () => {
+    const pages = await readAll(await appWith(decisions()), 'action=write&order=desc&limit=5');
+    expect(pages.flatMap((p) => p.data.map((e) => e.id))).toEqual([...ALL_MATCHES].reverse());
+  });
+
+  test('another order → 400 bad-input', async () => {
+    const app = await appWith(decisions());
+    const res = await app.request('/v1/audit/authz?order=newest', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('bad-input');
+  });
+});

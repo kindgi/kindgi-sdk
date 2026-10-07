@@ -10,6 +10,7 @@ import type {
   TeamBinding,
   TeamMembership,
   TeamMembershipBinding,
+  TeamMembershipUpdateRoleOutcome,
   TeamPatch,
   TeamRole,
   TeamSpec,
@@ -19,6 +20,11 @@ import type { Cursor, OrgId, TeamId, TenantId, UserId } from '@kindgi/types';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
+import {
+  membershipNotKeptInStepError,
+  orgNotFoundError,
+  slugConflictError,
+} from './hierarchy-errors.js';
 import { clampLimit } from './pagination.js';
 
 /**
@@ -29,9 +35,13 @@ import { clampLimit } from './pagination.js';
  *                                         `?limit=` / `?cursor=` / `?orgId=` /
  *                                         `?nameContains=`.
  *   - `POST   /`                        — create; body `{ name, slug,
- *                                         description?, orgId? }`; 201 `{ id }`.
+ *                                         description?, orgId? }`; 201 `{ id }`;
+ *                                         409 `slug-conflict` when the tenant
+ *                                         has a team with that slug.
  *   - `GET    /:teamId`                 — get; 200 or 404 `team-not-found`.
- *   - `PATCH  /:teamId`                 — partial update; 204 or 404.
+ *   - `PATCH  /:teamId`                 — partial update; 204, 404
+ *                                         `team-not-found` or 409
+ *                                         `slug-conflict`.
  *   - `DELETE /:teamId`                 — 204 idempotent.
  *   - `GET    /:teamId/memberships`     — list; cursor-paginated.
  *   - `POST   /:teamId/memberships`     — add member; body `{ userId, role }`;
@@ -51,6 +61,34 @@ export function teamsRouter(
   authorizer?: Authorizer,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+
+  /**
+   * Change a member's role. With an authorizer, the row and its FGA tuple
+   * change together through the tenant-hierarchy binding, or the change
+   * is refused; without one, the membership binding alone.
+   */
+  async function updateMemberRole(
+    tenantId: TenantId,
+    teamId: TeamId,
+    userId: UserId,
+    role: TeamRole,
+  ): Promise<
+    | { readonly kind: 'done'; readonly outcome: TeamMembershipUpdateRoleOutcome }
+    | { readonly kind: 'refused'; readonly error: ReturnType<typeof membershipNotKeptInStepError> }
+  > {
+    if (authorizer === undefined) {
+      return {
+        kind: 'done',
+        outcome: await membershipBinding.updateRole(tenantId, teamId, userId, role),
+      };
+    }
+    if (tenantHierarchy.updateTeamMemberRole === undefined) {
+      return { kind: 'refused', error: membershipNotKeptInStepError('updateTeamMemberRole') };
+    }
+    const res = await tenantHierarchy.updateTeamMemberRole({ tenantId, teamId, userId, role });
+    if (res.kind === 'err') throw new Error(res.error.message, { cause: res.error });
+    return { kind: 'done', outcome: res.value };
+  }
 
   // ---------- Authorization middleware ----------
   // Full PEP surface:
@@ -193,17 +231,29 @@ export function teamsRouter(
           : ('00000000-0000-0000-0000-000000000000' as UserId);
       const result = await tenantHierarchy.createTeam({ tenantId, creatorUserId, spec });
       if (result.kind === 'err') {
-        const code =
-          result.error.code === 'slug-conflict' ? 'slug-conflict' : 'internal-server-error';
-        c.status(statusFor(code) as never);
-        return c.json(toWireError({ code, message: result.error.message }, requestId));
+        const error =
+          result.error.code === 'slug-conflict'
+            ? slugConflictError('team', spec.slug)
+            : result.error.code === 'org-not-found'
+              ? orgNotFoundError(result.error.orgId as unknown as string)
+              : { code: 'internal-server-error', message: result.error.message };
+        c.status(statusFor(error.code) as never);
+        return c.json(toWireError(error, requestId));
       }
       c.status(201);
       return c.json({ id: result.value.teamId as unknown as string });
     }
-    const id = await binding.create(tenantId, spec);
+    const outcome = await binding.create(tenantId, spec);
+    if (outcome.kind === 'slug-conflict' || outcome.kind === 'org-not-found') {
+      const error =
+        outcome.kind === 'slug-conflict'
+          ? slugConflictError('team', outcome.slug)
+          : orgNotFoundError(outcome.orgId as unknown as string);
+      c.status(statusFor(error.code) as never);
+      return c.json(toWireError(error, requestId));
+    }
     c.status(201);
-    return c.json({ id: id as unknown as string });
+    return c.json({ id: outcome.teamId as unknown as string });
   });
 
   // ---------- GET /:teamId/memberships ----------
@@ -300,39 +350,38 @@ export function teamsRouter(
         ),
       );
     }
-    try {
-      if (authorizer !== undefined) {
-        const res = await tenantHierarchy.addTeamMember({
-          tenantId,
-          teamId,
-          userId: b.userId as unknown as UserId,
-          role: b.role as TeamRole,
-        });
-        if (res.kind === 'err') throw new Error(res.error.message);
-      } else {
-        await membershipBinding.add(tenantId, {
-          teamId,
-          userId: b.userId as unknown as UserId,
-          role: b.role,
-        });
+    // Racy — the team can be deleted between the preliminary get and the add.
+    const teamGone = () => {
+      c.status(statusFor('team-not-found') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'team-not-found',
+            message: `No team with id "${teamId as unknown as string}"`,
+            teamId: teamId as unknown as string,
+          },
+          requestId,
+        ),
+      );
+    };
+    if (authorizer !== undefined) {
+      const res = await tenantHierarchy.addTeamMember({
+        tenantId,
+        teamId,
+        userId: b.userId as unknown as UserId,
+        role: b.role as TeamRole,
+      });
+      if (res.kind === 'err') {
+        if (res.error.code === 'team-not-found') return teamGone();
+        throw new Error(res.error.message, { cause: res.error });
       }
-    } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause);
-      if (message.startsWith('team-not-found')) {
-        // Racy — team was deleted between the preliminary get and the add.
-        c.status(statusFor('team-not-found') as never);
-        return c.json(
-          toWireError(
-            {
-              code: 'team-not-found',
-              message: `No team with id "${teamId as unknown as string}"`,
-              teamId: teamId as unknown as string,
-            },
-            requestId,
-          ),
-        );
-      }
-      throw cause;
+    } else {
+      const outcome = await membershipBinding.add(tenantId, {
+        teamId,
+        userId: b.userId as unknown as UserId,
+        role: b.role,
+      });
+      if (outcome.kind === 'team-not-found') return teamGone();
     }
     c.status(201);
     return c.json({
@@ -347,7 +396,19 @@ export function teamsRouter(
     const tenantId = c.get('tenantId') as TenantId;
     const teamId = c.req.param('teamId') as TeamId;
     const userId = c.req.param('userId') as UserId;
-    await membershipBinding.remove(tenantId, teamId, userId);
+    // With an authorizer, the row and its FGA tuple go together, or not
+    // at all: removing the row alone would leave the permission in place.
+    if (authorizer !== undefined) {
+      if (tenantHierarchy.removeTeamMember === undefined) {
+        const refusal = membershipNotKeptInStepError('removeTeamMember');
+        c.status(statusFor(refusal.code) as never);
+        return c.json(toWireError(refusal, c.get('requestId')));
+      }
+      const res = await tenantHierarchy.removeTeamMember({ tenantId, teamId, userId });
+      if (res.kind === 'err') throw new Error(res.error.message, { cause: res.error });
+    } else {
+      await membershipBinding.remove(tenantId, teamId, userId);
+    }
     c.status(204);
     return c.body(null);
   });
@@ -387,38 +448,38 @@ export function teamsRouter(
         ),
       );
     }
-    try {
-      await membershipBinding.updateRole(tenantId, teamId, userId, b.role);
-    } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause);
-      if (message.startsWith('team-membership-not-found')) {
-        c.status(statusFor('team-membership-not-found') as never);
-        return c.json(
-          toWireError(
-            {
-              code: 'team-membership-not-found',
-              message: `No membership for team "${teamId as unknown as string}" + user "${userId as unknown as string}"`,
-              teamId: teamId as unknown as string,
-              userId: userId as unknown as string,
-            },
-            requestId,
-          ),
-        );
-      }
-      if (message.startsWith('team-not-found')) {
-        c.status(statusFor('team-not-found') as never);
-        return c.json(
-          toWireError(
-            {
-              code: 'team-not-found',
-              message: `No team with id "${teamId as unknown as string}"`,
-              teamId: teamId as unknown as string,
-            },
-            requestId,
-          ),
-        );
-      }
-      throw cause;
+    const updated = await updateMemberRole(tenantId, teamId, userId, b.role);
+    if (updated.kind === 'refused') {
+      c.status(statusFor(updated.error.code) as never);
+      return c.json(toWireError(updated.error, requestId));
+    }
+    const { outcome } = updated;
+    if (outcome.kind === 'team-membership-not-found') {
+      c.status(statusFor('team-membership-not-found') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'team-membership-not-found',
+            message: `No membership for team "${teamId as unknown as string}" + user "${userId as unknown as string}"`,
+            teamId: teamId as unknown as string,
+            userId: userId as unknown as string,
+          },
+          requestId,
+        ),
+      );
+    }
+    if (outcome.kind === 'team-not-found') {
+      c.status(statusFor('team-not-found') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'team-not-found',
+            message: `No team with id "${teamId as unknown as string}"`,
+            teamId: teamId as unknown as string,
+          },
+          requestId,
+        ),
+      );
     }
     c.status(204);
     return c.body(null);
@@ -522,24 +583,27 @@ export function teamsRouter(
         );
       }
     }
-    try {
-      await binding.update(tenantId, teamId, shaped);
-    } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause);
-      if (message.startsWith('team-not-found')) {
-        c.status(statusFor('team-not-found') as never);
-        return c.json(
-          toWireError(
-            {
-              code: 'team-not-found',
-              message: `No team with id "${teamId as unknown as string}"`,
-              teamId: teamId as unknown as string,
-            },
-            requestId,
-          ),
-        );
-      }
-      throw cause;
+    const outcome = await binding.update(tenantId, teamId, shaped);
+    if (outcome.kind === 'team-not-found') {
+      c.status(statusFor('team-not-found') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'team-not-found',
+            message: `No team with id "${teamId as unknown as string}"`,
+            teamId: teamId as unknown as string,
+          },
+          requestId,
+        ),
+      );
+    }
+    if (outcome.kind === 'slug-conflict' || outcome.kind === 'org-not-found') {
+      const error =
+        outcome.kind === 'slug-conflict'
+          ? slugConflictError('team', outcome.slug)
+          : orgNotFoundError(outcome.orgId as unknown as string);
+      c.status(statusFor(error.code) as never);
+      return c.json(toWireError(error, requestId));
     }
     c.status(204);
     return c.body(null);

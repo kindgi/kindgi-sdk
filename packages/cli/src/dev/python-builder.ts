@@ -10,13 +10,22 @@
  * service and index in place, as a bundle error does.
  *
  * The watch covers any `.py` file under the pack root — shared modules
- * outside the discovery folders included — and `pyproject.toml`.
+ * outside the discovery folders included — and `pyproject.toml`, with a
+ * scan behind it (`scan-backstop.ts`): `fs.watch` can drop events.
  */
 
 import { spawn } from 'node:child_process';
 import { type FSWatcher, watch } from 'node:fs';
+import { watch as watchEventsReal } from 'node:fs/promises';
 
 import type { PackBuild, PackBuilder } from './runners.js';
+import {
+  DEFAULT_SCAN_INTERVAL_MS,
+  type ScanBackstop,
+  scanSignature,
+  startScanBackstop,
+} from './scan-backstop.js';
+import { SHARE_WATCH_BY_DEFAULT, type WatchEvents, directoryWatches } from './shared-watch.js';
 
 const SKIPPED_DIRS = ['__pycache__', 'node_modules', 'venv', 'site-packages'];
 const DEFAULT_DEBOUNCE_MS = 150;
@@ -55,8 +64,30 @@ export interface PythonPackBuilderOptions {
   /** The pack's environment. */
   readonly env: () => Promise<Readonly<Record<string, string>>>;
   readonly debounceMs?: number;
-  /** Test seam: `node:fs.watch`. */
+  /** How often the sources are also scanned (`fs.watch` can miss events). */
+  readonly scanIntervalMs?: number;
+  /** Test seam: `node:fs.watch` (a watch of its own, when not `share`). */
   readonly watchFs?: typeof watch;
+  /**
+   * Share the pack directory's watch with the pack's other watchers
+   * (`shared-watch.ts`; default: on macOS, where each handle's close is
+   * slow).
+   */
+  readonly share?: boolean;
+  /** Test seam: `node:fs/promises`'s `watch`, which a shared watch uses. */
+  readonly watchEvents?: WatchEvents;
+  /** Test seam: what the sources are now (`pythonSourcesSignature`). */
+  readonly scanSources?: () => Promise<string>;
+}
+
+/** The sources a build reads, with their mtimes and sizes (`scan-backstop.ts`). */
+export function pythonSourcesSignature(packDir: string): Promise<string> {
+  return scanSignature({
+    folders: [{ abs: packDir, rel: '' }],
+    includes: isPythonSourceChange,
+    // Exactly the folders `isPythonSourceChange` never counts.
+    skipDir: (name) => name.startsWith('.') || SKIPPED_DIRS.includes(name),
+  });
 }
 
 /** Whether a change to `relPath` (relative to the pack root) is a change to the pack's code. */
@@ -70,7 +101,10 @@ export function isPythonSourceChange(relPath: string): boolean {
 
 export function createPythonPackBuilder(options: PythonPackBuilderOptions): PackBuilder {
   const watchFs = options.watchFs ?? watch;
+  const scan = options.scanSources ?? (() => pythonSourcesSignature(options.packDir));
   let watcher: FSWatcher | undefined;
+  let unsubscribe: (() => void) | undefined;
+  let backstop: ScanBackstop | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   async function build(): Promise<PackBuild> {
@@ -117,20 +151,45 @@ export function createPythonPackBuilder(options: PythonPackBuilderOptions): Pack
   return {
     build,
     async watch(onBuild) {
-      if (watcher !== undefined) return;
-      watcher = watchFs(options.packDir, { recursive: true }, (_event, filename) => {
-        if (filename === null || !isPythonSourceChange(filename.toString())) return;
+      if (watcher !== undefined || unsubscribe !== undefined) return;
+      const schedule = (): void => {
         if (timer !== undefined) clearTimeout(timer);
         timer = setTimeout(() => {
           timer = undefined;
-          void build().then(onBuild);
+          // This build reads the sources as they are now: the scan then
+          // fires only for later changes.
+          void (backstop?.mark() ?? Promise.resolve()).then(build).then(onBuild);
         }, options.debounceMs ?? DEFAULT_DEBOUNCE_MS);
+      };
+      if (options.share ?? SHARE_WATCH_BY_DEFAULT) {
+        unsubscribe = directoryWatches(options.watchEvents ?? watchEventsReal).subscribe(
+          options.packDir,
+          (rel) => {
+            if (rel !== undefined && isPythonSourceChange(rel)) schedule();
+          },
+          // The watch failed: build, so the result says how the sources are.
+          schedule,
+        );
+      } else {
+        watcher = watchFs(options.packDir, { recursive: true }, (_event, filename) => {
+          if (filename === null || !isPythonSourceChange(filename.toString())) return;
+          schedule();
+        });
+      }
+      backstop = await startScanBackstop({
+        scan,
+        intervalMs: options.scanIntervalMs ?? DEFAULT_SCAN_INTERVAL_MS,
+        onChange: schedule,
       });
     },
     // New or removed files need no entry list: the next build sees what is there.
     syncEntries: () => Promise.resolve(false),
     async dispose() {
       if (timer !== undefined) clearTimeout(timer);
+      backstop?.stop();
+      backstop = undefined;
+      unsubscribe?.();
+      unsubscribe = undefined;
       watcher?.close();
       watcher = undefined;
     },

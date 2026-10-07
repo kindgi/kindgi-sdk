@@ -5,6 +5,7 @@ import { type KindgiClient, createClient } from '@kindgi/client';
 
 import type { BuildRunners } from './build/runners.js';
 import type { RegistryAuthSeam } from './commands/auth.js';
+import type { DoctorSeam } from './commands/doctor.js';
 import type { EnvInitInputSeam } from './commands/env.js';
 import type { SecretsValueInputSeam } from './commands/secrets.js';
 import type { ResolvedConfig } from './config.js';
@@ -12,7 +13,7 @@ import type { DeployRunners } from './deploy/runners.js';
 import type { DevRunners } from './dev/runners.js';
 import type { EnvRunners } from './env/runners.js';
 import type { KeyRunners } from './key/runners.js';
-import type { GlobalFlags } from './parse.js';
+import type { GlobalFlags, OptionValue } from './parse.js';
 import type { TestRunners } from './test/runners.js';
 
 /**
@@ -32,7 +33,7 @@ export type BuildConfigLoader = (packDir: string) => Promise<unknown>;
 export interface CommandContext {
   readonly globals: GlobalFlags;
   readonly positionals: readonly string[];
-  readonly options: Readonly<Record<string, string | boolean | undefined>>;
+  readonly options: Readonly<Record<string, OptionValue>>;
   readonly config: ResolvedConfig;
   /** Create an SDK client using the resolved config. Throws if apiUrl / token are missing. */
   readonly client: () => KindgiClient;
@@ -139,12 +140,26 @@ export interface CommandContext {
    * terminal; production leaves this undefined (the real ones).
    */
   readonly registryAuthSeam: RegistryAuthSeam | undefined;
+  /**
+   * `kindgi init`'s read of the host's pnpm version (`pnpm --version` in
+   * the new pack). Tests inject it; production leaves it undefined.
+   */
+  readonly initSeam: InitSeam | undefined;
+  /**
+   * `kindgi doctor`'s tools, `docker` runner, Node version, image and
+   * presets. Tests inject them; production leaves this undefined.
+   */
+  readonly doctorSeam: DoctorSeam | undefined;
+}
+
+export interface InitSeam {
+  readonly pnpmVersion?: (dir: string) => Promise<string>;
 }
 
 export interface BuildContextInputs {
   readonly globals: GlobalFlags;
   readonly positionals: readonly string[];
-  readonly options: Readonly<Record<string, string | boolean | undefined>>;
+  readonly options: Readonly<Record<string, OptionValue>>;
   readonly config: ResolvedConfig;
   readonly fetchImpl?: typeof fetch;
   readonly clientFactory?: (apiUrl: string, token: string) => KindgiClient;
@@ -162,6 +177,8 @@ export interface BuildContextInputs {
   readonly secretsInputSeam?: SecretsValueInputSeam;
   readonly envInitInputSeam?: EnvInitInputSeam;
   readonly registryAuthSeam?: RegistryAuthSeam;
+  readonly initSeam?: InitSeam;
+  readonly doctorSeam?: DoctorSeam;
 }
 
 export function buildContext(inputs: BuildContextInputs): CommandContext {
@@ -209,5 +226,7 @@ export function buildContext(inputs: BuildContextInputs): CommandContext {
     secretsInputSeam: inputs.secretsInputSeam,
     envInitInputSeam: inputs.envInitInputSeam,
     registryAuthSeam: inputs.registryAuthSeam,
+    initSeam: inputs.initSeam,
+    doctorSeam: inputs.doctorSeam,
   };
 }

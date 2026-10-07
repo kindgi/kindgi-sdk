@@ -57,6 +57,10 @@ const DECISION_KINDS: ReadonlySet<ReviewDecisionKind> = new Set([
 
 const ROLE_VALUES: ReadonlySet<ReviewerRole> = new Set(['standard', 'senior', 'admin']);
 
+/** How many `waitTokenId` values a list takes, and how long each may be. */
+const MAX_WAIT_TOKEN_IDS = 50;
+const MAX_WAIT_TOKEN_ID_LENGTH = 512;
+
 /**
  * Terminal approval statuses — the ones an audit bundle can be exported for.
  * An `expired` approval has no recorded decision.
@@ -214,6 +218,23 @@ export function approvalsRouter(
       createdAfterIso = parsed.toISOString();
     }
 
+    const waitTokenIds = c.req.queries('waitTokenId') ?? [];
+    if (
+      waitTokenIds.length > MAX_WAIT_TOKEN_IDS ||
+      waitTokenIds.some((t) => t.length === 0 || t.length > MAX_WAIT_TOKEN_ID_LENGTH)
+    ) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'bad-input',
+            message: `\`waitTokenId\` takes at most ${MAX_WAIT_TOKEN_IDS} values, each 1–${MAX_WAIT_TOKEN_ID_LENGTH} characters`,
+          },
+          requestId,
+        ),
+      );
+    }
+
     const cursor = c.req.query('cursor');
     if (cursor !== undefined && cursor.length > 0) {
       const parsed = new Date(cursor);
@@ -238,6 +259,7 @@ export function approvalsRouter(
       ...(requiredRoleFilter !== undefined && { requiredRole: requiredRoleFilter }),
       ...(createdAfterIso !== undefined && { since: createdAfterIso as unknown as Timestamp }),
       ...(cursor !== undefined && cursor.length > 0 && { cursor: cursor as Cursor }),
+      ...(waitTokenIds.length > 0 && { waitTokenIds }),
     };
     const listed = await hitlBinding.listApprovals(listInput);
     if (listed.kind === 'err') {
@@ -406,6 +428,7 @@ export function approvalsRouter(
     // override it, when the resume payload must carry more than the
     // decision (an agent gate refuses one, above).
     let waitpointResolved = false;
+    let resume: ResumeReport | undefined;
     if (
       approval.waitTokenId !== undefined &&
       approval.provenanceRef?.runId !== undefined &&
@@ -440,15 +463,12 @@ export function approvalsRouter(
       // journaled `wait.resumed`. The approval-complete surface reports
       // the decision as successful; a run that stayed suspended because
       // the inline resume failed can be resumed later.
+      //
+      // The response says how the resume went (`resume`), so a decision
+      // whose run couldn't go on (a tool version it started with is gone,
+      // say) isn't reported as plain success.
       if (runHandler !== undefined) {
-        try {
-          await runHandler.resumeRun({
-            tenantId,
-            runId: approval.provenanceRef.runId as RunId,
-          });
-        } catch {
-          // Soft-fail — the decision is durable; the run can be resumed later.
-        }
+        resume = await resumeInline(runHandler, tenantId, approval.provenanceRef.runId as RunId);
       }
     }
 
@@ -461,6 +481,7 @@ export function approvalsRouter(
         nextApproval: serializeApproval(result.nextApproval),
       }),
       waitpointResolved,
+      ...(resume !== undefined && { resume }),
     });
   });
 
@@ -807,4 +828,33 @@ function parseAuditBundleBody(
       includeMessages,
     },
   };
+}
+
+/** How the inline resume after a decision went. */
+type ResumeReport =
+  | { readonly kind: 'ok' }
+  | { readonly kind: 'failed'; readonly code: string; readonly message: string };
+
+/**
+ * Resume the run a decision released, in the same request. A resume that
+ * fails is reported, not raised: the decision is durable either way, and
+ * the runtime ends a run that can't go on, or resumes it later.
+ */
+async function resumeInline(
+  runHandler: RunHandlerBinding,
+  tenantId: TenantId,
+  runId: RunId,
+): Promise<ResumeReport> {
+  try {
+    const outcome = await runHandler.resumeRun({ tenantId, runId });
+    return outcome.kind === 'ok'
+      ? { kind: 'ok' }
+      : { kind: 'failed', code: outcome.error.code, message: outcome.error.message };
+  } catch (cause) {
+    return {
+      kind: 'failed',
+      code: 'resume-failed',
+      message: cause instanceof Error ? cause.message : String(cause),
+    };
+  }
 }

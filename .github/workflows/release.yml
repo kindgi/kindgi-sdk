@@ -11,11 +11,15 @@ name: Release
 #    GITHUB_TOKEN start no workflow runs, so the required CI checks would
 #    never report on the PR. Changesets pushes through the GitHub API, so
 #    its commits are signed and attributed to the App.
+#    In Changesets pre mode (`.changeset/pre.json`) the versions are
+#    release candidates, `X.Y.Z-rc.N`: see CONTRIBUTING.md, "Release
+#    candidates".
 # 2. workflow_dispatch → publish. Runs in the `npm-publish` environment
 #    (required reviewer), authenticates to npm with trusted publishing
 #    (OIDC — no tokens), and publishes every non-private package whose
-#    current version is not yet on npm, with provenance. `dry-run: true`
-#    (the default) builds, checks, and packs without publishing.
+#    current version is not yet on npm, with provenance, under the dist-tag
+#    `latest`, or `next` for a release candidate. `dry-run: true` (the
+#    default) builds, checks, and packs without publishing.
 #
 # npm trusted publisher settings per package: repository kindgi/kindgi-sdk,
 # workflow `release.yml`, environment `npm-publish`.
@@ -85,6 +89,10 @@ jobs:
           version-file: sdks/python/pyproject.toml
           python-version: "3.13"
           cache-dependency-glob: sdks/python/uv.lock
+          # With nothing to version (the push right after a Version
+          # Packages merge), uv never runs and there's no cache to save:
+          # not a failure.
+          ignore-nothing-to-cache: true
       - uses: changesets/action@v2
         with:
           version-script: pnpm run version-packages
@@ -119,12 +127,28 @@ jobs:
       # npm and PyPI release one version: the Python SDK's must be the same.
       - name: The Python SDK's version is the packages'
         run: pnpm run check:python-version
+      # A pre-release (X.Y.Z-rc.N) publishes under `next`, a release under
+      # `latest`: what an install without a version gets moves only for a
+      # release. npm refuses a pre-release without a tag.
+      - name: The npm dist-tag
+        id: dist-tag
+        run: echo "tag=$(node scripts/release-dist-tag.mjs)" >> "$GITHUB_OUTPUT"
       - name: Publish (dry-run)
         if: ${{ inputs.dry-run }}
-        run: pnpm -r publish --dry-run --no-git-checks
+        run: pnpm -r publish --dry-run --no-git-checks --tag "${{ steps.dist-tag.outputs.tag }}"
       - name: Publish
         if: ${{ !inputs.dry-run }}
-        run: pnpm -r publish --no-git-checks
+        run: pnpm -r publish --no-git-checks --tag "${{ steps.dist-tag.outputs.tag }}"
+      - name: latest is still a release
+        if: ${{ !inputs.dry-run }}
+        run: |
+          for pkg in @kindgi/sdk @kindgi/cli; do
+            latest=$(npm view "$pkg" dist-tags.latest)
+            if [[ "$latest" == *-* ]]; then
+              echo "::error::$pkg's latest is $latest, a pre-release: point it back with npm dist-tag add $pkg@<release> latest"
+              exit 1
+            fi
+          done
       # `changeset git-tag` makes annotated tags, which need a committer
       # identity; without one every `git tag` fails while changesets still
       # reports the tags as created. The check reads them back from origin.

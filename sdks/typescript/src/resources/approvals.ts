@@ -4,15 +4,14 @@
 import type {
   ApprovalId,
   AuditBundleId,
-  Cursor,
   Filter,
-  Page,
   ReviewerId,
   RunId,
   Timestamp,
 } from '@kindgi/types';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
+import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { ScopeRef } from '../scope-wire.js';
 import { scopeToQuery } from '../scope-wire.js';
 import { singleStatusQuery } from '../status-query.js';
@@ -62,7 +61,7 @@ export interface ApprovalsClient {
    * @wire `GET /v1/approvals` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1approvals/get`. Role-scoped.
    */
-  list(filter?: ApprovalFilter): Promise<Page<Approval>>;
+  list(filter?: ApprovalFilter): Promise<ListPage<Approval>>;
 
   /**
    * @wire `GET /v1/approvals/{approvalId}` — see
@@ -130,7 +129,7 @@ export interface ReviewersClient {
    * @wire `GET /v1/approvals/reviewers` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1approvals~1reviewers/get`.
    */
-  list(filter?: ReviewerFilter): Promise<Page<Reviewer>>;
+  list(filter?: ReviewerFilter): Promise<ListPage<Reviewer>>;
 
   /**
    * @wire `GET /v1/approvals/reviewers/{reviewerId}` — see
@@ -190,7 +189,7 @@ export interface AuditClient {
    * @unwired The API has no `GET /v1/audit-bundles` route — bundles
    *   are not stored server-side (see `get`).
    */
-  list(filter?: Filter): Promise<Page<AuditBundleMeta>>;
+  list(filter?: Filter): Promise<ListPage<AuditBundleMeta>>;
 
   /**
    * Verify a bundle's Ed25519 signature client-side.
@@ -213,6 +212,11 @@ export interface ApprovalFilter extends Omit<Filter<ApprovalStatus>, 'status'> {
   readonly requiredRole?: ReviewerRole;
   /** ISO 8601 timestamp — return approvals created strictly after this. */
   readonly createdAfter?: Timestamp;
+  /**
+   * Only approvals linked to one of these run waits (an approval's
+   * `waitTokenId`; a run's journal names its open waits). At most 50.
+   */
+  readonly waitTokenIds?: readonly string[];
 }
 
 export interface ReviewerFilter extends Filter {
@@ -253,12 +257,6 @@ export interface AuditExportInput {
   readonly idempotencyKey?: string;
 }
 
-interface WirePage<T> {
-  readonly data: readonly T[];
-  readonly hasMore: boolean;
-  readonly nextCursor?: string;
-}
-
 export function makeApprovalsClient(transport: Transport): ApprovalsClient {
   return {
     async list(filter) {
@@ -275,14 +273,11 @@ export function makeApprovalsClient(transport: Transport): ApprovalsClient {
           ...(filter?.createdAfter !== undefined && {
             createdAfter: filter.createdAfter as unknown as string,
           }),
+          ...(filter?.waitTokenIds !== undefined &&
+            filter.waitTokenIds.length > 0 && { waitTokenId: filter.waitTokenIds }),
         },
       });
-      return {
-        items: page.data,
-        ...(page.nextCursor !== undefined && {
-          nextCursor: page.nextCursor as unknown as Cursor,
-        }),
-      };
+      return listPage(page);
     },
 
     async get(id) {
@@ -357,12 +352,7 @@ export function makeApprovalsClient(transport: Transport): ApprovalsClient {
             ...(filter?.role !== undefined && { role: filter.role }),
           },
         });
-        return {
-          items: page.data,
-          ...(page.nextCursor !== undefined && {
-            nextCursor: page.nextCursor as unknown as Cursor,
-          }),
-        };
+        return listPage(page);
       },
 
       async get(id) {

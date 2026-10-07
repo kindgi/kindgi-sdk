@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Filter, PackId, Page } from '@kindgi/types';
+import type { Filter, PackId } from '@kindgi/types';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
+import type { ListPage } from '../list-page.js';
 import type { Transport } from '../transport.js';
 import type {
   InstallationId,
@@ -40,13 +41,13 @@ export interface PacksClient {
   install(input: PackInstallInput): Promise<InstallationId>;
 
   /** @unwired No `GET /v1/packs/installed` route. */
-  installed(filter?: PackFilter): Promise<Page<InstalledPack>>;
+  installed(filter?: PackFilter): Promise<ListPage<InstalledPack>>;
 
   /** @unwired No `GET /v1/packs/{id}` route. */
   get(id: PackId): Promise<Pack>;
 
   /** @unwired No `GET /v1/packs/{id}/versions` route. */
-  versions(id: PackId): Promise<Page<Pack>>;
+  versions(id: PackId): Promise<ListPage<Pack>>;
 
   /** @unwired No `PATCH /v1/pack-installations/{id}/config` route. */
   configure(id: InstallationId, config: Readonly<Record<string, unknown>>): Promise<void>;
@@ -71,9 +72,9 @@ export interface PacksClient {
  */
 export interface RegistryClient {
   /** @unwired No `GET /v1/packs/registry` route. */
-  browse(filter?: RegistryFilter): Promise<Page<Pack>>;
+  browse(filter?: RegistryFilter): Promise<ListPage<Pack>>;
   /** @unwired No `GET /v1/packs/registry/configured` route. */
-  configured(): Promise<Page<{ readonly url: string; readonly name: string }>>;
+  configured(): Promise<ListPage<{ readonly url: string; readonly name: string }>>;
 }
 
 export interface PackFilter extends Filter<PackInstallStatus> {

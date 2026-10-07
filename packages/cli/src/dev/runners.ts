@@ -49,6 +49,11 @@ export interface RunningApiServer {
 export interface StartApiServerOptions {
   /** The host port the API is reached on (`127.0.0.1` only). */
   readonly port: number;
+  /**
+   * `kindgi dev`'s stop (Ctrl+C, SIGTERM): a wait for the runtime ends at
+   * once with `RuntimeStartStopped`, and a container it started is removed.
+   */
+  readonly signal?: AbortSignal;
   /** Postgres, as this machine reaches it. */
   readonly databaseUrl: string;
   readonly tenantId: string;
@@ -317,6 +322,8 @@ export interface DevRunners {
       readonly debounceMs?: number;
       readonly patterns?: readonly string[];
       readonly files?: readonly string[];
+      /** A watch failed; the once-a-second scan behind it goes on. */
+      readonly onWatchFailed?: (error: unknown) => void;
     },
   ) => Promise<WatchHandle>;
   /**
@@ -336,6 +343,15 @@ export interface DevRunners {
    * container is reused as it is — another `kindgi dev` may be using it.
    * Without compose it is always reused; the handle's `notes` say so.
    */
+  /**
+   * Whether the runtime's port on `127.0.0.1` is taken, checked before
+   * anything starts. The pack's own runtime from an earlier boot doesn't
+   * count: starting the runtime replaces it. Missing: not checked.
+   */
+  readonly runtimePortInUse?: (input: {
+    readonly packDir: string;
+    readonly port: number;
+  }) => Promise<boolean>;
   readonly startServices?: (options: {
     readonly recreate: boolean;
   }) => Promise<StartServicesResult>;

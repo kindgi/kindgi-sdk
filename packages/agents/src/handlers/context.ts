@@ -19,6 +19,7 @@ import type { ProvenanceBindings } from '../provenance-emit.js';
 import type { Agent, Conversation, ConversationMessage, RetrievedFact } from '../types.js';
 
 import type { HitlBindings, InvokeAgentBindings, InvokeAgentInput } from './public-types.js';
+import type { TurnBlocks } from './resolve-blocks.js';
 import type { ToolErrorPolicy } from './tool-errors.js';
 
 /**
@@ -53,6 +54,8 @@ export interface TurnContext {
    * Populated by `setup` — resolved tools (per-name map + model
    * definitions).
    */
+  /** The data blocks the turn runs with (set by setup; none when the agent references none). */
+  blocks?: TurnBlocks;
   tools?: {
     readonly definitions: readonly ModelToolDefinition[];
     /**
@@ -189,6 +192,13 @@ export interface TurnContext {
    * `AgentTurnResult.violations`.
    */
   nonBlockingViolations?: readonly EvaluationResult[];
+  /**
+   * A replay turn's tool calls so far, and what happened to each
+   * (`decideReplayTool`). Rebuilt from the journal on resume.
+   */
+  replayTrace?: import('./replay.js').ReplayToolTrace[];
+  /** A replay turn's session approval, when it reached the gate (`replaySessionApproval`). */
+  replayApproval?: 'followed' | 'skipped';
   /**
    * Reason recorded when `turnAbort` fires. Used to distinguish
    * external cancellation from wall-clock timeout in the projected

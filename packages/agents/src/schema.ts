@@ -148,6 +148,11 @@ export const agentRunSnapshots = pgTable(
      * Threaded back into the resumed TurnContext.
      */
     authz: jsonb('authz'),
+    /**
+     * The replay marker (`{of, evalRunId}`) of a replay turn, so a resumed
+     * replay stays one: its tool calls are still decided by the replay rules.
+     */
+    replay: jsonb('replay'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({

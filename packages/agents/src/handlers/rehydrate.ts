@@ -10,7 +10,9 @@
  *
  *   - the environment — conversation, approval rules, guardrails, tools,
  *     policies — is resolved again, routed to the provider and model
- *     `setup` journaled;
+ *     `setup` journaled, with the tool versions it journaled (a range
+ *     isn't resolved again: a version published meanwhile doesn't run
+ *     mid-turn);
  *   - the messages the turn stored come back from the conversation, from
  *     the turn's user message (`persist-user-message` journals its
  *     sequence);
@@ -46,6 +48,8 @@ import type { ConversationMessage, RetrievedFact } from '../types.js';
 import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
 import { readGateDecision } from './gate-decision.js';
+import { rehydrateReplay } from './replay.js';
+import type { PinnedBlockVersions } from './resolve-blocks.js';
 import { TOOL_GATE_RECORD_PREFIX } from './tool-hitl.js';
 import {
   loadTurnConversation,
@@ -107,10 +111,12 @@ export async function rehydrateTurnContext(
   journal: readonly JournalEntry[],
 ): Promise<boolean> {
   const steps = completedSteps(journal);
-  const setup = outputOf<{ readonly providerId: string; readonly providerModel: string }>(
-    steps,
-    'setup',
-  );
+  const setup = outputOf<{
+    readonly providerId: string;
+    readonly providerModel: string;
+    readonly toolVersions?: Readonly<Record<string, string>>;
+    readonly blockVersions?: PinnedBlockVersions;
+  }>(steps, 'setup');
   if (setup === undefined) return false;
 
   if (ctx.bindings.provenance?.newBuilder !== undefined) {
@@ -119,7 +125,15 @@ export async function rehydrateTurnContext(
   }
   await loadTurnConversation(ctx);
   ctx.hitlPolicy = await resolveTurnHitlPolicy(ctx);
-  await resolveTurnEnvironment(ctx, { providerId: setup.providerId, model: setup.providerModel });
+  // The route and the tool versions `setup` resolved: a resumed turn
+  // runs those, never a range resolved again (a journal from before
+  // `toolVersions` was recorded resolves the ranges, as it did).
+  await resolveTurnEnvironment(
+    ctx,
+    { providerId: setup.providerId, model: setup.providerModel },
+    setup.toolVersions,
+    setup.blockVersions,
+  );
 
   const userMessage = outputOf<{ readonly sequence: number }>(steps, 'persist-user-message');
   if (userMessage !== undefined) {
@@ -151,6 +165,7 @@ export async function rehydrateTurnContext(
   }
   ctx.toolApprovals = toolApprovalsOf(journal);
   rebuildProvenance(ctx, steps, retrievals?.retrieved);
+  rehydrateReplay(ctx, journal);
   return true;
 }
 

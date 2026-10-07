@@ -233,11 +233,13 @@ export type {
   AgentPublishInput,
   AgentPublishOutcome,
   AgentRegistryBinding,
+  AgentVersionRecord,
   AgentReinstateVersionInput,
   AgentReinstateVersionOutcome,
   AgentUnregisterInput,
   AgentUnregisterOutcome,
 } from './agent-binding.js';
+export type { RegistryReadOnly } from './registry-read-only.js';
 export type {
   FlowGetInput,
   FlowGetVersionInput,
@@ -247,6 +249,7 @@ export type {
   FlowPublishInput,
   FlowPublishOutcome,
   FlowRegistryBinding,
+  FlowVersionRecord,
   FlowReinstateVersionInput,
   FlowReinstateVersionOutcome,
   FlowUnregisterInput,
@@ -309,7 +312,7 @@ export {
   stdioRefusal,
 } from './tenant-host-access.js';
 export type { HostReach, TenantHostAccess } from './tenant-host-access.js';
-export { POLICY_KINDS } from '@kindgi/policy-contract';
+export { APPLIED_POLICY_KINDS, POLICY_KINDS } from '@kindgi/policy-contract';
 export type {
   Policy,
   PolicyGetInput,
@@ -328,6 +331,104 @@ export type {
   PolicyVersionPage,
   PolicyVersionRow,
 } from '@kindgi/policy-contract';
+export {
+  JUDGE_CLASS_SCOPE_KINDS,
+  VERDICTS,
+  judgeClassApplies,
+  whyNotAssertable,
+} from './judgment-binding.js';
+export type {
+  EvalCaseListInput,
+  EvalCasePage,
+  EvalCasePutInput,
+  EvalCaseStoreBinding,
+  JudgedEvalCase,
+  JudgedItemSummary,
+} from './eval-case-binding.js';
+export { MAX_JUDGED_CASES } from './routes/judged-suites.js';
+export { MAX_JUDGED_HISTORY } from './routes/judgment-context.js';
+export type {
+  JudgeClass,
+  JudgeClassAssertableBy,
+  JudgeClassAsserter,
+  JudgeClassCreateInput,
+  JudgeClassCreateOutcome,
+  JudgeClassGetInput,
+  JudgeClassListInput,
+  JudgeClassPage,
+  JudgeClassScope,
+  JudgeClassScopeKind,
+  JudgeClassUpdateInput,
+  JudgedItem,
+  JudgedFlowContext,
+  JudgedFlowStep,
+  JudgedRunContext,
+  JudgedToolCall,
+  JudgedRunCopy,
+  JudgedRunListInput,
+  JudgedRunPage,
+  JudgedRunWithJudgments,
+  JudgedSubject,
+  Judgment,
+  JudgmentAssertedBy,
+  JudgmentGetInput,
+  JudgmentListInput,
+  JudgmentPage,
+  JudgmentRecordInput,
+  JudgmentRegistryBinding,
+  JudgmentWithCopies,
+  Verdict,
+} from './judgment-binding.js';
+export { resolvePointer } from './routes/judgments.js';
+export type {
+  BlockGetInput,
+  BlockGetVersionInput,
+  BlockListInput,
+  BlockListVersionsInput,
+  BlockPage,
+  BlockPublishInput,
+  BlockPublishOutcome,
+  BlockRecord,
+  BlockRegistryBinding,
+  BlockReinstateOutcome,
+  BlockVersionInput,
+} from './block-binding.js';
+export type {
+  AgentReleaseBindings,
+  ListPromotionsInput,
+  LivePin,
+  LiveResolution,
+  LiveResolveInput,
+  LiveVersionBinding,
+  PromoteInput,
+  Promotion,
+  PromotionAction,
+  PromotionActor,
+  PromotionBinding,
+  PromotionError,
+  PromotionErrorCode,
+  PromotionRequestInput,
+  PromotionStatus,
+  RollbackInput,
+  UnpinInput,
+} from './live-version-binding.js';
+export type {
+  GateMetricName,
+  GateMetricSpec,
+  GatePolicy,
+  GatePolicyBinding,
+  GatePolicyError,
+  GatePolicyErrorCode,
+  GatePolicyListInput,
+  GatePolicyPublishInput,
+  GatePolicyRef,
+  GatePolicySpec,
+  GatePolicyVersionInput,
+} from './gate-policy-binding.js';
+export { GATE_METRICS } from './gate-policy-binding.js';
+export type { GateApproval, GateCheck, GateInput, GateResult } from './gate.js';
+export { evaluateGate, gateApproval } from './gate.js';
+export type { AgentReleaseGateDeps } from './routes/agent-releases.js';
 export { EVAL_KINDS } from './eval-suite-binding.js';
 export type {
   EvalKind,
@@ -348,6 +449,10 @@ export type {
 export { EVAL_RUN_STATUSES } from './eval-run-binding.js';
 export type {
   AgentRef,
+  EvalBaseline,
+  EvalClassWeights,
+  EvalComparison,
+  EvalReads,
   EvalRun,
   EvalRunBinding,
   EvalRunCancelInput,
@@ -379,7 +484,27 @@ export type {
   EvalSubjectInvoker,
   InProcessEvalRunBindingOptions,
 } from './eval-run-dispatcher.js';
-export { COST_GROUP_DIMENSIONS } from './cost-binding.js';
+export { DEFAULT_COMPARISON, createJudgedDispatcher } from './judged-dispatcher.js';
+export type {
+  ComparisonBaselineSummary,
+  ComparisonMetric,
+  JudgedCaseResult,
+  JudgedComparisonSummary,
+  JudgedDispatcherOptions,
+} from './judged-dispatcher.js';
+export { itemChanges, matchJudged, outputItems, scoreItems, valueAt } from './judged-items.js';
+export type {
+  ItemChanges,
+  ItemJudgments,
+  MatchedItem,
+  OutputItem,
+  OutputScore,
+} from './judged-items.js';
+export {
+  COST_AGGREGATE_DEFAULT_LIMIT,
+  COST_AGGREGATE_MAX_LIMIT,
+  COST_GROUP_DIMENSIONS,
+} from './cost-binding.js';
 export type {
   CostAggregateGroup,
   CostAggregateInput,
@@ -477,7 +602,10 @@ export type {
   DeploymentGetInput,
   DeploymentListInput,
   DeploymentPage,
+  DeployedAgent,
+  DeployedFlow,
   DeployedPrimitive,
+  DeployedVersion,
   DeploymentContents,
   DeploymentPrimitiveCounts,
   DeploymentRegisterInput,
@@ -601,6 +729,7 @@ export type { JsonSchema } from './openapi/schemas.js';
 
 export type {
   RetentionBinding,
+  RetentionPolicyConflict,
   RetentionScheduledInput,
   RetentionScheduledItem,
   RetentionScheduledPage,

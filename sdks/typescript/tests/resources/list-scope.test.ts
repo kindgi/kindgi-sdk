@@ -57,6 +57,17 @@ describe('list by project or org', () => {
     expect([sent.get('scopeKind'), sent.get('scopeId')]).toEqual(['org', 'o-1']);
   });
 
+  it('blocks.list sends the scope', async () => {
+    const { stub, kindgi } = client([EMPTY]);
+    await kindgi.blocks.list({ scope: { kind: 'project', projectId: 'p-1' }, kind: 'prompt' });
+    const sent = query(stub.calls[0]?.url);
+    expect([sent.get('scopeKind'), sent.get('scopeId'), sent.get('kind')]).toEqual([
+      'project',
+      'p-1',
+      'prompt',
+    ]);
+  });
+
   it('no scope: none sent', async () => {
     const { stub, kindgi } = client([EMPTY]);
     await kindgi.approvals.list();

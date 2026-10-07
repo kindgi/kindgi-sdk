@@ -70,6 +70,13 @@ export interface PolicyRegistryBinding {
    * before calling — the binding receives a well-formed `Policy`.
    * Bindings MAY reject with `already-registered` when the same
    * `(policyId, version)` is re-published; the route maps that to `409`.
+   *
+   * For a kind that holds a scope (`policyScope`; `retention` holds its
+   * domain), refuse with `scope-taken` when another policy id of the
+   * kind holds the scope through an active version, and `scope-changed`
+   * when any other version of this id, tombstoned ones included, holds a
+   * different scope. Check and write under one lock per tenant and kind,
+   * so two publishes can't both take a scope.
    */
   publish(input: PolicyPublishInput): Promise<PolicyPublishOutcome>;
   /**
@@ -82,6 +89,11 @@ export interface PolicyRegistryBinding {
    * Un-tombstone a specific `(policyId, version)`. Recomputes the
    * policy's latest version. Restores the stored definition unchanged
    * (a published version never changes content). Idempotent.
+   *
+   * Refuse with `scope-taken` when another policy id now holds the
+   * version's scope (`policyScope`) through an active version, and
+   * `scope-changed` when this id's other versions hold a different one,
+   * under the same lock as `publish`.
    */
   reinstateVersion(input: PolicyReinstateVersionInput): Promise<PolicyReinstateVersionOutcome>;
 }
@@ -121,6 +133,28 @@ export const POLICY_KINDS = [
   'hitl',
 ] as const;
 export type PolicyKind = (typeof POLICY_KINDS)[number];
+
+/**
+ * The policy kinds a runtime consumer applies today: publishing one of
+ * these changes what runs. The others (`access-control`,
+ * `adapter-allowlist`, `rate-limit`, `compliance`) are known kinds with
+ * no consumer yet, so the API refuses to publish them
+ * (`kind-not-applied`) until one exists: a policy that silently changes
+ * nothing is worse than none. Policies of those kinds already stored stay
+ * readable.
+ */
+export const APPLIED_POLICY_KINDS = [
+  'model-routing',
+  'retention',
+  'tool-errors',
+  'hitl',
+] as const satisfies readonly PolicyKind[];
+export type AppliedPolicyKind = (typeof APPLIED_POLICY_KINDS)[number];
+
+/** Whether a runtime consumer applies `kind` (see `APPLIED_POLICY_KINDS`). */
+export function isAppliedPolicyKind(kind: PolicyKind): kind is AppliedPolicyKind {
+  return (APPLIED_POLICY_KINDS as readonly PolicyKind[]).includes(kind);
+}
 
 /**
  * Wire shape for a single tenant policy. `spec` is a JSON object whose
@@ -218,7 +252,38 @@ export type PolicyPublishOutcome =
       readonly kind: 'already-registered';
       readonly policyId: string;
       readonly version: string;
-    };
+    }
+  | PolicyScopeTaken
+  | PolicyScopeChanged;
+
+/**
+ * Another policy id of the same kind already holds this policy's scope
+ * (`policyScope`): for `retention`, another policy covers the domain.
+ * The route answers `409 policy-scope-taken`.
+ */
+export interface PolicyScopeTaken {
+  readonly kind: 'scope-taken';
+  readonly policyId: string;
+  readonly version: string;
+  readonly policyKind: PolicyKind;
+  readonly scope: string;
+  /** The policy id that holds the scope. */
+  readonly heldBy: string;
+}
+
+/**
+ * The policy id's other versions hold a different scope: a new version
+ * can't move a `retention` policy to another domain. The route answers
+ * `409 policy-scope-changed`.
+ */
+export interface PolicyScopeChanged {
+  readonly kind: 'scope-changed';
+  readonly policyId: string;
+  readonly version: string;
+  readonly policyKind: PolicyKind;
+  readonly scope: string;
+  readonly previousScope: string;
+}
 
 export type PolicyUnregisterOutcome = {
   readonly unregistered: boolean;
@@ -235,9 +300,12 @@ export type PolicyReinstateVersionOutcome =
       readonly kind: 'not-found';
       readonly policyId: string;
       readonly version: string;
-    };
+    }
+  | PolicyScopeTaken
+  | PolicyScopeChanged;
 
-export { RETENTION_DOMAINS, validateRetentionSpec } from './retention-spec.js';
+export { policyScope } from './policy-scope.js';
+export { RETENTION_DOMAINS, retentionSpecDoc, validateRetentionSpec } from './retention-spec.js';
 export {
   MAX_TOOL_ERROR_RETRIES,
   TOOL_ERROR_KINDS,

@@ -132,19 +132,27 @@ _NOT_FOUND = {
     "proposal-not-found", "provenance-not-found", "observation-not-found", "blob-not-found",
     "audit-bundle-not-found", "signing-not-configured", "signing-key-not-found",
     "adapter-not-found", "fact-not-found", "identity-user-not-found", "provider-not-found",
-    "capability-not-found", "token-not-found",
+    "capability-not-found", "token-not-found", "agent-version-not-found", "promotion-not-found",
 }  # fmt: skip
 _CONFLICT = {
     "conflict", "already-terminal", "run-already-terminal", "idempotency-key-body-mismatch",
     "hitl-required", "agent-already-registered", "tool-already-registered",
     "guardrail-already-registered", "flow-already-registered", "conversation-closed",
     "provider-already-registered", "proposal-invalid-state-transition", "approval-not-decided",
+    "slug-conflict", "project-default-already-exists", "registry-read-only",
+    "policy-already-registered", "policy-scope-taken", "policy-scope-changed",
+    "nothing-to-roll-back", "not-pinned", "agent-version-live", "eval-suite-already-registered",
+    "mcp-endpoint-already-registered", "identity-provider-already-registered",
+    "version-already-exists", "eval-run-already-terminal", "approval-already-decided",
+    "judge-class-name-taken", "promotion-superseded", "gate-policy-already-registered",
+    "gate-policy-scope-taken", "gate-policy-scope-changed", "gate-policy-scope-unpinned",
+    "gate-policy-needs-pin",
 }  # fmt: skip
 _INVALID = {
     "invalid-request", "validation-failed", "unknown-field", "bad-input", "unresolved-tool",
     "unresolved-guardrail", "schema-validation-failed", "invalid-agent", "invalid-tool-definition",
     "invalid-schema", "unknown-effect", "invalid-guardrail", "invalid-provider",
-    "supervisor-header-missing",
+    "supervisor-header-missing", "scope-invalid",
 }  # fmt: skip
 _AUTH: Mapping[str, Literal["unauthenticated", "forbidden", "token-expired"]] = {
     "auth-missing": "unauthenticated",
@@ -178,13 +186,15 @@ def from_wire(body: Any, status: int, *, retry_after: str | None = None) -> Kind
         "request_id": request_id,
     }
 
-    if code == "auth":
-        reason = error.get("reason")
-        valid = reason in ("unauthenticated", "forbidden", "token-expired")
-        return AuthError(message, reason=reason if valid else "unauthenticated", **common)
-    if code in _AUTH:
-        return AuthError(message, reason=_AUTH[code], **common)
-    if code in ("rate-limited", "rate-limit-exceeded"):
+    family = _family(code, status)
+    if family == "auth":
+        if code == "auth":
+            reason = error.get("reason")
+            valid = reason in ("unauthenticated", "forbidden", "token-expired")
+            return AuthError(message, reason=reason if valid else "unauthenticated", **common)
+        default = "forbidden" if status == 403 else "unauthenticated"
+        return AuthError(message, reason=_AUTH.get(code, default), **common)
+    if family == "rate-limited":
         seconds = error.get("retryAfterSeconds")
         if (
             not isinstance(seconds, (int, float))
@@ -197,16 +207,16 @@ def from_wire(body: Any, status: int, *, retry_after: str | None = None) -> Kind
             retry_after_seconds=float(seconds) if isinstance(seconds, (int, float)) else None,
             **common,
         )
-    if code in _NOT_FOUND:
+    if family == "not-found":
         kind = code.removesuffix("-not-found") or "unknown"
         found = next((v for k in _ID_FIELDS if (v := _text(details.get(k))) is not None), "unknown")
         return NotFoundError(message, kind=kind, id=found, **common)
-    if code in _CONFLICT:
+    if family == "conflict":
         return ConflictError(message, **common)
-    if code in _INVALID:
+    if family == "invalid":
         issues = _list(error.get("issues", details.get("issues")))
         return InvalidRequestError(message, issues=issues, **common)
-    if code == "guardrail-violation":
+    if family == "guardrail":
         return GuardrailViolationError(
             message,
             violations=_list(details.get("violations")),
@@ -214,6 +224,39 @@ def from_wire(body: Any, status: int, *, retry_after: str | None = None) -> Kind
             **common,
         )
     return ServerError(message, **common)
+
+
+# 409 and 422 aren't here: a code this client doesn't list stays a
+# `ServerError` (the docs match `budget-exceeded`, `agent-version-mismatch`
+# by `server_code`).
+_BY_STATUS: Mapping[int, str] = {
+    404: "not-found",
+    410: "not-found",
+    400: "invalid",
+    401: "auth",
+    403: "auth",
+    429: "rate-limited",
+}
+
+
+def _family(code: str, status: int) -> str:
+    """The error's family: by its code when this client lists it, else by the HTTP status.
+
+    So a newer server's code (a 404 `org-not-found`) is still a `NotFoundError`.
+    """
+    if code == "auth" or code in _AUTH:
+        return "auth"
+    if code in ("rate-limited", "rate-limit-exceeded"):
+        return "rate-limited"
+    if code in _NOT_FOUND:
+        return "not-found"
+    if code in _CONFLICT:
+        return "conflict"
+    if code in _INVALID:
+        return "invalid"
+    if code == "guardrail-violation":
+        return "guardrail"
+    return _BY_STATUS.get(status, "server")
 
 
 def _text(value: Any) -> str | None:

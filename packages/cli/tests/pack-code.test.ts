@@ -10,9 +10,10 @@ import { fileURLToPath } from 'node:url';
 
 import { afterEach, beforeEach, describe, expect, onTestFinished, test, vi } from 'vitest';
 
-import { packServiceCommand } from '../src/dev/defaults.js';
+import { packServiceCommand, watchPackReal } from '../src/dev/defaults.js';
 import { checkPackPython, resolvePackCode, resolvePackPython } from '../src/dev/pack-code.js';
 import { createPythonPackBuilder, isPythonSourceChange } from '../src/dev/python-builder.js';
+import type { WatchEvents } from '../src/dev/shared-watch.js';
 import { untilReported } from './fs-events.js';
 
 // The Python SDK's own virtualenv in the sibling kindgi-sdk checkout (`uv sync` in sdks/python).
@@ -169,23 +170,142 @@ describe('the Python pack builder', () => {
         env,
         debounceMs: 50,
         watchFs,
+        share: false,
+        // The scan never sees a change: only the events decide here.
+        scanSources: async () => 'unchanged',
       });
       const builds: unknown[] = [];
       await mkdir(join(packDir, 'tools'), { recursive: true });
       await writeFile(join(packDir, 'tools', 'a.py'), 'x = 1\n');
       await builder.watch((build) => builds.push(build));
+      // One timer: the scan's interval.
       listener?.('change', 'notes.txt');
       listener?.('change', join('.venv', 'lib', 'x.py'));
       listener?.('rename', null);
-      expect(vi.getTimerCount()).toBe(0);
-      listener?.('change', join('tools', 'a.py'));
-      listener?.('change', join('tools', 'a.py'));
       expect(vi.getTimerCount()).toBe(1);
+      listener?.('change', join('tools', 'a.py'));
+      listener?.('change', join('tools', 'a.py'));
+      expect(vi.getTimerCount()).toBe(2);
       await vi.advanceTimersByTimeAsync(50);
       vi.useRealTimers();
       await vi.waitFor(() => expect(builds).toEqual([{ kind: 'ok', bundleMap: {} }]), {
         timeout: 30_000,
       });
+      await builder.dispose();
+    },
+  );
+
+  // On macOS the builder shares the pack directory's one watch (`shared-watch.ts`).
+  test.skipIf(systemPython === undefined)(
+    "sharing the pack's watch: one watch in all; a .py edit rebuilds, other files do not",
+    async () => {
+      vi.useFakeTimers();
+      onTestFinished(() => {
+        vi.useRealTimers();
+      });
+      const opened: string[] = [];
+      const queue: string[] = [];
+      let wake: (() => void) | undefined;
+      const watchEvents: WatchEvents = (path, options) => {
+        opened.push(path);
+        options.signal.addEventListener('abort', () => wake?.());
+        return {
+          async *[Symbol.asyncIterator]() {
+            for (;;) {
+              while (queue.length === 0 && !options.signal.aborted) {
+                await new Promise<void>((resolve) => {
+                  wake = resolve;
+                });
+              }
+              if (options.signal.aborted) {
+                throw Object.assign(new Error('aborted'), { code: 'ABORT_ERR' });
+              }
+              yield { filename: queue.shift() as string };
+            }
+          },
+        };
+      };
+      const push = async (filename: string): Promise<void> => {
+        queue.push(filename);
+        wake?.();
+        await vi.advanceTimersByTimeAsync(0);
+      };
+      // The pack's other watcher, as `kindgi dev` has it.
+      const other = await watchPackReal(packDir, () => undefined, {
+        watch: watchEvents,
+        share: true,
+        patterns: [],
+        scan: async () => '',
+      });
+      const builder = createPythonPackBuilder({
+        packDir,
+        python: [systemPython as string],
+        env,
+        debounceMs: 50,
+        share: true,
+        watchEvents,
+        scanSources: async () => 'unchanged',
+      });
+      const builds: unknown[] = [];
+      await mkdir(join(packDir, 'tools'), { recursive: true });
+      await writeFile(join(packDir, 'tools', 'a.py'), 'x = 1\n');
+      await builder.watch((build) => builds.push(build));
+      expect(opened).toEqual([packDir]);
+
+      // One timer each: the two scans' intervals.
+      const scans = vi.getTimerCount();
+      await push('notes.txt');
+      await push(join('.venv', 'lib', 'x.py'));
+      expect(vi.getTimerCount()).toBe(scans);
+      await push(join('tools', 'a.py'));
+      expect(vi.getTimerCount()).toBe(scans + 1);
+      await vi.advanceTimersByTimeAsync(50);
+      vi.useRealTimers();
+      await vi.waitFor(() => expect(builds).toEqual([{ kind: 'ok', bundleMap: {} }]), {
+        timeout: 30_000,
+      });
+      await builder.dispose();
+      await other.close();
+    },
+  );
+
+  // A dropped event (FSEvents under load): the scan finds the change.
+  test.skipIf(systemPython === undefined)(
+    'an edit no event reports is found by the scan, and built once',
+    async () => {
+      vi.useFakeTimers();
+      onTestFinished(() => {
+        vi.useRealTimers();
+      });
+      const watchFs = (() => ({ close() {} })) as unknown as typeof watch;
+      let sources = 'tools/a.py:1:6';
+      const builder = createPythonPackBuilder({
+        packDir,
+        python: [systemPython as string],
+        env,
+        debounceMs: 50,
+        scanIntervalMs: 1_000,
+        watchFs,
+        share: false,
+        scanSources: async () => sources,
+      });
+      const builds: unknown[] = [];
+      await mkdir(join(packDir, 'tools'), { recursive: true });
+      await writeFile(join(packDir, 'tools', 'a.py'), 'x = 1\n');
+      await builder.watch((build) => builds.push(build));
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(builds).toEqual([]);
+      // The edit: no event, only the files changed.
+      sources = 'tools/a.py:2:7';
+      await vi.advanceTimersByTimeAsync(1_000 + 50);
+      vi.useRealTimers();
+      await vi.waitFor(() => expect(builds).toEqual([{ kind: 'ok', bundleMap: {} }]), {
+        timeout: 30_000,
+      });
+      vi.useFakeTimers();
+      // Nothing changed since: no second build.
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(builds).toHaveLength(1);
       await builder.dispose();
     },
   );

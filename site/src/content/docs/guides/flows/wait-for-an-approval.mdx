@@ -263,7 +263,8 @@ does. After the decision, `e3` or `e4` reads the agent's answer,
 
 ## Run it
 
-Only reviewers can decide approvals. Register yourself once:
+Only reviewers can decide approvals. Under `kindgi dev` you're one already; on
+any other runtime, register yourself once:
 
 ```sh
 kindgi reviewers register --spec='{"role":"standard"}'
@@ -303,7 +304,7 @@ kindgi approvals list --status=pending
 
 ```json
 {
-  "items": [
+  "data": [
     {
       "id": "0eaa2820-0afe-4147-a017-fc8a4d1657cc",
       …
@@ -327,7 +328,8 @@ kindgi approvals list --status=pending
       },
       …
     }
-  ]
+  ],
+  "hasMore": false
 }
 ```
 

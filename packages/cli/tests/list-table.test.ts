@@ -47,10 +47,11 @@ const client = {
   },
   tools: {
     list: async () => ({
-      items: [
+      data: [
         { id: 'acme.search', version: '1.0.0', description: 'Search the\nrequests by text.' },
         { id: 'acme.long', description: 'x'.repeat(80) },
       ],
+      hasMore: false,
     }),
   },
   providers: {

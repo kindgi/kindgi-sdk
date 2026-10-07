@@ -1,0 +1,26 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+#
+# Pre-push: a maintainer's own local check, when the clone names one.
+#
+#   git config kindgi.prePushCheck <program>
+#
+# The program gets the hook's arguments and its stdin (one line per ref
+# being pushed), and a failure stops the push. Without the setting, this
+# does nothing. With a setting that names a missing program, it stops the
+# push, saying so: a check that's turned on never silently turns off.
+#
+# See CONTRIBUTING.md.
+
+set -eu
+
+check=$(git config --get kindgi.prePushCheck || true)
+[ -z "$check" ] && exit 0
+
+if [ ! -x "$check" ]; then
+  echo "pre-push: kindgi.prePushCheck names $check, which isn't there or can't run." >&2
+  echo "Restore it, or turn the check off: git config --unset kindgi.prePushCheck" >&2
+  exit 1
+fi
+
+exec "$check" "$@"

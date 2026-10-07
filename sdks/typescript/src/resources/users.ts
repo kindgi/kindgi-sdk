@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Cursor, Filter, Page, SessionId, UserId } from '@kindgi/types';
+import type { Filter, SessionId, UserId } from '@kindgi/types';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
+import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { Transport } from '../transport.js';
 import type {
   RevokeSessionsResult,
@@ -74,7 +75,7 @@ export interface UsersClient {
    * @wire `GET /v1/identity/users` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1identity~1users/get`.
    */
-  list(filter?: UserFilter): Promise<Page<User>>;
+  list(filter?: UserFilter): Promise<ListPage<User>>;
 
   /**
    * @unwired No user-update route — users live in the deployment's
@@ -99,7 +100,7 @@ export interface SessionsClient {
    * @wire `GET /v1/identity/users/{userId}/sessions` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1identity~1users~1{userId}~1sessions/get`.
    */
-  list(userId: UserId): Promise<Page<Session>>;
+  list(userId: UserId): Promise<ListPage<Session>>;
 
   /**
    * Revoke ALL sessions for a user. Admin-scope. Idempotent on
@@ -123,12 +124,6 @@ export interface SessionsClient {
 export interface UserFilter extends Filter {
   /** Server-side displayName prefix match. Case-sensitive. */
   readonly query?: string;
-}
-
-interface WirePage<T> {
-  readonly data: readonly T[];
-  readonly hasMore: boolean;
-  readonly nextCursor?: string;
 }
 
 export function makeUsersClient(transport: Transport): UsersClient {
@@ -166,12 +161,7 @@ export function makeUsersClient(transport: Transport): UsersClient {
           ...(filter?.query !== undefined && { query: filter.query }),
         },
       });
-      return {
-        items: page.data,
-        ...(page.nextCursor !== undefined && {
-          nextCursor: page.nextCursor as unknown as Cursor,
-        }),
-      };
+      return listPage(page);
     },
 
     async update(_id, _patch) {
@@ -198,12 +188,7 @@ export function makeUsersClient(transport: Transport): UsersClient {
           method: 'GET',
           path: `/v1/identity/users/${encodeURIComponent(userId as unknown as string)}/sessions`,
         });
-        return {
-          items: page.data,
-          ...(page.nextCursor !== undefined && {
-            nextCursor: page.nextCursor as unknown as Cursor,
-          }),
-        };
+        return listPage(page);
       },
 
       async revokeAll(userId, options) {

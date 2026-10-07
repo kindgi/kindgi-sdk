@@ -10,6 +10,7 @@ import type { Cursor, GuardrailId, ProjectId, TenantId, UserId } from '@kindgi/t
 import { statusFor, toWireError } from '../errors.js';
 import type { GuardrailRegistryBinding } from '../guardrail-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams } from './scope-params.js';
@@ -47,6 +48,12 @@ export function guardrailsRouter(
   onWrite?: GuardrailWriteHook,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  // A read-only registry (under `kindgi dev`, the pack's files) refuses
+  // every write before anything else runs.
+  r.use(
+    '*',
+    refuseWritesWhenReadOnly(() => binding.readOnly),
+  );
 
   // Authorization (PEP) — mirrors agents. Cascade via `guardrail#parent@project`
   // written in-tx by register; direct check via `ref('guardrail', id)`.

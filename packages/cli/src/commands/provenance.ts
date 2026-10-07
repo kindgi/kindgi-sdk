@@ -1,15 +1,40 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { requiredPositional, runSdk, throwUnwired } from './helpers.js';
+import type { ListPage, ProvenanceRecordMetadata } from '@kindgi/client';
+
+import { type TableSpec, integerFlag, requiredPositional, runSdk, stringFlag } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
+
+/** `provenance list --table`. */
+const PROVENANCE_TABLE: TableSpec<ListPage<ProvenanceRecordMetadata>, ProvenanceRecordMetadata> = {
+  rows: (page) => page.data,
+  columns: [
+    { header: 'RUN', get: (p) => String(p.runId) },
+    { header: 'CREATED', get: (p) => String(p.createdAt) },
+    {
+      header: 'FLOW',
+      get: (p) => (p.flowRef !== undefined ? `${String(p.flowRef.id)}@${p.flowRef.version}` : ''),
+    },
+    { header: 'SIGNED', get: (p) => (p.signed ? 'yes' : 'no') },
+  ],
+};
 
 const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
-  description: 'List provenance records.',
-  usage: 'kindgi provenance list [--limit=<n>] [--cursor=<c>]',
+  description: 'List provenance records, one per run: what ran, in what order, with what.',
+  usage:
+    'kindgi provenance list [--run=<run-id>] [--agent=<agent-id>] [--created-after=<iso>] [--project=<project-id> | --org=<org-id>] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
+    run: { type: 'string', description: "Only this run's record." },
+    agent: { type: 'string', description: "Only the records of this agent's runs." },
+    'created-after': {
+      type: 'string',
+      description: 'Only the records created after this time (ISO 8601).',
+    },
+    project: { type: 'string', description: "Only this project's records." },
+    org: { type: 'string', description: "Only the records of this org's projects." },
     limit: {
       type: 'string',
       description: 'The most provenance records to return (default 25, at most 100).',
@@ -19,43 +44,79 @@ const list: LeafCommand = {
       description: "Resume after this cursor, from the previous page's `nextCursor`.",
     },
   },
-  run: (ctx) => runSdk(ctx, 'provenance list', async () => throwUnwired('provenance.list')),
+  run: (ctx) =>
+    runSdk(
+      ctx,
+      'provenance list',
+      async () => {
+        const project = stringFlag(ctx, 'project');
+        const org = stringFlag(ctx, 'org');
+        if (project !== undefined && org !== undefined) {
+          throw new Error('--project and --org are mutually exclusive');
+        }
+        const runId = stringFlag(ctx, 'run');
+        const agentId = stringFlag(ctx, 'agent');
+        const createdAfter = stringFlag(ctx, 'created-after');
+        const limit = integerFlag(ctx, 'limit');
+        const cursor = stringFlag(ctx, 'cursor');
+        return await ctx.client().provenance.query({
+          ...(project !== undefined && { scope: { kind: 'project', projectId: project } }),
+          ...(org !== undefined && { scope: { kind: 'org', orgId: org } }),
+          ...(runId !== undefined && { runId: runId as never }),
+          ...(agentId !== undefined && { agentId: agentId as never }),
+          ...(createdAfter !== undefined && { createdAfter: createdAfter as never }),
+          ...(limit !== undefined && { limit }),
+          ...(cursor !== undefined && { cursor: cursor as never }),
+        });
+      },
+      PROVENANCE_TABLE,
+    ),
 };
 
 const get: LeafCommand = {
   kind: 'leaf',
   name: 'get',
-  description: 'Fetch a provenance record by run id.',
+  description: "A run's provenance record: its graph of what ran, in what order, with what.",
   usage: 'kindgi provenance get <run-id>',
   run: (ctx) =>
     runSdk(ctx, 'provenance get', async () => {
-      requiredPositional(ctx, 0, 'run-id');
-      throwUnwired('provenance.get');
+      const runId = requiredPositional(ctx, 0, 'run-id');
+      return await ctx.client().provenance.get(runId as never);
     }),
 };
 
 const exportCmd: LeafCommand = {
   kind: 'leaf',
   name: 'export',
-  description: 'Export a signed provenance bundle.',
-  usage: 'kindgi provenance export <run-id> [--input=<json-or-@file>]',
+  description:
+    "Export a run's provenance as a bundle signed with one of the deployment's signing keys.",
+  usage: 'kindgi provenance export <run-id> --signing-key=<key-id> [--include-messages]',
   optionSpec: {
-    input: {
+    'signing-key': {
       type: 'string',
-      description:
-        "Export options as inline JSON or `@<file>`: the `signingKeyId` to sign with, and `includeMessages` (default `false`) to add the run's messages.",
+      description: "The deployment's signing key to sign with, by id. Required.",
+    },
+    'include-messages': {
+      type: 'boolean',
+      description: "Add the run's conversation messages to the bundle.",
     },
   },
   run: (ctx) =>
     runSdk(ctx, 'provenance export', async () => {
-      requiredPositional(ctx, 0, 'run-id');
-      throwUnwired('provenance.export');
+      const runId = requiredPositional(ctx, 0, 'run-id');
+      const signingKeyId = stringFlag(ctx, 'signing-key');
+      if (signingKeyId === undefined) throw new Error('--signing-key=<key-id> is required');
+      return await ctx.client().provenance.export({
+        runId: runId as never,
+        signingKeyId,
+        ...(ctx.options['include-messages'] === true && { includeMessages: true }),
+      });
     }),
 };
 
 export const provenanceCommand: Command = {
   kind: 'group',
   name: 'provenance',
-  description: 'Manage provenance records.',
+  description: "Provenance records: each run's graph of what ran (list / get / export, signed).",
   subcommands: [list, get, exportCmd],
 };

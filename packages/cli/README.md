@@ -69,7 +69,11 @@ kindgi init [<pack-name>] [--template=minimal|sample|python] [--path=<dir>]
 Three modes:
 
 - **`kindgi init <pack-name>`** scaffolds a new pack: the standard folders,
-  a `kindgi.config.ts`, starter primitives, tests and a README.
+  a `kindgi.config.ts`, starter primitives, tests and a README. A pack that
+  stands alone (no project around it) gets `"packageManager": "pnpm@<version>"`
+  with the version `pnpm --version` gives there. `kindgi build`'s image, CI
+  and teammates then install with that same pnpm. Inside an existing project,
+  that project's own setup is left to govern.
 - **`kindgi init`** in a directory with a `package.json` adds Kindgi to that
   app: a `kindgi.config.ts`, a `kindgi/` folder for the pack's primitives,
   the skills under `.claude/skills/`, and `.gitignore` entries. It adds
@@ -171,7 +175,7 @@ One command runs the whole loop on your machine:
 
 | Flag | Purpose |
 |---|---|
-| `--port=<n>` | The port the API is reached on, on `127.0.0.1`. Default `4000`. |
+| `--port=<n>` | The port the API is reached on, on `127.0.0.1`. Default `4000`, or the next free port when it's taken (another `kindgi dev`, say). A `--port` that's taken is refused. |
 | `--database-url=<url>` | The Postgres to use. Falls back to `KINDGI_DATABASE_URL` (the shell's, then the env files'). Without either, the bundled Postgres. |
 | `--tenant=<id>` | Pin the tenant. Default: the project's dev tenant in the bundled Postgres; with `--database-url`, the previous run's (from `.kindgirc.json`), else a new one. The pack's primitives and registered providers stay with it. |
 | `--dev-token=<token>` | Pin the API token. Default: the previous run's, else a new one. Each flag overrides only its own value: `--dev-token` alone keeps the tenant. |
@@ -299,9 +303,10 @@ On each boot, `kindgi dev`:
 - re-registers a provider it registered whose declaration changed;
 - unregisters a provider it registered that the config no longer declares;
 - leaves alone any provider it didn't register (by hand, or by another pack of
-  the project). If one is registered differently from the config, `kindgi dev`
-  warns and names the `kindgi providers unregister` that lets the config's
-  version apply.
+  the project), and names the `kindgi providers unregister` that lets the
+  config's version apply. It warns (⚠) when that provider's region or models
+  differ from the config's. The runtime doesn't list a provider's adapter, its
+  settings or its key's name, so a difference only there gets the plain line.
 
 It records which providers it registered in `.kindgi/dev/providers.json`, per
 database and tenant.
@@ -405,9 +410,15 @@ data. `kindgi dev` runs it the same way, with the pack's own interpreter:
 
 Ctrl+C (or SIGTERM) stops the watchers, the pack service and the runtime
 container, on one line: `Stopping kindgi dev... stopped.` A second Ctrl+C
-forces the exit. The bundled Postgres keeps running for the next
-`kindgi dev`. The exit code is `0` after a clean stop and `1` if startup
-failed.
+forces the exit. The signal a package manager passes on with the first
+doesn't count as a second: `npx` and `pnpm run` forward SIGINT, and
+`pnpm exec` sends SIGTERM. A SIGTERM never forces the exit. Under
+`pnpm exec`, pnpm exits at once, so the prompt comes back while
+`kindgi dev` finishes stopping and prints `stopped.`. Closing the terminal
+(SIGHUP) stops it the same way, the runtime container included, even
+mid-stop. The bundled Postgres
+keeps running for the next `kindgi dev`. The exit code is `0` after a clean
+stop and `1` if startup failed.
 
 ## `kindgi test`
 
@@ -734,9 +745,14 @@ Inside a pack that `kindgi dev` runs, they find it on their own (see
 
 | Command | Subcommands |
 |---|---|
+| `projects` | `list`, `get-default`, `get <project-id>`: the ids the `--project=<id>` flags take |
+| `provenance` | `list`, `get <run-id>`: each run's graph of what ran; `export <run-id> --signing-key=<id>`, signed |
+| `memory facts` | `list` (by `--type`, `--scope`), `get <fact-id>`, `write --input=<json>`: the facts agents remember |
+| `conversations` | `list`, `get`, `open <agent-id> <version>`, `close`, `messages` |
 | `runs` | `list`, `get`, `cancel`, `journal`, `stream` (one JSON event per line), `start`, `resume` |
-| `agents` | `publish` |
-| `tools` | `list`, `get`, `unregister`, `versions`, `get-version`, `reinstate` |
+| `agents` | `list`, `get <agent-id> [<version>]`, `publish`, `derive`, `unregister <agent-id> <version>`, `versions`; which version runs where: `live`, `live-versions`, `promote`, `rollback`, `unpin`, `promotions` |
+| `tools` | `list`, `get`, `publish`, `unregister`, `versions`, `get-version`, `reinstate` |
+| `flows` | `list`, `get <flow-id> [<version>]`, `publish --spec=<json>`, `versions`, `unregister <flow-id> <version>`, `reinstate <flow-id> <version>` |
 | `guardrails` | `list`, `get`, `register`, `unregister` |
 | `providers` | `list`, `get`, `register`, `presets`, `unregister` |
 | `adapters` | `prepare` |
@@ -746,8 +762,11 @@ Inside a pack that `kindgi dev` runs, they find it on their own (see
 | `version` | The CLI's and SDK's versions, and the API's when it's reachable |
 
 `kindgi runs start` starts a run for an agent (`--agent=<id>`) or a flow
-(`--flow=<id>`) and waits until it finishes, or until it waits on an
-approval. It follows the run rather than holding the start request open, so
+(`--flow=<id>`), at its latest version or the one `--agent-version=<v>` /
+`--flow-version=<v>` names (a turn in a conversation needs the version the
+conversation was opened with), in the tenant's Default project or the one
+`--project=<project-id>` names (`kindgi projects list`), and waits until it
+finishes, or until it waits on an approval. It follows the run rather than holding the start request open, so
 a long run doesn't time it out. Stopped (Ctrl+C), the wait ends and the run
 goes on: the CLI prints its id and `kindgi runs get <id>`. `--no-wait`
 prints the run as soon as it exists (follow it with `runs get` or `runs
@@ -756,10 +775,10 @@ false`).
 
 `kindgi <command> --help` prints a command's subcommands and flags.
 
-More of the API (memory, artifacts, provenance, conversations, proposals,
-observations, tokens, capabilities, and listing agents and flows) has
-commands in progress. They're left out of `--help` until they work; until
-then, use [`@kindgi/client`](../../sdks/typescript) for those resources.
+More of the API (superseding and searching memory, artifacts,
+proposals, observations, tokens and capabilities) has commands in
+progress. They're left out of `--help` until they work; until then, use
+[`@kindgi/client`](../../sdks/typescript) for those resources.
 
 ## Auth and config
 

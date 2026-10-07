@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/capabilities",
-  "version": "0.1.3",
+  "version": "0.1.4-rc.2",
   "description": "Capability declarations + provider router for Kindgi™. Agents declare what they need from a model (features such as structured-output or tool-use, context window, cost, region, latency, provider and model allow/deny lists) and what they prefer; the router picks a registered (provider, model) pair that satisfies every hard constraint plus tenant policy, ranked by soft preferences, and reports per requirement which candidates it rejected when none qualify. Also the provider-neutral ModelProvider contract, a tenant-scoped provider registry, and an adapter-factory registry. Capability kinds are open strings matched by equality; llm-inference is the default.",
   "license": "Apache-2.0",
   "repository": {

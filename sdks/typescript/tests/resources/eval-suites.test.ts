@@ -78,3 +78,55 @@ describe('evalSuites.publish — projectId (POST /v1/eval-suites requires it)', 
     expect(JSON.parse(req.body ?? '{}')).toEqual({ ...suite, projectId: 'proj-1' });
   });
 });
+
+describe('evalSuites.buildFromJudgments and listCases', () => {
+  it('POSTs the build body with the Idempotency-Key and returns the result', async () => {
+    const result = {
+      suiteId: 'acme.matches',
+      version: '1.0.0',
+      kind: 'judged',
+      caseCount: 2,
+      truncated: false,
+    };
+    const stub = recordingFetch([{ status: 201, body: JSON.stringify(result) }]);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    const body = {
+      version: '1.0.0',
+      projectId: 'proj-1',
+      agentId: 'acme.matcher',
+      agentVersion: '2.0.0',
+      judgeClassIds: ['jc-1'],
+      minJudgments: 2,
+    };
+
+    const out = await client.evalSuites.buildFromJudgments('acme.matches', body, {
+      idempotencyKey: 'idem-b',
+    });
+
+    expect(out).toEqual(result);
+    const req = stub.calls[0]!;
+    expect(`${req.method} ${new URL(req.url).pathname}`).toBe(
+      'POST /v1/eval-suites/acme.matches/versions/from-judgments',
+    );
+    expect(req.headers['idempotency-key']).toBe('idem-b');
+    expect(JSON.parse(req.body ?? '{}')).toEqual(body);
+  });
+
+  it("GETs a version's cases with limit and cursor", async () => {
+    const page = { data: [], hasMore: false };
+    const stub = recordingFetch([{ status: 200, body: JSON.stringify(page) }]);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+
+    const out = await client.evalSuites.listCases('acme.matches', '1.0.0', {
+      limit: 10,
+      cursor: 'c1',
+    });
+
+    expect(out).toEqual(page);
+    const url = new URL(stub.calls[0]!.url);
+    expect(stub.calls[0]!.method).toBe('GET');
+    expect(url.pathname).toBe('/v1/eval-suites/acme.matches/versions/1.0.0/cases');
+    expect(url.searchParams.get('limit')).toBe('10');
+    expect(url.searchParams.get('cursor')).toBe('c1');
+  });
+});

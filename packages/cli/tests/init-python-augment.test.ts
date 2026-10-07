@@ -232,7 +232,7 @@ describe('the appended tables and next steps', () => {
     const published = { kind: 'published', requirement: 'kindgi>=0.1,<0.2' } as const;
     const uv = pythonAugmentNextSteps('uv', true, published, true);
     expect(uv[1]).toMatch(
-      /^Add the CLI to the app's dev dependencies: uv add --dev "kindgi-cli>=\d+\.\d+,<\d+\.\d+"$/,
+      /^Add the CLI to the app's dev dependencies: uv add --dev "kindgi-cli>=\d+\.\d+(\.\d+)?((a|b|rc)\d+)?,<\d+\.\d+"$/,
     );
     expect(uv).toContain('Boot the dev server: uv run kindgi dev');
     const poetry = pythonAugmentNextSteps('poetry', true, published, true);

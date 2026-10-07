@@ -7,6 +7,8 @@ import type { RunId } from '@kindgi/types';
 
 import type { ConversationId, ConversationMessage, RetrievedFact } from '../types.js';
 
+import type { ReplayTurnReport } from './replay.js';
+
 /**
  * Public shape returned by `invokeAgent` on success. Extracted from
  * `invoke.ts` into this module so handler code can import the type
@@ -70,6 +72,12 @@ export interface AgentTurnResult {
    * `response.content`.
    */
   readonly status?: 'completed' | 'suspended';
+  /**
+   * A replay turn's report (`InvokeAgentInput.replay`): each tool call and
+   * whether it ran, used the past run's result, or was refused (what the
+   * turn would have done), and how the session approval gate went.
+   */
+  readonly replay?: ReplayTurnReport;
 }
 
 /**

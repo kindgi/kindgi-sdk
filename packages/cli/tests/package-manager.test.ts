@@ -14,7 +14,9 @@ import {
   detectPackageManager,
   installCommand,
   localLinkProtocol,
+  publishedCliSpec,
 } from '../src/package-manager.js';
+import { CLI_VERSION } from '../src/version-info.js';
 
 function io(files: Record<string, string>): DetectIo {
   return {
@@ -74,15 +76,13 @@ describe('binCommand — runs the project-local bin, never downloads', () => {
     expect(binCommand(pm, 'kindgi', ['dev'])).toEqual({ command, args });
   });
 
-  test('path — a Python pack (no npm project) runs the published CLI through npx, within its minor', () => {
-    const cli = expect.stringMatching(/^@kindgi\/cli@\d+\.\d+$/);
+  test('path — a Python pack (no npm project) runs the published CLI through npx, within its minor (an rc: that rc)', () => {
+    const cli = publishedCliSpec(CLI_VERSION);
     expect(binCommand('path', 'kindgi', ['dev'])).toEqual({
       command: 'npx',
       args: ['--yes', cli, 'dev'],
     });
-    expect(binDisplay('path', 'kindgi', ['skills', 'sync'])).toMatch(
-      /^npx --yes @kindgi\/cli@\d+\.\d+ skills sync$/,
-    );
+    expect(binDisplay('path', 'kindgi', ['skills', 'sync'])).toBe(`npx --yes ${cli} skills sync`);
     expect(binCommand('path', 'uv', ['sync'])).toEqual({ command: 'uv', args: ['sync'] });
   });
 
@@ -128,5 +128,15 @@ describe('cliInstall', () => {
     expect(binDisplay('uv', 'kindgi', ['dev'])).toBe('uv run kindgi dev');
     expect(binDisplay('poetry', 'kindgi', ['dev'])).toBe('poetry run kindgi dev');
     expect(binDisplay('venv', 'kindgi', ['dev'])).toBe('kindgi dev');
+  });
+});
+
+describe('publishedCliSpec', () => {
+  test("a release's hints download its minor; a release candidate's, its exact version", () => {
+    expect(publishedCliSpec('0.1.3')).toBe('@kindgi/cli@0.1');
+    expect(publishedCliSpec('1.2.0')).toBe('@kindgi/cli@1.2');
+    // A range never matches a pre-release: `@0.1` would run the last release.
+    expect(publishedCliSpec('0.1.4-rc.0')).toBe('@kindgi/cli@0.1.4-rc.0');
+    expect(publishedCliSpec('unknown')).toBe('@kindgi/cli');
   });
 });

@@ -378,3 +378,25 @@ describe('approvals.list — status (GET /v1/approvals takes one status)', () =>
     });
   });
 });
+
+describe('approvals.list — waitTokenIds (T272)', () => {
+  it('repeats ?waitTokenId= once per token, in order; an empty list sends none', async () => {
+    const stub = recordingFetch([
+      { status: 200, body: JSON.stringify({ data: [], hasMore: false }) },
+      { status: 200, body: JSON.stringify({ data: [], hasMore: false }) },
+    ]);
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+
+    await client.approvals.list({ waitTokenIds: ['tok-a', 'tok-b'] });
+    await client.approvals.list({ waitTokenIds: [] });
+
+    expect(stub.calls.map((c) => new URL(c.url).searchParams.getAll('waitTokenId'))).toEqual([
+      ['tok-a', 'tok-b'],
+      [],
+    ]);
+  });
+});

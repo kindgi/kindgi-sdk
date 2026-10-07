@@ -5,6 +5,7 @@ import type {
   AuditEvent,
   AuditEventBinding,
   AuditEventFilter,
+  AuditEventOrder,
   AuditEventPage,
   AuditEventPurgeInput,
   AuditEventPurgeResult,
@@ -55,11 +56,13 @@ export function createInMemoryAuditEventBinding(): AuditEventBinding {
       const limit = Math.min(Math.max(input.limit ?? 50, 1), 500);
       const bucket = store.get(input.tenantId) ?? new Map<string, AuditEvent>();
       const filter = input.filter ?? {};
+      const order = input.order ?? 'asc';
       const filtered = Array.from(bucket.values())
         .filter((e) => matchesFilter(e, filter))
-        .sort(compareByTimestampThenId);
-      const startIndex =
-        cursor.value === null ? 0 : findStart(filtered, cursor.value.timestamp, cursor.value.id);
+        .sort((a, b) =>
+          order === 'desc' ? compareByTimestampThenId(b, a) : compareByTimestampThenId(a, b),
+        );
+      const startIndex = cursor.value === null ? 0 : findStart(filtered, cursor.value, order);
       const slice = filtered.slice(startIndex, startIndex + limit + 1);
       const hasMore = slice.length > limit;
       const page = hasMore ? slice.slice(0, limit) : slice;
@@ -83,6 +86,8 @@ export function createInMemoryAuditEventBinding(): AuditEventBinding {
       let deleted = 0;
       for (const [id, event] of bucket) {
         if (event.kind !== input.kind) continue;
+        if (input.outcome !== undefined && event.outcome !== input.outcome) continue;
+        if (input.exceptOutcome !== undefined && event.outcome === input.exceptOutcome) continue;
         const ts = new Date(event.timestamp as unknown as string).getTime();
         if (ts < cutoff) {
           bucket.delete(id);
@@ -132,14 +137,19 @@ function compareByTimestampThenId(a: AuditEvent, b: AuditEvent): number {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
-function findStart(sorted: readonly AuditEvent[], ts: string, id: string): number {
-  for (let i = 0; i < sorted.length; i += 1) {
-    const e = sorted[i];
-    if (e === undefined) continue;
+/** The first event past the cursor's `(timestamp, id)`, in `order`. */
+function findStart(
+  sorted: readonly AuditEvent[],
+  at: CursorPayload,
+  order: AuditEventOrder,
+): number {
+  const i = sorted.findIndex((e) => {
     const et = e.timestamp as unknown as string;
-    if (et > ts || (et === ts && e.id > id)) return i;
-  }
-  return sorted.length;
+    const after = et > at.timestamp || (et === at.timestamp && e.id > at.id);
+    const before = et < at.timestamp || (et === at.timestamp && e.id < at.id);
+    return order === 'desc' ? before : after;
+  });
+  return i === -1 ? sorted.length : i;
 }
 
 interface CursorPayload {

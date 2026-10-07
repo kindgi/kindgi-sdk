@@ -15,6 +15,8 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { buildMcpServerEntry, defaultServerName } from '../src/commands/mcp.js';
 import { type RunCliInputs, runCli } from '../src/main.js';
+import { publishedCliSpec } from '../src/package-manager.js';
+import { CLI_VERSION } from '../src/version-info.js';
 
 let packDir: string;
 
@@ -116,7 +118,7 @@ describe('buildMcpServerEntry', () => {
     );
     expect(entry.command).toBe('npx');
     expect(entry.args[0]).toBe('--yes');
-    expect(entry.args[1]).toMatch(/^@kindgi\/cli@\d+\.\d+$/);
+    expect(entry.args[1]).toBe(publishedCliSpec(CLI_VERSION));
     expect(entry.args.slice(2, 4)).toEqual(['mcp-launch', '--']);
   });
 
@@ -201,7 +203,7 @@ describe('kindgi mcp add', () => {
     const entry = mcpJson.mcpServers?.grievance_db;
     expect(entry?.command).toBe('npx');
     expect(entry?.args.slice(0, 1)).toEqual(['--yes']);
-    expect(entry?.args[1]).toMatch(/^@kindgi\/cli@\d+\.\d+$/);
+    expect(entry?.args[1]).toBe(publishedCliSpec(CLI_VERSION));
     expect(entry?.args.slice(2, 4)).toEqual(['mcp-launch', '--']);
   });
 

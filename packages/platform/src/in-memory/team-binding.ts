@@ -15,18 +15,24 @@
  * Both factories are returned together so the two adapters share the
  * same team map (a membership add must fail cleanly for a
  * non-existent team; splitting into two disjoint factories would
- * require an extra cross-binding contract).
+ * require an extra cross-binding contract). Team slugs are unique
+ * within a tenant.
  */
 
 import type { Filter, Page, TeamId, TenantId, UserId } from '@kindgi/types';
 
 import type {
   TeamBinding,
+  TeamCreateOutcome,
   TeamListFilter,
   TeamMembershipAddInput,
+  TeamMembershipAddOutcome,
   TeamMembershipBinding,
+  TeamMembershipUpdateRoleOutcome,
+  TeamUpdateOutcome,
 } from '../team-binding.js';
 import type { Team, TeamMembership, TeamPatch, TeamRole, TeamSpec } from '../types.js';
+import type { InMemoryHierarchyOptions } from './project-binding.js';
 
 import { nowTimestamp, paginate } from './util.js';
 
@@ -46,7 +52,7 @@ function membershipKey(teamId: TeamId, userId: UserId): string {
  * (memberships reference teams; the two must agree on tenant
  * membership at every op).
  */
-export function makeInMemoryTeamBinding(): {
+export function makeInMemoryTeamBinding(options: InMemoryHierarchyOptions = {}): {
   readonly teams: TeamBinding;
   readonly memberships: TeamMembershipBinding;
 } {
@@ -59,8 +65,20 @@ export function makeInMemoryTeamBinding(): {
     return t;
   }
 
+  /** Is `slug` held by a team in the tenant other than `exceptId`? */
+  function slugTaken(tenantId: TenantId, slug: string, exceptId?: TeamId): boolean {
+    for (const row of teamRows.values()) {
+      if (row.tenantId === tenantId && row.slug === slug && row.id !== exceptId) return true;
+    }
+    return false;
+  }
+
   const teams: TeamBinding = {
-    async create(tenantId, spec: TeamSpec): Promise<TeamId> {
+    async create(tenantId, spec: TeamSpec): Promise<TeamCreateOutcome> {
+      if (spec.orgId !== undefined && (await options.orgExists?.(tenantId, spec.orgId)) === false) {
+        return { kind: 'org-not-found', orgId: spec.orgId };
+      }
+      if (slugTaken(tenantId, spec.slug)) return { kind: 'slug-conflict', slug: spec.slug };
       const id = nextTeamId();
       const now = nowTimestamp();
       const row: Team = {
@@ -74,7 +92,7 @@ export function makeInMemoryTeamBinding(): {
         ...(spec.description !== undefined ? { description: spec.description } : {}),
       };
       teamRows.set(id, row);
-      return id;
+      return { kind: 'ok', teamId: id };
     },
 
     async get(tenantId, teamId): Promise<Team | undefined> {
@@ -98,10 +116,20 @@ export function makeInMemoryTeamBinding(): {
       return paginate(all, filter.limit, filter.cursor);
     },
 
-    async update(tenantId, teamId, patch: TeamPatch): Promise<void> {
+    async update(tenantId, teamId, patch: TeamPatch): Promise<TeamUpdateOutcome> {
       const row = findTeamInTenant(tenantId, teamId);
       if (row === undefined) {
-        throw new Error(`team-not-found: ${teamId}`);
+        return { kind: 'team-not-found' };
+      }
+      if (
+        patch.orgId !== undefined &&
+        patch.orgId !== null &&
+        (await options.orgExists?.(tenantId, patch.orgId)) === false
+      ) {
+        return { kind: 'org-not-found', orgId: patch.orgId };
+      }
+      if (patch.slug !== undefined && slugTaken(tenantId, patch.slug, teamId)) {
+        return { kind: 'slug-conflict', slug: patch.slug };
       }
       // orgId patch tri-state: undefined = untouched; null = clear;
       // OrgId value = set.
@@ -121,6 +149,7 @@ export function makeInMemoryTeamBinding(): {
         ...(nextDescription !== undefined ? { description: nextDescription } : {}),
       };
       teamRows.set(teamId, next);
+      return { kind: 'ok' };
     },
 
     async delete(tenantId, teamId): Promise<void> {
@@ -137,15 +166,15 @@ export function makeInMemoryTeamBinding(): {
   };
 
   const memberships: TeamMembershipBinding = {
-    async add(tenantId, input: TeamMembershipAddInput): Promise<void> {
+    async add(tenantId, input: TeamMembershipAddInput): Promise<TeamMembershipAddOutcome> {
       const team = findTeamInTenant(tenantId, input.teamId);
       if (team === undefined) {
-        throw new Error(`team-not-found: ${input.teamId}`);
+        return { kind: 'team-not-found' };
       }
       const key = membershipKey(input.teamId, input.userId);
       if (membershipRows.has(key)) {
         // Idempotent — role mutation goes through updateRole.
-        return;
+        return { kind: 'ok' };
       }
       const row: TeamMembership = {
         teamId: input.teamId,
@@ -154,6 +183,7 @@ export function makeInMemoryTeamBinding(): {
         joinedAt: nowTimestamp(),
       };
       membershipRows.set(key, row);
+      return { kind: 'ok' };
     },
 
     async remove(tenantId, teamId, userId): Promise<void> {
@@ -187,17 +217,23 @@ export function makeInMemoryTeamBinding(): {
       return paginate(all, filter.limit, filter.cursor);
     },
 
-    async updateRole(tenantId, teamId, userId, role: TeamRole): Promise<void> {
+    async updateRole(
+      tenantId,
+      teamId,
+      userId,
+      role: TeamRole,
+    ): Promise<TeamMembershipUpdateRoleOutcome> {
       const team = findTeamInTenant(tenantId, teamId);
       if (team === undefined) {
-        throw new Error(`team-not-found: ${teamId}`);
+        return { kind: 'team-not-found' };
       }
       const key = membershipKey(teamId, userId);
       const row = membershipRows.get(key);
       if (row === undefined) {
-        throw new Error(`team-membership-not-found: ${teamId}/${userId}`);
+        return { kind: 'team-membership-not-found' };
       }
       membershipRows.set(key, { ...row, role });
+      return { kind: 'ok' };
     },
   };
 

@@ -8,6 +8,8 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { runCli } from '../src/main.js';
+import { publishedCliSpec } from '../src/package-manager.js';
+import { CLI_VERSION } from '../src/version-info.js';
 
 let home: string;
 let cwd: string;
@@ -30,6 +32,8 @@ function baseInputs(overrides: Partial<Parameters<typeof runCli>[0]> = {}) {
     env: emptyEnv,
     cwd,
     home,
+    // The host's pnpm, never this machine's real one.
+    initSeam: { pnpmVersion: async () => '10.28.0' },
     ...overrides,
   };
 }
@@ -185,7 +189,7 @@ describe('kindgi init — python template, from the PyPI CLI (kindgi-cli)', () =
     );
     expect(out.exitCode).toBe(0);
     const pyproject = await readFile(join(cwd, 'my-pack', 'pyproject.toml'), 'utf8');
-    expect(pyproject).toMatch(/^dev = \["pytest>=8", "kindgi-cli>=\d+\.\d+,<\d+\.\d+"\]$/m);
+    expect(pyproject).toMatch(/^dev = \["pytest>=8", "kindgi-cli>=\d+\.\d+(\.\d+)?((a|b|rc)\d+)?,<\d+\.\d+"\]$/m);
     expect(out.stderr).toContain('uv run kindgi dev');
     expect(out.stderr).not.toContain('npx');
   });
@@ -195,6 +199,81 @@ describe('kindgi init — python template, from the PyPI CLI (kindgi-cli)', () =
     const pyproject = await readFile(join(cwd, 'my-pack', 'pyproject.toml'), 'utf8');
     expect(pyproject).toMatch(/^dev = \["pytest>=8"\]$/m);
     expect(out.stderr).toContain('npx --yes @kindgi/cli@');
+  });
+});
+
+describe('kindgi init — the pack pins the pnpm that installs it', () => {
+  const manifest = async (dir: string): Promise<{ readonly packageManager?: string }> =>
+    JSON.parse(await readFile(join(dir, 'package.json'), 'utf8')) as { packageManager?: string };
+
+  test('a standalone pack: packageManager is the pnpm `pnpm --version` gives in its folder', async () => {
+    const asked: string[] = [];
+    const out = await runCli(
+      baseInputs({
+        argv: ['init', 'my-pack'],
+        initSeam: {
+          pnpmVersion: async (dir) => {
+            asked.push(dir);
+            return '12.9.1';
+          },
+        },
+      }),
+    );
+    expect(out.exitCode).toBe(0);
+    expect(asked).toEqual([join(cwd, 'my-pack')]);
+    expect((await manifest(join(cwd, 'my-pack'))).packageManager).toBe('pnpm@12.9.1');
+    expect(out.stderr).toContain('✓ package.json pins pnpm@12.9.1 (packageManager)');
+    expect(out.stderr).toContain('pnpm install');
+  });
+
+  test('inside a project that says how it installs: nothing is written, the host is not asked', async () => {
+    await writeFile(join(cwd, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n", 'utf8');
+    const asked: string[] = [];
+    const out = await runCli(
+      baseInputs({
+        argv: ['init', 'my-pack'],
+        initSeam: {
+          pnpmVersion: async (dir) => {
+            asked.push(dir);
+            return '12.9.1';
+          },
+        },
+      }),
+    );
+    expect(out.exitCode).toBe(0);
+    expect(asked).toEqual([]);
+    expect((await manifest(join(cwd, 'my-pack'))).packageManager).toBeUndefined();
+    expect(out.stderr).not.toContain('packageManager');
+  });
+
+  test("pnpm's version can't be read: no field, and one line saying how to set it", async () => {
+    const out = await runCli(
+      baseInputs({
+        argv: ['init', 'my-pack'],
+        initSeam: {
+          pnpmVersion: async () => {
+            throw new Error('spawn pnpm ENOENT');
+          },
+        },
+      }),
+    );
+    expect(out.exitCode).toBe(0);
+    expect((await manifest(join(cwd, 'my-pack'))).packageManager).toBeUndefined();
+    expect(out.stderr).toContain(
+      "package.json has no packageManager: pnpm's version couldn't be read here (pnpm --version: spawn pnpm ENOENT).",
+    );
+    expect(out.stderr).toContain('Add "packageManager": "pnpm@<version>"');
+  });
+
+  test('a version that is not one is never written', async () => {
+    const out = await runCli(
+      baseInputs({
+        argv: ['init', 'my-pack'],
+        initSeam: { pnpmVersion: async () => 'command not found' },
+      }),
+    );
+    expect((await manifest(join(cwd, 'my-pack'))).packageManager).toBeUndefined();
+    expect(out.stderr).toContain('pnpm --version printed "command not found"');
   });
 });
 
@@ -237,7 +316,7 @@ describe('kindgi init — python template', () => {
     const tool = await readFile(join(cwd, 'my-pack', 'tools/echo.py'), 'utf8');
     expect(tool).toContain('@tool(id="my-pack.echo")');
     expect(out.stderr).toContain('uv sync');
-    expect(out.stderr).toMatch(/npx --yes @kindgi\/cli@\d+\.\d+ dev/);
+    expect(out.stderr).toContain(`npx --yes ${publishedCliSpec(CLI_VERSION)} dev`);
   });
 });
 

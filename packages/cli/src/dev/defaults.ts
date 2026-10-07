@@ -19,7 +19,7 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import type { FSWatcher } from 'node:fs';
 import { stat as fsStat, mkdir, readFile, rename, watch, writeFile } from 'node:fs/promises';
-import { basename, dirname, join, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -35,6 +35,7 @@ import { createPackServiceSupervisor } from '@kindgi/handler-runtime/pack-servic
 import { createDevPackBuilder } from './bundler.js';
 import { type PackCode, checkPackPython } from './pack-code.js';
 import { devBundleMapPath, devIndexPath } from './paths.js';
+import { runtimePortInUseReal } from './port.js';
 import {
   type DockerRunner,
   type PostgresContainerSpec,
@@ -61,9 +62,11 @@ import {
   type DockerOutcome,
   IMAGE_API_PORT,
   type RuntimeNetwork,
+  RuntimeStartStopped,
   detectRuntimeNetwork,
   docker,
   ensureRuntimeImage,
+  pauseUnlessStopped,
   startRuntimeContainer,
 } from './runtime-container.js';
 import {
@@ -75,6 +78,13 @@ import {
   shellReferencesOf,
   writeRuntimeEnv,
 } from './runtime-env.js';
+import {
+  DEFAULT_SCAN_INTERVAL_MS,
+  type ScanBackstop,
+  scanSignature,
+  startScanBackstop,
+} from './scan-backstop.js';
+import { SHARE_WATCH_BY_DEFAULT, type WatchEvents, directoryWatches } from './shared-watch.js';
 
 const DEFAULT_DEBOUNCE_MS = 200;
 
@@ -278,6 +288,8 @@ export async function startApiServerContainerReal(
     ...(network === 'host-network'
       ? { apiPort: opts.port, apiHost: '127.0.0.1' }
       : { apiPort: IMAGE_API_PORT, hostAlias: 'host.docker.internal' }),
+    // Where the developer reaches it: the published port, for its banner.
+    publicUrl: `http://127.0.0.1:${opts.port}`,
     packDir: RUNTIME_PACK_DIR,
     databaseUrl: databaseUrlFrom(opts.databaseUrl, network),
     tenantId: opts.tenantId,
@@ -310,6 +322,7 @@ export async function startApiServerContainerReal(
       publicTokenKey: opts.publicRunTokenKeyPath,
     }),
     onLog: opts.onLog ?? (() => undefined),
+    ...(opts.signal !== undefined && { signal: opts.signal }),
   });
   try {
     const project = await fetch(`${runtime.baseUrl}/v1/projects/default`, {
@@ -357,6 +370,7 @@ export async function attachToRuntimeReal(
     buildRuntimeEnv({
       apiPort: port,
       apiHost: '127.0.0.1',
+      publicUrl: baseUrl,
       packDir: opts.packDir,
       databaseUrl: opts.databaseUrl,
       tenantId: opts.tenantId,
@@ -381,6 +395,7 @@ export async function attachToRuntimeReal(
   const deadline = Date.now() + 10 * 60_000;
   let project: Response | undefined;
   for (;;) {
+    if (opts.signal?.aborted === true) throw new RuntimeStartStopped();
     const healthy = await fetch(`${baseUrl}/health`, { signal: AbortSignal.timeout(2_000) })
       .then((r) => r.ok)
       .catch(() => false);
@@ -393,7 +408,7 @@ export async function attachToRuntimeReal(
     if (Date.now() > deadline) {
       throw new Error(`nothing served at ${baseUrl} within 10 minutes`);
     }
-    await new Promise((r) => setTimeout(r, 500));
+    await pauseUnlessStopped(500, opts.signal);
   }
   const body = (await project.json().catch(() => ({}))) as { readonly id?: string };
   if (!project.ok || typeof body.id !== 'string') {
@@ -529,9 +544,18 @@ async function indexResultOf(outcome: IndexerOutcome): Promise<IndexResult> {
  * and unrelated files never trigger a re-index. `patterns` defaults to
  * the indexer's `DEFAULT_DISCOVERY`.
  *
- * Uses `node:fs.watch({ recursive: true })` — dependency-free; on
- * macOS + Linux this delivers reliable change events. Windows behavior
- * is a known-good path per the Node docs but not exercised in CI.
+ * Uses `node:fs.watch({ recursive: true })` — dependency-free — with a
+ * scan behind it (`scan-backstop.ts`): FSEvents can drop events under
+ * load, so the same folders and files are also scanned every second.
+ * Windows behavior is a known-good path per the Node docs but not
+ * exercised in CI.
+ *
+ * On macOS (`share`) the events come from one recursive watch on the pack
+ * directory, shared with the pack's other watchers (`shared-watch.ts`):
+ * closing a handle per root held the event loop for seconds. Elsewhere
+ * each discovery root has its own recursive watch and the env files'
+ * folders their own; an env file outside the pack directory has its own
+ * either way.
  *
  * A single debounce timer is shared across every event → the callback
  * fires at most once per debounce window. Roots that don't exist yet
@@ -548,14 +572,23 @@ export async function watchPackReal(
     readonly patterns?: readonly string[];
     readonly files?: readonly string[];
     readonly watch?: WatchEvents;
+    /** How often the watched files are also scanned. */
+    readonly scanIntervalMs?: number;
+    /** Test seam: what the watched files are now (`scanSignature`). */
+    readonly scan?: () => Promise<string>;
+    /** One watch on the pack directory, shared (default: on macOS). */
+    readonly share?: boolean;
+    /**
+     * A watch failed (its folder removed, too many open files): the scan
+     * behind it goes on, and `onChange` fires once so the refresh looks.
+     */
+    readonly onWatchFailed?: (error: unknown) => void;
   } = {},
 ): Promise<WatchHandle> {
   const watchEvents = opts.watch ?? watch;
   const debounceMs = opts.debounceMs ?? DEFAULT_DEBOUNCE_MS;
   const patterns = opts.patterns ?? Object.values(DEFAULT_DISCOVERY);
   const matches = createGlobMatcher(patterns);
-  const controllers: AbortController[] = [];
-  const watchers: Promise<void>[] = [];
   let closed = false;
   let timer: NodeJS.Timeout | undefined;
 
@@ -565,6 +598,8 @@ export async function watchPackReal(
     timer = setTimeout(() => {
       timer = undefined;
       if (closed) return;
+      // Acting on the files as they are now: the scan fires only for later changes.
+      void backstop.mark();
       try {
         onChange();
       } catch {
@@ -573,47 +608,201 @@ export async function watchPackReal(
     }, debounceMs);
   };
 
-  for (const root of discoveryRoots(patterns)) {
-    const abs = root === '' ? packDir : join(packDir, root);
-    if (!(await isDirectory(abs))) continue;
-    const controller = new AbortController();
-    controllers.push(controller);
-    watchers.push(
-      consumeWatch(watchEvents, abs, root, controller.signal, matches, fire, () => closed),
-    );
-  }
-  // Single files (the env files): watch each one's directory, not
-  // recursively, and fire for that name only — so an env file that
-  // doesn't exist yet counts once it's created.
-  for (const [dir, names] of filesByDirectory(opts.files ?? [])) {
-    if (!(await isDirectory(dir))) continue;
-    const controller = new AbortController();
-    controllers.push(controller);
-    watchers.push(consumeFileWatch(watchEvents, dir, names, controller.signal, fire, () => closed));
-  }
+  const roots = discoveryRoots(patterns);
+  const backstop: ScanBackstop = await startScanBackstop({
+    scan:
+      opts.scan ??
+      (() =>
+        scanSignature({
+          folders: roots.map((root) => ({
+            abs: root === '' ? packDir : join(packDir, root),
+            rel: root,
+          })),
+          includes: matches,
+          files: opts.files ?? [],
+        })),
+    intervalMs: opts.scanIntervalMs ?? DEFAULT_SCAN_INTERVAL_MS,
+    onChange: fire,
+  });
+
+  const spec: PackWatchSpec = {
+    watchEvents,
+    packDir,
+    roots,
+    matches,
+    files: opts.files ?? [],
+    fire,
+    failed: (error) => {
+      if (closed) return;
+      opts.onWatchFailed?.(error);
+      fire();
+    },
+    isClosed: () => closed,
+  };
+  const watches = await ((opts.share ?? SHARE_WATCH_BY_DEFAULT) ? watchShared : watchPerRoot)(spec);
 
   return {
     async close(): Promise<void> {
       if (closed) return;
       closed = true;
       if (timer !== undefined) clearTimeout(timer);
-      for (const c of controllers) {
-        try {
-          c.abort();
-        } catch {
-          // Older Node builds may throw synchronously — ignore.
-        }
-      }
-      await Promise.allSettled(watchers);
+      backstop.stop();
+      await watches.close();
     },
   };
 }
 
-/** A directory's change events, as `node:fs/promises`'s `watch` gives them. */
-export type WatchEvents = (
-  path: string,
-  options: { readonly recursive?: boolean; readonly signal: AbortSignal },
-) => AsyncIterable<{ readonly filename?: string | null }>;
+/** What a pack's watch reports to, and on. */
+interface PackWatchSpec {
+  readonly watchEvents: WatchEvents;
+  readonly packDir: string;
+  readonly roots: readonly string[];
+  readonly matches: (relPath: string) => boolean;
+  /** Single files (the env files). */
+  readonly files: readonly string[];
+  readonly fire: () => void;
+  /** A watch failed: say so (`onWatchFailed`), and fire. */
+  readonly failed: (error: unknown) => void;
+  readonly isClosed: () => boolean;
+}
+
+/** The watches a pack's watcher holds open, closed together. */
+interface PackWatches {
+  close(): Promise<void>;
+}
+
+/**
+ * Shared (macOS): the pack directory's one watch (`shared-watch.ts`); the
+ * env files in it come with it, one outside it has a watch of its own.
+ */
+async function watchShared(spec: PackWatchSpec): Promise<PackWatches> {
+  const inPack = new Set<string>();
+  const outside: string[] = [];
+  for (const file of spec.files) {
+    const rel = relative(spec.packDir, file);
+    if (rel !== '' && !isAbsolute(rel) && rel !== '..' && !rel.startsWith(`..${sep}`)) {
+      inPack.add(rel.split(sep).join('/'));
+    } else outside.push(file);
+  }
+  const unsubscribe = directoryWatches(spec.watchEvents).subscribe(
+    spec.packDir,
+    (rel) => {
+      if (
+        !spec.isClosed() &&
+        packEventCounts(spec.packDir, rel, spec.roots, spec.matches, inPack)
+      ) {
+        spec.fire();
+      }
+    },
+    spec.failed,
+  );
+  const single = await watchSingleFiles(spec, outside);
+  return {
+    async close() {
+      unsubscribe();
+      await single.close();
+    },
+  };
+}
+
+/** Per root: each discovery root a recursive watch of its own, and the env files' folders. */
+async function watchPerRoot(spec: PackWatchSpec): Promise<PackWatches> {
+  const controllers: AbortController[] = [];
+  const watchers: Promise<void>[] = [];
+  for (const root of spec.roots) {
+    const abs = root === '' ? spec.packDir : join(spec.packDir, root);
+    if (!(await isDirectory(abs))) continue;
+    const controller = new AbortController();
+    controllers.push(controller);
+    watchers.push(
+      consumeWatch(
+        spec.watchEvents,
+        abs,
+        root,
+        controller.signal,
+        spec.matches,
+        spec.fire,
+        spec.isClosed,
+        spec.failed,
+      ),
+    );
+  }
+  const single = await watchSingleFiles(spec, spec.files);
+  return {
+    async close() {
+      await Promise.all([abortAll(controllers, watchers), single.close()]);
+    },
+  };
+}
+
+/**
+ * Single files (the env files): watch each one's directory, not
+ * recursively, and fire for that name only — so an env file that
+ * doesn't exist yet counts once it's created.
+ */
+async function watchSingleFiles(
+  spec: PackWatchSpec,
+  files: readonly string[],
+): Promise<PackWatches> {
+  const controllers: AbortController[] = [];
+  const watchers: Promise<void>[] = [];
+  for (const [dir, names] of filesByDirectory(files)) {
+    if (!(await isDirectory(dir))) continue;
+    const controller = new AbortController();
+    controllers.push(controller);
+    watchers.push(
+      consumeFileWatch(
+        spec.watchEvents,
+        dir,
+        names,
+        controller.signal,
+        spec.fire,
+        spec.isClosed,
+        spec.failed,
+      ),
+    );
+  }
+  return { close: () => abortAll(controllers, watchers) };
+}
+
+async function abortAll(
+  controllers: readonly AbortController[],
+  watchers: readonly Promise<void>[],
+): Promise<void> {
+  for (const c of controllers) {
+    try {
+      c.abort();
+    } catch {
+      // Older Node builds may throw synchronously — ignore.
+    }
+  }
+  await Promise.allSettled(watchers);
+}
+
+export type { WatchEvents } from './shared-watch.js';
+
+/**
+ * Whether an event on the pack directory's shared watch counts: an env
+ * file, or under a discovery root (the cheap check, first: the shared
+ * watch also sees `node_modules`, `.git` and the dev index), a file a
+ * pattern matches or a folder moved in or out. An event without a file
+ * name counts, as in `consumeWatch`.
+ */
+function packEventCounts(
+  packDir: string,
+  rel: string | undefined,
+  roots: readonly string[],
+  matches: (relPath: string) => boolean,
+  envFiles: ReadonlySet<string>,
+): boolean {
+  if (rel === undefined) return true;
+  if (envFiles.has(rel)) return true;
+  if (!roots.some((root) => root === '' || rel === root || rel.startsWith(`${root}/`))) {
+    return false;
+  }
+  if (matches(rel)) return true;
+  return isFolderName(rel) && !isRootEcho(packDir, rel);
+}
 
 async function isDirectory(path: string): Promise<boolean> {
   try {
@@ -641,6 +830,7 @@ async function consumeFileWatch(
   signal: AbortSignal,
   fire: () => void,
   isClosed: () => boolean,
+  failed: (error: unknown) => void,
 ): Promise<void> {
   try {
     for await (const evt of watchEvents(dir, { signal })) {
@@ -648,7 +838,7 @@ async function consumeFileWatch(
     }
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
-    if (code !== 'ABORT_ERR' && code !== 'ERR_ABORT' && !isClosed()) fire();
+    if (code !== 'ABORT_ERR' && code !== 'ERR_ABORT' && !isClosed()) failed(err);
   }
 }
 
@@ -676,6 +866,7 @@ async function consumeWatch(
   matches: (relPath: string) => boolean,
   fire: () => void,
   isClosed: () => boolean,
+  failed: (error: unknown) => void,
 ): Promise<void> {
   try {
     for await (const evt of watchEvents(abs, { recursive: true, signal })) {
@@ -697,7 +888,7 @@ async function consumeWatch(
     // filesystem failure we surface via a synthetic change so the
     // command's re-index reports it.
     const code = (err as NodeJS.ErrnoException).code;
-    if (code !== 'ABORT_ERR' && code !== 'ERR_ABORT' && !isClosed()) fire();
+    if (code !== 'ABORT_ERR' && code !== 'ERR_ABORT' && !isClosed()) failed(err);
   }
 }
 
@@ -876,6 +1067,7 @@ export const REAL_DEV_RUNNERS: DevRunners = {
   publishIndex: publishIndexReal,
   watchPack: watchPackReal,
   startServices: startServicesReal,
+  runtimePortInUse: runtimePortInUseReal,
 };
 
 // Named re-export for tests that want to poke a single seam.

@@ -1,22 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Tool } from '@kindgi/client';
-import type { Page, ToolId } from '@kindgi/types';
+import type { ListPage, Tool } from '@kindgi/client';
+import type { ToolId } from '@kindgi/types';
 
 import {
   type TableSpec,
+  projectIdFlag,
+  readJsonInput,
   requiredPositional,
   runSdk,
   stringFlag,
-  throwUnwired,
   truncateCell,
 } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
 /** `tools list --table`. */
-const TOOLS_TABLE: TableSpec<Page<Tool>, Tool> = {
-  rows: (page) => page.items,
+const TOOLS_TABLE: TableSpec<ListPage<Tool>, Tool> = {
+  rows: (page) => page.data,
   columns: [
     { header: 'ID', get: (tool) => String(tool.id) },
     { header: 'VERSION', get: (tool) => tool.version ?? '' },
@@ -77,35 +78,41 @@ const get: LeafCommand = {
 const publish: LeafCommand = {
   kind: 'leaf',
   name: 'publish',
-  description: 'Publish a tool manifest at a specific version.',
-  usage: 'kindgi tools publish --manifest=<json-or-@file>',
+  description:
+    'Register a tool manifest at its version: the tool minus its handler, which the runtime must already have.',
+  usage: 'kindgi tools publish --manifest=<json-or-@file> [--project=<project-id>]',
   optionSpec: {
     manifest: {
       type: 'string',
       description: 'The tool manifest as JSON, or `@<file>` to read it from a file. Required.',
     },
+    project: {
+      type: 'string',
+      description:
+        "The project to register the tool in, by id (default: the tenant's Default project).",
+    },
   },
-  run: (ctx) => runSdk(ctx, 'tools publish', async () => throwUnwired('tools.publish')),
+  run: (ctx) =>
+    runSdk(ctx, 'tools publish', async () => {
+      const manifestText = stringFlag(ctx, 'manifest');
+      if (manifestText === undefined) throw new Error('--manifest=<json-or-@file> is required');
+      const manifest = (await readJsonInput(manifestText)) as Tool;
+      const projectId = await projectIdFlag(ctx);
+      return await ctx.client().tools.register(manifest, { projectId });
+    }),
 };
 
 const unregister: LeafCommand = {
   kind: 'leaf',
   name: 'unregister',
-  description: 'Unregister a specific tool version.',
-  usage: 'kindgi tools unregister <tool-id> --version=<semver>',
-  optionSpec: {
-    version: {
-      type: 'string',
-      description:
-        'The version to unregister (semver); `kindgi tools reinstate` brings it back. Required.',
-    },
-  },
+  description:
+    'Unregister a specific tool version (semver); `kindgi tools reinstate` brings it back.',
+  usage: 'kindgi tools unregister <tool-id> <version>',
   run: (ctx) =>
     runSdk(ctx, 'tools unregister', async () => {
       const toolId = requiredPositional(ctx, 0, 'tool-id');
-      const version = stringFlag(ctx, 'version');
-      if (version === undefined) throw new Error('--version=<semver> is required');
-      return await ctx.client().tools.unregisterVersion(toolId as ToolId, version);
+      const version = requiredPositional(ctx, 1, 'version');
+      return await ctx.client().tools.versions.unregister(toolId as ToolId, version);
     }),
 };
 
@@ -138,7 +145,7 @@ const versions: LeafCommand = {
         throw new Error(`--limit must be an integer, got "${limitStr}"`);
       }
       const includeTombstoned = ctx.options['include-tombstoned'] === true;
-      return await ctx.client().tools.listVersions(toolId as ToolId, {
+      return await ctx.client().tools.versions.list(toolId as ToolId, {
         ...(cursor !== undefined && { cursor: cursor as never }),
         ...(limit !== undefined && { limit }),
         ...(includeTombstoned && { includeTombstoned: true }),
@@ -150,36 +157,25 @@ const getVersion: LeafCommand = {
   kind: 'leaf',
   name: 'get-version',
   description: 'Fetch a specific tool version by exact semver.',
-  usage: 'kindgi tools get-version <tool-id> --version=<semver>',
-  optionSpec: {
-    version: { type: 'string', description: 'The exact version to fetch (semver). Required.' },
-  },
+  usage: 'kindgi tools get-version <tool-id> <version>',
   run: (ctx) =>
     runSdk(ctx, 'tools get-version', async () => {
       const toolId = requiredPositional(ctx, 0, 'tool-id');
-      const version = stringFlag(ctx, 'version');
-      if (version === undefined) throw new Error('--version=<semver> is required');
-      return await ctx.client().tools.getVersion(toolId as ToolId, version);
+      const version = requiredPositional(ctx, 1, 'version');
+      return await ctx.client().tools.versions.get(toolId as ToolId, version);
     }),
 };
 
 const reinstate: LeafCommand = {
   kind: 'leaf',
   name: 'reinstate',
-  description: 'Un-tombstone a specific tool version.',
-  usage: 'kindgi tools reinstate <tool-id> --version=<semver>',
-  optionSpec: {
-    version: {
-      type: 'string',
-      description: 'The unregistered version to bring back (semver). Required.',
-    },
-  },
+  description: 'Bring back an unregistered tool version (semver).',
+  usage: 'kindgi tools reinstate <tool-id> <version>',
   run: (ctx) =>
     runSdk(ctx, 'tools reinstate', async () => {
       const toolId = requiredPositional(ctx, 0, 'tool-id');
-      const version = stringFlag(ctx, 'version');
-      if (version === undefined) throw new Error('--version=<semver> is required');
-      return await ctx.client().tools.reinstateVersion(toolId as ToolId, version);
+      const version = requiredPositional(ctx, 1, 'version');
+      return await ctx.client().tools.versions.reinstate(toolId as ToolId, version);
     }),
 };
 

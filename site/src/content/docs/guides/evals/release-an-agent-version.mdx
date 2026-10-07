@@ -1,0 +1,542 @@
+---
+title: Release an agent version
+description: Make a version live for the whole tenant, an org, a project or a segment of its runs, see which version a run gets and why, roll back or unpin, and read the history.
+sidebar:
+  order: 5
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+A run that names no version gets the agent's latest version. Once a new
+version has done better on your test set (see
+[Compare a version on a test set](../compare-an-agent-version/)), you can make
+it **live** where you choose: the whole tenant, an org, a project, or a
+segment of a project's runs, such as one company's. Runs there use it from the
+next run, nothing changes anywhere else, and you can roll back at once.
+
+## Make a version live
+
+`acme.order-desk` has versions 1.0.0, 1.1.0 and 1.2.0. Make 1.0.0 live for the
+whole tenant:
+
+```sh
+kindgi agents promote acme.order-desk 1.0.0 --tenant --reason="1.0.0 is the version we checked"
+```
+
+```json
+{
+  "id": "ea4e7c15-7990-41b6-b153-0847a83f2e9d",
+  "agentId": "acme.order-desk",
+  "scope": { "kind": "tenant" },
+  "action": "promote",
+  "fromVersion": null,
+  "toVersion": "1.0.0",
+  "requestedBy": { "kind": "user", "id": "5c0a7e11-0000-4000-8000-0000000000aa" },
+  "reason": "1.0.0 is the version we checked",
+  "createdAt": "2026-10-06T18:46:15.125Z"
+}
+```
+
+From the next run, a run that names no version gets 1.0.0, and says why:
+
+```sh
+kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is order A-1002?"}'
+```
+
+```json
+  "agent": {
+    "id": "acme.order-desk",
+    "version": "1.0.0",
+    "conversationId": "4af092ea-5e8e-42f1-832e-b7ba1ed6e3d8",
+    "via": "live",
+    "liveScope": { "kind": "tenant" }
+  },
+```
+
+`via` says how the run got its version:
+
+| `via` | The version is |
+| --- | --- |
+| `live` | the live version of the scope in `liveScope` |
+| `latest` | the latest, because nothing is live for this run |
+| `explicit` | the one the run named (`--agent-version`, `agentVersion`) |
+| `flow-pin` | the one its flow version holds (see below) |
+| `conversation` | the one its conversation started with (see below) |
+
+A version only goes live this way: publishing a newer version doesn't change
+what a scope with a live version runs.
+
+## Make it live for some runs only
+
+The most specific live version wins, in this order: a **segment** path in a
+project, the **project**, the project's **org**, the **tenant**, and then the
+latest version. A segment path is one or more `key:value` steps, coarse to
+fine, that a run is started with: `company:acme`, or `company:acme` then
+`role:counsel`.
+
+Try 1.1.0 with acme's runs only:
+
+```sh
+kindgi agents promote acme.order-desk 1.1.0 --project=<project-id> --segment=company:acme --reason="Trying 1.1.0 with acme first"
+```
+
+A run started with that segment gets 1.1.0:
+
+```sh
+kindgi runs start --agent=acme.order-desk --project=<project-id> --segment=company:acme --input='{"userMessage":"Where is order A-1002?"}'
+```
+
+```json
+  "agent": {
+    "id": "acme.order-desk",
+    "version": "1.1.0",
+    "conversationId": "d35be284-99c0-4437-9186-b951386db8b3",
+    "via": "live",
+    "liveScope": {
+      "kind": "segment",
+      "projectId": "367e1657-8067-4a1d-8ec4-bfa3c5fc5865",
+      "path": [{ "key": "company", "value": "acme" }]
+    }
+  },
+```
+
+A run with `--segment=company:globex` has no live version of its own, so it
+gets the tenant's, 1.0.0. `--tenant`, `--org=<org-id>` and
+`--project=<project-id>` name the other scopes; without `--project`, a run is
+in the Default project (`kindgi projects list` lists the ids).
+
+## See which version a run would get
+
+`kindgi agents live` answers without starting a run:
+
+```sh
+kindgi agents live acme.order-desk --project=<project-id> --segment=company:acme
+```
+
+```json
+{
+  "agentId": "acme.order-desk",
+  "version": "1.1.0",
+  "via": "live",
+  "liveScope": {
+    "kind": "segment",
+    "projectId": "367e1657-8067-4a1d-8ec4-bfa3c5fc5865",
+    "path": [{ "key": "company", "value": "acme" }]
+  }
+}
+```
+
+`kindgi agents live-versions acme.order-desk` lists every scope with a live
+version, and since when.
+
+## From your app
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// release.ts
+import { createClient } from '@kindgi/sdk/client';
+
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+const projectId = process.argv[2];
+const acme = [{ key: 'company', value: 'acme' }];
+
+// Make 1.1.0 live for acme's runs in this project.
+await kindgi.agents.promotions.create('acme.order-desk', {
+  version: '1.1.0',
+  scope: { kind: 'segment', projectId, path: acme },
+  reason: 'Trying 1.1.0 with acme first',
+});
+
+// Which version would a run there use, and why?
+const live = await kindgi.agents.live.resolve('acme.order-desk', { projectId, segments: acme });
+console.log(live.version, live.via, live.liveScope?.kind);
+
+// A run that names no version gets it.
+const run = await kindgi.runs.start({
+  agent: 'acme.order-desk',
+  projectId,
+  segments: acme,
+  input: { userMessage: 'Where is order A-1002?' },
+});
+console.log(run.agent?.version, run.agent?.via);
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# release.py
+import sys
+
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+project_id = sys.argv[1]
+acme = [{"key": "company", "value": "acme"}]
+
+# Make 1.1.0 live for acme's runs in this project.
+kindgi.agents.promotions.create(
+    "acme.order-desk",
+    version="1.1.0",
+    scope={"kind": "segment", "project_id": project_id, "path": acme},
+    reason="Trying 1.1.0 with acme first",
+)
+
+# Which version would a run there use, and why?
+live = kindgi.agents.live.resolve("acme.order-desk", project_id=project_id, segments=acme)
+print(live.version, live.via, live.live_scope.kind)
+
+# A run that names no version gets it.
+run = kindgi.runs.start(
+    agent="acme.order-desk",
+    project_id=project_id,
+    segments=acme,
+    input={"userMessage": "Where is order A-1002?"},
+)
+print(run.agent.version, run.agent.via)
+```
+
+</TabItem>
+</Tabs>
+
+```text
+1.1.0 live segment
+1.1.0 live
+```
+
+`kindgi.agents.live.list`, `rollback` and `unpin`, and
+`kindgi.agents.promotions.list` and `get`, do what the commands below do.
+
+## Conversations keep their version
+
+A follow-up turn in a conversation keeps the version the conversation started
+with, even after a promotion: the conversation stays consistent. Here a
+conversation started on 1.2.0, before 1.0.0 went live for the tenant, and its
+next turn still ran 1.2.0:
+
+```json
+  "agent": {
+    "id": "acme.order-desk",
+    "version": "1.2.0",
+    "conversationId": "9fce3360-5426-4578-b387-361afa9f2156",
+    "via": "conversation"
+  },
+```
+
+A new conversation gets the live version.
+
+## Flows keep their versions
+
+A published flow version holds the agent versions it was published with.
+Each agent step runs the version its node names (`config.version`), or else
+the one a run in the flow's project would get when the flow version is
+published:
+the live version (project, then org, then tenant), or the latest when none is
+live. Its turns say `"via": "flow-pin"`, and a promotion doesn't change them.
+Here `acme.order-flow` 1.0.0 was published while 1.3.0 was live; after the
+tenant went back to 1.0.0, its step still ran 1.3.0:
+
+```json
+  "agent": {
+    "id": "acme.order-desk",
+    "version": "1.3.0",
+    "conversationId": "5547f2a1-88b2-4b34-8d63-294f21fa5642",
+    "via": "flow-pin"
+  },
+```
+
+To run a new agent version in a flow, publish a new version of the flow.
+
+## Roll back, or unpin
+
+`kindgi agents rollback` puts a scope back on the version that was live there
+before (or on `--to=<version>`), at once:
+
+```sh
+kindgi agents rollback acme.order-desk --tenant --reason="1.2.0 answers worse"
+```
+
+```json
+{
+  "id": "7da674c5-c835-42c0-8cde-59571afd0915",
+  "agentId": "acme.order-desk",
+  "scope": { "kind": "tenant" },
+  "action": "rollback",
+  "fromVersion": "1.2.0",
+  "toVersion": "1.0.0",
+  …
+}
+```
+
+`kindgi agents unpin` removes a scope's own live version: its runs then use
+the scope above, or the latest version when nothing above is live.
+
+```sh
+kindgi agents unpin acme.order-desk --tenant --reason="Back to the latest"
+```
+
+What each refuses:
+
+- a version that isn't registered:
+  `Version 9.9.9 is not registered (or was unregistered)`;
+- a rollback where nothing was live before:
+  `The scope had no live version before this one: unpin it to fall back to the scope above`;
+- an unpin where the scope has no live version of its own:
+  `The scope has no live version of its own`.
+
+To retire a version that's live somewhere, roll back, unpin or promote
+another version in each of those scopes first; until then
+`kindgi agents unregister` refuses it (`409 agent-version-live`).
+
+## The history
+
+Every promotion, rollback and unpin is kept, with who asked and why, newest
+first. `STATUS` says how each ended (`done` for a rollback or an unpin):
+
+```sh
+kindgi agents promotions list acme.order-desk --table
+```
+
+```text
+ID                                    ACTION    STATUS    SCOPE                                                      FROM   TO     BY                                         AT
+────────────────────────────────────  ────────  ────────  ─────────────────────────────────────────────────────────  ─────  ─────  ─────────────────────────────────────────  ────────────────────────
+d6db591b-8afc-4413-81c8-a794d9f848a5  unpin     done      tenant                                                     1.0.0  -      user 5c0a7e11-0000-4000-8000-0000000000aa  2026-10-06T18:48:59.665Z
+7da674c5-c835-42c0-8cde-59571afd0915  rollback  done      tenant                                                     1.2.0  1.0.0  user 5c0a7e11-0000-4000-8000-0000000000aa  2026-10-06T18:48:47.871Z
+70ea0024-ec7e-4122-abc4-04df1eb7b9eb  promote   promoted  tenant                                                     1.0.0  1.2.0  user 5c0a7e11-0000-4000-8000-0000000000aa  2026-10-06T18:48:43.578Z
+912e10e7-18fb-4228-92b9-33b3f2a4d45b  promote   promoted  project 367e1657-8067-4a1d-8ec4-bfa3c5fc5865 company=acme  -      1.1.0  user 5c0a7e11-0000-4000-8000-0000000000aa  2026-10-06T18:48:23.207Z
+ea4e7c15-7990-41b6-b153-0847a83f2e9d  promote   promoted  tenant                                                     -      1.0.0  user 5c0a7e11-0000-4000-8000-0000000000aa  2026-10-06T18:46:15.125Z
+```
+
+`--tenant`, `--org`, `--project` and `--segment` narrow it to one scope's
+history. `--eval-run=<eval-run-id>` on `promote` keeps the comparison behind
+the decision on its record.
+
+## Gate a release
+
+A **gate policy** says what a promotion must show before a version goes live
+for a scope: a recent comparison on your test set, enough judged cases,
+figures at least this good, a clean replay and, if you want, a reviewer's
+approval. An agent has one policy per scope; a promotion is checked by the
+most specific one covering its scope, at its latest version.
+
+### Set a gate
+
+The scope must have a live version first. A gate on a scope with nothing live
+would let the next published version go live there ungated, so it's refused:
+`Nothing covering this scope pins a version of acme.order-desk, so publishing a version would make it live here ungated: pin a version for this scope, or one above it, first`.
+Promote a version, then publish the policy:
+
+```json
+{
+  "comparison": { "maxAgeHours": 168 },
+  "evidence": { "minCases": 3 },
+  "metrics": [{ "name": "weightedYesShare", "minCandidate": 0.6, "maxDrop": 0.02 }],
+  "replay": { "maxRefusedWrites": 0 },
+  "approvals": { "role": "senior" }
+}
+```
+
+```sh
+kindgi gate-policies publish acme.order-desk-release --policy-version=1.0.0 --agent=acme.order-desk --tenant --spec=@gate.json --description="What a release of the order desk must show"
+```
+
+| Part | A promotion must show |
+| --- | --- |
+| `comparison.maxAgeHours` | a comparison of the version, finished at most this many hours ago |
+| `evidence.minCases` | each figure resting on at least this many judged cases, for the version and for the live one |
+| `metrics` | each named figure (`weightedYesShare`, `judgedCoverage`, or `weightedPrecisionAtK` with its `k`) at least `minCandidate`, and at most `maxDrop` below the live version |
+| `replay` | at most this many diverged cases, errors, refused writes and stopped cases (`maxDiverged`, `maxErrors`, `maxRefusedWrites`, `maxStopped`); those left out are 0 |
+| `approvals` | then a reviewer with this role (`senior` if left out) approves it, someone other than whoever asked (`separateApprover: false` lets the one who asked approve it) |
+| `onlyRestrictedClasses: true` | a comparison that [counted only restricted judges](../compare-an-agent-version/#count-only-restricted-judges) |
+
+A promotion must name its comparison when the policy has `comparison`,
+`evidence`, `metrics`, `replay` or `onlyRestrictedClasses`. The comparison must be of the version
+you promote, with the same pins, and its recorded runs must be from the
+version live for the scope now.
+
+To change a gate, publish a new version of the policy;
+`kindgi gate-policies unregister acme.order-desk-release <version>` goes back
+to the one before. `kindgi agents gate-policy acme.order-desk --tenant` shows
+the policy that applies to a scope.
+
+With `onlyRestrictedClasses`, a comparison that counted every class is
+refused with
+`` The policy counts only restricted judge classes; the comparison counted every class. Re-run it with `classWeights: 'restricted-only'`. ``,
+so only the judges you restricted can release a version.
+
+### Check before you promote
+
+`--check` asks the gate without recording anything:
+
+```sh
+kindgi agents promote acme.order-desk 1.3.0 --tenant --eval-run=<comparison-id> --check
+```
+
+```json
+{
+  "outcome": "needs-approval",
+  "policy": { "id": "acme.order-desk-release", "version": "1.0.0" },
+  "checks": [
+    { "name": "comparison.freshness", "passed": true, "message": "The comparison finished 0.013 hours ago; the policy accepts up to 168.", … },
+    { "name": "baselineIsLive", "passed": true, "message": "The baseline is acme.order-desk 1.0.0, the version live for the scope.", … },
+    { "name": "metric.weightedYesShare.minCandidate", "passed": true, "message": "The weighted yes share is 1; the policy needs at least 0.6.", … },
+    …
+  ],
+  "approval": { "role": "senior", "count": 1, "separateApprover": true }
+}
+```
+
+`gate-failed` lists each check that failed, such as
+`` This policy needs a comparison: name one with `evalRunId` (a finished comparison eval run of this version). ``
+when there's no `--eval-run`.
+
+### Promote through the gate
+
+```sh
+kindgi agents promote acme.order-desk 1.3.0 --tenant --eval-run=<comparison-id> --reason="1.3.0 did as well on the order checks"
+```
+
+- **When the policy has no `approvals`,** a promotion that passes goes live
+  at once, `"status": "promoted"`.
+- **When it has,** it waits: `"status": "pending-approval"`, with an
+  `approvalId`. The scope keeps its version until a reviewer approves.
+- **When it fails,** nothing changes. It's refused with every failed check,
+  such as `The gate refused acme.order-desk 1.3.0: The weighted yes share rests on 3 judged cases for the candidate; the policy needs at least 20. …`,
+  and kept in the history as `refused`.
+
+Each promotion in `kindgi agents promotions list` has its `status`:
+`promoted`, `pending-approval`, `refused` or `superseded`.
+
+### Approve it
+
+The request is an approval like any other (see
+[Decide an approval](../../approvals/decide-an-approval/)), for a reviewer
+with the policy's role:
+
+```sh
+kindgi approvals complete <approval-id> --decision=approve --rationale="Checked the comparison"
+```
+
+The version goes live, and the promotion is `promoted`. Whoever asked can't
+approve their own request:
+`Approval <approval-id> was asked for by you: someone else must approve it`,
+unless the policy's `approvals` has `"separateApprover": false`. A
+deployment with one credential has only one person to ask and approve (see
+[Run with authorization](../../../deploy/authorization/)), so its gates with
+`approvals` need `"separateApprover": false`.
+If another promotion of the same scope goes live first, a waiting request is
+`superseded` instead of going live.
+
+### A gated scope stays pinned
+
+Rolling back is immediate and isn't gated. Unpinning a gated scope is refused,
+since its runs would then take whatever version is published next:
+`Unpinning would leave tenant with a gate policy on the latest version of acme.order-desk, where publishing goes live ungated: pin a version above it first, or unregister the gate policy`.
+
+### Promote from your app
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// promote-gated.ts
+import { createClient } from '@kindgi/sdk/client';
+
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+const evalRunId = process.argv[2]; // the comparison of 1.3.0
+const request = {
+  version: '1.3.0',
+  scope: { kind: 'tenant' as const },
+  evalRunId,
+  reason: '1.3.0 did as well on the order checks',
+};
+
+// What would the gate say? Nothing is recorded.
+const check = await kindgi.agents.promotions.check('acme.order-desk', request);
+console.log(check.outcome);
+for (const c of check.checks.filter((c) => !c.passed)) console.log(c.message);
+
+if (check.outcome !== 'gate-failed') {
+  const promotion = await kindgi.agents.promotions.create('acme.order-desk', request);
+  console.log(promotion.status, promotion.approvalId ?? '');
+}
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# promote_gated.py
+import sys
+
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+request = {
+    "version": "1.3.0",
+    "scope": {"kind": "tenant"},
+    "eval_run_id": sys.argv[1],  # the comparison of 1.3.0
+    "reason": "1.3.0 did as well on the order checks",
+}
+
+# What would the gate say? Nothing is recorded.
+check = kindgi.agents.promotions.check("acme.order-desk", **request)
+print(check.outcome)
+for c in check.checks:
+    if not c.passed:
+        print(c.message)
+
+if check.outcome != "gate-failed":
+    promotion = kindgi.agents.promotions.create("acme.order-desk", **request)
+    print(promotion.status, promotion.approval_id or "")
+```
+
+</TabItem>
+</Tabs>
+
+```text
+needs-approval
+pending-approval fa6fbbcf-7b0d-4c70-b462-d6a78bbcfd11
+```
+
+`kindgi.gatePolicies.publish` (`gate_policies.publish` in Python) and
+`kindgi.agents.gatePolicy.resolve` (`agents.gate_policy.resolve`) do what
+`kindgi gate-policies publish` and `kindgi agents gate-policy` do.
+
+## In the console
+
+- An agent's page says which version a run in this project gets, such as
+  "Runs here use 1.0.0", and why: "It's live for every project (the
+  tenant-wide default)." It links to its **Live versions** page.
+- **Live versions** has the same headline, **Check a segment path** (a key
+  and a value) to see what a run on a path would get, every pin that reaches
+  this project with its part ("Runs here take it", or "Runs on this path take
+  it" for a segment), each with **Roll back** and **Unpin**, and the history
+  with who and why.
+- **Promote a version** picks the version and the scope: this project, every
+  project in its org (when it's in one), every project, or a segment path in
+  this project. It says what will happen before you promote, such as "Runs in
+  this project (Support) will use 1.3.0."
+- A run's page says why it ran its version, such as "Live for company = acme
+  in this project (Default)".
+- **Gate policies,** on the Live versions page, has each policy in sentences,
+  such as "Judged yes: at least 60%, and no more than 2 points below the live
+  version" and "Then a senior reviewer approves it, someone other than
+  whoever asked", with its versions, **New version** and **Add a gate
+  policy**.
+- **Add a gate policy** has **Only restricted judge classes count**: "The
+  comparison must count only judgments in classes restricted to some judges
+  (start it with "Count only restricted judge classes"), so a class anyone
+  may assert can't move the gate."
+- **Promote a version** has **Judged on**, a finished comparison of the
+  version (one that counted only restricted classes says "restricted classes
+  only"), and runs the gate's check before anything is recorded: "The gate
+  passes (gate policy acme.order-desk-release 1.0.0) Then a senior reviewer
+  approves it, someone other than you, and it goes live.", with each check.
+  Its button follows: **Ask to promote 1.3.0**, or "The gate refuses it".
+- A request waiting for approval shows on Live versions, with **Open the
+  approval**. Its approval page shows the promotion, who asked and why, the
+  comparison and the policy, and each check; once approved, "Promoted 1.3.0,
+  replacing 1.0.0".

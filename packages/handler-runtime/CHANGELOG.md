@@ -1,5 +1,74 @@
 # @kindgi/handler-runtime
 
+## 0.1.4-rc.2
+
+### Patch Changes
+
+- f96bd58: **One Ctrl+C stops `kindgi dev` cleanly, the runtime container included.**
+  
+  - **Under a package manager** (`pnpm exec kindgi dev`, `npx kindgi dev`, a `pnpm run` script), `kindgi dev` no longer exits at once with code 130 and leaves the runtime container running. A terminal's Ctrl+C signals the whole process group, and the wrapper signals its child too: `npx` and `pnpm run` forward SIGINT; `pnpm exec` sends SIGTERM. So one Ctrl+C arrived twice and was read as the second, forced one.
+    - A signal that comes with the first is now the same Ctrl+C. That holds even when it's handled late because the stop held the event loop: closing the file watcher takes over a second on macOS.
+    - A SIGTERM never forces the exit.
+    - Pressing Ctrl+C again later still forces it.
+    - `pnpm exec` itself exits at once, so the prompt returns while `kindgi dev` finishes stopping and prints "stopped.".
+  - **The pack service isn't restarted mid-shutdown.** Its child gets the same Ctrl+C and exits. `kindgi dev` printed "pack service exited (SIGINT) — restarting" and started a new one. It now marks the pack service as closing the moment the stop arrives.
+  - **Every shutdown step runs**, even after one fails, so the runtime container is removed either way.
+  - **`@kindgi/handler-runtime`**: the pack service supervisor has `beginClose()`. From then on a child that exits is expected, not restarted, and `start()` is refused. `close()` does this too.
+- fe0ad36: **A pack service child stopped by the terminal's Ctrl+C isn't reported as a crash while `kindgi dev` stops.** Ctrl+C (or closing the terminal) signals the whole process group, the pack service's child included. Under load, the child's exit could be handled before `kindgi dev`'s own stop, which printed "pack service exited (SIGINT) — restarting" mid-shutdown; nothing actually restarted. A child killed by SIGINT or SIGHUP now gets two event-loop turns for its owner's stop to arrive before it counts as a crash. Every other exit is reported at once, as before.
+- Updated dependencies [149a8c9]
+- Updated dependencies [2040daf]
+- Updated dependencies [7c084e1]
+- Updated dependencies [ae417f7]
+  - @kindgi/env-schema@0.1.4-rc.2
+  - @kindgi/types@0.1.4-rc.2
+  - @kindgi/flow@0.1.4-rc.2
+  - @kindgi/sandbox@0.1.4-rc.2
+  - @kindgi/schema@0.1.4-rc.2
+
+## 0.1.4-rc.1
+
+### Patch Changes
+
+- Updated dependencies [846dd9c]
+- Updated dependencies [b8ff156]
+- Updated dependencies [c0f1b56]
+  - @kindgi/env-schema@0.1.4-rc.1
+  - @kindgi/flow@0.1.4-rc.1
+  - @kindgi/sandbox@0.1.4-rc.1
+  - @kindgi/schema@0.1.4-rc.1
+  - @kindgi/types@0.1.4-rc.1
+
+## 0.1.4-rc.0
+
+### Patch Changes
+
+- 024a47f: **An agent's prompt and settings can come from data blocks, pinned when the agent version is published.**
+  
+  - **References:**
+    - `instructions` is the system prompt, or a prompt block by range: `{ prompt: 'acme.intake-prompt', version: '^1.0.0' }`. Its template and declared parameters are used instead.
+    - `settings: [{ id, version }]` lists settings blocks.
+    - `modelSettings: { id, version }` names a model-settings block (`MODEL_SETTINGS_SCHEMA`: `temperature`, `maxOutputTokens`).
+  - **Pinned at publish:** `POST /v1/agents` and deploys resolve each reference by `pickVersion` into `pins.prompts` / `pins.settings`, alongside the tools.
+  - **Refusals:** a reference that matches no published version, names a block of the other kind, names model settings that aren't, or runs on a runtime with no block registry refuses the publish (`400 validation-failed`).
+  - **At run time:** a turn loads each block at its pinned version. A resumed turn uses the versions its `setup` journaled (`blockVersions`).
+    - The prompt block renders as the instructions.
+    - Settings values reach tools as `ToolContext.settings['<id>']` and templates as `settings["<id>"]`.
+    - Model settings go into the model call.
+    - A block that can't load fails the turn (`block-unresolvable`).
+    - `InvokeAgentBindings` takes an optional `blockReader`.
+  - **Changed elsewhere:** the agent spec, the pack index, both indexers (TS and Python: `Agent(instructions={...}, settings=[...], model_settings={...})`), and both clients.
+  - **Pack protocol 2.4.0:** `callContext` gets optional `settings`, so pack code reads them: `ctx.settings['acme.weights']` in TS, `ctx.settings["acme.weights"]` in Python. Older pack services still answer calls that carry it: a TS one passes it to the handler, a Python one drops it.
+  - **`settings` is now a reserved template name.**
+- e197294: Two files in a pack that define a tool, guardrail, agent or flow with the same id are an error. The indexer kept both, and the pack service silently served only the last. Now the indexer keeps the first file in path order and reports the second: `tools/b.ts: duplicate tool id 'acme.echo' (also defined in tools/a.ts)` (`manifest-validation-failed`), as the Python indexer already does. That holds for two versions of one id as well: a pack serves one version of each primitive. `kindgi build` and `kindgi deploy` refuse the pack; `kindgi dev` prints the error and loads the rest. The same id on two different kinds (a tool and a flow) is still allowed.
+- b52d890: A pack can hold several versions of one tool, side by side: one agent version may pin `acme.scorer@1.0.0` while another pins `2.0.0`. The pack service (TypeScript and Python) keys its tools by id and version: a call runs the version it names; a call that names none runs the tool's only version, and is refused (`tool-version-mismatch`, naming the versions it has) when there are several. `GET /v1/info` lists every version. The Python indexer accepts several versions of one id, keyed by the version the index records (a tool without its own takes the pack's), and refuses the same version twice.
+- Updated dependencies [fac7472]
+- Updated dependencies [26b2a23]
+  - @kindgi/types@0.1.4-rc.0
+  - @kindgi/flow@0.1.4-rc.0
+  - @kindgi/schema@0.1.4-rc.0
+  - @kindgi/sandbox@0.1.4-rc.0
+  - @kindgi/env-schema@0.1.4-rc.0
+
 ## 0.1.3
 
 ### Patch Changes

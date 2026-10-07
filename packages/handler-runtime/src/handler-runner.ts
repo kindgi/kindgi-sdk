@@ -48,6 +48,12 @@ export interface HandlerContext {
   readonly secrets?: Readonly<Record<string, unknown>>;
   readonly config?: Readonly<Record<string, unknown>>;
   /**
+   * The calling agent version's settings blocks' values, by block id
+   * (protocol 2.4.0): `ctx.settings['acme.weights'].recency`. Absent when
+   * it pins none, and from an older runtime.
+   */
+  readonly settings?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+  /**
    * Never on the wire; the pack service adds it: aborted when the call
    * is cancelled or passes its deadline. Handlers that do slow I/O
    * should pass it on so they stop promptly.

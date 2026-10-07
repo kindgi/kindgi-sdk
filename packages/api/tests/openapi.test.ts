@@ -25,11 +25,14 @@ import { createApp } from '../src/index.js';
 import type {
   AdapterRegistryBinding,
   AgentRegistryBinding,
+  AgentReleaseBindings,
   BlobStorageBinding,
+  BlockRegistryBinding,
   CapabilityRegistryBinding,
   CostBinding,
   DeploymentBinding,
   EnvBinding,
+  EvalCaseStoreBinding,
   EvalRunBinding,
   EvalSuiteRegistryBinding,
   ExchangeCodeFn,
@@ -39,11 +42,13 @@ import type {
   IdentityDirectoryBinding,
   IdentityProviderBinding,
   ImageRegistryBinding,
+  JudgmentRegistryBinding,
   MCPEndpointRegistryBinding,
   MemoryBinding,
   PolicyRegistryBinding,
   ProviderRegistryBinding,
   PublicRunTokenConfig,
+  RetentionBinding,
   ReviewerBinding,
   ReviewerRegistryBinding,
   RunHandlerBinding,
@@ -308,11 +313,75 @@ const noopEvalSuiteRegistry: EvalSuiteRegistryBinding = {
   reinstateVersion: async ({ suiteId, version }) => ({ kind: 'not-found', suiteId, version }),
 };
 
+const noopBlockRegistry: BlockRegistryBinding = {
+  list: async () => ({ data: [] }),
+  get: async () => null,
+  getVersion: async () => null,
+  listVersions: async () => ({ data: [] }),
+  publish: async ({ block }) => ({ kind: 'ok', blockId: block.id, version: block.version }),
+  unregister: async () => ({ unregistered: false }),
+  reinstateVersion: async ({ blockId, version }) => ({ kind: 'not-found', blockId, version }),
+};
+
+const noopEvalCaseStore: EvalCaseStoreBinding = {
+  putCases: async () => undefined,
+  listCases: async () => ({ data: [], hasMore: false }),
+};
+
+const noopJudgmentRegistry: JudgmentRegistryBinding = {
+  createClass: async () => ({ kind: 'name-taken' }),
+  listClasses: async () => ({ data: [], hasMore: false }),
+  getClass: async () => null,
+  updateClass: async () => null,
+  unregisterClass: async () => ({ unregistered: false }),
+  record: async () => {
+    throw new Error('noop');
+  },
+  list: async () => ({ data: [], hasMore: false }),
+  get: async () => null,
+  unregister: async () => ({ unregistered: false }),
+};
+
 const noopEvalRunBinding: EvalRunBinding = {
   start: async () => ({ kind: 'suite-not-found', suiteId: 'noop' }),
   get: async () => null,
   list: async () => ({ data: [] }),
   cancel: async () => ({ kind: 'not-found' }),
+};
+
+const noopRetention: RetentionBinding = {
+  scheduled: async () => ({ data: [], domainsMissingAdapter: [], unpolicedDomains: [] }),
+  sweep: async () => ({ perDomain: [], totalPurged: 0 }),
+};
+
+const noopAgentReleases: AgentReleaseBindings = {
+  live: { resolve: async () => null, list: async () => [] },
+  promotions: {
+    promote: async () => ({
+      kind: 'err',
+      error: { code: 'agent-version-not-found', message: 'noop' },
+    }),
+    rollback: async () => ({ kind: 'err', error: { code: 'not-pinned', message: 'noop' } }),
+    unpin: async () => ({ kind: 'err', error: { code: 'not-pinned', message: 'noop' } }),
+    list: async () => ({ data: [] }),
+    get: async () => null,
+  },
+  gatePolicies: {
+    publish: async () => ({ kind: 'err', error: { code: 'persistence-error', message: 'noop' } }),
+    get: async () => null,
+    getVersion: async () => null,
+    listVersions: async () => [],
+    list: async () => ({ data: [] }),
+    unregister: async () => ({
+      kind: 'err',
+      error: { code: 'gate-policy-not-found', message: 'noop' },
+    }),
+    reinstate: async () => ({
+      kind: 'err',
+      error: { code: 'gate-policy-not-found', message: 'noop' },
+    }),
+    resolve: async () => null,
+  },
 };
 
 const noopCost: CostBinding = {
@@ -488,6 +557,7 @@ function collectMountedRoutes(): HonoRouteRecord[] {
     reviewerRegistry: noopReviewerRegistry,
     enableObservations: true,
     agentRegistry: noopAgentRegistry,
+    agentReleases: noopAgentReleases,
     flowRegistry: noopFlowRegistry,
     toolRegistry: noopToolRegistry,
     guardrailRegistry: noopGuardrailRegistry,
@@ -503,8 +573,12 @@ function collectMountedRoutes(): HonoRouteRecord[] {
     webhookEndpoints: noopWebhookEndpoints,
     publicRunTokens: publicRunTokensConfig(),
     policyRegistry: noopPolicyRegistry,
+    retention: noopRetention,
     evalSuiteRegistry: noopEvalSuiteRegistry,
+    blockRegistry: noopBlockRegistry,
     evalRunBinding: noopEvalRunBinding,
+    judgmentRegistry: noopJudgmentRegistry,
+    evalCaseStore: noopEvalCaseStore,
     sessionStore: noopSessionStore,
     identityProvider: noopIdentityProvider,
     exchangeCode: noopExchangeCode,

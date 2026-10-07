@@ -41,6 +41,7 @@ import type {
   StartServicesResult,
   WatchHandle,
 } from '../src/dev/runners.js';
+import { RuntimeStartStopped } from '../src/dev/runtime-container.js';
 import { type RunCliInputs, runCli } from '../src/main.js';
 import { CLI_VERSION } from '../src/version-info.js';
 
@@ -91,6 +92,8 @@ interface Fixtures {
   triggerChange: (build?: PackBuild) => void;
   /** An env-file change (the second watcher). */
   triggerEnvChange: () => void;
+  /** A watch failed, as both `watchPack` watchers hear it. */
+  triggerWatchFailure: (error: Error) => void;
   readonly watchHandle: FakeWatchHandle;
   readonly agentDefineCalls: unknown[];
   readonly guardrailAuthorCalls: unknown[];
@@ -103,6 +106,10 @@ interface Fixtures {
   /** `[staged, index]` pairs published, in order. */
   readonly published: (readonly [string, string])[];
   readonly packStops: () => number;
+  /** How often the pack service was told it's closing (`beginClose`). */
+  readonly packBeginCloses: () => number;
+  /** What the stop took down, in order: `runtime: stopping` / `runtime: gone`, `watcher`, `pack service`. */
+  readonly stopOrder: string[];
   /** Interpreters `checkPackPython` was asked about. */
   readonly pythonChecks: (readonly string[])[];
   /** The `PackCode` each of the pack service, the builder and the indexer got. */
@@ -123,9 +130,14 @@ function makeFixtures(
     readonly providers?: readonly unknown[];
     /** What the boot build loads from `node_modules` (default: not reported). */
     readonly externals?: readonly ExternalPackage[];
+    /** Disposing the builder fails (a shutdown step that throws). */
+    readonly disposeFails?: boolean;
+    /** Stopping the runtime fails at once. */
+    readonly shutdownFails?: boolean;
   } = {},
 ): Fixtures {
   const pythonChecks: (readonly string[])[] = [];
+  const stopOrder: string[] = [];
   const serviceCodes: unknown[] = [];
   const builderCodes: unknown[] = [];
   const indexerCodes: unknown[] = [];
@@ -143,6 +155,11 @@ function makeFixtures(
     shutdownCount: 0,
     shutdown: async () => {
       server.shutdownCount += 1;
+      // As `docker stop`: under way at once, done a while later.
+      stopOrder.push('runtime: stopping');
+      if (opts.shutdownFails === true) throw new Error('docker stop failed');
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      stopOrder.push('runtime: gone');
     },
   };
 
@@ -151,17 +168,20 @@ function makeFixtures(
 
   const captureWatchCalls: { packDir: string; debounceMs?: number }[] = [];
   const onChangeRefs: (() => void)[] = [];
+  const watchFailedRefs: ((error: unknown) => void)[] = [];
   let rebuildRef: ((build: PackBuild) => void) | undefined;
   const watchHandle: FakeWatchHandle = {
     closeCount: 0,
     close: async () => {
       watchHandle.closeCount += 1;
+      stopOrder.push('watcher');
     },
   };
 
   const packStarts: string[] = [];
   const published: (readonly [string, string])[] = [];
   let packStops = 0;
+  let packBeginCloses = 0;
   const unavailable = {
     kind: 'err',
     error: { code: 'pack-service-unavailable', message: 'fake' },
@@ -185,6 +205,7 @@ function makeFixtures(
         listen: async () => ({ url: 'http://127.0.0.1:1', port: 1 }),
         close: async () => {
           packStops += 1;
+          stopOrder.push('pack service');
         },
         transport: {
           target: 'fake-pack',
@@ -200,6 +221,9 @@ function makeFixtures(
         stop: async () => {
           packStops += 1;
         },
+        beginClose: () => {
+          packBeginCloses += 1;
+        },
       };
     },
     createPackBuilder: (builderOpts) => {
@@ -214,7 +238,9 @@ function makeFixtures(
           rebuildRef = onBuild;
         },
         syncEntries: async () => false,
-        dispose: async () => {},
+        dispose: async () => {
+          if (opts.disposeFails === true) throw new Error('dispose failed');
+        },
       };
     },
     publishIndex: async (staged, index) => {
@@ -240,6 +266,7 @@ function makeFixtures(
         ...(watchOpts?.debounceMs !== undefined && { debounceMs: watchOpts.debounceMs }),
       });
       onChangeRefs.push(onChange);
+      if (watchOpts?.onWatchFailed !== undefined) watchFailedRefs.push(watchOpts.onWatchFailed);
       return watchHandle;
     },
   };
@@ -253,6 +280,9 @@ function makeFixtures(
     watchHandle,
     triggerChange: (build) => rebuildRef?.(build ?? { kind: 'ok', bundleMap: {} }),
     triggerEnvChange: () => onChangeRefs[1]?.(),
+    triggerWatchFailure: (error) => {
+      for (const failed of watchFailedRefs) failed(error);
+    },
     agentDefineCalls: [],
     guardrailAuthorCalls: [],
     flowDefineCalls: [],
@@ -261,6 +291,8 @@ function makeFixtures(
     packStarts,
     published,
     packStops: () => packStops,
+    packBeginCloses: () => packBeginCloses,
+    stopOrder,
     pythonChecks,
     serviceCodes,
     builderCodes,
@@ -1047,6 +1079,36 @@ describe('kindgi dev — the PyPI CLI (kindgi-cli)', () => {
   });
 });
 
+describe('kindgi dev — a stop before the runtime serves (T176)', () => {
+  test('Ctrl+C while it waits for the runtime: it stops at once, exit 130, not an error', async () => {
+    const controller = new AbortController();
+    const fixtures = makeFixtures();
+    const seen: (AbortSignal | undefined)[] = [];
+    const runners: DevRunners = {
+      ...fixtures.runners,
+      startApiServer: async (opts) => {
+        seen.push(opts.signal);
+        // The runtime never serves: the wait ends only on the stop.
+        await new Promise<void>((resolve) =>
+          opts.signal?.addEventListener('abort', () => resolve()),
+        );
+        throw new RuntimeStartStopped();
+      },
+    };
+    const promise = runCli({
+      ...baseInputs(fixtures, { stopSignal: controller.signal, devRunners: runners }),
+      argv: ['dev', `--path=${packDir}`],
+    });
+    await vi.waitFor(() => expect(seen).toHaveLength(1), WAIT);
+    expect(seen[0]).toBe(controller.signal);
+    controller.abort();
+    const out = await promise;
+    expect(out.exitCode).toBe(130);
+    expect(out.stderr).toContain('kindgi dev stopped before the Kindgi runtime served.');
+    expect(out.stderr).not.toContain("couldn't start the Kindgi runtime");
+  });
+});
+
 describe('kindgi dev — watch flow', () => {
   test('boots watcher, fires re-index on onChange, closes on abort signal', async () => {
     const controller = new AbortController();
@@ -1077,10 +1139,96 @@ describe('kindgi dev — watch flow', () => {
 
     // Abort → command completes gracefully.
     controller.abort();
+    // The pack service is told it's closing the moment the stop arrives,
+    // before anything is awaited: a child that dies now isn't restarted.
+    expect(fixtures.packBeginCloses()).toBe(1);
     const out = await promise;
     expect(out.exitCode).toBe(0);
     expect(fixtures.watchHandle.closeCount).toBe(2);
     expect(fixtures.server.shutdownCount).toBe(1);
+  });
+
+  test('the watchers close while the runtime stops; a change seen while stopping starts nothing', async () => {
+    const controller = new AbortController();
+    const fixtures = makeFixtures({ outcomes: [defaultHappyOutcome()] });
+    const promise = runCli({
+      ...baseInputs(fixtures, { stopSignal: controller.signal }),
+      argv: ['dev', `--path=${packDir}`],
+    });
+    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
+    const indexed = fixtures.captureIndexerCalls.length;
+    controller.abort();
+    // The watchers are still open while the runtime shuts down: what they
+    // report now is ignored.
+    fixtures.triggerChange();
+    fixtures.triggerEnvChange();
+    const out = await promise;
+    expect(out.exitCode).toBe(0);
+    expect(fixtures.captureIndexerCalls).toHaveLength(indexed);
+    // Closing a recursive watcher holds the loop for a second or more on
+    // macOS: it happens while the runtime's container stops, not before.
+    expect(fixtures.stopOrder).toEqual([
+      'runtime: stopping',
+      'watcher',
+      'watcher',
+      'runtime: gone',
+      'pack service',
+    ]);
+  });
+
+  test('a failed file watch is said once, whichever watchers hear it', async () => {
+    const controller = new AbortController();
+    const fixtures = makeFixtures({ outcomes: [defaultHappyOutcome()] });
+    const promise = runCli({
+      ...baseInputs(fixtures, { stopSignal: controller.signal }),
+      argv: ['dev', `--path=${packDir}`],
+    });
+    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
+    const stderr = vi.spyOn(process.stderr, 'write');
+    try {
+      fixtures.triggerWatchFailure(new Error('the watch of /pack ended'));
+      fixtures.triggerWatchFailure(new Error('too many open files'));
+      const lines = stderr.mock.calls.map(([chunk]) => String(chunk)).join('');
+      expect(lines.match(/file watch failed/g)).toHaveLength(1);
+      expect(lines).toContain(
+        '⚠ file watch failed (the watch of /pack ended): changes are picked up by the once-a-second scan',
+      );
+    } finally {
+      stderr.mockRestore();
+    }
+    controller.abort();
+    expect((await promise).exitCode).toBe(0);
+  });
+
+  test("a runtime that won't stop still has the watchers and the pack service closed", async () => {
+    const controller = new AbortController();
+    const fixtures = makeFixtures({ outcomes: [defaultHappyOutcome()], shutdownFails: true });
+    const promise = runCli({
+      ...baseInputs(fixtures, { stopSignal: controller.signal }),
+      argv: ['dev', `--path=${packDir}`],
+    });
+    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
+    controller.abort();
+    const out = await promise;
+    expect(out.exitCode).not.toBe(0);
+    expect(out.stderr).toContain('docker stop failed');
+    expect(fixtures.stopOrder).toEqual(['runtime: stopping', 'watcher', 'watcher', 'pack service']);
+  });
+
+  test('a shutdown step that fails still shuts the runtime and the pack service down', async () => {
+    const controller = new AbortController();
+    const fixtures = makeFixtures({ outcomes: [defaultHappyOutcome()], disposeFails: true });
+    const promise = runCli({
+      ...baseInputs(fixtures, { stopSignal: controller.signal }),
+      argv: ['dev', `--path=${packDir}`],
+    });
+    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
+    controller.abort();
+    const out = await promise;
+    expect(out.exitCode).not.toBe(0);
+    // The runtime (its container) and the pack service went down anyway.
+    expect(fixtures.server.shutdownCount).toBe(1);
+    expect(fixtures.packStops()).toBe(1);
   });
 
   test('watch tick after indexer failure keeps the server up + records lastWatch error', async () => {
@@ -1687,14 +1835,18 @@ describe('kindgi dev — a database per project', () => {
       readonly project?: ProjectOutcome;
       readonly interactive?: boolean;
       readonly answer?: boolean;
+      /** The bundled Postgres's host port (it can change between boots). */
+      readonly port?: number;
+      /** Another boot's fixtures: the same runtime, providers and all. */
+      readonly base?: ReturnType<typeof makeFixtures>;
     } = {},
   ) {
-    const fixtures = makeFixtures();
+    const fixtures = options.base ?? makeFixtures();
     const calls: string[] = [];
     const resolveInputs: { packDir: string; configured: unknown }[] = [];
     const questions: string[] = [];
     const projectDatabases: ProjectDatabases = {
-      urlFor: (database) => `postgres://kindgi@127.0.0.1:5432/${database}`,
+      urlFor: (database) => `postgres://kindgi@127.0.0.1:${options.port ?? 5432}/${database}`,
       ensure: async (project, cliVersion) => {
         calls.push(`ensure ${project.database} ${cliVersion}`);
         return options.ensure ?? { kind: 'created' };
@@ -1710,7 +1862,7 @@ describe('kindgi dev — a database per project', () => {
       startServices: async () => ({
         kind: 'ok' as const,
         handle: {
-          databaseUrl: 'postgres://kindgi@127.0.0.1:5432/kindgi',
+          databaseUrl: `postgres://kindgi@127.0.0.1:${options.port ?? 5432}/kindgi`,
           services: ['postgres'],
           startedWith: 'docker compose' as const,
           projectDatabases,
@@ -1747,6 +1899,54 @@ describe('kindgi dev — a database per project', () => {
       restore();
     }
   }
+
+  const GEMINI_CONFIG =
+    "export default { pack: { id: 'my-pack', version: '0.1.0' }, providers: [{ preset: 'gemini', project: 'acme-gcp', models: ['gemini-2.5-flash'] }] };\n";
+  // A provider this pack registered reads `unchanged` next boot; one it
+  // doesn't know as its own reads as someone else's.
+  const OWN = 'gemini (unchanged)';
+  const NOT_OWN = 'not from kindgi.config.ts';
+
+  test("the bundled Postgres on another port next boot: this pack's providers are still its own", async () => {
+    await writeFile(join(packDir, 'kindgi.config.ts'), GEMINI_CONFIG, 'utf8');
+    const base = makeFixtures();
+    const first = await boot(withProjectDatabase({ port: 58091, base }).fixtures);
+    expect(first.log).toContain('  ✓ gemini: registered\n');
+
+    const second = await boot(
+      withProjectDatabase({ port: 62374, base, ensure: { kind: 'exists' } }).fixtures,
+    );
+    expect(second.log).toContain(OWN);
+    expect(second.log).not.toContain(NOT_OWN);
+  });
+
+  test("a 0.1.3 record (keyed on the bundled Postgres's port) is adopted: the provider is still this pack's", async () => {
+    await writeFile(join(packDir, 'kindgi.config.ts'), GEMINI_CONFIG, 'utf8');
+    const base = makeFixtures();
+    await boot(withProjectDatabase({ base }).fixtures);
+    const recordPath = join(packDir, '.kindgi', 'dev', 'providers.json');
+    const record = JSON.parse(await readFile(recordPath, 'utf8')) as {
+      readonly runtimes: Record<string, unknown>;
+    };
+    const tenant = 'tenant-abc'; // the runtime's (the fixtures')
+    const entries = record.runtimes[`bundled kindgi_acme tenant ${tenant}`];
+    expect(entries).toBeDefined();
+    // As 0.1.3 wrote it.
+    await writeFile(
+      recordPath,
+      JSON.stringify({
+        v: 1,
+        runtimes: { [`127.0.0.1:58091/kindgi_acme tenant ${tenant}`]: entries },
+      }),
+    );
+
+    const next = await boot(withProjectDatabase({ base, ensure: { kind: 'exists' } }).fixtures);
+    expect(next.log).toContain(OWN);
+    expect(next.log).not.toContain(NOT_OWN);
+    expect(Object.keys(JSON.parse(await readFile(recordPath, 'utf8')).runtimes)).toEqual([
+      `bundled kindgi_acme tenant ${tenant}`,
+    ]);
+  });
 
   test("the runtime gets the project's database and its dev tenant and user", async () => {
     const { fixtures, calls } = withProjectDatabase();
@@ -2004,5 +2204,118 @@ describe('kindgi dev — flag precedence', () => {
     });
     const call = spy.mock.calls[0]?.[0];
     expect(call?.port).toBe(4500);
+  });
+});
+
+describe("kindgi dev — the runtime's port (T218)", () => {
+  /** The fixture's runners, with `taken` ports in use and the bundled Postgres counted. */
+  function withPorts(taken: readonly number[]) {
+    const fixtures = makeFixtures();
+    const asked: { packDir: string; port: number }[] = [];
+    const started: number[] = [];
+    let servicesStarted = 0;
+    const runners: DevRunners = {
+      ...fixtures.runners,
+      runtimePortInUse: async (input) => {
+        asked.push({ ...input });
+        return taken.includes(input.port);
+      },
+      startApiServer: async (opts) => {
+        started.push(opts.port);
+        return fixtures.server;
+      },
+      startServices: async () => {
+        servicesStarted += 1;
+        return {
+          kind: 'ok',
+          handle: {
+            databaseUrl: 'postgres://kindgi@127.0.0.1:5432/kindgi',
+            services: ['postgres'],
+            startedWith: 'docker compose',
+          },
+        };
+      },
+    };
+    return {
+      fixtures: { ...fixtures, runners },
+      asked,
+      started,
+      servicesStarted: () => servicesStarted,
+    };
+  }
+
+  async function dev(fixtures: Fixtures, flags: readonly string[]) {
+    const err = captureStderr();
+    try {
+      const out = await runCli({
+        ...baseInputs(fixtures),
+        argv: ['dev', '--no-watch', `--path=${packDir}`, ...flags],
+      });
+      return { out, live: err.writes.join('') };
+    } finally {
+      err.restore();
+    }
+  }
+
+  test('free: the runtime starts on 4000, and nothing is said', async () => {
+    const ports = withPorts([]);
+    const { out, live } = await dev(ports.fixtures, []);
+    expect(out.exitCode).toBe(0);
+    expect(ports.asked).toEqual([{ packDir, port: 4000 }]);
+    expect(ports.started).toEqual([4000]);
+    expect(live).not.toContain('is in use');
+  });
+
+  test('4000 taken (another kindgi dev): the next free port, named on the way', async () => {
+    const ports = withPorts([4000, 4001]);
+    const { out, live } = await dev(ports.fixtures, []);
+    expect(out.exitCode).toBe(0);
+    expect(ports.started).toEqual([4002]);
+    expect(live).toContain('⚠ port 4000 is in use (another kindgi dev?): using 4002\n');
+  });
+
+  test('a --port that is taken is refused before Postgres starts or the pack is bundled', async () => {
+    const ports = withPorts([4301]);
+    const out = await runCli({
+      ...baseInputs(ports.fixtures),
+      env: {},
+      argv: ['dev', '--no-watch', `--path=${packDir}`, '--port=4301'],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      "kindgi dev: port 4301 is in use. Pick another with --port, or stop what's using it.\n",
+    );
+    expect(ports.servicesStarted()).toBe(0);
+    expect(ports.fixtures.captureIndexerCalls).toEqual([]);
+    expect(ports.started).toEqual([]);
+  });
+
+  test('a free --port is used as given', async () => {
+    const ports = withPorts([4000]);
+    const { out } = await dev(ports.fixtures, ['--port=4301']);
+    expect(out.exitCode).toBe(0);
+    expect(ports.started).toEqual([4301]);
+  });
+
+  test('every port from 4000 on taken: it asks for --port', async () => {
+    const ports = withPorts(Array.from({ length: 200 }, (_, i) => 4000 + i));
+    const { out } = await dev(ports.fixtures, []);
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      'kindgi dev: ports 4000 to 4100 are all in use. Pick a free one with --port.\n',
+    );
+    expect(ports.started).toEqual([]);
+  });
+
+  test('--runtime-url and --port=0: no check (the runtime has its own port; 0 is any)', async () => {
+    const attached = withPorts([4000]);
+    const run = await dev(attached.fixtures, ['--runtime-url=http://127.0.0.1:4000']);
+    expect(run.out.exitCode).toBe(0);
+    expect(attached.asked).toEqual([]);
+
+    const any = withPorts([4000]);
+    expect((await dev(any.fixtures, ['--port=0'])).out.exitCode).toBe(0);
+    expect(any.asked).toEqual([]);
+    expect(any.started).toEqual([0]);
   });
 });

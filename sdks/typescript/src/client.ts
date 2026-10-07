@@ -7,6 +7,7 @@ import { type ApprovalsClient, makeApprovalsClient } from './resources/approvals
 import { type ArtifactsClient, makeArtifactsClient } from './resources/artifacts.js';
 import { type AuditResourceClient, makeAuditClient } from './resources/audit.js';
 import { type AuthClient, makeAuthClient } from './resources/auth.js';
+import { type BlocksClient, makeBlocksClient } from './resources/blocks.js';
 import { type CapabilitiesClient, makeCapabilitiesClient } from './resources/capabilities.js';
 import { type ComplianceClient, makeComplianceClient } from './resources/compliance.js';
 import { type ConversationsClient, makeConversationsClient } from './resources/conversations.js';
@@ -18,8 +19,11 @@ import { type EvalSuitesClient, makeEvalSuitesClient } from './resources/eval-su
 import { type EventTriggersClient, makeEventTriggersClient } from './resources/event-triggers.js';
 import { type EventsClient, makeEventsClient } from './resources/events.js';
 import { type FlowsClient, makeFlowsClient } from './resources/flows.js';
+import { type GatePoliciesClient, makeGatePoliciesClient } from './resources/gate-policies.js';
 import { type GuardrailsClient, makeGuardrailsClient } from './resources/guardrails.js';
 import { type IdentityClient, makeIdentityClient } from './resources/identity.js';
+import { type JudgeClassesClient, makeJudgeClassesClient } from './resources/judge-classes.js';
+import { type JudgmentsClient, makeJudgmentsClient } from './resources/judgments.js';
 import { type McpClient, makeMcpClient } from './resources/mcp.js';
 import { type MemoryClient, makeMemoryClient } from './resources/memory.js';
 import { type ObservationsClient, makeObservationsClient } from './resources/observations.js';
@@ -29,6 +33,7 @@ import { type PoliciesClient, makePoliciesClient } from './resources/policies.js
 import { type ProjectsClient, makeProjectsClient } from './resources/projects.js';
 import { type ProvenanceClient, makeProvenanceClient } from './resources/provenance.js';
 import { type ProvidersClient, makeProvidersClient } from './resources/providers.js';
+import { type RetentionClient, makeRetentionClient } from './resources/retention.js';
 import { type RunsClient, makeRunsClient } from './resources/runs.js';
 import { type SchedulesClient, makeSchedulesClient } from './resources/schedules.js';
 import { type SecretsClient, makeSecretsClient } from './resources/secrets.js';
@@ -78,6 +83,9 @@ export interface KindgiClient {
   readonly adapters: AdaptersClient;
   readonly providers: ProvidersClient;
   readonly policies: PoliciesClient;
+  /** Gate policies: what a promotion must show before a version goes live (evals step 4b). */
+  readonly gatePolicies: GatePoliciesClient;
+  readonly retention: RetentionClient;
   readonly projects: ProjectsClient;
   readonly env: EnvClient;
   readonly secrets: SecretsClient;
@@ -85,7 +93,11 @@ export interface KindgiClient {
   readonly compliance: ComplianceClient;
   readonly audit: AuditResourceClient;
   readonly evalSuites: EvalSuitesClient;
+  /** Data blocks: versioned prompts and settings an agent version pins. */
+  readonly blocks: BlocksClient;
   readonly evalRuns: EvalRunsClient;
+  readonly judgments: JudgmentsClient;
+  readonly judgeClasses: JudgeClassesClient;
   // Identity
   readonly users: UsersClient;
   readonly identity: IdentityClient;
@@ -140,6 +152,8 @@ export function createClient(options: ClientOptions): KindgiClient {
     adapters: makeAdaptersClient(transport),
     providers: makeProvidersClient(transport),
     policies: makePoliciesClient(transport),
+    gatePolicies: makeGatePoliciesClient(transport),
+    retention: makeRetentionClient(transport),
     projects: makeProjectsClient(transport),
     env: makeEnvClient(transport),
     secrets: makeSecretsClient(transport),
@@ -147,7 +161,10 @@ export function createClient(options: ClientOptions): KindgiClient {
     compliance: makeComplianceClient(transport),
     audit: makeAuditClient(transport),
     evalSuites: makeEvalSuitesClient(transport),
+    blocks: makeBlocksClient(transport),
     evalRuns: makeEvalRunsClient(transport),
+    judgments: makeJudgmentsClient(transport),
+    judgeClasses: makeJudgeClassesClient(transport),
     users: makeUsersClient(transport),
     identity: makeIdentityClient(transport),
     auth: makeAuthClient(transport),

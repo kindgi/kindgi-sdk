@@ -250,33 +250,114 @@ describe('not-implemented-in-preview SDK errors', () => {
     expect(out.stderr).toContain("Command 'kindgi runs get' is not yet wired");
   });
 
-  test('runs resume says why it is not available, and never calls the runtime', async () => {
-    let called = false;
+  test('runs resume says what a run waits for, with an exit code per answer, and never resumes it', async () => {
+    let resumed = false;
+    const client = (status: string) =>
+      ({
+        runs: {
+          get: async (id: string) => ({ id, status }),
+          journal: async () => ({
+            data: [
+              {
+                sequence: 0,
+                kind: 'wait.suspended',
+                nodeId: 'gate',
+                payload: { tokenId: 'tok-a' },
+                timestamp: '2026-10-06T12:00:00.000Z',
+              },
+            ],
+            hasMore: false,
+          }),
+          resume: async () => {
+            resumed = true;
+          },
+        },
+        approvals: {
+          list: async () => ({
+            data: [
+              {
+                id: 'ap-1',
+                title: 'Refund order 7',
+                requiredRole: 'senior',
+                status: 'pending',
+                waitTokenId: 'tok-a',
+              },
+            ],
+            hasMore: false,
+          }),
+        },
+      }) as never;
+    const resume = (status: string) =>
+      runCli(
+        baseInputs({
+          argv: ['runs', 'resume', 'run-1', '--url=https://x', '--token=t'],
+          clientFactory: () => client(status),
+        }),
+      );
+
+    const waiting = await resume('suspended');
+    expect(waiting.exitCode).toBe(3);
+    expect(JSON.parse(waiting.stdout)).toMatchObject({
+      kind: 'approval',
+      approvals: [{ id: 'ap-1' }],
+    });
+    expect(waiting.stderr).toContain('kindgi approvals complete ap-1 --decision=approve');
+
+    const done = await resume('completed');
+    expect(done.exitCode).toBe(0);
+    expect(done.stderr).toContain("Run run-1 is completed: it isn't waiting");
+    expect(resumed).toBe(false);
+  });
+
+  test.each([
+    [['observations', 'list'], "doesn't record supervisor observations yet"],
+    [['proposals', 'list'], "doesn't draft or apply supervisor fix proposals yet"],
+    [['proposals', 'get', 'p-1'], "doesn't draft or apply supervisor fix proposals yet"],
+    [['artifacts', 'list'], "doesn't serve `/v1/artifacts` yet"],
+    [['artifacts', 'download', 'blob-1'], 'no artifacts to list, upload, download or delete'],
+    [['capabilities', 'list'], "doesn't serve `/v1/capabilities` yet"],
+    [['capabilities', 'get', 'tool-use'], 'kindgi providers list --feature=<feature>'],
+  ])("%j says why: the group's reason covers each of its commands", async (argv, reason) => {
     const out = await runCli(
       baseInputs({
-        argv: [
-          'runs',
-          'resume',
-          'run-1',
-          '--waitpoint=wp-1',
-          '--value={"decided":"approve"}',
-          '--url=https://x',
-          '--token=t',
-        ],
-        clientFactory: () =>
-          ({
-            runs: {
-              resume: async () => {
-                called = true;
-              },
-            },
-          }) as never,
+        argv: [...argv, '--url=https://x', '--token=t'],
+        clientFactory: () => ({}) as never,
       }),
     );
     expect(out.exitCode).toBe(2);
-    expect(out.stderr).toContain("Command 'kindgi runs resume' is not available");
-    expect(out.stderr).toContain('kindgi approvals complete <approval-id> --decision=approve');
-    expect(called).toBe(false);
+    expect(out.stderr).toContain(`Command 'kindgi ${argv.slice(0, 2).join(' ')}' is not available`);
+    expect(out.stderr).toContain(reason);
+  });
+
+  test("tokens create and revoke say the runtime doesn't serve them, and call nothing", async () => {
+    for (const argv of [
+      ['tokens', 'create'],
+      ['tokens', 'revoke', 'tok-1'],
+    ]) {
+      let called = false;
+      const out = await runCli(
+        baseInputs({
+          argv: [...argv, '--url=https://x', '--token=t'],
+          clientFactory: () =>
+            ({
+              tokens: {
+                create: async () => {
+                  called = true;
+                },
+                revoke: async () => {
+                  called = true;
+                },
+              },
+            }) as never,
+        }),
+      );
+      expect(out.exitCode).toBe(2);
+      expect(out.stderr).toContain(
+        `Command 'kindgi ${argv.slice(0, 2).join(' ')}' is not available`,
+      );
+      expect(out.stderr).toContain("the Kindgi runtime doesn't serve `/v1/tokens` yet");
+      expect(called).toBe(false);
+    }
   });
 });
 
@@ -380,6 +461,74 @@ describe('kindgi runs start', () => {
     });
     expect(JSON.parse(out.stdout)).toEqual({ id: 'run-2', status: 'pending' });
   });
+
+  /** `kindgi runs start <flags>` against a client that records what it started. */
+  async function start(flags: readonly string[]) {
+    const started: unknown[] = [];
+    const out = await runCli(
+      baseInputs({
+        argv: [
+          'runs',
+          'start',
+          ...flags,
+          '--input={"x":1}',
+          '--no-wait',
+          '--url=https://x',
+          '--token=t',
+        ],
+        clientFactory: () =>
+          ({
+            runs: {
+              start: async (input: unknown) => {
+                started.push(input);
+                return { id: 'run-3', status: 'pending' };
+              },
+            },
+          }) as never,
+      }),
+    );
+    return { out, started };
+  }
+
+  test('--agent-version and --flow-version name the version to run (T245)', async () => {
+    const agent = await start(['--agent=pack.agent', '--agent-version=1.0.0']);
+    expect(agent.out.exitCode, agent.out.stderr).toBe(0);
+    expect(agent.started).toEqual([
+      { agent: 'pack.agent', agentVersion: '1.0.0', input: { x: 1 }, options: { wait: false } },
+    ]);
+    const flow = await start(['--flow=pack.flow', '--flow-version=2.1.0']);
+    expect(flow.out.exitCode, flow.out.stderr).toBe(0);
+    expect(flow.started).toEqual([
+      { flow: 'pack.flow', flowVersion: '2.1.0', input: { x: 1 }, options: { wait: false } },
+    ]);
+  });
+
+  test('--project runs it in that project, agent or flow', async () => {
+    const agent = await start(['--agent=pack.agent', '--project=p-1']);
+    expect(agent.out.exitCode, agent.out.stderr).toBe(0);
+    expect(agent.started).toEqual([
+      { agent: 'pack.agent', projectId: 'p-1', input: { x: 1 }, options: { wait: false } },
+    ]);
+    const flow = await start(['--flow=pack.flow', '--project=p-2']);
+    expect(flow.started).toEqual([
+      { flow: 'pack.flow', projectId: 'p-2', input: { x: 1 }, options: { wait: false } },
+    ]);
+  });
+
+  test('a version for the other kind is refused, and nothing starts (T245)', async () => {
+    for (const [flags, message] of [
+      [
+        ['--flow=pack.flow', '--agent-version=1.0.0'],
+        '--agent-version goes with --agent=<agent-id>',
+      ],
+      [['--agent=pack.agent', '--flow-version=1.0.0'], '--flow-version goes with --flow=<flow-id>'],
+    ] as const) {
+      const { out, started } = await start(flags);
+      expect(out.exitCode).not.toBe(0);
+      expect(out.stderr).toContain(message);
+      expect(started).toEqual([]);
+    }
+  });
 });
 
 describe('missing required arguments', () => {
@@ -452,6 +601,59 @@ describe('kindgi runs start — turn warnings', () => {
   test('no warnings, nothing on stderr', async () => {
     const out = await startWith({ response: { content: 'Hello, Ada!' } });
     expect(out.stderr).toBe('');
+  });
+});
+
+describe('kindgi runs start — project and segments', () => {
+  test('sends the project and the segment path, in order', async () => {
+    const started: unknown[] = [];
+    const out = await runCli(
+      baseInputs({
+        argv: [
+          'runs',
+          'start',
+          '--agent=acme.drafter',
+          '--input={"userMessage":"hi"}',
+          '--project=p-1',
+          '--segment=company:acme',
+          '--segment=role:counsel',
+          '--no-wait',
+        ],
+        env: { KINDGI_API_URL: 'https://x', KINDGI_API_TOKEN: 't' },
+        clientFactory: () =>
+          ({
+            runs: {
+              start: async (input: unknown) => {
+                started.push(input);
+                return { id: 'run-1', status: 'pending' };
+              },
+            },
+          }) as never,
+      }),
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(started).toEqual([
+      expect.objectContaining({
+        agent: 'acme.drafter',
+        projectId: 'p-1',
+        segments: [
+          { key: 'company', value: 'acme' },
+          { key: 'role', value: 'counsel' },
+        ],
+      }),
+    ]);
+  });
+
+  test('a segment without a value fails before the run starts', async () => {
+    const out = await runCli(
+      baseInputs({
+        argv: ['runs', 'start', '--agent=a', '--input={}', '--segment=company'],
+        env: { KINDGI_API_URL: 'https://x', KINDGI_API_TOKEN: 't' },
+        clientFactory: () => ({ runs: { start: async () => ({}) } }) as never,
+      }),
+    );
+    expect(out.exitCode).not.toBe(0);
+    expect(out.stderr).toContain('key:value');
   });
 });
 

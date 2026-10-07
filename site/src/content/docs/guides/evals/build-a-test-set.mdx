@@ -1,0 +1,193 @@
+---
+title: Build a test set from judgments
+description: Gather an agent's judged runs into a versioned test set, with what people said about each item, to test new versions on.
+sidebar:
+  order: 2
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+:::note[Preview (0.1.4-rc)]
+Test sets are new in Kindgi 0.1.4, available now in its release candidates:
+`npx @kindgi/cli@next`, and `uv add --prerelease allow kindgi`.
+:::
+
+A **test set** is a set of past runs that people judged. Each case is a copy
+of one run, with the judgments of each item of its output added up. You
+[compare a new agent version](../compare-an-agent-version/) on it to see
+whether people would rate its answers higher, before anyone uses it.
+
+## Judge some runs
+
+The examples on this page use an agent, `acme-ops.article-picker`, that picks
+the help articles answering a customer's question. Its
+[typed answer](../../agents/typed-answer/) is a list of articles, each with
+its own id:
+
+```json
+{
+  "articles": [
+    { "id": "kb-101", "title": "Reset your password" },
+    { "id": "kb-102", "title": "Change the email on your account" },
+    { "id": "kb-401", "title": "Close your account" }
+  ]
+}
+```
+
+Judge each article by its id: then a judgment of `kb-101` still applies when
+a new version returns `kb-101`, at any place in its list.
+
+```sh
+kindgi judgments add --run=<run-id> --item=kb-101 --pointer=/output/articles/0 --rank=0 --yes --reason="Resets the password"
+kindgi judgments add --run=<run-id> --item=kb-102 --pointer=/output/articles/1 --rank=1 --no --reason="Not about signing in"
+```
+
+In the console, a finished run's **Judge this run** opens its Judgments tab:
+the answer, and each element of a list in the output, each with **Yes** and
+**No**. [Judge a run's output](../judge-a-runs-output/) has the rest: reasons,
+your users' judgments, and judge classes.
+
+## Build the test set
+
+From the CLI, version 1.0.0 of a test set `acme.article-picks`, from the
+agent's judged runs in a project:
+
+```sh
+kindgi eval-suites from-judgments acme.article-picks --suite-version=1.0.0 --project=<project-id> --agent=acme-ops.article-picker
+```
+
+```json
+{
+  "suiteId": "acme.article-picks",
+  "version": "1.0.0",
+  "kind": "judged",
+  "caseCount": 3,
+  "truncated": false
+}
+```
+
+From your code:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// test-set.ts
+import { createClient } from '@kindgi/sdk/client';
+
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+const projectId = process.argv[2];
+
+// Version 1.0.0 of the test set: copies of the agent's judged runs.
+const built = await kindgi.evalSuites.buildFromJudgments('acme.article-picks', {
+  version: '1.0.0',
+  projectId,
+  agentId: 'acme-ops.article-picker',
+});
+console.log(`${built.caseCount} cases`);
+
+const cases = await kindgi.evalSuites.listCases('acme.article-picks', '1.0.0');
+for (const c of cases.data) {
+  console.log(c.input, c.items.map((item) => `${item.key} ${item.yes} yes, ${item.no} no`));
+}
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# test_set.py
+import sys
+
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+project_id = sys.argv[1]
+
+# Version 1.0.0 of the test set: copies of the agent's judged runs.
+built = kindgi.eval_suites.build_from_judgments(
+    "acme.article-picks",
+    version="1.0.0",
+    project_id=project_id,
+    agent_id="acme-ops.article-picker",
+)
+print(f"{built.case_count} cases")
+
+cases = kindgi.eval_suites.list_cases("acme.article-picks", "1.0.0")
+for case in cases.data:
+    print(case.input, [f"{item.key} {item.yes} yes, {item.no} no" for item in case.items])
+```
+
+</TabItem>
+</Tabs>
+
+```text
+3 cases
+My package hasn't arrived yet. Where is it? [ 'kb-301 1 yes, 0 no', 'kb-201 0 yes, 1 no', 'kb-302 0 yes, 1 no' ]
+I forgot my password and can't sign in. [ 'kb-101 1 yes, 0 no', 'kb-102 0 yes, 1 no', 'kb-401 0 yes, 1 no' ]
+I was charged twice for one order. How do I get my money back? [ 'kb-201 1 yes, 0 no', 'kb-203 0 yes, 1 no', 'kb-302 0 yes, 1 no' ]
+```
+
+- **The project's id:** `kindgi projects get-default` prints the Default
+  project, with its `id`; `kindgi projects list` lists them all. In code:
+  `kindgi.projects.getDefault()` (Python: `kindgi.projects.get_default()`).
+- **Which runs:** every run of the agent in the project with at least one
+  judgment. Narrow it with `--agent-version` (one version's runs), `--since`
+  and `--until` (when the run was first judged), `--class` (count only
+  judgments of these [judge classes](../judge-a-runs-output/#weight-judges-by-class))
+  and `--min-judgments` (leave out runs with fewer).
+- **Up to 1000 cases.** `truncated: true` says there were more; narrow the
+  runs, or build several sets.
+- **Versions never change.** When more runs are judged, build the next
+  version: the same id and a new `--suite-version`. A taken version is
+  refused: `Eval suite "acme.article-picks" version "1.0.0" is already registered.`
+- **Building a test set takes `admin` on the project.**
+
+## What a case keeps
+
+`kindgi eval-suites cases acme.article-picks --suite-version=1.0.0` lists the
+cases. One of them:
+
+```json
+{
+  "caseId": "fc699799-2900-47d8-8a06-07d64f17cce4",
+  "subject": { "kind": "agent", "id": "acme-ops.article-picker", "version": "0.1.0" },
+  "input": "I forgot my password and can't sign in.",
+  "items": [
+    {
+      "key": "kb-101",
+      "pointer": "/output/articles/0",
+      "rank": 0,
+      "yes": 1,
+      "no": 0,
+      "yesWeight": 1,
+      "totalWeight": 1,
+      "reasons": [{ "verdict": "yes", "reason": "Resets the password" }]
+    },
+    …
+  ],
+  "output": { "output": { "articles": [ … ] }, "appended": [ … ], … },
+  "context": { … }
+}
+```
+
+- **`caseId`** is the id of the judged run.
+- **`items`** has each judged item: its yes and no counts, the same weighted
+  by judge class (`yesWeight` of `totalWeight`; a judgment with no class
+  weighs 1), and the reasons people gave. `restricted` has the weights of
+  the [restricted](../judge-a-runs-output/#restrict-who-may-judge-as-a-class)
+  judgments alone, such as `{ "yesWeight": 3, "totalWeight": 3 }`.
+- **`output`** is the run's output, as it was judged.
+- **`context`**, for an agent turn, is what the turn had before it answered:
+  the conversation so far (up to 200 messages) and what it retrieved. A
+  comparison replays the turn with the same context.
+
+## In the console
+
+A project's **Test sets** section lists its test sets, and its form **Build a
+test set from judgments** takes the id, the agent, and optionally one version
+and the judgments a run needs. A test set's page shows its versions and its
+cases: each item with its yes and no counts, its weighted yes share, up to two
+reasons, and a link to the original run.
+
+Next: [compare an agent version on the test set](../compare-an-agent-version/).

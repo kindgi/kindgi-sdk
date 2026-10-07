@@ -3,7 +3,7 @@
 
 import { KindgiApiError, type KindgiError } from '@kindgi/client';
 
-import { UNWIRED_REASONS } from './commands/unwired.js';
+import { unwiredReason } from './commands/unwired.js';
 
 /**
  * The CLI-level exit envelope. Every command handler returns one so the
@@ -37,7 +37,7 @@ export function formatThrown(
       const label = options.commandLabel.startsWith('kindgi ')
         ? options.commandLabel
         : `kindgi ${options.commandLabel}`;
-      const reason = UNWIRED_REASONS.get(label.slice('kindgi '.length));
+      const reason = unwiredReason(label.slice('kindgi '.length).split(' '));
       return cliError(
         reason !== undefined
           ? `Command '${label}' is not available: ${reason}`
@@ -53,13 +53,25 @@ export function formatThrown(
     const detail = options.verbose
       ? `\n${JSON.stringify(wire, null, 2)}`
       : formatValidationDetail(wire);
-    return cliError(`Error [${wire.code}]: ${wire.message}${detail}`, 1);
+    return cliError(`Error [${errorTag(wire)}]: ${wire.message}${detail}`, 1);
   }
   if (thrown instanceof Error) {
     const detail = options.verbose && thrown.stack ? `\n${thrown.stack}` : '';
     return cliError(`Error: ${thrown.message}${detail}`, 1);
   }
   return cliError(`Error: ${String(thrown)}`, 1);
+}
+
+/**
+ * The code an error line shows: a conflict's own reason when it has one
+ * (`registry-read-only`, `agent-already-registered`), which says more
+ * than `conflict`; otherwise the error's code.
+ */
+function errorTag(wire: KindgiError): string {
+  const reason = (wire as { readonly reason?: unknown }).reason;
+  return wire.code === 'conflict' && typeof reason === 'string' && reason !== ''
+    ? reason
+    : wire.code;
 }
 
 /**

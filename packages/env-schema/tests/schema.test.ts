@@ -125,10 +125,12 @@ describe('envVarsForTarget', () => {
     ).toBe(false);
   });
 
-  test("the server's bind host and its development settings: optional, server only", () => {
+  test("the server's bind host, its public URL and its development settings: optional, server only", () => {
     const server = envVarsForTarget({});
     const host = server.find((v) => v.name === 'KINDGI_API_HOST');
     expect(host).toMatchObject({ group: 'core', required: false });
+    const publicUrl = server.find((v) => v.name === 'KINDGI_PUBLIC_URL');
+    expect(publicUrl).toMatchObject({ group: 'core', required: false });
     for (const name of ['KINDGI_PACK_DIR', 'KINDGI_DEV_CONSOLE_LOGIN', 'KINDGI_DEV_HOST_ALIAS']) {
       expect(server.find((v) => v.name === name)).toMatchObject({ group: 'dev', required: false });
     }
@@ -141,6 +143,7 @@ describe('envVarsForTarget', () => {
     const packService = envVarsForTarget({ component: 'pack-service' }).map((v) => v.name);
     for (const name of [
       'KINDGI_API_HOST',
+      'KINDGI_PUBLIC_URL',
       'KINDGI_PACK_DIR',
       'KINDGI_DEV_CONSOLE_LOGIN',
       'KINDGI_DEV_HOST_ALIAS',
@@ -194,6 +197,36 @@ describe('envVarsForTarget — the executor lease', () => {
     const packService = envVarsForTarget({ component: 'pack-service' }).map((v) => v.name);
     expect(packService).not.toContain('KINDGI_RUN_LEASE_MS');
     expect(packService).not.toContain('KINDGI_RUN_SWEEP_INTERVAL_MS');
+  });
+});
+
+describe('envVarsForTarget — the retention sweeper (T236)', () => {
+  test("its interval is the server's, optional (unset: no sweeping on its own), in core", () => {
+    const server = new Map(envVarsForTarget({ component: 'server' }).map((v) => [v.name, v]));
+    expect(server.get('KINDGI_RETENTION_SWEEP_INTERVAL_MS')).toMatchObject({
+      required: false,
+      group: 'core',
+      example: '3600000',
+    });
+    expect(server.get('KINDGI_RETENTION_SWEEP_INTERVAL_MS')?.description).toContain(
+      'Unset (the default): nothing purges on its own',
+    );
+    const packService = envVarsForTarget({ component: 'pack-service' }).map((v) => v.name);
+    expect(packService).not.toContain('KINDGI_RETENTION_SWEEP_INTERVAL_MS');
+  });
+});
+
+describe('envVarsForTarget — the compliance classifier (T250)', () => {
+  test("the server's, optional, in core; it says plainly that audit events are purged by kind", () => {
+    const server = new Map(envVarsForTarget({ component: 'server' }).map((v) => [v.name, v]));
+    const setting = server.get('KINDGI_COMPLIANCE_CLASSIFIER');
+    expect(setting).toMatchObject({ required: false, group: 'core', example: 'shipped' });
+    expect(setting?.description).toContain('purges audit events by kind');
+    expect(setting?.description).toContain(
+      'Unset (the default): no `/v1/compliance/*`, and no audit event is ever purged',
+    );
+    const packService = envVarsForTarget({ component: 'pack-service' }).map((v) => v.name);
+    expect(packService).not.toContain('KINDGI_COMPLIANCE_CLASSIFIER');
   });
 });
 

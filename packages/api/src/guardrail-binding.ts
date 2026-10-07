@@ -6,6 +6,8 @@ import type { Guardrail } from '@kindgi/guardrails';
 import type { Scope } from '@kindgi/platform';
 import type { Cursor, GuardrailId, ProjectId, TenantId } from '@kindgi/types';
 
+import type { RegistryReadOnly } from './registry-read-only.js';
+
 /**
  * Caller-plugged surface for the guardrail catalog. Same shape as
  * `AgentRegistryBinding` / `ToolRegistryBinding`: the API package does
@@ -27,6 +29,13 @@ import type { Cursor, GuardrailId, ProjectId, TenantId } from '@kindgi/types';
  * inspects the payload.
  */
 export interface GuardrailRegistryBinding {
+  /**
+   * Set when this registry takes no writes (under `kindgi dev`, the
+   * pack's files are the source of its guardrails): every write is refused
+   * with `409 registry-read-only` and this reason, before the binding is
+   * called. See `RegistryReadOnly`.
+   */
+  readonly readOnly?: RegistryReadOnly;
   /**
    * Cursor-paginated list of guardrails sorted by id ascending.
    * Optional `nameFilter` is a prefix match on the guardrail id —

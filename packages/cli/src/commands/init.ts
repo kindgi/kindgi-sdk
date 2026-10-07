@@ -30,8 +30,11 @@ import { renderJson } from '../output.js';
 import {
   binDisplay,
   cliInstall,
+  declaredPackageManager,
   detectPackageManager,
   installCommand,
+  isPackageVersion,
+  readPnpmVersion,
 } from '../package-manager.js';
 import { resolveSdkPackageRoot } from '../sdk-package.js';
 import { CLI_VERSION } from '../version-info.js';
@@ -271,6 +274,10 @@ async function runInitFresh(
   });
   for (const s of skillsWritten) filesWritten.push(s);
 
+  // A standalone pack pins the pnpm that will install it, so the image
+  // (`kindgi build`), CI and a teammate all use that one (T196).
+  const pnpmPin = await pinStandalonePnpm(ctx, args.targetDir);
+
   // The template pins `@kindgi/sdk` + `@kindgi/cli` as `workspace:*`.
   // Rewrite both to what resolves from here — see `dependency-specs.ts`
   // (workspace inside the Kindgi checkout, `link:` to the checkout from
@@ -297,10 +304,20 @@ async function runInitFresh(
 
   const stderr = [
     `✓ Pack scaffolded at ${args.targetDir}/`,
+    ...(pnpmPin.kind === 'pinned'
+      ? [`✓ package.json pins pnpm@${pnpmPin.version} (packageManager)`]
+      : []),
     '',
     'Next steps:',
     ...nextSteps.map((s) => `  ${s}`),
     '',
+    ...(pnpmPin.kind === 'unread'
+      ? [
+          `package.json has no packageManager: pnpm's version couldn't be read here (${pnpmPin.reason}).`,
+          'Add "packageManager": "pnpm@<version>" (the pnpm you install with), so kindgi build, CI and teammates use the same pnpm.',
+          '',
+        ]
+      : []),
     "Read the pack's README.md for details.",
     '',
   ].join('\n');
@@ -310,6 +327,7 @@ async function runInitFresh(
     packId: args.packName,
     packVersion: DEFAULT_PACK_VERSION,
     packageManager,
+    ...(pnpmPin.kind === 'pinned' && { packageManagerField: `pnpm@${pnpmPin.version}` }),
     dependencies: specs,
     path: args.targetDir,
     filesWritten: filesWritten.length,
@@ -322,6 +340,39 @@ async function runInitFresh(
     kind: 'ok',
     rendered: { stdout: rendered.stdout, stderr },
   };
+}
+
+type PnpmPin =
+  | { readonly kind: 'pinned'; readonly version: string }
+  /** The pack sits inside a project that already says how it installs. */
+  | { readonly kind: 'inside' }
+  | { readonly kind: 'unread'; readonly reason: string };
+
+/**
+ * A TS template pack that stands alone (nothing at or above its folder
+ * names a package manager) gets `"packageManager": "pnpm@<version>"`:
+ * the pnpm `pnpm --version` gives in the new pack's folder. Inside an
+ * existing project, the project's own setup governs: nothing is written.
+ */
+async function pinStandalonePnpm(ctx: CommandContext, packDir: string): Promise<PnpmPin> {
+  if ((await declaredPackageManager(dirname(packDir))) !== undefined) return { kind: 'inside' };
+  let version: string;
+  try {
+    version = await (ctx.initSeam?.pnpmVersion ?? readPnpmVersion)(packDir);
+  } catch (err) {
+    return { kind: 'unread', reason: `pnpm --version: ${(err as Error).message}` };
+  }
+  if (!isPackageVersion(version)) {
+    return { kind: 'unread', reason: `pnpm --version printed "${version}"` };
+  }
+  const path = join(packDir, 'package.json');
+  const manifest = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>;
+  await writeFile(
+    path,
+    `${JSON.stringify({ ...manifest, packageManager: `pnpm@${version}` }, null, 2)}\n`,
+    'utf8',
+  );
+  return { kind: 'pinned', version };
 }
 
 /**

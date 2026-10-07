@@ -401,7 +401,8 @@ describe('without docker buildx', () => {
     stdout: '',
     stderr: 'docker: unknown command: docker buildx\n',
   };
-  const DIGEST_ONLY = DEFAULT_RUNTIME_IMAGE.replace(/:\d+\.\d+\.\d+@/, '@');
+  // A release's tag, or a release candidate's (`0.1.4-rc.0`).
+  const DIGEST_ONLY = DEFAULT_RUNTIME_IMAGE.replace(/:\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?@/, '@');
 
   test('the digest-only reference: the tag goes, the digest stays', () => {
     expect(DIGEST_ONLY).toMatch(/^quay\.io\/kindgi\/runtime@sha256:[0-9a-f]{64}$/);

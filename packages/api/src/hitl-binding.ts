@@ -89,6 +89,11 @@ export interface ListApprovalsBindingInput {
   readonly requiredRole?: ReviewerRole;
   readonly since?: Timestamp;
   readonly cursor?: Cursor;
+  /**
+   * Only approvals whose `waitTokenId` is one of these: the approvals a
+   * run's open waits belong to (T272). Absent: no filter.
+   */
+  readonly waitTokenIds?: readonly string[];
 }
 
 export interface ListApprovalsBindingResult {

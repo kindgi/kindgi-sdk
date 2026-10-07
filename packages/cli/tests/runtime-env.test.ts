@@ -19,6 +19,8 @@ import {
 
 const BASE: RuntimeEnvInput = {
   apiPort: 4000,
+  // Published on another host port (T218): the banner names this one.
+  publicUrl: 'http://127.0.0.1:4001',
   hostAlias: 'host.docker.internal',
   packDir: '/pack',
   databaseUrl: 'postgres://kindgi:pw@host.docker.internal:55432/kindgi',
@@ -36,6 +38,7 @@ describe('buildRuntimeEnv', () => {
       KINDGI_DEV: 'true',
       KINDGI_ENV: 'local',
       KINDGI_API_PORT: '4000',
+      KINDGI_PUBLIC_URL: 'http://127.0.0.1:4001',
       KINDGI_DEV_HOST_ALIAS: 'host.docker.internal',
       KINDGI_DATABASE_URL: BASE.databaseUrl,
       KINDGI_TENANT_ID: BASE.tenantId,

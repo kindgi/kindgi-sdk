@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { AgentId, Cursor, Page } from '@kindgi/types';
+import type { AgentId, Cursor } from '@kindgi/types';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
+import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import { scopeToQuery } from '../scope-wire.js';
 import type { Transport } from '../transport.js';
 import type {
@@ -47,13 +48,13 @@ export interface McpClient {
    *   `client.tools.list()` — the wire `Tool` shape is the MCP
    *   manifest.
    */
-  tools(): Promise<Page<ToolManifest>>;
+  tools(): Promise<ListPage<ToolManifest>>;
 
   /**
    * @unwired No `GET /v1/mcp/agents` route. List agents with
    *   `client.agents.list()`.
    */
-  agents(): Promise<Page<McpAgentExposure>>;
+  agents(): Promise<ListPage<McpAgentExposure>>;
 
   /**
    * @unwired No `POST /v1/mcp/invoke-tool` route; tools run inside
@@ -80,7 +81,7 @@ export interface McpEndpointsClient {
    * @wire `GET /v1/mcp/endpoints` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1mcp~1endpoints/get`.
    */
-  list(filter?: McpEndpointFilter): Promise<Page<McpEndpoint>>;
+  list(filter?: McpEndpointFilter): Promise<ListPage<McpEndpoint>>;
 
   /**
    * Register an outbound MCP endpoint.
@@ -144,12 +145,6 @@ export interface McpEndpointFilter {
   readonly transport?: McpTransport;
 }
 
-interface WirePage<T> {
-  readonly data: readonly T[];
-  readonly hasMore: boolean;
-  readonly nextCursor?: string;
-}
-
 export function makeMcpClient(transport: Transport): McpClient {
   return {
     endpoints: {
@@ -163,12 +158,7 @@ export function makeMcpClient(transport: Transport): McpClient {
             ...(filter?.transport !== undefined && { transport: filter.transport }),
           },
         });
-        return {
-          items: page.data,
-          ...(page.nextCursor !== undefined && {
-            nextCursor: page.nextCursor as unknown as Cursor,
-          }),
-        };
+        return listPage(page);
       },
 
       async register(input, options) {

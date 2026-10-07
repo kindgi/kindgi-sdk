@@ -56,4 +56,28 @@ describe('auditEventToEvidence', () => {
       'pack.custom-audit',
     );
   });
+
+  test("names the event's actor, as the generator writes it (`<kind>:<id>`, or a bare kind)", () => {
+    expect(auditEventToEvidence(event()).actor).toEqual({ kind: 'user', id: 'alice' });
+    // The framework, by the audit convention.
+    expect(auditEventToEvidence(event({ actor: 'user:system' })).actor).toEqual({
+      kind: 'user',
+      id: 'system',
+    });
+    expect(auditEventToEvidence(event({ actor: 'agent:acme.intake' })).actor).toEqual({
+      kind: 'agent',
+      id: 'acme.intake',
+    });
+    // An id may itself hold a colon.
+    expect(auditEventToEvidence(event({ actor: 'external:acme:svc' })).actor).toEqual({
+      kind: 'external',
+      id: 'acme:svc',
+    });
+    expect(auditEventToEvidence(event({ actor: 'system' })).actor).toEqual({ kind: 'system' });
+  });
+
+  test('leaves out an actor of a kind evidence cannot name', () => {
+    const evidence = auditEventToEvidence(event({ actor: 'pack:acme.custom' }));
+    expect(Object.hasOwn(evidence, 'actor')).toBe(false);
+  });
 });

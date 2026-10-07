@@ -161,11 +161,77 @@ describe('createInMemoryAuditEventBinding — append + query', () => {
     expect(page.value.data.map((e) => e.id)).toEqual(['new']);
   });
 
+  test("purge by outcome: a kind's denials on their own cutoff, the rest (no outcome included) on another", async () => {
+    const b = createInMemoryAuditEventBinding();
+    const old = '2026-01-01T00:00:00.000Z' as Timestamp;
+    await b.append([
+      baseEvent({ id: 'denied', timestamp: old, outcome: 'denied' }),
+      baseEvent({ id: 'allowed', timestamp: old, outcome: 'allowed' }),
+      baseEvent({ id: 'no-outcome', timestamp: old }),
+    ]);
+    const cutoff = {
+      tenantId: TENANT,
+      kind: 'authz-decision',
+      olderThan: '2026-06-01T00:00:00.000Z',
+    };
+    const rest = await b.purge({ ...cutoff, exceptOutcome: 'denied' });
+    if (rest.kind !== 'ok') throw new Error('purge failed');
+    expect(rest.value.deleted).toBe(2);
+    const left = await b.query({ tenantId: TENANT });
+    if (left.kind !== 'ok') throw new Error('query failed');
+    expect(left.value.data.map((e) => e.id)).toEqual(['denied']);
+    const denials = await b.purge({ ...cutoff, outcome: 'denied' });
+    expect(denials.kind === 'ok' && denials.value.deleted).toBe(1);
+  });
+
   test('rejects empty event id at append boundary', async () => {
     const b = createInMemoryAuditEventBinding();
     const r = await b.append([baseEvent({ id: '' })]);
     expect(r.kind).toBe('err');
     if (r.kind !== 'err') return;
     expect(r.error.code).toBe('invalid-event');
+  });
+});
+
+describe('createInMemoryAuditEventBinding — order', () => {
+  /** Five events; `b` and `c` share a timestamp. */
+  async function binding() {
+    const b = createInMemoryAuditEventBinding();
+    const at = (s: number) => `2026-09-24T00:00:0${s}.000Z` as Timestamp;
+    await b.append([
+      baseEvent({ id: 'a', timestamp: at(1) }),
+      baseEvent({ id: 'b', timestamp: at(2) }),
+      baseEvent({ id: 'c', timestamp: at(2) }),
+      baseEvent({ id: 'd', timestamp: at(3) }),
+      baseEvent({ id: 'e', timestamp: at(4) }),
+    ]);
+    return b;
+  }
+
+  /** Every page of `order`, two at a time, following `nextCursor`. */
+  async function pages(order?: 'asc' | 'desc'): Promise<string[][]> {
+    const b = await binding();
+    const out: string[][] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await b.query({
+        tenantId: TENANT,
+        limit: 2,
+        ...(order !== undefined && { order }),
+        ...(cursor !== undefined && { cursor }),
+      });
+      if (page.kind !== 'ok') throw new Error('query failed');
+      out.push(page.value.data.map((e) => e.id));
+      cursor = page.value.nextCursor;
+    } while (cursor !== undefined);
+    return out;
+  }
+
+  test('oldest first by default, ties by id', async () => {
+    expect(await pages()).toEqual([['a', 'b'], ['c', 'd'], ['e']]);
+  });
+
+  test("'desc': newest first, and the cursor continues newest to oldest", async () => {
+    expect(await pages('desc')).toEqual([['e', 'd'], ['c', 'b'], ['a']]);
   });
 });

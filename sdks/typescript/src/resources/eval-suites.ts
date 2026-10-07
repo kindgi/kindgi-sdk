@@ -13,9 +13,13 @@
  */
 
 import type {
+  BuildJudgedSuiteBody,
+  BuildJudgedSuiteResult,
   EvalKind,
   EvalSuite,
   EvalSuiteCollectionPage,
+  JudgedEvalCase,
+  JudgedEvalCaseCollectionPage,
   PublishEvalSuiteBody,
   PublishEvalSuiteResult,
   ReinstateEvalSuiteVersionResult,
@@ -37,6 +41,18 @@ export type UnregisterSuiteVersionResult = UnregisterEvalSuiteResult;
 // Note: the wire type is called `UnregisterEvalSuiteResult`
 // (suite-scoped, though the route path is versioned).
 export type ReinstateSuiteVersionResult = ReinstateEvalSuiteVersionResult;
+
+/** Body of `POST /v1/eval-suites/{suiteId}/versions/from-judgments`. */
+export type BuildFromJudgmentsInput = BuildJudgedSuiteBody;
+export type BuildFromJudgmentsResult = BuildJudgedSuiteResult;
+/** One case of a `judged` suite: a copy of a judged run with its items' judgments summed up. */
+export type SuiteCase = JudgedEvalCase;
+export type SuiteCasePage = JudgedEvalCaseCollectionPage;
+
+export interface ListSuiteCasesQuery {
+  readonly limit?: number;
+  readonly cursor?: string;
+}
 
 export interface PublishSuiteOptions {
   /** Project the suite is published into. `POST /v1/eval-suites` requires it. */
@@ -72,6 +88,24 @@ export interface EvalSuitesClient {
   list(filter?: ListSuitesFilter): Promise<SuitePage>;
   /** @wire GET /v1/eval-suites/:suiteId */
   get(suiteId: string): Promise<Suite>;
+  /**
+   * Publish a `judged` suite version whose cases are copies of judged runs
+   * of an agent or flow, with each item's judgments summed up. Needs
+   * `admin` on `input.projectId`.
+   *
+   * @wire POST /v1/eval-suites/:suiteId/versions/from-judgments
+   */
+  buildFromJudgments(
+    suiteId: string,
+    input: BuildFromJudgmentsInput,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<BuildFromJudgmentsResult>;
+  /**
+   * The cases of a `judged` suite version, in stored order.
+   *
+   * @wire GET /v1/eval-suites/:suiteId/versions/:version/cases
+   */
+  listCases(suiteId: string, version: string, query?: ListSuiteCasesQuery): Promise<SuiteCasePage>;
   readonly versions: EvalSuiteVersionsClient;
 }
 
@@ -124,6 +158,24 @@ export function makeEvalSuitesClient(transport: Transport): EvalSuitesClient {
       return transport.request<Suite>({
         method: 'GET',
         path: `/v1/eval-suites/${seg(suiteId)}`,
+      });
+    },
+    async buildFromJudgments(suiteId, input, options) {
+      return transport.request<BuildFromJudgmentsResult>({
+        method: 'POST',
+        path: `/v1/eval-suites/${seg(suiteId)}/versions/from-judgments`,
+        body: input,
+        ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+      });
+    },
+    async listCases(suiteId, version, query) {
+      return transport.request<SuiteCasePage>({
+        method: 'GET',
+        path: `/v1/eval-suites/${seg(suiteId)}/versions/${seg(version)}/cases`,
+        query: {
+          ...(query?.limit !== undefined && { limit: query.limit }),
+          ...(query?.cursor !== undefined && { cursor: query.cursor }),
+        },
       });
     },
     versions: {

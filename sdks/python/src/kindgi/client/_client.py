@@ -101,12 +101,17 @@ class _Page(Protocol[T]):
     @property
     def data(self) -> list[T]: ...
     @property
-    def has_more(self) -> bool: ...
+    def has_more(self) -> bool | None: ...
 
 
 def _next_cursor(page: Any) -> str | None:
     cursor = getattr(page, "next_cursor", None)
     return cursor if isinstance(cursor, str) and cursor else None
+
+
+def _has_more(page: _Page[Any], cursor: str | None) -> bool:
+    """`has_more`; from an older server without it, whether there's a cursor."""
+    return page.has_more if page.has_more is not None else cursor is not None
 
 
 def paginate(list_method: Callable[..., _Page[T]], /, *args: Any, **kwargs: Any) -> Iterator[T]:
@@ -115,7 +120,7 @@ def paginate(list_method: Callable[..., _Page[T]], /, *args: Any, **kwargs: Any)
         page = list_method(*args, **kwargs)
         yield from page.data
         cursor = _next_cursor(page)
-        if not page.has_more or cursor is None:
+        if not _has_more(page, cursor) or cursor is None:
             return
         kwargs["cursor"] = cursor
 
@@ -129,6 +134,6 @@ async def apaginate(
         for item in page.data:
             yield item
         cursor = _next_cursor(page)
-        if not page.has_more or cursor is None:
+        if not _has_more(page, cursor) or cursor is None:
             return
         kwargs["cursor"] = cursor

@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
+import { policyScope } from '@kindgi/policy-contract';
 import type { Cursor, TenantId } from '@kindgi/types';
 
 import { createStubAppBindings } from '@kindgi/testing';
@@ -98,6 +99,30 @@ function makeInMemoryBinding(): PolicyRegistryBinding {
   }
 
   const rowStore = new Map<string, Map<string, Row>>();
+  // T236: one policy per scope (`policyScope`; a retention policy's
+  // domain), as `PolicyRegistryBinding.publish` / `reinstateVersion`
+  // document it: the id's other versions keep their scope, and no other
+  // id's active policy of the kind holds it.
+  function scopeConflict(policy: Policy) {
+    const scope = policyScope(policy);
+    if (scope === undefined) return undefined;
+    const base = { policyId: policy.id, version: policy.version, policyKind: policy.kind, scope };
+    for (const row of rowStore.get(policy.id)?.values() ?? []) {
+      if (row.policy.version === policy.version) continue;
+      const previousScope = policyScope(row.policy);
+      if (previousScope !== undefined && previousScope !== scope) {
+        return { kind: 'scope-changed' as const, ...base, previousScope };
+      }
+    }
+    for (const [id, versions] of rowStore) {
+      if (id === policy.id) continue;
+      const latest = latestActive(versions);
+      if (latest !== null && latest.kind === policy.kind && policyScope(latest) === scope) {
+        return { kind: 'scope-taken' as const, ...base, heldBy: id };
+      }
+    }
+    return undefined;
+  }
   // Bridge existing test helper that references `store` — expose the same
   // policy set through the tombstone-aware Map.
   void store;
@@ -142,14 +167,16 @@ function makeInMemoryBinding(): PolicyRegistryBinding {
       return paginate(rows, (p) => p.version, limit, cursor);
     },
     async publish({ policy }) {
+      const existing = rowStore.get(policy.id)?.get(policy.version);
+      if (existing !== undefined && existing.unregisteredAt === null) {
+        return { kind: 'already-registered', policyId: policy.id, version: policy.version };
+      }
+      const conflict = scopeConflict(policy);
+      if (conflict !== undefined) return conflict;
       let versions = rowStore.get(policy.id);
       if (versions === undefined) {
         versions = new Map();
         rowStore.set(policy.id, versions);
-      }
-      const existing = versions.get(policy.version);
-      if (existing !== undefined && existing.unregisteredAt === null) {
-        return { kind: 'already-registered', policyId: policy.id, version: policy.version };
       }
       versions.set(policy.version, { policy, unregisteredAt: null });
       return { kind: 'ok', policyId: policy.id, version: policy.version };
@@ -170,6 +197,10 @@ function makeInMemoryBinding(): PolicyRegistryBinding {
       const row = versions.get(version);
       if (row === undefined) return { kind: 'not-found', policyId, version };
       const wasTombstoned = row.unregisteredAt !== null;
+      if (wasTombstoned) {
+        const conflict = scopeConflict(row.policy);
+        if (conflict !== undefined) return conflict;
+      }
       row.unregisteredAt = null;
       return { kind: 'ok', policyId, version, wasTombstoned };
     },
@@ -346,40 +377,31 @@ describe('API — policies publish + get', () => {
     });
   });
 
-  test('publish access-control policy carries rules through spec verbatim', async () => {
-    const { app } = makeApp();
-    const rules = [
-      {
-        id: 'r1',
-        effect: 'allow',
-        principal: { roles: ['reviewer:senior'] },
-        resource: { kind: 'fix-proposal' },
-        action: ['approve'],
-      },
-    ];
-    const publish = await app.request('/v1/policies', {
-      method: 'POST',
-      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
-      body: JSON.stringify(
-        policySpec({
-          id: 'acme.access',
-          kind: 'access-control',
-          spec: { rules, defaults: { onNoMatch: 'deny' } },
-        }),
-      ),
-    });
-    expect(publish.status).toBe(201);
-
-    const get = await app.request('/v1/policies/acme.access', {
-      headers: { authorization: `Bearer ${TOKEN}` },
-    });
-    expect(get.status).toBe(200);
-    const body = (await get.json()) as {
-      spec: { rules: unknown[]; defaults: { onNoMatch: string } };
-    };
-    expect(body.spec.rules).toEqual(rules);
-    expect(body.spec.defaults.onNoMatch).toBe('deny');
-  });
+  test.each(['access-control', 'adapter-allowlist', 'rate-limit', 'compliance'] as const)(
+    'publish a %s policy, a kind no runtime consumer applies → 400 kind-not-applied, nothing stored',
+    async (kind) => {
+      const { app } = makeApp();
+      const publish = await app.request('/v1/policies', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(policySpec({ id: 'acme.unapplied', kind, spec: {} })),
+      });
+      expect(publish.status).toBe(400);
+      const body = (await publish.json()) as {
+        error: { code: string; message: string; details?: Record<string, unknown> };
+      };
+      expect(body.error.code).toBe('kind-not-applied');
+      expect(body.error.message).toContain(`doesn't apply "${kind}" policies yet`);
+      expect(body.error.details).toEqual({
+        kind,
+        appliedKinds: ['model-routing', 'retention', 'tool-errors', 'hitl'],
+      });
+      const get = await app.request('/v1/policies/acme.unapplied', {
+        headers: { authorization: `Bearer ${TOKEN}` },
+      });
+      expect(get.status).toBe(404);
+    },
+  );
 
   test('validation failure (missing kind) → 400 validation-failed with issues', async () => {
     const { app } = makeApp();
@@ -741,5 +763,146 @@ describe('API — policies surface unmounted when no binding supplied', () => {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(404);
+  });
+});
+
+describe('API — policies: retention specs, one policy per domain (T236)', () => {
+  const retention = (id: string, doc: Record<string, unknown>, version = '1.0.0') =>
+    policySpec({
+      id,
+      version,
+      kind: 'retention',
+      spec: { v: 1, doc: { graceSeconds: 86_400, mode: 'purge', ...doc } },
+    });
+
+  async function post(
+    app: ReturnType<typeof makeApp>['app'],
+    path: string,
+    body?: Record<string, unknown>,
+  ) {
+    const res = await app.request(path, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      ...(body !== undefined && { body: JSON.stringify(body) }),
+    });
+    return {
+      status: res.status,
+      body: (await res.json()) as {
+        error?: { code: string; message: string; details?: Record<string, unknown> };
+      },
+    };
+  }
+
+  test('an unknown domain is refused with 400, naming it', async () => {
+    const { app } = makeApp();
+    const { status, body } = await post(
+      app,
+      '/v1/policies',
+      retention('acme.keep-blocks', { domain: 'blocks' }),
+    );
+    expect(status).toBe(400);
+    expect(body.error?.code).toBe('validation-failed');
+    expect(body.error?.message).toContain('policy.spec/doc/domain must be one of: org, agent,');
+    expect(body.error?.message).toContain('(got "blocks")');
+  });
+
+  test("mode archive is refused with 400: it isn't implemented", async () => {
+    const { app } = makeApp();
+    const { status, body } = await post(
+      app,
+      '/v1/policies',
+      retention('acme.archive', { domain: 'run', mode: 'archive' }),
+    );
+    expect(status).toBe(400);
+    expect(body.error?.message).toBe('policy.spec/doc/mode can\'t be "archive" yet: use "purge"');
+  });
+
+  test('a second policy for a covered domain is refused with 409, naming the first', async () => {
+    const { app } = makeApp();
+    expect(
+      (await post(app, '/v1/policies', retention('acme.keep-providers', { domain: 'provider' })))
+        .status,
+    ).toBe(201);
+    const { status, body } = await post(
+      app,
+      '/v1/policies',
+      retention('acme.keep-providers-long', { domain: 'provider', graceSeconds: 2_592_000 }),
+    );
+    expect(status).toBe(409);
+    expect(body.error?.code).toBe('policy-scope-taken');
+    expect(body.error?.message).toBe(
+      'Retention domain "provider" is already covered by policy "acme.keep-providers": a tenant has one retention policy per domain, and one for "*". Publish a new version of "acme.keep-providers" instead, or unregister it first.',
+    );
+    expect(body.error?.details).toMatchObject({
+      policyId: 'acme.keep-providers-long',
+      policyKind: 'retention',
+      scope: 'provider',
+      heldBy: 'acme.keep-providers',
+    });
+  });
+
+  test('a new version of the policy that covers the domain is fine', async () => {
+    const { app } = makeApp();
+    await post(app, '/v1/policies', retention('acme.keep-providers', { domain: 'provider' }));
+    const { status } = await post(
+      app,
+      '/v1/policies',
+      retention('acme.keep-providers', { domain: 'provider', graceSeconds: 0 }, '1.0.1'),
+    );
+    expect(status).toBe(201);
+  });
+
+  test("a new version can't move a policy to another domain (409 policy-scope-changed)", async () => {
+    const { app } = makeApp();
+    await post(app, '/v1/policies', retention('acme.keep', { domain: 'tool' }));
+    const { status, body } = await post(
+      app,
+      '/v1/policies',
+      retention('acme.keep', { domain: 'agent' }, '2.0.0'),
+    );
+    expect(status).toBe(409);
+    expect(body.error?.code).toBe('policy-scope-changed');
+    expect(body.error?.message).toContain('covers retention domain "tool"');
+    expect(body.error?.details).toMatchObject({ scope: 'agent', previousScope: 'tool' });
+  });
+
+  test('the * default is a scope of its own: one, beside the domain policies', async () => {
+    const { app } = makeApp();
+    expect(
+      (await post(app, '/v1/policies', retention('acme.default', { domain: '*' }))).status,
+    ).toBe(201);
+    expect(
+      (await post(app, '/v1/policies', retention('acme.runs', { domain: 'run' }))).status,
+    ).toBe(201);
+    const second = await post(app, '/v1/policies', retention('acme.default-2', { domain: '*' }));
+    expect(second.status).toBe(409);
+    expect(second.body.error?.details).toMatchObject({ scope: '*', heldBy: 'acme.default' });
+  });
+
+  test('reinstating a retired policy whose domain another now covers is refused', async () => {
+    const { app } = makeApp();
+    await post(app, '/v1/policies', retention('acme.a', { domain: 'secret' }));
+    await post(app, '/v1/policies/acme.a/versions/1.0.0/unregister');
+    expect(
+      (await post(app, '/v1/policies', retention('acme.b', { domain: 'secret' }))).status,
+    ).toBe(201);
+    const { status, body } = await post(app, '/v1/policies/acme.a/versions/1.0.0/reinstate');
+    expect(status).toBe(409);
+    expect(body.error?.code).toBe('policy-scope-taken');
+    expect(body.error?.message).toBe(
+      'Retention domain "secret" is now covered by policy "acme.b", so reinstating "acme.a" 1.0.0 would make two: a tenant has one retention policy per domain, and one for "*". Unregister "acme.b" first.',
+    );
+  });
+
+  test('kinds without a scope keep any number of policies', async () => {
+    const { app } = makeApp();
+    for (const id of ['acme.hitl-a', 'acme.hitl-b']) {
+      const { status } = await post(
+        app,
+        '/v1/policies',
+        policySpec({ id, kind: 'hitl', spec: { minReviewerRole: 'senior' } }),
+      );
+      expect(status).toBe(201);
+    }
   });
 });

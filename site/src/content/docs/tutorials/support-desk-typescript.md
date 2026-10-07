@@ -262,10 +262,11 @@ pnpm exec kindgi dev
 
 Leave it running, and continue in a second terminal, in `acme-desk`. The agent
 needs a real model for its typed answer (the stand-in `kindgi dev` starts with
-can't produce one). Add your Anthropic key and register the provider:
+can't produce one). Store your Anthropic key as a secret (you're prompted for
+it; it isn't echoed) and register the provider:
 
 ```sh
-echo 'ANTHROPIC_API_KEY=sk-ant-…' >> .env
+pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
 pnpm exec kindgi providers register --preset=anthropic
 ```
 

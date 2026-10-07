@@ -64,6 +64,19 @@ A check on the pull request asks for any of them that's missing.
   canonical wire contracts. Change a schema there first, then every
   package that bundles a copy (drift tests enforce equality);
   `pnpm run spec:validate` checks the whole set.
+- **Public text.** The repository's files, and a pull request's title,
+  description and commit messages (the squash commit's message is the
+  title and description), leave out internal process notes: development-
+  phase ids, scratch paths, unresolved placeholders. They also leave out a few names the
+  project doesn't use in public, the runtime's internal name among them:
+  describe things by their role ("the runtime", "the runtime's release").
+  `pnpm run check:refs` (CI) checks files; the **PR text** check checks a
+  pull request's own text, and runs again when you edit the description.
+  Both say where a name is, never which; the list is kept hashed
+  (`scripts/forbidden-names.json`, generated outside this repository).
+  The pre-push hook (`scripts/hooks/pre-push`) also runs a local check
+  when the clone names one (`git config kindgi.prePushCheck <program>`),
+  and does nothing otherwise.
 
 ## Releases
 
@@ -77,7 +90,14 @@ re-locks `uv.lock` (it needs uv). CI fails when they differ
 prerelease is `-alpha.N`, `-beta.N` or `-rc.N` (`aN`, `bN`, `rcN` on
 PyPI); the script refuses any other.
 
-1. Every user-visible change adds a changeset: `pnpm changeset`.
+1. Every user-visible change adds a changeset: `pnpm changeset`. Before
+   1.0, and while release candidates are out, it's a `patch`: one
+   `minor` moves every package to the next minor, which no installed
+   project reaches. A changeset that means to move the release says so
+   in its body: `Release-decision: <the version, who decided, and
+   when>`, naming a role (the maintainers), never a person, since the
+   body becomes the changelog entry (`pnpm run check:changeset-bumps`,
+   in CI).
 2. Merging to `main` updates the "Version Packages" pull request
    (opened by the org's release GitHub App, so CI runs on it like any
    other pull request).
@@ -87,3 +107,32 @@ PyPI); the script refuses any other.
 4. Publishing is a manual, approved run of the **Release** workflow
    (npm trusted publishing with provenance, and PyPI trusted publishing
    with attestations — no tokens).
+
+### Release candidates
+
+A release can go out first as release candidates, `X.Y.Z-rc.N`, that no
+one gets without asking for them by version:
+
+- **npm:** they publish under the dist-tag `next`, never `latest`
+  (`scripts/release-dist-tag.mjs`), and the Release workflow checks that
+  `latest` is still a release afterwards.
+- **PyPI:** they're `X.Y.ZrcN`, which pip and uv install only when asked
+  for by version.
+- **The public docs** come from releases only.
+- **An rc CLI keeps its set together:** `kindgi init` pins the rc
+  packages, a Python pack gets `kindgi>=X.Y.ZrcN,<…`, and its hints name
+  `@kindgi/cli@X.Y.Z-rc.N`.
+
+The steps:
+
+1. **Start:** `pnpm changeset pre enter rc` in a pull request
+   (`.changeset/pre.json`). From then on, the "Version Packages" pull
+   request versions `X.Y.Z-rc.0`, then `rc.1`, and so on. Publish each
+   as above. While candidates are out, every changeset is a `patch`: a
+   `minor` would move the release itself.
+2. **Release:** `pnpm changeset pre exit` in a pull request. The next
+   "Version Packages" pull request versions `X.Y.Z`, its changelog
+   gathering every rc's changesets, and that publishes under `latest`.
+
+The runtime image follows the same versions: the runtime's release takes
+`X.Y.Z-rc.N`, and never moves `preview` for one.

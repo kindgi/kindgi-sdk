@@ -6,6 +6,8 @@ import type { Flow } from '@kindgi/flow';
 import type { Scope } from '@kindgi/platform';
 import type { Cursor, FlowId, ProjectId, TenantId } from '@kindgi/types';
 
+import type { RegistryReadOnly } from './registry-read-only.js';
+
 /**
  * Caller-plugged surface for the flow catalog. Mirrors
  * `AgentRegistryBinding` 1:1 — the API package does NOT own registry
@@ -27,6 +29,13 @@ import type { Cursor, FlowId, ProjectId, TenantId } from '@kindgi/types';
  */
 export interface FlowRegistryBinding {
   /**
+   * Set when this registry takes no writes (under `kindgi dev`, the
+   * pack's files are the source of its flows): every write is refused
+   * with `409 registry-read-only` and this reason, before the binding is
+   * called. See `RegistryReadOnly`.
+   */
+  readonly readOnly?: RegistryReadOnly;
+  /**
    * Cursor-paginated list of flows (latest version per id, sorted by
    * flow id ascending). Optional `nameFilter` is a prefix match on the
    * flow id — the runtime uses dotted namespaces (`ingest.contract-pdf`),
@@ -39,11 +48,12 @@ export interface FlowRegistryBinding {
    */
   get(input: FlowGetInput): Promise<Flow | null>;
   /**
-   * Specific `(flowId, version)` lookup, or `null` if unknown.
-   * Returns tombstoned versions too — provenance paths need to
-   * resolve historical run references.
+   * Specific `(flowId, version)` lookup, or `null` if unknown. Returns
+   * unregistered (tombstoned) versions too, with `unregisteredAt` set:
+   * a resumed run and provenance read them, while a new run that names
+   * one is refused.
    */
-  getVersion(input: FlowGetVersionInput): Promise<Flow | null>;
+  getVersion(input: FlowGetVersionInput): Promise<FlowVersionRecord | null>;
   /**
    * Head-row existence check. Lets `GET /v1/flows/{id}` distinguish
    * `410 gone` (identity exists, no active version) from `404 not-
@@ -78,6 +88,12 @@ export interface FlowRegistryBinding {
    */
   reinstateVersion(input: FlowReinstateVersionInput): Promise<FlowReinstateVersionOutcome>;
 }
+
+/** A flow version as `getVersion` reads it: `unregisteredAt` is set when it's unregistered. */
+export type FlowVersionRecord = Flow & {
+  /** ISO-8601; present only on an unregistered version. */
+  readonly unregisteredAt?: string;
+};
 
 export interface FlowListInput {
   readonly tenantId: TenantId;

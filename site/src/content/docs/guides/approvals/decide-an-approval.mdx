@@ -13,19 +13,32 @@ or a [long conversation](../ask-after-n-turns/)) creates an **approval**. A
 
 ## Reviewers and roles
 
-Only reviewers see approvals. Until you register, every approvals command is
-refused:
+Only reviewers see approvals. Under `kindgi dev` you're one already: when it
+starts on a database where you aren't a reviewer yet, it registers you, the
+user of its token, as an `admin`:
 
 ```sh
-kindgi approvals list
+kindgi reviewers list
 ```
 
-```text
-Error [auth]: The caller isn't a reviewer: its token carries no reviewer role, and its user isn't registered as one (`kindgi reviewers register`). The approvals surface is reviewer-only.
+```json
+{
+  "data": [
+    {
+      "id": "6c11cfb1-d0c2-46dd-a3a0-e859a57b5da0",
+      "tenantId": "9126df1e-094b-496d-9ea8-7daab93c3f4f",
+      "userId": "26fc414a-b49f-4e1f-a022-162865770178",
+      "role": "admin",
+      "createdAt": "2026-10-05T20:10:59.747Z"
+    }
+  ],
+  "hasMore": false
+}
 ```
 
-Register yourself, the user your API token belongs to, with a role. That
-covers any token of yours: this one, another API key, or a console sign-in.
+On any other runtime, register each person who reviews, the user their API
+token belongs to, with a role. That covers any token of theirs: an API key or
+a console sign-in.
 
 ```sh
 kindgi reviewers register --spec='{"role":"standard","displayName":"Ada Lovelace"}'
@@ -49,7 +62,14 @@ the list, and fetching or deciding it answers `not-found`.
 
 Registering again changes the role. `kindgi reviewers list` shows the
 reviewers; `kindgi reviewers unregister <reviewer-id>` removes one (their
-past decisions stay).
+past decisions stay). A user who isn't a reviewer is refused:
+
+```text
+Error [auth]: The caller isn't a reviewer: its token carries no reviewer role, and its user isn't registered as one (`kindgi reviewers register`). The approvals surface is reviewer-only.
+```
+
+`kindgi dev` leaves a role you set as it is, and doesn't register you again
+after you unregister yourself.
 
 ## Find what's waiting
 
@@ -101,6 +121,11 @@ kindgi approvals complete <approval-id> --decision=approve --rationale="Confirme
 An approve or reject resumes the run within the same call, so the run has
 moved on by the time the command returns. A decided approval can't be decided
 again.
+
+Each decision also goes into the audit trail, as an `hitl-decision` event:
+who decided, how it ended and the rationale. It's kept for good, even when the
+runtime purges other audit events (see
+[Audit events](../../../deploy/retention/#audit-events)).
 
 ### Escalate
 
@@ -189,11 +214,11 @@ import { createClient } from '@kindgi/sdk/client';
 const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
 const pending = await kindgi.approvals.list({ status: 'pending' });
-for (const approval of pending.items) {
+for (const approval of pending.data) {
   console.log(approval.id, approval.title, approval.subjectRef);
 }
 
-const first = pending.items[0];
+const first = pending.data[0];
 if (first) {
   const result = await kindgi.approvals.decide(first.id, {
     decision: 'approve',

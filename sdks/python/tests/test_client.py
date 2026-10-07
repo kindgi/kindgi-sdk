@@ -120,6 +120,52 @@ def test_a_body_as_a_mapping_or_a_model() -> None:
         api.runs.start({"agent": "a", "input": {}}, flow="f")
 
 
+def test_a_field_named_for_a_keyword_takes_a_trailing_underscore() -> None:
+    # `from` is a Python keyword: `from_=` sends it, as does a mapping.
+    derived = {
+        "id": "acme.intake",
+        "version": "1.4.1",
+        "name": "Intake",
+        "instructions": {"prompt": "acme.intake-prompt", "version": "^1.0.0"},
+        "capabilities": [],
+        "tools": [],
+        "retrieval": [],
+        "guardrails": [],
+        "derivedFrom": {"version": "1.4.0", "reason": "edited", "by": "user:u-1"},
+    }
+    api, seen = client(lambda r: httpx.Response(201, json=derived))
+    pins = {"prompts": {"acme.intake-prompt": "1.1.0"}}
+    agent = api.agents.derive_version("acme.intake", from_="1.4.0", pins=pins)
+    api.agents.derive_version("acme.intake", {"from": "1.4.0", "pins": pins})
+    assert agent.derived_from is not None and agent.derived_from.reason == "edited"
+    assert [r.url for r in seen] == ["http://kindgi.test/v1/agents/acme.intake/versions"] * 2
+    assert [json.loads(r.content) for r in seen] == [{"from": "1.4.0", "pins": pins}] * 2
+
+
+def test_a_field_set_to_none_is_sent_as_null() -> None:
+    # `assertable_by=None` lifts a judge class's restriction; a field left out stays out.
+    judge_class = {
+        "id": "jc-1",
+        "tenantId": "t-1",
+        "scope": {"kind": "tenant"},
+        "name": "expert",
+        "weight": 3,
+        "createdAt": "2026-10-06T00:00:00.000Z",
+        "updatedAt": "2026-10-06T00:00:00.000Z",
+    }
+    api, seen = client(lambda r: httpx.Response(200, json=judge_class))
+    api.judge_classes.update("jc-1", assertable_by=None)
+    api.judge_classes.update("jc-1", weight=2)
+    assert [json.loads(r.content) for r in seen] == [{"assertableBy": None}, {"weight": 2}]
+
+
+def test_approvals_list_takes_wait_token_ids() -> None:
+    # The approvals a run's open waits belong to: `waitTokenId` repeated, in order.
+    api, seen = client(lambda r: httpx.Response(200, json={"data": [], "hasMore": False}))
+    api.approvals.list(wait_token_id=["tok-a", "tok-b"])
+    assert seen[0].url.params.get_list("waitTokenId") == ["tok-a", "tok-b"]
+
+
 def test_path_and_query_parameters() -> None:
     page = {"data": [], "hasMore": False}
     api, seen = client(
@@ -129,6 +175,61 @@ def test_path_and_query_parameters() -> None:
     api.runs.list(limit=5, top_level=True)
     assert seen[0].url.raw_path == b"/v1/runs/a%2Fb%20c"
     assert dict(seen[1].url.params) == {"limit": "5", "topLevel": "true"}
+
+
+def test_eval_suites_unregister_names_the_call_as_the_other_resources_do() -> None:
+    # `eval_suites.unregister`, as `agents.unregister`: the same call as
+    # `eval_suites.versions.unregister`.
+    answer = {"suiteId": "acme.set", "version": "1.0.0", "unregistered": True}
+    api, seen = client(lambda r: httpx.Response(200, json=answer))
+    api.eval_suites.unregister("acme.set", "1.0.0")
+    api.eval_suites.versions.unregister("acme.set", "1.0.0")
+    assert [(r.method, r.url.path) for r in seen] == [
+        ("POST", "/v1/eval-suites/acme.set/versions/1.0.0/unregister"),
+    ] * 2
+
+
+def test_conversations_list_takes_replays() -> None:
+    # A comparison's replay conversations are left out unless asked for.
+    api, seen = client(lambda r: httpx.Response(200, json={"data": [], "hasMore": False}))
+    api.conversations.list()
+    api.conversations.list(replays="only")
+    assert dict(seen[0].url.params) == {}
+    assert dict(seen[1].url.params) == {"replays": "only"}
+
+
+def test_a_segment_path_is_its_steps_written_in_order() -> None:
+    # `{key, value}` steps, as TypeScript and `runs.start` take them; each a
+    # model or a mapping, written as repeated `segment=key:value`.
+    project = "0b9f4c1e-1111-4a2b-8c3d-000000000001"
+    api, seen = client(
+        lambda r: httpx.Response(
+            200,
+            json={"agentId": "acme.drafter", "version": "1.1.0", "via": "latest"}
+            if r.url.path.endswith("/live")
+            else {"data": [], "hasMore": False},
+        )
+    )
+    resolved = api.agents.live.resolve(
+        "acme.drafter",
+        project_id=project,
+        segments=[
+            {"key": "company", "value": "acme"},
+            models.ScopeSegment(key="role", value="counsel"),
+        ],
+    )
+    assert resolved.via == "latest"
+    assert seen[0].url.params.get_list("segment") == ["company:acme", "role:counsel"]
+    assert seen[0].url.params["projectId"] == project
+    api.agents.promotions.list(
+        "acme.drafter",
+        scope_kind="segment",
+        scope_id=project,
+        segments=[{"key": "company", "value": "acme"}],
+    )
+    assert seen[1].url.params.get_list("segment") == ["company:acme"]
+    api.agents.live.resolve("acme.drafter", project_id=project)
+    assert "segment" not in seen[2].url.params
 
 
 @pytest.mark.parametrize(
@@ -143,6 +244,41 @@ def test_path_and_query_parameters() -> None:
             error(409, "run-already-terminal"),
             ConflictError,
             lambda e: e.server_code == "run-already-terminal",
+        ),
+        (
+            error(409, "slug-conflict", details={"resource": "project", "slug": "acme"}),
+            ConflictError,
+            lambda e: (e.server_code, e.details["slug"]) == ("slug-conflict", "acme"),
+        ),
+        (
+            error(409, "project-default-already-exists"),
+            ConflictError,
+            lambda e: e.server_code == "project-default-already-exists",
+        ),
+        (
+            error(409, "registry-read-only"),
+            ConflictError,
+            lambda e: e.server_code == "registry-read-only",
+        ),
+        (
+            error(409, "nothing-to-roll-back"),
+            ConflictError,
+            lambda e: e.server_code == "nothing-to-roll-back",
+        ),
+        (
+            error(409, "agent-version-live"),
+            ConflictError,
+            lambda e: e.server_code == "agent-version-live",
+        ),
+        (
+            error(404, "agent-version-not-found"),
+            NotFoundError,
+            lambda e: e.kind == "agent-version",
+        ),
+        (
+            error(400, "scope-invalid"),
+            InvalidRequestError,
+            lambda e: e.issues == [],
         ),
         (
             error(400, "validation-failed", details={"issues": [{"path": "/x", "message": "bad"}]}),
@@ -274,6 +410,28 @@ def test_paginate_follows_the_cursor() -> None:
     assert [r.url.params.get("cursor") for r in seen] == [None, "c2"]
 
 
+@pytest.mark.parametrize("has_more", [True, None], ids=["hasMore", "older server"])
+def test_paginate_pages_env_with_or_without_has_more(has_more: bool | None) -> None:
+    entry = {
+        "scope": {"kind": "tenant", "tenantId": "acme"},
+        "envName": "dev",
+        "name": "REGION",
+        "value": "eu",
+        "revision": 1,
+        "createdAt": "2026-10-01T00:00:00Z",
+        "updatedAt": "2026-10-01T00:00:00Z",
+    }
+    first: dict[str, Any] = {"data": [entry], "nextCursor": "c2"}
+    last: dict[str, Any] = {"data": [entry]}
+    if has_more is not None:
+        first["hasMore"], last["hasMore"] = True, False
+    pages = {None: first, "c2": last}
+    api, seen = client(lambda r: httpx.Response(200, json=pages[r.url.params.get("cursor")]))
+    entries = list(paginate(api.env.list, env_name="dev", scope_kind="tenant"))
+    assert len(entries) == 2
+    assert [r.url.params.get("cursor") for r in seen] == [None, "c2"]
+
+
 def test_settings_come_from_the_environment(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -333,3 +491,115 @@ def test_the_generated_client_is_in_step_with_openapi() -> None:
         [sys.executable, str(script), "--check"], capture_output=True, text=True, check=False
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_retention_scheduled_and_sweep() -> None:
+    """T236: the retention routes, with the conflicts a page reports."""
+    conflict = {
+        "domain": "provider",
+        "policyIds": ["acme.keep-providers", "acme.keep-providers-long"],
+        "appliedPolicyId": "acme.keep-providers",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/retention/scheduled":
+            return httpx.Response(
+                200,
+                json={
+                    "data": [],
+                    "domainsMissingAdapter": [],
+                    "unpolicedDomains": ["run"],
+                    "conflicts": [conflict],
+                },
+            )
+        return httpx.Response(200, json={"perDomain": [], "totalPurged": 0})
+
+    api, seen = client(handler)
+    page = api.retention.scheduled(domain="provider", past_grace_only=True, limit=10)
+    assert page.conflicts is not None
+    assert page.conflicts[0].applied_policy_id == "acme.keep-providers"
+    assert dict(seen[0].url.params) == {
+        "domain": "provider",
+        "pastGraceOnly": "true",
+        "limit": "10",
+    }
+
+    api.retention.sweep(max_per_domain=100)
+    assert (seen[1].method, seen[1].url.path) == ("POST", "/v1/retention/sweep")
+    assert json.loads(seen[1].content) == {"maxPerDomain": 100}
+
+    api.retention.sweep_domain("judge_class")
+    assert seen[2].url.path == "/v1/retention/sweep/judge_class"
+
+
+def test_retention_scheduled_pages_with_a_cursor() -> None:
+    """T249: `cursor` goes in the query; `has_more` and `next_cursor` come back."""
+
+    def item(n: int) -> dict[str, Any]:
+        return {
+            "domain": "agent",
+            "id": f"agent-{n}",
+            "unregisteredAt": "2026-10-01T00:00:00Z",
+            "purgeAt": "2026-10-02T00:00:00Z",
+            "pastGrace": True,
+            "policyId": "acme.keep-agents",
+            "policyVersion": "1.0.0",
+            "graceSeconds": 86_400,
+        }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        first = "cursor" not in request.url.params
+        return httpx.Response(
+            200,
+            json={
+                "data": [item(1)] if first else [item(2)],
+                "domainsMissingAdapter": [],
+                "unpolicedDomains": [],
+                "hasMore": first,
+                **({"nextCursor": "c-2"} if first else {}),
+            },
+        )
+
+    api, seen = client(handler)
+    page = api.retention.scheduled(limit=1)
+    assert (page.has_more, page.next_cursor) == (True, "c-2")
+    assert [row.id for row in paginate(api.retention.scheduled, limit=1)] == ["agent-1", "agent-2"]
+    assert dict(seen[-1].url.params) == {"limit": "1", "cursor": "c-2"}
+
+
+def test_a_second_retention_policy_for_a_domain_is_a_conflict() -> None:
+    """T236: `409 policy-scope-taken` names the policy that covers the domain."""
+    response = error(409, "policy-scope-taken", details={"heldBy": "acme.keep-providers"})
+    api, _ = client(lambda r: response, max_retries=0)
+    with pytest.raises(ConflictError) as raised:
+        api.policies.publish(
+            id="acme.keep-providers-long",
+            version="1.0.0",
+            kind="retention",
+            spec={"v": 1, "doc": {"domain": "provider", "graceSeconds": 0, "mode": "purge"}},
+        )
+    assert raised.value.server_code == "policy-scope-taken"
+    assert raised.value.details["heldBy"] == "acme.keep-providers"
+
+
+def test_observations_list_sends_every_filter_the_route_reads() -> None:
+    """`agentVersion`, `conversationId`, `since` and `until` were missing from the spec."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"data": [], "hasMore": False})
+
+    api, seen = client(handler)
+    api.observations.list(
+        agent_id="acme.helper",
+        agent_version="1.0.0",
+        conversation_id="c-1",
+        since="2026-10-01T00:00:00Z",
+        until="2026-10-06T00:00:00Z",
+    )
+    assert dict(seen[0].url.params) == {
+        "agentId": "acme.helper",
+        "agentVersion": "1.0.0",
+        "conversationId": "c-1",
+        "since": "2026-10-01T00:00:00Z",
+        "until": "2026-10-06T00:00:00Z",
+    }
