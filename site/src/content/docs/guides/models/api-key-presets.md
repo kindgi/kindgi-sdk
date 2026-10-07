@@ -72,9 +72,9 @@ preferred one, else the first alphabetically: for `openai`, that's
 | `openai` | `gpt-6.1-sol` | `tool-use`, `parallel-tool-use`, `structured-output`, `long-context` | 1,050,000 | $0.002 / $0.01 |
 | | `gpt-6-astra` | `tool-use`, `parallel-tool-use`, `structured-output`, `long-context` | 1,050,000 | $0.01 / $0.05 |
 | | `gpt-6-luna` | `tool-use`, `parallel-tool-use`, `structured-output`, `long-context` | 1,050,000 | $0.0001 / $0.0005 |
-| `gemini-api` | `gemini-3.8-flash` | `tool-use`, `long-context` | 1,048,576 | $0.00075 / $0.00375 |
+| `gemini-api` | `gemini-3.8-flash` | `tool-use`, `structured-output`, `long-context` | 1,048,576 | $0.00075 / $0.00375 |
 | | `gemini-3.1-pro-preview` | `tool-use`, `long-context` | 1,048,576 | $0.002 / $0.012 |
-| | `gemini-3.5-flash-lite` | `tool-use`, `long-context` | 1,048,576 | $0.0003 / $0.0025 |
+| | `gemini-3.5-flash-lite` | `tool-use`, `structured-output`, `long-context` | 1,048,576 | $0.0003 / $0.0025 |
 | `groq` | `openai/gpt-oss-120b` | `tool-use` | 131,072 | $0.00015 / $0.0006 |
 | | `openai/gpt-oss-20b` | `tool-use` | 131,072 | $0.000075 / $0.0003 |
 | `openrouter` | `anthropic/claude-sonnet-5.5` | `tool-use`, `parallel-tool-use`, `structured-output`, `long-context` | 1,000,000 | $0.002 / $0.01 |

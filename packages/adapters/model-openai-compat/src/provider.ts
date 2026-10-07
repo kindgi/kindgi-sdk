@@ -19,6 +19,7 @@ import type {
 } from '@kindgi/capabilities';
 import { samplingFor } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
+import { nameToolsAsSent } from '@kindgi/capabilities/tool-names';
 
 /**
  * OpenAI (and every downstream compat endpoint — Ollama, vLLM, Groq,
@@ -148,7 +149,16 @@ export function createOpenAICompatModelProvider(
       const startedAt = Date.now();
       const openai = await clientForCall();
 
-      const messages = input.messages.map(toOpenAiMessage);
+      // The system prompt names the call's tools as they're sent (`acme__lookup_order`):
+      // a model told to call `acme.lookup_order` calls a name it wasn't given (T311).
+      const toolIds = input.tools?.map((t) => t.name) ?? [];
+      const messages = input.messages.map((m) =>
+        toOpenAiMessage(
+          m.role === 'system'
+            ? { ...m, content: nameToolsAsSent(m.content, toolIds, encodeToolName) }
+            : m,
+        ),
+      );
       const tools = input.tools?.map(toOpenAiTool);
 
       const responseFormat = input.structuredOutput

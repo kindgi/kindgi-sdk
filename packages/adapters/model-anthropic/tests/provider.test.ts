@@ -131,6 +131,36 @@ describe('createAnthropicProvider — invoke wire shape', () => {
     ]);
   });
 
+  test("the system prompt names the call's tools as sent; the caller's messages keep the ids (T311)", async () => {
+    const { client, create } = fakeClient();
+    const provider = createAnthropicProvider({
+      apiKey: 'sk-unused',
+      metadata: OPUS_METADATA,
+      client,
+    });
+    const system = 'Call `demo.echo` with the message. Never demo.echoes or other.echo.';
+    const input: ModelCallInput = {
+      model: 'claude-opus-4-7',
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: 'Use demo.echo please' },
+      ],
+      tools: [
+        { name: 'demo.echo', description: 'Echo back a message.', inputSchema: { type: 'object' } },
+      ],
+    };
+    await provider.invoke(input);
+    const [callBody] = create.mock.calls[0] as [Record<string, unknown>];
+    expect(callBody.system).toBe(
+      'Call `demo__echo` with the message. Never demo.echoes or other.echo.',
+    );
+    // The user's own words, and the trail the caller keeps, are untouched.
+    expect(callBody.messages).toEqual([
+      { role: 'user', content: [{ type: 'text', text: 'Use demo.echo please' }] },
+    ]);
+    expect(input.messages[0]?.content).toBe(system);
+  });
+
   test('defaults max_tokens to adapter DEFAULT (4096) when neither input nor model provides one', async () => {
     const { client, create } = fakeClient();
     const provider = createAnthropicProvider({
