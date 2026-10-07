@@ -46,8 +46,7 @@ The first `kindgi dev` then pulls the image (about 700 MB; `amd64` and
 `kindgi doctor` checks what Kindgi needs: Node (or Python and uv), Docker,
 access to the runtime image and, in a project's folder, the project, its
 dependencies, its model key, the runtime and a provider. Each check that
-fails says how to fix it, and it exits `1` until nothing does. A `!` line is
-a warning: it works now, but read it:
+fails says how to fix it, and it exits `1` until nothing does:
 
 ```sh
 npx --yes @kindgi/cli@0.1 doctor     # in a project: pnpm exec kindgi doctor, or npx --no kindgi doctor
@@ -62,6 +61,8 @@ run:
   ✗ Runtime image: Docker couldn't run its credential helper (docker-credential-kindgi-nope): ERROR: error getting credentials - err: exec: "docker-credential-kindgi-nope": executable file not found in $PATH, out: ``
       Fix: Docker's config (~/.docker/config.json, or the one in $DOCKER_CONFIG: "credsStore" or "credHelpers") names docker-credential-kindgi-nope, and Docker couldn't run it. Put it on your PATH (Docker Desktop on macOS keeps it in /Applications/Docker.app/Contents/Resources/bin), or remove that entry from the config, then run this again.
 ```
+
+A `!` line is a warning: it doesn't fail, and things work now, but read it.
 
 `--json` gives the same checks as JSON, for a script or a coding agent
 ([Set up with a coding agent](../agent/) has an agent read it).

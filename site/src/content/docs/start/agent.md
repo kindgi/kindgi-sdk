@@ -89,8 +89,9 @@ The checks come in this order: `node`, `npm`, `python`, `uv`, `docker`,
   a key), ask them, then run doctor again.
 - **`warn`:** it works now, but the person should know: tell them its
   `message` and `fix`, and go on. `ok` stays `true` and the exit code `0`.
-  Today only `provider` warns: agents that name no model land on a model the
-  preset no longer lists, or not on the preset's default.
+  In this release only `provider` warns: when an agent that names no model
+  would get a model the preset no longer lists, or one other than the
+  preset's default.
 - **`skip`:** not applicable yet. Outside a project, `project` and every
   check after it skip; `runtime` skips while `kindgi dev` isn't running.
 
