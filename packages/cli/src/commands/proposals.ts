@@ -3,7 +3,13 @@
 
 import { readFile } from 'node:fs/promises';
 
-import type { FixProposal, FixProposalStatus, ListPage, ProposalContent } from '@kindgi/client';
+import type {
+  FixProposal,
+  FixProposalStatus,
+  ImprovementPass,
+  ListPage,
+  ProposalContent,
+} from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
 import { SCOPE_FLAGS, SCOPE_USAGE, scopeCell, scopeFrom } from './agents.js';
@@ -342,10 +348,176 @@ const withdraw: LeafCommand = {
     ),
 };
 
+/** The statuses `improve --wait` waits through. */
+const PASS_RUNNING: ReadonlySet<string> = new Set(['running']);
+
+/** What a pass found, in a table cell. */
+function outcomeCell(p: ImprovementPass): string {
+  const o = p.outcome;
+  if (o === undefined) return p.status === 'running' ? 'running' : '-';
+  if (o.kind === 'proposed') return `proposed ${o.proposalId ?? ''}`.trim();
+  if (o.kind === 'nothing-found') return 'nothing better';
+  return 'failed';
+}
+
+const PASSES_TABLE: TableSpec<ListPage<ImprovementPass>, ImprovementPass> = {
+  rows: (page) => page.data,
+  columns: [
+    { header: 'ID', get: (p) => p.id },
+    { header: 'AGENT', get: (p) => `${p.agentId}@${p.fromVersion}` },
+    { header: 'SCOPE', get: (p) => scopeCell(p.scope) },
+    { header: 'STATUS', get: (p) => p.status },
+    { header: 'CANDIDATES', get: (p) => String(p.candidatesEvaluated) },
+    { header: 'COST', get: (p) => `$${p.costUsd}` },
+    { header: 'OUTCOME', get: outcomeCell },
+    { header: 'STARTED', get: (p) => p.createdAt },
+  ],
+};
+
+/** A positive number flag; `undefined` when absent. */
+function numberFlag(ctx: CommandContext, name: string): number | undefined {
+  const raw = stringFlag(ctx, name);
+  if (raw === undefined) return undefined;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0)
+    throw new Error(`--${name} must be a positive number, got '${raw}'`);
+  return n;
+}
+
+const improve: LeafCommand = {
+  kind: 'leaf',
+  name: 'improve',
+  description:
+    "Ask the runtime to look for better values for an agent version's tunable settings for a scope, within a budget. It searches on part of the test set and proves its best candidate on the rest; if that candidate is better, it writes a proposal, which a reviewer decides (`kindgi proposals request`). Answers at once with the pass; `--wait` waits for its outcome. Needs `publish` on the agent.",
+  usage: `kindgi proposals improve --agent=<agent-id> ${SCOPE_USAGE} --test-set=<suite-id> [--from-version=<semver>] [--objective=weightedYesShare|weightedPrecisionAtK] [--max-cost=<usd>] [--max-candidates=<n>] [--wait]`,
+  optionSpec: {
+    agent: { type: 'string', description: 'The agent.' },
+    ...SCOPE_FLAGS,
+    'test-set': {
+      type: 'string',
+      description: 'The judged test set to search and prove on, by id.',
+    },
+    'from-version': {
+      type: 'string',
+      description: 'The version whose settings it tunes (default: the one serving the scope).',
+    },
+    objective: {
+      type: 'string',
+      description: 'What better means: `weightedYesShare` (the default) or `weightedPrecisionAtK`.',
+    },
+    'max-cost': {
+      type: 'string',
+      description: 'The most its comparisons may cost, in US dollars (default 5).',
+    },
+    'max-candidates': {
+      type: 'string',
+      description: 'The most candidates it compares (default 30).',
+    },
+    wait: {
+      type: 'boolean',
+      description: 'Wait until the pass is done (at most 30 minutes), then print it.',
+    },
+    ...IDEMPOTENCY_FLAG,
+  },
+  run: (ctx) =>
+    runSdk(ctx, 'proposals improve', async () => {
+      const agentId = required(ctx, 'agent');
+      const scope = scopeFrom(ctx, true);
+      const suiteId = required(ctx, 'test-set');
+      const fromVersion = stringFlag(ctx, 'from-version');
+      const objective = oneOfFlag(ctx, 'objective', OBJECTIVES);
+      const maxCostUsd = numberFlag(ctx, 'max-cost');
+      const maxCandidates = integerFlag(ctx, 'max-candidates');
+      const client = ctx.client();
+      const pass = await client.proposals.improve({
+        agentId,
+        scope,
+        suiteId,
+        ...(fromVersion !== undefined && { fromVersion }),
+        ...(objective !== undefined && { objective }),
+        ...((maxCostUsd !== undefined || maxCandidates !== undefined) && {
+          budget: {
+            ...(maxCostUsd !== undefined && { maxCostUsd }),
+            ...(maxCandidates !== undefined && { maxCandidates }),
+          },
+        }),
+        ...idempotency(ctx),
+      });
+      if (ctx.options.wait !== true) return pass;
+      return await followEvalRun(pass.id, {
+        get: (id) => client.improvementPasses.get(id),
+        inProgress: PASS_RUNNING,
+        showCommand: 'kindgi proposals passes get',
+      });
+    }),
+};
+
+const passesList: LeafCommand = {
+  kind: 'leaf',
+  name: 'list',
+  description: 'List improvement passes, newest first: only those of agents you can read.',
+  usage:
+    'kindgi proposals passes list [--agent=<agent-id>] [--limit=<n>] [--cursor=<cursor>] [--table]',
+  optionSpec: {
+    agent: { type: 'string', description: "Only this agent's passes." },
+    limit: { type: 'string', description: 'Page size.' },
+    cursor: { type: 'string', description: 'The next page, from `nextCursor`.' },
+  },
+  run: (ctx) =>
+    runSdk(
+      ctx,
+      'proposals passes list',
+      async () => {
+        const agentId = stringFlag(ctx, 'agent');
+        const limit = integerFlag(ctx, 'limit');
+        const cursor = stringFlag(ctx, 'cursor');
+        return await ctx.client().improvementPasses.list({
+          ...(agentId !== undefined && { agentId }),
+          ...(limit !== undefined && { limit }),
+          ...(cursor !== undefined && { cursor }),
+        });
+      },
+      PASSES_TABLE,
+    ),
+};
+
+const passesGet: LeafCommand = {
+  kind: 'leaf',
+  name: 'get',
+  description:
+    'Show an improvement pass: how many candidates it compared, what that cost, and what it found (the proposal it wrote, or why nothing).',
+  usage: 'kindgi proposals passes get <pass-id>',
+  run: (ctx) =>
+    runSdk(ctx, 'proposals passes get', async () =>
+      ctx.client().improvementPasses.get(requiredPositional(ctx, 0, 'pass-id')),
+    ),
+};
+
+const passesCancel: LeafCommand = {
+  kind: 'leaf',
+  name: 'cancel',
+  description: 'Stop a running improvement pass: it ends `cancelled` and writes no proposal.',
+  usage: 'kindgi proposals passes cancel <pass-id>',
+  optionSpec: { ...IDEMPOTENCY_FLAG },
+  run: (ctx) =>
+    runSdk(ctx, 'proposals passes cancel', async () =>
+      ctx
+        .client()
+        .improvementPasses.cancel(requiredPositional(ctx, 0, 'pass-id'), idempotency(ctx)),
+    ),
+};
+
+const passes: Command = {
+  kind: 'group',
+  name: 'passes',
+  description: 'Improvement passes: the runtime looking for better settings (list / get / cancel).',
+  subcommands: [passesList, passesGet, passesCancel],
+};
+
 export const proposalsCommand: Command = {
   kind: 'group',
   name: 'proposals',
   description:
-    "Improvement proposals: new content for a data block an agent pins, for one scope; evaluated on a test set, then promoted through the scope's gate (list / get / draft / evaluate / request / rollback / withdraw).",
-  subcommands: [list, get, draft, evaluate, request, rollback, withdraw],
+    "Improvement proposals: new content for a data block an agent pins, for one scope; evaluated on a test set, then promoted through the scope's gate (list / get / draft / evaluate / request / rollback / withdraw / improve / passes).",
+  subcommands: [list, get, draft, evaluate, request, rollback, withdraw, improve, passes],
 };
