@@ -35,16 +35,16 @@ pnpm run docs:build   # what CI runs: the build, its link check, search
 
 ## Versions
 
-Every released minor line has its own docs, built from its newest
-`@kindgi/sdk@X.Y.*` tag, so its pages, its generated reference and its code
-are the same commit:
+Every release has its own docs, built from its `@kindgi/sdk@X.Y.Z` tag, so
+its pages, its generated reference and its code are the same commit:
 
 ```
-/            the latest release line (the only one search engines index)
-/vX.Y/       every release line
+/            the newest release (the only one search engines index)
+/vX.Y.Z/     every release
+/vX.Y/       redirects to its line's newest release, page for page (_redirects)
 /next/       the newest release candidate (`@kindgi/sdk@X.Y.Z-rc.N`) while
              it's newer than every release; gone once its release ships
-/versions.json   what the version menu lists
+/versions.json   what the version menu lists, with each build's exact version
 ```
 
 ```sh
@@ -54,9 +54,10 @@ pnpm run build && pnpm run docs:preview    # this checkout, a private preview, i
 
 Only releases are public: readers install a release, so the site describes
 what they have. A release candidate is the one exception, under `/next/`: its
-pages say so, link to the latest release, and aren't indexed. Each release line builds in a temporary worktree at its tag.
-A page on an older line says so and links to the latest; the version menu
-keeps you on the same page when the other version has it.
+pages say so, link to the latest release, and aren't indexed. Each release
+builds in a temporary worktree at its tag. A page of an older release says so
+and links to the latest, since a later release may have fixed what it says;
+the version menu keeps you on the same page when the other version has it.
 
 The preview is this checkout (usually `main`, merged but not released), for
 checking before a release. Every page says it's a preview, search engines

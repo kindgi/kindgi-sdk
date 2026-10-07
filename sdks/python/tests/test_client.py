@@ -9,6 +9,7 @@ import asyncio
 import json
 import subprocess
 import sys
+import uuid
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
@@ -642,3 +643,20 @@ def test_observations_list_sends_every_filter_the_route_reads() -> None:
         "since": "2026-10-01T00:00:00Z",
         "until": "2026-10-06T00:00:00Z",
     }
+
+
+def test_a_model_s_uuid_id_passes_back_as_text_in_a_path_and_a_query() -> None:
+    """T309: ids the models carry as `UUID` go straight back into the client."""
+    run_id = uuid.UUID("0b6e3c1e-2f4f-4a51-9d0e-7a1f2c3d4e5f")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.startswith("/v1/approvals"):
+            return httpx.Response(200, json={"data": [], "hasMore": False})
+        return httpx.Response(404, json={"error": {"code": "run-not-found", "message": "no"}})
+
+    api, seen = client(handler)
+    with pytest.raises(NotFoundError):
+        api.runs.get(run_id)
+    api.approvals.list(wait_token_id=[run_id, "wt-2"])
+    assert seen[0].url.path == f"/v1/runs/{run_id}"
+    assert seen[1].url.params.get_list("waitTokenId") == [str(run_id), "wt-2"]
