@@ -309,8 +309,11 @@ A new grant can take a minute or two to apply.
 - **Rotate a secret:** add a version, then roll a new revision of each service
   that reads it (`gcloud run services update … --update-labels=rotated=$(date +%s)`).
   Never rotate the AAD key this way: every stored secret is bound to it.
-- **Logs:** Cloud Logging, per service. The runtime's startup lines are in
-  [Operate](../operate/#the-startup-log).
+- **Logs:** Cloud Logging, per service. The runtime logs JSON there, one
+  record per line, and Cloud Logging reads each record's `severity`; filter by
+  `jsonPayload.traceId` to follow one request or run. The startup lines are
+  the `lines` of its `boot` record, as in
+  [Operate](../operate/#the-startup-log). See [Logs](../logs/).
 
 ## Tear it down
 
