@@ -404,3 +404,64 @@ describe('what the endpoint says about the call', () => {
     }
   });
 });
+
+describe("a model that doesn't take sampling", () => {
+  // OpenAI's GPT-6 models: remove temperature at any reasoning effort but `none`.
+  const noSampling: ProviderMetadata = {
+    ...metadata,
+    models: [
+      ...metadata.models,
+      { ...metadata.models[0], name: 'gpt-reasoning', sampling: false } as never,
+    ],
+  };
+
+  test('the call goes without the temperature, and the answer says so; others still get it', async () => {
+    const endpoint = fakeEndpoint();
+    const provider = createOpenAICompatModelProvider({
+      baseURL: 'http://llm.test/v1',
+      apiKey: 'k',
+      metadata: noSampling,
+      clientOptions: { fetch: endpoint.fetch, maxRetries: 0 },
+    });
+    const without = await provider.invoke({ ...call, model: 'gpt-reasoning', temperature: 0.2 });
+    const withIt = await provider.invoke({ ...call, temperature: 0.2 });
+    expect(endpoint.seen[0]?.body).not.toHaveProperty('temperature');
+    expect(without.warnings).toEqual([
+      {
+        code: 'sampling-unsupported',
+        message:
+          "gpt-reasoning doesn't take a temperature, so the call went without one (it asked for 0.2).",
+      },
+    ]);
+    expect(endpoint.seen[1]?.body.temperature).toBe(0.2);
+    expect(withIt).not.toHaveProperty('warnings');
+  });
+});
+
+describe("thinking: 'lowest'", () => {
+  test("sends the model's lowest reasoning effort; nothing without the hint or the data", async () => {
+    const endpoint = fakeEndpoint();
+    const provider = createOpenAICompatModelProvider({
+      baseURL: 'http://llm.test/v1',
+      apiKey: 'k',
+      metadata: {
+        ...metadata,
+        models: [
+          ...metadata.models,
+          {
+            ...metadata.models[0],
+            name: 'gpt-reasoning',
+            thinking: { mode: 'adaptive', lowest: 'low' },
+          } as never,
+        ],
+      },
+      clientOptions: { fetch: endpoint.fetch, maxRetries: 0 },
+    });
+    await provider.invoke({ ...call, model: 'gpt-reasoning', thinking: 'lowest' });
+    await provider.invoke({ ...call, model: 'gpt-reasoning' });
+    await provider.invoke({ ...call, thinking: 'lowest' });
+    expect(endpoint.seen[0]?.body.reasoning_effort).toBe('low');
+    expect(endpoint.seen[1]?.body).not.toHaveProperty('reasoning_effort');
+    expect(endpoint.seen[2]?.body).not.toHaveProperty('reasoning_effort');
+  });
+});

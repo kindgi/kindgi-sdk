@@ -288,21 +288,26 @@ Over HTTP, these are `POST /v1/conversations`, `GET /v1/conversations`,
 
 ## A conversation keeps its agent version
 
-A conversation is pinned to the agent version it was opened with. After you
-change the agent's `version`, the next turn of an open conversation is
-refused:
+A conversation is pinned to the agent version it was opened with, and its
+turns run that version. With `kindgi dev`, only the current version of an
+agent is registered, so after you change the agent's `version`, the next turn
+of an open conversation is refused:
 
 ```text
-Error [server]: Conversation opened with acme.order-desk@0.1.0; invoked with acme.order-desk@0.2.0
+Error [not-found]: The conversation was opened with agent "acme.order-desk@0.1.0", which is no longer registered.
 ```
 
-(Its `serverCode` is `agent-version-mismatch`.) On a runtime you deploy to,
-where both versions are registered, a turn can run the conversation's version
-instead: `agentVersion: '0.1.0'` in `runs.start` (`agent_version` in Python),
-`--agent-version=0.1.0` in the CLI. With `kindgi dev`, only the current version
-of an agent is registered, so start a new conversation. Bump
-the version when a change would break conversations under way, not on every
-edit.
+A turn that names another version (`--agent-version=0.2.0` in the CLI,
+`agentVersion` in `runs.start`, `agent_version` in Python) is refused too:
+
+```text
+Error [agent-version-mismatch]: Conversation opened with acme.order-desk@0.1.0; invoked with acme.order-desk@0.2.0
+```
+
+On a runtime you deploy to, where both versions are registered, the
+conversation's turns go on with its version. With `kindgi dev`, start a new
+conversation. Bump the version when a change would break conversations under
+way, not on every edit.
 
 ## Approvals in a conversation
 

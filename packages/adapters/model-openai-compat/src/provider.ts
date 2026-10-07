@@ -17,7 +17,9 @@ import type {
   ProviderMetadata,
   UsageCounters,
 } from '@kindgi/capabilities';
+import { samplingFor } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
+import { nameToolsAsSent } from '@kindgi/capabilities/tool-names';
 
 import { EXTRA_BODY_RESERVED_RESPONSES, invokeResponses } from './responses.js';
 import { computeCost, decodeToolName, encodeToolName } from './wire.js';
@@ -179,7 +181,16 @@ export function createOpenAICompatModelProvider(
         });
       }
 
-      const messages = input.messages.map(toOpenAiMessage);
+      // The system prompt names the call's tools as they're sent (`acme__lookup_order`):
+      // a model told to call `acme.lookup_order` calls a name it wasn't given (T311).
+      const toolIds = input.tools?.map((t) => t.name) ?? [];
+      const messages = input.messages.map((m) =>
+        toOpenAiMessage(
+          m.role === 'system'
+            ? { ...m, content: nameToolsAsSent(m.content, toolIds, encodeToolName) }
+            : m,
+        ),
+      );
       const tools = input.tools?.map(toOpenAiTool);
 
       const responseFormat = input.structuredOutput
@@ -193,6 +204,7 @@ export function createOpenAICompatModelProvider(
           }
         : undefined;
 
+      const sampling = samplingFor(modelInfo, input);
       const counted = await attempts.count(() =>
         openai.chat.completions.create(
           {
@@ -201,7 +213,13 @@ export function createOpenAICompatModelProvider(
             messages,
             ...(tools !== undefined && tools.length > 0 && { tools }),
             ...(responseFormat !== undefined && { response_format: responseFormat }),
-            ...(input.temperature !== undefined && { temperature: input.temperature }),
+            ...(sampling.temperature !== undefined && { temperature: sampling.temperature }),
+            ...(input.thinking === 'lowest' &&
+              modelInfo.thinking !== undefined && {
+                reasoning_effort: modelInfo.thinking.lowest as NonNullable<
+                  OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming['reasoning_effort']
+                >,
+              }),
             ...(input.maxOutputTokens !== undefined && { max_tokens: input.maxOutputTokens }),
             stream: false,
           },
@@ -239,6 +257,7 @@ export function createOpenAICompatModelProvider(
         // An injected client sends with its own fetch: nothing was counted.
         ...(counted.attempts > 0 && { attempts: counted.attempts }),
         ...(completion.usage !== undefined && { rawUsage: { ...completion.usage } }),
+        ...(sampling.warnings.length > 0 && { warnings: sampling.warnings }),
       };
     },
   };
