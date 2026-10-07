@@ -11,12 +11,15 @@ import type { AgentRegistryBinding, AgentVersionRecord } from '../agent-binding.
 import type { BlockRegistryBinding } from '../block-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { EvalClassWeights } from '../eval-run-binding.js';
-import type {
-  ImprovementBudget,
-  ImprovementModel,
-  ImprovementPass,
-  ImprovementPassBinding,
-  ImprovementTier,
+import {
+  IMPROVE_SCHEDULE_DEFAULTS,
+  type ImproveScheduleInput,
+  type ImproveThreshold,
+  type ImprovementBudget,
+  type ImprovementModel,
+  type ImprovementPass,
+  type ImprovementPassBinding,
+  type ImprovementTier,
 } from '../improvement-pass-binding.js';
 import type { AgentReleaseBindings } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
@@ -267,6 +270,7 @@ export function serializePass(p: ImprovementPass): Record<string, unknown> {
     costUsd: p.costUsd,
     ...(p.outcome !== undefined && { outcome: p.outcome }),
     ...(p.comparisons !== undefined && { comparisons: p.comparisons }),
+    ...(p.trigger !== undefined && { trigger: p.trigger }),
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
     ...(p.finishedAt !== undefined && { finishedAt: p.finishedAt }),
@@ -369,6 +373,24 @@ function parseImproveBody(b: Record<string, unknown>): ImproveBody | string {
   const scope = parseLiveScopeBody(b.scope);
   if (scope.kind === 'err') return scope.message;
   if (!nonEmpty(b.suiteId)) return '`suiteId` is required: the test set to search and prove on';
+  const options = parsePassOptions(b);
+  if (typeof options === 'string') return options;
+  return {
+    agentId: b.agentId,
+    ...(typeof b.fromVersion === 'string' && { fromVersion: b.fromVersion }),
+    scope: scope.scope,
+    suiteId: b.suiteId,
+    ...options,
+  };
+}
+
+type PassOptions = Pick<
+  ImproveBody,
+  'tiers' | 'objective' | 'classWeights' | 'model' | 'candidates' | 'budget'
+>;
+
+/** A pass's options (`tiers`, `objective`, `classWeights`, `model`, `candidates`, `budget`), defaults applied. */
+function parsePassOptions(b: Record<string, unknown>): PassOptions | string {
   const tiers = b.tiers ?? ['settings'];
   if (
     !Array.isArray(tiers) ||
@@ -390,16 +412,87 @@ function parseImproveBody(b: Record<string, unknown>): ImproveBody | string {
   const budget = parseBudget(b.budget);
   if (typeof budget === 'string') return budget;
   return {
-    agentId: b.agentId,
-    ...(typeof b.fromVersion === 'string' && { fromVersion: b.fromVersion }),
-    scope: scope.scope,
-    suiteId: b.suiteId,
     tiers: [tier],
     objective: (b.objective as ProposalObjective | undefined) ?? 'weightedYesShare',
     classWeights,
     ...prompt,
     budget,
   };
+}
+
+const MAX_MONTHLY_CAP_USD = 1000;
+const MAX_THRESHOLD = 1000;
+
+/**
+ * An `improve` schedule's input (`config.input`), defaults applied: the
+ * pass options `improve` takes (no agent, scope or test set: the schedule
+ * names those, and each pass builds its test set), plus `threshold` and
+ * `monthlyCapUsd`.
+ */
+export function parseImproveScheduleInput(
+  raw: unknown,
+): { kind: 'ok'; input: ImproveScheduleInput } | { kind: 'err'; message: string } {
+  const err = (message: string) => ({ kind: 'err' as const, message });
+  const b = raw ?? {};
+  if (typeof b !== 'object' || Array.isArray(b)) {
+    return err("An improve schedule's `config.input` is an object of pass options");
+  }
+  const o = b as Record<string, unknown>;
+  const known = [
+    'tiers',
+    'objective',
+    'classWeights',
+    'model',
+    'candidates',
+    'budget',
+    'threshold',
+    'monthlyCapUsd',
+  ];
+  const extra = Object.keys(o).find((k) => !known.includes(k));
+  if (extra !== undefined) {
+    return err(
+      `\`${extra}\` isn't an option of an improve schedule's \`config.input\`: { ${known.join(', ')} }`,
+    );
+  }
+  const options = parsePassOptions(o);
+  if (typeof options === 'string') return err(options);
+  const threshold = parseThreshold(o.threshold);
+  if (typeof threshold === 'string') return err(threshold);
+  const cap = o.monthlyCapUsd ?? IMPROVE_SCHEDULE_DEFAULTS.monthlyCapUsd;
+  if (typeof cap !== 'number' || !(cap > 0 && cap <= MAX_MONTHLY_CAP_USD)) {
+    return err(
+      `\`monthlyCapUsd\` is the most its passes may cost a month: more than 0, up to ${MAX_MONTHLY_CAP_USD}`,
+    );
+  }
+  return { kind: 'ok', input: { ...options, threshold, monthlyCapUsd: cap } };
+}
+
+function parseThreshold(raw: unknown): ImproveThreshold | string {
+  const d = IMPROVE_SCHEDULE_DEFAULTS.threshold;
+  if (raw === undefined) return d;
+  const o =
+    typeof raw === 'object' && raw !== null && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : undefined;
+  const t = {
+    judgments: o?.judgments ?? d.judgments,
+    runs: o?.runs ?? d.runs,
+    judges: o?.judges ?? d.judges,
+  };
+  const whole = (v: unknown): v is number =>
+    typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= MAX_THRESHOLD;
+  if (
+    o === undefined ||
+    Object.keys(o).some((k) => !['judgments', 'runs', 'judges'].includes(k)) ||
+    !whole(t.judgments) ||
+    !whole(t.runs) ||
+    !whole(t.judges) ||
+    t.runs > t.judgments ||
+    t.judges > t.judgments
+  ) {
+    return `\`threshold\` is { judgments?, runs?, judges? }: how many trusted "no" judgments since the last pass (default ${d.judgments}), across how many runs (${d.runs}) and from how many judges (${d.judges}); runs and judges at most judgments`;
+  }
+  return t as ImproveThreshold;
 }
 
 async function readBody(c: Ctx): Promise<Record<string, unknown> | undefined> {

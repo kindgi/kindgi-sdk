@@ -5,7 +5,7 @@
 // input variants, record shapes, error shapes, TRIGGER_KINDS constant.
 // The implementation is supplied by the Kindgi runtime.
 
-import type { Cursor, ProjectId, Result, TenantId, TriggerId } from '@kindgi/types';
+import type { Cursor, LiveScope, ProjectId, Result, TenantId, TriggerId } from '@kindgi/types';
 
 import type { CronTriggerConfig, EventTriggerConfig, WebhookTriggerConfig } from './types.js';
 
@@ -66,11 +66,15 @@ export interface TriggerRegistryBinding {
 /**
  * What a schedule runs: a flow at an exact version, or an agent. An agent
  * that names no version runs its live version for the schedule's project,
- * as a run that names none does.
+ * as a run that names none does. `improve` starts an improvement pass on
+ * an agent for a live scope when enough new trusted "no" judgments have
+ * come in (its input says how many, and the pass's options); otherwise
+ * its fire is `skipped`.
  */
 export type TriggerTarget =
   | { readonly kind: 'flow'; readonly flowId: string; readonly flowVersion: string }
-  | { readonly kind: 'agent'; readonly agentId: string; readonly agentVersion?: string };
+  | { readonly kind: 'agent'; readonly agentId: string; readonly agentVersion?: string }
+  | { readonly kind: 'improve'; readonly agentId: string; readonly scope: LiveScope };
 
 /**
  * The principal a trigger's runs act as: whoever registered it, until an
@@ -115,9 +119,15 @@ export interface TriggerFire {
   /** A schedule's fire: the occurrence it is for. */
   readonly scheduledFor?: string;
   readonly firedAt: string;
-  readonly outcome: 'pending' | 'started' | 'skipped-overlap' | 'refused' | 'failed';
+  /**
+   * `skipped`: what the target waits for wasn't there (an `improve`
+   * schedule's threshold, or its monthly cap), as `detail` says.
+   */
+  readonly outcome: 'pending' | 'started' | 'skipped-overlap' | 'skipped' | 'refused' | 'failed';
   /** The run it started, when it started one. */
   readonly runId?: string;
+  /** The improvement pass it started, for an `improve` schedule. */
+  readonly passId?: string;
   /** Why it was refused, skipped or failed. */
   readonly detail?: string;
   /** Occurrences this fire stood in for after a gap (`catchUp: 'latest'`). */

@@ -3604,6 +3604,19 @@ class Comparison1(BaseModel):
     """
 
 
+class Trigger(BaseModel):
+    """
+    The improve schedule and fire that started it (`GET /v1/schedules/{triggerId}/fires`); absent for a pass a person started.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    trigger_id: Annotated[str, Field(alias="triggerId")]
+    fire_id: Annotated[str, Field(alias="fireId")]
+
+
 class ImprovementPass(BaseModel):
     """
     An improvement pass: the runtime looking for better values for an agent version's tunable settings (`x-kindgi-tunable`) on a test set, within a budget. Its best candidate becomes an improvement proposal.
@@ -3658,6 +3671,10 @@ class ImprovementPass(BaseModel):
     comparisons: list[Comparison1] | None = None
     """
     Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the proposal, on the hold-out part). Absent from older servers.
+    """
+    trigger: Trigger | None = None
+    """
+    The improve schedule and fire that started it (`GET /v1/schedules/{triggerId}/fires`); absent for a pass a person started.
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
@@ -7778,10 +7795,17 @@ class ScheduleFire(BaseModel):
     The occurrence it is for; absent on a `run-now` fire.
     """
     fired_at: Annotated[AwareDatetime, Field(alias="firedAt")]
-    outcome: Literal["pending", "started", "skipped-overlap", "refused", "failed"]
+    outcome: Literal["pending", "started", "skipped-overlap", "skipped", "refused", "failed"]
+    """
+    `skipped`: what an improve schedule waits for wasn't there (its threshold, or its monthly cap), as `detail` says.
+    """
     run_id: Annotated[UUID | None, Field(alias="runId")] = None
     """
     The run it started.
+    """
+    pass_id: Annotated[UUID | None, Field(alias="passId")] = None
+    """
+    The improvement pass it started (an improve schedule).
     """
     detail: str | None = None
     """
@@ -7816,49 +7840,8 @@ class Config6(BaseModel):
     timezone: str | None = None
     input: Any | None = None
     """
-    What each run gets. An agent schedule's runs take the agent payload, `{ userMessage, parameters? }`, so it needs `userMessage`; a flow's take the flow's input.
+    What each run gets. An agent schedule's runs take the agent payload, `{ userMessage, parameters? }`, so it needs `userMessage`; a flow's take the flow's input. An improve schedule's is `ImproveScheduleInput`, kept with its defaults applied.
     """
-
-
-class RegisterScheduleBody(BaseModel):
-    """
-    Name what it runs: `flowId` with `flowVersion`, or `agentId` (with an optional `agentVersion`). Registering needs `write` on the project and `execute` on what it runs; its runs act as the caller.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
-    """
-    Run a flow (with `flowVersion`).
-    """
-    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
-    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
-    """
-    Run an agent (instead of a flow): at `agentVersion`, else its live version.
-    """
-    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
-    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
-    """
-    The schedule's project. Absent → the tenant's default project.
-    """
-    config: Config6
-    catch_up: Annotated[Literal["latest", "skip"] | None, Field(alias="catchUp")] = None
-    """
-    Default `latest`.
-    """
-    overlap: Literal["skip", "allow"] | None = None
-    """
-    Default `skip`.
-    """
-    starting_deadline_seconds: Annotated[
-        int | None, Field(alias="startingDeadlineSeconds", ge=1, le=86400)
-    ] = None
-    """
-    Default 600.
-    """
-    label: str | None = None
 
 
 class Config7(BaseModel):
@@ -7870,47 +7853,7 @@ class Config7(BaseModel):
     timezone: str | None = None
     input: Any | None = None
     """
-    What each run gets. An agent schedule's runs take the agent payload, `{ userMessage, parameters? }`, so it needs `userMessage`; a flow's take the flow's input.
-    """
-
-
-class PatchScheduleBody(BaseModel):
-    """
-    Change what it runs (the target fields, as at registration, which also needs `execute` on the new target), when, or its policies.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
-    """
-    Run a flow (with `flowVersion`).
-    """
-    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
-    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
-    """
-    Run an agent (instead of a flow): at `agentVersion`, else its live version.
-    """
-    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
-    config: Config7 | None = None
-    catch_up: Annotated[Literal["latest", "skip"] | None, Field(alias="catchUp")] = None
-    """
-    Default `latest`.
-    """
-    overlap: Literal["skip", "allow"] | None = None
-    """
-    Default `skip`.
-    """
-    starting_deadline_seconds: Annotated[
-        int | None, Field(alias="startingDeadlineSeconds", ge=1, le=86400)
-    ] = None
-    """
-    Default 600.
-    """
-    label: str | None = None
-    """
-    `null` clears the label; omit to leave unchanged.
+    What each run gets. An agent schedule's runs take the agent payload, `{ userMessage, parameters? }`, so it needs `userMessage`; a flow's take the flow's input. An improve schedule's is `ImproveScheduleInput`, kept with its defaults applied.
     """
 
 
@@ -8158,7 +8101,9 @@ class CreateWebhookEndpointBody(BaseModel):
     """
     Absolute https URL (http only where the deployment allows it, e.g. development). No credentials in the URL. The deployment may refuse private network addresses (`400 webhook-url-refused`).
     """
-    events: Annotated[list[Literal["run.finished"]], Field(min_length=1)]
+    events: Annotated[
+        list[Literal["run.finished", "improvement-pass.finished"]], Field(min_length=1)
+    ]
     filter: WebhookEndpointFilter | None = None
     secret_ref: Annotated[WebhookSecretRef, Field(alias="secretRef")]
     description: Annotated[str | None, Field(max_length=500)] = None
@@ -8174,7 +8119,9 @@ class PatchWebhookEndpointBody(BaseModel):
         populate_by_name=True,
     )
     url: AnyUrl | None = None
-    events: Annotated[list[Literal["run.finished"]] | None, Field(min_length=1)] = None
+    events: Annotated[
+        list[Literal["run.finished", "improvement-pass.finished"]] | None, Field(min_length=1)
+    ] = None
     filter: WebhookEndpointFilter | None = None
     secret_ref: Annotated[WebhookSecretRef | None, Field(alias="secretRef")] = None
     description: Annotated[str | None, Field(max_length=500)] = None
@@ -8263,6 +8210,120 @@ class Data1(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
+    pass_: Annotated[ImprovementPass, Field(alias="pass")]
+    """
+    The pass, as `GET /v1/improvement-passes/{passId}` shows it.
+    """
+
+
+class ImprovementPassFinishedEvent(BaseModel):
+    """
+    An improvement pass ended (`completed`, `failed` or `cancelled`): one a person started, or one an `improve` schedule did. Its outcome names the proposal it wrote, if it wrote one.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    Event id, also sent as the `webhook-id` header; the same on every retry.
+    """
+    type: Literal["improvement-pass.finished"]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    data: Data1
+
+
+class ImproveScheduleTarget(BaseModel):
+    """
+    What an improve schedule works on: the agent, and the live scope its passes propose for and count judgments in.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    agent_id: Annotated[str, Field(alias="agentId", min_length=1)]
+    scope: Annotated[
+        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment,
+        Field(discriminator="kind"),
+    ]
+    """
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    """
+
+
+class Model4(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    provider_id: Annotated[str, Field(alias="providerId")]
+    model: str
+
+
+class Budget3(BaseModel):
+    """
+    Each pass's budget (default $5 and 30 candidates), never more than what's left of the month's cap.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    max_cost_usd: Annotated[float | None, Field(alias="maxCostUsd", gt=0.0, le=100.0)] = None
+    max_candidates: Annotated[int | None, Field(alias="maxCandidates", ge=1, le=200)] = None
+
+
+class Threshold(BaseModel):
+    """
+    Default 5 judgments, across 3 runs, from 2 judges.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    judgments: Annotated[int | None, Field(ge=1, le=1000)] = None
+    runs: Annotated[int | None, Field(ge=1, le=1000)] = None
+    judges: Annotated[int | None, Field(ge=1, le=1000)] = None
+
+
+class ImproveScheduleInput(BaseModel):
+    """
+    An improve schedule's `config.input`. Each fire counts the trusted "no" judgments (recorded under a restricted judge class) on the agent's runs in the scope since its last pass. When there are enough, across enough runs and judges, it starts a pass on a fresh test set of those runs; otherwise the fire is `skipped`, saying which count was short. A pass that proposes asks for the review at once.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tiers: list[Literal["settings", "prompt"]] | None = None
+    objective: Literal["weightedYesShare", "weightedPrecisionAtK"] | None = None
+    class_weights: Annotated[
+        Literal["restricted-only", "as-recorded"] | None, Field(alias="classWeights")
+    ] = None
+    model: Model4 | None = None
+    candidates: Annotated[int | None, Field(ge=1, le=5)] = None
+    budget: Budget3 | None = None
+    """
+    Each pass's budget (default $5 and 30 candidates), never more than what's left of the month's cap.
+    """
+    threshold: Threshold | None = None
+    """
+    Default 5 judgments, across 3 runs, from 2 judges.
+    """
+    monthly_cap_usd: Annotated[float | None, Field(alias="monthlyCapUsd", gt=0.0, le=1000.0)] = None
+    """
+    The most its passes may cost in a calendar month (UTC). Default 20.
+    """
+
+
+class Data2(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
     endpoint_id: Annotated[str, Field(alias="endpointId")]
 
 
@@ -8274,7 +8335,7 @@ class WebhookTestEvent(BaseModel):
     id: str
     type: Literal["webhook.test"]
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    data: Data1
+    data: Data2
 
 
 class WebhookDelivery(BaseModel):
@@ -8284,7 +8345,10 @@ class WebhookDelivery(BaseModel):
     )
     delivery_id: Annotated[str, Field(alias="deliveryId")]
     endpoint_id: Annotated[str, Field(alias="endpointId")]
-    event: Annotated[RunFinishedEvent | WebhookTestEvent, Field(discriminator="type")]
+    event: Annotated[
+        RunFinishedEvent | ImprovementPassFinishedEvent | WebhookTestEvent,
+        Field(discriminator="type"),
+    ]
     """
     The JSON body of every webhook request.
     """
@@ -9145,6 +9209,10 @@ class ScheduleRecord(BaseModel):
     A schedule that runs an agent: the agent, at `agentVersion`, else its version live for the schedule's project (else the latest), as a run that names none.
     """
     agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    improve: ImproveScheduleTarget | None = None
+    """
+    A schedule that starts improvement passes: on this agent, for this scope, when enough new trusted "no" judgments have come in (`input`: the threshold, the monthly cap and the pass options).
+    """
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
     The schedule's project: its runs are this project's.
@@ -9211,6 +9279,95 @@ class ScheduleCollectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
+class RegisterScheduleBody(BaseModel):
+    """
+    Name what it runs: `flowId` with `flowVersion`, `agentId` (with an optional `agentVersion`), or `improve` (improvement passes). Registering needs `write` on the project and `execute` on what it runs (`publish` on the agent for `improve`); its runs act as the caller.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    Run a flow (with `flowVersion`).
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    Run an agent (instead of a flow): at `agentVersion`, else its live version.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    improve: ImproveScheduleTarget | None = None
+    """
+    Start an improvement pass instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the pass options; registering needs `publish` on the agent.
+    """
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The schedule's project. Absent → the tenant's default project.
+    """
+    config: Config6
+    catch_up: Annotated[Literal["latest", "skip"] | None, Field(alias="catchUp")] = None
+    """
+    Default `latest`.
+    """
+    overlap: Literal["skip", "allow"] | None = None
+    """
+    Default `skip`.
+    """
+    starting_deadline_seconds: Annotated[
+        int | None, Field(alias="startingDeadlineSeconds", ge=1, le=86400)
+    ] = None
+    """
+    Default 600.
+    """
+    label: str | None = None
+
+
+class PatchScheduleBody(BaseModel):
+    """
+    Change what it runs (the target fields, as at registration, which also needs `execute` on the new target), when, or its policies.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    Run a flow (with `flowVersion`).
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    Run an agent (instead of a flow): at `agentVersion`, else its live version.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    improve: ImproveScheduleTarget | None = None
+    """
+    Start an improvement pass instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the pass options; registering needs `publish` on the agent.
+    """
+    config: Config7 | None = None
+    catch_up: Annotated[Literal["latest", "skip"] | None, Field(alias="catchUp")] = None
+    """
+    Default `latest`.
+    """
+    overlap: Literal["skip", "allow"] | None = None
+    """
+    Default `skip`.
+    """
+    starting_deadline_seconds: Annotated[
+        int | None, Field(alias="startingDeadlineSeconds", ge=1, le=86400)
+    ] = None
+    """
+    Default 600.
+    """
+    label: str | None = None
+    """
+    `null` clears the label; omit to leave unchanged.
+    """
+
+
 class WebhookEndpoint(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -9218,7 +9375,7 @@ class WebhookEndpoint(BaseModel):
     )
     endpoint_id: Annotated[str, Field(alias="endpointId")]
     url: AnyUrl
-    events: list[Literal["run.finished"]]
+    events: list[Literal["run.finished", "improvement-pass.finished"]]
     filter: WebhookEndpointFilter
     description: str | None
     secret_ref: Annotated[WebhookSecretRef, Field(alias="secretRef")]

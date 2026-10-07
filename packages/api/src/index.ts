@@ -178,6 +178,7 @@ export {
 } from './webhook-endpoint-binding.js';
 export type {
   FinishedRun,
+  ImprovementPassFinishedEvent,
   RunFinishedEvent,
   WebhookDelivery,
   WebhookDeliveryListInput,
@@ -594,6 +595,8 @@ export type {
   SupervisorQueryObservationsOutcome,
 } from './supervisor-binding.js';
 export type {
+  ImproveScheduleInput,
+  ImproveThreshold,
   ImprovementBudget,
   ImprovementModel,
   ImprovementPass,
@@ -605,7 +608,12 @@ export type {
   ListImprovementPassesInput,
   StartImprovementPassInput,
 } from './improvement-pass-binding.js';
-export { DEFAULT_BUDGET as DEFAULT_IMPROVEMENT_BUDGET } from './routes/improvement-passes.js';
+export { IMPROVE_SCHEDULE_DEFAULTS } from './improvement-pass-binding.js';
+export {
+  DEFAULT_BUDGET as DEFAULT_IMPROVEMENT_BUDGET,
+  parseImproveScheduleInput,
+  serializePass,
+} from './routes/improvement-passes.js';
 export { sampleCases } from './eval-sample.js';
 export type { EvalOverrides, EvalSample } from './eval-run-binding.js';
 export {

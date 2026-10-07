@@ -223,6 +223,47 @@ def test_parse_event_reads_the_test_event() -> None:
     assert event.data.endpoint_id == "ep-1"
 
 
+def test_parse_event_reads_an_improvement_pass_finished() -> None:
+    body = {
+        "id": "evt-pass",
+        "type": "improvement-pass.finished",
+        "createdAt": "2026-10-07T12:00:00.000Z",
+        "data": {
+            "pass": {
+                "id": "8a1e9c4a-0000-4000-8000-000000000004",
+                "agentId": "acme.scorer",
+                "fromVersion": "1.0.0",
+                "scope": {"kind": "tenant"},
+                "suiteId": "acme.scorer.improve",
+                "tiers": ["settings"],
+                "objective": "weightedYesShare",
+                "classWeights": "restricted-only",
+                "budget": {"maxCostUsd": 5, "maxCandidates": 30},
+                "requestedBy": "service:schedule",
+                "status": "completed",
+                "candidatesEvaluated": 7,
+                "costUsd": "0.12",
+                "outcome": {
+                    "kind": "proposed",
+                    "proposalId": "9b2e9c4a-0000-4000-8000-000000000005",
+                },
+                "trigger": {
+                    "triggerId": "1c3e9c4a-0000-4000-8000-000000000006",
+                    "fireId": "2d4e9c4a-0000-4000-8000-000000000007",
+                },
+                "createdAt": "2026-10-07T11:00:00.000Z",
+                "updatedAt": "2026-10-07T12:00:00.000Z",
+                "finishedAt": "2026-10-07T12:00:00.000Z",
+            }
+        },
+    }
+    event = webhooks.parse_event(json.dumps(body))
+    assert isinstance(event, models.ImprovementPassFinishedEvent)
+    assert event.data.pass_.agent_id == "acme.scorer"
+    assert event.data.pass_.trigger is not None
+    assert event.data.pass_.trigger.trigger_id == "1c3e9c4a-0000-4000-8000-000000000006"
+
+
 def test_parse_event_refuses_an_unknown_type() -> None:
     with pytest.raises(pydantic.ValidationError):
         webhooks.parse_event(json.dumps({**RUN_FINISHED, "type": "run.started"}))

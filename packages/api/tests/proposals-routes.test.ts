@@ -1140,15 +1140,19 @@ describe('improvement passes', () => {
       },
     ];
     const id = started.body.id as string;
+    const trigger = { triggerId: randomUUID(), fireId: randomUUID() };
     passes.rows.set(id, {
       ...(passes.rows.get(id) as ImprovementPass),
       comparisons,
+      trigger,
     } as ImprovementPass);
     const read = await h.call('GET', `/v1/improvement-passes/${id}`);
     expect(read.body.comparisons[1]).toMatchObject({
       refused,
       hypothesis: 'As the reviewer asked.',
     });
+    // A pass an improve schedule started names the schedule and the fire.
+    expect(read.body.trigger).toEqual(trigger);
   });
 
   test('a prompt pass needs a model, drafts 3 templates by default, and needs a prompt block', async () => {

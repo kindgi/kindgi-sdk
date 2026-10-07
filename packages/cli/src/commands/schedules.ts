@@ -4,12 +4,14 @@
 import type { SchedulesClient } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
+import { scopeCell } from './agents.js';
 import {
   type TableSpec,
   integerFlag,
   readJsonInput,
   requiredPositional,
   runSdk,
+  segmentsFlag,
   stringFlag,
 } from './helpers.js';
 import type { Command, LeafCommand, ParseArgsOption } from './types.js';
@@ -37,8 +39,11 @@ function page(ctx: CommandContext): { limit?: number; cursor?: string } {
   };
 }
 
-/** What a schedule runs, as one cell: `agent acme.digest` or `flow acme.nightly@1.0.0`. */
+/** What a schedule runs, as one cell: `agent acme.digest`, `flow acme.nightly@1.0.0`, or `improve acme.scorer (tenant)`. */
 function runs(s: Schedule): string {
+  if (s.improve !== undefined) {
+    return `improve ${s.improve.agentId} (${scopeCell(s.improve.scope as Parameters<typeof scopeCell>[0])})`;
+  }
   if (s.agentId !== undefined) {
     return `agent ${s.agentId}${s.agentVersion !== undefined ? `@${s.agentVersion}` : ''}`;
   }
@@ -64,7 +69,10 @@ const FIRES_TABLE: TableSpec<FirePage, Fire> = {
     { header: 'FIRED', get: (f) => f.firedAt },
     { header: 'FOR', get: (f) => (f.manual === true ? 'run-now' : (f.scheduledFor ?? '')) },
     { header: 'OUTCOME', get: (f) => f.outcome },
-    { header: 'RUN', get: (f) => f.runId ?? '' },
+    {
+      header: 'STARTED',
+      get: (f) => f.runId ?? (f.passId !== undefined ? `pass ${f.passId}` : ''),
+    },
     {
       header: 'NOTE',
       get: (f) =>
@@ -78,6 +86,18 @@ const TARGET_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
   'agent-version': { type: 'string', description: 'With --agent: run this exact version.' },
   flow: { type: 'string', description: 'Run this flow (with --flow-version).' },
   'flow-version': { type: 'string', description: 'With --flow: the flow version to run.' },
+  improve: {
+    type: 'string',
+    description:
+      'Start improvement passes on this agent (instead of runs), when enough new trusted "no" judgments have come in: for the whole tenant (--tenant) or the project (--project), or a segment of it (--segment). `--input` takes the pass options, `threshold` and `monthlyCapUsd`.',
+  },
+  tenant: { type: 'boolean', description: 'With --improve: for the whole tenant.' },
+  segment: {
+    type: 'string',
+    multiple: true,
+    description:
+      'With --improve and --project: a segment of the project, `key:value`; repeat it in order, coarse to fine.',
+  },
 };
 
 const WHEN_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
@@ -92,7 +112,7 @@ const WHEN_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
   input: {
     type: 'string',
     description:
-      'The input each run gets, as JSON or `@<file>`. An agent needs `{"userMessage": "…"}`; a flow takes its own input (default `{}`).',
+      'The input each run gets, as JSON or `@<file>`. An agent needs `{"userMessage": "…"}`; a flow takes its own input (default `{}`); --improve takes its pass options (`{"tiers": ["settings"], "threshold": {"judgments": 5, "runs": 3, "judges": 2}, "monthlyCapUsd": 20}`, the defaults).',
   },
   'catch-up': {
     type: 'string',
@@ -110,8 +130,35 @@ const WHEN_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
   label: { type: 'string', description: 'A short label.' },
 };
 
+/** `--improve`'s scope: `--tenant`, or `--project` with its `--segment`s. */
+function improveScope(ctx: CommandContext): NonNullable<RegisterInput['improve']>['scope'] {
+  const project = stringFlag(ctx, 'project');
+  const segments = segmentsFlag(ctx);
+  if (ctx.options.tenant === true) {
+    if (segments.length > 0) throw new Error('--segment goes with --project, not --tenant');
+    return { kind: 'tenant' };
+  }
+  if (project === undefined) {
+    throw new Error(
+      '--improve needs its scope: --tenant, or --project=<id> [--segment=<key:value>]…',
+    );
+  }
+  return segments.length > 0
+    ? { kind: 'segment', projectId: project, path: [...segments] }
+    : { kind: 'project', projectId: project };
+}
+
 /** The target flags as body fields, when any is given. */
 function targetFields(ctx: CommandContext): Partial<RegisterInput> {
+  const improve = stringFlag(ctx, 'improve');
+  if (improve !== undefined) {
+    if (
+      ['agent', 'agent-version', 'flow', 'flow-version'].some((f) => ctx.options[f] !== undefined)
+    ) {
+      throw new Error('--improve starts improvement passes: not with --agent or --flow');
+    }
+    return { improve: { agentId: improve, scope: improveScope(ctx) } };
+  }
   const agent = stringFlag(ctx, 'agent');
   const agentVersion = stringFlag(ctx, 'agent-version');
   const flow = stringFlag(ctx, 'flow');
@@ -199,9 +246,9 @@ const create: LeafCommand = {
   kind: 'leaf',
   name: 'create',
   description:
-    "Run an agent or a flow on a schedule. Its runs act as you, checked again at every run; they're in your project's runs, naming the schedule.",
+    "Run an agent or a flow on a schedule, or start improvement passes on an agent (--improve). Its runs act as you, checked again at every run; they're in your project's runs, naming the schedule.",
   usage:
-    'kindgi schedules create --cron=<expr> (--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v>) [--timezone=<tz>] [--input=<json-or-@file>] [--project=<project-id>] [--catch-up=latest|skip] [--overlap=skip|allow] [--starting-deadline=<s>] [--label=<text>]',
+    'kindgi schedules create --cron=<expr> (--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v> | --improve=<agent-id> (--tenant | --project=<id> [--segment=<key:value>]…)) [--timezone=<tz>] [--input=<json-or-@file>] [--project=<project-id>] [--catch-up=latest|skip] [--overlap=skip|allow] [--starting-deadline=<s>] [--label=<text>]',
   optionSpec: {
     ...TARGET_FLAGS,
     ...WHEN_FLAGS,
@@ -229,8 +276,15 @@ const update: LeafCommand = {
   name: 'update',
   description: 'Change a schedule: when it runs, what it runs, or its policies.',
   usage:
-    'kindgi schedules update <schedule-id> [--cron=<expr>] [--timezone=<tz>] [--input=<json-or-@file>] [--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v>] [--catch-up=…] [--overlap=…] [--starting-deadline=<s>] [--label=<text>]',
-  optionSpec: { ...TARGET_FLAGS, ...WHEN_FLAGS },
+    'kindgi schedules update <schedule-id> [--cron=<expr>] [--timezone=<tz>] [--input=<json-or-@file>] [--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v> | --improve=<agent-id> (--tenant | --project=<id> [--segment=<key:value>]…)] [--catch-up=…] [--overlap=…] [--starting-deadline=<s>] [--label=<text>]',
+  optionSpec: {
+    ...TARGET_FLAGS,
+    ...WHEN_FLAGS,
+    project: {
+      type: 'string',
+      description: "With --improve: the scope's project (the schedule's own).",
+    },
+  },
   run: (ctx) =>
     runSdk(ctx, 'schedules update', async () => {
       const id = requiredPositional(ctx, 0, 'schedule-id');

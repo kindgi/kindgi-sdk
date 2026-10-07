@@ -81,6 +81,39 @@ export interface StartImprovementPassInput {
   readonly requestedBy: PromotionActor;
 }
 
+/**
+ * When an `improve` schedule's fire starts a pass: enough trusted "no"
+ * judgments (recorded under a restricted class) on the agent's runs in the
+ * scope since its last pass, across enough runs, from enough judges. One
+ * judge can't start a pass alone.
+ */
+export interface ImproveThreshold {
+  readonly judgments: number;
+  readonly runs: number;
+  readonly judges: number;
+}
+
+/** An `improve` schedule's input (`config.input`): when a fire starts a pass, and the pass's options. */
+export interface ImproveScheduleInput {
+  readonly tiers: readonly ImprovementTier[];
+  readonly objective: ProposalObjective;
+  readonly classWeights: EvalClassWeights;
+  readonly model?: ImprovementModel;
+  readonly candidates?: number;
+  /** Each pass's budget; never more than what's left of the month's cap. */
+  readonly budget: ImprovementBudget;
+  readonly threshold: ImproveThreshold;
+  /** The most its passes may cost in a calendar month (UTC), in US dollars. */
+  readonly monthlyCapUsd: number;
+}
+
+export const IMPROVE_SCHEDULE_DEFAULTS = {
+  threshold: { judgments: 5, runs: 3, judges: 2 },
+  monthlyCapUsd: 20,
+  /** The shortest interval between an `improve` schedule's occurrences: a pass costs money. */
+  minIntervalSeconds: 3600,
+} as const;
+
 export interface ListImprovementPassesInput {
   readonly tenantId: TenantId;
   readonly agentId?: string;
@@ -132,6 +165,8 @@ export interface ImprovementPass {
   readonly outcome?: ImprovementPassOutcome;
   /** Its comparisons so far, each an eval run to open. */
   readonly comparisons?: readonly ImprovementPassComparison[];
+  /** The `improve` schedule and fire that started it; absent for a pass a person started. */
+  readonly trigger?: { readonly triggerId: string; readonly fireId: string };
   readonly createdAt: Timestamp;
   readonly updatedAt: Timestamp;
   readonly finishedAt?: Timestamp;
