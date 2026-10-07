@@ -3411,6 +3411,10 @@ export const ProposalDrafterSchema: JsonSchema = {
       description: 'For a drafter that used a model: which.',
       properties: { providerId: { type: 'string' }, model: { type: 'string' } },
     },
+    passId: {
+      type: 'string',
+      description: 'For a drafter: the improvement pass that drafted it (`GET /v1/improvement-passes/{passId}`).',
+    },
   },
 };
 
@@ -3672,6 +3676,21 @@ export const ImprovementPassSchema: JsonSchema = {
           changed: { type: 'object', additionalProperties: true },
           score: { type: ['number', 'null'] },
           failed: { type: 'string' },
+          refused: {
+            type: 'array',
+            description:
+              "For a drafted template that was never compared: why the check refused it (what it reads or names that the agent doesn't have, or its size).",
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['path', 'message'],
+              properties: { path: { type: 'string' }, message: { type: 'string' } },
+            },
+          },
+          hypothesis: {
+            type: 'string',
+            description: 'For a drafted template: what the drafter meant it to change.',
+          },
         },
       },
     },

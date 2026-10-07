@@ -10,3 +10,4 @@ Improvement passes can draft prompt templates. `POST /v1/proposals/improve` take
 - Comparisons take `overrides.prompts`: a template for a prompt block the version pins, checked at start. The summary's candidate names the overridden prompt blocks, and a promotion gate fails such a comparison (`sameContents`).
 - The replay binding's `settings` is now `overrides` (`settings` and `prompts`).
 - A judged test set's reasons name their judgment's class (`judgeClassId`) and say whether it was recorded while the class was restricted (`restricted: true`).
+- A pass's `comparisons` show a refused template's issues (`refused: [{path, message}]`) and each drafted template's `hypothesis`. A proposal a pass drafted names the pass (`drafter.passId`).

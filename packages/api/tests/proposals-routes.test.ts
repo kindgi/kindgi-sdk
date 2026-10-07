@@ -1115,6 +1115,42 @@ describe('improvement passes', () => {
     expect(again.body.error.code).toBe('improvement-pass-finished');
   });
 
+  test("a pass's comparisons show a refused template's issues and each drafted template's hypothesis", async () => {
+    const passes = inMemoryPasses();
+    const h = await harness({ passes: passes.binding });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const started = await h.call('POST', '/v1/proposals/improve', {
+      ...IMPROVE,
+      tiers: ['prompt'],
+      model: { providerId: 'acme-llm', model: 'm-1' },
+    });
+    const refused = [
+      { path: '/template', message: 'it names "acme.export", which the agent doesn\'t use' },
+    ];
+    const comparisons = [
+      { role: 'reference', part: 'search', evalRunId: randomUUID(), score: 0.5 },
+      {
+        role: 'candidate',
+        part: 'search',
+        blockId: 'acme.scorer-prompt',
+        changed: { template: 'Score it, then call acme.export.' },
+        failed: 'The drafted template was refused: it names "acme.export".',
+        refused,
+        hypothesis: 'As the reviewer asked.',
+      },
+    ];
+    const id = started.body.id as string;
+    passes.rows.set(id, {
+      ...(passes.rows.get(id) as ImprovementPass),
+      comparisons,
+    } as ImprovementPass);
+    const read = await h.call('GET', `/v1/improvement-passes/${id}`);
+    expect(read.body.comparisons[1]).toMatchObject({
+      refused,
+      hypothesis: 'As the reviewer asked.',
+    });
+  });
+
   test('a prompt pass needs a model, drafts 3 templates by default, and needs a prompt block', async () => {
     const passes = inMemoryPasses();
     const h = await harness({ passes: passes.binding });

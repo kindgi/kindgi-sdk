@@ -151,4 +151,8 @@ export interface ImprovementPassComparison {
   readonly score?: number | null;
   /** Why it didn't run or finish, when it didn't. */
   readonly failed?: string;
+  /** For a drafted template that was never compared: why the check refused it. */
+  readonly refused?: readonly { readonly path: string; readonly message: string }[];
+  /** For a drafted template: what the drafter meant it to change. */
+  readonly hypothesis?: string;
 }

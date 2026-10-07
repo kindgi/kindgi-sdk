@@ -6623,6 +6623,10 @@
                 "type": "string"
               }
             }
+          },
+          "passId": {
+            "type": "string",
+            "description": "For a drafter: the improvement pass that drafted it (`GET /v1/improvement-passes/{passId}`)."
           }
         }
       },
@@ -7143,6 +7147,30 @@
                 },
                 "failed": {
                   "type": "string"
+                },
+                "refused": {
+                  "type": "array",
+                  "description": "For a drafted template that was never compared: why the check refused it (what it reads or names that the agent doesn't have, or its size).",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "path",
+                      "message"
+                    ],
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "message": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "hypothesis": {
+                  "type": "string",
+                  "description": "For a drafted template: what the drafter meant it to change."
                 }
               }
             }

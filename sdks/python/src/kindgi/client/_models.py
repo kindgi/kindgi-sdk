@@ -3297,6 +3297,10 @@ class ProposalDrafter(BaseModel):
     """
     For a drafter that used a model: which.
     """
+    pass_id: Annotated[str | None, Field(alias="passId")] = None
+    """
+    For a drafter: the improvement pass that drafted it (`GET /v1/improvement-passes/{passId}`).
+    """
 
 
 class ProposalCandidate(BaseModel):
@@ -3540,6 +3544,15 @@ class Model1(BaseModel):
     model: str
 
 
+class RefusedItem(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    path: str
+    message: str
+
+
 class Comparison1(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -3552,6 +3565,14 @@ class Comparison1(BaseModel):
     changed: dict[str, Any] | None = None
     score: float | None = None
     failed: str | None = None
+    refused: list[RefusedItem] | None = None
+    """
+    For a drafted template that was never compared: why the check refused it (what it reads or names that the agent doesn't have, or its size).
+    """
+    hypothesis: str | None = None
+    """
+    For a drafted template: what the drafter meant it to change.
+    """
 
 
 class ImprovementPass(BaseModel):
