@@ -356,7 +356,7 @@ export function bearerAuthMiddleware(
       if (fromCookie !== undefined) {
         const refusal = csrfRefusal(c, options.sessionCookie as SessionCookieOptions, requestId);
         if (refusal !== undefined) return refusal;
-        c.set('sessionViaCookie', true);
+        c.set('sessionCookieName', options.sessionCookie?.name ?? SESSION_COOKIE_NAME);
         return authenticate(c, next, fromCookie, requestId);
       }
       const body = toWireError(

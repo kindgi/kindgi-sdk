@@ -88,7 +88,10 @@ function makeStore() {
   return store;
 }
 
-function makeApp(session: SessionConfig | null = { cookie: { allowedOrigins: [CONSOLE] } }) {
+function makeApp(
+  session: SessionConfig | null = { cookie: { allowedOrigins: [CONSOLE] } },
+  { withExchange = true }: { withExchange?: boolean } = {},
+) {
   const store = makeStore();
   const app = createApp({
     ...createStubAppBindings(),
@@ -96,9 +99,11 @@ function makeApp(session: SessionConfig | null = { cookie: { allowedOrigins: [CO
     runHandler: {} as RunHandlerBinding,
     sessionStore: store,
     identityProvider: noProviders,
-    exchangeCode: async () => {
-      throw new Error('not used');
-    },
+    ...(withExchange && {
+      exchangeCode: async () => {
+        throw new Error('not used');
+      },
+    }),
     ...(session !== null && { session }),
   });
   return { app, store };
@@ -203,5 +208,81 @@ describe('session cookie', () => {
     const res = await app.request('/v1/identity/whoami', { headers: { cookie } });
     expect(res.status).toBe(401);
     expect(await codeOf(res)).toBe('auth-missing');
+  });
+});
+
+describe('cookie sessions: logout and refresh', () => {
+  test('logout from the cookie revokes the session and clears the cookie', async () => {
+    const { app, store } = makeApp();
+    const { sessionId, cookie } = await signedIn(store);
+    const res = await app.request('/v1/auth/logout', {
+      method: 'POST',
+      headers: { cookie, origin: CONSOLE },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('set-cookie')).toBe(
+      `${SESSION_COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`,
+    );
+    expect((await store.get({ tenantId, sessionId }))?.revokedAt).toBeDefined();
+  });
+
+  test('logout with a bearer session token sets no cookie', async () => {
+    const { app, store } = makeApp();
+    const created = await store.create({
+      tenantId,
+      userId: 'user-bob' as never,
+      providerId: 'acme-sso',
+      accessToken: 'unused',
+      expiresAt: FAR,
+      scopes: [],
+    });
+    const res = await app.request('/v1/auth/logout', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${created.token}` },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('set-cookie')).toBeNull();
+  });
+
+  test('refresh from the cookie is refused: a new token never reaches page scripts', async () => {
+    const { app, store } = makeApp();
+    const { sessionId, cookie } = await signedIn(store);
+    const res = await app.request('/v1/auth/refresh', {
+      method: 'POST',
+      headers: { cookie, origin: CONSOLE, 'content-type': 'application/json' },
+      body: '{}',
+    });
+    expect(res.status).toBe(400);
+    expect(await codeOf(res)).toBe('cookie-session-not-refreshable');
+    expect((await store.get({ tenantId, sessionId }))?.revokedAt).toBeUndefined();
+  });
+});
+
+describe('without exchangeCode (sign-in runs elsewhere)', () => {
+  test('the provider catalog, refresh and logout mount; the OAuth flow does not', async () => {
+    const { app, store } = makeApp(undefined, { withExchange: false });
+    const list = await app.request('/v1/auth/providers', {
+      headers: { authorization: `Bearer ${BEARER}` },
+    });
+    expect(list.status).toBe(200);
+    const login = await app.request('/v1/auth/login/acme-sso', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${BEARER}` },
+    });
+    expect(login.status).toBe(404);
+    // Not mounted outside the auth chain any more: unauthenticated it's a
+    // 401 like any /v1 path, and with a token there's no such route.
+    const callback = await app.request('/v1/auth/callback/acme-sso', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${BEARER}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ code: 'c', state: 's' }),
+    });
+    expect(callback.status).toBe(404);
+    const { cookie } = await signedIn(store);
+    const out = await app.request('/v1/auth/logout', {
+      method: 'POST',
+      headers: { cookie, origin: CONSOLE },
+    });
+    expect(out.status).toBe(200);
   });
 });

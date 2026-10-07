@@ -4687,7 +4687,7 @@ class AuthResource:
     ) -> _models.RefreshResult:
         """Refresh the current session token. `POST /v1/auth/refresh`
 
-        Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. When the deployment wired a `refreshToken` callback and the provider issued a refresh token, provider tokens rotate too; otherwise only the framework session token rotates. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth.
+        Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. When the deployment wired a `refreshToken` callback and the provider issued a refresh token, provider tokens rotate too; otherwise only the framework session token rotates. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth. A browser session (the session cookie) is not refreshed: `400 cookie-session-not-refreshable`, so a new token never reaches page scripts; it ends at its TTL.
         """
         return self._client._request(
             _OPERATIONS["auth.refresh"],
@@ -4703,7 +4703,7 @@ class AuthResource:
     ) -> _models.LogoutResult:
         """Revoke the current session. `POST /v1/auth/logout`
 
-        Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. Idempotent — revoking an already-revoked session returns `{ revoked: false }`.
+        Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. Idempotent — revoking an already-revoked session returns `{ revoked: false }`. A browser session (the session cookie) also gets its cookie cleared (`Set-Cookie` with `Max-Age=0`).
         """
         return self._client._request(
             _OPERATIONS["auth.logout"],
@@ -10604,7 +10604,7 @@ class AsyncAuthResource:
     ) -> _models.RefreshResult:
         """Refresh the current session token. `POST /v1/auth/refresh`
 
-        Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. When the deployment wired a `refreshToken` callback and the provider issued a refresh token, provider tokens rotate too; otherwise only the framework session token rotates. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth.
+        Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. When the deployment wired a `refreshToken` callback and the provider issued a refresh token, provider tokens rotate too; otherwise only the framework session token rotates. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth. A browser session (the session cookie) is not refreshed: `400 cookie-session-not-refreshable`, so a new token never reaches page scripts; it ends at its TTL.
         """
         return await self._client._request(
             _OPERATIONS["auth.refresh"],
@@ -10620,7 +10620,7 @@ class AsyncAuthResource:
     ) -> _models.LogoutResult:
         """Revoke the current session. `POST /v1/auth/logout`
 
-        Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. Idempotent — revoking an already-revoked session returns `{ revoked: false }`.
+        Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. Idempotent — revoking an already-revoked session returns `{ revoked: false }`. A browser session (the session cookie) also gets its cookie cleared (`Set-Cookie` with `Max-Age=0`).
         """
         return await self._client._request(
             _OPERATIONS["auth.logout"],

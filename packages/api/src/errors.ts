@@ -241,6 +241,9 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'oauth-refresh-not-supported': 422,
   'invalid-provider-config': 400,
   'auth-not-session-token': 400,
+  // `POST /v1/auth/refresh` with a browser session (cookie): refused, so a
+  // fresh session token never reaches page scripts.
+  'cookie-session-not-refreshable': 400,
   // OAuth redirect URIs + refresh.
   'redirect-uri-not-allowed': 400,
   'redirect-uri-mismatch': 400,

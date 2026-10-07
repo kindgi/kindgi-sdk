@@ -4603,14 +4603,16 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.refresh',
     summary: 'Refresh the current session token',
     description:
-      'Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. When the deployment wired a `refreshToken` callback and the provider issued a refresh token, provider tokens rotate too; otherwise only the framework session token rotates. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth.',
+      'Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. When the deployment wired a `refreshToken` callback and the provider issued a refresh token, provider tokens rotate too; otherwise only the framework session token rotates. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth. A browser session (the session cookie) is not refreshed: `400 cookie-session-not-refreshable`, so a new token never reaches page scripts; it ends at its TTL.',
     tags: ['auth'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
     responses: {
       '200': { description: 'New session token.', schema: ref('RefreshResult') },
       ...CommonMutationErrors,
-      '400': ErrorResponse('Caller presented a bearer token; refresh is session-only.'),
+      '400': ErrorResponse(
+        'Caller presented a bearer token (refresh is session-only), or a browser session (cookie).',
+      ),
       '404': ErrorResponse('Session no longer exists.'),
       '422': ErrorResponse('Refresh with the provider failed.'),
     },
@@ -4622,7 +4624,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.logout',
     summary: 'Revoke the current session',
     description:
-      'Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. Idempotent — revoking an already-revoked session returns `{ revoked: false }`.',
+      'Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. Idempotent — revoking an already-revoked session returns `{ revoked: false }`. A browser session (the session cookie) also gets its cookie cleared (`Set-Cookie` with `Max-Age=0`).',
     tags: ['auth'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],

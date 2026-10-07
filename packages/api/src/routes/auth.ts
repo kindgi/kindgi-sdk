@@ -44,7 +44,13 @@ export interface AuthRouterOptions {
   readonly sessionStore: SessionStoreBinding;
   readonly identityProvider: IdentityProviderBinding;
   readonly stateStore: OauthStateStore;
-  readonly exchangeCode: ExchangeCodeFn;
+  /**
+   * The deployment's own code exchange. With it, `POST /login/:providerId`
+   * and the callback mount (the OAuth flow run by this package); without
+   * it (sign-in runs elsewhere, e.g. a browser flow in the deployment),
+   * only the provider catalog, refresh and logout do.
+   */
+  readonly exchangeCode?: ExchangeCodeFn;
   readonly refreshToken?: RefreshTokenFn;
   /**
    * Default TTL for the CSRF/PKCE state cache entries. 10 minutes covers
@@ -142,119 +148,121 @@ export function authRouters(options: AuthRouterOptions): {
     return c.json({ providerId, unregistered: true });
   });
 
-  // ---------- POST /login/:providerId ----------
-  authed.post('/login/:providerId', async (c) => {
-    const requestId = c.get('requestId');
-    const tenantId = c.get('tenantId') as TenantId;
-    const providerId = c.req.param('providerId');
+  if (exchangeCode !== undefined) {
+    // ---------- POST /login/:providerId ----------
+    authed.post('/login/:providerId', async (c) => {
+      const requestId = c.get('requestId');
+      const tenantId = c.get('tenantId') as TenantId;
+      const providerId = c.req.param('providerId');
 
-    const config = await identityProvider.get({ tenantId, providerId });
-    if (config === null) {
-      c.status(statusFor('identity-provider-not-found') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'identity-provider-not-found',
-            message: `No identity provider registered with id "${providerId}"`,
-            providerId,
-          },
-          requestId,
-        ),
-      );
-    }
-
-    let redirectUri: string | undefined;
-    const parsedBody = await parseOptionalJsonBody(c);
-    if (parsedBody.kind === 'err') {
-      c.status(statusFor('bad-input') as never);
-      return c.json(toWireError(parsedBody.error, requestId));
-    }
-    if (parsedBody.value !== undefined) {
-      const raw = (parsedBody.value as { redirectUri?: unknown }).redirectUri;
-      if (raw !== undefined) {
-        if (typeof raw !== 'string' || raw.length === 0) {
-          c.status(statusFor('bad-input') as never);
-          return c.json(
-            toWireError(
-              { code: 'bad-input', message: '`redirectUri` must be a non-empty string' },
-              requestId,
-            ),
-          );
-        }
-        redirectUri = raw;
+      const config = await identityProvider.get({ tenantId, providerId });
+      if (config === null) {
+        c.status(statusFor('identity-provider-not-found') as never);
+        return c.json(
+          toWireError(
+            {
+              code: 'identity-provider-not-found',
+              message: `No identity provider registered with id "${providerId}"`,
+              providerId,
+            },
+            requestId,
+          ),
+        );
       }
-    }
 
-    const state = base64Url(randomBytes(32));
-    const codeVerifier = base64Url(randomBytes(64));
-    const codeChallenge = base64Url(createHash('sha256').update(codeVerifier).digest());
-    const effectiveRedirect =
-      redirectUri ??
-      (typeof config.metadata?.defaultRedirectUri === 'string'
-        ? String(config.metadata?.defaultRedirectUri)
-        : '');
-    if (effectiveRedirect.length === 0) {
-      c.status(statusFor('bad-input') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'bad-input',
-            message:
-              '`redirectUri` must be supplied in the body or via `metadata.defaultRedirectUri` on the provider config',
-          },
-          requestId,
-        ),
-      );
-    }
+      let redirectUri: string | undefined;
+      const parsedBody = await parseOptionalJsonBody(c);
+      if (parsedBody.kind === 'err') {
+        c.status(statusFor('bad-input') as never);
+        return c.json(toWireError(parsedBody.error, requestId));
+      }
+      if (parsedBody.value !== undefined) {
+        const raw = (parsedBody.value as { redirectUri?: unknown }).redirectUri;
+        if (raw !== undefined) {
+          if (typeof raw !== 'string' || raw.length === 0) {
+            c.status(statusFor('bad-input') as never);
+            return c.json(
+              toWireError(
+                { code: 'bad-input', message: '`redirectUri` must be a non-empty string' },
+                requestId,
+              ),
+            );
+          }
+          redirectUri = raw;
+        }
+      }
 
-    // OAuth 2.1 BCP redirect-URI allowlist enforcement. Absent /
-    // empty list means pass-through (no allowlist check); populated
-    // list requires an exact-string match against the effective
-    // redirect URI (either the body-supplied value or the resolved
-    // `metadata.defaultRedirectUri`). This is the primary gate — the
-    // callback route re-verifies against the same list for
-    // belt-and-suspenders defense in case the allowlist tightened
-    // between login and callback.
-    if (
-      config.allowedRedirectUris !== undefined &&
-      config.allowedRedirectUris.length > 0 &&
-      !config.allowedRedirectUris.includes(effectiveRedirect)
-    ) {
-      c.status(statusFor('redirect-uri-not-allowed') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'redirect-uri-not-allowed',
-            message: `redirect_uri "${effectiveRedirect}" is not in the provider's allowedRedirectUris list`,
-            providerId,
-          },
-          requestId,
-        ),
-      );
-    }
+      const state = base64Url(randomBytes(32));
+      const codeVerifier = base64Url(randomBytes(64));
+      const codeChallenge = base64Url(createHash('sha256').update(codeVerifier).digest());
+      const effectiveRedirect =
+        redirectUri ??
+        (typeof config.metadata?.defaultRedirectUri === 'string'
+          ? String(config.metadata?.defaultRedirectUri)
+          : '');
+      if (effectiveRedirect.length === 0) {
+        c.status(statusFor('bad-input') as never);
+        return c.json(
+          toWireError(
+            {
+              code: 'bad-input',
+              message:
+                '`redirectUri` must be supplied in the body or via `metadata.defaultRedirectUri` on the provider config',
+            },
+            requestId,
+          ),
+        );
+      }
 
-    await stateStore.put({
-      state,
-      tenantId,
-      providerId,
-      codeVerifier,
-      redirectUri: effectiveRedirect,
-      expiresAt: Date.now() + stateTtlMs,
+      // OAuth 2.1 BCP redirect-URI allowlist enforcement. Absent /
+      // empty list means pass-through (no allowlist check); populated
+      // list requires an exact-string match against the effective
+      // redirect URI (either the body-supplied value or the resolved
+      // `metadata.defaultRedirectUri`). This is the primary gate — the
+      // callback route re-verifies against the same list for
+      // belt-and-suspenders defense in case the allowlist tightened
+      // between login and callback.
+      if (
+        config.allowedRedirectUris !== undefined &&
+        config.allowedRedirectUris.length > 0 &&
+        !config.allowedRedirectUris.includes(effectiveRedirect)
+      ) {
+        c.status(statusFor('redirect-uri-not-allowed') as never);
+        return c.json(
+          toWireError(
+            {
+              code: 'redirect-uri-not-allowed',
+              message: `redirect_uri "${effectiveRedirect}" is not in the provider's allowedRedirectUris list`,
+              providerId,
+            },
+            requestId,
+          ),
+        );
+      }
+
+      await stateStore.put({
+        state,
+        tenantId,
+        providerId,
+        codeVerifier,
+        redirectUri: effectiveRedirect,
+        expiresAt: Date.now() + stateTtlMs,
+      });
+
+      const authorizationUrl = buildAuthorizationUrl({
+        config,
+        state,
+        codeChallenge,
+        redirectUri: effectiveRedirect,
+      });
+      return c.json({
+        authorizationUrl,
+        state,
+        codeChallenge,
+        codeChallengeMethod: 'S256',
+      });
     });
-
-    const authorizationUrl = buildAuthorizationUrl({
-      config,
-      state,
-      codeChallenge,
-      redirectUri: effectiveRedirect,
-    });
-    return c.json({
-      authorizationUrl,
-      state,
-      codeChallenge,
-      codeChallengeMethod: 'S256',
-    });
-  });
+  }
 
   // ---------- POST /refresh ----------
   authed.post('/refresh', async (c) => {
@@ -269,6 +277,20 @@ export function authRouters(options: AuthRouterOptions): {
             code: 'auth-not-session-token',
             message:
               'Refresh is only valid for session tokens (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`',
+          },
+          requestId,
+        ),
+      );
+    }
+    if (c.get('sessionCookieName') !== undefined) {
+      // Refresh answers with the new token in its body, which a browser
+      // session must never hand to page scripts: it ends at its TTL.
+      c.status(statusFor('cookie-session-not-refreshable') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'cookie-session-not-refreshable',
+            message: 'A browser session (cookie) is not refreshed: sign in again when it ends',
           },
           requestId,
         ),
@@ -369,117 +391,124 @@ export function authRouters(options: AuthRouterOptions): {
       );
     }
     const outcome = await sessionStore.revoke({ tenantId, sessionId });
+    const cookieName = c.get('sessionCookieName');
+    if (cookieName !== undefined) {
+      // A browser session: the cookie goes with it.
+      c.header('Set-Cookie', `${cookieName}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`);
+    }
     return c.json({ sessionId, revoked: outcome.revoked });
   });
 
   const callback = new Hono<AppEnv>();
 
   // ---------- POST /callback/:providerId (mounted outside the bearer chain) ----------
-  callback.post('/:providerId', async (c) => {
-    const requestId = c.get('requestId');
-    const providerId = c.req.param('providerId');
+  if (exchangeCode !== undefined) {
+    callback.post('/:providerId', async (c) => {
+      const requestId = c.get('requestId');
+      const providerId = c.req.param('providerId');
 
-    const parsedJson = await parseJsonBody(c);
-    if (parsedJson.kind === 'err') {
-      c.status(statusFor('bad-input') as never);
-      return c.json(toWireError(parsedJson.error, requestId));
-    }
-    const parsedCallback = parseCallbackBody(parsedJson.value);
-    if (parsedCallback.kind === 'err') {
-      c.status(statusFor(parsedCallback.error.code) as never);
-      return c.json(toWireError(parsedCallback.error, requestId));
-    }
-    const { code, state } = parsedCallback.value;
+      const parsedJson = await parseJsonBody(c);
+      if (parsedJson.kind === 'err') {
+        c.status(statusFor('bad-input') as never);
+        return c.json(toWireError(parsedJson.error, requestId));
+      }
+      const parsedCallback = parseCallbackBody(parsedJson.value);
+      if (parsedCallback.kind === 'err') {
+        c.status(statusFor(parsedCallback.error.code) as never);
+        return c.json(toWireError(parsedCallback.error, requestId));
+      }
+      const { code, state } = parsedCallback.value;
 
-    // `state` alone is uniquely identifying (256 bits of entropy). The
-    // store returns the row's `tenantId` so we know which tenant the
-    // callback belongs to — cross-checking `providerId` guards against
-    // a stolen `state` being replayed against the wrong provider mount.
-    const entry = await stateStore.take({ state, providerId });
-    if (entry === null) {
-      c.status(statusFor('oauth-state-invalid') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'oauth-state-invalid',
-            message: '`state` is unknown, expired, or already consumed',
-          },
-          requestId,
-        ),
-      );
-    }
+      // `state` alone is uniquely identifying (256 bits of entropy). The
+      // store returns the row's `tenantId` so we know which tenant the
+      // callback belongs to — cross-checking `providerId` guards against
+      // a stolen `state` being replayed against the wrong provider mount.
+      const entry = await stateStore.take({ state, providerId });
+      if (entry === null) {
+        c.status(statusFor('oauth-state-invalid') as never);
+        return c.json(
+          toWireError(
+            {
+              code: 'oauth-state-invalid',
+              message: '`state` is unknown, expired, or already consumed',
+            },
+            requestId,
+          ),
+        );
+      }
 
-    // Belt-and-suspenders redirect-URI check. Login already validated
-    // the stored redirect_uri against `allowedRedirectUris` when the
-    // row was written, but the allowlist may have tightened between
-    // login and callback — if so, refuse the exchange rather than
-    // handing the caller a session under a redirect the tenant no
-    // longer trusts. Also runs when the provider config went missing
-    // (unregister mid-flight) so we don't silently proceed.
-    const currentConfig = await identityProvider.get({
-      tenantId: entry.tenantId,
-      providerId,
-    });
-    if (
-      currentConfig !== null &&
-      currentConfig.allowedRedirectUris !== undefined &&
-      currentConfig.allowedRedirectUris.length > 0 &&
-      !currentConfig.allowedRedirectUris.includes(entry.redirectUri)
-    ) {
-      c.status(statusFor('redirect-uri-mismatch') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'redirect-uri-mismatch',
-            message:
-              "redirect_uri from the login state row is not in the provider's current allowedRedirectUris list",
-            providerId,
-          },
-          requestId,
-        ),
-      );
-    }
-
-    let outcome: Awaited<ReturnType<ExchangeCodeFn>>;
-    try {
-      outcome = await exchangeCode({
+      // Belt-and-suspenders redirect-URI check. Login already validated
+      // the stored redirect_uri against `allowedRedirectUris` when the
+      // row was written, but the allowlist may have tightened between
+      // login and callback — if so, refuse the exchange rather than
+      // handing the caller a session under a redirect the tenant no
+      // longer trusts. Also runs when the provider config went missing
+      // (unregister mid-flight) so we don't silently proceed.
+      const currentConfig = await identityProvider.get({
         tenantId: entry.tenantId,
         providerId,
-        code,
-        codeVerifier: entry.codeVerifier,
-        redirectUri: entry.redirectUri,
       });
-    } catch (err) {
-      c.status(statusFor('oauth-code-exchange-failed') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'oauth-code-exchange-failed',
-            message: err instanceof Error ? err.message : 'code exchange failed',
-          },
-          requestId,
-        ),
-      );
-    }
+      if (
+        currentConfig !== null &&
+        currentConfig.allowedRedirectUris !== undefined &&
+        currentConfig.allowedRedirectUris.length > 0 &&
+        !currentConfig.allowedRedirectUris.includes(entry.redirectUri)
+      ) {
+        c.status(statusFor('redirect-uri-mismatch') as never);
+        return c.json(
+          toWireError(
+            {
+              code: 'redirect-uri-mismatch',
+              message:
+                "redirect_uri from the login state row is not in the provider's current allowedRedirectUris list",
+              providerId,
+            },
+            requestId,
+          ),
+        );
+      }
 
-    const created = await sessionStore.create({
-      tenantId: entry.tenantId,
-      userId: outcome.userId as unknown as UserId,
-      providerId,
-      accessToken: outcome.accessToken,
-      ...(outcome.refreshToken !== undefined && { refreshToken: outcome.refreshToken }),
-      expiresAt: outcome.expiresAt.toISOString() as never,
-      scopes: outcome.scopes,
-      ...(outcome.claims !== undefined && { metadata: outcome.claims }),
-    });
+      let outcome: Awaited<ReturnType<ExchangeCodeFn>>;
+      try {
+        outcome = await exchangeCode({
+          tenantId: entry.tenantId,
+          providerId,
+          code,
+          codeVerifier: entry.codeVerifier,
+          redirectUri: entry.redirectUri,
+        });
+      } catch (err) {
+        c.status(statusFor('oauth-code-exchange-failed') as never);
+        return c.json(
+          toWireError(
+            {
+              code: 'oauth-code-exchange-failed',
+              message: err instanceof Error ? err.message : 'code exchange failed',
+            },
+            requestId,
+          ),
+        );
+      }
 
-    c.status(201);
-    return c.json({
-      sessionToken: sessionTokenOf(created),
-      sessionId: created.sessionId,
-      expiresAt: created.expiresAt,
+      const created = await sessionStore.create({
+        tenantId: entry.tenantId,
+        userId: outcome.userId as unknown as UserId,
+        providerId,
+        accessToken: outcome.accessToken,
+        ...(outcome.refreshToken !== undefined && { refreshToken: outcome.refreshToken }),
+        expiresAt: outcome.expiresAt.toISOString() as never,
+        scopes: outcome.scopes,
+        ...(outcome.claims !== undefined && { metadata: outcome.claims }),
+      });
+
+      c.status(201);
+      return c.json({
+        sessionToken: sessionTokenOf(created),
+        sessionId: created.sessionId,
+        expiresAt: created.expiresAt,
+      });
     });
-  });
+  }
 
   return { authed, callback };
 }

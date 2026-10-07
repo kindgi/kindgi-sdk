@@ -681,8 +681,10 @@ export interface CreateAppInput {
    */
   readonly session?: SessionConfig;
   /**
-   * Optional. When present alongside `sessionStore` + `exchangeCode`,
-   * mounts the identity-provider catalog + auth flow at `/v1/auth/*`.
+   * Optional. When present alongside `sessionStore`, mounts the
+   * identity-provider catalog, refresh and logout at `/v1/auth/*`; with
+   * `exchangeCode` too, also this package's own OAuth flow
+   * (`/login/:providerId` and the callback).
    *
    * Deployments register their OAuth/OIDC providers at boot (or via
    * `POST /v1/auth/providers`); the framework does NOT bake in a
@@ -690,8 +692,11 @@ export interface CreateAppInput {
    */
   readonly identityProvider?: IdentityProviderBinding;
   /**
-   * Required alongside `identityProvider`. Called by
-   * `POST /v1/auth/callback/:providerId` to exchange the authorization
+   * Optional: the deployment's own code exchange. With it (and
+   * `identityProvider` + `sessionStore`), `POST /v1/auth/login/:providerId`
+   * and `POST /v1/auth/callback/:providerId` mount; a deployment whose
+   * sign-in runs elsewhere (a browser flow of its own) leaves it out.
+   * Called by `POST /v1/auth/callback/:providerId` to exchange the authorization
    * code for provider tokens + userinfo. Deployments implementing
    * `IdentityProviderBinding` typically pair it with their own
    * `exchangeCode` that speaks OAuth 2.0 + PKCE against the provider's
@@ -1373,15 +1378,11 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // reach it), and the callback sub-router mounts OUTSIDE the bearer
   // chain at `/v1/auth/callback/*` because the redirect from the
   // provider carries no framework token yet.
-  if (
-    input.sessionStore !== undefined &&
-    input.identityProvider !== undefined &&
-    input.exchangeCode !== undefined
-  ) {
+  if (input.sessionStore !== undefined && input.identityProvider !== undefined) {
     const routers = authRouters({
       sessionStore: input.sessionStore,
       identityProvider: input.identityProvider,
-      exchangeCode: input.exchangeCode,
+      ...(input.exchangeCode !== undefined && { exchangeCode: input.exchangeCode }),
       ...(input.refreshToken !== undefined && { refreshToken: input.refreshToken }),
       stateStore: input.oauthStateStore ?? createInMemoryOauthStateStore(),
     });
@@ -1389,7 +1390,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     // Callback mounts on the parent `app` under /v1/auth/callback so it
     // bypasses the bearer chain. The v1 router's use('*', bearer) has
     // already been installed above, so we mount at the parent scope.
-    app.route('/v1/auth/callback', routers.callback);
+    // Only the deployment's own code exchange serves it.
+    if (input.exchangeCode !== undefined) app.route('/v1/auth/callback', routers.callback);
   }
   app.route('/v1', v1);
 

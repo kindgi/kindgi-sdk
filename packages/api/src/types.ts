@@ -49,8 +49,8 @@ export interface AppEnv {
      * revoke without a second lookup. Absent for static bearer tokens.
      */
     sessionId?: SessionId;
-    /** Set when the session token came from the session cookie, not a header. */
-    sessionViaCookie?: boolean;
+    /** Set when the session token came from a cookie (not a header): that cookie's name. */
+    sessionCookieName?: string;
     /** Identity-provider id behind a session token. Absent for bearer. */
     providerId?: string;
     /** Set by `sigv4Middleware` on `/s3/*`: the bucket the credential may access. */
