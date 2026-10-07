@@ -1,0 +1,231 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (C) 2026 Kindgi Inc.
+
+# The module against mocked providers: no Azure account, no network.
+# `terraform test` from the module's directory. What it pins: the contract
+# requirements the plan itself shows (CONTRACT ids in the run names), and
+# every refusal the variables and preconditions make.
+
+mock_provider "azurerm" {
+  override_during = plan
+
+  mock_data "azurerm_client_config" {
+    defaults = {
+      tenant_id = "11111111-1111-1111-1111-111111111111"
+      object_id = "22222222-2222-2222-2222-222222222222"
+    }
+  }
+  mock_data "azurerm_resource_group" {
+    defaults = {
+      id       = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-kindgi-dev"
+      location = "canadacentral"
+    }
+  }
+  mock_resource "azurerm_key_vault" {
+    defaults = {
+      id        = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-kindgi-dev/providers/Microsoft.KeyVault/vaults/kindgi-ab12"
+      vault_uri = "https://kindgi-ab12.vault.azure.net/"
+    }
+  }
+  mock_resource "azurerm_key_vault_key" {
+    defaults = {
+      versionless_id          = "https://kindgi-ab12.vault.azure.net/keys/kindgi-secrets"
+      resource_versionless_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-kindgi-dev/providers/Microsoft.KeyVault/vaults/kindgi-ab12/keys/kindgi-secrets"
+    }
+  }
+  mock_resource "azurerm_container_registry" {
+    defaults = {
+      id           = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-kindgi-dev/providers/Microsoft.ContainerRegistry/registries/kindgiab12"
+      login_server = "kindgiab12.azurecr.io"
+    }
+  }
+  mock_resource "azurerm_user_assigned_identity" {
+    defaults = {
+      id           = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-kindgi-dev/providers/Microsoft.ManagedIdentity/userAssignedIdentities/kindgi-server"
+      principal_id = "33333333-3333-3333-3333-333333333333"
+      client_id    = "44444444-4444-4444-4444-444444444444"
+    }
+  }
+  mock_resource "azurerm_virtual_network" {
+    defaults = {
+      id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-kindgi-dev/providers/Microsoft.Network/virtualNetworks/kindgi-vnet"
+    }
+  }
+  mock_resource "azurerm_subnet" {
+    defaults = {
+      id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-kindgi-dev/providers/Microsoft.Network/virtualNetworks/kindgi-vnet/subnets/kindgi-aca"
+    }
+  }
+  mock_resource "azurerm_private_dns_zone" {
+    defaults = {
+      id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-kindgi-dev/providers/Microsoft.Network/privateDnsZones/kindgi.private.postgres.database.azure.com"
+    }
+  }
+  mock_resource "azurerm_log_analytics_workspace" {
+    defaults = {
+      id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-kindgi-dev/providers/Microsoft.OperationalInsights/workspaces/kindgi-logs"
+    }
+  }
+  mock_resource "azurerm_container_app_environment" {
+    defaults = {
+      id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-kindgi-dev/providers/Microsoft.App/managedEnvironments/kindgi-env"
+    }
+  }
+  mock_resource "azurerm_postgresql_flexible_server" {
+    defaults = {
+      id   = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-kindgi-dev/providers/Microsoft.DBforPostgreSQL/flexibleServers/kindgi-pg-ab12"
+      fqdn = "kindgi-pg-ab12.postgres.database.azure.com"
+    }
+  }
+}
+
+# random runs for real: it is local, and mocks have no ephemeral resources
+# (the database admin password) yet.
+mock_provider "time" {}
+
+variables {
+  subscription_id         = "00000000-0000-0000-0000-000000000000"
+  resource_group_name     = "acme-kindgi-dev"
+  kindgi_env              = "dev"
+  server_image            = "kindgiab12.azurecr.io/runtime@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  pack_image              = "kindgiab12.azurecr.io/acme-app@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  seed_tenant_id          = "00000000-0000-0000-0000-000000000001"
+  seed_user_id            = "00000000-0000-0000-0000-000000000002"
+  secrets_aad_key_version = "0123456789abcdef0123456789abcdef"
+  pack_secret_env = {
+    ACME_API_KEY = { secret = "acme-api-key", version = "latest" }
+  }
+}
+
+run "new_vnet_shape_meets_the_contract" {
+  command = plan
+
+  # C-PK-7, C-DB-5: a VNet, the two delegated subnets, a private DNS zone.
+  assert {
+    condition     = length(azurerm_virtual_network.kindgi) == 1 && length(azurerm_subnet.environment) == 1 && length(azurerm_subnet.database) == 1
+    error_message = "The new-VNet shape creates the VNet and both subnets."
+  }
+  assert {
+    condition     = azurerm_postgresql_flexible_server.kindgi.public_network_access_enabled == false
+    error_message = "C-DB-5: PostgreSQL has no public access."
+  }
+  # C-DB-1: pgvector is on the allowlist.
+  assert {
+    condition     = azurerm_postgresql_flexible_server_configuration.extensions.value == "VECTOR"
+    error_message = "C-DB-1: azure.extensions allows VECTOR."
+  }
+  # C-RT-2, C-RT-3: one server replica, always on.
+  assert {
+    condition     = azurerm_container_app.server.template[0].min_replicas == 1 && azurerm_container_app.server.template[0].max_replicas == 1
+    error_message = "C-RT-2/3: exactly one server replica."
+  }
+  # C-PK-4: the pack service is reachable only inside the environment.
+  assert {
+    condition     = azurerm_container_app.pack.ingress[0].external_enabled == false
+    error_message = "C-PK-4: the pack service's ingress is environment-internal."
+  }
+  # C-SEC-3: the Key Vault key wraps Kindgi's secrets, by its versionless URL.
+  assert {
+    condition     = local.server_env.KINDGI_SECRETS_BACKEND_KMS == "azure" && local.server_env.KINDGI_SECRETS_AZURE_KEY_ID == "https://kindgi-ab12.vault.azure.net/keys/kindgi-secrets"
+    error_message = "C-SEC-3: KMS azure with the key's versionless URL."
+  }
+  assert {
+    condition     = azurerm_key_vault_key.secrets.key_type == "RSA" && toset(azurerm_key_vault_key.secrets.key_opts) == toset(["wrapKey", "unwrapKey"])
+    error_message = "The key is RSA, for wrapKey/unwrapKey only."
+  }
+  # C-SEC-3 (pinned AAD key): the AAD key is read at its version, everything else versionless.
+  assert {
+    condition     = local.secret_ids.secrets_aad_key == "https://kindgi-ab12.vault.azure.net/secrets/secrets-aad-key/0123456789abcdef0123456789abcdef" && local.secret_ids.database_url == "https://kindgi-ab12.vault.azure.net/secrets/database-url"
+    error_message = "The AAD key is pinned to its version; other secrets are versionless."
+  }
+  # C-SEC-2, C-PK-6: grants are per secret; the pack reads the shared token and its own secrets only.
+  assert {
+    condition     = toset(keys(azurerm_role_assignment.pack_reads_its_secrets)) == toset(["acme-api-key"]) && length(azurerm_role_assignment.pack_reads_token) == 1
+    error_message = "C-PK-6: the pack reads exactly the pack token and its own secrets."
+  }
+  assert {
+    condition     = alltrue([for a in values(azurerm_role_assignment.server_reads) : a.role_definition_name == "Key Vault Secrets User"]) && length(azurerm_role_assignment.server_reads) == 6
+    error_message = "C-SEC-2: the server reads its five secrets and the pack token, each on its own."
+  }
+  # C-IMG-2: the server reads deployments' images with its own identity.
+  assert {
+    condition     = local.server_env.KINDGI_IMAGE_REGISTRY_AUTH == "azure" && local.server_env.KINDGI_IMAGE_REGISTRY_HOST == "kindgiab12.azurecr.io"
+    error_message = "C-IMG-2: registry auth azure, on the module's registry."
+  }
+  # C-RT-4, C-PK-2: the probes.
+  assert {
+    condition     = azurerm_container_app.server.template[0].container[0].startup_probe[0].path == "/health" && azurerm_container_app.pack.template[0].container[0].startup_probe[0].path == "/readyz"
+    error_message = "C-RT-4/C-PK-2: startup probes on /health and /readyz."
+  }
+  # C-SEC-1: no secret has a value in the configuration.
+  assert {
+    condition     = alltrue([for s in azurerm_container_app.server.secret : s.value == null]) && alltrue([for s in azurerm_container_app.pack.secret : s.value == null])
+    error_message = "C-SEC-1: every container-app secret is a Key Vault reference, never a value."
+  }
+  # The platform-managed infrastructure group has a name you can find.
+  assert {
+    condition     = azurerm_container_app_environment.kindgi.infrastructure_resource_group_name == "acme-kindgi-dev-kindgi-infra"
+    error_message = "The infrastructure resource group is named <rg>-<prefix>-infra."
+  }
+}
+
+run "existing_vnet_shape_creates_no_network" {
+  command = plan
+
+  variables {
+    environment_subnet_id        = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/net/providers/Microsoft.Network/virtualNetworks/v/subnets/aca"
+    database_subnet_id           = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/net/providers/Microsoft.Network/virtualNetworks/v/subnets/pg"
+    database_private_dns_zone_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/net/providers/Microsoft.Network/privateDnsZones/kindgi.private.postgres.database.azure.com"
+  }
+
+  assert {
+    condition     = length(azurerm_virtual_network.kindgi) == 0 && length(azurerm_private_dns_zone.database) == 0
+    error_message = "The existing-VNet shape creates no network."
+  }
+  assert {
+    condition     = azurerm_container_app_environment.kindgi.infrastructure_subnet_id == var.environment_subnet_id
+    error_message = "The environment sits in the given subnet."
+  }
+}
+
+run "existing_vnet_shape_needs_all_three" {
+  command = plan
+  variables {
+    environment_subnet_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/net/providers/Microsoft.Network/virtualNetworks/v/subnets/aca"
+  }
+  expect_failures = [var.environment_subnet_id]
+}
+
+run "refuses_a_pack_call_timeout_over_the_platform_cap" {
+  command = plan
+  variables {
+    pack_call_timeout_ms = 300000
+  }
+  expect_failures = [var.pack_call_timeout_ms]
+}
+
+run "refuses_an_image_without_a_digest" {
+  command = plan
+  variables {
+    server_image = "kindgiab12.azurecr.io/runtime:0.1.6"
+  }
+  expect_failures = [var.server_image]
+}
+
+run "refuses_a_gcp_project_in_pack_secret_env" {
+  command = plan
+  variables {
+    pack_secret_env = {
+      ACME_API_KEY = { secret = "acme-api-key", version = "latest", project = "acme-gcp" }
+    }
+  }
+  expect_failures = [var.pack_secret_env]
+}
+
+run "the_services_need_the_aad_key_version" {
+  command = plan
+  variables {
+    secrets_aad_key_version = ""
+  }
+  expect_failures = [azurerm_container_app.server]
+}
