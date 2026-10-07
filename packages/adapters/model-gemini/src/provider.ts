@@ -146,6 +146,11 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
           }),
         ...(maxOutputTokens !== undefined && { maxOutputTokens }),
         ...(input.abortSignal !== undefined && { abortSignal: input.abortSignal }),
+        // A header on this request only, when the caller sets it (the
+        // provider's registration opted in); merged into the client's.
+        ...(input.traceparent !== undefined && {
+          httpOptions: { headers: { traceparent: input.traceparent } },
+        }),
       };
 
       const client = await resolveClient();

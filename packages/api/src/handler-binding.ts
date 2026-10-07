@@ -67,6 +67,12 @@ export interface RunTrace {
 export interface ResumeRunBindingInput {
   readonly tenantId: TenantId;
   readonly runId: RunId;
+  /**
+   * The trace context of the request resuming the run (a reviewer's
+   * decision): the resumed work runs under it, and the run keeps its own
+   * trace id from the request that started it. Absent: as before.
+   */
+  readonly trace?: RunTrace;
 }
 
 export interface InvokeAgentBindingInput {

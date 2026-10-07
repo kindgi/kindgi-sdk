@@ -439,6 +439,16 @@ export interface ModelCallInput {
   readonly maxOutputTokens?: number;
   /** Cooperative cancellation. Handlers should observe. */
   readonly abortSignal?: AbortSignal;
+  /**
+   * A W3C `traceparent` for this call (`00-<trace id>-<span id>-<flags>`),
+   * so the vendor's request logs can be matched to the run that made the
+   * call. An adapter sends it as the `traceparent` header on its request
+   * to the vendor when it is set, and never makes one up. The caller sets
+   * it only when the provider's registration opts in (it leaves the
+   * process: ids only, never content). Adapters that don't know it
+   * ignore it.
+   */
+  readonly traceparent?: string;
 }
 
 /**

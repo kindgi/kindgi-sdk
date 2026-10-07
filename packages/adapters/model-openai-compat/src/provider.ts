@@ -21,7 +21,7 @@ import { samplingFor } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
 import { nameToolsAsSent } from '@kindgi/capabilities/tool-names';
 
-import { EXTRA_BODY_RESERVED_RESPONSES, invokeResponses } from './responses.js';
+import { EXTRA_BODY_RESERVED_RESPONSES, invokeResponses, requestOptions } from './responses.js';
 import { computeCost, decodeToolName, encodeToolName } from './wire.js';
 
 /**
@@ -241,7 +241,7 @@ export function createOpenAICompatModelProvider(
             ...(input.maxOutputTokens !== undefined && { max_tokens: input.maxOutputTokens }),
             stream: false,
           },
-          input.abortSignal !== undefined ? { signal: input.abortSignal } : undefined,
+          requestOptions(input),
         ),
       );
       const completion = counted.value;
