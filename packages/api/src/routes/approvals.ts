@@ -2,10 +2,11 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 
 import { AGENT_GATE_SUBJECTS, TOOL_CALL_GATE_SUBJECT } from '@kindgi/agents';
 import type { ConversationBinding, GateDecisionValue } from '@kindgi/agents';
-import { REVIEWER_ROLE_RANK, type ReviewerRole } from '@kindgi/authz';
+import { REVIEWER_ROLE_RANK, type ResourceRef, type ReviewerRole, ref } from '@kindgi/authz';
 import { serializePublicKeyPem, signEd25519 } from '@kindgi/crypto';
 import type { SigningKeyBinding } from '@kindgi/crypto';
 import type { RunBinding } from '@kindgi/runtime';
@@ -31,6 +32,7 @@ import type {
   ReviewDecisionKind,
   ReviewDecisionRecord,
 } from '../hitl-binding.js';
+import type { Authorizer } from '../middleware/authorize.js';
 import type { ReviewerBinding } from '../reviewer-binding.js';
 import { callerReviewerRole } from '../reviewer-role.js';
 import type { AppEnv } from '../types.js';
@@ -111,10 +113,33 @@ export function approvalsRouter(
   hitlBinding: HitlBinding,
   runBinding: RunBinding,
   options: ApprovalsRouterOptions = {},
+  /**
+   * With one (T243 A): on top of the reviewer role, a caller sees and
+   * decides only approvals whose project it may read (the approval's, or
+   * its run's). Another project's approval is not found, as one above the
+   * caller's tier is.
+   */
+  authorizer?: Authorizer,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   const signingKey = options.signingKey;
   const runHandler = options.runHandler;
+
+  /** What an approval is checked on: its project, else its run's, else the tenant. */
+  const approvalRef = async (tenantId: TenantId, approval: Approval): Promise<ResourceRef> => {
+    if (approval.projectId !== undefined) {
+      return ref('project', approval.projectId as unknown as string);
+    }
+    const runId = approval.provenanceRef?.runId;
+    const run = runId === undefined ? null : await runBinding.getRun(tenantId, runId as never);
+    return run === null
+      ? ref('tenant', tenantId as unknown as string)
+      : ref('project', run.projectId as unknown as string);
+  };
+  /** Whether the caller may read the approval's project (always, without an authorizer). */
+  const mayRead = async (c: Context<AppEnv>, approval: Approval): Promise<boolean> =>
+    authorizer === undefined ||
+    authorizer.can(c, 'read', await approvalRef(c.get('tenantId') as TenantId, approval));
 
   // ---------- role gate for the whole resource ----------
   // A reviewer: a token that carries a role, or whose user the roster
@@ -267,9 +292,20 @@ export function approvalsRouter(
       return c.json(toWireError(listed.error as never, requestId));
     }
     const roleRank = REVIEWER_ROLE_RANK[role];
-    const visible = listed.value.approvals.filter(
+    const inTier = listed.value.approvals.filter(
       (a) => REVIEWER_ROLE_RANK[a.requiredRole] <= roleRank,
     );
+    let visible = inTier;
+    if (authorizer !== undefined) {
+      const refs = await Promise.all(inTier.map((a) => approvalRef(tenantId, a)));
+      const readable = await authorizer.filterByCan(
+        c,
+        'read',
+        inTier.map((approval, i) => ({ approval, at: refs[i] as ResourceRef })),
+        (row) => row.at,
+      );
+      visible = readable.map((row) => row.approval);
+    }
     const page = visible.slice(0, limit);
     const hasMore = visible.length > limit || listed.value.nextCursor !== undefined;
     const last = page[page.length - 1];
@@ -297,7 +333,10 @@ export function approvalsRouter(
     const approval = got.value;
     // Out-of-scope reads are 404 (per API-ROUTE-CONVENTIONS.md §2.4 —
     // avoid leaking existence across role tiers).
-    if (REVIEWER_ROLE_RANK[approval.requiredRole] > REVIEWER_ROLE_RANK[role]) {
+    if (
+      REVIEWER_ROLE_RANK[approval.requiredRole] > REVIEWER_ROLE_RANK[role] ||
+      !(await mayRead(c, approval))
+    ) {
       c.status(statusFor('approval-not-found') as never);
       return c.json(
         toWireError(
@@ -356,7 +395,10 @@ export function approvalsRouter(
       return c.json(toWireError(found.error as never, requestId));
     }
     const approval = found.value;
-    if (REVIEWER_ROLE_RANK[approval.requiredRole] > REVIEWER_ROLE_RANK[role]) {
+    if (
+      REVIEWER_ROLE_RANK[approval.requiredRole] > REVIEWER_ROLE_RANK[role] ||
+      !(await mayRead(c, approval))
+    ) {
       c.status(statusFor('approval-not-found') as never);
       return c.json(
         toWireError(
@@ -535,7 +577,10 @@ export function approvalsRouter(
       return c.json(toWireError(found.error as never, requestId));
     }
     const approval = found.value;
-    if (REVIEWER_ROLE_RANK[approval.requiredRole] > REVIEWER_ROLE_RANK[role]) {
+    if (
+      REVIEWER_ROLE_RANK[approval.requiredRole] > REVIEWER_ROLE_RANK[role] ||
+      !(await mayRead(c, approval))
+    ) {
       c.status(statusFor('approval-not-found') as never);
       return c.json(
         toWireError(
