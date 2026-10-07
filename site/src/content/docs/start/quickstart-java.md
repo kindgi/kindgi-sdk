@@ -42,6 +42,9 @@ cd my-pack
 ./mvnw -q test    # the template's tests: the tools, called directly
 ```
 
+Without Node, run `init` from PyPI instead:
+`uvx --from "kindgi-cli>=0.1,<0.2" kindgi init my-pack --template=java`.
+
 The pack is a Maven project. Its config is `kindgi.config.json`; its tools,
 guardrails, agents and flows are classes in four packages:
 
@@ -50,6 +53,7 @@ my-pack/
 ├── kindgi.config.json                      # "language": "java", the pack's id and version
 ├── pom.xml                                 # com.kindgi:kindgi-pack, Java 17
 ├── mvnw, .mvn/                             # the Maven wrapper
+├── kindgiw, kindgiw.cmd                    # the Kindgi CLI wrapper (the version kindgi.config.json pins)
 ├── src/main/java/mypack/
 │   ├── tools/Echo.java, tools/Greet.java   # Tool.define(...)
 │   ├── guardrails/ResponseNotEmpty.java    # Guardrail.define(...)
@@ -62,9 +66,10 @@ The package comes from the pack's id (`my-pack` → `mypack`). A tool, a
 guardrail, an agent or a flow is a `public static final` field of a class
 in its package.
 
-A Java project doesn't pin the Kindgi CLI the way a TypeScript project's
-`package.json` does: run it as `npx --yes @kindgi/cli@0.1`, the minor
-version this page is for, as below.
+The pack pins the Kindgi CLI it runs with, `"cli"` in `kindgi.config.json`,
+as Maven's wrapper pins Maven. Run the CLI as `./kindgiw` (`kindgiw.cmd` on
+Windows): it uses Node's `npx` when Node is installed, else `uvx` (no Node
+needed). `kindgi upgrade` moves the pin.
 
 :::note[No skills for coding agents yet]
 A TypeScript or Python pack gets Kindgi's skills in `.claude/skills/`,
@@ -76,7 +81,7 @@ yet: point your agent at the pack's `README.md` and `AGENTS.md` and at
 ## 3. Run it
 
 ```sh tutorial=background ready="Kindgi is up"
-npx --yes @kindgi/cli@0.1 dev
+./kindgiw dev
 ```
 
 `kindgi dev` checks the JDK (`JAVA_HOME`'s) and Maven (the pack's
@@ -91,8 +96,8 @@ Leave it running.
 In a second terminal, in `my-pack`:
 
 ```sh tutorial=run
-npx --yes @kindgi/cli@0.1 runs start --agent=my-pack.echo-agent --input='{"userMessage":"Ada"}'
-npx --yes @kindgi/cli@0.1 runs start --flow=my-pack.echo-flow --input='{"message":"Ada"}'
+./kindgiw runs start --agent=my-pack.echo-agent --input='{"userMessage":"Ada"}'
+./kindgiw runs start --flow=my-pack.echo-flow --input='{"message":"Ada"}'
 ```
 
 ```text tutorial=expect
@@ -188,8 +193,8 @@ Store an Anthropic key as a secret (you're prompted for it; it isn't
 echoed), then register the provider:
 
 ```sh
-npx --yes @kindgi/cli@0.1 secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
-npx --yes @kindgi/cli@0.1 providers register --preset=anthropic
+./kindgiw secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
+./kindgiw providers register --preset=anthropic
 ```
 
 It takes over from `dev-echo` at the next turn. OpenAI (`OPENAI_API_KEY`,

@@ -37,8 +37,8 @@ thing at a time, and wait until they say they've done it.
     else `npx --no kindgi`;
   - a Python project: `uv run kindgi` (the project's dev dependencies bring
     the CLI);
-  - a Java project: `npx --yes @kindgi/cli@<the version init printed>` (a
-    Java project doesn't pin the CLI; `init` prints the version to use).
+  - a Java project: `./kindgiw` (the CLI version the project pins in
+    `kindgi.config.json`; `kindgiw.cmd` on Windows).
 
 ## Step 0: check the machine
 
@@ -140,7 +140,7 @@ runtime: skip this step.
 
    ```sh
    # Java (preview: first install kindgi-pack from the SDK, as the Java quickstart's step 1 shows)
-   npx --yes @kindgi/cli@next init my-agents --template=java   # from now on, the npx line it prints
+   npx --yes @kindgi/cli@next init my-agents --template=java   # from now on: ./kindgiw …
    cd my-agents
    ./mvnw -q test
    ```

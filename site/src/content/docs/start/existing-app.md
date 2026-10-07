@@ -310,12 +310,13 @@ In the app's directory (where its `pom.xml` is), with a JDK 17 or later and
 `JAVA_HOME` set:
 
 ```sh
-npx @kindgi/cli init   # --pack-id=<id> if the app's artifactId doesn't make one
-npx @kindgi/cli dev
+npx --yes @kindgi/cli@0.1 init   # --pack-id=<id> if the app's artifactId doesn't make one
+./kindgiw dev
 ```
 
 `init` writes `kindgi.config.json`: the pack id from the app's `artifactId`,
-its version, and discovery under `kindgi` packages
+its version, the Kindgi CLI version it pins (`"cli"`, which `./kindgiw` runs,
+also written), and discovery under `kindgi` packages
 (`src/main/java/**/kindgi/tools/**/*.java`, and so on), so your app's own
 `tools` packages are never taken for Kindgi's. It leaves `pom.xml` alone and
 prints the dependency to add to it:

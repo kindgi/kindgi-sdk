@@ -96,7 +96,7 @@ function steps(markdown) {
 }
 
 /** A `kindgi dev` command, however the CLI is invoked. */
-const KINDGI_DEV = /(?:\bkindgi|@kindgi\/cli(?:@\S+)?)\s+dev\b/;
+const KINDGI_DEV = /(?:\bkindgiw?|@kindgi\/cli(?:@\S+)?)\s+dev\b/;
 
 function freePort() {
   return new Promise((resolvePort, reject) => {
