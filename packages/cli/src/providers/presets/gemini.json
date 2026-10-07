@@ -19,6 +19,7 @@
         "name": "gemini-3.8-flash",
         "contextWindow": 1048576,
         "maxOutputTokens": 65536,
+        "thinking": { "mode": "adaptive", "lowest": "low" },
         "features": ["tool-use", "structured-output", "long-context"],
         "cost": { "promptUsdPer1kTokens": 0.00075, "completionUsdPer1kTokens": 0.00375 },
         "description": "Fast and inexpensive; Google's replacement for gemini-2.5-pro and gemini-2.5-flash, which Vertex AI retires on 2026-10-20 (its prices rise on 2027-01-01)."
@@ -27,6 +28,7 @@
         "name": "gemini-3.5-flash-lite",
         "contextWindow": 1048576,
         "maxOutputTokens": 65536,
+        "thinking": { "mode": "adaptive", "lowest": "minimal" },
         "features": ["tool-use", "structured-output", "long-context"],
         "cost": { "promptUsdPer1kTokens": 0.0003, "completionUsdPer1kTokens": 0.0025 },
         "description": "Cheapest \u2014 routing, classification, simple calls."

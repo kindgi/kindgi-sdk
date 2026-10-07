@@ -17,6 +17,7 @@
         "name": "gemini-3.8-flash",
         "contextWindow": 1048576,
         "maxOutputTokens": 65536,
+        "thinking": { "mode": "adaptive", "lowest": "low" },
         "features": ["tool-use", "structured-output", "long-context"],
         "cost": {
           "promptUsdPer1kTokens": 0.00075,
@@ -44,6 +45,7 @@
         "name": "gemini-3.5-flash-lite",
         "contextWindow": 1048576,
         "maxOutputTokens": 65536,
+        "thinking": { "mode": "adaptive", "lowest": "minimal" },
         "features": ["tool-use", "structured-output", "long-context"],
         "cost": {
           "promptUsdPer1kTokens": 0.0003,

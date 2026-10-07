@@ -408,3 +408,123 @@ describe('createAnthropicProvider — what the vendor says about the call', () =
     });
   });
 });
+
+describe("createAnthropicProvider — a model that doesn't take sampling", () => {
+  // Claude 4.7 and later answer a non-default temperature with a 400.
+  const NO_SAMPLING = { ...OPUS_MODEL, name: 'claude-sonnet-5-5', sampling: false };
+  const provider = (client: Anthropic) =>
+    createAnthropicProvider({
+      apiKey: 'sk-unused',
+      metadata: { id: 'anthropic', region: 'us-east-1', models: [OPUS_MODEL, NO_SAMPLING] },
+      client,
+    });
+  const ask = (model: string): ModelCallInput => ({
+    model,
+    messages: [{ role: 'user', content: 'Hi' }],
+    temperature: 0.2,
+  });
+
+  test('the call goes without the temperature, and the answer says so', async () => {
+    const { client, create } = fakeClient();
+    const result = await provider(client).invoke(ask('claude-sonnet-5-5'));
+    expect(create.mock.calls[0]?.[0]).not.toHaveProperty('temperature');
+    expect(result.warnings).toEqual([
+      {
+        code: 'sampling-unsupported',
+        message:
+          "claude-sonnet-5-5 doesn't take a temperature, so the call went without one (it asked for 0.2).",
+      },
+    ]);
+  });
+
+  test('a model that takes it still gets it, with no warning', async () => {
+    const { client, create } = fakeClient();
+    const result = await provider(client).invoke(ask('claude-opus-4-7'));
+    expect(create.mock.calls[0]?.[0]).toMatchObject({ temperature: 0.2 });
+    expect(result).not.toHaveProperty('warnings');
+  });
+});
+
+describe("createAnthropicProvider — thinking: 'lowest'", () => {
+  // Anthropic's own table: Sonnet 5.5 turns up-front thinking off with
+  // `between_tools`, Haiku 5.5 with `disabled` (both only at effort high or
+  // below); Opus 5.5 always thinks, so only its effort can go down.
+  const model = (name: string, thinking?: { mode: 'adaptive' | 'always'; lowest: string }) => ({
+    ...OPUS_MODEL,
+    name,
+    ...(thinking !== undefined && { thinking }),
+  });
+  const provider = (client: Anthropic) =>
+    createAnthropicProvider({
+      apiKey: 'sk-unused',
+      metadata: {
+        id: 'anthropic',
+        region: 'us-east-1',
+        models: [
+          model('claude-sonnet-5-5', { mode: 'adaptive', lowest: 'between_tools' }),
+          model('claude-haiku-5-5', { mode: 'adaptive', lowest: 'disabled' }),
+          model('claude-opus-5-5', { mode: 'always', lowest: 'low' }),
+          OPUS_MODEL,
+        ],
+      },
+      client,
+    });
+  const sent = async (name: string, hint: boolean) => {
+    const { client, create } = fakeClient();
+    await provider(client).invoke({
+      model: name,
+      messages: [{ role: 'user', content: 'Hi' }],
+      ...(hint && { thinking: 'lowest' as const }),
+    });
+    return create.mock.calls[0]?.[0] as Record<string, unknown>;
+  };
+
+  test('turns thinking off where the model allows it, with effort low', async () => {
+    expect(await sent('claude-sonnet-5-5', true)).toMatchObject({
+      thinking: { type: 'between_tools' },
+      output_config: { effort: 'low' },
+    });
+    expect(await sent('claude-haiku-5-5', true)).toMatchObject({
+      thinking: { type: 'disabled' },
+      output_config: { effort: 'low' },
+    });
+  });
+
+  test('a model that always thinks gets its lowest effort alone', async () => {
+    const body = await sent('claude-opus-5-5', true);
+    expect(body).toMatchObject({ output_config: { effort: 'low' } });
+    expect(body).not.toHaveProperty('thinking');
+  });
+
+  test('without the hint, or for a model with no thinking data, nothing is sent', async () => {
+    for (const body of [
+      await sent('claude-sonnet-5-5', false),
+      await sent('claude-opus-4-7', true),
+    ]) {
+      expect(body).not.toHaveProperty('thinking');
+      expect(body).not.toHaveProperty('output_config');
+    }
+  });
+
+  test('a thinking answer (a thinking block, then the text) gives the text and counts the thinking', async () => {
+    // The shape Anthropic answers with when thinking is shown: a thinking block first.
+    const { client } = fakeClient(
+      fakeResponse({
+        content: [
+          { type: 'thinking', thinking: 'The answer is on topic.', signature: 'sig' },
+          { type: 'text', text: 'PASS\nOn topic.' },
+        ],
+        usage: { input_tokens: 60, output_tokens: 90 },
+      }),
+    );
+    const result = await provider(client).invoke({
+      model: 'claude-opus-5-5',
+      messages: [{ role: 'user', content: 'Judge it.' }],
+      thinking: 'lowest',
+      maxOutputTokens: 2304,
+    });
+    expect(result.message.content).toBe('PASS\nOn topic.');
+    expect(result.finishReason).toBe('stop');
+    expect(result.usage.completionTokens).toBe(90);
+  });
+});

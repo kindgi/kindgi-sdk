@@ -262,8 +262,36 @@ export interface ModelInfo {
    * `ModelCallInput.maxOutputTokens` is unset.
    */
   readonly maxOutputTokens?: number;
+  /**
+   * Whether the model takes sampling settings (`temperature`). `false`:
+   * its API rejects a non-default value (Anthropic's Claude 4.7 and
+   * later, OpenAI's GPT-6), so an adapter sends the call without one and
+   * says so in the answer's `warnings` (`sampling-unsupported`), instead
+   * of failing it. Absent: it takes them.
+   */
+  readonly sampling?: boolean;
+  /**
+   * How the model thinks before it answers, so a call that wants as
+   * little as it allows (`ModelCallInput.thinking: 'lowest'`, which
+   * judges set) gets it. Absent: it doesn't think, or nothing is known,
+   * and the adapter sends nothing for it.
+   */
+  readonly thinking?: ModelThinking;
   /** Short per-model description surfaced in logs. */
   readonly description?: string;
+}
+
+/** How a model thinks (`ModelInfo.thinking`). */
+export interface ModelThinking {
+  /** `adaptive`: on unless turned down. `always`: on, and it can only be lowered. */
+  readonly mode: 'adaptive' | 'always';
+  /**
+   * The vendor's own setting for the least thinking, which the adapter
+   * sends: for Anthropic a thinking type that turns it off (`disabled`,
+   * `between_tools`) or an effort (`low`); for Gemini a thinking level
+   * (`low`, `minimal`); for OpenAI a reasoning effort (`low`, `none`).
+   */
+  readonly lowest: string;
 }
 
 /**
@@ -399,6 +427,13 @@ export interface ModelCallInput {
   readonly structuredOutput?: StructuredOutputRequest;
   /** Sampling controls — providers translate to their equivalent. */
   readonly temperature?: number;
+  /**
+   * `lowest`: think as little as the model allows (its
+   * `ModelInfo.thinking.lowest`), so a short answer isn't crowded out by
+   * thinking. Judges set it. Absent, or a model with no `thinking`: the
+   * model's default.
+   */
+  readonly thinking?: 'lowest';
   readonly maxOutputTokens?: number;
   /** Cooperative cancellation. Handlers should observe. */
   readonly abortSignal?: AbortSignal;

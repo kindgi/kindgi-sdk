@@ -14,6 +14,8 @@
         "name": "claude-opus-5-5",
         "contextWindow": 1000000,
         "maxOutputTokens": 16000,
+        "thinking": { "mode": "always", "lowest": "low" },
+        "sampling": false,
         "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
         "cost": {
           "promptUsdPer1kTokens": 0.004,
@@ -25,6 +27,8 @@
         "name": "claude-sonnet-5-5",
         "contextWindow": 1000000,
         "maxOutputTokens": 16000,
+        "thinking": { "mode": "adaptive", "lowest": "between_tools" },
+        "sampling": false,
         "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
         "cost": {
           "promptUsdPer1kTokens": 0.002,
@@ -36,6 +40,8 @@
         "name": "claude-haiku-5-5",
         "contextWindow": 1000000,
         "maxOutputTokens": 16000,
+        "thinking": { "mode": "adaptive", "lowest": "disabled" },
+        "sampling": false,
         "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
         "cost": {
           "promptUsdPer1kTokens": 0.0001,
