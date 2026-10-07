@@ -196,6 +196,58 @@ describe('search by meaning is never skipped silently', () => {
   });
 });
 
+describe('a provider that stops answering', () => {
+  const facts = [fact('a', {}), fact('b', {})];
+  const down = () => {
+    const { memory, calls } = memoryWith({ facts, keyword: ['b', 'a'] });
+    const failing = {
+      ...memory,
+      async searchBySemantic() {
+        calls.push('semantic {}');
+        return {
+          kind: 'err',
+          error: { code: 'embedding-unavailable', message: 'connect ECONNREFUSED' },
+        };
+      },
+    } as unknown as MemoryQueryBinding;
+    return { memory: failing, calls };
+  };
+
+  test('a semantic intent fails the turn with semantic-unavailable, as without embeddings', async () => {
+    const { memory } = down();
+    const out = await retrieveForTurn(
+      agent([{ types: ['acme.note'], scope: 'tenant', mode: 'semantic' }]),
+      conversation,
+      conversationId,
+      'refund',
+      { memory, embeddingRegistry: embeddings },
+    );
+    expect(out.kind === 'err' && out.error).toMatchObject({
+      code: 'semantic-unavailable',
+      intent: 0,
+    });
+    expect(out.kind === 'err' && out.error.message).toContain("isn't answering");
+  });
+
+  test('a both intent degrades to its keyword half and says so', async () => {
+    const { memory, calls } = down();
+    const out = await retrieveForTurn(
+      agent([{ types: ['acme.note'], scope: 'tenant', mode: 'both' }]),
+      conversation,
+      conversationId,
+      'refund',
+      { memory, embeddingRegistry: embeddings },
+    );
+    if (out.kind === 'err') throw new Error(out.error.message);
+    expect(out.value.facts.map((r) => [r.fact.id, r.ranks])).toEqual([
+      ['b', { keyword: 1 }],
+      ['a', { keyword: 2 }],
+    ]);
+    expect(out.value.degraded).toEqual([{ intent: 0, reason: 'no-embeddings' }]);
+    expect(calls).toEqual(['keyword {}', 'semantic {}']);
+  });
+});
+
 describe('the <memory> data block', () => {
   const retrieved = (f: Fact): RetrievedFact => ({
     fact: f,

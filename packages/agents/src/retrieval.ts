@@ -132,30 +132,25 @@ export async function retrieveForTurn(
   const readers = runMemoryReaders(conversation, conversationId, run);
   const semantic = bindings.embeddingRegistry !== undefined;
   for (const [index, intent] of agent.retrieval.entries()) {
-    if (intent.mode === 'semantic' && !semantic) {
-      return {
-        kind: 'err',
-        error: {
-          code: 'semantic-unavailable',
-          message: `Retrieval intent ${index} (${intent.types.join(', ')}) searches by meaning, and this runtime has no embeddings. Turn them on (KINDGI_MEMORY_EMBEDDINGS), or use mode "both", which runs a keyword search without them.`,
-          intent: index,
-        },
-      };
-    }
-    if (intent.mode === 'both' && !semantic)
-      degraded.push({ intent: index, reason: 'no-embeddings' });
+    if (intent.mode === 'semantic' && !semantic) return semanticUnavailable(index, intent, 'none');
+    let degradedNow = intent.mode === 'both' && !semantic;
     const selections = selectionsFor(intent, conversation, conversationId, run);
     // `same-project` in a run without a project, `same-user` without a user: nothing.
-    if (selections.length === 0) continue;
-    for (const type of intent.types) {
+    for (const type of selections.length === 0 ? [] : intent.types) {
       const one = await runOneIntent(
         { tenantId: conversation.tenantId, readers, type, selections, userMessage, semantic },
         intent,
         bindings,
       );
       if (one.kind === 'err') return one;
-      facts.push(...one.value);
+      // The provider stopped answering mid-way: as without embeddings.
+      if (one.value.unavailable && intent.mode === 'semantic') {
+        return semanticUnavailable(index, intent, 'down');
+      }
+      if (one.value.unavailable) degradedNow = true;
+      facts.push(...one.value.facts);
     }
+    if (degradedNow) degraded.push({ intent: index, reason: 'no-embeddings' });
   }
   return { kind: 'ok', value: { facts, degraded } };
 }
@@ -242,40 +237,74 @@ interface IntentQuery {
   readonly semantic: boolean;
 }
 
+/** One intent's facts for one type; `unavailable` when the search by meaning couldn't run. */
+interface IntentFacts {
+  readonly facts: readonly RetrievedFact[];
+  readonly unavailable: boolean;
+}
+
 async function runOneIntent(
   q: IntentQuery,
   intent: RetrievalIntent,
   bindings: RetrievalBindings,
-): Promise<Result<readonly RetrievedFact[], PersistenceError>> {
+): Promise<Result<IntentFacts, PersistenceError>> {
   const limit = intent.limit ?? 10;
   if (intent.mode === undefined) {
     const listed = await listLeg(bindings.memory, q, limit);
     if (listed.kind === 'err') return listed;
-    return { kind: 'ok', value: listed.value.map((fact) => ({ fact, intent })) };
+    return {
+      kind: 'ok',
+      value: { facts: listed.value.map((fact) => ({ fact, intent })), unavailable: false },
+    };
   }
   const hybrid = intent.mode === 'both';
   const candidates = hybrid ? Math.max(limit, HYBRID_CANDIDATES) : limit;
   const legs: Record<string, readonly RetrievalHit<unknown>[]> = {};
+  let unavailable = false;
   if (intent.mode === 'keyword' || hybrid) {
     const keyword = await searchLeg('keyword', bindings, q, candidates);
     if (keyword.kind === 'err') return keyword;
-    legs.keyword = keyword.value;
+    if (keyword.kind === 'ok') legs.keyword = keyword.value;
   }
   if ((intent.mode === 'semantic' || hybrid) && q.semantic) {
     const semantic = await searchLeg('semantic', bindings, q, candidates);
     if (semantic.kind === 'err') return semantic;
-    legs.semantic = semantic.value;
+    if (semantic.kind === 'unavailable') unavailable = true;
+    else legs.semantic = semantic.value;
   }
   const fused = fuseByRank(legs, (hit) => hit.fact.id as unknown as string);
   return {
     kind: 'ok',
-    value: fused.slice(0, limit).map(({ item, score, ranks }) => ({
-      fact: item.fact,
-      intent,
-      // One search: its own score; both: the fused score.
-      score: Object.keys(ranks).length > 1 || hybrid ? score : (item.score ?? score),
-      ranks,
-    })),
+    value: {
+      unavailable,
+      facts: fused.slice(0, limit).map(({ item, score, ranks }) => ({
+        fact: item.fact,
+        intent,
+        // One search: its own score; both: the fused score.
+        score: Object.keys(ranks).length > 1 || hybrid ? score : (item.score ?? score),
+        ranks,
+      })),
+    },
+  };
+}
+
+/** The turn's failure for a `semantic` intent that can't search by meaning. */
+function semanticUnavailable(
+  index: number,
+  intent: RetrievalIntent,
+  why: 'none' | 'down',
+): Result<never, SemanticUnavailableError> {
+  const what =
+    why === 'none'
+      ? 'and this runtime has no embeddings. Turn them on (KINDGI_MEMORY_EMBEDDINGS)'
+      : "and the embedding provider isn't answering (the runtime keeps trying). Try again later";
+  return {
+    kind: 'err',
+    error: {
+      code: 'semantic-unavailable',
+      message: `Retrieval intent ${index} (${intent.types.join(', ')}) searches by meaning, ${what}, or use mode "both", which runs a keyword search without them.`,
+      intent: index,
+    },
   };
 }
 
@@ -308,7 +337,9 @@ async function searchLeg(
   bindings: RetrievalBindings,
   q: IntentQuery,
   topK: number,
-): Promise<Result<readonly RetrievalHit<unknown>[], PersistenceError>> {
+): Promise<
+  Result<readonly RetrievalHit<unknown>[], PersistenceError> | { readonly kind: 'unavailable' }
+> {
   const all: RetrievalHit<unknown>[] = [];
   for (const scope of q.selections) {
     const common = {
@@ -329,6 +360,10 @@ async function searchLeg(
               embeddingModel: bindings.embeddingModel,
             }),
           });
+    // The provider can't embed now: the search by meaning is unavailable, not failed.
+    if (hits.kind === 'err' && hits.error.code === 'embedding-unavailable') {
+      return { kind: 'unavailable' };
+    }
     if (hits.kind === 'err') return persistErr(`retrieval.${leg}`, hits.error);
     all.push(...hits.value);
   }
