@@ -728,7 +728,7 @@ describe('kindgi dev — a Python pack', () => {
 
   test('[[tool.kindgi.providers]] in pyproject.toml are registered on boot', async () => {
     await pythonPack(
-      '\n[[tool.kindgi.providers]]\npreset = "gemini"\nproject = "acme-gcp"\nmodels = ["gemini-2.5-pro"]\nmaxOutputTokens = 16384\n',
+      '\n[[tool.kindgi.providers]]\npreset = "gemini"\nproject = "acme-gcp"\nmodels = ["gemini-3.8-flash"]\nmaxOutputTokens = 16384\n',
     );
     const fixtures = makeFixtures();
     const { writes, restore } = captureStderr();
@@ -745,7 +745,7 @@ describe('kindgi dev — a Python pack', () => {
     expect(fixtures.providers).toContainEqual(
       expect.objectContaining({
         id: 'gemini',
-        models: [expect.objectContaining({ name: 'gemini-2.5-pro', maxOutputTokens: 16384 })],
+        models: [expect.objectContaining({ name: 'gemini-3.8-flash', maxOutputTokens: 16384 })],
       }),
     );
   });
@@ -849,7 +849,7 @@ describe('kindgi dev — boot flow (no watch)', () => {
   test('providers the config declares are registered on boot, and left alone on the next', async () => {
     await writeFile(
       join(packDir, 'kindgi.config.ts'),
-      "export default { pack: { id: 'my-pack', version: '0.1.0' }, providers: [{ preset: 'anthropic' }, { preset: 'gemini', project: 'acme-gcp', models: ['gemini-2.5-flash'] }] };\n",
+      "export default { pack: { id: 'my-pack', version: '0.1.0' }, providers: [{ preset: 'anthropic' }, { preset: 'gemini', project: 'acme-gcp', models: ['gemini-3.5-flash-lite'] }] };\n",
       'utf8',
     );
     const fixtures = makeFixtures();
@@ -873,7 +873,9 @@ describe('kindgi dev — boot flow (no watch)', () => {
     expect(first).toContain(
       '  ⚠ anthropic: not registered: ANTHROPIC_API_KEY is not in .env, .env.local. Set it (npx --no kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant), then restart kindgi dev',
     );
-    expect(first).toContain('Providers          dev-echo (fallback) · gemini (gemini-2.5-flash)\n');
+    expect(first).toContain(
+      'Providers          dev-echo (fallback) · gemini (gemini-3.5-flash-lite)\n',
+    );
     const record = JSON.parse(
       await readFile(join(packDir, '.kindgi', 'dev', 'providers.json'), 'utf8'),
     ) as { readonly runtimes: Record<string, Record<string, unknown>> };
@@ -1901,7 +1903,7 @@ describe('kindgi dev — a database per project', () => {
   }
 
   const GEMINI_CONFIG =
-    "export default { pack: { id: 'my-pack', version: '0.1.0' }, providers: [{ preset: 'gemini', project: 'acme-gcp', models: ['gemini-2.5-flash'] }] };\n";
+    "export default { pack: { id: 'my-pack', version: '0.1.0' }, providers: [{ preset: 'gemini', project: 'acme-gcp', models: ['gemini-3.5-flash-lite'] }] };\n";
   // A provider this pack registered reads `unchanged` next boot; one it
   // doesn't know as its own reads as someone else's.
   const OWN = 'gemini (unchanged)';

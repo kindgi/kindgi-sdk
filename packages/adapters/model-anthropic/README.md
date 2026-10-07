@@ -74,7 +74,7 @@ A single-key deployment passes `apiKey: process.env.ANTHROPIC_API_KEY` (checked 
 - **Streaming.** `invoke()` resolves with the complete response; streaming would need a different `ModelProvider` interface.
 - **Extended thinking.** `ModelMessage` has no thinking field; `thinking` blocks in responses are dropped.
 - **Image inputs.** `ModelMessage` content is text only.
-- **Structured output.** `structuredOutput` on `ModelCallInput` is ignored.
+- **Structured output.** `structuredOutput` on `ModelCallInput` is ignored. No Kindgi caller sends it today: an agent's typed output is checked by parse and repair on every provider, so the anthropic preset's models still declare `structured-output` (they can follow a JSON schema natively).
 - **Retry logic in the adapter.** Retries and timeouts are the SDK client's (`clientOptions.maxRetries`, `clientOptions.timeout`).
 
 ## Related

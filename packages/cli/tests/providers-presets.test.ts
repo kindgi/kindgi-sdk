@@ -163,19 +163,19 @@ describe('the bundled presets', () => {
     expect(
       caps(presetRegistration(gemini, { envName: 'local', settings: { project: 'acme' } })),
     ).toEqual([
-      ['gemini-2.5-pro', 65_536],
-      ['gemini-2.5-flash', 65_536],
+      ['gemini-3.8-flash', 65_536],
+      ['gemini-3.5-flash-lite', 65_536],
     ]);
     expect(
       caps(
         presetRegistration(gemini, {
           envName: 'local',
           settings: { project: 'acme' },
-          models: ['gemini-2.5-pro'],
+          models: ['gemini-3.8-flash'],
           maxOutputTokens: 16_384,
         }),
       ),
-    ).toEqual([['gemini-2.5-pro', 16_384]]);
+    ).toEqual([['gemini-3.8-flash', 16_384]]);
     expect(
       caps(
         presetRegistration(gemini, {
@@ -185,6 +185,25 @@ describe('the bundled presets', () => {
         }),
       ),
     ).toBe('--max-output-tokens must be a whole number of at least 1, got 0');
+  });
+
+  test('Gemini models checked live with typed output declare structured-output, so an agent that needs it routes to them', async () => {
+    const presets = await loadProviderPresets();
+    const typed = (name: 'gemini' | 'gemini-api', settings: Record<string, string>) => {
+      const preset = presets[name];
+      if (preset === undefined) throw new Error(`preset ${name} missing`);
+      const r = presetRegistration(preset, { envName: 'local', settings });
+      if (r.kind !== 'ok') throw new Error(r.message);
+      return r.input.metadata.models
+        .filter((m) => m.features.includes('structured-output'))
+        .map((m) => m.name);
+    };
+    expect(typed('gemini', { project: 'acme' })).toEqual([
+      'gemini-3.8-flash',
+      'gemini-3.5-flash-lite',
+    ]);
+    // gemini-3.1-pro-preview hasn't been checked with typed output.
+    expect(typed('gemini-api', {})).toEqual(['gemini-3.8-flash', 'gemini-3.5-flash-lite']);
   });
 });
 
@@ -229,7 +248,11 @@ describe('kindgi providers presets', () => {
     expect(JSON.parse(out.stdout)).toMatchObject([
       { name: 'anthropic', secret: 'ANTHROPIC_API_KEY' },
       { name: 'gemini-api', secret: 'GEMINI_API_KEY' },
-      { name: 'gemini', needs: ['--project'], models: ['gemini-2.5-pro', 'gemini-2.5-flash'] },
+      {
+        name: 'gemini',
+        needs: ['--project'],
+        models: ['gemini-3.8-flash', 'gemini-3.5-flash-lite'],
+      },
       { name: 'groq', secret: 'GROQ_API_KEY' },
       {
         name: 'openai',

@@ -1,5 +1,47 @@
 # @kindgi/api
 
+## 0.1.4-rc.5
+
+### Patch Changes
+
+- 29fbd56: `kindgi` shows the server's own code for any server-class error that carries one: `Error [gate-failed]: …`, `Error [budget-exceeded]: …`, `Error [secret-store-error]: …`, instead of `Error [server]: …`. A conflict still shows its reason, a typed family (`not-found`, `auth`, `invalid-request`) its family, and a body with no code `server`.
+  
+  `tool-version-unresolvable` (a tool the agent names has no version in its range) is now `422`, as its sibling turn failures (`model-invocation-failed`, `budget-exceeded`) are. It answered `500` before. `capability-unsatisfiable` (no registered provider satisfies the `needs`) gets a `422` entry too; a turn reports it as the cause of `capability-routing-failed`, which was already `422`.
+- 52c8f98: Rotating or revoking a secret under `kindgi dev` (the env-file store) answered `500 secret-store-error`, which reads as "the server broke, try again". The store doesn't do either by design, so it's now `501 secret-operation-unsupported`. The message says what to do instead: edit the value in the env files, or remove the name there. `SecretError` gains the code.
+- 9801f64: **Request logs and trace context.**
+  
+  - **`createApp({ logger })`** takes a `@kindgi/log` logger. Without one, the app stays quiet.
+    - Each request gets `c.var.log`, with subsystem `http` and its `requestId`, `traceId` and `spanId` (plus `tenantId` once authenticated), and `c.var.trace`.
+    - An incoming `traceparent` is honoured, with a new span; a missing or malformed one starts a fresh trace. Every response answers `traceresponse`.
+  - **The access line:** `METHOD /v1/runs/:runId 200 12ms`, with the route's pattern and never the raw path.
+    - Writes and 4xx are logged at `info`, 5xx at `error`.
+    - Successful reads, probes and stream openings are logged at `debug`, so `info` stays readable while a console polls.
+    - A 500 also logs the error itself, redacted.
+  - **Runs carry their trace.** Starting a run hands the request's trace to the run handler (`RunTrace` on the agent and flow invoke inputs). `RunFlowInput`, `StartRunParams` and `KernelRunRecord` take an optional `traceId`. `Run.traceId` is on the wire when a run has one: optional in the TypeScript client, `trace_id` in the Python client.
+  - **Pack protocol 2.4.1:** the optional `traceparent` request header (`PACK_HEADERS.traceparent`), so a pack service's records can carry the run's trace id.
+  - **`KINDGI_LOG_LEVEL`, `KINDGI_LOG_LEVELS` and `KINDGI_LOG_FORMAT`** are in the env schema, for the runtime server. Under `auto`, the format is pretty on a terminal or with `KINDGI_DEV=true`.
+  - **`kindgi dev`** runs the runtime with pretty logs (`KINDGI_LOG_FORMAT=pretty`) and keeps only its last 200 lines in memory.
+- Updated dependencies [9801f64]
+- Updated dependencies [9801f64]
+  - @kindgi/log@0.1.4-rc.5
+  - @kindgi/runtime@0.1.4-rc.5
+  - @kindgi/agents@0.1.4-rc.5
+  - @kindgi/capabilities@0.1.4-rc.5
+  - @kindgi/compliance@0.1.4-rc.5
+  - @kindgi/flow@0.1.4-rc.5
+  - @kindgi/guardrails@0.1.4-rc.5
+  - @kindgi/provenance@0.1.4-rc.5
+  - @kindgi/schema@0.1.4-rc.5
+  - @kindgi/tools@0.1.4-rc.5
+  - @kindgi/audit-events@0.1.4-rc.5
+  - @kindgi/authz@0.1.4-rc.5
+  - @kindgi/blob-binding@0.1.4-rc.5
+  - @kindgi/crypto@0.1.4-rc.5
+  - @kindgi/memory@0.1.4-rc.5
+  - @kindgi/platform@0.1.4-rc.5
+  - @kindgi/policy-contract@0.1.4-rc.5
+  - @kindgi/types@0.1.4-rc.5
+
 ## 0.1.4-rc.4
 
 ### Patch Changes
