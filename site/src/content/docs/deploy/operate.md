@@ -34,6 +34,10 @@ To avoid it, restart when no runs are executing.
 
 ## Check health and logs
 
+The log lines on this page are in the pretty format. A runtime in a container
+logs JSON unless `KINDGI_LOG_FORMAT=pretty` is set; [Logs](../logs/) has both
+formats, the levels, and how to follow one request.
+
 ```sh
 curl -s http://localhost:4000/health
 ```
@@ -66,7 +70,7 @@ kindgi-server   Up 34 seconds (healthy)
 `docker ps` shows `(unhealthy)` while the database is down, and the runtime's log says why:
 
 ```text
-[ready] the database doesn't answer: host not found (getaddrinfo ENOTFOUND kindgi-db)
+17:37:34.151 WARN  [ready] the database doesn't answer: no answer within 2000 ms
 ```
 
 A route that reads the database answers `500` and names the cause. With Postgres unreachable, `GET /v1/deployments` answers:
@@ -81,7 +85,7 @@ curl -s http://localhost:4000/v1/deployments -H "authorization: Bearer $KINDGI_A
 
 ### The startup log
 
-The runtime prints what it's running with when it starts (`docker logs kindgi-server`). The lines to check after a change:
+The runtime prints what it's running with when it starts (`docker logs kindgi-server`; in the JSON format they're the `lines` of its `boot` record). The lines to check after a change:
 
 ```text
   Token:   kgi_bt_…65bb (provided)
@@ -106,14 +110,14 @@ repairs the runs the stop left mid-way
 repair is a line in its log:
 
 ```text
-[run-leases] resuming run <run id> (tenant <tenant id>): its wait resolved and nothing resumed it
-[run-leases] woke the flow run waiting on child run <run id> …: the child had moved on
-[run-leases] ended run <run id> …: its parent run had ended
+<time> INFO  [leases] resuming run <run id> (tenant <tenant id>): its wait resolved and nothing resumed it
+<time> INFO  [leases] woke the flow run waiting on child run <run id> …: the child had moved on
+<time> INFO  [leases] ended run <run id> …: its parent run had ended
 ```
 
 ### Where errors show
 
-- **A setting the runtime refuses** (a missing license key, for example): it exits with code 2, and its log says what to fix.
+- **A setting the runtime refuses** (a missing license key, or a log setting it can't use): it exits with code 2, and its log says what to fix.
 - **A database it can't reach while starting:** it exits with code 1, and its log says which database and why, never the password. Here Postgres wasn't running:
 
   ```sh
@@ -218,7 +222,7 @@ Migrations only go forward, and an older runtime isn't guaranteed to work on a d
 - **With authorization on** (`KINDGI_OPENFGA_API_URL`), the first start brings each tenant's authorization store up to 0.1.4's model, with a line per store before the banner:
 
   ```text
-  [authz] tenant 8c3b6779-c02b-47e1-a9e1-4d0cd7f0c5a7: store 01M48C11G6C00WQXYMAJEWH7DW now has the current model (01M48C11V76E0C6APGAKKPRXXK → 01M48C24EGSZQHYJMEE2ZD88S2)
+  <time> INFO  [authz] tenant 8c3b6779-c02b-47e1-a9e1-4d0cd7f0c5a7: store 01M48C11G6C00WQXYMAJEWH7DW now has the current model (01M48C11V76E0C6APGAKKPRXXK → 01M48C24EGSZQHYJMEE2ZD88S2)
   ```
 
   Later starts print nothing. A store it can't reach gets a warning instead (`could not bring store … up to the current model`), the runtime starts anyway, and the next start tries again.
