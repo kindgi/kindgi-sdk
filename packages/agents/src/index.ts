@@ -168,6 +168,7 @@ export type {
   MessageRole,
   PromptParameter,
   PromptRef,
+  RecalledMemory,
   RememberPolicy,
   RememberScope,
   RetrievalIntent,

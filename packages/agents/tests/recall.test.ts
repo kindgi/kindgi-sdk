@@ -127,7 +127,7 @@ async function recall(
 }
 
 describe('what each scope recalls', () => {
-  test("same-user: this person's other conversations with this agent, within the run's readers", async () => {
+  test("same-user: the end user's other conversations with this agent, within the run's readers", async () => {
     const { out, searches } = await recall(
       { source: 'conversations', scope: 'same-user' },
       { run: { projectId, userId: 'alice' as UserId } },
@@ -135,12 +135,28 @@ describe('what each scope recalls', () => {
     expect(out.kind).toBe('ok');
     expect(searches).toHaveLength(1);
     expect(searches[0]?.mode).toBe('list');
+    // The end user is the person: not the user the run acts for (an app's
+    // credential is one user for all its end users).
     expect(searches[0]?.selections).toEqual([
       { agentId: 'acme.desk', participantId: 'end-7', excludeConversationId: 'conv-now' },
-      { agentId: 'acme.desk', userId: 'alice', excludeConversationId: 'conv-now' },
     ]);
     // Only the person's own: no reading for everyone in the project.
     expect(searches[0]?.readers.onBehalfOfProjectIds).toBeUndefined();
+  });
+
+  test('same-user without an end user: the user the run acts for', async () => {
+    const m = memory();
+    await retrieveForTurn(
+      agentWith({ source: 'conversations', scope: 'same-user' }),
+      { ...conversation, participantId: undefined } as unknown as Conversation,
+      conversationId,
+      'hi',
+      { memory: m.binding },
+      { projectId, userId: 'alice' as UserId },
+    );
+    expect(m.searches[0]?.selections).toEqual([
+      { agentId: 'acme.desk', userId: 'alice', excludeConversationId: 'conv-now' },
+    ]);
   });
 
   test("same-project: other people's conversations, in the run's own project only", async () => {

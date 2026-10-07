@@ -421,9 +421,12 @@ export type PromptChange =
  * A retrieval intent — mirror of `Agent.retrieval[]` shape.
  */
 export interface RetrievalIntentShape {
-  readonly types: readonly string[];
-  readonly scope: 'same-conversation' | 'same-user' | 'same-project' | 'tenant';
+  readonly source?: 'facts' | 'conversations';
+  /** Required for facts; not used for conversations. */
+  readonly types?: readonly string[];
+  readonly scope: 'same-conversation' | 'same-user' | 'same-segment' | 'same-project' | 'tenant';
   readonly limit?: number;
+  readonly mode?: 'keyword' | 'semantic' | 'both';
 }
 
 export type RetrievalChange =

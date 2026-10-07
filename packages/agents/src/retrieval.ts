@@ -546,16 +546,16 @@ function recallSelectionsFor(intent: RetrievalIntent, q: RecallQuery): readonly 
   const projectId = runProjectId(q.conversation, q.run) as string | undefined;
   switch (intent.scope) {
     case 'same-user': {
+      // The turn's person: its end user when it has one, else the user it
+      // acts for (an app's credential is one user for all its end users).
       const participantId = runParticipantId(q.conversation, q.run);
       const userId = q.run.userId as string | undefined;
-      return [
-        ...(participantId !== undefined
-          ? [{ agentId, participantId, excludeConversationId: conversationId }]
-          : []),
-        ...(userId !== undefined
-          ? [{ agentId, userId, excludeConversationId: conversationId }]
-          : []),
-      ];
+      if (participantId !== undefined) {
+        return [{ agentId, participantId, excludeConversationId: conversationId }];
+      }
+      return userId !== undefined
+        ? [{ agentId, userId, excludeConversationId: conversationId }]
+        : [];
     }
     case 'same-conversation':
       return q.run.historyFrom !== undefined && q.run.historyFrom > 0
@@ -581,18 +581,20 @@ function recallSelectionsFor(intent: RetrievalIntent, q: RecallQuery): readonly 
   }
 }
 
-/** A message from a conversation that was neither this turn's end user's nor its user's. */
+/**
+ * A message from another person's conversation. A conversation's person
+ * is its end user, else its user; the turn's, likewise. One with no
+ * person at all is another's: who had it is unknown.
+ */
 function isAnotherPerson(
   message: RecallHit['message'],
   person: { readonly participantId?: string; readonly userId?: string },
   conversationId: ConversationId,
 ): boolean {
   if (message.conversationId === (conversationId as unknown as string)) return false;
-  if (person.participantId !== undefined && message.participantId === person.participantId) {
-    return false;
-  }
-  if (person.userId !== undefined && message.userId === person.userId) return false;
-  return true;
+  const theirs = message.participantId ?? message.userId;
+  const mine = person.participantId ?? person.userId;
+  return theirs === undefined || theirs !== mine;
 }
 
 function runProjectId(conversation: Conversation, run: RetrievalRun): ProjectId | undefined {

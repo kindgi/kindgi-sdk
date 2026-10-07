@@ -62,6 +62,26 @@ describe('isRecallReadableBy', () => {
     ).toBe(false);
   });
 
+  test("an app's credential is one user for all its end users: the user never opens an end user's conversation", () => {
+    const app: MemoryReaders = {
+      projectIds: [p1],
+      userIds: ['app-user' as never],
+      participantIds: ['end-7'],
+    };
+    expect(
+      isRecallReadableBy(
+        { conversationId: 'c-8', projectId: 'p-1', participantId: 'end-8', userId: 'app-user' },
+        app,
+      ),
+    ).toBe(false);
+    expect(
+      isRecallReadableBy(
+        { conversationId: 'c-9', projectId: 'p-1', participantId: 'end-7', userId: 'app-user' },
+        app,
+      ),
+    ).toBe(true);
+  });
+
   test('the user the run acts for: their own conversations', () => {
     const readers: MemoryReaders = { projectIds: [p1], userIds: ['alice' as never] };
     expect(

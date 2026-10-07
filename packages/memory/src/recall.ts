@@ -84,11 +84,15 @@ export interface RecallRow {
  * (`isReadableBy`): a conversation is always someone's.
  *   - **Its project:** one the readers have, or act in for every end user
  *     (`onBehalfOfProjectIds`). A conversation without a project passes
- *     only by the person or the conversation itself.
- *   - **Its person:** the readers are in it (`threadIds`), are its end
- *     user (`participantIds`) or its user (`userIds`), or act in its
- *     project for every end user. A conversation naming no person is
- *     readable only from inside it, or for its whole project.
+ *     only by its person or the conversation itself.
+ *   - **Its person:** its end user when it has one, else the Kindgi user
+ *     its turns acted for. The readers must be that person
+ *     (`participantIds`, or `userIds` for a conversation without an end
+ *     user), be in the conversation (`threadIds`), or act in its project
+ *     for every end user. An app's credential is one Kindgi user for all
+ *     of its end users, so the user never opens an end user's
+ *     conversation. A conversation naming no person is readable only
+ *     from inside it, or for its whole project.
  */
 export function isRecallReadableBy(row: RecallRow, readers: MemoryReaders): boolean {
   if (readers.all === true) return true;
@@ -102,10 +106,13 @@ export function isRecallReadableBy(row: RecallRow, readers: MemoryReaders): bool
   ) {
     return false;
   }
+  const isPerson =
+    row.participantId !== undefined
+      ? has(readers.participantIds, row.participantId)
+      : has(readers.userIds as readonly string[] | undefined, row.userId);
   return (
+    isPerson ||
     has(readers.threadIds as readonly string[] | undefined, row.conversationId) ||
-    has(readers.participantIds, row.participantId) ||
-    has(readers.userIds as readonly string[] | undefined, row.userId) ||
     onBehalf
   );
 }
