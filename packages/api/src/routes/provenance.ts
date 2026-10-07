@@ -2,15 +2,19 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { Hono } from 'hono';
+import type { Context, Next } from 'hono';
 
 import type { ConversationBinding } from '@kindgi/agents';
+import { ref } from '@kindgi/authz';
 import { serializePublicKeyPem, signEd25519 } from '@kindgi/crypto';
 import type { SigningKeyBinding } from '@kindgi/crypto';
+import type { RunBinding } from '@kindgi/runtime';
 import { canonicalize } from '@kindgi/schema';
 import type { ConversationId, RunId, SigningKeyId, TenantId, Timestamp } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 
+import type { Authorizer } from '../middleware/authorize.js';
 import type {
   CallUsageByCallId,
   ProvenanceBinding,
@@ -48,6 +52,8 @@ export interface ProvenanceRouterOptions {
    * DAGs. Absent = the export omits messages (empty array).
    */
   readonly conversationBinding?: ConversationBinding;
+  /** Where a run's project is read, for the per-run checks (T243 A). */
+  readonly runBinding?: RunBinding;
 }
 
 /** Bundle schema version — bump when the wire shape of `bundle.body` changes. */
@@ -57,8 +63,28 @@ const BUNDLE_SCHEMA_VERSION = '1.1.0';
 export function provenanceRouter(
   binding: ProvenanceBinding,
   options: ProvenanceRouterOptions = {},
+  /**
+   * With one (T243 A): a run's provenance (and its export) needs `read`
+   * on the run's project; the list holds only records whose project the
+   * caller may read (the tenant, for one with no project).
+   */
+  authorizer?: Authorizer,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  if (authorizer !== undefined) {
+    // A run that isn't there is the handler's 404 (`read` on the tenant).
+    const onRunProject = async (c: Context<AppEnv>, next: Next) => {
+      const tenantId = c.get('tenantId') as TenantId;
+      const run = await options.runBinding?.getRun(tenantId, c.req.param('runId') as RunId);
+      const at =
+        run === undefined || run === null
+          ? ref('tenant', tenantId as unknown as string)
+          : ref('project', run.projectId as unknown as string);
+      return authorizer.authorize('read', () => at)(c, next);
+    };
+    r.use('/:runId', async (c, next) => (c.req.method === 'GET' ? onRunProject(c, next) : next()));
+    r.use('/:runId/export', onRunProject);
+  }
   const signingKey = options.signingKey;
 
   // ---------- GET / (list metadata, cursor-paginated) ----------
@@ -125,8 +151,16 @@ export function provenanceRouter(
     }
     const { records, nextCursor } = result.value;
     const hasMore = nextCursor !== undefined;
+    const visible =
+      authorizer === undefined
+        ? records
+        : await authorizer.filterByCan(c, 'read', records, (rec) =>
+            rec.projectId !== undefined
+              ? ref('project', rec.projectId as unknown as string)
+              : ref('tenant', tenantId as unknown as string),
+          );
     return c.json({
-      data: records.map(serializeRecordMetadata),
+      data: visible.map(serializeRecordMetadata),
       hasMore,
       ...(nextCursor !== undefined && {
         nextCursor: encodeCursor({ createdAt: nextCursor.createdAt, id: nextCursor.id }),

@@ -1063,7 +1063,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     );
   }
   if (input.enableObservations === true && input.supervisor !== undefined) {
-    v1.route('/observations', observationsRouter(input.supervisor));
+    v1.route('/observations', observationsRouter(input.supervisor, authorizer));
   }
   if (input.agentRegistry !== undefined) {
     v1.route(
@@ -1120,10 +1120,15 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   }
   v1.route(
     '/provenance',
-    provenanceRouter(input.provenanceBinding, {
-      conversationBinding: input.conversationBinding,
-      ...(input.signingKey !== undefined && { signingKey: input.signingKey }),
-    }),
+    provenanceRouter(
+      input.provenanceBinding,
+      {
+        conversationBinding: input.conversationBinding,
+        runBinding,
+        ...(input.signingKey !== undefined && { signingKey: input.signingKey }),
+      },
+      authorizer,
+    ),
   );
   if (
     input.auditEvents !== undefined &&
@@ -1177,7 +1182,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     }),
   );
   if (input.cost !== undefined) {
-    v1.route('/cost', costRouter(input.cost));
+    v1.route('/cost', costRouter(input.cost, authorizer));
   }
   if (input.adapterRegistry !== undefined) {
     v1.route(
