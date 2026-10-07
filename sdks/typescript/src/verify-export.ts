@@ -1,0 +1,130 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Kindgi Inc.
+
+/**
+ * Verify a signed export (an approval's audit bundle, a run's
+ * provenance, compliance evidence) where it's read: Web Crypto's
+ * Ed25519, so it runs in Node and in a browser alike, with nothing to
+ * install.
+ *
+ * It checks the signature over the exact bytes shipped (`bundle`):
+ * nothing is re-serialized. A signature that checks out against the
+ * export's own `publicKey` proves the bytes weren't changed; pass
+ * `trustedKeys` (from `exportSigningKeys.list()`, or a key you pinned)
+ * to know who signed them.
+ */
+
+/** The envelope every signed export answers. */
+export interface SignedExportEnvelope {
+  readonly kind?: 'audit-bundle' | 'provenance' | 'compliance';
+  readonly bundle: string;
+  readonly bundleSchemaVersion: string | number;
+  readonly algorithm: string;
+  readonly signingKeyId: string;
+  readonly signature: string;
+  readonly publicKey: string;
+  readonly canonicalization: string;
+  readonly exportedAt: string;
+}
+
+export interface VerifySignedExportOptions {
+  /** The public keys (PEM) you trust. Absent: the export is checked against its own key only. */
+  readonly trustedKeys?: readonly string[];
+}
+
+export interface SignedExportVerification {
+  /** The signature checks out (and, with `trustedKeys`, the key is one of them). */
+  readonly valid: boolean;
+  /** What failed, in words. Present when `valid` is `false`. */
+  readonly issues?: readonly string[];
+  /** Whether the signing key was checked against `trustedKeys`, or only against itself. */
+  readonly checkedAgainst: 'trusted-keys' | 'its-own-key';
+  /** The signed body, parsed: present when the signature checks out. */
+  readonly body?: Readonly<Record<string, unknown>>;
+  readonly signingKeyId: string;
+}
+
+/** Verify a signed export's signature, and its key when `trustedKeys` is given. */
+export async function verifySignedExport(
+  envelope: SignedExportEnvelope,
+  options: VerifySignedExportOptions = {},
+): Promise<SignedExportVerification> {
+  const issues: string[] = [];
+  const checkedAgainst = options.trustedKeys !== undefined ? 'trusted-keys' : 'its-own-key';
+  const fail = (): SignedExportVerification => ({
+    valid: false,
+    issues,
+    checkedAgainst,
+    signingKeyId: envelope.signingKeyId,
+  });
+
+  if (envelope.algorithm !== 'ed25519')
+    issues.push(`algorithm "${envelope.algorithm}" isn't ed25519`);
+  if (envelope.canonicalization !== 'sorted-key-json') {
+    issues.push(`canonicalization "${envelope.canonicalization}" isn't sorted-key-json`);
+  }
+  if (
+    options.trustedKeys !== undefined &&
+    !options.trustedKeys.some((pem) => samePem(pem, envelope.publicKey))
+  ) {
+    issues.push(`it was signed with key "${envelope.signingKeyId}", which isn't one you trust`);
+  }
+  if (issues.length > 0) return fail();
+
+  let bytes: Uint8Array;
+  let signed: boolean;
+  try {
+    bytes = fromBase64(envelope.bundle);
+    const key = await crypto.subtle.importKey(
+      'spki',
+      toArrayBuffer(fromPem(envelope.publicKey)),
+      { name: 'Ed25519' },
+      false,
+      ['verify'],
+    );
+    signed = await crypto.subtle.verify(
+      { name: 'Ed25519' },
+      key,
+      toArrayBuffer(fromBase64(envelope.signature)),
+      toArrayBuffer(bytes),
+    );
+  } catch (cause) {
+    issues.push(`it can't be checked: ${cause instanceof Error ? cause.message : String(cause)}`);
+    return fail();
+  }
+  if (!signed) {
+    issues.push(
+      "the signature doesn't match the bundle: it was changed, or signed with another key",
+    );
+    return fail();
+  }
+
+  const body = JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>;
+  // The envelope's own exportedAt isn't signed; the body's is.
+  if (body.exportedAt !== undefined && body.exportedAt !== envelope.exportedAt) {
+    issues.push(
+      `the envelope's exportedAt (${envelope.exportedAt}) isn't the signed one (${String(body.exportedAt)})`,
+    );
+    return fail();
+  }
+  return { valid: true, checkedAgainst, body, signingKeyId: envelope.signingKeyId };
+}
+
+function samePem(a: string, b: string): boolean {
+  return a.replace(/\s+/g, '') === b.replace(/\s+/g, '');
+}
+
+function fromPem(pem: string): Uint8Array {
+  return fromBase64(pem.replace(/-----(BEGIN|END) [A-Z ]+-----/g, '').replace(/\s+/g, ''));
+}
+
+function fromBase64(b64: string): Uint8Array {
+  const binary = atob(b64);
+  const out = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) out[i] = binary.charCodeAt(i);
+  return out;
+}
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+}

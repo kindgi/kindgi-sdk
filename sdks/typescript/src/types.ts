@@ -762,8 +762,9 @@ export interface AuditBundle {
   readonly approvalId: ApprovalId;
   /** Base64-encoded canonical JSON of the bundle body. */
   readonly bundle: string;
-  /** Integer schema version for the bundle body. Currently `1`. */
-  readonly bundleSchemaVersion: number;
+  readonly kind?: 'audit-bundle';
+  /** The body's version, semver: `2.0.0` (it was the integer `1`). */
+  readonly bundleSchemaVersion: string;
   readonly algorithm: 'ed25519';
   readonly signingKeyId: string;
   /** Base64-encoded Ed25519 signature over the bundle bytes. */
@@ -1246,6 +1247,7 @@ export interface ProvenanceRecordMetadata {
  */
 export interface ExportedProvenance {
   readonly runId: import('@kindgi/types').RunId;
+  readonly kind?: 'provenance';
   readonly bundle: string;
   readonly bundleSchemaVersion: string;
   readonly algorithm: 'ed25519';

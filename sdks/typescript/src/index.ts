@@ -293,6 +293,16 @@ export type {
   TrustedSigningKey,
 } from './resources/signing-keys.js';
 export type {
+  ExportSigningKey,
+  ExportSigningKeysClient,
+} from './resources/export-signing-keys.js';
+export { verifySignedExport } from './verify-export.js';
+export type {
+  SignedExportEnvelope,
+  SignedExportVerification,
+  VerifySignedExportOptions,
+} from './verify-export.js';
+export type {
   ComplianceClient,
   Evidence,
   EvidenceClient,

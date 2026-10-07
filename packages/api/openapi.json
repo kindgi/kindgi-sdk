@@ -66,7 +66,11 @@
     },
     {
       "name": "provenance",
-      "description": "Causal DAG readback + signed exports (list, get, export — signing is caller-plugged via `SigningKeyBinding`)."
+      "description": "Causal DAG readback + signed exports (list, get, export), signed with the deployment's export key."
+    },
+    {
+      "name": "export-signing-keys",
+      "description": "The public keys this deployment signs its exports with (audit bundles, provenance, compliance evidence): what a verifier pins."
     },
     {
       "name": "artifacts",
@@ -138,7 +142,7 @@
     },
     {
       "name": "compliance",
-      "description": "Compliance-evidence readback + signed exports (list, get, export). Reads are a classification lens over `AuditEventBinding`; only classifier-marked `exportable` kinds appear on the wire. Signed export is caller-plugged via `SigningKeyBinding` — deployments without a signing key get `404 signing-not-configured`. Bundle envelope matches `provenance.export` + audit-bundle byte-for-byte so verifiers reuse one `verifyEd25519` wrapper across all three surfaces. Redaction happens when evidence is generated, not at the export boundary — records are stored already redacted."
+      "description": "Compliance-evidence readback + signed exports (list, get, export). Reads are a classification lens over `AuditEventBinding`; only classifier-marked `exportable` kinds appear on the wire. A signed export is signed with the export signing key of the deployment (`exportSigning`); a deployment without one answers `404 signing-not-configured`. It is the same envelope as the audit-bundle and provenance exports, so one verifier reads all three. Redaction happens when evidence is generated, not at the export boundary — records are stored already redacted."
     },
     {
       "name": "audit",
@@ -2803,18 +2807,66 @@
           }
         }
       },
-      "ExportAuditBundleBody": {
-        "description": "Body for `POST /v1/approvals/{approvalId}/audit-bundle`. `signingKeyId` selects the Ed25519 key from the deployment's `signingKey` binding. `includeMessages` optionally hydrates conversation messages tied to the approval's run.",
+      "ExportSigningKey": {
+        "description": "A public key this deployment signs exports with.",
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "signingKeyId"
+          "keyId",
+          "algorithm",
+          "publicKeyPem",
+          "fingerprint",
+          "active"
         ],
+        "properties": {
+          "keyId": {
+            "type": "string",
+            "description": "Derived from the public key (`ex_` and 16 base64url characters), so the same key keeps its id."
+          },
+          "algorithm": {
+            "type": "string",
+            "const": "ed25519"
+          },
+          "publicKeyPem": {
+            "type": "string",
+            "description": "PEM SPKI."
+          },
+          "fingerprint": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "description": "`sha256:` and the hex SHA-256 of the raw public key: to pin it, or compare by eye."
+          },
+          "active": {
+            "type": "boolean",
+            "description": "Whether new exports are signed with it."
+          }
+        }
+      },
+      "ExportSigningKeyList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExportSigningKey"
+            },
+            "description": "Active first. Empty when the deployment doesn't sign exports."
+          }
+        }
+      },
+      "ExportAuditBundleBody": {
+        "description": "Body for `POST /v1/approvals/{approvalId}/audit-bundle`, optional: no body signs with the active key. `includeMessages` adds the conversation messages of the approval's run.",
+        "type": "object",
+        "additionalProperties": false,
         "properties": {
           "signingKeyId": {
             "type": "string",
             "minLength": 1,
-            "description": "The `SigningKeyId` the deployment plugs into its `signingKey` binding. Server looks up the private key via `signingKey.getPrivateKey(signingKeyId)` — 404 if unknown."
+            "description": "Optional: sign with this key, one of `GET /v1/export-signing-keys`. Leave it out to sign with the deployment's active key. A key the deployment doesn't sign with is `404 signing-key-not-found`."
           },
           "includeMessages": {
             "type": "boolean",
@@ -2824,7 +2876,7 @@
         }
       },
       "ExportAuditBundleResult": {
-        "description": "Signed exportable audit bundle. Same envelope shape as `ExportProvenanceResult` — clients can reuse the same `verifyEd25519` wrapper for both. `bundle` is base64 of the exact bytes that were signed (sorted-key canonical JSON, no whitespace). Bundle body: `{ bundleVersion, approvalId, tenantId, subjectKind, subjectRef, requiredRole, status, decision, decidedAt?, evidence: { guardrailResults?, messages? }, createdAt, exportedAt }`.",
+        "description": "A decided approval's signed audit bundle. Body: `{ bundleSchemaVersion, approvalId, tenantId, subjectKind, subjectRef, requiredRole, status, createdAt, decidedAt?, decision, evidence: { guardrailResults?, messages? }, exportedAt }`.",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -2843,37 +2895,44 @@
             "type": "string",
             "format": "uuid"
           },
+          "kind": {
+            "type": "string",
+            "const": "audit-bundle",
+            "description": "Which export this is: `audit-bundle`, `provenance` or `compliance`. Absent from older servers."
+          },
           "bundle": {
             "type": "string",
-            "description": "Base64-encoded canonical JSON of the bundle body."
+            "description": "Base64 of the exact bytes that were signed: the body, as sorted-key JSON with no whitespace. Verify these bytes; nothing needs re-serializing."
           },
           "bundleSchemaVersion": {
-            "type": "integer",
-            "description": "Integer schema version for the bundle body shape. Currently `1`."
+            "type": "string",
+            "description": "The body's version, semver. `2.0.0`: a string like the other exports' (it was the integer `1`), named `bundleSchemaVersion` in the body too, with `exportedAt` signed once."
           },
           "algorithm": {
             "type": "string",
             "const": "ed25519"
           },
           "signingKeyId": {
-            "type": "string"
+            "type": "string",
+            "description": "The key that signed it: one of `GET /v1/export-signing-keys`."
           },
           "signature": {
             "type": "string",
-            "description": "Base64-encoded Ed25519 signature over `bundle` (after base64-decode)."
+            "description": "Base64 of the 64-byte Ed25519 signature over the `bundle` bytes."
           },
           "publicKey": {
             "type": "string",
-            "description": "PEM-encoded Ed25519 public key (DER SPKI envelope). Pass into `parsePublicKeyPem` for verification."
+            "description": "The signing key's public half, PEM SPKI. On its own it only proves the bytes weren't changed; check it against `GET /v1/export-signing-keys` (or a key you pinned) to know who signed them."
           },
           "canonicalization": {
             "type": "string",
             "const": "sorted-key-json",
-            "description": "Canonicalization algorithm — sorted-key JSON, no whitespace. Same algorithm as `canonicalize`."
+            "description": "Sorted-key JSON, no whitespace (`canonicalize` in `@kindgi/schema`)."
           },
           "exportedAt": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "When it was signed: the same instant as the signed body's `exportedAt`."
           }
         }
       },
@@ -7471,16 +7530,14 @@
         }
       },
       "ExportProvenanceBody": {
+        "description": "Optional: no body signs with the active key.",
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "signingKeyId"
-        ],
         "properties": {
           "signingKeyId": {
             "type": "string",
             "minLength": 1,
-            "description": "The `SigningKeyId` the deployment plugs into its `signingKey` binding. Server looks up the private key via `signingKey.getPrivateKey(signingKeyId)` — 404 if unknown."
+            "description": "Optional: sign with this key, one of `GET /v1/export-signing-keys`. Leave it out to sign with the deployment's active key. A key the deployment doesn't sign with is `404 signing-key-not-found`."
           },
           "includeMessages": {
             "type": "boolean",
@@ -7490,7 +7547,7 @@
         }
       },
       "ExportProvenanceResult": {
-        "description": "Signed exportable bundle. `bundle` is base64 of the exact bytes that were signed (sorted-key canonical JSON, no whitespace); verifiers can pass those bytes directly to `verifyEd25519`. The bundle body itself includes `bundleSchemaVersion`, `runId`, `tenantId`, `dag: { nodes, edges }`, `messages?` (if requested), `callUsage?` (the usage of the model calls, from the cost ledger), etc. See `canonicalization` for the deterministic serialization algorithm.",
+        "description": "A run's signed provenance. Body: `{ bundleSchemaVersion, provenanceId, runId, tenantId, version, createdAt, flowRef?, dag: { nodes, edges }, messages?, callUsage?, exportedAt }`; `callUsage` is each model call's usage from the cost ledger, as it stood when signed.",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -7509,37 +7566,44 @@
             "type": "string",
             "format": "uuid"
           },
+          "kind": {
+            "type": "string",
+            "const": "provenance",
+            "description": "Which export this is: `audit-bundle`, `provenance` or `compliance`. Absent from older servers."
+          },
           "bundle": {
             "type": "string",
-            "description": "Base64-encoded canonical JSON of the bundle body."
+            "description": "Base64 of the exact bytes that were signed: the body, as sorted-key JSON with no whitespace. Verify these bytes; nothing needs re-serializing."
           },
           "bundleSchemaVersion": {
             "type": "string",
-            "description": "Semver for the shape of the bundle body. Currently `1.1.0`, which adds `callUsage`: each model call's usage from the cost ledger, by call id, as it stood when signed."
+            "description": "The body's version, semver. `1.2.0` adds `exportedAt` to the signed body; `1.1.0` added `callUsage`."
           },
           "algorithm": {
             "type": "string",
             "const": "ed25519"
           },
           "signingKeyId": {
-            "type": "string"
+            "type": "string",
+            "description": "The key that signed it: one of `GET /v1/export-signing-keys`."
           },
           "signature": {
             "type": "string",
-            "description": "Base64-encoded Ed25519 signature bytes over `bundle` (after base64-decode)."
+            "description": "Base64 of the 64-byte Ed25519 signature over the `bundle` bytes."
           },
           "publicKey": {
             "type": "string",
-            "description": "PEM-encoded Ed25519 public key (DER SPKI envelope). Callers can pass this straight into `parsePublicKeyPem` for verification."
+            "description": "The signing key's public half, PEM SPKI. On its own it only proves the bytes weren't changed; check it against `GET /v1/export-signing-keys` (or a key you pinned) to know who signed them."
           },
           "canonicalization": {
             "type": "string",
             "const": "sorted-key-json",
-            "description": "Canonicalization algorithm — sorted-key JSON, no whitespace. Same algorithm as `canonicalize`."
+            "description": "Sorted-key JSON, no whitespace (`canonicalize` in `@kindgi/schema`)."
           },
           "exportedAt": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "When it was signed: the same instant as the signed body's `exportedAt`."
           }
         }
       },
@@ -12200,16 +12264,14 @@
         }
       },
       "ExportComplianceEvidenceBody": {
+        "description": "Optional: no body exports every exportable kind, signed with the active key.",
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "signingKeyId"
-        ],
         "properties": {
           "signingKeyId": {
             "type": "string",
             "minLength": 1,
-            "description": "The `SigningKeyId` the deployment plugs into its `signingKey` binding. Server looks up the private key via `signingKey.getPrivateKey(signingKeyId)` — 404 `signing-key-not-found` if unknown."
+            "description": "Optional: sign with this key, one of `GET /v1/export-signing-keys`. Leave it out to sign with the deployment's active key. A key the deployment doesn't sign with is `404 signing-key-not-found`."
           },
           "filter": {
             "type": "object",
@@ -12277,13 +12339,13 @@
         }
       },
       "SignedComplianceEvidenceBundle": {
-        "description": "Signed exportable bundle. `bundle` is base64 of the exact bytes that were signed (sorted-key canonical JSON, no whitespace); verifiers can pass those bytes directly to `verifyEd25519`. Bundle body: `{ bundleSchemaVersion, tenantId, filter, records, recordCount, exportedAt }`. Envelope shape identical to `ExportProvenanceResult` + audit-bundle — verifiers reuse one `verifyEd25519` wrapper across all three surfaces.",
+        "description": "Signed compliance evidence. Body: `{ bundleSchemaVersion, tenantId, filter, records, recordCount, exportedAt }`.",
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "bundleSchemaVersion",
           "tenantId",
           "bundle",
+          "bundleSchemaVersion",
           "algorithm",
           "signingKeyId",
           "signature",
@@ -12292,41 +12354,48 @@
           "exportedAt"
         ],
         "properties": {
-          "bundleSchemaVersion": {
-            "type": "string",
-            "const": "1.0.0"
-          },
           "tenantId": {
             "type": "string",
             "format": "uuid"
           },
+          "kind": {
+            "type": "string",
+            "const": "compliance",
+            "description": "Which export this is: `audit-bundle`, `provenance` or `compliance`. Absent from older servers."
+          },
           "bundle": {
             "type": "string",
-            "description": "Base64-encoded canonical JSON of the bundle body."
+            "description": "Base64 of the exact bytes that were signed: the body, as sorted-key JSON with no whitespace. Verify these bytes; nothing needs re-serializing."
+          },
+          "bundleSchemaVersion": {
+            "type": "string",
+            "description": "The body's version, semver: `1.0.0`."
           },
           "algorithm": {
             "type": "string",
             "const": "ed25519"
           },
           "signingKeyId": {
-            "type": "string"
+            "type": "string",
+            "description": "The key that signed it: one of `GET /v1/export-signing-keys`."
           },
           "signature": {
             "type": "string",
-            "description": "Base64-encoded Ed25519 signature bytes over `bundle` (after base64-decode)."
+            "description": "Base64 of the 64-byte Ed25519 signature over the `bundle` bytes."
           },
           "publicKey": {
             "type": "string",
-            "description": "PEM-encoded Ed25519 public key (DER SPKI envelope). Callers can pass this straight into `parsePublicKeyPem` for verification."
+            "description": "The signing key's public half, PEM SPKI. On its own it only proves the bytes weren't changed; check it against `GET /v1/export-signing-keys` (or a key you pinned) to know who signed them."
           },
           "canonicalization": {
             "type": "string",
             "const": "sorted-key-json",
-            "description": "Canonicalization algorithm — sorted-key JSON, no whitespace. Same algorithm as `canonicalize`."
+            "description": "Sorted-key JSON, no whitespace (`canonicalize` in `@kindgi/schema`)."
           },
           "exportedAt": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "When it was signed: the same instant as the signed body's `exportedAt`."
           }
         }
       },
@@ -17390,7 +17459,7 @@
             }
           }
         },
-        "description": "Canonicalizes the approval + decision + evidence as sorted-key JSON and signs with the deployment's Ed25519 key looked up by `signingKeyId`. Envelope shape mirrors `provenance.export` byte-for-byte so SDK clients can reuse a single `verifyEd25519` wrapper for both. Only meaningful post-decision — pending approvals return `409 approval-not-decided`.",
+        "description": "Signs the approval, its decision and its evidence with the deployment's export key, and records the export (an `export-signed` audit event). The same envelope as the other signed exports, so one verifier reads all three; check `publicKey` against `GET /v1/export-signing-keys`. For a decided approval only (approved, rejected, escalated, expired, withdrawn): a pending one is `409 approval-not-decided`. A deployment with no export key answers `404 signing-not-configured`.",
         "parameters": [
           {
             "name": "approvalId",
@@ -17414,7 +17483,7 @@
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -23229,6 +23298,43 @@
         ]
       }
     },
+    "/v1/export-signing-keys": {
+      "get": {
+        "operationId": "exportSigningKeys.list",
+        "summary": "List the keys this deployment signs exports with",
+        "tags": [
+          "export-signing-keys"
+        ],
+        "responses": {
+          "200": {
+            "description": "The keys.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportSigningKeyList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "The public keys of the deployment's export signing key, active first: what a verifier pins. An export's embedded `publicKey` only proves its bytes weren't changed; this list says who signed them. Empty when the deployment doesn't sign exports. Any authenticated caller may read it.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/v1/provenance/{runId}/export": {
       "post": {
         "operationId": "provenance.export",
@@ -23298,7 +23404,7 @@
             }
           }
         },
-        "description": "Canonicalizes the record + optional messages as sorted-key JSON and signs with the deployment's Ed25519 key looked up by `signingKeyId`. Verification is a pure client-side operation: `verifyEd25519(publicKey, bundleBytes, signature)`. Deployments without a `signingKey` binding mounted return `404 signing-not-configured`.",
+        "description": "Signs the run's provenance (and, when asked, its messages) with the deployment's export key, and records the export (an `export-signed` audit event). The same envelope as the other signed exports; check `publicKey` against `GET /v1/export-signing-keys`. A deployment with no export key answers `404 signing-not-configured`.",
         "parameters": [
           {
             "name": "runId",
@@ -23322,7 +23428,7 @@
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -31166,7 +31272,7 @@
             }
           }
         },
-        "description": "Canonicalizes the filtered records as sorted-key JSON and signs with the deployment's Ed25519 key looked up by `signingKeyId`. Verification is a pure client-side operation: `verifyEd25519(publicKey, bundleBytes, signature)`. Envelope shape matches `ExportProvenanceResult` + audit-bundle — verifiers reuse one wrapper across all three surfaces. Deployments without a `signingKey` binding mounted return `404 signing-not-configured`.",
+        "description": "Signs the evidence the filter matches (exportable kinds only) with the deployment's export key, and records the export (an `export-signed` audit event). The same envelope as the other signed exports; check `publicKey` against `GET /v1/export-signing-keys`. A deployment with no export key answers `404 signing-not-configured`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -31180,7 +31286,7 @@
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {

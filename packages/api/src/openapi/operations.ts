@@ -1751,11 +1751,11 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'approvals.auditBundle',
     summary: 'Export a signed audit bundle for a decided approval',
     description:
-      "Canonicalizes the approval + decision + evidence as sorted-key JSON and signs with the deployment's Ed25519 key looked up by `signingKeyId`. Envelope shape mirrors `provenance.export` byte-for-byte so SDK clients can reuse a single `verifyEd25519` wrapper for both. Only meaningful post-decision — pending approvals return `409 approval-not-decided`.",
+      "Signs the approval, its decision and its evidence with the deployment's export key, and records the export (an `export-signed` audit event). The same envelope as the other signed exports, so one verifier reads all three; check `publicKey` against `GET /v1/export-signing-keys`. For a decided approval only (approved, rejected, escalated, expired, withdrawn): a pending one is `409 approval-not-decided`. A deployment with no export key answers `404 signing-not-configured`.",
     tags: ['approvals'],
     security: 'bearer',
     parameters: [ApprovalIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('ExportAuditBundleBody') },
+    requestBody: { required: false, schema: ref('ExportAuditBundleBody') },
     responses: {
       '200': { description: 'Signed audit bundle.', schema: ref('ExportAuditBundleResult') },
       ...CommonMutationErrors,
@@ -3023,17 +3023,32 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'get',
+    honoPath: '/v1/export-signing-keys',
+    openapiPath: '/v1/export-signing-keys',
+    operationId: 'exportSigningKeys.list',
+    summary: 'List the keys this deployment signs exports with',
+    description:
+      "The public keys of the deployment's export signing key, active first: what a verifier pins. An export's embedded `publicKey` only proves its bytes weren't changed; this list says who signed them. Empty when the deployment doesn't sign exports. Any authenticated caller may read it.",
+    tags: ['export-signing-keys'],
+    security: 'bearer',
+    responses: {
+      '200': { description: 'The keys.', schema: ref('ExportSigningKeyList') },
+      ...CommonAuthErrors,
+    },
+  },
+  {
     method: 'post',
     honoPath: '/v1/provenance/:runId/export',
     openapiPath: '/v1/provenance/{runId}/export',
     operationId: 'provenance.export',
     summary: 'Export a signed provenance bundle for a run',
     description:
-      "Canonicalizes the record + optional messages as sorted-key JSON and signs with the deployment's Ed25519 key looked up by `signingKeyId`. Verification is a pure client-side operation: `verifyEd25519(publicKey, bundleBytes, signature)`. Deployments without a `signingKey` binding mounted return `404 signing-not-configured`.",
+      "Signs the run's provenance (and, when asked, its messages) with the deployment's export key, and records the export (an `export-signed` audit event). The same envelope as the other signed exports; check `publicKey` against `GET /v1/export-signing-keys`. A deployment with no export key answers `404 signing-not-configured`.",
     tags: ['provenance'],
     security: 'bearer',
     parameters: [RunIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('ExportProvenanceBody') },
+    requestBody: { required: false, schema: ref('ExportProvenanceBody') },
     responses: {
       '200': { description: 'Signed bundle.', schema: ref('ExportProvenanceResult') },
       ...CommonMutationErrors,
@@ -4946,11 +4961,11 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'compliance.evidence.export',
     summary: 'Export a signed compliance-evidence bundle',
     description:
-      "Canonicalizes the filtered records as sorted-key JSON and signs with the deployment's Ed25519 key looked up by `signingKeyId`. Verification is a pure client-side operation: `verifyEd25519(publicKey, bundleBytes, signature)`. Envelope shape matches `ExportProvenanceResult` + audit-bundle — verifiers reuse one wrapper across all three surfaces. Deployments without a `signingKey` binding mounted return `404 signing-not-configured`.",
+      "Signs the evidence the filter matches (exportable kinds only) with the deployment's export key, and records the export (an `export-signed` audit event). The same envelope as the other signed exports; check `publicKey` against `GET /v1/export-signing-keys`. A deployment with no export key answers `404 signing-not-configured`.",
     tags: ['compliance'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('ExportComplianceEvidenceBody') },
+    requestBody: { required: false, schema: ref('ExportComplianceEvidenceBody') },
     responses: {
       '200': {
         description: 'Signed evidence bundle.',
