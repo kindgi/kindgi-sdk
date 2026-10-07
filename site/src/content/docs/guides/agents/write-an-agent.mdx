@@ -103,7 +103,7 @@ const defined = defineAgent({
   description: "Answers customers' questions about their orders.",
   instructions: [
     'You answer customer questions about Acme orders. Today is {{ today }}.',
-    'Look an order up with acme.lookup-order before you say anything about it.',
+    'Look an order up with the lookup-order tool before you say anything about it.',
     'If the customer gives no order id, ask for it. Never guess a status or a date.',
     'Answer in two sentences at most.',
   ].join('\n'),
@@ -141,7 +141,7 @@ order_desk = Agent(
     description="Answers customers' questions about their orders.",
     instructions="\n".join([
         "You answer customer questions about Acme orders. Today is {{ today }}.",
-        "Look an order up with acme.lookup-order before you say anything about it.",
+        "Look an order up with the lookup-order tool before you say anything about it.",
         "If the customer gives no order id, ask for it. Never guess a status or a date.",
         "Answer in two sentences at most.",
     ]),
@@ -161,7 +161,10 @@ camelCase; only the keyword arguments are snake_case.
 
 - **`id`** is `<pack>.<name>`; **`version`** is an exact semver.
 - **`instructions`** is what the model is told at the start of every turn: a
-  template, below.
+  template, below. Name a tool by what it does ("the lookup-order tool"), not
+  by its id: a model sees a tool's id in its provider's form
+  (`acme__lookup-order` for Anthropic and OpenAI-compatible models), and an id
+  with a dot in the instructions can make it call a name it wasn't given.
 - **`capabilities`** says what the model must support. `tool-use` is the one
   an agent that calls tools needs. Kindgi picks the model when the turn starts:
   see [Choose the model an agent uses](../choose-a-model/).

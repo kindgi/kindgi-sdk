@@ -32,7 +32,9 @@ The runtime image is in private preview: request access at contact@kindgi.com
 - **Secret Manager** for the runtime's secrets, and **a Cloud KMS key** that
   wraps the secrets the runtime stores (model API keys, webhook secrets).
 - **A VPC** with Direct VPC egress and Cloud NAT, which carries the runtime's
-  calls to your pack's service and out to model APIs and webhooks.
+  calls to your pack's service and out to model APIs and webhooks. Or, when
+  your tools need a VPC you already have, that VPC through its connector
+  ([A new VPC, or yours](#a-new-vpc-or-yours)).
 
 If your organization forbids public access to Cloud Run (the
 `iam.allowedPolicyMemberDomains` policy refuses `allUsers`), set
@@ -71,6 +73,31 @@ copy the folder from the release you run. Its `README.md` lists every
 variable. `example.tfvars` is the shape on this page (a new VPC);
 `example-connector.tfvars` runs in a VPC you already have, through a
 Serverless VPC Access connector.
+
+### A new VPC, or yours
+
+`network_mode` decides how both services reach a VPC:
+
+- **`direct`** (the default, `example.tfvars`): the module creates a VPC and a
+  subnet (`subnet_cidr`, default `10.10.0.0/24`), Direct VPC egress for all
+  traffic, and Cloud NAT. Pick it when your tools reach only the internet,
+  or nothing outside your pack.
+- **`connector`** (`example-connector.tfvars`): both services use a Serverless
+  VPC Access connector you already have, for private ranges only. Name it in
+  `vpc_connector`, as
+  `projects/<project>/locations/<region>/connectors/<name>`. The module
+  creates no VPC, router or NAT, and calls to the internet (model APIs, your
+  pack service's URL, webhooks) go out through Cloud Run's own egress.
+
+Pick `connector` when your pack's tools reach private resources in a VPC you
+already have: a database on a private IP, an internal service. With `direct`,
+the pack runs in a new VPC of its own, not connected to yours.
+
+Connector mode also needs `pack_ingress = "INGRESS_TRAFFIC_ALL"`, as in the
+example: the runtime reaches your pack's service through Cloud Run's own
+egress, not the VPC, so the pack service has to accept all traffic. IAM still
+admits only the runtime's service account. The module refuses connector mode
+without `vpc_connector` or without that ingress, and says which.
 
 ```sh
 cp example.tfvars prod.tfvars   # project_id, region, kindgi_env, the seed ids, …

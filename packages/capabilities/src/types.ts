@@ -417,6 +417,12 @@ export interface UsageCounters {
  * The result of a model invocation. `finishReason` matches OpenAI-style
  * conventions; adapters normalize to this set.
  */
+/** A provider's warning about an answer (`ModelCallResult.warnings`). */
+export interface ModelCallWarning {
+  readonly code: string;
+  readonly message: string;
+}
+
 export interface ModelCallResult {
   readonly message: ModelMessage;
   readonly finishReason: 'stop' | 'length' | 'tool-use' | 'content-filter' | 'error';
@@ -431,6 +437,12 @@ export interface ModelCallResult {
   readonly durationMs: number;
   /** Provider + model actually invoked (in case the router picked a variant). */
   readonly provider: { readonly id: string; readonly model: string };
+  /**
+   * What the caller should know about this answer, each with a stable
+   * `code` (dev-echo marks every answer `dev-echo-not-a-model`). An agent
+   * turn collects them into its result's `warnings`.
+   */
+  readonly warnings?: readonly ModelCallWarning[];
   /**
    * The exact model version the vendor says answered. Vendors alias: a
    * `…-pro` request can be served by `…-pro-001`.
