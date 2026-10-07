@@ -28,11 +28,15 @@ thing at a time, and wait until they say they've done it.
   `--from-stdin`: it then asks for the value without showing it.
 - **When something fails, run doctor** (below) and read what it says before
   you guess.
-- **`kindgi` in the commands below** means `npx --yes @kindgi/cli@next`,
-  until step 2 makes a project. From then on, from the project's folder:
+- **`kindgi` in the commands below** means, until step 2 makes a project:
+  `npx --yes @kindgi/cli@next` if `node --version` works; else, for someone
+  using Python without Node, `uvx --prerelease=allow --from kindgi-cli kindgi`
+  (the CLI from PyPI; it needs no Node). From step 2 on, from the project's
+  folder:
   - a TypeScript project: `pnpm exec kindgi` if `pnpm --version` works,
     else `npx --no kindgi`;
-  - a Python project: `npx --yes @kindgi/cli@next`.
+  - a Python project: `uv run kindgi` (the project's dev dependencies bring
+    the CLI).
 
 ## Step 0: check the machine
 
@@ -55,7 +59,7 @@ always use the fallback.
 Then run doctor:
 
 ```sh
-npx --yes @kindgi/cli@next doctor --json
+kindgi doctor --json
 ```
 
 It prints one JSON object and exits `0` when nothing fails, `1` when a check
@@ -101,7 +105,7 @@ runtime: skip this step.
    robot name they gave you:
 
    ```sh
-   <read the clipboard> | npx --yes @kindgi/cli@next auth registry --username <robot name> --password-stdin
+   <read the clipboard> | kindgi auth registry --username <robot name> --password-stdin
    ```
 
 3. Clear the clipboard, if this OS lets you.
@@ -111,8 +115,8 @@ runtime: skip this step.
 
 1. Ask the person for a name for their project, or use `my-agents`. Use
    TypeScript if doctor's `node` check passes and the person has no
-   preference; Python if they ask for it (doctor's `python` and `uv` say
-   whether it's ready).
+   preference; Python if they ask for it, or if there's no Node (doctor's
+   `python` and `uv` say whether it's ready).
 2. Create it and install its dependencies:
 
    ```sh
@@ -123,10 +127,10 @@ runtime: skip this step.
    ```
 
    ```sh
-   # Python
-   npx --yes @kindgi/cli@next init my-agents --template=python
+   # Python (no Node needed)
+   uvx --prerelease=allow --from kindgi-cli kindgi init my-agents --template=python
    cd my-agents
-   uv sync
+   uv sync          # brings the CLI too: from now on, uv run kindgi …
    ```
 
 3. Run doctor again from the project's folder; `project` and
@@ -146,12 +150,11 @@ nohup kindgi dev > .kindgi/dev.log 2>&1 &
 echo $!
 ```
 
-Keep `mkdir` on its own line: with `mkdir … && nohup … &`, `$!` is a
-subshell's id, and stopping it leaves `kindgi dev` running.
-
-(with `kindgi` as the project runs it; `.kindgi/` is git-ignored). It starts
-the runtime in Docker and answers with a stand-in model, `dev-echo`, until
-step 4 adds a real one.
+Use `kindgi` as the project runs it (`.kindgi/` is git-ignored). Keep
+`mkdir` on its own line: with `mkdir … && nohup … &`, `$!` is a subshell's
+id, and stopping it leaves `kindgi dev` running. It starts the runtime in
+Docker and answers with a stand-in model, `dev-echo`, until step 4 adds a
+real one.
 
 Run doctor every few seconds until `runtime` passes. `model-key` and
 `provider` still fail: that's expected until step 4. Then tell the person
@@ -161,6 +164,12 @@ it's running, and how to stop it: `kill <the process id>`.
 
 1. Ask the person: "Copy your Anthropic API key, and tell me when you're
    done." Anthropic is the provider to use here.
+
+   **If they have no key, or don't want to add one now,** stop here,
+   honestly: Kindgi is running with its stand-in model, `dev-echo`, which
+   only echoes what it gets, and adding an Anthropic key (this step) gives a
+   real answer. Don't write a tool that passes text through, or anything else
+   that makes `dev-echo`'s reply look like an agent's answer.
 2. When they say they're done, pipe the clipboard into the project's
    secrets, then register the provider:
 
@@ -174,8 +183,10 @@ it's running, and how to stop it: `kill <the process id>`.
 3. Clear the clipboard, if this OS lets you.
 4. Run doctor again; `model-key` and `provider` should pass.
 
-If the model provider later refuses the key (a `401`), don't open, measure
-or print `.env.local`. Ask the person to copy the key again, and run the
+Doctor's `model-key` only checks that a key is saved: a wrong key shows as a
+`401` on the first run. Then don't open, measure or print `.env.local`. Ask
+the person to copy the key again (they can check it at
+console.anthropic.com), and run the
 `secrets set` command again with `--write-mode=add-version`: without it, a
 key that's already stored is refused (`Version conflict: ANTHROPIC_API_KEY
 already exists`). The new key is used from the next run: there's no need to
