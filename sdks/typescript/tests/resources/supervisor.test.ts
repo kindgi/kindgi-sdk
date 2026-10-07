@@ -66,7 +66,7 @@ describe('supervisor.proposals — removed in 0.1.5', () => {
         error: {
           code: 'not-yet-wired',
           method: `supervisor.proposals.${method}`,
-          reason: expect.stringContaining(`removed in 0.1.5`),
+          reason: expect.stringContaining('removed in 0.1.5'),
         },
       });
       await expect(call(SUPERVISOR_ID, PROPOSAL_ID, {})).rejects.toMatchObject({
