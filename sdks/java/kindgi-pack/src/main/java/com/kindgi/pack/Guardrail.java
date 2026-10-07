@@ -213,6 +213,15 @@ public final class Guardrail<C> {
     }
 
     /**
+     * @param check the check, answering later; the service awaits it
+     * @return the guardrail
+     */
+    public Guardrail<C> asyncCheck(AsyncCheckHandler<C> check) {
+      Objects.requireNonNull(check, "check");
+      return check((config, trace) -> Awaiting.await(check.check(config, trace), null));
+    }
+
+    /**
      * @param check the check
      * @return the guardrail
      */

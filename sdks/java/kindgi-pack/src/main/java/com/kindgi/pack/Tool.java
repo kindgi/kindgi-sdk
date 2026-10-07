@@ -291,5 +291,16 @@ public final class Tool<I, O> {
     public Tool<I, O> handler(ToolHandler<I, O> handler) {
       return new Tool<>(this, handler);
     }
+
+    /**
+     * @param handler the tool's code, answering later; the service awaits it, and cancels a
+     *     {@code CompletableFuture} it returned when the call passes its deadline or its caller
+     *     goes away
+     * @return the tool
+     */
+    public Tool<I, O> asyncHandler(AsyncToolHandler<I, O> handler) {
+      Objects.requireNonNull(handler, "handler");
+      return new Tool<>(this, (input, ctx) -> Awaiting.await(handler.handle(input, ctx), ctx.cancellation()));
+    }
   }
 }

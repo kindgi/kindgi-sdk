@@ -57,7 +57,8 @@ class PackServiceTest {
     index.put("packVersion", "1.0.0");
     index.put("artifactVersion", "20261001.7");
     List<Object> tools = new ArrayList<>();
-    for (String id : List.of("acme.stubborn", "acme.polite", "acme.nan", "acme.typed")) {
+    for (String id : List.of("acme.stubborn", "acme.polite", "acme.nan", "acme.typed", "acme.later", "acme.laterFails",
+        "acme.laterNull", "acme.laterNever")) {
       tools.add(tool(id));
     }
     index.put("tools", tools);
@@ -72,7 +73,10 @@ class PackServiceTest {
     broken.put("id", "acme.broken");
     broken.put("checkId", "acme.min");
     broken.put("configSchema", Map.of("type", "object", "if", Map.of()));
-    index.put("guardrails", List.of(min, broken));
+    Map<String, Object> laterMin = new LinkedHashMap<>(min);
+    laterMin.put("id", "acme.laterMin");
+    laterMin.put("checkId", "acme.checks.laterMin");
+    index.put("guardrails", List.of(min, broken, laterMin));
     assertThat(PackService.missingModules(index, getClass().getClassLoader())).isEmpty();
     service = new PackService(index, TOKEN, 4, "strict", Map.of(), logs::add);
     assertThat(service.prewarm(getClass().getClassLoader())).isEmpty();
@@ -212,6 +216,45 @@ class PackServiceTest {
     Thread.sleep(300);
     assertThat(logs).noneSatisfy(l -> assertThat(l).containsEntry("kind", "handler-finished-late"));
     assertThat(logs).anySatisfy(l -> assertThat(l).containsEntry("kind", "call").containsEntry("outcome", "deadline-exceeded"));
+  }
+
+  @Test
+  void anAsyncHandlerIsAwaited() throws Exception {
+    assertThat(invoke("acme.later", Map.of("n", 1), null)).containsEntry("output", Map.of("echo", Map.of("n", 1)));
+  }
+
+  @Test
+  void anAsyncHandlersFailureIsTheHandlersOwn() throws Exception {
+    Map<String, Object> answer = invoke("acme.laterFails", Map.of(), null);
+    assertThat(answer).containsEntry("code", "handler-throw");
+    assertThat((String) answer.get("message")).isEqualTo(
+        "Handler for tool \"acme.laterFails\" threw: java.lang.IllegalStateException: card declined");
+  }
+
+  @Test
+  void anAsyncHandlerThatReturnsNoFutureIsAHandlerError() throws Exception {
+    Map<String, Object> answer = invoke("acme.laterNull", Map.of(), null);
+    assertThat(answer).containsEntry("code", "handler-throw");
+    assertThat((String) answer.get("message")).contains("returned no CompletionStage");
+  }
+
+  @Test
+  void anAsyncHandlerPastItsDeadlineHasItsFutureCancelledAndIsNotLate() throws Exception {
+    Map<String, Object> answer = invoke("acme.laterNever", Map.of(), "50");
+    assertThat(answer).containsEntry("code", "deadline-exceeded").containsEntry("toolId", "acme.laterNever");
+    long until = System.nanoTime() + 3_000_000_000L;
+    while (!com.kindgi.pack.testpacks.service.Tools.NEVER.get().isCancelled() && System.nanoTime() < until) {
+      Thread.sleep(10);
+    }
+    assertThat(com.kindgi.pack.testpacks.service.Tools.NEVER.get().isCancelled()).isTrue();
+    Thread.sleep(300);
+    assertThat(logs).noneSatisfy(l -> assertThat(l).containsEntry("kind", "handler-finished-late"));
+  }
+
+  @Test
+  void anAsyncCheckIsAwaited() throws Exception {
+    assertThat(check("acme.checks.laterMin", Map.of("minLength", 9))).containsEntry("kind", "check-result")
+        .containsEntry("result", Map.of("passed", false, "attributes", Map.of("minLength", 9)));
   }
 
   @Test

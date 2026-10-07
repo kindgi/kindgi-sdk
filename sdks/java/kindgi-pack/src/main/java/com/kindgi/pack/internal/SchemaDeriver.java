@@ -13,6 +13,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.introspect.AnnotatedMember;
 import com.fasterxml.jackson.databind.introspect.BeanPropertyDefinition;
+import com.kindgi.pack.spi.SchemaTypeAdapter;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
@@ -35,7 +36,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.ServiceLoader;
 import java.util.UUID;
+import org.jspecify.annotations.Nullable;
 
 /**
  * A tool's input or output type as a JSON Schema (Draft 2020-12), in the subset {@link
@@ -58,12 +61,43 @@ import java.util.UUID;
  * </ul>
  *
  * A type it can't express (a recursive one, a map with non-string keys) fails, saying which.
+ *
+ * <p>A JVM language layer teaches it its own types ({@link SchemaTypeAdapter}, found through
+ * {@code ServiceLoader}): their schemas, their optional wrappers, their default values.
  */
 public final class SchemaDeriver {
-  private final ObjectMapper mapper = Json.mapper();
+  private final ObjectMapper mapper = Json.binding();
   private final Deque<Class<?>> stack = new ArrayDeque<>();
 
   private SchemaDeriver() {}
+
+  /** The adapters on the classpath, found once. */
+  private static volatile @Nullable List<SchemaTypeAdapter> adapters;
+
+  static List<SchemaTypeAdapter> adapters() {
+    List<SchemaTypeAdapter> found = adapters;
+    if (found == null) {
+      List<SchemaTypeAdapter> loaded = new ArrayList<>();
+      ServiceLoader.load(SchemaTypeAdapter.class).forEach(loaded::add);
+      found = List.copyOf(loaded);
+      adapters = found;
+    }
+    return found;
+  }
+
+  /** The type an optional wrapper (a Java {@code Optional}, or an adapter's) wraps; {@code null} when it isn't one. */
+  private static @Nullable JavaType optionalContent(JavaType t) {
+    if (Optional.class.isAssignableFrom(t.getRawClass())) {
+      return t.containedTypeOrUnknown(0);
+    }
+    for (SchemaTypeAdapter adapter : adapters()) {
+      JavaType inner = adapter.optionalOf(t);
+      if (inner != null) {
+        return inner;
+      }
+    }
+    return null;
+  }
 
   /** The type can't be described as a schema. */
   public static final class DerivationException extends RuntimeException {
@@ -87,8 +121,17 @@ public final class SchemaDeriver {
   private Map<String, Object> of(JavaType t, List<Annotation> annotations, String where) {
     Class<?> raw = t.getRawClass();
     Map<String, Object> s = new LinkedHashMap<>();
-    if (Optional.class.isAssignableFrom(raw)) {
-      return of(t.containedTypeOrUnknown(0), annotations, where);
+    JavaType optional = optionalContent(t);
+    if (optional != null) {
+      return of(optional, annotations, where);
+    }
+    for (SchemaTypeAdapter adapter : adapters()) {
+      Map<String, Object> adapted = adapter.schema(t, inner -> of(inner, List.of(), where + "[]"));
+      if (adapted != null) {
+        Map<String, Object> copy = new LinkedHashMap<>(adapted);
+        constraints(copy, annotations, where);
+        return copy;
+      }
     }
     if (raw == String.class || CharSequence.class.isAssignableFrom(raw) || raw == char.class || raw == Character.class) {
       s.put("type", "string");
@@ -169,7 +212,7 @@ public final class SchemaDeriver {
           continue;
         }
         List<Annotation> annotations = annotations(raw, p);
-        boolean nullable = nullable(raw, p, annotations) || Optional.class.isAssignableFrom(p.getPrimaryType().getRawClass());
+        boolean nullable = nullable(raw, p, annotations) || optionalContent(p.getPrimaryType()) != null;
         Map<String, Object> ps = of(p.getPrimaryType(), annotations, where + "." + p.getName());
         String description = p.getMetadata().getDescription();
         if (description != null && !description.isEmpty()) {
@@ -178,6 +221,14 @@ public final class SchemaDeriver {
         String defaultValue = p.getMetadata().getDefaultValue();
         if (defaultValue != null && !defaultValue.isEmpty()) {
           ps.put("default", defaultOf(defaultValue, ps, where + "." + p.getName()));
+        } else {
+          for (SchemaTypeAdapter adapter : adapters()) {
+            Optional<Object> adapted = adapter.defaultValue(raw, p.getName());
+            if (adapted.isPresent()) {
+              ps.put("default", Json.unbind(adapted.get()));
+              break;
+            }
+          }
         }
         boolean notNull = annotations.stream().anyMatch(a -> Set.of("NotNull", "NotBlank", "NotEmpty").contains(a.annotationType().getSimpleName()));
         if (nullable && !notNull) {

@@ -584,7 +584,7 @@ final class PackService implements HttpServer.Handler {
     }
     Object output;
     try {
-      output = Json.plain(result);
+      output = Json.unbind(result);
       Json.requireFinite(output);
     } catch (IllegalArgumentException e) {
       return error("output-validation-failed",
@@ -670,7 +670,7 @@ final class PackService implements HttpServer.Handler {
     if (result.attributes() != null) {
       Object attributes;
       try {
-        attributes = Json.plain(result.attributes());
+        attributes = Json.unbind(result.attributes());
         Json.requireFinite(attributes);
       } catch (IllegalArgumentException e) {
         return error("output-validation-failed",

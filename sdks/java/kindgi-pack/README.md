@@ -128,6 +128,12 @@ for issue: a differential test runs every value of its corpus through both
 keywords tool schemas use, and the indexer refuses a schema with any other
 keyword (`if`, `prefixItems`, a remote `$ref`, …).
 
+A JVM language's own types (Scala's `Option`, `Seq`, a case class's defaults)
+come from its layer: it implements `com.kindgi.pack.spi.SchemaTypeAdapter` and
+declares it in `META-INF/services/com.kindgi.pack.spi.SchemaTypeAdapter`. The
+deriver asks every adapter on the classpath before its own rules: for a type's
+schema, for the type an optional wrapper wraps, and for a property's default.
+
 ## Guardrails, agents and flows
 
 ```java
@@ -185,6 +191,26 @@ handler's `ctx.cancellation()` fires and its thread is interrupted, so a
 blocking wait ends at once. A loop checks `ctx.cancellation().isCancelled()`
 or calls `throwIfCancelled()`. A handler that runs on past its answer is
 logged when it finishes (`handler-finished-late`).
+
+Work the handler starts elsewhere (an HTTP request, a job) stops with
+`ctx.cancellation().onCancel(action)`. The action runs once: when the call is
+cancelled, or at once if it already was.
+
+### Answering later
+
+A handler built on futures returns a `CompletionStage` through
+`asyncHandler`; a guardrail's check does the same through `asyncCheck`:
+
+```java
+public static final Tool<Input, Output> TOOL = Tool.define("acme.quote")
+    .input(Input.class)
+    .output(Output.class)
+    .asyncHandler((input, ctx) -> rates.fetch(input.currency()).thenApply(Output::new));
+```
+
+The service awaits it. A failed future fails the call with its own exception,
+not a wrapper. At the deadline, or when the caller goes away, a
+`CompletableFuture` the handler returned is cancelled.
 
 Unit-test a handler directly:
 
@@ -254,6 +280,16 @@ version wins). Your Jackson annotations, modules and custom deserializers
 apply to tool inputs as they do everywhere else in the app. `kindgi-client`
 is the other way around: it shades its Jackson so the API client never meets
 yours.
+
+Modules are found as `ObjectMapper.findAndRegisterModules()` finds them: every
+module a jar on the classpath declares in
+`META-INF/services/com.fasterxml.jackson.databind.Module` (Scala's, Kotlin's,
+Guava's, your own). They apply to tool inputs, tool outputs, a check's
+attributes and the schemas derived from your types. A module that renames
+properties renames them in the schema too. A module your app only registers
+in code, on its own `ObjectMapper`, isn't seen: declare it in
+`META-INF/services`. The protocol's own messages and the pack index use a
+separate mapper your modules never change.
 
 ## Build from source
 
