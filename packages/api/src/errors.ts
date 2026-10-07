@@ -88,6 +88,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'budget-exceeded': 422,
   'output-schema-violation': 422,
   'model-invocation-failed': 422,
+  /** No registered provider satisfies the agent's capability declaration (`needs`). */
+  'capability-unsatisfiable': 422,
+  /** A tool the agent names has no version satisfying its range (or the pinned one is gone). */
+  'tool-version-unresolvable': 422,
   'tool-invocation-failed': 422,
   'capability-routing-failed': 422,
   'runtime-not-configured': 422,
