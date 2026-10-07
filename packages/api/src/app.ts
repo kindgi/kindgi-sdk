@@ -1017,7 +1017,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   );
   v1.route(
     '/conversations',
-    conversationsRouter(input.conversationBinding, runBinding, input.projectBinding),
+    conversationsRouter(input.conversationBinding, runBinding, input.projectBinding, authorizer),
   );
   if (publicRunTokenLimits !== undefined) {
     v1.route(
