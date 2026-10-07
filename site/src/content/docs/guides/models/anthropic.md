@@ -35,7 +35,7 @@ kindgi providers register --preset=anthropic
 ✓ Registered anthropic: claude-opus-5-5, claude-sonnet-5-5, claude-haiku-4-5 — key ANTHROPIC_API_KEY (env local)
 ```
 
-- `--models=claude-haiku-4-5` registers only the models you list
+- `--models=claude-sonnet-5-5` registers only the models you list
   (comma-separated).
 - `--secret=<NAME>` reads the key from another variable than
   `ANTHROPIC_API_KEY`.
@@ -76,7 +76,9 @@ kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my o
 }
 ```
 
-`totalCostUsd` is the turn's cost at the preset's prices.
+`totalCostUsd` is the turn's cost at the preset's prices. This answer was
+captured on `claude-haiku-4-5` (retiring on or after 2026-10-15); outputs on
+newer models differ in wording, not shape.
 
 ## Which Claude model answers
 
@@ -93,6 +95,11 @@ gets Haiku, and one that needs `structured-output` gets Opus. To choose, set
 [Choose the model an agent uses](../../agents/choose-a-model/). To offer only
 some models, register only those (`--models`).
 
+Anthropic retires `claude-haiku-4-5` on or after **2026-10-15**; from then, a
+turn routed to it fails. Pin another model before then: register only the
+others (`--models=claude-opus-5-5,claude-sonnet-5-5`), or set
+`preferredModel`.
+
 ## If it doesn't answer
 
 A wrong key fails the turn with Anthropic's own message:
@@ -101,8 +108,9 @@ A wrong key fails the turn with Anthropic's own message:
 Error [server]: Model call to anthropic (claude-haiku-4-5) failed: 401 {"type":"error","error":{"type":"authentication_error","message":"API key is invalid."},"request_id":null}
 ```
 
-To change the key, set it again with `--write-mode=add-version`; the next turn
-uses the new one.
+This one was captured on `claude-haiku-4-5`; another model's call names that
+model instead. To change the key, set it again with `--write-mode=add-version`;
+the next turn uses the new one.
 
 If `dev-echo` still answers (the turn has a `fallback-provider` warning), the
 agent needs something none of the registered models has: see

@@ -22,7 +22,7 @@ description: >
   kindgi-getting-started.
 type: core
 library: "@kindgi/sdk"
-version: "0.9.5"
+version: "0.9.6"
 sdk_version: "0.0.0"
 pack_languages: [node, python]
 sources:
@@ -124,8 +124,10 @@ credential on argv.
 **Step 2 — register it, from the preset:**
 ```sh
 kindgi providers register --preset=anthropic                          # Opus 5.5, Sonnet 5.5, Haiku 4.5
-kindgi providers register --preset=anthropic --models=claude-haiku-4-5  # just one
+kindgi providers register --preset=anthropic --models=claude-sonnet-5-5  # just one
 ```
+Don't pin `claude-haiku-4-5`: Anthropic retires it on or after 2026-10-15,
+and a turn routed to it then fails.
 The preset carries the models, context windows, output limits and current
 prices (`kindgi providers presets` lists the presets and when their prices
 were checked); `--max-output-tokens=<n>` sets another output limit. In a pack it refuses until the key is in the pack's env files —
@@ -139,8 +141,8 @@ needs under `kindgi dev`:
 ```ts
 // in kindgi.config.ts
 providers: [
-  { preset: 'anthropic', models: ['claude-haiku-4-5'] },   // key ANTHROPIC_API_KEY, from the env files
-  { preset: 'gemini', project: 'acme-gcp', models: ['gemini-2.5-flash'] },
+  { preset: 'anthropic', models: ['claude-sonnet-5-5'] },  // key ANTHROPIC_API_KEY, from the env files
+  { preset: 'gemini', project: 'acme-gcp', models: ['gemini-3.8-flash'] },
   { spec: { /* the provider.json body below */ } },
 ],
 ```
@@ -148,7 +150,7 @@ providers: [
 # in pyproject.toml: one table per provider, same keys
 [[tool.kindgi.providers]]
 preset = "anthropic"
-models = ["claude-haiku-4-5"]
+models = ["claude-sonnet-5-5"]
 ```
 - A preset entry takes `models`, `project`, `secret` (the key's name, in place
   of the preset's) and `maxOutputTokens`, spelled the same in `pyproject.toml`;
@@ -167,7 +169,7 @@ models = ["claude-haiku-4-5"]
   providers with `kindgi providers register`.
 
 **Step 2 (by hand) — write `provider.json`** at the pack root. One connection,
-three models — matches how the Anthropic SDK actually works (the API
+two models — matches how the Anthropic SDK actually works (the API
 key is per-vendor; the model is per-call):
 ```json
 {
@@ -194,16 +196,6 @@ key is per-vendor; the model is per-call):
           "completionUsdPer1kTokens": 0.01
         },
         "description": "Balanced performance/cost."
-      },
-      {
-        "name": "claude-haiku-4-5",
-        "contextWindow": 200000,
-        "features": ["tool-use"],
-        "cost": {
-          "promptUsdPer1kTokens": 0.001,
-          "completionUsdPer1kTokens": 0.005
-        },
-        "description": "Fastest and cheapest — routing, classification, simple calls."
       }
     ],
     "description": "Anthropic Claude via native adapter."
@@ -485,24 +477,16 @@ outside Google Cloud: put a service-account key (its JSON) in a secret
     "region": "global",
     "models": [
       {
-        "name": "gemini-2.5-pro",
+        "name": "gemini-3.8-flash",
         "contextWindow": 1048576,
-        "features": ["tool-use"],
+        "features": ["tool-use", "structured-output", "long-context"],
         "maxOutputTokens": 65536,
-        "cost": {
-          "promptUsdPer1kTokens": 0.00125,
-          "completionUsdPer1kTokens": 0.01,
-          "longContext": {
-            "thresholdTokens": 200000,
-            "promptUsdPer1kTokens": 0.0025,
-            "completionUsdPer1kTokens": 0.015
-          }
-        }
+        "cost": { "promptUsdPer1kTokens": 0.00075, "completionUsdPer1kTokens": 0.00375 }
       },
       {
-        "name": "gemini-2.5-flash",
+        "name": "gemini-3.5-flash-lite",
         "contextWindow": 1048576,
-        "features": ["tool-use"],
+        "features": ["tool-use", "structured-output", "long-context"],
         "maxOutputTokens": 65536,
         "cost": { "promptUsdPer1kTokens": 0.0003, "completionUsdPer1kTokens": 0.0025 }
       }
@@ -517,11 +501,17 @@ outside Google Cloud: put a service-account key (its JSON) in a secret
 - `metadata.region` is the Vertex location: `global`, or a region such as
   `us-central1` or `northamerica-northeast1` when data must stay in one
   place. `unspecified` means `global`. Different locations are different
-  provider rows.
+  provider rows. Check that the location serves the model: Gemini 3.8 Flash
+  isn't served from `us-central1`.
+- Don't register `gemini-2.5-pro` or `gemini-2.5-flash`: Vertex AI retires
+  both on 2026-10-20.
 - Rates are per 1K tokens, from Google's published pricing; check them
-  before relying on budgets. Thinking tokens bill as output.
-  `longContext` switches the whole call to the higher rates past the
-  threshold; `cachedPromptMultiplier` (default 0.25) prices cached
+  before relying on budgets. Thinking tokens bill as output, and Gemini 3.8
+  Flash thinks by default. `gemini-3.8-flash`'s rates above are Google's
+  launch price, through 2026-12-31 ($0.0015 / $0.0075 from 2027-01-01).
+  `longContext` (`{ thresholdTokens, promptUsdPer1kTokens,
+  completionUsdPer1kTokens }` in a model's `cost`) switches the whole call
+  to the higher rates past the threshold; `cachedPromptMultiplier` (default 0.25) prices cached
   prompt tokens.
 
 **Step 3 — register and check:**

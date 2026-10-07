@@ -62,6 +62,10 @@ Anthropic preset registered, a `tool-use` agent with no preference gets
 `structured-output` gets `claude-opus-5-5`, the most expensive. Prefer or
 require the model you mean.
 
+Anthropic retires `claude-haiku-4-5` on or after **2026-10-15**; from then, a
+turn routed to it fails. Before then, register only the models you mean
+(`--models=claude-sonnet-5-5`), or prefer or require one.
+
 ## Prefer a provider or a model
 
 <Tabs syncKey="lang">
@@ -240,6 +244,6 @@ needs anything else fails with no model registered.
 ## See which model answered
 
 The turn's result names it in `output.provider`
-(`{ "id": "anthropic", "model": "claude-haiku-4-5" }`), and each model call in
+(`{ "id": "anthropic", "model": "claude-sonnet-5-5" }`), and each model call in
 the turn's provenance record names its model and cost: see
 [Trace an answer and its cost](../../observability/trace-an-answer/).
