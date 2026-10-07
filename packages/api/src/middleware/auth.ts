@@ -115,10 +115,11 @@ export interface TokenResolution {
 export const SESSION_TOKEN_PREFIX = 'kgi_sk_' as const;
 
 /**
- * Compose the on-wire session token from a `SessionId`. Session tokens
- * are opaque to clients — the shape below is a framework convention,
- * not part of the wire contract. Do NOT parse it in downstream code
- * outside the middleware.
+ * The older session token, `kgi_sk_<sessionId>`, for a session store
+ * without `resolveToken`. A store with it mints its own token
+ * (`SessionCreateOutput.token`), and the routes hand that out instead.
+ * Session tokens are opaque to clients: never parse one outside the
+ * middleware or the store that minted it.
  */
 export function encodeSessionToken(sessionId: SessionId): string {
   return `${SESSION_TOKEN_PREFIX}${sessionId as unknown as string}`;
@@ -169,9 +170,9 @@ const DEFAULT_TOUCH_THROTTLE_MS = 60_000;
  * handlers.
  *
  * Two token flavors are accepted:
- * - `kgi_sk_<sessionId>` — framework-issued OAuth session tokens.
- *   Verified via `sessionStore.get`; expiration + revocation are pulled
- *   from the session row.
+ * - `kgi_sk_…` — session tokens. Verified by the session store
+ *   (`resolveToken`, or `get` for an older store); expiration +
+ *   revocation are pulled from the session row.
  * - anything else — caller-plugged static bearer tokens. Verified via
  *   `resolveToken`. Byte-shape-identical with the session-less contract.
  */
@@ -345,31 +346,20 @@ export function bearerAuthMiddleware(
  * scopes + expiration + revocation) that the store returns natively —
  * we don't want to squeeze that shape through the resolver contract.
  *
- * Session-token tenant scoping: the stored session is the source of
- * truth for `tenantId`. We look up ACROSS tenants here — the resolved
- * `tenantId` is whatever the session was written under, so everything
- * downstream is scoped to that tenant only. A stolen session token still
- * can't cross tenants because the session it points to belongs to
- * exactly one tenant.
+ * A store with `resolveToken` gets the whole token: it reads the tenant
+ * from it, looks only in that tenant and compares a hash, so nothing is
+ * read across tenants before the token is authenticated. The session it
+ * returns is authoritative for `tenantId`.
  *
- * Since `SessionStoreBinding.get` requires `tenantId`, the lookup is:
- * extract `sessionId` from the token, then call
- * `sessionStore.get({ tenantId: MULTI_TENANT_LOOKUP, sessionId })`.
- * Session-store implementations MUST recognize the `MULTI_TENANT_LOOKUP`
- * sentinel and skip the tenant filter; the `tenantId` on the stored
- * session is authoritative.
+ * A store without it gets the older lookup: the token's remainder is the
+ * session id, read with `get({ tenantId: MULTI_TENANT_LOOKUP, sessionId })`,
+ * which such stores must honor by skipping the tenant filter.
  */
 async function resolveSessionToken(
   sessionStore: SessionStoreBinding,
   token: string,
 ): Promise<TokenResolution | null> {
-  const sessionIdStr = token.slice(SESSION_TOKEN_PREFIX.length);
-  if (sessionIdStr.length === 0) return null;
-  const sessionId = sessionIdStr as unknown as SessionId;
-  const session = await sessionStore.get({
-    tenantId: MULTI_TENANT_LOOKUP,
-    sessionId,
-  });
+  const session = await findSession(sessionStore, token);
   if (session === null) return null;
   return {
     tenantId: session.tenantId,
@@ -386,12 +376,24 @@ async function resolveSessionToken(
   };
 }
 
+async function findSession(sessionStore: SessionStoreBinding, token: string) {
+  if (sessionStore.resolveToken !== undefined) {
+    return sessionStore.resolveToken({ token });
+  }
+  const sessionIdStr = token.slice(SESSION_TOKEN_PREFIX.length);
+  if (sessionIdStr.length === 0) return null;
+  return sessionStore.get({
+    tenantId: MULTI_TENANT_LOOKUP,
+    sessionId: sessionIdStr as unknown as SessionId,
+  });
+}
+
 /**
  * Sentinel `tenantId` value the middleware passes to
  * `SessionStoreBinding.get` when it needs to look up a session by its
- * id without knowing the tenant in advance. Session-store adapters
- * MUST honor this by skipping the tenant filter — the tenant is not
- * known until the session row has been read.
+ * id without knowing the tenant in advance: only for a store without
+ * `resolveToken`. Such stores MUST honor it by skipping the tenant
+ * filter (the tenant is not known until the session row has been read).
  */
 export const MULTI_TENANT_LOOKUP = '__kindgi_session_multi_tenant_lookup__' as unknown as TenantId;
 

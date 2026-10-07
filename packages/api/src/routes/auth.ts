@@ -18,7 +18,11 @@ import type {
   RefreshTokenFn,
 } from '../identity-provider-binding.js';
 import { encodeSessionToken } from '../middleware/auth.js';
-import type { Session, SessionStoreBinding } from '../session-store-binding.js';
+import type {
+  Session,
+  SessionCreateOutput,
+  SessionStoreBinding,
+} from '../session-store-binding.js';
 import type { OauthStateStore } from '../state-store-binding.js';
 import type { AppEnv } from '../types.js';
 
@@ -314,7 +318,7 @@ export function authRouters(options: AuthRouterOptions): {
       });
       const fresh = await sessionStore.get({ tenantId, sessionId: createdSession.sessionId });
       if (fresh === null) throw new Error('session vanished immediately after create');
-      created = { session: fresh, rawToken: encodeSessionToken(createdSession.sessionId) };
+      created = { session: fresh, rawToken: sessionTokenOf(createdSession) };
     } else {
       // Rotate the framework token only; keep provider tokens as-is.
       const createdSession = await sessionStore.create({
@@ -329,7 +333,7 @@ export function authRouters(options: AuthRouterOptions): {
       });
       const fresh = await sessionStore.get({ tenantId, sessionId: createdSession.sessionId });
       if (fresh === null) throw new Error('session vanished immediately after create');
-      created = { session: fresh, rawToken: encodeSessionToken(createdSession.sessionId) };
+      created = { session: fresh, rawToken: sessionTokenOf(createdSession) };
     }
 
     // OAuth 2.1 BCP: mark the old session as ROTATED (not just revoked)
@@ -471,7 +475,7 @@ export function authRouters(options: AuthRouterOptions): {
 
     c.status(201);
     return c.json({
-      sessionToken: encodeSessionToken(created.sessionId),
+      sessionToken: sessionTokenOf(created),
       sessionId: created.sessionId,
       expiresAt: created.expiresAt,
     });
@@ -481,6 +485,11 @@ export function authRouters(options: AuthRouterOptions): {
 }
 
 // ---------- helpers ----------
+
+/** The token a store minted, or the older `kgi_sk_<sessionId>` for a store that mints none. */
+function sessionTokenOf(created: SessionCreateOutput): string {
+  return created.token ?? encodeSessionToken(created.sessionId);
+}
 
 function base64Url(buf: Buffer): string {
   return buf.toString('base64url');

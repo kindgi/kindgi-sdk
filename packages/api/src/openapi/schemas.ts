@@ -6086,7 +6086,7 @@ export const CallbackResultSchema: JsonSchema = {
     sessionToken: {
       type: 'string',
       description:
-        'Opaque framework-issued session token (`kgi_sk_<sessionId>`). Send as `Authorization: Bearer <sessionToken>` on subsequent requests. The underlying provider access-token never leaves the server.',
+        'Opaque session token (`kgi_sk_…`), shown once: the server keeps only a hash of it. Never parse it. Send as `Authorization: Bearer <sessionToken>` on subsequent requests. The underlying provider access-token never leaves the server.',
     },
     sessionId: { type: 'string' },
     expiresAt: { type: 'string', format: 'date-time' },
