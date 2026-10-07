@@ -15,7 +15,7 @@ description: >
   model by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.2"
+version: "0.1.3"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -165,8 +165,9 @@ brief_writer = Agent(
 Agents run on a registered model provider; the router picks one whose
 models satisfy `capabilities`. `kindgi dev` gives a new pack `dev-echo`,
 a **fallback** that answers only while no other provider fits — it
-calls the first tool and replies "Tool responded: …", and the turn
-carries a `fallback-provider` warning. Register a real model and it
+calls the first tool and replies "⚠ dev-echo isn't a real model: …"
+then "Tool responded: …", and the turn carries the `fallback-provider` and
+`dev-echo-not-a-model` warnings. Register a real model and it
 takes over: see `kindgi-authoring-providers`
 (`kindgi providers register --preset=anthropic`).
 

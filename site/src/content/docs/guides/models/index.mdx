@@ -14,6 +14,8 @@ one connection, to a vendor's API or to an endpoint you serve, with the models
 it offers: each model's features, context window and price.
 
 - [Connect Anthropic](anthropic/): Claude, from a preset.
+- [Connect OpenAI, Gemini, Groq or OpenRouter](api-key-presets/): from a
+  preset each, with the provider's API key.
 - [Connect Gemini on Vertex AI](gemini-on-vertex-ai/): Gemini, from a preset,
   with your Google Cloud credentials.
 - [Connect an OpenAI-compatible endpoint](openai-compatible/): Ollama or a
@@ -27,7 +29,8 @@ How a turn picks among them is on
 ## Before you register one
 
 A new pack's tenant has `dev-echo`, a stand-in that answers without a model
-(it calls the agent's first tool and replies with what the tool returned). It's
+(it calls the agent's first tool and replies with what the tool returned,
+after a first line saying it isn't a real model). It's
 a **fallback**: it answers only while no other provider fits the agent, so a
 provider you register takes over at the next turn, with nothing to switch off
 and no restart.
@@ -38,35 +41,17 @@ and no restart.
 kindgi providers presets
 ```
 
-```json
-[
-  {
-    "name": "anthropic",
-    "description": "Claude on the Anthropic API (key: ANTHROPIC_API_KEY).",
-    "adapterId": "@kindgi/adapter-model-anthropic",
-    "models": [
-      "claude-opus-5-5",
-      "claude-sonnet-5-5",
-      "claude-haiku-4-5"
-    ],
-    "secret": "ANTHROPIC_API_KEY",
-    "pricesCheckedAt": "2026-10-01"
-  },
-  {
-    "name": "gemini",
-    "description": "Gemini on Vertex AI (Google Application Default Credentials; --project=<gcp-project>).",
-    "adapterId": "@kindgi/adapter-model-gemini",
-    "models": [
-      "gemini-2.5-pro",
-      "gemini-2.5-flash"
-    ],
-    "needs": [
-      "--project"
-    ],
-    "pricesCheckedAt": "2026-10-01"
-  }
-]
-```
+It prints each preset as JSON: its adapter, models, key and when its prices
+were checked. They are:
+
+| Preset | What | Key |
+| --- | --- | --- |
+| `anthropic` | Claude on the Anthropic API | `ANTHROPIC_API_KEY` |
+| `gemini-api` | Gemini on the Gemini Developer API, with an API key from Google AI Studio | `GEMINI_API_KEY` |
+| `gemini` | Gemini on Vertex AI, with Google Application Default Credentials (`--project=<gcp-project>`) | none |
+| `groq` | Open-weight models on Groq's fast inference | `GROQ_API_KEY` |
+| `openai` | GPT on the OpenAI API | `OPENAI_API_KEY` |
+| `openrouter` | Many vendors' models through OpenRouter, with one key | `OPENROUTER_API_KEY` |
 
 A preset carries its models' features, context windows, output limits and
 prices. `pricesCheckedAt` is when the prices were last compared with the

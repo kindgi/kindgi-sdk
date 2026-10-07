@@ -403,7 +403,7 @@ A turn's result is the run's `output`:
 | `usage` | `steps` (model calls), `promptTokens`, `completionTokens`, `totalCostUsd`, `durationMs`. |
 | `provider` | The provider `id` and `model` that answered. |
 | `appended` | The messages the turn added to the conversation: the user message, tool calls and their results, the answer. |
-| `warnings` | For example `fallback-provider`, when `dev-echo` answered. |
+| `warnings` | For example `fallback-provider` and `dev-echo-not-a-model`, when `dev-echo` answered. |
 | `violations` | Guardrail results. |
 | `provenance` | The turn's provenance record: see [Trace an answer and its cost](../../observability/trace-an-answer/). |
 
