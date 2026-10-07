@@ -153,7 +153,7 @@ export const devCommand: LeafCommand = {
     path: {
       type: 'string',
       description:
-        'The pack root, with a `kindgi.config.ts` (or `.mts`) or a `pyproject.toml` with `[tool.kindgi]`. Default: the current directory.',
+        'The pack root, with a `kindgi.config.ts` (or `.mts`), a `pyproject.toml` with `[tool.kindgi]`, or a `kindgi.config.json` (Java). Default: the current directory.',
     },
     // --reset: a fresh start for the project. With the bundled Postgres it
     // drops the project's database (asking first) and makes a new token;
@@ -293,7 +293,7 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   if (configFile === undefined) {
     return {
       kind: 'error',
-      stderr: `kindgi dev could not find a kindgi.config.ts (or a pyproject.toml with a [tool.kindgi] table) at ${args.packDir}.\nRun \`kindgi init <pack-name>\` to scaffold a pack, or pass --path=<dir> to point at an existing one.\n`,
+      stderr: `kindgi dev could not find a kindgi.config.ts (or a pyproject.toml with a [tool.kindgi] table, or a kindgi.config.json) at ${args.packDir}.\nRun \`kindgi init <pack-name>\` to scaffold a pack, or pass --path=<dir> to point at an existing one.\n`,
       exitCode: 1,
     };
   }
@@ -491,6 +491,7 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
     args.packDir,
     projectEnv.config,
     packEnv,
+    ctx.env,
   );
   if (code.kind === 'error') {
     return code;
@@ -1486,8 +1487,8 @@ async function emitSkillDriftHint(
 
 /**
  * How this pack's code runs (`dev/pack-code.ts`). For a Python pack, the
- * interpreter is resolved and checked — with the pack's own environment —
- * before anything boots.
+ * interpreter, and for a Java pack, the JDK and Maven, are resolved and
+ * checked — with the pack's own environment — before anything boots.
  */
 async function resolveDevPackCode(
   dev: DevRunners,
@@ -1495,15 +1496,23 @@ async function resolveDevPackCode(
   packDir: string,
   config: Readonly<Record<string, unknown>> | undefined,
   packEnv: () => Promise<Readonly<Record<string, string>>>,
+  hostEnv: Readonly<Record<string, string | undefined>>,
 ): Promise<
   { readonly kind: 'ok'; readonly value: PackCode } | (CommandResult & { readonly kind: 'error' })
 > {
-  const resolved = await resolvePackCode(language, packDir, config);
+  const resolved = await resolvePackCode(language, packDir, config, hostEnv);
   if (resolved.kind === 'err') {
     return { kind: 'error', stderr: `kindgi dev: ${resolved.message}\n`, exitCode: 1 };
   }
   if (resolved.value.language === 'python') {
     const checked = await dev.checkPackPython(resolved.value.python, await packEnv(), packDir);
+    if (checked.kind === 'err') {
+      return { kind: 'error', stderr: `kindgi dev: ${checked.message}\n`, exitCode: 1 };
+    }
+    emitProgress(`✓ pack code: ${checked.value}`);
+  }
+  if (resolved.value.language === 'java') {
+    const checked = await dev.checkPackJava(resolved.value, await packEnv(), packDir);
     if (checked.kind === 'err') {
       return { kind: 'error', stderr: `kindgi dev: ${checked.message}\n`, exitCode: 1 };
     }

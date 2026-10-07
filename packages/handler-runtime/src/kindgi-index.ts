@@ -89,9 +89,9 @@ export interface DiscoveryConfig {
 /**
  * The language a pack's code (tool handlers, guardrail checks) is written
  * in — which indexer reads it and which pack service runs it. Agents and
- * flows are data in either.
+ * flows are data in any of them.
  */
-export type PackLanguage = 'node' | 'python';
+export type PackLanguage = 'node' | 'python' | 'java';
 
 /**
  * The subset of `kindgi.config.ts` this indexer consumes. Other
@@ -108,7 +108,7 @@ export interface KindgiConfig {
   /**
    * The pack's code language. Absent in `kindgi.config.*`: `node`. A
    * `[tool.kindgi]` table in `pyproject.toml` is a Python pack unless it
-   * says otherwise.
+   * says otherwise. A `kindgi.config.json` says `"java"`.
    */
   readonly language?: PackLanguage;
   /**
@@ -185,14 +185,37 @@ export const DEFAULT_PYTHON_DISCOVERY: Required<DiscoveryConfig> = {
   flows: 'flows/**/*.py',
 };
 
+/**
+ * Default discovery patterns of a Java pack (`com.kindgi.pack.Main index`
+ * reads the same keys from `kindgi.config.json`): the source files under
+ * any `tools`, `guardrails`, `agents` or `flows` package.
+ */
+export const DEFAULT_JAVA_DISCOVERY: Required<DiscoveryConfig> = {
+  tools: 'src/main/java/**/tools/**/*.java',
+  guardrails: 'src/main/java/**/guardrails/**/*.java',
+  agents: 'src/main/java/**/agents/**/*.java',
+  flows: 'src/main/java/**/flows/**/*.java',
+};
+
 /** A config's discovery patterns with the language's defaults filled in. */
 export function resolveDiscovery(
   discovery: DiscoveryConfig | undefined,
   language: PackLanguage = 'node',
 ): Required<DiscoveryConfig> {
-  const defaults = language === 'python' ? DEFAULT_PYTHON_DISCOVERY : DEFAULT_DISCOVERY;
+  const defaults =
+    language === 'python'
+      ? DEFAULT_PYTHON_DISCOVERY
+      : language === 'java'
+        ? DEFAULT_JAVA_DISCOVERY
+        : DEFAULT_DISCOVERY;
   return { ...defaults, ...(discovery ?? {}) };
 }
+
+/** The command that indexes a pack of each language other than Node. */
+const OWN_INDEXER: Readonly<Record<Exclude<PackLanguage, 'node'>, string>> = {
+  python: 'python -m kindgi.pack index',
+  java: 'java -cp <classpath> com.kindgi.pack.Main index',
+};
 
 // -----------------------------------------------------------------------
 // Manifest entry shapes emitted in index.json
@@ -434,7 +457,7 @@ export async function runIndexer(
       kind: 'err',
       error: {
         code: 'language-mismatch',
-        message: `${packDir} is a ${packLanguage(config)} pack; index it with its own indexer (python -m kindgi.pack index)`,
+        message: `${packDir} is a ${packLanguage(config)} pack; index it with its own indexer (${OWN_INDEXER[packLanguage(config) as Exclude<PackLanguage, 'node'>]})`,
       },
     };
   }
@@ -937,19 +960,49 @@ export async function loadKindgiConfig(
 /** `pyproject.toml` — a Python pack keeps its config in the `[tool.kindgi]` table. */
 export const PYPROJECT_FILENAME = 'pyproject.toml';
 
+/**
+ * `kindgi.config.json` — a JVM pack's config (`"language": "java"`): the
+ * same keys as `kindgi.config.ts`, as JSON, so Maven, Gradle and sbt builds
+ * share one file.
+ */
+export const KINDGI_JSON_CONFIG_FILENAME = 'kindgi.config.json';
+
 export interface KindgiConfigFile {
   readonly path: string;
-  /** `module`: a `kindgi.config.*`; `pyproject`: the `[tool.kindgi]` table of a `pyproject.toml`. */
-  readonly format: 'module' | 'pyproject';
+  /**
+   * `module`: a `kindgi.config.*` module; `pyproject`: the `[tool.kindgi]`
+   * table of a `pyproject.toml`; `json`: a `kindgi.config.json`.
+   */
+  readonly format: 'module' | 'pyproject' | 'json';
+  /**
+   * Another config file at the same root, next to a `kindgi.config.json`:
+   * loading the config refuses the pack, naming both.
+   */
+  readonly conflictsWith?: string;
 }
 
 /**
- * Where a pack's config lives: the first `kindgi.config.*` at `packDir`
- * (`KINDGI_CONFIG_FILENAMES` order), else a `pyproject.toml` with a
- * `[tool.kindgi]` table. `undefined` when neither — a `pyproject.toml`
- * without the table is a Python project, not a pack.
+ * Where a pack's config lives: the first `kindgi.config.*` module at
+ * `packDir` (`KINDGI_CONFIG_FILENAMES` order), else a `pyproject.toml`
+ * with a `[tool.kindgi]` table; a `kindgi.config.json` when it is the only
+ * one. `undefined` when none — a `pyproject.toml` without the table is a
+ * Python project, not a pack. A `kindgi.config.json` next to another
+ * config file is returned with `conflictsWith`, and the loader refuses it.
  */
 export async function findKindgiConfig(packDir: string): Promise<KindgiConfigFile | undefined> {
+  const other = await findModuleOrPyproject(packDir);
+  const json = path.join(packDir, KINDGI_JSON_CONFIG_FILENAME);
+  if (await exists(json)) {
+    return {
+      path: json,
+      format: 'json',
+      ...(other !== undefined && { conflictsWith: other.path }),
+    };
+  }
+  return other;
+}
+
+async function findModuleOrPyproject(packDir: string): Promise<KindgiConfigFile | undefined> {
   for (const name of KINDGI_CONFIG_FILENAMES) {
     const candidate = path.join(packDir, name);
     if (await exists(candidate)) return { path: candidate, format: 'module' };
@@ -992,7 +1045,9 @@ async function loadConfig(
   if (explicitPath !== undefined) {
     const resolved = path.resolve(explicitPath);
     if (await exists(resolved)) {
-      const format = path.basename(resolved) === PYPROJECT_FILENAME ? 'pyproject' : 'module';
+      const base = path.basename(resolved);
+      const format =
+        base === PYPROJECT_FILENAME ? 'pyproject' : base.endsWith('.json') ? 'json' : 'module';
       file = { path: resolved, format };
     }
   } else {
@@ -1003,16 +1058,32 @@ async function loadConfig(
       kind: 'err',
       error: {
         code: 'config-not-found',
-        message: `No kindgi.config.{ts,mts,mjs,js,cjs}, or pyproject.toml with a [tool.kindgi] table, found at pack root ${packDir}`,
+        message: `No kindgi.config.{ts,mts,mjs,js,cjs}, pyproject.toml with a [tool.kindgi] table, or kindgi.config.json, found at pack root ${packDir}`,
+      },
+    };
+  }
+  if (file.conflictsWith !== undefined) {
+    const other = path.basename(file.conflictsWith);
+    return {
+      kind: 'err',
+      error: {
+        code: 'config-invalid',
+        message:
+          `${packDir} has two pack configs, ${KINDGI_JSON_CONFIG_FILENAME} and ${other}; a pack has one. ` +
+          `Keep ${KINDGI_JSON_CONFIG_FILENAME} for a Java pack, or ${other} for a ` +
+          `${file.conflictsWith.endsWith(PYPROJECT_FILENAME) ? 'Python' : 'TypeScript'} one, and remove the other.`,
+        filePath: file.path,
       },
     };
   }
   const read =
     file.format === 'pyproject'
       ? await readPyprojectTable(file.path)
-      : await importConfigModule(file.path, importModule);
+      : file.format === 'json'
+        ? await readJsonConfig(file.path)
+        : await importConfigModule(file.path, importModule);
   if (read.kind === 'err') return read;
-  const checked = checkConfig(read.value, file.path);
+  const checked = checkConfig(read.value, file.path, file.format);
   if (checked.kind === 'err') return checked;
   const record = checked.value;
   return {
@@ -1084,10 +1155,26 @@ async function readPyprojectTable(
   return { kind: 'ok', value: table as Record<string, unknown> };
 }
 
+async function readJsonConfig(
+  filePath: string,
+): Promise<Result<Record<string, unknown>, IndexerError>> {
+  let document: unknown;
+  try {
+    document = JSON.parse(await fs.readFile(filePath, 'utf8'));
+  } catch (cause) {
+    return parseFailed(filePath, `Failed to read ${filePath}: ${stringifyError(cause)}`, cause);
+  }
+  if (!isObject(document)) {
+    return parseFailed(filePath, `Config file ${filePath}: the file must hold a JSON object`);
+  }
+  return { kind: 'ok', value: document as Record<string, unknown> };
+}
+
 /** The checks every config passes, whatever file it came from. */
 function checkConfig(
   record: Record<string, unknown>,
   filePath: string,
+  format: KindgiConfigFile['format'],
 ): Result<KindgiConfig, IndexerError> {
   const pack = record.pack;
   if (typeof pack !== 'object' || pack === null) {
@@ -1109,7 +1196,19 @@ function checkConfig(
       `Config file ${filePath}: 'pack.version' is missing or not a non-empty string`,
     );
   }
-  if (record.language !== undefined && record.language !== 'node' && record.language !== 'python') {
+  if (format === 'json') {
+    // kindgi.config.json is the JVM's config: it names its language.
+    if (record.language !== 'java') {
+      return parseFailed(
+        filePath,
+        `Config file ${filePath}: ${KINDGI_JSON_CONFIG_FILENAME} is a Java pack's config; it says "language": "java"`,
+      );
+    }
+  } else if (
+    record.language !== undefined &&
+    record.language !== 'node' &&
+    record.language !== 'python'
+  ) {
     return parseFailed(filePath, `Config file ${filePath}: 'language' must be "node" or "python"`);
   }
   return { kind: 'ok', value: record as KindgiConfig };

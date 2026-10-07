@@ -112,6 +112,8 @@ interface Fixtures {
   readonly stopOrder: string[];
   /** Interpreters `checkPackPython` was asked about. */
   readonly pythonChecks: (readonly string[])[];
+  /** The Java pack code `checkPackJava` was asked about. */
+  readonly javaChecks: unknown[];
   /** The `PackCode` each of the pack service, the builder and the indexer got. */
   readonly serviceCodes: unknown[];
   readonly builderCodes: unknown[];
@@ -126,6 +128,8 @@ function makeFixtures(
     readonly packBootProblems?: readonly string[];
     /** The pack's Python fails its check with this message. */
     readonly pythonProblem?: string;
+    /** The pack's JDK or Maven fails its check with this message. */
+    readonly javaProblem?: string;
     /** The tenant's providers (default: the dev-echo fallback). */
     readonly providers?: readonly unknown[];
     /** What the boot build loads from `node_modules` (default: not reported). */
@@ -137,6 +141,7 @@ function makeFixtures(
   } = {},
 ): Fixtures {
   const pythonChecks: (readonly string[])[] = [];
+  const javaChecks: unknown[] = [];
   const stopOrder: string[] = [];
   const serviceCodes: unknown[] = [];
   const builderCodes: unknown[] = [];
@@ -193,6 +198,12 @@ function makeFixtures(
       return opts.pythonProblem !== undefined
         ? { kind: 'err', message: opts.pythonProblem }
         : { kind: 'ok', value: 'Python 3.13 · kindgi test' };
+    },
+    checkPackJava: async (code) => {
+      javaChecks.push(code);
+      return opts.javaProblem !== undefined
+        ? { kind: 'err', message: opts.javaProblem }
+        : { kind: 'ok', value: 'Java 17.0.6 · Maven 3.9.16 (test)' };
     },
     createPackService: (serviceOpts) => {
       serviceCodes.push(serviceOpts.code);
@@ -294,6 +305,7 @@ function makeFixtures(
     packBeginCloses: () => packBeginCloses,
     stopOrder,
     pythonChecks,
+    javaChecks,
     serviceCodes,
     builderCodes,
     indexerCodes,
@@ -781,6 +793,110 @@ describe('kindgi dev — a Python pack', () => {
     await runCli({ ...baseInputs(fixtures), argv: ['dev', '--no-watch', `--path=${packDir}`] });
     expect(fixtures.serviceCodes).toEqual([{ language: 'node' }]);
     expect(fixtures.pythonChecks).toEqual([]);
+  });
+});
+
+describe('kindgi dev — a Java pack', () => {
+  async function javaPack(
+    extra: Record<string, unknown> = {},
+    files: Record<string, string> = {},
+  ): Promise<void> {
+    await rm(join(packDir, 'kindgi.config.ts'), { force: true });
+    await writeFile(
+      join(packDir, 'kindgi.config.json'),
+      JSON.stringify({ language: 'java', pack: { id: 'my-pack', version: '0.1.0' }, ...extra }),
+      'utf8',
+    );
+    for (const [name, text] of Object.entries(files)) {
+      await writeFile(join(packDir, name), text, 'utf8');
+    }
+  }
+
+  test("kindgi.config.json: the pack's JDK and Maven build, index and serve it", async () => {
+    await javaPack({}, { mvnw: '#!/bin/sh\n' });
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      env: { ...baseInputs(fixtures).env, JAVA_HOME: '/opt/jdk-17' },
+      argv: ['dev', '--no-watch', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(0);
+    const code = {
+      language: 'java',
+      java: '/opt/jdk-17/bin/java',
+      javaHome: '/opt/jdk-17',
+      maven: ['sh', join(packDir, 'mvnw')],
+      workDir: join(packDir, '.kindgi', 'dev', 'java'),
+    };
+    expect(fixtures.javaChecks).toEqual([code]);
+    expect(fixtures.serviceCodes).toEqual([code]);
+    expect(fixtures.builderCodes).toEqual([code]);
+    expect(fixtures.indexerCodes).toEqual([code]);
+    expect(fixtures.pythonChecks).toEqual([]);
+  });
+
+  test('dev.javaHome and dev.maven in the config come first; without them, java and mvn on PATH', async () => {
+    await javaPack({ dev: { javaHome: '/opt/jdk-21', maven: ['mvn', '-s', 'settings.xml'] } });
+    const fixtures = makeFixtures();
+    await runCli({
+      ...baseInputs(fixtures),
+      env: { ...baseInputs(fixtures).env, JAVA_HOME: '/opt/jdk-17' },
+      argv: ['dev', '--no-watch', `--path=${packDir}`],
+    });
+    expect(fixtures.javaChecks).toEqual([
+      expect.objectContaining({
+        java: '/opt/jdk-21/bin/java',
+        maven: ['mvn', '-s', 'settings.xml'],
+      }),
+    ]);
+
+    await javaPack();
+    const again = makeFixtures();
+    await runCli({ ...baseInputs(again), argv: ['dev', '--no-watch', `--path=${packDir}`] });
+    expect(again.javaChecks).toEqual([expect.objectContaining({ java: 'java', maven: ['mvn'] })]);
+    expect(again.javaChecks[0]).not.toHaveProperty('javaHome');
+  });
+
+  test('a JDK older than 17 (or no Maven) stops the boot with the reason', async () => {
+    await javaPack();
+    const fixtures = makeFixtures({
+      javaProblem: "the pack's JDK (java) is 11.0.22; a Java pack needs 17 or later.",
+    });
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['dev', '--no-watch', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('needs 17 or later');
+    expect(fixtures.serviceCodes).toEqual([]);
+  });
+
+  test('a bad dev.maven is refused before anything starts', async () => {
+    await javaPack({ dev: { maven: [] } });
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['dev', '--no-watch', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('`dev.maven` must be a command');
+    expect(fixtures.javaChecks).toEqual([]);
+  });
+
+  test('kindgi.config.json next to kindgi.config.ts: refused, naming both', async () => {
+    await writeFile(
+      join(packDir, 'kindgi.config.json'),
+      JSON.stringify({ language: 'java', pack: { id: 'my-pack', version: '0.1.0' } }),
+      'utf8',
+    );
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['dev', '--no-watch', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('two pack configs, kindgi.config.json and kindgi.config.ts');
+    expect(fixtures.serviceCodes).toEqual([]);
   });
 });
 

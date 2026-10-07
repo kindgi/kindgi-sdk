@@ -58,6 +58,11 @@ describe('skillPackLanguages', () => {
     ]);
     expect(skillPackLanguages('---\npack_languages: ["python"]\n---\n')).toEqual(['python']);
     expect(skillPackLanguages('---\npack_languages: [ruby, python]\n---\n')).toEqual(['python']);
+    expect(skillPackLanguages('---\npack_languages: [node, python, java]\n---\n')).toEqual([
+      'node',
+      'python',
+      'java',
+    ]);
   });
 });
 

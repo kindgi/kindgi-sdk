@@ -47,7 +47,7 @@ export interface PackRoots {
   readonly packDir: string;
   readonly repoRoot: string;
   readonly mode: PackMode;
-  /** The pack's code language — a Python pack has no Node project around it. */
+  /** The pack's code language — a Python or Java pack has no Node project around it. */
   readonly language: PackLanguage;
 }
 
@@ -91,7 +91,14 @@ export async function resolvePackRoots(inputs: ResolveInputs): Promise<ResolveRe
   const packDir = isAbsolute(rawPath) ? rawPath : resolve(inputs.cwd, rawPath);
 
   // 1. Verify a kindgi.config.* exists at packDir — or a Python pack's
-  //    [tool.kindgi] in pyproject.toml, whose root is the pack itself.
+  //    [tool.kindgi] in pyproject.toml, or a Java pack's kindgi.config.json,
+  //    whose root is the pack itself.
+  if ((await findKindgiConfig(packDir))?.format === 'json') {
+    return {
+      kind: 'ok',
+      roots: { packDir, repoRoot: packDir, mode: 'standalone', language: 'java' },
+    };
+  }
   const hasConfig = await hasAnyConfig(packDir, fileExists);
   if (!hasConfig && (await findKindgiConfig(packDir))?.format === 'pyproject') {
     return {
@@ -103,7 +110,7 @@ export async function resolvePackRoots(inputs: ResolveInputs): Promise<ResolveRe
     return {
       kind: 'err',
       code: 'no-config',
-      message: `No kindgi.config.{ts,mts,mjs,js,cjs} (or pyproject.toml with a [tool.kindgi] table) at ${packDir}. Run \`kindgi init\` to scaffold one, or pass \`--path=<pack-dir>\` if you meant a different directory.`,
+      message: `No kindgi.config.{ts,mts,mjs,js,cjs} (or pyproject.toml with a [tool.kindgi] table, or kindgi.config.json) at ${packDir}. Run \`kindgi init\` to scaffold one, or pass \`--path=<pack-dir>\` if you meant a different directory.`,
     };
   }
 

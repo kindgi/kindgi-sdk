@@ -235,7 +235,11 @@ export async function usablePackageManager(
   return { pm: 'npm', declared: pm };
 }
 
-/** The pack's `BinRunner`: `pythonBinRunner`'s for a Python pack, else the manager that runs here. */
+/**
+ * The pack's `BinRunner`: `pythonBinRunner`'s for a Python pack; `path` for
+ * a Java pack, which has no npm or Python environment (the published CLI
+ * through npx, or the `kindgi` on PATH); else the manager that runs here.
+ */
 export async function detectBinRunner(
   dir: string,
   language: PackLanguage,
@@ -243,6 +247,7 @@ export async function detectBinRunner(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): Promise<BinRunner> {
   if (language === 'python') return await pythonBinRunner(dir, env, io);
+  if (language === 'java') return 'path';
   return (await usablePackageManager(dir, io)).pm;
 }
 

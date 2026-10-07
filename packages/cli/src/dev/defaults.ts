@@ -33,7 +33,16 @@ import {
 import { createPackServiceSupervisor } from '@kindgi/handler-runtime/pack-service';
 
 import { createDevPackBuilder } from './bundler.js';
-import { type PackCode, checkPackPython } from './pack-code.js';
+import { createJavaPackBuilder } from './java-builder.js';
+import {
+  type JavaPackCode,
+  type PackCode,
+  checkPackJava,
+  checkPackPython,
+  javaArgsFile,
+  javaEnv,
+  javaLauncher,
+} from './pack-code.js';
 import { devBundleMapPath, devIndexPath } from './paths.js';
 import { runtimePortInUseReal } from './port.js';
 import {
@@ -101,12 +110,16 @@ function resolvePackServiceEntrypoint(): string {
 /**
  * The pack-service process for the pack's code: the Node pack service
  * (loading the bundles in `.kindgi/dev/dist`, stack traces mapped back to
- * the sources), or `python -m kindgi.pack serve` with the pack's Python.
+ * the sources), `python -m kindgi.pack serve` with the pack's Python, or
+ * `com.kindgi.pack.Main serve` through the launcher with the pack's
+ * classpath (its `@argfile`, which the build rewrites).
  */
 export function packServiceCommand(code: PackCode): readonly [string, ...string[]] {
-  return code.language === 'python'
-    ? [...code.python, '-m', 'kindgi.pack', 'serve']
-    : [process.execPath, '--enable-source-maps', resolvePackServiceEntrypoint()];
+  if (code.language === 'python') return [...code.python, '-m', 'kindgi.pack', 'serve'];
+  if (code.language === 'java') {
+    return ['sh', javaLauncher(code), `@${javaArgsFile(code)}`, 'com.kindgi.pack.Main', 'serve'];
+  }
+  return [process.execPath, '--enable-source-maps', resolvePackServiceEntrypoint()];
 }
 
 /**
@@ -120,7 +133,10 @@ export function createPackServiceReal(opts: DevPackServiceOptions): DevPackServi
     moduleRoot: opts.packDir,
     // A required env name the pack lacks is a warning in dev (the
     // service still serves), not a refusal as in a deployment.
-    env: async () => ({ ...(await opts.env()), [PACK_ENV_CHECK_VAR]: 'warn' }),
+    env: async () => {
+      const env = { ...(await opts.env()), [PACK_ENV_CHECK_VAR]: 'warn' };
+      return opts.code.language === 'java' ? javaEnv(opts.code, env) : env;
+    },
     onLog: opts.onLog,
     onEvent: opts.onEvent,
     ...(opts.port !== undefined && { port: opts.port }),
@@ -128,7 +144,7 @@ export function createPackServiceReal(opts: DevPackServiceOptions): DevPackServi
   });
 }
 
-/** The builder for the pack's code: esbuild bundles (Node) or the sources (Python). */
+/** The builder for the pack's code: esbuild bundles (Node), the sources (Python), Maven (Java). */
 export function createPackBuilderReal(opts: {
   readonly packDir: string;
   readonly patterns: readonly string[];
@@ -136,6 +152,9 @@ export function createPackBuilderReal(opts: {
   readonly code: PackCode;
   readonly env: () => Promise<Readonly<Record<string, string>>>;
 }): PackBuilder {
+  if (opts.code.language === 'java') {
+    return createJavaPackBuilder({ packDir: opts.packDir, code: opts.code, env: opts.env });
+  }
   return opts.code.language === 'python'
     ? createPythonPackBuilder({ packDir: opts.packDir, python: opts.code.python, env: opts.env })
     : createDevPackBuilder({
@@ -177,6 +196,40 @@ export async function runPythonIndexer(opts: PythonIndexerOptions): Promise<Inde
     '--json',
   ];
   return indexResultOf(outcomeOfChild(await runChild(program, args, opts.env)));
+}
+
+export interface JavaIndexerOptions {
+  readonly packDir: string;
+  readonly outputPath: string;
+  /** The pack's JDK and build (its classpath `@argfile`, written by a build). */
+  readonly code: JavaPackCode;
+  readonly env: Readonly<Record<string, string>>;
+  /** Pins for a reproducible index (`kindgi build`). */
+  readonly artifactVersion?: string;
+  readonly publishedAt?: string;
+}
+
+/**
+ * `com.kindgi.pack.Main index` with the pack's JDK and classpath, read back
+ * like the other indexers: the same one-line outcome, then the written
+ * index.
+ */
+export async function runJavaIndexer(opts: JavaIndexerOptions): Promise<IndexResult> {
+  const args = [
+    `@${javaArgsFile(opts.code)}`,
+    'com.kindgi.pack.Main',
+    'index',
+    '--pack-dir',
+    opts.packDir,
+    '--output',
+    opts.outputPath,
+    ...(opts.artifactVersion !== undefined ? ['--artifact-version', opts.artifactVersion] : []),
+    ...(opts.publishedAt !== undefined ? ['--published-at', opts.publishedAt] : []),
+    '--json',
+  ];
+  return indexResultOf(
+    outcomeOfChild(await runChild(opts.code.java, args, javaEnv(opts.code, opts.env))),
+  );
 }
 
 /** The indexer's outcome — in this process, or as a child's JSON line. */
@@ -489,6 +542,14 @@ export async function runIndexerReadReal(
       packDir,
       outputPath,
       python: code.python,
+      env: options.env !== undefined ? await options.env() : {},
+    });
+  }
+  if (code?.language === 'java') {
+    return runJavaIndexer({
+      packDir,
+      outputPath,
+      code,
       env: options.env !== undefined ? await options.env() : {},
     });
   }
@@ -1064,6 +1125,7 @@ export const REAL_DEV_RUNNERS: DevRunners = {
   createPackBuilder: createPackBuilderReal,
   createPackService: createPackServiceReal,
   checkPackPython,
+  checkPackJava,
   publishIndex: publishIndexReal,
   watchPack: watchPackReal,
   startServices: startServicesReal,

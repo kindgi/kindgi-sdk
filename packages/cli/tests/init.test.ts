@@ -359,6 +359,51 @@ describe('kindgi init — python template', () => {
   });
 });
 
+describe('kindgi init — java template', () => {
+  test('scaffolds a Maven pack: kindgi.config.json, pom.xml, the wrapper, sources under the pack id', async () => {
+    const out = await runCli(baseInputs({ argv: ['init', 'acme.billing', '--template=java'] }));
+    expect(out.exitCode, out.stderr).toBe(0);
+    const files = (await listRecursive(join(cwd, 'billing'))).filter(
+      (f) => !f.startsWith('.claude/'),
+    );
+    expect(files).toEqual([
+      '.gitignore',
+      '.mvn/wrapper/maven-wrapper.properties',
+      'AGENTS.md',
+      'README.md',
+      'kindgi.config.json',
+      'mvnw',
+      'pom.xml',
+      'src/main/java/acme/billing/agents/EchoAgent.java',
+      'src/main/java/acme/billing/flows/EchoFlow.java',
+      'src/main/java/acme/billing/guardrails/ResponseNotEmpty.java',
+      'src/main/java/acme/billing/tools/Echo.java',
+      'src/main/java/acme/billing/tools/Greet.java',
+      'src/test/java/acme/billing/ToolsTest.java',
+    ]);
+    expect(JSON.parse(await readFile(join(cwd, 'billing', 'kindgi.config.json'), 'utf8'))).toEqual({
+      language: 'java',
+      pack: { id: 'acme.billing', version: '0.1.0' },
+    });
+    const pom = await readFile(join(cwd, 'billing', 'pom.xml'), 'utf8');
+    expect(pom).toContain(`<kindgi.version>${CLI_VERSION}</kindgi.version>`);
+    expect(pom).toContain('<artifactId>kindgi-pack</artifactId>');
+    expect(pom).toContain('<maven.compiler.release>17</maven.compiler.release>');
+    const echo = await readFile(
+      join(cwd, 'billing', 'src/main/java/acme/billing/tools/Echo.java'),
+      'utf8',
+    );
+    expect(echo).toContain('package acme.billing.tools;');
+    expect(echo).toContain('Tool.define("acme.billing.echo")');
+    expect(echo).not.toMatch(/\{\{[A-Z_]+\}\}/);
+    expect((await stat(join(cwd, 'billing', 'mvnw'))).mode & 0o111).not.toBe(0);
+    // From a checkout, the next steps install kindgi-pack from its sdks/java.
+    expect(out.stderr).toMatch(/\(cd .*sdks\/java && \.\/mvnw -q install -DskipTests\)/);
+    expect(out.stderr).toContain('./mvnw test');
+    expect(out.stderr).toContain(`npx --yes ${publishedCliSpec(CLI_VERSION)} dev`);
+  });
+});
+
 describe('kindgi init — sample template', () => {
   test('scaffolds the larger file set including guardrails + flows', async () => {
     const out = await runCli(baseInputs({ argv: ['init', 'my-pack', '--template=sample'] }));
@@ -467,6 +512,13 @@ describe('kindgi init — path + force flags', () => {
 });
 
 describe('kindgi init --template in an existing app (augment mode)', () => {
+  test('--template=java in a Node app is refused, pointing at --new-repo', async () => {
+    await writeFile(join(cwd, 'package.json'), '{"name":"acme-app"}\n');
+    const out = await runCli(baseInputs({ argv: ['init', '--template=java'] }));
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('--template=java --new-repo');
+  });
+
   test('--template=python is refused before anything is written', async () => {
     await writeFile(
       join(cwd, 'package.json'),

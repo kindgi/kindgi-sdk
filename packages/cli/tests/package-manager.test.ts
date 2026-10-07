@@ -133,6 +133,13 @@ describe('detectBinRunner', () => {
     expect(await detectBinRunner('/app', 'python', io({ '/app/pnpm-lock.yaml': '' }))).toBe('path');
   });
 
+  test('a Java pack runs the kindgi on PATH: it has no npm or Python environment', async () => {
+    expect(await detectBinRunner('/app', 'java', io({ '/app/pnpm-lock.yaml': '' }))).toBe('path');
+    expect(await detectBinRunner('/app', 'java', io({}), { KINDGI_CLI_INSTALL: 'pypi' })).toBe(
+      'path',
+    );
+  });
+
   test('a Node pack runs it through its package manager', async () => {
     expect(await detectBinRunner('/app', 'node', io({ '/app/pnpm-lock.yaml': '' }))).toBe('pnpm');
   });
