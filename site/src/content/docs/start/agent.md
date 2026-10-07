@@ -31,7 +31,7 @@ thing at a time, and wait until they say they've done it.
 - **`kindgi` in the commands below** means `npx --yes @kindgi/cli@next`,
   until step 2 makes a project. From then on, from the project's folder:
   - a TypeScript project: `pnpm exec kindgi` if `pnpm --version` works,
-    else `npx --no kindgi` (`init`'s "Next steps" say pnpm either way);
+    else `npx --no kindgi`;
   - a Python project: `npx --yes @kindgi/cli@next`.
 
 ## Step 0: check the machine
