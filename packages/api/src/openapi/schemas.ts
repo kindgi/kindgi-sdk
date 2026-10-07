@@ -7558,11 +7558,11 @@ export const TriggerStatusSchema: JsonSchema = {
 export const ScheduleRecordSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
+  description:
+    'A schedule: what it runs (a flow at a version, or an agent), when (a cron expression in a timezone), as whom (its owner), and what it does after a gap or while a run is still going.',
   required: [
     'scheduleId',
     'triggerId',
-    'flowId',
-    'flowVersion',
     'cronExpression',
     'label',
     'status',
@@ -7578,8 +7578,29 @@ export const ScheduleRecordSchema: JsonSchema = {
         'Domain-friendly alias for `triggerId` — the trigger id (a UUID). Use interchangeably in admin URLs.',
     },
     triggerId: { type: 'string' },
-    flowId: { type: 'string', minLength: 1 },
+    flowId: {
+      type: 'string',
+      minLength: 1,
+      description: 'A schedule that runs a flow: the flow, at `flowVersion`.',
+    },
     flowVersion: { type: 'string', minLength: 1 },
+    agentId: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "A schedule that runs an agent: the agent, at `agentVersion`, else its version live for the schedule's project (else the latest), as a run that names none.",
+    },
+    agentVersion: { type: 'string', minLength: 1 },
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description: "The schedule's project: its runs are this project's.",
+    },
+    owner: {
+      $ref: '#/components/schemas/TriggerOwner',
+      description:
+        'Who its runs act as: whoever registered it, until an admin takes it over (`POST …/owner`). Checked again at every fire.',
+    },
     cronExpression: {
       type: 'string',
       minLength: 1,
@@ -7591,19 +7612,99 @@ export const ScheduleRecordSchema: JsonSchema = {
       description: 'IANA timezone (e.g. `UTC`, `America/New_York`). Absent → `UTC`.',
     },
     input: {
-      description: 'Static input handed to the flow on every fire. Absent → `{}`.',
+      description: 'Static input handed to the run on every fire. Absent → `{}`.',
+    },
+    catchUp: {
+      type: 'string',
+      enum: ['latest', 'skip'],
+      description:
+        'After a gap (the runtime was down, or a fire is later than `startingDeadlineSeconds`): `latest` runs once, for the latest missed occurrence, and its fire says how many it missed; `skip` drops the missed occurrences. Never a run per missed occurrence.',
+    },
+    overlap: {
+      type: 'string',
+      enum: ['skip', 'allow'],
+      description:
+        'When an occurrence comes while the previous run of this schedule is still running: `skip` records the fire as skipped; `allow` starts another run.',
+    },
+    startingDeadlineSeconds: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        'How late a fire may start and still count as on time; past it, `catchUp` applies.',
     },
     label: { type: ['string', 'null'] },
     status: { $ref: '#/components/schemas/TriggerStatus' },
+    statusReason: {
+      type: 'string',
+      description:
+        'Why the runtime paused it: repeated fires that were refused (the owner lost access) or failed.',
+    },
     nextFireAt: {
       type: ['string', 'null'],
       format: 'date-time',
       description:
         'Wall-clock time of the next scheduled fire. `null` on paused rows if the cron scheduler never re-armed.',
     },
+    upcoming: {
+      type: 'array',
+      items: { type: 'string', format: 'date-time' },
+      description: 'The next occurrences, when the request asked for them (`?upcoming=N`).',
+    },
     lastFiredAt: { type: ['string', 'null'], format: 'date-time' },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const TriggerOwnerSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'id'],
+  properties: {
+    kind: { type: 'string', enum: ['user', 'service'] },
+    id: { type: 'string' },
+  },
+};
+
+export const ScheduleFireSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'One fire of a schedule (an occurrence, or a `run-now`) and what came of it. `pending` while its run is being started.',
+  required: ['fireId', 'scheduleId', 'triggerId', 'firedAt', 'outcome'],
+  properties: {
+    fireId: { type: 'string' },
+    scheduleId: { type: 'string' },
+    triggerId: { type: 'string' },
+    scheduledFor: {
+      type: 'string',
+      format: 'date-time',
+      description: 'The occurrence it is for; absent on a `run-now` fire.',
+    },
+    firedAt: { type: 'string', format: 'date-time' },
+    outcome: {
+      type: 'string',
+      enum: ['pending', 'started', 'skipped-overlap', 'refused', 'failed'],
+    },
+    runId: { type: 'string', format: 'uuid', description: 'The run it started.' },
+    detail: { type: 'string', description: 'Why it was refused, skipped or failed.' },
+    missedCount: {
+      type: 'integer',
+      minimum: 1,
+      description: 'Occurrences this fire stood in for after a gap (`catchUp: latest`).',
+    },
+    manual: { type: 'boolean', description: 'A `run-now` fire, outside the schedule.' },
+  },
+};
+
+export const ScheduleFirePageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/ScheduleFire' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
   },
 };
 
@@ -7621,10 +7722,23 @@ export const ScheduleCollectionPageSchema: JsonSchema = {
 export const RegisterScheduleBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['flowId', 'flowVersion', 'config'],
+  description:
+    'Name what it runs: `flowId` with `flowVersion`, or `agentId` (with an optional `agentVersion`). Registering needs `write` on the project and `execute` on what it runs; its runs act as the caller.',
+  required: ['config'],
   properties: {
-    flowId: { type: 'string', minLength: 1 },
+    flowId: { type: 'string', minLength: 1, description: 'Run a flow (with `flowVersion`).' },
     flowVersion: { type: 'string', minLength: 1 },
+    agentId: {
+      type: 'string',
+      minLength: 1,
+      description: 'Run an agent (instead of a flow): at `agentVersion`, else its live version.',
+    },
+    agentVersion: { type: 'string', minLength: 1 },
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description: "The schedule's project. Absent → the tenant's default project.",
+    },
     config: {
       type: 'object',
       additionalProperties: false,
@@ -7635,6 +7749,14 @@ export const RegisterScheduleBodySchema: JsonSchema = {
         input: {},
       },
     },
+    catchUp: { type: 'string', enum: ['latest', 'skip'], description: 'Default `latest`.' },
+    overlap: { type: 'string', enum: ['skip', 'allow'], description: 'Default `skip`.' },
+    startingDeadlineSeconds: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 86400,
+      description: 'Default 600.',
+    },
     label: { type: 'string' },
   },
 };
@@ -7642,7 +7764,17 @@ export const RegisterScheduleBodySchema: JsonSchema = {
 export const PatchScheduleBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
+  description:
+    'Change what it runs (the target fields, as at registration, which also needs `execute` on the new target), when, or its policies.',
   properties: {
+    flowId: { type: 'string', minLength: 1, description: 'Run a flow (with `flowVersion`).' },
+    flowVersion: { type: 'string', minLength: 1 },
+    agentId: {
+      type: 'string',
+      minLength: 1,
+      description: 'Run an agent (instead of a flow): at `agentVersion`, else its live version.',
+    },
+    agentVersion: { type: 'string', minLength: 1 },
     config: {
       type: 'object',
       additionalProperties: false,
@@ -7652,11 +7784,18 @@ export const PatchScheduleBodySchema: JsonSchema = {
         input: {},
       },
     },
+    catchUp: { type: 'string', enum: ['latest', 'skip'], description: 'Default `latest`.' },
+    overlap: { type: 'string', enum: ['skip', 'allow'], description: 'Default `skip`.' },
+    startingDeadlineSeconds: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 86400,
+      description: 'Default 600.',
+    },
     label: {
       type: ['string', 'null'],
       description: '`null` clears the label; omit to leave unchanged.',
     },
-    flowVersion: { type: 'string' },
   },
 };
 
@@ -8600,6 +8739,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   // Trigger surface.
   ['TriggerStatus', TriggerStatusSchema],
   ['ScheduleRecord', ScheduleRecordSchema],
+  ['TriggerOwner', TriggerOwnerSchema],
+  ['ScheduleFire', ScheduleFireSchema],
+  ['ScheduleFirePage', ScheduleFirePageSchema],
   ['ScheduleCollectionPage', ScheduleCollectionPageSchema],
   ['RegisterScheduleBody', RegisterScheduleBodySchema],
   ['PatchScheduleBody', PatchScheduleBodySchema],
