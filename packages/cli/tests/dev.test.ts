@@ -1063,6 +1063,22 @@ describe('kindgi dev — boot flow (no watch)', () => {
   // The fixture's `toolStatus: 409` option is unused.
 });
 
+describe('kindgi dev — the PyPI CLI (kindgi-cli)', () => {
+  test('a TypeScript pack is refused before anything starts, naming the npm CLI', async () => {
+    const fixtures = makeFixtures();
+    const spy = vi.spyOn(fixtures.runners, 'startApiServer');
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      env: { ...baseInputs(fixtures).env, KINDGI_CLI_INSTALL: 'pypi' },
+      argv: ['dev', '--no-watch', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('This kindgi is the PyPI build (kindgi-cli), for Python packs');
+    expect(out.stderr).toContain('npm install --save-dev @kindgi/cli');
+    expect(spy).not.toHaveBeenCalled();
+  });
+});
+
 describe('kindgi dev — a stop before the runtime serves (T176)', () => {
   test('Ctrl+C while it waits for the runtime: it stops at once, exit 130, not an error', async () => {
     const controller = new AbortController();

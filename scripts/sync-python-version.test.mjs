@@ -232,7 +232,7 @@ source = { editable = "." }
 
 let fixtures = 0;
 
-/** A workspace with two fixed-group packages and the Python project `sdks/python`. */
+/** A workspace with two fixed-group packages and the Python projects `sdks/python` and `sdks/python-cli`. */
 function workspace({ sdk, cli = sdk, python = '1.2.0' }) {
   const root = join(scratch, `ws-${++fixtures}`);
   const write = (file, text) => {
@@ -246,6 +246,16 @@ function workspace({ sdk, cli = sdk, python = '1.2.0' }) {
   write('packages/cli/package.json', JSON.stringify({ name: '@kindgi/cli', version: cli }));
   write('sdks/python/pyproject.toml', PYPROJECT.replace('"1.2.0"', `"${python}"`));
   write('sdks/python/uv.lock', LOCK.replace('"1.2.0"', `"${python}"`));
+  // The second Python project (kindgi-cli's), always at the npm version here.
+  const cliPython = toPep440(cli);
+  write(
+    'sdks/python-cli/pyproject.toml',
+    PYPROJECT.replace('"acme-x"', '"acme-x-cli"').replace('"1.2.0"', `"${cliPython}"`),
+  );
+  write(
+    'sdks/python-cli/uv.lock',
+    LOCK.replace('"acme-x"', '"acme-x-cli"').replace('"1.2.0"', `"${cliPython}"`),
+  );
   execFileSync('git', ['-c', 'init.defaultBranch=main', 'init', '-q'], { cwd: root });
   return root;
 }
@@ -265,7 +275,7 @@ describe('sync-python-version --check', () => {
   test('passes when pyproject.toml and uv.lock have the npm version', () => {
     const result = run(workspace({ sdk: '1.2.0' }), ['--check']);
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /1 Python project\(s\) at 1\.2\.0, in step with the 2 packages/);
+    assert.match(result.stdout, /2 Python project\(s\) at 1\.2\.0, in step with the 2 packages/);
   });
 
   test('fails on a project behind npm, naming both files', () => {

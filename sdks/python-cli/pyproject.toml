@@ -1,0 +1,44 @@
+[project]
+name = "kindgi-cli"
+version = "0.1.4rc2"
+description = "The Kindgi CLI for Python developers: kindgi dev, init, build and deploy, with no Node install."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Kindgi Inc." }]
+keywords = ["kindgi", "agents", "cli"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Operating System :: OS Independent",
+]
+# Node, from a wheel: the CLI is the npm package @kindgi/cli, run with it.
+dependencies = ["nodejs-wheel-binaries>=22.12"]
+
+[project.urls]
+Homepage = "https://kindgi.com"
+Documentation = "https://docs.kindgi.com"
+Source = "https://github.com/kindgi/kindgi-sdk"
+
+[project.scripts]
+kindgi = "kindgi_cli.__main__:main"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+# The uv versions this package is developed with: the Python SDK's range.
+[tool.uv]
+required-version = ">=0.12.15,<0.13"
+
+# Core metadata 2.3, as the Python SDK's: it goes into existing apps' dev
+# dependencies, and Poetry 1.8 refuses metadata it doesn't know. 2.3 has no
+# License-Expression, so the license is the classic table. LICENSE ships, and
+# so do the third-party notices, inside the package (_cli/THIRD-PARTY-NOTICES.txt).
+[tool.hatch.build.targets.wheel]
+core-metadata-version = "2.3"
+packages = ["src/kindgi_cli"]
+# The CLI itself (scripts/build-cli-wheel.mjs puts it here; not in git).
+artifacts = ["src/kindgi_cli/_cli/**"]

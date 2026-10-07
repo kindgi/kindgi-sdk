@@ -9,6 +9,7 @@ import {
   type DetectIo,
   binCommand,
   binDisplay,
+  cliInstall,
   detectBinRunner,
   detectPackageManager,
   installCommand,
@@ -134,6 +135,33 @@ describe('detectBinRunner', () => {
 
   test('a Node pack runs it through its package manager', async () => {
     expect(await detectBinRunner('/app', 'node', io({ '/app/pnpm-lock.yaml': '' }))).toBe('pnpm');
+  });
+
+  test("from the PyPI CLI, a Python pack runs it from its own environment: uv, or Poetry's", async () => {
+    const pypi = { KINDGI_CLI_INSTALL: 'pypi' };
+    expect(await detectBinRunner('/app', 'python', io({}), pypi)).toBe('uv');
+    expect(await detectBinRunner('/app', 'python', io({ '/app/uv.lock': '' }), pypi)).toBe('uv');
+    expect(await detectBinRunner('/app/svc', 'python', io({ '/app/poetry.lock': '' }), pypi)).toBe(
+      'poetry',
+    );
+    // A Node pack is unaffected.
+    expect(await detectBinRunner('/app', 'node', io({ '/app/pnpm-lock.yaml': '' }), pypi)).toBe(
+      'pnpm',
+    );
+  });
+});
+
+describe('cliInstall', () => {
+  test('pypi only when the PyPI launcher says so; npm otherwise', () => {
+    expect(cliInstall({ KINDGI_CLI_INSTALL: 'pypi' })).toBe('pypi');
+    expect(cliInstall({})).toBe('npm');
+    expect(cliInstall({ KINDGI_CLI_INSTALL: 'something' })).toBe('npm');
+  });
+
+  test('the PyPI runners: uv run, poetry run, or the bare script in an activated environment', () => {
+    expect(binDisplay('uv', 'kindgi', ['dev'])).toBe('uv run kindgi dev');
+    expect(binDisplay('poetry', 'kindgi', ['dev'])).toBe('poetry run kindgi dev');
+    expect(binDisplay('venv', 'kindgi', ['dev'])).toBe('kindgi dev');
   });
 });
 

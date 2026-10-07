@@ -23,7 +23,40 @@ export type PackageManager = 'pnpm' | 'npm' | 'yarn' | 'bun';
  * How a pack runs its bins: through its package manager, or — a Python
  * pack, which has no npm project to install the CLI into — from `PATH`.
  */
-export type BinRunner = PackageManager | 'path';
+export type BinRunner = PackageManager | 'path' | 'uv' | 'poetry' | 'venv';
+
+/**
+ * How this CLI was installed: from npm (`@kindgi/cli`), or from PyPI
+ * (`kindgi-cli`, with Node from a wheel), whose launcher sets
+ * `KINDGI_CLI_INSTALL=pypi`. A Python pack then runs the CLI from its own
+ * Python environment (`uv run kindgi`), not through npx.
+ */
+export function cliInstall(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): 'npm' | 'pypi' {
+  return env.KINDGI_CLI_INSTALL === 'pypi' ? 'pypi' : 'npm';
+}
+
+/**
+ * A Python pack's runner. From the npm CLI: `path` (npx, within this CLI's
+ * minor). From the PyPI CLI, the pack's own environment: `poetry run` for a
+ * Poetry project (a `poetry.lock` at or above `dir`), else `uv run`.
+ */
+export async function pythonBinRunner(
+  dir: string,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+  io: DetectIo = defaultIo,
+): Promise<BinRunner> {
+  if (cliInstall(env) !== 'pypi') return 'path';
+  let current = dir;
+  for (;;) {
+    if (await io.exists(join(current, 'poetry.lock'))) return 'poetry';
+    if (await io.exists(join(current, 'uv.lock'))) return 'uv';
+    const parent = dirname(current);
+    if (parent === current) return 'uv';
+    current = parent;
+  }
+}
 
 /** Lockfile / workspace marker → manager, checked in this order per directory. */
 const MARKERS: readonly (readonly [string, PackageManager])[] = [
@@ -202,13 +235,15 @@ export async function usablePackageManager(
   return { pm: 'npm', declared: pm };
 }
 
-/** The pack's `BinRunner`: `path` for a Python pack, else the manager that runs here. */
+/** The pack's `BinRunner`: `pythonBinRunner`'s for a Python pack, else the manager that runs here. */
 export async function detectBinRunner(
   dir: string,
   language: PackLanguage,
   io: DetectIo = defaultIo,
+  env: Readonly<Record<string, string | undefined>> = process.env,
 ): Promise<BinRunner> {
-  return language === 'python' ? 'path' : (await usablePackageManager(dir, io)).pm;
+  if (language === 'python') return await pythonBinRunner(dir, env, io);
+  return (await usablePackageManager(dir, io)).pm;
 }
 
 /**
@@ -244,6 +279,14 @@ export function binCommand(
       return { command: 'yarn', args: [bin, ...args] };
     case 'bun':
       return { command: 'bun', args: ['run', bin, ...args] };
+    case 'uv':
+      // The PyPI CLI (`kindgi-cli`) in the pack's uv environment.
+      return { command: 'uv', args: ['run', bin, ...args] };
+    case 'poetry':
+      return { command: 'poetry', args: ['run', bin, ...args] };
+    case 'venv':
+      // The PyPI CLI's script in the app's own (activated) environment.
+      return { command: bin, args: [...args] };
     case 'path':
       // No npm project to install the CLI into (a Python pack): the published
       // CLI through npx, within this CLI's minor (as Python packs pin
