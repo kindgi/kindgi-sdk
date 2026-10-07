@@ -114,7 +114,25 @@ export interface ImprovementPass {
   readonly costUsd: string;
   /** Set once it ends. */
   readonly outcome?: ImprovementPassOutcome;
+  /** Its comparisons so far, each an eval run to open. */
+  readonly comparisons?: readonly ImprovementPassComparison[];
   readonly createdAt: Timestamp;
   readonly updatedAt: Timestamp;
   readonly finishedAt?: Timestamp;
+}
+
+/** One comparison a pass ran: the version as it is, a candidate, or the proposal's proof. */
+export interface ImprovementPassComparison {
+  /** Absent until it started. */
+  readonly evalRunId?: string;
+  /** `reference`: the version as it is; `candidate`: other values; `proof`: the proposal, on the hold-out part. */
+  readonly role: 'reference' | 'candidate' | 'proof';
+  readonly part: 'search' | 'hold-out';
+  /** For a candidate: its block, and the values it changed. */
+  readonly blockId?: string;
+  readonly changed?: Readonly<Record<string, unknown>>;
+  /** Its score on the pass's objective, once it finished (`null`: no judged evidence). */
+  readonly score?: number | null;
+  /** Why it didn't run or finish, when it didn't. */
+  readonly failed?: string;
 }

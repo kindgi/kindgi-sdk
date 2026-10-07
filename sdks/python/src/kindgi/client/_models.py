@@ -3519,6 +3519,20 @@ class ImprovementPassOutcome(BaseModel):
     message: str | None = None
 
 
+class Comparison1(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    eval_run_id: Annotated[UUID | None, Field(alias="evalRunId")] = None
+    role: Literal["reference", "candidate", "proof"]
+    part: Literal["search", "hold-out"]
+    block_id: Annotated[str | None, Field(alias="blockId")] = None
+    changed: dict[str, Any] | None = None
+    score: float | None = None
+    failed: str | None = None
+
+
 class ImprovementPass(BaseModel):
     """
     An improvement pass: the runtime looking for better values for an agent version's tunable settings (`x-kindgi-tunable`) on a test set, within a budget. Its best candidate becomes an improvement proposal.
@@ -3556,6 +3570,10 @@ class ImprovementPass(BaseModel):
     What its comparisons have cost so far (US dollars).
     """
     outcome: ImprovementPassOutcome | None = None
+    comparisons: list[Comparison1] | None = None
+    """
+    Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the proposal, on the hold-out part). Absent from older servers.
+    """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
     finished_at: Annotated[AwareDatetime | None, Field(alias="finishedAt")] = None
