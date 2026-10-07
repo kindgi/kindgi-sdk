@@ -237,7 +237,9 @@ function rebuildProvenance(
   const input = ctx.userMessage;
   if (ctx.provenance === undefined || input === undefined) return;
   addInputNode(ctx.provenance, input);
-  if (retrieved !== undefined) addRetrievalNodes(ctx.provenance, retrieved, input);
+  if (retrieved !== undefined) {
+    addRetrievalNodes(ctx.provenance, ctx.input.agent.retrieval, retrieved, input);
+  }
 
   const storedByStep = new Map<number, readonly ConversationMessage[]>();
   for (const s of steps.filter((s) => s.nodeId === 'dispatch-tools' && s.inLoop)) {

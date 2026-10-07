@@ -597,6 +597,58 @@ describe('API — publishing an agent that searches memory by meaning', () => {
     expect((await publish(appWithMemory(undefined), searching)).body.warnings).toBeUndefined();
   });
 
+  test('an agent that remembers, on a deployment that cannot store it, is warned about', async () => {
+    const registry = createAgentRegistry();
+    const app = (agentRemember: boolean | undefined) =>
+      createApp({
+        ...createStubAppBindings(),
+        resolveToken,
+        runHandler,
+        agentRegistry: bindingFromRegistry(registry),
+        memory: {
+          ...inMemoryMemory().binding,
+          ...(agentRemember !== undefined && { agentRemember }),
+        },
+      });
+    const remembering = (id: string) => ({
+      ...agentSpec({ id }),
+      memory: { remember: { types: ['acme.preference'], scope: 'same-user' } },
+    });
+    const off = await publish(app(false), remembering('acme.remembers-off'));
+    expect(off.status).toBe(201);
+    expect(off.body.warnings).toEqual([expect.objectContaining({ code: 'remember-unavailable' })]);
+    expect(
+      (await publish(app(true), remembering('acme.remembers-on'))).body.warnings,
+    ).toBeUndefined();
+    expect(
+      (await publish(app(undefined), remembering('acme.remembers-unknown'))).body.warnings,
+    ).toBeUndefined();
+  });
+
+  test("an agent's remember declaration is kept and read back; the built-in id is reserved", async () => {
+    const app = appWithMemory(true);
+    const declared = { types: ['acme.preference'], scope: 'same-user', keepDays: 14 };
+    expect(
+      (
+        await publish(app, {
+          ...agentSpec({ id: 'acme.remembers' }),
+          memory: { remember: declared },
+        })
+      ).status,
+    ).toBe(201);
+    const res = await app.request('/v1/agents/acme.remembers/versions/1.0.0', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(((await res.json()) as { memory?: unknown }).memory).toEqual({ remember: declared });
+    const reserved = await publish(app, {
+      ...agentSpec({ id: 'acme.reserved' }),
+      tools: [{ id: 'kindgi.memory.remember', version: '1.0.0' }],
+      memory: { remember: declared },
+    });
+    expect(reserved.status).toBe(400);
+    expect(JSON.stringify(reserved.body)).toContain('built-in remember tool');
+  });
+
   test("an agent's memory policy is kept and read back", async () => {
     const app = appWithMemory(true);
     const published = await publish(app, {

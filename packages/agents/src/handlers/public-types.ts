@@ -4,7 +4,7 @@
 import type { Principal } from '@kindgi/authz';
 import type { ProviderRegistry, TenantPolicy, UsageSink } from '@kindgi/capabilities';
 import type { EmbeddingProviderRegistry } from '@kindgi/embedding';
-import type { MemoryQueryBinding } from '@kindgi/memory';
+import type { MemoryQueryBinding, MemoryRememberBinding } from '@kindgi/memory';
 import type { PolicyRegistry } from '@kindgi/policy-contract';
 import type { ParentRunRef, RunBinding, RunReplayRef } from '@kindgi/runtime';
 import type { ToolRegistry, ToolSecretRef } from '@kindgi/tools';
@@ -142,6 +142,12 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
    * touches a database client directly for memory operations.
    */
   readonly memoryBinding: MemoryQueryBinding;
+  /**
+   * Where an agent that declares `memory.remember` stores what it
+   * remembers (the `kindgi.memory.remember` tool). Absent: the tool still
+   * shows, and a call answers that this host can't remember.
+   */
+  readonly memoryWriter?: MemoryRememberBinding;
   /**
    * Caller-plugged conversation store. Every open / get / list /
    * close / delete / appendMessage / readMessages inside the agent

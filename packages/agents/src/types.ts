@@ -134,6 +134,44 @@ export interface AgentMemoryPolicy {
    * facts of these types stay data. Default: none.
    */
   readonly instructionTypes?: readonly string[];
+  /**
+   * Lets the agent remember: the turn offers the built-in tool
+   * `kindgi.memory.remember` (`REMEMBER_TOOL_ID`). Absent: it can't.
+   */
+  readonly remember?: RememberPolicy;
+}
+
+/**
+ * Where an agent's remembered facts go, always within its run:
+ *   - `same-user`:         the conversation's end user, else the user
+ *                          the run acts for (a run with neither can't
+ *                          remember);
+ *   - `same-conversation`: this conversation;
+ *   - `same-project`:      the run's project (a person approves each
+ *                          one first);
+ *   - `tenant`:            the whole tenant (a person approves each
+ *                          one first).
+ * Each but `tenant` includes the run's project when there is one.
+ */
+export type RememberScope = 'same-user' | 'same-conversation' | 'same-project' | 'tenant';
+
+/**
+ * What an agent may remember. The model picks the type (one of `types`),
+ * the text (up to 2,000 characters), an optional slot `key` and when it
+ * stops being true; never the scope. Every remembered fact is
+ * `unverified`, attributed to the agent version and the tool call that
+ * wrote it, and kept `keepDays` unless a person verifies it.
+ *
+ * A person approves a fact before any read sees it when the scope is
+ * wider than one person, or the text reads like an instruction ("always
+ * …", "ignore …", a URL, a tool name). Otherwise it's used at once.
+ */
+export interface RememberPolicy {
+  /** The fact types it may write, e.g. `preference`. At least one. */
+  readonly types: readonly string[];
+  readonly scope: RememberScope;
+  /** Days an unverified fact is kept, 1–3650. Default 30. */
+  readonly keepDays?: number;
 }
 
 /**
