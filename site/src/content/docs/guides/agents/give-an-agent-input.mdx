@@ -70,6 +70,8 @@ run = kindgi.runs.start(
         "parameters": {"tone": "formal", "signature": "Sam at Acme"},
     },
 )
+if run.output is None:  # a run that didn't complete has no output
+    raise SystemExit(f"Run {run.id} ended {run.status}: {run.failure_message}")
 print(run.output["response"]["content"])
 ```
 

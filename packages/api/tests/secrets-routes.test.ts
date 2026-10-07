@@ -581,3 +581,38 @@ describe('API — validation — envName + scope required', () => {
 // Silence unused-value warnings on staging/scopeKeyString if all fixtures
 // happen to bypass one code path.
 void staging;
+
+describe('API — a store that does not rotate or revoke by design', () => {
+  test('rotate and revoke answer 501 secret-operation-unsupported, with what to do instead', async () => {
+    const secrets = makeInMemorySecretsBinding();
+    const unsupported = (message: string) =>
+      ({ kind: 'err', error: { code: 'secret-operation-unsupported', message } }) as never;
+    secrets.rotateImpl = async () =>
+      unsupported(
+        'Dev secrets live in your env files and have no versions to rotate. Edit the value there.',
+      );
+    secrets.revoke = async () =>
+      unsupported(
+        'Dev secrets live in your env files and have no revocation. Remove k from those files.',
+      );
+    const app = makeApp({ secrets });
+    const headers = { authorization: `Bearer ${TOKEN_ALL}`, 'content-type': 'application/json' };
+    const rot = await app.request('/v1/secrets/k/rotate?envName=local&scopeKind=tenant', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ newValue: 'v2' }),
+    });
+    expect(rot.status).toBe(501);
+    const rotBody = (await rot.json()) as { error: { code: string; message: string } };
+    expect(rotBody.error.code).toBe('secret-operation-unsupported');
+    expect(rotBody.error.message).toContain('Edit the value there');
+    const rev = await app.request('/v1/secrets/k?envName=local&scopeKind=tenant', {
+      method: 'DELETE',
+      headers,
+    });
+    expect(rev.status).toBe(501);
+    expect(((await rev.json()) as { error: { code: string } }).error.code).toBe(
+      'secret-operation-unsupported',
+    );
+  });
+});

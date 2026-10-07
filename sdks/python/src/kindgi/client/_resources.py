@@ -7,13 +7,14 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
 from typing import Any, Literal, cast
+from uuid import UUID
 
 from . import _models
 from ._base import AsyncClientBase, Operation, SyncClientBase, _body, _segments
 
 __all__ = ["OPERATIONS", "AsyncResources", "Resources"]
 
-_ = Literal  # used in generated annotations
+_ = Literal, UUID  # used in generated annotations
 
 OPERATIONS: dict[str, Operation] = {
     "system.health": Operation("system.health", "GET", "/health", "json", False),
@@ -804,12 +805,12 @@ class RunsResource:
         limit: int | None = None,
         cursor: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
-        parent_run_id: str | None = None,
+        scope_id: str | UUID | None = None,
+        parent_run_id: str | UUID | None = None,
         top_level: bool | None = None,
-        agent_id: str | None = None,
+        agent_id: str | UUID | None = None,
         replays: Literal["exclude", "include", "only"] | None = None,
-        eval_run_id: str | None = None,
+        eval_run_id: str | UUID | None = None,
         include: Literal["output"] | None = None,
         timeout: float | None = None,
     ) -> _models.RunCollectionPage:
@@ -860,7 +861,7 @@ class RunsResource:
             timeout=timeout,
         )
 
-    def get(self, run_id: str, /, *, timeout: float | None = None) -> _models.Run:
+    def get(self, run_id: str | UUID, /, *, timeout: float | None = None) -> _models.Run:
         """Fetch a run. `GET /v1/runs/{runId}`"""
         return self._client._request(
             _OPERATIONS["runs.get"],
@@ -872,7 +873,12 @@ class RunsResource:
         )
 
     def cancel(
-        self, run_id: str, /, *, idempotency_key: str | None = None, timeout: float | None = None
+        self,
+        run_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
     ) -> _models.Run:
         """Cancel a run. `POST /v1/runs/{runId}/cancel`
 
@@ -889,7 +895,7 @@ class RunsResource:
 
     def resume(
         self,
-        run_id: str,
+        run_id: str | UUID,
         body: _models.ResumeRunBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -911,7 +917,7 @@ class RunsResource:
         )
 
     def journal(
-        self, run_id: str, /, *, since: int | None = None, timeout: float | None = None
+        self, run_id: str | UUID, /, *, since: int | None = None, timeout: float | None = None
     ) -> _models.RunJournalPage:
         """Read the durable journal for a run. `GET /v1/runs/{runId}/journal`
 
@@ -927,7 +933,12 @@ class RunsResource:
         )
 
     def stream(
-        self, run_id: str, /, *, last_event_id: str | None = None, timeout: float | None = None
+        self,
+        run_id: str | UUID,
+        /,
+        *,
+        last_event_id: str | UUID | None = None,
+        timeout: float | None = None,
     ) -> Iterator[_models.RunEvent]:
         """Server-Sent Events stream of RunEvent frames. `GET /v1/runs/{runId}/stream`
 
@@ -942,7 +953,9 @@ class RunsResource:
             timeout=timeout,
         )
 
-    def progress(self, run_id: str, /, *, timeout: float | None = None) -> _models.RunProgress:
+    def progress(
+        self, run_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.RunProgress:
         """A run's progress (status and timing, no data). `GET /v1/runs/{runId}/progress`
 
         The run's status and timing, without its input, output or failure message: safe to show in a browser. Accepts an API token, or a public run token (`kgi_pt_…`) that names the run or one of its ancestors.
@@ -957,7 +970,12 @@ class RunsResource:
         )
 
     def progress_stream(
-        self, run_id: str, /, *, last_event_id: str | None = None, timeout: float | None = None
+        self,
+        run_id: str | UUID,
+        /,
+        *,
+        last_event_id: str | UUID | None = None,
+        timeout: float | None = None,
     ) -> Iterator[_models.RunProgressEvent]:
         """Server-Sent Events stream of a run's progress. `GET /v1/runs/{runId}/progress/stream`
 
@@ -1030,7 +1048,9 @@ class SigningKeysResource:
             timeout=timeout,
         )
 
-    def get(self, key_id: str, /, *, timeout: float | None = None) -> _models.TrustedSigningKey:
+    def get(
+        self, key_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.TrustedSigningKey:
         """Get a signing key. `GET /v1/signing-keys/{keyId}`
 
         Revoked keys too (with `revokedAt`), for audit.
@@ -1046,7 +1066,7 @@ class SigningKeysResource:
 
     def revoke(
         self,
-        key_id: str,
+        key_id: str | UUID,
         body: _models.RevokeSigningKeyBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -1120,7 +1140,7 @@ class TokensResource:
             timeout=timeout,
         )
 
-    def get(self, token_id: str, /, *, timeout: float | None = None) -> _models.ApiToken:
+    def get(self, token_id: str | UUID, /, *, timeout: float | None = None) -> _models.ApiToken:
         """Read an API key. `GET /v1/tokens/{tokenId}`
 
         Never returns the secret. A tenant admin reads any key; anyone else only their own (someone else's reads as missing).
@@ -1135,7 +1155,12 @@ class TokensResource:
         )
 
     def revoke(
-        self, token_id: str, /, *, idempotency_key: str | None = None, timeout: float | None = None
+        self,
+        token_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
     ) -> _models.RevokeTokenResult:
         """Revoke an API key. `POST /v1/tokens/{tokenId}/revoke`
 
@@ -1226,7 +1251,7 @@ class ServiceAccountsResource:
         )
 
     def get(
-        self, service_account_id: str, /, *, timeout: float | None = None
+        self, service_account_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.ServiceAccount:
         """Read a service account. `GET /v1/service-accounts/{serviceAccountId}`
 
@@ -1243,7 +1268,7 @@ class ServiceAccountsResource:
 
     def grant(
         self,
-        service_account_id: str,
+        service_account_id: str | UUID,
         body: _models.ServiceAccountGrantBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -1267,7 +1292,7 @@ class ServiceAccountsResource:
 
     def ungrant(
         self,
-        service_account_id: str,
+        service_account_id: str | UUID,
         body: _models.ServiceAccountUngrantBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -1291,7 +1316,7 @@ class ServiceAccountsResource:
 
     def unregister(
         self,
-        service_account_id: str,
+        service_account_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -1362,7 +1387,7 @@ class ApprovalsReviewersResource:
             timeout=timeout,
         )
 
-    def get(self, reviewer_id: str, /, *, timeout: float | None = None) -> _models.Reviewer:
+    def get(self, reviewer_id: str | UUID, /, *, timeout: float | None = None) -> _models.Reviewer:
         """Fetch a reviewer. `GET /v1/approvals/reviewers/{reviewerId}`"""
         return self._client._request(
             _OPERATIONS["approvals.reviewers.get"],
@@ -1375,7 +1400,7 @@ class ApprovalsReviewersResource:
 
     def unregister(
         self,
-        reviewer_id: str,
+        reviewer_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -1409,7 +1434,7 @@ class ApprovalsResource:
         limit: int | None = None,
         cursor: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         status: Literal[
             "pending",
             "assigned",
@@ -1423,7 +1448,7 @@ class ApprovalsResource:
         | None = None,
         required_role: Literal["standard", "senior", "admin"] | None = None,
         created_after: str | None = None,
-        wait_token_id: list[str] | None = None,
+        wait_token_id: list[str | UUID] | None = None,
         timeout: float | None = None,
     ) -> _models.ApprovalCollectionPage:
         """List approvals visible to the caller. `GET /v1/approvals`
@@ -1448,7 +1473,7 @@ class ApprovalsResource:
             timeout=timeout,
         )
 
-    def get(self, approval_id: str, /, *, timeout: float | None = None) -> _models.Approval:
+    def get(self, approval_id: str | UUID, /, *, timeout: float | None = None) -> _models.Approval:
         """Fetch a single approval. `GET /v1/approvals/{approvalId}`
 
         Returns 404 for ids that exist but require a higher role than the caller (avoids cross-tier existence leaks — see API-ROUTE-CONVENTIONS.md §2.4). A decided approval carries its `decision`: what the reviewer decided, why, and who (`decidedBy`, `user:<userId>`).
@@ -1464,7 +1489,7 @@ class ApprovalsResource:
 
     def complete(
         self,
-        approval_id: str,
+        approval_id: str | UUID,
         body: _models.CompleteApprovalBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -1488,7 +1513,7 @@ class ApprovalsResource:
 
     def audit_bundle(
         self,
-        approval_id: str,
+        approval_id: str | UUID,
         body: _models.ExportAuditBundleBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -1519,10 +1544,10 @@ class AgentsLiveResource:
 
     def resolve(
         self,
-        agent_id: str,
+        agent_id: str | UUID,
         /,
         *,
-        project_id: str | None = None,
+        project_id: str | UUID | None = None,
         segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
     ) -> _models.LiveVersionResolution:
@@ -1539,7 +1564,7 @@ class AgentsLiveResource:
             timeout=timeout,
         )
 
-    def list(self, agent_id: str, /, *, timeout: float | None = None) -> _models.LivePinList:
+    def list(self, agent_id: str | UUID, /, *, timeout: float | None = None) -> _models.LivePinList:
         """List an agent's live versions. `GET /v1/agents/{agentId}/live-versions`
 
         Every scope with a live version pinned, and the promotion that set it.
@@ -1555,7 +1580,7 @@ class AgentsLiveResource:
 
     def rollback(
         self,
-        agent_id: str,
+        agent_id: str | UUID,
         body: _models.RollbackBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -1579,7 +1604,7 @@ class AgentsLiveResource:
 
     def unpin(
         self,
-        agent_id: str,
+        agent_id: str | UUID,
         body: _models.UnpinBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -1610,13 +1635,13 @@ class AgentsPromotionsResource:
 
     def list(
         self,
-        agent_id: str,
+        agent_id: str | UUID,
         /,
         *,
         limit: int | None = None,
         cursor: str | None = None,
         scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
     ) -> _models.PromotionPage:
@@ -1641,7 +1666,7 @@ class AgentsPromotionsResource:
 
     def create(
         self,
-        agent_id: str,
+        agent_id: str | UUID,
         body: _models.PromoteBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -1665,7 +1690,7 @@ class AgentsPromotionsResource:
 
     def check(
         self,
-        agent_id: str,
+        agent_id: str | UUID,
         body: _models.PromoteBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -1687,7 +1712,7 @@ class AgentsPromotionsResource:
         )
 
     def get(
-        self, agent_id: str, promotion_id: str, /, *, timeout: float | None = None
+        self, agent_id: str | UUID, promotion_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.Promotion:
         """Get a promotion. `GET /v1/agents/{agentId}/promotions/{promotionId}`"""
         return self._client._request(
@@ -1708,11 +1733,11 @@ class AgentsGatePolicyResource:
 
     def resolve(
         self,
-        agent_id: str,
+        agent_id: str | UUID,
         /,
         *,
         scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
     ) -> _models.GatePolicyResolution:
@@ -1747,7 +1772,7 @@ class AgentsResource:
         cursor: str | None = None,
         name: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         timeout: float | None = None,
     ) -> _models.AgentCollectionPage:
@@ -1794,7 +1819,7 @@ class AgentsResource:
             timeout=timeout,
         )
 
-    def get(self, agent_id: str, /, *, timeout: float | None = None) -> _models.Agent:
+    def get(self, agent_id: str | UUID, /, *, timeout: float | None = None) -> _models.Agent:
         """Fetch the latest version of an agent. `GET /v1/agents/{agentId}`"""
         return self._client._request(
             _OPERATIONS["agents.get"],
@@ -1807,7 +1832,7 @@ class AgentsResource:
 
     def list_versions(
         self,
-        agent_id: str,
+        agent_id: str | UUID,
         /,
         *,
         limit: int | None = None,
@@ -1829,7 +1854,7 @@ class AgentsResource:
 
     def derive_version(
         self,
-        agent_id: str,
+        agent_id: str | UUID,
         body: _models.DeriveAgentVersionBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -1852,7 +1877,7 @@ class AgentsResource:
         )
 
     def get_version(
-        self, agent_id: str, version: str, /, *, timeout: float | None = None
+        self, agent_id: str | UUID, version: str, /, *, timeout: float | None = None
     ) -> _models.Agent:
         """Fetch a specific agent version. `GET /v1/agents/{agentId}/versions/{version}`"""
         return self._client._request(
@@ -1866,7 +1891,7 @@ class AgentsResource:
 
     def unregister(
         self,
-        agent_id: str,
+        agent_id: str | UUID,
         version: str,
         /,
         *,
@@ -1885,7 +1910,7 @@ class AgentsResource:
 
     def reinstate_version(
         self,
-        agent_id: str,
+        agent_id: str | UUID,
         version: str,
         /,
         *,
@@ -1912,7 +1937,9 @@ class GatePoliciesVersionsResource:
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
 
-    def list(self, policy_id: str, /, *, timeout: float | None = None) -> _models.GatePolicyPage:
+    def list(
+        self, policy_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.GatePolicyPage:
         """List a gate policy's versions. `GET /v1/gate-policies/{policyId}/versions`
 
         Every version, oldest first, unregistered ones too (with `unregisteredAt`).
@@ -1927,7 +1954,7 @@ class GatePoliciesVersionsResource:
         )
 
     def get(
-        self, policy_id: str, version: str, /, *, timeout: float | None = None
+        self, policy_id: str | UUID, version: str, /, *, timeout: float | None = None
     ) -> _models.GatePolicy:
         """Get a gate policy version. `GET /v1/gate-policies/{policyId}/versions/{version}`"""
         return self._client._request(
@@ -1940,7 +1967,7 @@ class GatePoliciesVersionsResource:
         )
 
     def unregister(
-        self, policy_id: str, version: str, /, *, timeout: float | None = None
+        self, policy_id: str | UUID, version: str, /, *, timeout: float | None = None
     ) -> _models.GatePolicy:
         """Unregister a gate policy version. `POST /v1/gate-policies/{policyId}/versions/{version}/unregister`
 
@@ -1956,7 +1983,7 @@ class GatePoliciesVersionsResource:
         )
 
     def reinstate(
-        self, policy_id: str, version: str, /, *, timeout: float | None = None
+        self, policy_id: str | UUID, version: str, /, *, timeout: float | None = None
     ) -> _models.GatePolicy:
         """Reinstate a gate policy version. `POST /v1/gate-policies/{policyId}/versions/{version}/reinstate`
 
@@ -1985,9 +2012,9 @@ class GatePoliciesResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
-        agent_id: str | None = None,
+        agent_id: str | UUID | None = None,
         scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
     ) -> _models.GatePolicyPage:
@@ -2034,7 +2061,7 @@ class GatePoliciesResource:
             timeout=timeout,
         )
 
-    def get(self, policy_id: str, /, *, timeout: float | None = None) -> _models.GatePolicy:
+    def get(self, policy_id: str | UUID, /, *, timeout: float | None = None) -> _models.GatePolicy:
         """Get a gate policy. `GET /v1/gate-policies/{policyId}`
 
         The policy's latest active version.
@@ -2063,7 +2090,7 @@ class FlowsResource:
         cursor: str | None = None,
         name: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         timeout: float | None = None,
     ) -> _models.FlowCollectionPage:
@@ -2110,7 +2137,7 @@ class FlowsResource:
             timeout=timeout,
         )
 
-    def get(self, flow_id: str, /, *, timeout: float | None = None) -> _models.Flow:
+    def get(self, flow_id: str | UUID, /, *, timeout: float | None = None) -> _models.Flow:
         """Fetch the latest version of a flow. `GET /v1/flows/{flowId}`"""
         return self._client._request(
             _OPERATIONS["flows.get"],
@@ -2123,7 +2150,7 @@ class FlowsResource:
 
     def list_versions(
         self,
-        flow_id: str,
+        flow_id: str | UUID,
         /,
         *,
         limit: int | None = None,
@@ -2144,7 +2171,7 @@ class FlowsResource:
         )
 
     def get_version(
-        self, flow_id: str, version: str, /, *, timeout: float | None = None
+        self, flow_id: str | UUID, version: str, /, *, timeout: float | None = None
     ) -> _models.Flow:
         """Fetch a specific flow version. `GET /v1/flows/{flowId}/versions/{version}`"""
         return self._client._request(
@@ -2158,7 +2185,7 @@ class FlowsResource:
 
     def unregister(
         self,
-        flow_id: str,
+        flow_id: str | UUID,
         version: str,
         /,
         *,
@@ -2177,7 +2204,7 @@ class FlowsResource:
 
     def reinstate_version(
         self,
-        flow_id: str,
+        flow_id: str | UUID,
         version: str,
         /,
         *,
@@ -2212,7 +2239,7 @@ class ToolsResource:
         cursor: str | None = None,
         name: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         timeout: float | None = None,
     ) -> _models.ToolCollectionPage:
@@ -2259,7 +2286,7 @@ class ToolsResource:
             timeout=timeout,
         )
 
-    def get(self, tool_id: str, /, *, timeout: float | None = None) -> _models.Tool:
+    def get(self, tool_id: str | UUID, /, *, timeout: float | None = None) -> _models.Tool:
         """Fetch a tool manifest (latest active version). `GET /v1/tools/{toolId}`
 
         Returns the latest active version of the tool. When all versions are unregistered (retired), the head row still exists but has no active version — the response is 410 tool-gone with the id, distinct from 404 tool-not-found (never registered).
@@ -2275,7 +2302,7 @@ class ToolsResource:
 
     def list_versions(
         self,
-        tool_id: str,
+        tool_id: str | UUID,
         /,
         *,
         limit: int | None = None,
@@ -2297,7 +2324,7 @@ class ToolsResource:
         )
 
     def get_version(
-        self, tool_id: str, version: str, /, *, timeout: float | None = None
+        self, tool_id: str | UUID, version: str, /, *, timeout: float | None = None
     ) -> _models.Tool:
         """Fetch a specific tool version. `GET /v1/tools/{toolId}/versions/{version}`"""
         return self._client._request(
@@ -2311,7 +2338,7 @@ class ToolsResource:
 
     def unregister(
         self,
-        tool_id: str,
+        tool_id: str | UUID,
         version: str,
         /,
         *,
@@ -2330,7 +2357,7 @@ class ToolsResource:
 
     def reinstate_version(
         self,
-        tool_id: str,
+        tool_id: str | UUID,
         version: str,
         /,
         *,
@@ -2365,7 +2392,7 @@ class GuardrailsResource:
         cursor: str | None = None,
         name: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         timeout: float | None = None,
     ) -> _models.GuardrailCollectionPage:
@@ -2412,7 +2439,9 @@ class GuardrailsResource:
             timeout=timeout,
         )
 
-    def get(self, guardrail_id: str, /, *, timeout: float | None = None) -> _models.Guardrail:
+    def get(
+        self, guardrail_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.Guardrail:
         """Fetch an guardrail. `GET /v1/guardrails/{guardrailId}`"""
         return self._client._request(
             _OPERATIONS["guardrails.get"],
@@ -2425,7 +2454,7 @@ class GuardrailsResource:
 
     def unregister(
         self,
-        guardrail_id: str,
+        guardrail_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -2455,8 +2484,8 @@ class ConversationsResource:
         limit: int | None = None,
         cursor: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
-        agent_id: str | None = None,
+        scope_id: str | UUID | None = None,
+        agent_id: str | UUID | None = None,
         status: Literal["open", "closed"] | None = None,
         replays: Literal["exclude", "include", "only"] | None = None,
         timeout: float | None = None,
@@ -2505,7 +2534,9 @@ class ConversationsResource:
             timeout=timeout,
         )
 
-    def get(self, conversation_id: str, /, *, timeout: float | None = None) -> _models.Conversation:
+    def get(
+        self, conversation_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.Conversation:
         """Fetch a conversation. `GET /v1/conversations/{conversationId}`"""
         return self._client._request(
             _OPERATIONS["conversations.get"],
@@ -2518,7 +2549,7 @@ class ConversationsResource:
 
     def close(
         self,
-        conversation_id: str,
+        conversation_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -2539,7 +2570,7 @@ class ConversationsResource:
 
     def messages(
         self,
-        conversation_id: str,
+        conversation_id: str | UUID,
         /,
         *,
         limit: int | None = None,
@@ -2575,7 +2606,7 @@ class MemoryResource:
         type: str | None = None,
         scope: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         timeout: float | None = None,
     ) -> _models.FactCollectionPage:
@@ -2623,7 +2654,7 @@ class MemoryResource:
             timeout=timeout,
         )
 
-    def get_fact(self, fact_id: str, /, *, timeout: float | None = None) -> _models.Fact:
+    def get_fact(self, fact_id: str | UUID, /, *, timeout: float | None = None) -> _models.Fact:
         """Fetch a fact. `GET /v1/memory/facts/{factId}`"""
         return self._client._request(
             _OPERATIONS["memory.getFact"],
@@ -2635,7 +2666,12 @@ class MemoryResource:
         )
 
     def supersede_fact(
-        self, fact_id: str, /, *, idempotency_key: str | None = None, timeout: float | None = None
+        self,
+        fact_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
     ) -> _models.SupersedeFactResult:
         """Mark a fact as superseded. `POST /v1/memory/facts/{factId}/supersede`
 
@@ -2684,7 +2720,7 @@ class ProposalsResource:
         self,
         /,
         *,
-        supervisor_id: str,
+        supervisor_id: str | UUID,
         limit: int | None = None,
         cursor: str | None = None,
         status: Literal[
@@ -2700,10 +2736,10 @@ class ProposalsResource:
             "withdrawn",
         ]
         | None = None,
-        agent_id: str | None = None,
+        agent_id: str | UUID | None = None,
         tier: Literal["prompt", "retrieval", "tool-config"] | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         timeout: float | None = None,
     ) -> _models.FixProposalCollectionPage:
@@ -2734,7 +2770,7 @@ class ProposalsResource:
         body: _models.DraftProposalBody | Mapping[str, Any] | None = None,
         /,
         *,
-        supervisor_id: str,
+        supervisor_id: str | UUID,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
@@ -2754,7 +2790,7 @@ class ProposalsResource:
         )
 
     def get(
-        self, proposal_id: str, /, *, supervisor_id: str, timeout: float | None = None
+        self, proposal_id: str | UUID, /, *, supervisor_id: str | UUID, timeout: float | None = None
     ) -> _models.FixProposal:
         """Fetch a fix proposal. `GET /v1/proposals/{proposalId}`"""
         return self._client._request(
@@ -2768,11 +2804,11 @@ class ProposalsResource:
 
     def dry_run(
         self,
-        proposal_id: str,
+        proposal_id: str | UUID,
         body: _models.DryRunProposalBody | Mapping[str, Any] | None = None,
         /,
         *,
-        supervisor_id: str,
+        supervisor_id: str | UUID,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
@@ -2793,11 +2829,11 @@ class ProposalsResource:
 
     def submit_review(
         self,
-        proposal_id: str,
+        proposal_id: str | UUID,
         body: _models.SubmitReviewProposalBody | Mapping[str, Any] | None = None,
         /,
         *,
-        supervisor_id: str,
+        supervisor_id: str | UUID,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
@@ -2818,11 +2854,11 @@ class ProposalsResource:
 
     def apply(
         self,
-        proposal_id: str,
+        proposal_id: str | UUID,
         body: _models.ApplyProposalBody | Mapping[str, Any] | None = None,
         /,
         *,
-        supervisor_id: str,
+        supervisor_id: str | UUID,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
@@ -2843,11 +2879,11 @@ class ProposalsResource:
 
     def rollback(
         self,
-        proposal_id: str,
+        proposal_id: str | UUID,
         body: _models.RollbackProposalBody | Mapping[str, Any] | None = None,
         /,
         *,
-        supervisor_id: str,
+        supervisor_id: str | UUID,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
@@ -2868,11 +2904,11 @@ class ProposalsResource:
 
     def withdraw(
         self,
-        proposal_id: str,
+        proposal_id: str | UUID,
         body: _models.WithdrawProposalBody | Mapping[str, Any] | None = None,
         /,
         *,
-        supervisor_id: str,
+        supervisor_id: str | UUID,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
@@ -2905,9 +2941,9 @@ class ProvenanceResource:
         limit: int | None = None,
         cursor: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
-        run_id: str | None = None,
-        agent_id: str | None = None,
+        scope_id: str | UUID | None = None,
+        run_id: str | UUID | None = None,
+        agent_id: str | UUID | None = None,
         created_after: str | None = None,
         timeout: float | None = None,
     ) -> _models.ProvenanceCollectionPage:
@@ -2932,7 +2968,9 @@ class ProvenanceResource:
             timeout=timeout,
         )
 
-    def get(self, run_id: str, /, *, timeout: float | None = None) -> _models.ProvenanceRecord:
+    def get(
+        self, run_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.ProvenanceRecord:
         """Fetch the full provenance DAG for a run. `GET /v1/provenance/{runId}`
 
         Returns the full DAG (nodes + edges) plus record metadata. 404 when no provenance was emitted for the run (e.g. the deployment does not run the emitter, or the run was pre-provenance).
@@ -2948,7 +2986,7 @@ class ProvenanceResource:
 
     def export(
         self,
-        run_id: str,
+        run_id: str | UUID,
         body: _models.ExportProvenanceBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -2983,7 +3021,7 @@ class ArtifactsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
-        owner_run_id: str | None = None,
+        owner_run_id: str | UUID | None = None,
         content_type: str | None = None,
         timeout: float | None = None,
     ) -> _models.ArtifactCollectionPage:
@@ -3029,7 +3067,7 @@ class ArtifactsResource:
             timeout=timeout,
         )
 
-    def download(self, blob_id: str, /, *, timeout: float | None = None) -> bytes:
+    def download(self, blob_id: str | UUID, /, *, timeout: float | None = None) -> bytes:
         """Download an artifact (stream). `GET /v1/artifacts/{blobId}`
 
         Streams raw bytes. Response headers: `Content-Type` (as declared at upload), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name).
@@ -3043,7 +3081,12 @@ class ArtifactsResource:
         )
 
     def delete(
-        self, blob_id: str, /, *, idempotency_key: str | None = None, timeout: float | None = None
+        self,
+        blob_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
     ) -> _models.DeleteArtifactResult:
         """Delete an artifact. `DELETE /v1/artifacts/{blobId}`
 
@@ -3082,10 +3125,10 @@ class ObservationsResource:
             "other",
         ]
         | None = None,
-        agent_id: str | None = None,
+        agent_id: str | UUID | None = None,
         agent_version: str | None = None,
-        supervisor_id: str | None = None,
-        conversation_id: str | None = None,
+        supervisor_id: str | UUID | None = None,
+        conversation_id: str | UUID | None = None,
         since: str | None = None,
         until: str | None = None,
         timeout: float | None = None,
@@ -3143,7 +3186,7 @@ class CapabilitiesResource:
         )
 
     def get(
-        self, capability_id: str, /, *, timeout: float | None = None
+        self, capability_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.CapabilityDescriptor:
         """Fetch a capability descriptor. `GET /v1/capabilities/{capabilityId}`"""
         return self._client._request(
@@ -3207,7 +3250,9 @@ class ProvidersResource:
             timeout=timeout,
         )
 
-    def get(self, provider_id: str, /, *, timeout: float | None = None) -> _models.ProviderMetadata:
+    def get(
+        self, provider_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.ProviderMetadata:
         """Fetch a provider. `GET /v1/providers/{providerId}`
 
         Returns the wire-safe `ProviderMetadata` (routing metadata only — secrets never cross the wire).
@@ -3222,7 +3267,7 @@ class ProvidersResource:
         )
 
     def capabilities(
-        self, provider_id: str, /, *, timeout: float | None = None
+        self, provider_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.ProviderCapabilitiesResult:
         """List capabilities a provider satisfies. `GET /v1/providers/{providerId}/capabilities`
 
@@ -3239,7 +3284,7 @@ class ProvidersResource:
 
     def unregister(
         self,
-        provider_id: str,
+        provider_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -3271,15 +3316,15 @@ class JudgmentsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
-        run_id: str | None = None,
-        agent_id: str | None = None,
+        run_id: str | UUID | None = None,
+        agent_id: str | UUID | None = None,
         agent_version: str | None = None,
-        flow_id: str | None = None,
+        flow_id: str | UUID | None = None,
         verdict: Literal["yes", "no"] | None = None,
-        judge_class_id: str | None = None,
-        participant_id: str | None = None,
+        judge_class_id: str | UUID | None = None,
+        participant_id: str | UUID | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.JudgmentCollectionPage:
         """List judgments. `GET /v1/judgments`
@@ -3331,7 +3376,7 @@ class JudgmentsResource:
         )
 
     def get(
-        self, judgment_id: str, /, *, timeout: float | None = None
+        self, judgment_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.JudgmentWithCopies:
         """Fetch a judgment with its copies. `GET /v1/judgments/{judgmentId}`
 
@@ -3348,7 +3393,7 @@ class JudgmentsResource:
 
     def unregister(
         self,
-        judgment_id: str,
+        judgment_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -3381,8 +3426,8 @@ class JudgeClassesResource:
         limit: int | None = None,
         cursor: str | None = None,
         scope_kind: Literal["tenant", "project", "agent"] | None = None,
-        project_id: str | None = None,
-        agent_id: str | None = None,
+        project_id: str | UUID | None = None,
+        agent_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.JudgeClassCollectionPage:
         """List judge classes. `GET /v1/judge-classes`
@@ -3427,7 +3472,9 @@ class JudgeClassesResource:
             timeout=timeout,
         )
 
-    def get(self, judge_class_id: str, /, *, timeout: float | None = None) -> _models.JudgeClass:
+    def get(
+        self, judge_class_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.JudgeClass:
         """Fetch a judge class. `GET /v1/judge-classes/{judgeClassId}`
 
         Also returns a retired class (`unregisteredAt` set): judgments keep naming theirs.
@@ -3443,7 +3490,7 @@ class JudgeClassesResource:
 
     def update(
         self,
-        judge_class_id: str,
+        judge_class_id: str | UUID,
         body: _models.UpdateJudgeClassBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -3464,7 +3511,7 @@ class JudgeClassesResource:
 
     def unregister(
         self,
-        judge_class_id: str,
+        judge_class_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -3491,7 +3538,7 @@ class McpEndpointsResourcesResource:
         self._client = client
 
     def list(
-        self, endpoint_id: str, /, *, timeout: float | None = None
+        self, endpoint_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.MCPResourceCollection:
         """List resources at a remote MCP endpoint. `GET /v1/mcp/endpoints/{endpointId}/resources`
 
@@ -3507,7 +3554,7 @@ class McpEndpointsResourcesResource:
         )
 
     def read(
-        self, endpoint_id: str, uri: str, /, *, timeout: float | None = None
+        self, endpoint_id: str | UUID, uri: str, /, *, timeout: float | None = None
     ) -> _models.MCPResourceContent:
         """Read a single resource at a remote MCP endpoint. `GET /v1/mcp/endpoints/{endpointId}/resources/{uri}`
 
@@ -3530,7 +3577,7 @@ class McpEndpointsPromptsResource:
         self._client = client
 
     def list(
-        self, endpoint_id: str, /, *, timeout: float | None = None
+        self, endpoint_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.MCPPromptCollection:
         """List prompts at a remote MCP endpoint. `GET /v1/mcp/endpoints/{endpointId}/prompts`
 
@@ -3547,7 +3594,7 @@ class McpEndpointsPromptsResource:
 
     def get(
         self,
-        endpoint_id: str,
+        endpoint_id: str | UUID,
         name: str,
         body: _models.GetMCPPromptBody | Mapping[str, Any] | None = None,
         /,
@@ -3586,7 +3633,7 @@ class McpEndpointsResource:
         cursor: str | None = None,
         transport: Literal["stdio", "http-sse", "streamable-http"] | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         timeout: float | None = None,
     ) -> _models.MCPEndpointCollectionPage:
@@ -3633,7 +3680,9 @@ class McpEndpointsResource:
             timeout=timeout,
         )
 
-    def get(self, endpoint_id: str, /, *, timeout: float | None = None) -> _models.MCPEndpoint:
+    def get(
+        self, endpoint_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.MCPEndpoint:
         """Fetch an MCP endpoint. `GET /v1/mcp/endpoints/{endpointId}`
 
         Returns the wire-safe `MCPEndpoint` (secrets never cross the wire — `secretRef` names a secret the runtime resolves inside the deployment).
@@ -3649,7 +3698,7 @@ class McpEndpointsResource:
 
     def unregister(
         self,
-        endpoint_id: str,
+        endpoint_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -3686,19 +3735,19 @@ class CostRecordsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
-        run_id: str | None = None,
-        agent_id: str | None = None,
-        conversation_id: str | None = None,
+        run_id: str | UUID | None = None,
+        agent_id: str | UUID | None = None,
+        conversation_id: str | UUID | None = None,
         category: str | None = None,
-        provider_id: str | None = None,
+        provider_id: str | UUID | None = None,
         model: str | None = None,
         served_model: str | None = None,
-        root_run_id: str | None = None,
+        root_run_id: str | UUID | None = None,
         include_descendants: bool | None = None,
         from_: str | None = None,
         to: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         include: Literal["rawUsage"] | None = None,
         timeout: float | None = None,
@@ -3736,7 +3785,7 @@ class CostRecordsResource:
 
     def get(
         self,
-        record_id: str,
+        record_id: str | UUID,
         /,
         *,
         include: Literal["rawUsage"] | None = None,
@@ -3769,16 +3818,16 @@ class CostResource:
         from_: str | None = None,
         to: str | None = None,
         category: str | None = None,
-        provider_id: str | None = None,
-        agent_id: str | None = None,
-        run_id: str | None = None,
-        conversation_id: str | None = None,
+        provider_id: str | UUID | None = None,
+        agent_id: str | UUID | None = None,
+        run_id: str | UUID | None = None,
+        conversation_id: str | UUID | None = None,
         model: str | None = None,
         served_model: str | None = None,
-        root_run_id: str | None = None,
+        root_run_id: str | UUID | None = None,
         include_descendants: bool | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         timeout: float | None = None,
     ) -> _models.CostAggregateResult:
@@ -3843,7 +3892,7 @@ class AdaptersResource:
             timeout=timeout,
         )
 
-    def get(self, adapter_id: str, /, *, timeout: float | None = None) -> _models.Adapter:
+    def get(self, adapter_id: str | UUID, /, *, timeout: float | None = None) -> _models.Adapter:
         """Fetch a wired adapter. `GET /v1/adapters/{adapterId}`
 
         Returns the redacted-config `Adapter` shape. Secrets never cross the wire (bindings may expose non-sensitive routing hints like `{ region }` but never credentials).
@@ -3859,7 +3908,7 @@ class AdaptersResource:
 
     def test(
         self,
-        adapter_id: str,
+        adapter_id: str | UUID,
         body: _models.TestAdapterBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -3883,7 +3932,7 @@ class AdaptersResource:
 
     def prepare(
         self,
-        adapter_id: str,
+        adapter_id: str | UUID,
         body: _models.AdaptersPrepareBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -3914,7 +3963,7 @@ class PoliciesVersionsResource:
 
     def list(
         self,
-        policy_id: str,
+        policy_id: str | UUID,
         /,
         *,
         limit: int | None = None,
@@ -3936,7 +3985,7 @@ class PoliciesVersionsResource:
         )
 
     def get(
-        self, policy_id: str, version: str, /, *, timeout: float | None = None
+        self, policy_id: str | UUID, version: str, /, *, timeout: float | None = None
     ) -> _models.Policy:
         """Fetch a specific policy version. `GET /v1/policies/{policyId}/versions/{version}`"""
         return self._client._request(
@@ -3950,7 +3999,7 @@ class PoliciesVersionsResource:
 
     def unregister(
         self,
-        policy_id: str,
+        policy_id: str | UUID,
         version: str,
         /,
         *,
@@ -4031,7 +4080,7 @@ class PoliciesResource:
             timeout=timeout,
         )
 
-    def get(self, policy_id: str, /, *, timeout: float | None = None) -> _models.Policy:
+    def get(self, policy_id: str | UUID, /, *, timeout: float | None = None) -> _models.Policy:
         """Fetch a policy (latest version). `GET /v1/policies/{policyId}`"""
         return self._client._request(
             _OPERATIONS["policies.get"],
@@ -4044,7 +4093,7 @@ class PoliciesResource:
 
     def reinstate_version(
         self,
-        policy_id: str,
+        policy_id: str | UUID,
         version: str,
         /,
         *,
@@ -4190,7 +4239,7 @@ class EvalSuitesVersionsResource:
 
     def list(
         self,
-        suite_id: str,
+        suite_id: str | UUID,
         /,
         *,
         limit: int | None = None,
@@ -4211,7 +4260,7 @@ class EvalSuitesVersionsResource:
         )
 
     def get(
-        self, suite_id: str, version: str, /, *, timeout: float | None = None
+        self, suite_id: str | UUID, version: str, /, *, timeout: float | None = None
     ) -> _models.EvalSuite:
         """Fetch a specific eval suite version. `GET /v1/eval-suites/{suiteId}/versions/{version}`"""
         return self._client._request(
@@ -4225,7 +4274,7 @@ class EvalSuitesVersionsResource:
 
     def unregister(
         self,
-        suite_id: str,
+        suite_id: str | UUID,
         version: str,
         /,
         *,
@@ -4262,7 +4311,7 @@ class EvalSuitesResource:
         | None = None,
         name: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         timeout: float | None = None,
     ) -> _models.EvalSuiteCollectionPage:
@@ -4310,7 +4359,7 @@ class EvalSuitesResource:
             timeout=timeout,
         )
 
-    def get(self, suite_id: str, /, *, timeout: float | None = None) -> _models.EvalSuite:
+    def get(self, suite_id: str | UUID, /, *, timeout: float | None = None) -> _models.EvalSuite:
         """Fetch an eval suite (latest version). `GET /v1/eval-suites/{suiteId}`"""
         return self._client._request(
             _OPERATIONS["evalSuites.get"],
@@ -4323,7 +4372,7 @@ class EvalSuitesResource:
 
     def build_from_judgments(
         self,
-        suite_id: str,
+        suite_id: str | UUID,
         body: _models.BuildJudgedSuiteBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -4347,7 +4396,7 @@ class EvalSuitesResource:
 
     def list_cases(
         self,
-        suite_id: str,
+        suite_id: str | UUID,
         version: str,
         /,
         *,
@@ -4370,7 +4419,7 @@ class EvalSuitesResource:
 
     def reinstate_version(
         self,
-        suite_id: str,
+        suite_id: str | UUID,
         version: str,
         /,
         *,
@@ -4392,7 +4441,7 @@ class EvalSuitesResource:
 
     def unregister(
         self,
-        suite_id: str,
+        suite_id: str | UUID,
         version: str,
         /,
         *,
@@ -4418,7 +4467,7 @@ class BlocksVersionsResource:
 
     def list(
         self,
-        block_id: str,
+        block_id: str | UUID,
         /,
         *,
         limit: int | None = None,
@@ -4439,7 +4488,9 @@ class BlocksVersionsResource:
             timeout=timeout,
         )
 
-    def get(self, block_id: str, version: str, /, *, timeout: float | None = None) -> _models.Block:
+    def get(
+        self, block_id: str | UUID, version: str, /, *, timeout: float | None = None
+    ) -> _models.Block:
         """Fetch a specific data block version. `GET /v1/blocks/{blockId}/versions/{version}`
 
         An unregistered version is returned too, with `unregisteredAt`.
@@ -4455,7 +4506,7 @@ class BlocksVersionsResource:
 
     def unregister(
         self,
-        block_id: str,
+        block_id: str | UUID,
         version: str,
         /,
         *,
@@ -4477,7 +4528,7 @@ class BlocksVersionsResource:
 
     def reinstate(
         self,
-        block_id: str,
+        block_id: str | UUID,
         version: str,
         /,
         *,
@@ -4514,7 +4565,7 @@ class BlocksResource:
         kind: Literal["prompt", "settings"] | None = None,
         name: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.BlockCollectionPage:
         """List data blocks (latest version of each). `GET /v1/blocks`
@@ -4560,7 +4611,7 @@ class BlocksResource:
             timeout=timeout,
         )
 
-    def get(self, block_id: str, /, *, timeout: float | None = None) -> _models.Block:
+    def get(self, block_id: str | UUID, /, *, timeout: float | None = None) -> _models.Block:
         """Fetch a data block (latest version). `GET /v1/blocks/{blockId}`"""
         return self._client._request(
             _OPERATIONS["blocks.get"],
@@ -4580,7 +4631,7 @@ class EvalRunsResource:
 
     def start(
         self,
-        suite_id: str,
+        suite_id: str | UUID,
         body: _models.StartEvalRunBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -4608,14 +4659,14 @@ class EvalRunsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
-        suite_id: str | None = None,
+        suite_id: str | UUID | None = None,
         status: Literal["pending", "running", "completed", "failed", "cancelled"] | None = None,
-        agent_id: str | None = None,
-        flow_id: str | None = None,
+        agent_id: str | UUID | None = None,
+        flow_id: str | UUID | None = None,
         from_: str | None = None,
         to: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         timeout: float | None = None,
     ) -> _models.EvalRunCollectionPage:
@@ -4644,7 +4695,7 @@ class EvalRunsResource:
             timeout=timeout,
         )
 
-    def get(self, run_id: str, /, *, timeout: float | None = None) -> _models.EvalRun:
+    def get(self, run_id: str | UUID, /, *, timeout: float | None = None) -> _models.EvalRun:
         """Fetch an eval run. `GET /v1/eval-runs/{runId}`"""
         return self._client._request(
             _OPERATIONS["evalRuns.get"],
@@ -4655,7 +4706,7 @@ class EvalRunsResource:
             timeout=timeout,
         )
 
-    def cancel(self, run_id: str, /, *, timeout: float | None = None) -> _models.EvalRun:
+    def cancel(self, run_id: str | UUID, /, *, timeout: float | None = None) -> _models.EvalRun:
         """Cancel an eval run. `POST /v1/eval-runs/{runId}/cancel`
 
         Best-effort cancel. Returns 409 when the run is already terminal.
@@ -4670,7 +4721,12 @@ class EvalRunsResource:
         )
 
     def events(
-        self, run_id: str, /, *, last_event_id: str | None = None, timeout: float | None = None
+        self,
+        run_id: str | UUID,
+        /,
+        *,
+        last_event_id: str | UUID | None = None,
+        timeout: float | None = None,
     ) -> None:
         """Stream eval-run events (SSE). `GET /v1/eval-runs/{runId}/events`
 
@@ -4730,7 +4786,7 @@ class AuthProvidersResource:
 
     def unregister(
         self,
-        provider_id: str,
+        provider_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -4756,7 +4812,7 @@ class AuthResource:
 
     def login(
         self,
-        provider_id: str,
+        provider_id: str | UUID,
         body: _models.LoginBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -4780,7 +4836,7 @@ class AuthResource:
 
     def callback(
         self,
-        provider_id: str,
+        provider_id: str | UUID,
         body: _models.CallbackBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -4885,7 +4941,7 @@ class IdentityUsersResource:
             timeout=timeout,
         )
 
-    def get(self, user_id: str, /, *, timeout: float | None = None) -> _models.UserRecord:
+    def get(self, user_id: str | UUID, /, *, timeout: float | None = None) -> _models.UserRecord:
         """Get a user by id. `GET /v1/identity/users/{userId}`"""
         return self._client._request(
             _OPERATIONS["identity.users.get"],
@@ -4897,7 +4953,7 @@ class IdentityUsersResource:
         )
 
     def list_sessions(
-        self, user_id: str, /, *, timeout: float | None = None
+        self, user_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.IdentitySessionCollectionPage:
         """List active sessions for a user. `GET /v1/identity/users/{userId}/sessions`
 
@@ -4913,7 +4969,12 @@ class IdentityUsersResource:
         )
 
     def revoke_sessions(
-        self, user_id: str, /, *, idempotency_key: str | None = None, timeout: float | None = None
+        self,
+        user_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
     ) -> _models.RevokeSessionsResult:
         """Revoke every active session for a user. `POST /v1/identity/users/{userId}/revoke-sessions`
 
@@ -4964,7 +5025,7 @@ class DeploymentsResource:
         limit: int | None = None,
         cursor: str | None = None,
         image_ref_prefix: str | None = None,
-        signer_key_id: str | None = None,
+        signer_key_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.DeploymentCollectionPage:
         """List signed deployments. `GET /v1/deployments`
@@ -5009,7 +5070,7 @@ class DeploymentsResource:
         )
 
     def get(
-        self, deployment_id: str, /, *, timeout: float | None = None
+        self, deployment_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.DeploymentRecord:
         """Fetch a signed deployment record. `GET /v1/deployments/{deploymentId}`"""
         return self._client._request(
@@ -5023,7 +5084,7 @@ class DeploymentsResource:
 
     def sync_secrets(
         self,
-        deployment_id: str,
+        deployment_id: str | UUID,
         body: _models.DeploymentSecretsSyncRequest | Mapping[str, Any] | None = None,
         /,
         *,
@@ -5058,9 +5119,9 @@ class ComplianceEvidenceResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
-        run_id: str | None = None,
-        agent_id: str | None = None,
-        flow_id: str | None = None,
+        run_id: str | UUID | None = None,
+        agent_id: str | UUID | None = None,
+        flow_id: str | UUID | None = None,
         kind: str | None = None,
         from_: str | None = None,
         to: str | None = None,
@@ -5089,7 +5150,7 @@ class ComplianceEvidenceResource:
         )
 
     def get(
-        self, evidence_id: str, /, *, timeout: float | None = None
+        self, evidence_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.ComplianceEvidence:
         """Fetch one compliance-evidence record. `GET /v1/compliance/evidence/{evidenceId}`
 
@@ -5153,7 +5214,7 @@ class AuditAuthzResource:
         action: str | None = None,
         resource: str | None = None,
         outcome: Literal["allowed", "denied"] | None = None,
-        run_id: str | None = None,
+        run_id: str | UUID | None = None,
         from_: str | None = None,
         to: str | None = None,
         order: Literal["asc", "desc"] | None = None,
@@ -5241,7 +5302,7 @@ class OrgsResource:
             timeout=timeout,
         )
 
-    def get(self, org_id: str, /, *, timeout: float | None = None) -> _models.Org:
+    def get(self, org_id: str | UUID, /, *, timeout: float | None = None) -> _models.Org:
         """Fetch an org by id. `GET /v1/orgs/{orgId}`"""
         return self._client._request(
             _OPERATIONS["orgs.get"],
@@ -5254,7 +5315,7 @@ class OrgsResource:
 
     def update(
         self,
-        org_id: str,
+        org_id: str | UUID,
         body: _models.OrgPatch | Mapping[str, Any] | None = None,
         /,
         *,
@@ -5273,7 +5334,12 @@ class OrgsResource:
         )
 
     def delete(
-        self, org_id: str, /, *, idempotency_key: str | None = None, timeout: float | None = None
+        self,
+        org_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
     ) -> None:
         """Delete an org (idempotent). `DELETE /v1/orgs/{orgId}`
 
@@ -5296,7 +5362,7 @@ class TeamsMembershipsResource:
 
     def list(
         self,
-        team_id: str,
+        team_id: str | UUID,
         /,
         *,
         limit: int | None = None,
@@ -5318,7 +5384,7 @@ class TeamsMembershipsResource:
 
     def add(
         self,
-        team_id: str,
+        team_id: str | UUID,
         body: _models.AddTeamMembershipBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -5342,8 +5408,8 @@ class TeamsMembershipsResource:
 
     def update_role(
         self,
-        team_id: str,
-        user_id: str,
+        team_id: str | UUID,
+        user_id: str | UUID,
         body: _models.UpdateTeamMembershipBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -5363,8 +5429,8 @@ class TeamsMembershipsResource:
 
     def remove(
         self,
-        team_id: str,
-        user_id: str,
+        team_id: str | UUID,
+        user_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -5393,7 +5459,7 @@ class TeamsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
-        org_id: str | None = None,
+        org_id: str | UUID | None = None,
         name_contains: str | None = None,
         timeout: float | None = None,
     ) -> _models.TeamCollectionPage:
@@ -5435,7 +5501,7 @@ class TeamsResource:
             timeout=timeout,
         )
 
-    def get(self, team_id: str, /, *, timeout: float | None = None) -> _models.Team:
+    def get(self, team_id: str | UUID, /, *, timeout: float | None = None) -> _models.Team:
         """Fetch a team by id. `GET /v1/teams/{teamId}`"""
         return self._client._request(
             _OPERATIONS["teams.get"],
@@ -5448,7 +5514,7 @@ class TeamsResource:
 
     def update(
         self,
-        team_id: str,
+        team_id: str | UUID,
         body: _models.TeamPatch | Mapping[str, Any] | None = None,
         /,
         *,
@@ -5467,7 +5533,12 @@ class TeamsResource:
         )
 
     def delete(
-        self, team_id: str, /, *, idempotency_key: str | None = None, timeout: float | None = None
+        self,
+        team_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
     ) -> None:
         """Delete a team (idempotent, cascades memberships). `DELETE /v1/teams/{teamId}`"""
         return self._client._request(
@@ -5487,7 +5558,7 @@ class ProjectsMembershipsResource:
 
     def list(
         self,
-        project_id: str,
+        project_id: str | UUID,
         /,
         *,
         limit: int | None = None,
@@ -5509,7 +5580,7 @@ class ProjectsMembershipsResource:
 
     def add(
         self,
-        project_id: str,
+        project_id: str | UUID,
         body: _models.AddProjectMembershipBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -5533,8 +5604,8 @@ class ProjectsMembershipsResource:
 
     def update_role(
         self,
-        project_id: str,
-        user_id: str,
+        project_id: str | UUID,
+        user_id: str | UUID,
         body: _models.UpdateProjectMembershipBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -5554,8 +5625,8 @@ class ProjectsMembershipsResource:
 
     def remove(
         self,
-        project_id: str,
-        user_id: str,
+        project_id: str | UUID,
+        user_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -5598,7 +5669,7 @@ class ProjectsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
-        org_id: str | None = None,
+        org_id: str | UUID | None = None,
         name_contains: str | None = None,
         timeout: float | None = None,
     ) -> _models.ProjectCollectionPage:
@@ -5643,7 +5714,7 @@ class ProjectsResource:
             timeout=timeout,
         )
 
-    def get(self, project_id: str, /, *, timeout: float | None = None) -> _models.Project:
+    def get(self, project_id: str | UUID, /, *, timeout: float | None = None) -> _models.Project:
         """Fetch a project by id. `GET /v1/projects/{projectId}`"""
         return self._client._request(
             _OPERATIONS["projects.get"],
@@ -5656,7 +5727,7 @@ class ProjectsResource:
 
     def update(
         self,
-        project_id: str,
+        project_id: str | UUID,
         body: _models.ProjectPatch | Mapping[str, Any] | None = None,
         /,
         *,
@@ -5679,7 +5750,7 @@ class ProjectsResource:
 
     def delete(
         self,
-        project_id: str,
+        project_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -5782,7 +5853,7 @@ class EnvResource:
         *,
         env_name: str,
         scope_kind: Literal["tenant", "org", "project"],
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
@@ -5817,7 +5888,7 @@ class EnvResource:
         *,
         env_name: str,
         scope_kind: Literal["tenant", "org", "project"],
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         timeout: float | None = None,
     ) -> _models.EnvRecord:
@@ -5844,7 +5915,7 @@ class EnvResource:
         *,
         env_name: str,
         scope_kind: Literal["tenant", "org", "project"],
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
@@ -5870,7 +5941,7 @@ class EnvResource:
         *,
         env_name: str,
         scope_kind: Literal["tenant", "org", "project"],
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.EnvDeleteResult:
         """Delete an env entry. `DELETE /v1/env/{name}`
@@ -5899,7 +5970,7 @@ class SecretsResource:
         *,
         env_name: str,
         scope_kind: Literal["tenant", "org", "project"],
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
@@ -5957,7 +6028,7 @@ class SecretsResource:
         *,
         env_name: str,
         scope_kind: Literal["tenant", "org", "project"],
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         timeout: float | None = None,
     ) -> _models.SecretRecord:
@@ -5983,7 +6054,7 @@ class SecretsResource:
         *,
         env_name: str,
         scope_kind: Literal["tenant", "org", "project"],
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         hard: bool | None = None,
         reason: str | None = None,
         timeout: float | None = None,
@@ -6014,7 +6085,7 @@ class SecretsResource:
         *,
         env_name: str,
         scope_kind: Literal["tenant", "org", "project"],
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
@@ -6046,7 +6117,7 @@ class SecretsResource:
         *,
         env_name: str,
         scope_kind: Literal["tenant", "org", "project"],
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.SecretVersionRecord:
         """Get one secret-version record. `GET /v1/secrets/{name}/versions/{versionId}`"""
@@ -6067,7 +6138,7 @@ class SecretsResource:
         *,
         env_name: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
@@ -6089,12 +6160,12 @@ class SecretsResource:
     def get_rotation_status(
         self,
         name: str,
-        rotation_id: str,
+        rotation_id: str | UUID,
         /,
         *,
         env_name: str,
         scope_kind: Literal["tenant", "org", "project"],
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.RotationStatus:
         """Get async rotation status. `GET /v1/secrets/{name}/rotations/{rotationId}`"""
@@ -6110,12 +6181,12 @@ class SecretsResource:
     def rotation_events(
         self,
         name: str,
-        rotation_id: str,
+        rotation_id: str | UUID,
         /,
         *,
         env_name: str,
         scope_kind: Literal["tenant", "org", "project"],
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> None:
         """Subscribe to async rotation events (SSE). `GET /v1/secrets/{name}/rotations/{rotationId}/events`
@@ -6182,7 +6253,9 @@ class SchedulesResource:
             timeout=timeout,
         )
 
-    def get(self, trigger_id: str, /, *, timeout: float | None = None) -> _models.ScheduleRecord:
+    def get(
+        self, trigger_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.ScheduleRecord:
         """Fetch a cron schedule. `GET /v1/schedules/{triggerId}`"""
         return self._client._request(
             _OPERATIONS["schedules.get"],
@@ -6195,7 +6268,7 @@ class SchedulesResource:
 
     def update(
         self,
-        trigger_id: str,
+        trigger_id: str | UUID,
         body: _models.PatchScheduleBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -6219,7 +6292,7 @@ class SchedulesResource:
 
     def pause(
         self,
-        trigger_id: str,
+        trigger_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -6240,7 +6313,7 @@ class SchedulesResource:
 
     def resume(
         self,
-        trigger_id: str,
+        trigger_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -6261,7 +6334,7 @@ class SchedulesResource:
 
     def unregister(
         self,
-        trigger_id: str,
+        trigger_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -6330,7 +6403,7 @@ class EventTriggersResource:
         )
 
     def get(
-        self, trigger_id: str, /, *, timeout: float | None = None
+        self, trigger_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.EventTriggerRecord:
         """Fetch an event trigger. `GET /v1/event-triggers/{triggerId}`"""
         return self._client._request(
@@ -6344,7 +6417,7 @@ class EventTriggersResource:
 
     def update(
         self,
-        trigger_id: str,
+        trigger_id: str | UUID,
         body: _models.PatchEventTriggerBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -6365,7 +6438,7 @@ class EventTriggersResource:
 
     def pause(
         self,
-        trigger_id: str,
+        trigger_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -6383,7 +6456,7 @@ class EventTriggersResource:
 
     def resume(
         self,
-        trigger_id: str,
+        trigger_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -6401,7 +6474,7 @@ class EventTriggersResource:
 
     def unregister(
         self,
-        trigger_id: str,
+        trigger_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -6467,7 +6540,7 @@ class WebhooksResource:
         )
 
     def get(
-        self, trigger_id: str, /, *, timeout: float | None = None
+        self, trigger_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.WebhookTriggerRecord:
         """Fetch a webhook trigger. `GET /v1/webhooks/{triggerId}`"""
         return self._client._request(
@@ -6481,7 +6554,7 @@ class WebhooksResource:
 
     def update(
         self,
-        trigger_id: str,
+        trigger_id: str | UUID,
         body: _models.PatchWebhookTriggerBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -6505,7 +6578,7 @@ class WebhooksResource:
 
     def pause(
         self,
-        trigger_id: str,
+        trigger_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -6523,7 +6596,7 @@ class WebhooksResource:
 
     def resume(
         self,
-        trigger_id: str,
+        trigger_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -6541,7 +6614,7 @@ class WebhooksResource:
 
     def unregister(
         self,
-        trigger_id: str,
+        trigger_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -6619,7 +6692,9 @@ class WebhookEndpointsResource:
             timeout=timeout,
         )
 
-    def get(self, endpoint_id: str, /, *, timeout: float | None = None) -> _models.WebhookEndpoint:
+    def get(
+        self, endpoint_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.WebhookEndpoint:
         """Fetch a webhook endpoint. `GET /v1/webhook-endpoints/{endpointId}`"""
         return self._client._request(
             _OPERATIONS["webhookEndpoints.get"],
@@ -6632,7 +6707,7 @@ class WebhookEndpointsResource:
 
     def update(
         self,
-        endpoint_id: str,
+        endpoint_id: str | UUID,
         body: _models.PatchWebhookEndpointBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -6656,7 +6731,7 @@ class WebhookEndpointsResource:
 
     def unregister(
         self,
-        endpoint_id: str,
+        endpoint_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -6677,7 +6752,7 @@ class WebhookEndpointsResource:
 
     def list_deliveries(
         self,
-        endpoint_id: str,
+        endpoint_id: str | UUID,
         /,
         *,
         status: Literal["pending", "delivered", "failed"] | None = None,
@@ -6700,8 +6775,8 @@ class WebhookEndpointsResource:
 
     def redeliver(
         self,
-        endpoint_id: str,
-        delivery_id: str,
+        endpoint_id: str | UUID,
+        delivery_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -6722,7 +6797,7 @@ class WebhookEndpointsResource:
 
     def send_test(
         self,
-        endpoint_id: str,
+        endpoint_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -6790,12 +6865,12 @@ class AsyncRunsResource:
         limit: int | None = None,
         cursor: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
-        parent_run_id: str | None = None,
+        scope_id: str | UUID | None = None,
+        parent_run_id: str | UUID | None = None,
         top_level: bool | None = None,
-        agent_id: str | None = None,
+        agent_id: str | UUID | None = None,
         replays: Literal["exclude", "include", "only"] | None = None,
-        eval_run_id: str | None = None,
+        eval_run_id: str | UUID | None = None,
         include: Literal["output"] | None = None,
         timeout: float | None = None,
     ) -> _models.RunCollectionPage:
@@ -6846,7 +6921,7 @@ class AsyncRunsResource:
             timeout=timeout,
         )
 
-    async def get(self, run_id: str, /, *, timeout: float | None = None) -> _models.Run:
+    async def get(self, run_id: str | UUID, /, *, timeout: float | None = None) -> _models.Run:
         """Fetch a run. `GET /v1/runs/{runId}`"""
         return await self._client._request(
             _OPERATIONS["runs.get"],
@@ -6858,7 +6933,12 @@ class AsyncRunsResource:
         )
 
     async def cancel(
-        self, run_id: str, /, *, idempotency_key: str | None = None, timeout: float | None = None
+        self,
+        run_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
     ) -> _models.Run:
         """Cancel a run. `POST /v1/runs/{runId}/cancel`
 
@@ -6875,7 +6955,7 @@ class AsyncRunsResource:
 
     async def resume(
         self,
-        run_id: str,
+        run_id: str | UUID,
         body: _models.ResumeRunBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -6897,7 +6977,7 @@ class AsyncRunsResource:
         )
 
     async def journal(
-        self, run_id: str, /, *, since: int | None = None, timeout: float | None = None
+        self, run_id: str | UUID, /, *, since: int | None = None, timeout: float | None = None
     ) -> _models.RunJournalPage:
         """Read the durable journal for a run. `GET /v1/runs/{runId}/journal`
 
@@ -6913,7 +6993,12 @@ class AsyncRunsResource:
         )
 
     def stream(
-        self, run_id: str, /, *, last_event_id: str | None = None, timeout: float | None = None
+        self,
+        run_id: str | UUID,
+        /,
+        *,
+        last_event_id: str | UUID | None = None,
+        timeout: float | None = None,
     ) -> AsyncIterator[_models.RunEvent]:
         """Server-Sent Events stream of RunEvent frames. `GET /v1/runs/{runId}/stream`
 
@@ -6929,7 +7014,7 @@ class AsyncRunsResource:
         )
 
     async def progress(
-        self, run_id: str, /, *, timeout: float | None = None
+        self, run_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.RunProgress:
         """A run's progress (status and timing, no data). `GET /v1/runs/{runId}/progress`
 
@@ -6945,7 +7030,12 @@ class AsyncRunsResource:
         )
 
     def progress_stream(
-        self, run_id: str, /, *, last_event_id: str | None = None, timeout: float | None = None
+        self,
+        run_id: str | UUID,
+        /,
+        *,
+        last_event_id: str | UUID | None = None,
+        timeout: float | None = None,
     ) -> AsyncIterator[_models.RunProgressEvent]:
         """Server-Sent Events stream of a run's progress. `GET /v1/runs/{runId}/progress/stream`
 
@@ -7019,7 +7109,7 @@ class AsyncSigningKeysResource:
         )
 
     async def get(
-        self, key_id: str, /, *, timeout: float | None = None
+        self, key_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.TrustedSigningKey:
         """Get a signing key. `GET /v1/signing-keys/{keyId}`
 
@@ -7036,7 +7126,7 @@ class AsyncSigningKeysResource:
 
     async def revoke(
         self,
-        key_id: str,
+        key_id: str | UUID,
         body: _models.RevokeSigningKeyBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -7110,7 +7200,9 @@ class AsyncTokensResource:
             timeout=timeout,
         )
 
-    async def get(self, token_id: str, /, *, timeout: float | None = None) -> _models.ApiToken:
+    async def get(
+        self, token_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.ApiToken:
         """Read an API key. `GET /v1/tokens/{tokenId}`
 
         Never returns the secret. A tenant admin reads any key; anyone else only their own (someone else's reads as missing).
@@ -7125,7 +7217,12 @@ class AsyncTokensResource:
         )
 
     async def revoke(
-        self, token_id: str, /, *, idempotency_key: str | None = None, timeout: float | None = None
+        self,
+        token_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
     ) -> _models.RevokeTokenResult:
         """Revoke an API key. `POST /v1/tokens/{tokenId}/revoke`
 
@@ -7216,7 +7313,7 @@ class AsyncServiceAccountsResource:
         )
 
     async def get(
-        self, service_account_id: str, /, *, timeout: float | None = None
+        self, service_account_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.ServiceAccount:
         """Read a service account. `GET /v1/service-accounts/{serviceAccountId}`
 
@@ -7233,7 +7330,7 @@ class AsyncServiceAccountsResource:
 
     async def grant(
         self,
-        service_account_id: str,
+        service_account_id: str | UUID,
         body: _models.ServiceAccountGrantBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -7257,7 +7354,7 @@ class AsyncServiceAccountsResource:
 
     async def ungrant(
         self,
-        service_account_id: str,
+        service_account_id: str | UUID,
         body: _models.ServiceAccountUngrantBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -7281,7 +7378,7 @@ class AsyncServiceAccountsResource:
 
     async def unregister(
         self,
-        service_account_id: str,
+        service_account_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -7352,7 +7449,9 @@ class AsyncApprovalsReviewersResource:
             timeout=timeout,
         )
 
-    async def get(self, reviewer_id: str, /, *, timeout: float | None = None) -> _models.Reviewer:
+    async def get(
+        self, reviewer_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.Reviewer:
         """Fetch a reviewer. `GET /v1/approvals/reviewers/{reviewerId}`"""
         return await self._client._request(
             _OPERATIONS["approvals.reviewers.get"],
@@ -7365,7 +7464,7 @@ class AsyncApprovalsReviewersResource:
 
     async def unregister(
         self,
-        reviewer_id: str,
+        reviewer_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -7399,7 +7498,7 @@ class AsyncApprovalsResource:
         limit: int | None = None,
         cursor: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         status: Literal[
             "pending",
             "assigned",
@@ -7413,7 +7512,7 @@ class AsyncApprovalsResource:
         | None = None,
         required_role: Literal["standard", "senior", "admin"] | None = None,
         created_after: str | None = None,
-        wait_token_id: list[str] | None = None,
+        wait_token_id: list[str | UUID] | None = None,
         timeout: float | None = None,
     ) -> _models.ApprovalCollectionPage:
         """List approvals visible to the caller. `GET /v1/approvals`
@@ -7438,7 +7537,9 @@ class AsyncApprovalsResource:
             timeout=timeout,
         )
 
-    async def get(self, approval_id: str, /, *, timeout: float | None = None) -> _models.Approval:
+    async def get(
+        self, approval_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.Approval:
         """Fetch a single approval. `GET /v1/approvals/{approvalId}`
 
         Returns 404 for ids that exist but require a higher role than the caller (avoids cross-tier existence leaks — see API-ROUTE-CONVENTIONS.md §2.4). A decided approval carries its `decision`: what the reviewer decided, why, and who (`decidedBy`, `user:<userId>`).
@@ -7454,7 +7555,7 @@ class AsyncApprovalsResource:
 
     async def complete(
         self,
-        approval_id: str,
+        approval_id: str | UUID,
         body: _models.CompleteApprovalBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -7478,7 +7579,7 @@ class AsyncApprovalsResource:
 
     async def audit_bundle(
         self,
-        approval_id: str,
+        approval_id: str | UUID,
         body: _models.ExportAuditBundleBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -7509,10 +7610,10 @@ class AsyncAgentsLiveResource:
 
     async def resolve(
         self,
-        agent_id: str,
+        agent_id: str | UUID,
         /,
         *,
-        project_id: str | None = None,
+        project_id: str | UUID | None = None,
         segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
     ) -> _models.LiveVersionResolution:
@@ -7529,7 +7630,9 @@ class AsyncAgentsLiveResource:
             timeout=timeout,
         )
 
-    async def list(self, agent_id: str, /, *, timeout: float | None = None) -> _models.LivePinList:
+    async def list(
+        self, agent_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.LivePinList:
         """List an agent's live versions. `GET /v1/agents/{agentId}/live-versions`
 
         Every scope with a live version pinned, and the promotion that set it.
@@ -7545,7 +7648,7 @@ class AsyncAgentsLiveResource:
 
     async def rollback(
         self,
-        agent_id: str,
+        agent_id: str | UUID,
         body: _models.RollbackBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -7569,7 +7672,7 @@ class AsyncAgentsLiveResource:
 
     async def unpin(
         self,
-        agent_id: str,
+        agent_id: str | UUID,
         body: _models.UnpinBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -7600,13 +7703,13 @@ class AsyncAgentsPromotionsResource:
 
     async def list(
         self,
-        agent_id: str,
+        agent_id: str | UUID,
         /,
         *,
         limit: int | None = None,
         cursor: str | None = None,
         scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
     ) -> _models.PromotionPage:
@@ -7631,7 +7734,7 @@ class AsyncAgentsPromotionsResource:
 
     async def create(
         self,
-        agent_id: str,
+        agent_id: str | UUID,
         body: _models.PromoteBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -7655,7 +7758,7 @@ class AsyncAgentsPromotionsResource:
 
     async def check(
         self,
-        agent_id: str,
+        agent_id: str | UUID,
         body: _models.PromoteBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -7677,7 +7780,7 @@ class AsyncAgentsPromotionsResource:
         )
 
     async def get(
-        self, agent_id: str, promotion_id: str, /, *, timeout: float | None = None
+        self, agent_id: str | UUID, promotion_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.Promotion:
         """Get a promotion. `GET /v1/agents/{agentId}/promotions/{promotionId}`"""
         return await self._client._request(
@@ -7698,11 +7801,11 @@ class AsyncAgentsGatePolicyResource:
 
     async def resolve(
         self,
-        agent_id: str,
+        agent_id: str | UUID,
         /,
         *,
         scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
     ) -> _models.GatePolicyResolution:
@@ -7737,7 +7840,7 @@ class AsyncAgentsResource:
         cursor: str | None = None,
         name: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         timeout: float | None = None,
     ) -> _models.AgentCollectionPage:
@@ -7784,7 +7887,7 @@ class AsyncAgentsResource:
             timeout=timeout,
         )
 
-    async def get(self, agent_id: str, /, *, timeout: float | None = None) -> _models.Agent:
+    async def get(self, agent_id: str | UUID, /, *, timeout: float | None = None) -> _models.Agent:
         """Fetch the latest version of an agent. `GET /v1/agents/{agentId}`"""
         return await self._client._request(
             _OPERATIONS["agents.get"],
@@ -7797,7 +7900,7 @@ class AsyncAgentsResource:
 
     async def list_versions(
         self,
-        agent_id: str,
+        agent_id: str | UUID,
         /,
         *,
         limit: int | None = None,
@@ -7819,7 +7922,7 @@ class AsyncAgentsResource:
 
     async def derive_version(
         self,
-        agent_id: str,
+        agent_id: str | UUID,
         body: _models.DeriveAgentVersionBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -7842,7 +7945,7 @@ class AsyncAgentsResource:
         )
 
     async def get_version(
-        self, agent_id: str, version: str, /, *, timeout: float | None = None
+        self, agent_id: str | UUID, version: str, /, *, timeout: float | None = None
     ) -> _models.Agent:
         """Fetch a specific agent version. `GET /v1/agents/{agentId}/versions/{version}`"""
         return await self._client._request(
@@ -7856,7 +7959,7 @@ class AsyncAgentsResource:
 
     async def unregister(
         self,
-        agent_id: str,
+        agent_id: str | UUID,
         version: str,
         /,
         *,
@@ -7875,7 +7978,7 @@ class AsyncAgentsResource:
 
     async def reinstate_version(
         self,
-        agent_id: str,
+        agent_id: str | UUID,
         version: str,
         /,
         *,
@@ -7903,7 +8006,7 @@ class AsyncGatePoliciesVersionsResource:
         self._client = client
 
     async def list(
-        self, policy_id: str, /, *, timeout: float | None = None
+        self, policy_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.GatePolicyPage:
         """List a gate policy's versions. `GET /v1/gate-policies/{policyId}/versions`
 
@@ -7919,7 +8022,7 @@ class AsyncGatePoliciesVersionsResource:
         )
 
     async def get(
-        self, policy_id: str, version: str, /, *, timeout: float | None = None
+        self, policy_id: str | UUID, version: str, /, *, timeout: float | None = None
     ) -> _models.GatePolicy:
         """Get a gate policy version. `GET /v1/gate-policies/{policyId}/versions/{version}`"""
         return await self._client._request(
@@ -7932,7 +8035,7 @@ class AsyncGatePoliciesVersionsResource:
         )
 
     async def unregister(
-        self, policy_id: str, version: str, /, *, timeout: float | None = None
+        self, policy_id: str | UUID, version: str, /, *, timeout: float | None = None
     ) -> _models.GatePolicy:
         """Unregister a gate policy version. `POST /v1/gate-policies/{policyId}/versions/{version}/unregister`
 
@@ -7948,7 +8051,7 @@ class AsyncGatePoliciesVersionsResource:
         )
 
     async def reinstate(
-        self, policy_id: str, version: str, /, *, timeout: float | None = None
+        self, policy_id: str | UUID, version: str, /, *, timeout: float | None = None
     ) -> _models.GatePolicy:
         """Reinstate a gate policy version. `POST /v1/gate-policies/{policyId}/versions/{version}/reinstate`
 
@@ -7977,9 +8080,9 @@ class AsyncGatePoliciesResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
-        agent_id: str | None = None,
+        agent_id: str | UUID | None = None,
         scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
     ) -> _models.GatePolicyPage:
@@ -8026,7 +8129,9 @@ class AsyncGatePoliciesResource:
             timeout=timeout,
         )
 
-    async def get(self, policy_id: str, /, *, timeout: float | None = None) -> _models.GatePolicy:
+    async def get(
+        self, policy_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.GatePolicy:
         """Get a gate policy. `GET /v1/gate-policies/{policyId}`
 
         The policy's latest active version.
@@ -8055,7 +8160,7 @@ class AsyncFlowsResource:
         cursor: str | None = None,
         name: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         timeout: float | None = None,
     ) -> _models.FlowCollectionPage:
@@ -8102,7 +8207,7 @@ class AsyncFlowsResource:
             timeout=timeout,
         )
 
-    async def get(self, flow_id: str, /, *, timeout: float | None = None) -> _models.Flow:
+    async def get(self, flow_id: str | UUID, /, *, timeout: float | None = None) -> _models.Flow:
         """Fetch the latest version of a flow. `GET /v1/flows/{flowId}`"""
         return await self._client._request(
             _OPERATIONS["flows.get"],
@@ -8115,7 +8220,7 @@ class AsyncFlowsResource:
 
     async def list_versions(
         self,
-        flow_id: str,
+        flow_id: str | UUID,
         /,
         *,
         limit: int | None = None,
@@ -8136,7 +8241,7 @@ class AsyncFlowsResource:
         )
 
     async def get_version(
-        self, flow_id: str, version: str, /, *, timeout: float | None = None
+        self, flow_id: str | UUID, version: str, /, *, timeout: float | None = None
     ) -> _models.Flow:
         """Fetch a specific flow version. `GET /v1/flows/{flowId}/versions/{version}`"""
         return await self._client._request(
@@ -8150,7 +8255,7 @@ class AsyncFlowsResource:
 
     async def unregister(
         self,
-        flow_id: str,
+        flow_id: str | UUID,
         version: str,
         /,
         *,
@@ -8169,7 +8274,7 @@ class AsyncFlowsResource:
 
     async def reinstate_version(
         self,
-        flow_id: str,
+        flow_id: str | UUID,
         version: str,
         /,
         *,
@@ -8204,7 +8309,7 @@ class AsyncToolsResource:
         cursor: str | None = None,
         name: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         timeout: float | None = None,
     ) -> _models.ToolCollectionPage:
@@ -8251,7 +8356,7 @@ class AsyncToolsResource:
             timeout=timeout,
         )
 
-    async def get(self, tool_id: str, /, *, timeout: float | None = None) -> _models.Tool:
+    async def get(self, tool_id: str | UUID, /, *, timeout: float | None = None) -> _models.Tool:
         """Fetch a tool manifest (latest active version). `GET /v1/tools/{toolId}`
 
         Returns the latest active version of the tool. When all versions are unregistered (retired), the head row still exists but has no active version — the response is 410 tool-gone with the id, distinct from 404 tool-not-found (never registered).
@@ -8267,7 +8372,7 @@ class AsyncToolsResource:
 
     async def list_versions(
         self,
-        tool_id: str,
+        tool_id: str | UUID,
         /,
         *,
         limit: int | None = None,
@@ -8289,7 +8394,7 @@ class AsyncToolsResource:
         )
 
     async def get_version(
-        self, tool_id: str, version: str, /, *, timeout: float | None = None
+        self, tool_id: str | UUID, version: str, /, *, timeout: float | None = None
     ) -> _models.Tool:
         """Fetch a specific tool version. `GET /v1/tools/{toolId}/versions/{version}`"""
         return await self._client._request(
@@ -8303,7 +8408,7 @@ class AsyncToolsResource:
 
     async def unregister(
         self,
-        tool_id: str,
+        tool_id: str | UUID,
         version: str,
         /,
         *,
@@ -8322,7 +8427,7 @@ class AsyncToolsResource:
 
     async def reinstate_version(
         self,
-        tool_id: str,
+        tool_id: str | UUID,
         version: str,
         /,
         *,
@@ -8357,7 +8462,7 @@ class AsyncGuardrailsResource:
         cursor: str | None = None,
         name: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         timeout: float | None = None,
     ) -> _models.GuardrailCollectionPage:
@@ -8404,7 +8509,9 @@ class AsyncGuardrailsResource:
             timeout=timeout,
         )
 
-    async def get(self, guardrail_id: str, /, *, timeout: float | None = None) -> _models.Guardrail:
+    async def get(
+        self, guardrail_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.Guardrail:
         """Fetch an guardrail. `GET /v1/guardrails/{guardrailId}`"""
         return await self._client._request(
             _OPERATIONS["guardrails.get"],
@@ -8417,7 +8524,7 @@ class AsyncGuardrailsResource:
 
     async def unregister(
         self,
-        guardrail_id: str,
+        guardrail_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -8447,8 +8554,8 @@ class AsyncConversationsResource:
         limit: int | None = None,
         cursor: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
-        agent_id: str | None = None,
+        scope_id: str | UUID | None = None,
+        agent_id: str | UUID | None = None,
         status: Literal["open", "closed"] | None = None,
         replays: Literal["exclude", "include", "only"] | None = None,
         timeout: float | None = None,
@@ -8498,7 +8605,7 @@ class AsyncConversationsResource:
         )
 
     async def get(
-        self, conversation_id: str, /, *, timeout: float | None = None
+        self, conversation_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.Conversation:
         """Fetch a conversation. `GET /v1/conversations/{conversationId}`"""
         return await self._client._request(
@@ -8512,7 +8619,7 @@ class AsyncConversationsResource:
 
     async def close(
         self,
-        conversation_id: str,
+        conversation_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -8533,7 +8640,7 @@ class AsyncConversationsResource:
 
     async def messages(
         self,
-        conversation_id: str,
+        conversation_id: str | UUID,
         /,
         *,
         limit: int | None = None,
@@ -8569,7 +8676,7 @@ class AsyncMemoryResource:
         type: str | None = None,
         scope: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         timeout: float | None = None,
     ) -> _models.FactCollectionPage:
@@ -8617,7 +8724,9 @@ class AsyncMemoryResource:
             timeout=timeout,
         )
 
-    async def get_fact(self, fact_id: str, /, *, timeout: float | None = None) -> _models.Fact:
+    async def get_fact(
+        self, fact_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.Fact:
         """Fetch a fact. `GET /v1/memory/facts/{factId}`"""
         return await self._client._request(
             _OPERATIONS["memory.getFact"],
@@ -8629,7 +8738,12 @@ class AsyncMemoryResource:
         )
 
     async def supersede_fact(
-        self, fact_id: str, /, *, idempotency_key: str | None = None, timeout: float | None = None
+        self,
+        fact_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
     ) -> _models.SupersedeFactResult:
         """Mark a fact as superseded. `POST /v1/memory/facts/{factId}/supersede`
 
@@ -8678,7 +8792,7 @@ class AsyncProposalsResource:
         self,
         /,
         *,
-        supervisor_id: str,
+        supervisor_id: str | UUID,
         limit: int | None = None,
         cursor: str | None = None,
         status: Literal[
@@ -8694,10 +8808,10 @@ class AsyncProposalsResource:
             "withdrawn",
         ]
         | None = None,
-        agent_id: str | None = None,
+        agent_id: str | UUID | None = None,
         tier: Literal["prompt", "retrieval", "tool-config"] | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         timeout: float | None = None,
     ) -> _models.FixProposalCollectionPage:
@@ -8728,7 +8842,7 @@ class AsyncProposalsResource:
         body: _models.DraftProposalBody | Mapping[str, Any] | None = None,
         /,
         *,
-        supervisor_id: str,
+        supervisor_id: str | UUID,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
@@ -8748,7 +8862,7 @@ class AsyncProposalsResource:
         )
 
     async def get(
-        self, proposal_id: str, /, *, supervisor_id: str, timeout: float | None = None
+        self, proposal_id: str | UUID, /, *, supervisor_id: str | UUID, timeout: float | None = None
     ) -> _models.FixProposal:
         """Fetch a fix proposal. `GET /v1/proposals/{proposalId}`"""
         return await self._client._request(
@@ -8762,11 +8876,11 @@ class AsyncProposalsResource:
 
     async def dry_run(
         self,
-        proposal_id: str,
+        proposal_id: str | UUID,
         body: _models.DryRunProposalBody | Mapping[str, Any] | None = None,
         /,
         *,
-        supervisor_id: str,
+        supervisor_id: str | UUID,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
@@ -8787,11 +8901,11 @@ class AsyncProposalsResource:
 
     async def submit_review(
         self,
-        proposal_id: str,
+        proposal_id: str | UUID,
         body: _models.SubmitReviewProposalBody | Mapping[str, Any] | None = None,
         /,
         *,
-        supervisor_id: str,
+        supervisor_id: str | UUID,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
@@ -8812,11 +8926,11 @@ class AsyncProposalsResource:
 
     async def apply(
         self,
-        proposal_id: str,
+        proposal_id: str | UUID,
         body: _models.ApplyProposalBody | Mapping[str, Any] | None = None,
         /,
         *,
-        supervisor_id: str,
+        supervisor_id: str | UUID,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
@@ -8837,11 +8951,11 @@ class AsyncProposalsResource:
 
     async def rollback(
         self,
-        proposal_id: str,
+        proposal_id: str | UUID,
         body: _models.RollbackProposalBody | Mapping[str, Any] | None = None,
         /,
         *,
-        supervisor_id: str,
+        supervisor_id: str | UUID,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
@@ -8862,11 +8976,11 @@ class AsyncProposalsResource:
 
     async def withdraw(
         self,
-        proposal_id: str,
+        proposal_id: str | UUID,
         body: _models.WithdrawProposalBody | Mapping[str, Any] | None = None,
         /,
         *,
-        supervisor_id: str,
+        supervisor_id: str | UUID,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
@@ -8899,9 +9013,9 @@ class AsyncProvenanceResource:
         limit: int | None = None,
         cursor: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
-        run_id: str | None = None,
-        agent_id: str | None = None,
+        scope_id: str | UUID | None = None,
+        run_id: str | UUID | None = None,
+        agent_id: str | UUID | None = None,
         created_after: str | None = None,
         timeout: float | None = None,
     ) -> _models.ProvenanceCollectionPage:
@@ -8927,7 +9041,7 @@ class AsyncProvenanceResource:
         )
 
     async def get(
-        self, run_id: str, /, *, timeout: float | None = None
+        self, run_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.ProvenanceRecord:
         """Fetch the full provenance DAG for a run. `GET /v1/provenance/{runId}`
 
@@ -8944,7 +9058,7 @@ class AsyncProvenanceResource:
 
     async def export(
         self,
-        run_id: str,
+        run_id: str | UUID,
         body: _models.ExportProvenanceBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -8979,7 +9093,7 @@ class AsyncArtifactsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
-        owner_run_id: str | None = None,
+        owner_run_id: str | UUID | None = None,
         content_type: str | None = None,
         timeout: float | None = None,
     ) -> _models.ArtifactCollectionPage:
@@ -9025,7 +9139,7 @@ class AsyncArtifactsResource:
             timeout=timeout,
         )
 
-    async def download(self, blob_id: str, /, *, timeout: float | None = None) -> bytes:
+    async def download(self, blob_id: str | UUID, /, *, timeout: float | None = None) -> bytes:
         """Download an artifact (stream). `GET /v1/artifacts/{blobId}`
 
         Streams raw bytes. Response headers: `Content-Type` (as declared at upload), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name).
@@ -9039,7 +9153,12 @@ class AsyncArtifactsResource:
         )
 
     async def delete(
-        self, blob_id: str, /, *, idempotency_key: str | None = None, timeout: float | None = None
+        self,
+        blob_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
     ) -> _models.DeleteArtifactResult:
         """Delete an artifact. `DELETE /v1/artifacts/{blobId}`
 
@@ -9078,10 +9197,10 @@ class AsyncObservationsResource:
             "other",
         ]
         | None = None,
-        agent_id: str | None = None,
+        agent_id: str | UUID | None = None,
         agent_version: str | None = None,
-        supervisor_id: str | None = None,
-        conversation_id: str | None = None,
+        supervisor_id: str | UUID | None = None,
+        conversation_id: str | UUID | None = None,
         since: str | None = None,
         until: str | None = None,
         timeout: float | None = None,
@@ -9139,7 +9258,7 @@ class AsyncCapabilitiesResource:
         )
 
     async def get(
-        self, capability_id: str, /, *, timeout: float | None = None
+        self, capability_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.CapabilityDescriptor:
         """Fetch a capability descriptor. `GET /v1/capabilities/{capabilityId}`"""
         return await self._client._request(
@@ -9204,7 +9323,7 @@ class AsyncProvidersResource:
         )
 
     async def get(
-        self, provider_id: str, /, *, timeout: float | None = None
+        self, provider_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.ProviderMetadata:
         """Fetch a provider. `GET /v1/providers/{providerId}`
 
@@ -9220,7 +9339,7 @@ class AsyncProvidersResource:
         )
 
     async def capabilities(
-        self, provider_id: str, /, *, timeout: float | None = None
+        self, provider_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.ProviderCapabilitiesResult:
         """List capabilities a provider satisfies. `GET /v1/providers/{providerId}/capabilities`
 
@@ -9237,7 +9356,7 @@ class AsyncProvidersResource:
 
     async def unregister(
         self,
-        provider_id: str,
+        provider_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -9269,15 +9388,15 @@ class AsyncJudgmentsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
-        run_id: str | None = None,
-        agent_id: str | None = None,
+        run_id: str | UUID | None = None,
+        agent_id: str | UUID | None = None,
         agent_version: str | None = None,
-        flow_id: str | None = None,
+        flow_id: str | UUID | None = None,
         verdict: Literal["yes", "no"] | None = None,
-        judge_class_id: str | None = None,
-        participant_id: str | None = None,
+        judge_class_id: str | UUID | None = None,
+        participant_id: str | UUID | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.JudgmentCollectionPage:
         """List judgments. `GET /v1/judgments`
@@ -9329,7 +9448,7 @@ class AsyncJudgmentsResource:
         )
 
     async def get(
-        self, judgment_id: str, /, *, timeout: float | None = None
+        self, judgment_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.JudgmentWithCopies:
         """Fetch a judgment with its copies. `GET /v1/judgments/{judgmentId}`
 
@@ -9346,7 +9465,7 @@ class AsyncJudgmentsResource:
 
     async def unregister(
         self,
-        judgment_id: str,
+        judgment_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -9379,8 +9498,8 @@ class AsyncJudgeClassesResource:
         limit: int | None = None,
         cursor: str | None = None,
         scope_kind: Literal["tenant", "project", "agent"] | None = None,
-        project_id: str | None = None,
-        agent_id: str | None = None,
+        project_id: str | UUID | None = None,
+        agent_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.JudgeClassCollectionPage:
         """List judge classes. `GET /v1/judge-classes`
@@ -9426,7 +9545,7 @@ class AsyncJudgeClassesResource:
         )
 
     async def get(
-        self, judge_class_id: str, /, *, timeout: float | None = None
+        self, judge_class_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.JudgeClass:
         """Fetch a judge class. `GET /v1/judge-classes/{judgeClassId}`
 
@@ -9443,7 +9562,7 @@ class AsyncJudgeClassesResource:
 
     async def update(
         self,
-        judge_class_id: str,
+        judge_class_id: str | UUID,
         body: _models.UpdateJudgeClassBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -9464,7 +9583,7 @@ class AsyncJudgeClassesResource:
 
     async def unregister(
         self,
-        judge_class_id: str,
+        judge_class_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -9491,7 +9610,7 @@ class AsyncMcpEndpointsResourcesResource:
         self._client = client
 
     async def list(
-        self, endpoint_id: str, /, *, timeout: float | None = None
+        self, endpoint_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.MCPResourceCollection:
         """List resources at a remote MCP endpoint. `GET /v1/mcp/endpoints/{endpointId}/resources`
 
@@ -9507,7 +9626,7 @@ class AsyncMcpEndpointsResourcesResource:
         )
 
     async def read(
-        self, endpoint_id: str, uri: str, /, *, timeout: float | None = None
+        self, endpoint_id: str | UUID, uri: str, /, *, timeout: float | None = None
     ) -> _models.MCPResourceContent:
         """Read a single resource at a remote MCP endpoint. `GET /v1/mcp/endpoints/{endpointId}/resources/{uri}`
 
@@ -9530,7 +9649,7 @@ class AsyncMcpEndpointsPromptsResource:
         self._client = client
 
     async def list(
-        self, endpoint_id: str, /, *, timeout: float | None = None
+        self, endpoint_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.MCPPromptCollection:
         """List prompts at a remote MCP endpoint. `GET /v1/mcp/endpoints/{endpointId}/prompts`
 
@@ -9547,7 +9666,7 @@ class AsyncMcpEndpointsPromptsResource:
 
     async def get(
         self,
-        endpoint_id: str,
+        endpoint_id: str | UUID,
         name: str,
         body: _models.GetMCPPromptBody | Mapping[str, Any] | None = None,
         /,
@@ -9586,7 +9705,7 @@ class AsyncMcpEndpointsResource:
         cursor: str | None = None,
         transport: Literal["stdio", "http-sse", "streamable-http"] | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         timeout: float | None = None,
     ) -> _models.MCPEndpointCollectionPage:
@@ -9634,7 +9753,7 @@ class AsyncMcpEndpointsResource:
         )
 
     async def get(
-        self, endpoint_id: str, /, *, timeout: float | None = None
+        self, endpoint_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.MCPEndpoint:
         """Fetch an MCP endpoint. `GET /v1/mcp/endpoints/{endpointId}`
 
@@ -9651,7 +9770,7 @@ class AsyncMcpEndpointsResource:
 
     async def unregister(
         self,
-        endpoint_id: str,
+        endpoint_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -9688,19 +9807,19 @@ class AsyncCostRecordsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
-        run_id: str | None = None,
-        agent_id: str | None = None,
-        conversation_id: str | None = None,
+        run_id: str | UUID | None = None,
+        agent_id: str | UUID | None = None,
+        conversation_id: str | UUID | None = None,
         category: str | None = None,
-        provider_id: str | None = None,
+        provider_id: str | UUID | None = None,
         model: str | None = None,
         served_model: str | None = None,
-        root_run_id: str | None = None,
+        root_run_id: str | UUID | None = None,
         include_descendants: bool | None = None,
         from_: str | None = None,
         to: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         include: Literal["rawUsage"] | None = None,
         timeout: float | None = None,
@@ -9738,7 +9857,7 @@ class AsyncCostRecordsResource:
 
     async def get(
         self,
-        record_id: str,
+        record_id: str | UUID,
         /,
         *,
         include: Literal["rawUsage"] | None = None,
@@ -9771,16 +9890,16 @@ class AsyncCostResource:
         from_: str | None = None,
         to: str | None = None,
         category: str | None = None,
-        provider_id: str | None = None,
-        agent_id: str | None = None,
-        run_id: str | None = None,
-        conversation_id: str | None = None,
+        provider_id: str | UUID | None = None,
+        agent_id: str | UUID | None = None,
+        run_id: str | UUID | None = None,
+        conversation_id: str | UUID | None = None,
         model: str | None = None,
         served_model: str | None = None,
-        root_run_id: str | None = None,
+        root_run_id: str | UUID | None = None,
         include_descendants: bool | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         timeout: float | None = None,
     ) -> _models.CostAggregateResult:
@@ -9845,7 +9964,9 @@ class AsyncAdaptersResource:
             timeout=timeout,
         )
 
-    async def get(self, adapter_id: str, /, *, timeout: float | None = None) -> _models.Adapter:
+    async def get(
+        self, adapter_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.Adapter:
         """Fetch a wired adapter. `GET /v1/adapters/{adapterId}`
 
         Returns the redacted-config `Adapter` shape. Secrets never cross the wire (bindings may expose non-sensitive routing hints like `{ region }` but never credentials).
@@ -9861,7 +9982,7 @@ class AsyncAdaptersResource:
 
     async def test(
         self,
-        adapter_id: str,
+        adapter_id: str | UUID,
         body: _models.TestAdapterBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -9885,7 +10006,7 @@ class AsyncAdaptersResource:
 
     async def prepare(
         self,
-        adapter_id: str,
+        adapter_id: str | UUID,
         body: _models.AdaptersPrepareBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -9916,7 +10037,7 @@ class AsyncPoliciesVersionsResource:
 
     async def list(
         self,
-        policy_id: str,
+        policy_id: str | UUID,
         /,
         *,
         limit: int | None = None,
@@ -9938,7 +10059,7 @@ class AsyncPoliciesVersionsResource:
         )
 
     async def get(
-        self, policy_id: str, version: str, /, *, timeout: float | None = None
+        self, policy_id: str | UUID, version: str, /, *, timeout: float | None = None
     ) -> _models.Policy:
         """Fetch a specific policy version. `GET /v1/policies/{policyId}/versions/{version}`"""
         return await self._client._request(
@@ -9952,7 +10073,7 @@ class AsyncPoliciesVersionsResource:
 
     async def unregister(
         self,
-        policy_id: str,
+        policy_id: str | UUID,
         version: str,
         /,
         *,
@@ -10033,7 +10154,9 @@ class AsyncPoliciesResource:
             timeout=timeout,
         )
 
-    async def get(self, policy_id: str, /, *, timeout: float | None = None) -> _models.Policy:
+    async def get(
+        self, policy_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.Policy:
         """Fetch a policy (latest version). `GET /v1/policies/{policyId}`"""
         return await self._client._request(
             _OPERATIONS["policies.get"],
@@ -10046,7 +10169,7 @@ class AsyncPoliciesResource:
 
     async def reinstate_version(
         self,
-        policy_id: str,
+        policy_id: str | UUID,
         version: str,
         /,
         *,
@@ -10192,7 +10315,7 @@ class AsyncEvalSuitesVersionsResource:
 
     async def list(
         self,
-        suite_id: str,
+        suite_id: str | UUID,
         /,
         *,
         limit: int | None = None,
@@ -10213,7 +10336,7 @@ class AsyncEvalSuitesVersionsResource:
         )
 
     async def get(
-        self, suite_id: str, version: str, /, *, timeout: float | None = None
+        self, suite_id: str | UUID, version: str, /, *, timeout: float | None = None
     ) -> _models.EvalSuite:
         """Fetch a specific eval suite version. `GET /v1/eval-suites/{suiteId}/versions/{version}`"""
         return await self._client._request(
@@ -10227,7 +10350,7 @@ class AsyncEvalSuitesVersionsResource:
 
     async def unregister(
         self,
-        suite_id: str,
+        suite_id: str | UUID,
         version: str,
         /,
         *,
@@ -10264,7 +10387,7 @@ class AsyncEvalSuitesResource:
         | None = None,
         name: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         timeout: float | None = None,
     ) -> _models.EvalSuiteCollectionPage:
@@ -10312,7 +10435,9 @@ class AsyncEvalSuitesResource:
             timeout=timeout,
         )
 
-    async def get(self, suite_id: str, /, *, timeout: float | None = None) -> _models.EvalSuite:
+    async def get(
+        self, suite_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.EvalSuite:
         """Fetch an eval suite (latest version). `GET /v1/eval-suites/{suiteId}`"""
         return await self._client._request(
             _OPERATIONS["evalSuites.get"],
@@ -10325,7 +10450,7 @@ class AsyncEvalSuitesResource:
 
     async def build_from_judgments(
         self,
-        suite_id: str,
+        suite_id: str | UUID,
         body: _models.BuildJudgedSuiteBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -10349,7 +10474,7 @@ class AsyncEvalSuitesResource:
 
     async def list_cases(
         self,
-        suite_id: str,
+        suite_id: str | UUID,
         version: str,
         /,
         *,
@@ -10372,7 +10497,7 @@ class AsyncEvalSuitesResource:
 
     async def reinstate_version(
         self,
-        suite_id: str,
+        suite_id: str | UUID,
         version: str,
         /,
         *,
@@ -10394,7 +10519,7 @@ class AsyncEvalSuitesResource:
 
     async def unregister(
         self,
-        suite_id: str,
+        suite_id: str | UUID,
         version: str,
         /,
         *,
@@ -10420,7 +10545,7 @@ class AsyncBlocksVersionsResource:
 
     async def list(
         self,
-        block_id: str,
+        block_id: str | UUID,
         /,
         *,
         limit: int | None = None,
@@ -10442,7 +10567,7 @@ class AsyncBlocksVersionsResource:
         )
 
     async def get(
-        self, block_id: str, version: str, /, *, timeout: float | None = None
+        self, block_id: str | UUID, version: str, /, *, timeout: float | None = None
     ) -> _models.Block:
         """Fetch a specific data block version. `GET /v1/blocks/{blockId}/versions/{version}`
 
@@ -10459,7 +10584,7 @@ class AsyncBlocksVersionsResource:
 
     async def unregister(
         self,
-        block_id: str,
+        block_id: str | UUID,
         version: str,
         /,
         *,
@@ -10481,7 +10606,7 @@ class AsyncBlocksVersionsResource:
 
     async def reinstate(
         self,
-        block_id: str,
+        block_id: str | UUID,
         version: str,
         /,
         *,
@@ -10518,7 +10643,7 @@ class AsyncBlocksResource:
         kind: Literal["prompt", "settings"] | None = None,
         name: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.BlockCollectionPage:
         """List data blocks (latest version of each). `GET /v1/blocks`
@@ -10564,7 +10689,7 @@ class AsyncBlocksResource:
             timeout=timeout,
         )
 
-    async def get(self, block_id: str, /, *, timeout: float | None = None) -> _models.Block:
+    async def get(self, block_id: str | UUID, /, *, timeout: float | None = None) -> _models.Block:
         """Fetch a data block (latest version). `GET /v1/blocks/{blockId}`"""
         return await self._client._request(
             _OPERATIONS["blocks.get"],
@@ -10584,7 +10709,7 @@ class AsyncEvalRunsResource:
 
     async def start(
         self,
-        suite_id: str,
+        suite_id: str | UUID,
         body: _models.StartEvalRunBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -10612,14 +10737,14 @@ class AsyncEvalRunsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
-        suite_id: str | None = None,
+        suite_id: str | UUID | None = None,
         status: Literal["pending", "running", "completed", "failed", "cancelled"] | None = None,
-        agent_id: str | None = None,
-        flow_id: str | None = None,
+        agent_id: str | UUID | None = None,
+        flow_id: str | UUID | None = None,
         from_: str | None = None,
         to: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         timeout: float | None = None,
     ) -> _models.EvalRunCollectionPage:
@@ -10648,7 +10773,7 @@ class AsyncEvalRunsResource:
             timeout=timeout,
         )
 
-    async def get(self, run_id: str, /, *, timeout: float | None = None) -> _models.EvalRun:
+    async def get(self, run_id: str | UUID, /, *, timeout: float | None = None) -> _models.EvalRun:
         """Fetch an eval run. `GET /v1/eval-runs/{runId}`"""
         return await self._client._request(
             _OPERATIONS["evalRuns.get"],
@@ -10659,7 +10784,9 @@ class AsyncEvalRunsResource:
             timeout=timeout,
         )
 
-    async def cancel(self, run_id: str, /, *, timeout: float | None = None) -> _models.EvalRun:
+    async def cancel(
+        self, run_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.EvalRun:
         """Cancel an eval run. `POST /v1/eval-runs/{runId}/cancel`
 
         Best-effort cancel. Returns 409 when the run is already terminal.
@@ -10674,7 +10801,12 @@ class AsyncEvalRunsResource:
         )
 
     async def events(
-        self, run_id: str, /, *, last_event_id: str | None = None, timeout: float | None = None
+        self,
+        run_id: str | UUID,
+        /,
+        *,
+        last_event_id: str | UUID | None = None,
+        timeout: float | None = None,
     ) -> None:
         """Stream eval-run events (SSE). `GET /v1/eval-runs/{runId}/events`
 
@@ -10736,7 +10868,7 @@ class AsyncAuthProvidersResource:
 
     async def unregister(
         self,
-        provider_id: str,
+        provider_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -10762,7 +10894,7 @@ class AsyncAuthResource:
 
     async def login(
         self,
-        provider_id: str,
+        provider_id: str | UUID,
         body: _models.LoginBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -10786,7 +10918,7 @@ class AsyncAuthResource:
 
     async def callback(
         self,
-        provider_id: str,
+        provider_id: str | UUID,
         body: _models.CallbackBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -10891,7 +11023,9 @@ class AsyncIdentityUsersResource:
             timeout=timeout,
         )
 
-    async def get(self, user_id: str, /, *, timeout: float | None = None) -> _models.UserRecord:
+    async def get(
+        self, user_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.UserRecord:
         """Get a user by id. `GET /v1/identity/users/{userId}`"""
         return await self._client._request(
             _OPERATIONS["identity.users.get"],
@@ -10903,7 +11037,7 @@ class AsyncIdentityUsersResource:
         )
 
     async def list_sessions(
-        self, user_id: str, /, *, timeout: float | None = None
+        self, user_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.IdentitySessionCollectionPage:
         """List active sessions for a user. `GET /v1/identity/users/{userId}/sessions`
 
@@ -10919,7 +11053,12 @@ class AsyncIdentityUsersResource:
         )
 
     async def revoke_sessions(
-        self, user_id: str, /, *, idempotency_key: str | None = None, timeout: float | None = None
+        self,
+        user_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
     ) -> _models.RevokeSessionsResult:
         """Revoke every active session for a user. `POST /v1/identity/users/{userId}/revoke-sessions`
 
@@ -10970,7 +11109,7 @@ class AsyncDeploymentsResource:
         limit: int | None = None,
         cursor: str | None = None,
         image_ref_prefix: str | None = None,
-        signer_key_id: str | None = None,
+        signer_key_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.DeploymentCollectionPage:
         """List signed deployments. `GET /v1/deployments`
@@ -11015,7 +11154,7 @@ class AsyncDeploymentsResource:
         )
 
     async def get(
-        self, deployment_id: str, /, *, timeout: float | None = None
+        self, deployment_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.DeploymentRecord:
         """Fetch a signed deployment record. `GET /v1/deployments/{deploymentId}`"""
         return await self._client._request(
@@ -11029,7 +11168,7 @@ class AsyncDeploymentsResource:
 
     async def sync_secrets(
         self,
-        deployment_id: str,
+        deployment_id: str | UUID,
         body: _models.DeploymentSecretsSyncRequest | Mapping[str, Any] | None = None,
         /,
         *,
@@ -11064,9 +11203,9 @@ class AsyncComplianceEvidenceResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
-        run_id: str | None = None,
-        agent_id: str | None = None,
-        flow_id: str | None = None,
+        run_id: str | UUID | None = None,
+        agent_id: str | UUID | None = None,
+        flow_id: str | UUID | None = None,
         kind: str | None = None,
         from_: str | None = None,
         to: str | None = None,
@@ -11095,7 +11234,7 @@ class AsyncComplianceEvidenceResource:
         )
 
     async def get(
-        self, evidence_id: str, /, *, timeout: float | None = None
+        self, evidence_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.ComplianceEvidence:
         """Fetch one compliance-evidence record. `GET /v1/compliance/evidence/{evidenceId}`
 
@@ -11159,7 +11298,7 @@ class AsyncAuditAuthzResource:
         action: str | None = None,
         resource: str | None = None,
         outcome: Literal["allowed", "denied"] | None = None,
-        run_id: str | None = None,
+        run_id: str | UUID | None = None,
         from_: str | None = None,
         to: str | None = None,
         order: Literal["asc", "desc"] | None = None,
@@ -11247,7 +11386,7 @@ class AsyncOrgsResource:
             timeout=timeout,
         )
 
-    async def get(self, org_id: str, /, *, timeout: float | None = None) -> _models.Org:
+    async def get(self, org_id: str | UUID, /, *, timeout: float | None = None) -> _models.Org:
         """Fetch an org by id. `GET /v1/orgs/{orgId}`"""
         return await self._client._request(
             _OPERATIONS["orgs.get"],
@@ -11260,7 +11399,7 @@ class AsyncOrgsResource:
 
     async def update(
         self,
-        org_id: str,
+        org_id: str | UUID,
         body: _models.OrgPatch | Mapping[str, Any] | None = None,
         /,
         *,
@@ -11279,7 +11418,12 @@ class AsyncOrgsResource:
         )
 
     async def delete(
-        self, org_id: str, /, *, idempotency_key: str | None = None, timeout: float | None = None
+        self,
+        org_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
     ) -> None:
         """Delete an org (idempotent). `DELETE /v1/orgs/{orgId}`
 
@@ -11302,7 +11446,7 @@ class AsyncTeamsMembershipsResource:
 
     async def list(
         self,
-        team_id: str,
+        team_id: str | UUID,
         /,
         *,
         limit: int | None = None,
@@ -11324,7 +11468,7 @@ class AsyncTeamsMembershipsResource:
 
     async def add(
         self,
-        team_id: str,
+        team_id: str | UUID,
         body: _models.AddTeamMembershipBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -11348,8 +11492,8 @@ class AsyncTeamsMembershipsResource:
 
     async def update_role(
         self,
-        team_id: str,
-        user_id: str,
+        team_id: str | UUID,
+        user_id: str | UUID,
         body: _models.UpdateTeamMembershipBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -11369,8 +11513,8 @@ class AsyncTeamsMembershipsResource:
 
     async def remove(
         self,
-        team_id: str,
-        user_id: str,
+        team_id: str | UUID,
+        user_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -11399,7 +11543,7 @@ class AsyncTeamsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
-        org_id: str | None = None,
+        org_id: str | UUID | None = None,
         name_contains: str | None = None,
         timeout: float | None = None,
     ) -> _models.TeamCollectionPage:
@@ -11441,7 +11585,7 @@ class AsyncTeamsResource:
             timeout=timeout,
         )
 
-    async def get(self, team_id: str, /, *, timeout: float | None = None) -> _models.Team:
+    async def get(self, team_id: str | UUID, /, *, timeout: float | None = None) -> _models.Team:
         """Fetch a team by id. `GET /v1/teams/{teamId}`"""
         return await self._client._request(
             _OPERATIONS["teams.get"],
@@ -11454,7 +11598,7 @@ class AsyncTeamsResource:
 
     async def update(
         self,
-        team_id: str,
+        team_id: str | UUID,
         body: _models.TeamPatch | Mapping[str, Any] | None = None,
         /,
         *,
@@ -11473,7 +11617,12 @@ class AsyncTeamsResource:
         )
 
     async def delete(
-        self, team_id: str, /, *, idempotency_key: str | None = None, timeout: float | None = None
+        self,
+        team_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
     ) -> None:
         """Delete a team (idempotent, cascades memberships). `DELETE /v1/teams/{teamId}`"""
         return await self._client._request(
@@ -11493,7 +11642,7 @@ class AsyncProjectsMembershipsResource:
 
     async def list(
         self,
-        project_id: str,
+        project_id: str | UUID,
         /,
         *,
         limit: int | None = None,
@@ -11515,7 +11664,7 @@ class AsyncProjectsMembershipsResource:
 
     async def add(
         self,
-        project_id: str,
+        project_id: str | UUID,
         body: _models.AddProjectMembershipBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -11539,8 +11688,8 @@ class AsyncProjectsMembershipsResource:
 
     async def update_role(
         self,
-        project_id: str,
-        user_id: str,
+        project_id: str | UUID,
+        user_id: str | UUID,
         body: _models.UpdateProjectMembershipBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -11560,8 +11709,8 @@ class AsyncProjectsMembershipsResource:
 
     async def remove(
         self,
-        project_id: str,
-        user_id: str,
+        project_id: str | UUID,
+        user_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -11604,7 +11753,7 @@ class AsyncProjectsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
-        org_id: str | None = None,
+        org_id: str | UUID | None = None,
         name_contains: str | None = None,
         timeout: float | None = None,
     ) -> _models.ProjectCollectionPage:
@@ -11649,7 +11798,9 @@ class AsyncProjectsResource:
             timeout=timeout,
         )
 
-    async def get(self, project_id: str, /, *, timeout: float | None = None) -> _models.Project:
+    async def get(
+        self, project_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.Project:
         """Fetch a project by id. `GET /v1/projects/{projectId}`"""
         return await self._client._request(
             _OPERATIONS["projects.get"],
@@ -11662,7 +11813,7 @@ class AsyncProjectsResource:
 
     async def update(
         self,
-        project_id: str,
+        project_id: str | UUID,
         body: _models.ProjectPatch | Mapping[str, Any] | None = None,
         /,
         *,
@@ -11685,7 +11836,7 @@ class AsyncProjectsResource:
 
     async def delete(
         self,
-        project_id: str,
+        project_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -11788,7 +11939,7 @@ class AsyncEnvResource:
         *,
         env_name: str,
         scope_kind: Literal["tenant", "org", "project"],
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
@@ -11823,7 +11974,7 @@ class AsyncEnvResource:
         *,
         env_name: str,
         scope_kind: Literal["tenant", "org", "project"],
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         timeout: float | None = None,
     ) -> _models.EnvRecord:
@@ -11850,7 +12001,7 @@ class AsyncEnvResource:
         *,
         env_name: str,
         scope_kind: Literal["tenant", "org", "project"],
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
@@ -11876,7 +12027,7 @@ class AsyncEnvResource:
         *,
         env_name: str,
         scope_kind: Literal["tenant", "org", "project"],
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.EnvDeleteResult:
         """Delete an env entry. `DELETE /v1/env/{name}`
@@ -11905,7 +12056,7 @@ class AsyncSecretsResource:
         *,
         env_name: str,
         scope_kind: Literal["tenant", "org", "project"],
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
@@ -11963,7 +12114,7 @@ class AsyncSecretsResource:
         *,
         env_name: str,
         scope_kind: Literal["tenant", "org", "project"],
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         timeout: float | None = None,
     ) -> _models.SecretRecord:
@@ -11989,7 +12140,7 @@ class AsyncSecretsResource:
         *,
         env_name: str,
         scope_kind: Literal["tenant", "org", "project"],
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         hard: bool | None = None,
         reason: str | None = None,
         timeout: float | None = None,
@@ -12020,7 +12171,7 @@ class AsyncSecretsResource:
         *,
         env_name: str,
         scope_kind: Literal["tenant", "org", "project"],
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
@@ -12052,7 +12203,7 @@ class AsyncSecretsResource:
         *,
         env_name: str,
         scope_kind: Literal["tenant", "org", "project"],
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.SecretVersionRecord:
         """Get one secret-version record. `GET /v1/secrets/{name}/versions/{versionId}`"""
@@ -12073,7 +12224,7 @@ class AsyncSecretsResource:
         *,
         env_name: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
@@ -12095,12 +12246,12 @@ class AsyncSecretsResource:
     async def get_rotation_status(
         self,
         name: str,
-        rotation_id: str,
+        rotation_id: str | UUID,
         /,
         *,
         env_name: str,
         scope_kind: Literal["tenant", "org", "project"],
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.RotationStatus:
         """Get async rotation status. `GET /v1/secrets/{name}/rotations/{rotationId}`"""
@@ -12116,12 +12267,12 @@ class AsyncSecretsResource:
     async def rotation_events(
         self,
         name: str,
-        rotation_id: str,
+        rotation_id: str | UUID,
         /,
         *,
         env_name: str,
         scope_kind: Literal["tenant", "org", "project"],
-        scope_id: str | None = None,
+        scope_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> None:
         """Subscribe to async rotation events (SSE). `GET /v1/secrets/{name}/rotations/{rotationId}/events`
@@ -12189,7 +12340,7 @@ class AsyncSchedulesResource:
         )
 
     async def get(
-        self, trigger_id: str, /, *, timeout: float | None = None
+        self, trigger_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.ScheduleRecord:
         """Fetch a cron schedule. `GET /v1/schedules/{triggerId}`"""
         return await self._client._request(
@@ -12203,7 +12354,7 @@ class AsyncSchedulesResource:
 
     async def update(
         self,
-        trigger_id: str,
+        trigger_id: str | UUID,
         body: _models.PatchScheduleBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -12227,7 +12378,7 @@ class AsyncSchedulesResource:
 
     async def pause(
         self,
-        trigger_id: str,
+        trigger_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -12248,7 +12399,7 @@ class AsyncSchedulesResource:
 
     async def resume(
         self,
-        trigger_id: str,
+        trigger_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -12269,7 +12420,7 @@ class AsyncSchedulesResource:
 
     async def unregister(
         self,
-        trigger_id: str,
+        trigger_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -12338,7 +12489,7 @@ class AsyncEventTriggersResource:
         )
 
     async def get(
-        self, trigger_id: str, /, *, timeout: float | None = None
+        self, trigger_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.EventTriggerRecord:
         """Fetch an event trigger. `GET /v1/event-triggers/{triggerId}`"""
         return await self._client._request(
@@ -12352,7 +12503,7 @@ class AsyncEventTriggersResource:
 
     async def update(
         self,
-        trigger_id: str,
+        trigger_id: str | UUID,
         body: _models.PatchEventTriggerBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -12373,7 +12524,7 @@ class AsyncEventTriggersResource:
 
     async def pause(
         self,
-        trigger_id: str,
+        trigger_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -12391,7 +12542,7 @@ class AsyncEventTriggersResource:
 
     async def resume(
         self,
-        trigger_id: str,
+        trigger_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -12409,7 +12560,7 @@ class AsyncEventTriggersResource:
 
     async def unregister(
         self,
-        trigger_id: str,
+        trigger_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -12475,7 +12626,7 @@ class AsyncWebhooksResource:
         )
 
     async def get(
-        self, trigger_id: str, /, *, timeout: float | None = None
+        self, trigger_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.WebhookTriggerRecord:
         """Fetch a webhook trigger. `GET /v1/webhooks/{triggerId}`"""
         return await self._client._request(
@@ -12489,7 +12640,7 @@ class AsyncWebhooksResource:
 
     async def update(
         self,
-        trigger_id: str,
+        trigger_id: str | UUID,
         body: _models.PatchWebhookTriggerBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -12513,7 +12664,7 @@ class AsyncWebhooksResource:
 
     async def pause(
         self,
-        trigger_id: str,
+        trigger_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -12531,7 +12682,7 @@ class AsyncWebhooksResource:
 
     async def resume(
         self,
-        trigger_id: str,
+        trigger_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -12549,7 +12700,7 @@ class AsyncWebhooksResource:
 
     async def unregister(
         self,
-        trigger_id: str,
+        trigger_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -12630,7 +12781,7 @@ class AsyncWebhookEndpointsResource:
         )
 
     async def get(
-        self, endpoint_id: str, /, *, timeout: float | None = None
+        self, endpoint_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.WebhookEndpoint:
         """Fetch a webhook endpoint. `GET /v1/webhook-endpoints/{endpointId}`"""
         return await self._client._request(
@@ -12644,7 +12795,7 @@ class AsyncWebhookEndpointsResource:
 
     async def update(
         self,
-        endpoint_id: str,
+        endpoint_id: str | UUID,
         body: _models.PatchWebhookEndpointBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -12668,7 +12819,7 @@ class AsyncWebhookEndpointsResource:
 
     async def unregister(
         self,
-        endpoint_id: str,
+        endpoint_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -12689,7 +12840,7 @@ class AsyncWebhookEndpointsResource:
 
     async def list_deliveries(
         self,
-        endpoint_id: str,
+        endpoint_id: str | UUID,
         /,
         *,
         status: Literal["pending", "delivered", "failed"] | None = None,
@@ -12712,8 +12863,8 @@ class AsyncWebhookEndpointsResource:
 
     async def redeliver(
         self,
-        endpoint_id: str,
-        delivery_id: str,
+        endpoint_id: str | UUID,
+        delivery_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
@@ -12734,7 +12885,7 @@ class AsyncWebhookEndpointsResource:
 
     async def send_test(
         self,
-        endpoint_id: str,
+        endpoint_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
