@@ -19,6 +19,7 @@ import { type ChildProcess, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 
 import {
+  RUNTIME_EXPORT_SIGNING_KEY,
   RUNTIME_GOOGLE_CREDENTIALS,
   RUNTIME_PACK_DIR,
   RUNTIME_PUBLIC_TOKEN_KEY,
@@ -143,6 +144,7 @@ export interface RuntimeContainerOptions {
   /** Credential files mounted read-only, by host path. */
   readonly googleCredentials?: string;
   readonly publicTokenKey?: string;
+  readonly exportSigningKey?: string;
   /** Every line the runtime writes. */
   readonly onLog: (line: string) => void;
   /** A stop while it starts: the container is stopped and removed, and the wait throws `RuntimeStartStopped`. */
@@ -168,6 +170,9 @@ export function runtimeRunArgs(name: string, options: RuntimeContainerOptions): 
   }
   if (options.publicTokenKey !== undefined) {
     args.push('--volume', `${options.publicTokenKey}:${RUNTIME_PUBLIC_TOKEN_KEY}:ro`);
+  }
+  if (options.exportSigningKey !== undefined) {
+    args.push('--volume', `${options.exportSigningKey}:${RUNTIME_EXPORT_SIGNING_KEY}:ro`);
   }
   if (options.network === 'host-network') {
     args.push('--network', 'host');
