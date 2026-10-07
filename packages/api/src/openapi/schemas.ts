@@ -2982,6 +2982,13 @@ export const JudgedItemSummarySchema: JsonSchema = {
         properties: {
           verdict: { type: 'string', enum: ['yes', 'no'] },
           reason: { type: 'string' },
+          judgeClassId: { type: 'string', description: "The judgment's class, when it had one." },
+          restricted: {
+            type: 'boolean',
+            enum: [true],
+            description:
+              'Set when the judgment was recorded while its class was restricted (`Judgment.restricted`).',
+          },
         },
       },
     },

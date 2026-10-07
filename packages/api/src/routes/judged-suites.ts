@@ -277,7 +277,16 @@ async function summarize(
     totalWeight,
     restricted,
     reasons: judgments.flatMap((j) =>
-      j.reason !== undefined ? [{ verdict: j.verdict, reason: j.reason }] : [],
+      j.reason !== undefined
+        ? [
+            {
+              verdict: j.verdict,
+              reason: j.reason,
+              ...(j.judgeClassId !== undefined && { judgeClassId: j.judgeClassId }),
+              ...(j.restricted === true && { restricted: true as const }),
+            },
+          ]
+        : [],
     ),
   };
 }

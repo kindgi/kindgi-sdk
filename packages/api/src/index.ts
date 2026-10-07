@@ -344,6 +344,7 @@ export type {
   EvalCaseStoreBinding,
   JudgedEvalCase,
   JudgedItemSummary,
+  JudgedReason,
 } from './eval-case-binding.js';
 export { MAX_JUDGED_CASES } from './routes/judged-suites.js';
 export { MAX_JUDGED_HISTORY } from './routes/judgment-context.js';

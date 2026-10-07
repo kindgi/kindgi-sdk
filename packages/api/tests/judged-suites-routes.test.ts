@@ -217,10 +217,10 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
         yesWeight: 3,
         totalWeight: 4,
         restricted: { yesWeight: 0, totalWeight: 0 },
-        // Newest first.
+        // Newest first; a classified judgment's reason names its class.
         reasons: [
           { verdict: 'no', reason: 'wrong city' },
-          { verdict: 'yes', reason: 'right' },
+          { verdict: 'yes', reason: 'right', judgeClassId: h.expertId },
         ],
       },
       {
@@ -277,7 +277,7 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
         yesWeight: 3,
         totalWeight: 3,
         restricted: { yesWeight: 0, totalWeight: 0 },
-        reasons: [{ verdict: 'yes', reason: 'right' }],
+        reasons: [{ verdict: 'yes', reason: 'right', judgeClassId: h.expertId }],
       },
     ]);
     expect(byId.has('run-2')).toBe(false);
@@ -298,6 +298,7 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
       run: { subject: subject(), input: {}, output: {} },
       item: { key: 'c2', rank: 1 },
       verdict: 'yes',
+      reason: 'the right firm',
       judgeClassId: h.expertId,
       restricted: true,
       assertedBy: { kind: 'user', id: 'senior-1' },
@@ -318,6 +319,18 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
       yesWeight: 3,
       totalWeight: 4,
       restricted: { yesWeight: 3, totalWeight: 3 },
+    });
+    // Its reason says it was restricted; the expert's earlier one on c1 doesn't.
+    expect(run1.items[1].reasons).toContainEqual({
+      verdict: 'yes',
+      reason: 'the right firm',
+      judgeClassId: h.expertId,
+      restricted: true,
+    });
+    expect(run1.items[0].reasons).toContainEqual({
+      verdict: 'yes',
+      reason: 'right',
+      judgeClassId: h.expertId,
     });
   });
 

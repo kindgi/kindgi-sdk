@@ -1647,6 +1647,14 @@ class Reason(BaseModel):
     )
     verdict: Literal["yes", "no"]
     reason: str
+    judge_class_id: Annotated[str | None, Field(alias="judgeClassId")] = None
+    """
+    The judgment's class, when it had one.
+    """
+    restricted: Literal[True] | None = None
+    """
+    Set when the judgment was recorded while its class was restricted (`Judgment.restricted`).
+    """
 
 
 class JudgedItemSummary(BaseModel):
