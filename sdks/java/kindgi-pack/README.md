@@ -205,12 +205,14 @@ A handler built on futures returns a `CompletionStage` through
 public static final Tool<Input, Output> TOOL = Tool.define("acme.quote")
     .input(Input.class)
     .output(Output.class)
+    .mutating(false)
     .asyncHandler((input, ctx) -> rates.fetch(input.currency()).thenApply(Output::new));
 ```
 
 The service awaits it. A failed future fails the call with its own exception,
 not a wrapper. At the deadline, or when the caller goes away, a
-`CompletableFuture` the handler returned is cancelled.
+`CompletableFuture` the handler returned is cancelled. Cancelling a future
+doesn't stop the work behind it: stop that with `onCancel`, above.
 
 Unit-test a handler directly:
 
