@@ -61,6 +61,17 @@ export function parseSegmentsBody(raw: unknown, field = 'segments'): Parsed {
   return checked(segments, field);
 }
 
+/** Whether a segment path is `prefix` or below it (`company=acme/role=cfo` is in `company=acme`). */
+export function segmentsStartWith(
+  path: readonly ScopeSegment[],
+  prefix: readonly ScopeSegment[],
+): boolean {
+  return (
+    path.length >= prefix.length &&
+    prefix.every((s, i) => path[i]?.key === s.key && path[i]?.value === s.value)
+  );
+}
+
 /** The same from a query: repeated `segment=key:value`, in order. */
 export function parseSegmentsQuery(values: readonly string[]): Parsed {
   const segments: ScopeSegment[] = [];

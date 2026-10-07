@@ -1567,6 +1567,10 @@ class JudgedRunCopy(BaseModel):
     input: Any
     context: JudgedRunContext | None = None
     output: Any
+    segments: list[ScopeSegment] | None = None
+    """
+    The segment path the run was started with (empty: none). Absent for runs judged before it was recorded.
+    """
     captured_at: Annotated[AwareDatetime, Field(alias="capturedAt")]
 
 
@@ -1800,6 +1804,10 @@ class BuildJudgedSuiteBody(BaseModel):
     min_judgments: Annotated[int | None, Field(alias="minJudgments", ge=1)] = None
     """
     Leave out runs with fewer counted judgments. Default 1.
+    """
+    segments: list[ScopeSegment] | None = None
+    """
+    Only runs started in this segment path or below it, coarse to fine (e.g. `company=acme`). A run judged before its segments were recorded with its judgments is in no segment, so it's left out.
     """
     description: str | None = None
 

@@ -4,7 +4,7 @@
 import { type Context, Hono } from 'hono';
 
 import { type Principal, ref, tuplesForCreate } from '@kindgi/authz';
-import type { Cursor, ProjectId, TenantId, UserId } from '@kindgi/types';
+import type { Cursor, ProjectId, ScopeSegment, TenantId, UserId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type {
@@ -22,6 +22,7 @@ import type {
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import { parseSegmentsBody } from './segments.js';
 
 /** The most cases a test set built from judgments holds. */
 export const MAX_JUDGED_CASES = 1000;
@@ -164,6 +165,8 @@ interface BuildBody {
     readonly until?: string;
     readonly judgeClassIds?: readonly string[];
     readonly minJudgments?: number;
+    /** Only runs started in this segment path or below it. */
+    readonly segments?: readonly ScopeSegment[];
   };
 }
 
@@ -344,7 +347,13 @@ function parseQuery(b: Record<string, unknown>): BuildBody['query'] | string {
   if (typeof strings === 'string') return strings;
   const counted = parseJudgmentFilters(b);
   if (typeof counted === 'string') return counted;
-  return { ...strings, ...counted };
+  const segments = parseSegmentsBody(b.segments);
+  if (segments.kind === 'err') return segments.message;
+  return {
+    ...strings,
+    ...counted,
+    ...(segments.segments !== undefined && { segments: segments.segments }),
+  };
 }
 
 function parseBuildBody(raw: unknown): Parsed<BuildBody> {

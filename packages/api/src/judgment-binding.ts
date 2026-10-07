@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { REVIEWER_ROLE_RANK, type ReviewerRole } from '@kindgi/authz';
-import type { Cursor, ListScope, ProjectId, TenantId } from '@kindgi/types';
+import type { Cursor, ListScope, ProjectId, ScopeSegment, TenantId } from '@kindgi/types';
 
 /**
  * Caller-plugged surface for judgments: a person says yes or no, with an
@@ -325,6 +325,11 @@ export interface JudgedRunCopy {
   readonly output: unknown;
   /** Absent for runs judged before context was captured, and for flow runs. */
   readonly context?: JudgedRunContext;
+  /**
+   * The segment path the run was started with (empty: none). Absent for
+   * runs judged before it was captured: such a run belongs to no segment.
+   */
+  readonly segments?: readonly ScopeSegment[];
   readonly capturedAt: string;
 }
 
@@ -345,6 +350,8 @@ export interface JudgmentRecordInput {
     readonly input: unknown;
     readonly output: unknown;
     readonly context?: JudgedRunContext;
+    /** The segment path the run was started with (empty: none). */
+    readonly segments?: readonly ScopeSegment[];
   };
   readonly item: JudgedItem;
   /** The item's value at `item.pointer`, resolved by the route from the run's output. */
@@ -393,6 +400,12 @@ export interface JudgedRunListInput {
   readonly since?: string;
   /** Runs first judged before this time (ISO 8601). */
   readonly until?: string;
+  /**
+   * Runs started in this segment path or below it (their captured
+   * `segments` start with it). A run judged before segments were captured
+   * is in none.
+   */
+  readonly segments?: readonly ScopeSegment[];
   readonly cursor?: Cursor;
   readonly limit: number;
 }

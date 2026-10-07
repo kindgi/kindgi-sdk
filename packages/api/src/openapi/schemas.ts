@@ -2884,6 +2884,12 @@ export const JudgedRunCopySchema: JsonSchema = {
       $ref: '#/components/schemas/JudgedRunContext',
     },
     output: {},
+    segments: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/ScopeSegment' },
+      description:
+        'The segment path the run was started with (empty: none). Absent for runs judged before it was recorded.',
+    },
     capturedAt: { type: 'string', format: 'date-time' },
   },
 };
@@ -3052,6 +3058,12 @@ export const BuildJudgedSuiteBodySchema: JsonSchema = {
       type: 'integer',
       minimum: 1,
       description: 'Leave out runs with fewer counted judgments. Default 1.',
+    },
+    segments: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/ScopeSegment' },
+      description:
+        "Only runs started in this segment path or below it, coarse to fine (e.g. `company=acme`). A run judged before its segments were recorded with its judgments is in no segment, so it's left out.",
     },
     description: { type: 'string' },
   },
@@ -3413,7 +3425,8 @@ export const ProposalDrafterSchema: JsonSchema = {
     },
     passId: {
       type: 'string',
-      description: 'For a drafter: the improvement pass that drafted it (`GET /v1/improvement-passes/{passId}`).',
+      description:
+        'For a drafter: the improvement pass that drafted it (`GET /v1/improvement-passes/{passId}`).',
     },
   },
 };

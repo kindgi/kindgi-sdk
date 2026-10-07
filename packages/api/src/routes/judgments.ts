@@ -6,7 +6,7 @@ import { type Context, Hono } from 'hono';
 import type { ConversationBinding } from '@kindgi/agents';
 import { REVIEWER_ROLE_RANK, type ReviewerRole, ref } from '@kindgi/authz';
 import type { RunBinding } from '@kindgi/runtime';
-import type { Cursor, ProjectId, RunId, TenantId } from '@kindgi/types';
+import type { Cursor, ProjectId, RunId, ScopeSegment, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
@@ -105,6 +105,9 @@ export function judgmentsRouter(
         subject,
         input: run.input,
         output: run.output,
+        // Which segment the run was in, kept with the copy: a test set for a
+        // segment takes only its runs.
+        segments: run.segments,
         ...(context !== undefined && { context }),
       },
       item: body.item,
@@ -395,7 +398,11 @@ export function judgeClassesRouter(
 type Prepared =
   | {
       readonly kind: 'ok';
-      readonly run: { readonly input: unknown; readonly output: unknown };
+      readonly run: {
+        readonly input: unknown;
+        readonly output: unknown;
+        readonly segments: readonly ScopeSegment[];
+      };
       readonly subject: JudgedSubject;
       readonly projectId: ProjectId;
       readonly itemValue?: unknown;
@@ -462,7 +469,7 @@ async function prepareJudgment(
       restricted = true;
     }
   }
-  const copy = { input: run.input, output: run.output };
+  const copy = { input: run.input, output: run.output, segments: run.segments ?? [] };
   const extra = {
     ...(run.agent !== undefined && { conversationId: run.agent.conversationId as string }),
     ...(restricted && { restricted: true as const }),

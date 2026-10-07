@@ -3515,6 +3515,13 @@
             "$ref": "#/components/schemas/JudgedRunContext"
           },
           "output": {},
+          "segments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScopeSegment"
+            },
+            "description": "The segment path the run was started with (empty: none). Absent for runs judged before it was recorded."
+          },
           "capturedAt": {
             "type": "string",
             "format": "date-time"
@@ -3863,6 +3870,13 @@
             "type": "integer",
             "minimum": 1,
             "description": "Leave out runs with fewer counted judgments. Default 1."
+          },
+          "segments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScopeSegment"
+            },
+            "description": "Only runs started in this segment path or below it, coarse to fine (e.g. `company=acme`). A run judged before its segments were recorded with its judgments is in no segment, so it's left out."
           },
           "description": {
             "type": "string"
@@ -28920,7 +28934,7 @@
             }
           }
         },
-        "description": "Publishes a `judged` eval suite version whose cases are copies of judged runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the judged output, and each item's judgments summed up: yes and no counts, the weight behind yes and behind all judgments (an unclassified judgment counts 1), and the reasons. `judgeClassIds` counts only judgments of those classes; `minJudgments` leaves out runs with fewer. Needs `admin` on the project.",
+        "description": "Publishes a `judged` eval suite version whose cases are copies of judged runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the judged output, and each item's judgments summed up: yes and no counts, the weight behind yes and behind all judgments (an unclassified judgment counts 1), and the reasons. `judgeClassIds` counts only judgments of those classes; `minJudgments` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.",
         "parameters": [
           {
             "name": "suiteId",
