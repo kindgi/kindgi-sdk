@@ -444,6 +444,7 @@ export { GATE_METRICS } from './gate-policy-binding.js';
 export type { GateApproval, GateCheck, GateInput, GateResult } from './gate.js';
 export { evaluateGate, gateApproval } from './gate.js';
 export type { AgentReleaseGateDeps } from './routes/agent-releases.js';
+export { coordinatesOf as liveScopeCoordinates } from './routes/agent-releases.js';
 export { EVAL_KINDS } from './eval-suite-binding.js';
 export type {
   EvalKind,
