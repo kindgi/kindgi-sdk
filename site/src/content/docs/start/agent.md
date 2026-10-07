@@ -30,7 +30,7 @@ thing at a time, and wait until they say they've done it.
   you guess.
 - **`kindgi` in the commands below** means, until step 2 makes a project:
   `npx --yes @kindgi/cli@next` if `node --version` works; else, for someone
-  using Python without Node, `uvx --prerelease=allow --from kindgi-cli kindgi`
+  using Python without Node, `uvx --from "kindgi-cli>=0.1,<0.2" kindgi`
   (the CLI from PyPI; it needs no Node). From step 2 on, from the project's
   folder:
   - a TypeScript project: `pnpm exec kindgi` if `pnpm --version` works,
@@ -128,7 +128,7 @@ runtime: skip this step.
 
    ```sh
    # Python (no Node needed)
-   uvx --prerelease=allow --from kindgi-cli kindgi init my-agents --template=python
+   uvx --from "kindgi-cli>=0.1,<0.2" kindgi init my-agents --template=python
    cd my-agents
    uv sync          # brings the CLI too: from now on, uv run kindgi …
    ```

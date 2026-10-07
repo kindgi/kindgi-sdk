@@ -59,6 +59,12 @@ export interface RunHandlerBinding {
   resumeRun(input: ResumeRunBindingInput): Promise<RunHandlerOutcome>;
 }
 
+/** The request's W3C trace context, for the run it starts (`traceId` is kept on the run). */
+export interface RunTrace {
+  readonly traceId: string;
+  readonly spanId: string;
+}
+
 export interface ResumeRunBindingInput {
   readonly tenantId: TenantId;
   readonly runId: RunId;
@@ -108,6 +114,8 @@ export interface InvokeAgentBindingInput {
    * the route, never from the body. On its own it enforces nothing.
    */
   readonly principal?: Principal;
+  /** The trace context of the request starting the run: the binding records its `traceId` on the run. */
+  readonly trace?: RunTrace;
 }
 
 export interface InvokeFlowBindingInput {
@@ -131,6 +139,8 @@ export interface InvokeFlowBindingInput {
   readonly versions?: FlowVersionOverrides;
   /** Who started the run, as for `InvokeAgentBindingInput.principal`: its agent steps act for them. */
   readonly principal?: Principal;
+  /** The trace context of the request starting the run, as for an agent run. */
+  readonly trace?: RunTrace;
 }
 
 export type RunHandlerOutcome =

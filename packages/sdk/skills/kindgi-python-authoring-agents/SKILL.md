@@ -15,7 +15,7 @@ description: >
   model by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.0"
+version: "0.1.2"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -25,9 +25,11 @@ sources:
 
 # Authoring Kindgi agents in Python
 
-> **Running `kindgi`:** a Python pack has no Node project, so the
-> `kindgi` CLI is the one on `PATH`. Python commands run in the pack's
-> environment: `uv run …` (or `.venv/bin/python …`).
+> **Running `kindgi`:** the CLI is `kindgi-cli` from PyPI, pinned in the
+> pack's dev group, so every `kindgi <command>` below runs as
+> `uv run kindgi <command>` (Poetry: `poetry run kindgi <command>`). Python
+> commands run in the pack's environment the same way: `uv run …` (or
+> `.venv/bin/python …`).
 
 An **agent** is a versioned, model-driven orchestrator: instructions (a
 prompt template), the tools it may call, the capabilities its model
@@ -75,7 +77,7 @@ brief_writer = Agent(
     instructions=(
         "You are drafting a brief in {{ jurisdiction }}. The user provides the case "
         "facts; you produce a Section IV argument citing at least two precedents. "
-        "Call acme.verify-citation on every cite before using it. Never invent one."
+        "Check every cite with the verify-citation tool before using it. Never invent one."
     ),
     capabilities=[{"needs": [{"feature": "tool-use"}]}],
     tools=[verify_citation, fetch_precedent],      # Tool objects — or {"id", "version"} refs
@@ -109,7 +111,11 @@ brief_writer = Agent(
   `parameters` or the runtime's own variables (`today`, `now`,
   `agent.*`, `conversation.*`), rendered strictly: an unknown variable
   fails the turn. Write it as a brief for a capable colleague: what to
-  do, which tools to prefer, what to refuse, the quality bar.
+  do, which tools to prefer, what to refuse, the quality bar. Name a
+  tool by what it does ("the verify-citation tool"), never by its dotted
+  id: the model sees ids in its provider's form (`acme__verify-citation`
+  for Anthropic and OpenAI-compatible models), and `acme.verify-citation`
+  in the instructions can make it call a name it wasn't given.
 - **`capabilities`** — what the model must support, e.g.
   `[{"needs": [{"feature": "tool-use"}]}]`. The turn routes its first
   capability to pick a provider and model; none declared fails the turn.

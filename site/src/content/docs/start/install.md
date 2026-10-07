@@ -7,15 +7,16 @@ sidebar:
 
 ## What you need
 
-- **Node 22.12 or later.** The `kindgi` CLI is a Node program, for TypeScript
-  and Python projects alike.
+- **For a TypeScript pack: Node 22.12 or later.** The `kindgi` CLI and the SDK
+  run on Node.
 - **Docker** (Docker Desktop, or the Docker engine on Linux). `kindgi dev`
   runs the Kindgi runtime as a container, and a Postgres container for it:
   with `docker compose` when it's there, with plain `docker` otherwise. With
   your own database (Postgres 16 with pgvector, passed as `--database-url`),
   it starts no Postgres.
 - **For a Python pack:** Python 3.11 or later, and uv (or Poetry, or pip).
-  The CLI still needs Node 22.12.
+  The CLI comes from PyPI as `kindgi-cli`, with its own copy of Node, so you
+  install no Node.
 
 Nothing else: the runtime is a container image that `kindgi dev` pulls and
 runs for you.
@@ -29,6 +30,7 @@ image it runs:
 
 ```sh
 npx --yes @kindgi/cli@0.1 auth registry --username <your robot name>
+# without Node: uvx --from "kindgi-cli>=0.1,<0.2" kindgi auth registry --username <your robot name>
 ```
 
 ```text
@@ -38,6 +40,30 @@ npx --yes @kindgi/cli@0.1 auth registry --username <your robot name>
 The first `kindgi dev` then pulls the image (about 700 MB; `amd64` and
 `arm64`).
 :::
+
+### Check this machine
+
+`kindgi doctor` checks what Kindgi needs: Node (or Python and uv), Docker,
+access to the runtime image and, in a project's folder, the project, its
+dependencies, its model key, the runtime and a provider. Each check that
+fails says how to fix it, and it exits `1` until nothing does:
+
+```sh
+npx --yes @kindgi/cli@0.1 doctor     # in a project: pnpm exec kindgi doctor, or npx --no kindgi doctor
+uvx --from "kindgi-cli>=0.1,<0.2" kindgi doctor   # without Node; in a Python project: uv run kindgi doctor
+```
+
+Here, with a Docker config whose `credsStore` names a helper Docker can't
+run:
+
+```text
+  ✓ Docker: Docker is running.
+  ✗ Runtime image: Docker couldn't run its credential helper (docker-credential-kindgi-nope): ERROR: error getting credentials - err: exec: "docker-credential-kindgi-nope": executable file not found in $PATH, out: ``
+      Fix: Docker's config (~/.docker/config.json, or the one in $DOCKER_CONFIG: "credsStore" or "credHelpers") names docker-credential-kindgi-nope, and Docker couldn't run it. Put it on your PATH (Docker Desktop on macOS keeps it in /Applications/Docker.app/Contents/Resources/bin), or remove that entry from the config, then run this again.
+```
+
+`--json` gives the same checks as JSON, for a script or a coding agent
+([Set up with a coding agent](../agent/) has an agent read it).
 
 ## A TypeScript project
 
@@ -63,23 +89,30 @@ on npm.
 
 ## A Python project
 
-A Python app has no npm project for the CLI, so run it with `npx` (it comes
-with Node 22), pinned to Kindgi's minor version:
+The CLI is the `kindgi-cli` package on PyPI. Start a new pack with it,
+pinned to Kindgi's minor version:
 
 ```sh
-npx --yes @kindgi/cli@0.1 init my-pack --template=python
+uvx --from "kindgi-cli>=0.1,<0.2" kindgi init my-pack --template=python
+cd my-pack
+uv sync
 ```
 
-In a Python project, every `kindgi <command>` in these docs is
-`npx --yes @kindgi/cli@0.1 <command>`. (`--yes` skips npx's install prompt,
-so a coding agent never waits on it.)
+`init` puts the SDK, the `kindgi` package, in the pack's dependencies and
+`kindgi-cli` in its dev group, so `uv sync` installs both and everyone on the
+project runs the CLI it pins. From then on, in a Python project, every
+`kindgi <command>` in these docs is `uv run kindgi <command>` (with Poetry,
+`poetry run kindgi <command>`).
 
-The Python SDK is the `kindgi` package. `kindgi init` adds it to your
-`pyproject.toml`; to add it yourself:
+In an existing app, add both yourself:
 
 ```sh
-uv add kindgi            # or: poetry add kindgi, or: pip install kindgi
+uv add kindgi                          # the SDK
+uv add --dev "kindgi-cli>=0.1,<0.2"    # the CLI
 ```
+
+With Poetry: `poetry add kindgi` and `poetry add --group dev "kindgi-cli>=0.1,<0.2"`.
+With pip: `pip install kindgi "kindgi-cli>=0.1,<0.2"`.
 
 ## Where `kindgi dev` keeps its data
 

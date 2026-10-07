@@ -124,6 +124,12 @@ export interface RunFlowInput {
   /** Set when an eval run is replaying a past run; see `RunReplayRef`. */
   readonly replay?: RunReplayRef;
   /**
+   * The W3C trace id of the request that started the run (32 lowercase
+   * hex), kept on the run so its later turns and resumes can name the
+   * trace they began in. Absent for a run no request started.
+   */
+  readonly traceId?: string;
+  /**
    * Agents and tools this run uses at other exact versions than the flow
    * version's pins (`withVersions`): "this flow, with `acme.scorer` at
    * 0.4.0". The run keeps them, so a resumed run binds the same. `flow`
@@ -209,6 +215,8 @@ export interface StartRunParams {
   readonly agent?: RunAgentRef;
   /** Set when an eval run is replaying a past run; see `RunReplayRef`. */
   readonly replay?: RunReplayRef;
+  /** The trace id of the request that started the run; see `RunFlowInput.traceId`. */
+  readonly traceId?: string;
   /** The versions the run swaps in over its flow version's pins; see `RunFlowInput.versions`. */
   readonly versions?: FlowVersionOverrides;
   /** The run's segment path; see `RunFlowInput.segments`. */

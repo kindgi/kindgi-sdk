@@ -4,7 +4,7 @@
 import type { NodeHandler } from '@kindgi/handler';
 
 import { emitTurnEvent } from '../streaming.js';
-import type { AgentTurnResult, AgentTurnUsage } from './result-shape.js';
+import type { AgentTurnResult, AgentTurnUsage, AgentTurnWarning } from './result-shape.js';
 
 import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
@@ -15,6 +15,22 @@ import { parseJsonAnswer } from './structured-output.js';
 function structuredAnswer(content: unknown): unknown {
   const parsed = parseJsonAnswer(content);
   return parsed.kind === 'ok' ? parsed.value : null;
+}
+
+/** The turn's warnings: a fallback provider answered, then the providers' own. */
+function turnWarnings(
+  ctx: TurnContext,
+  providerId: string,
+): { readonly warnings?: readonly AgentTurnWarning[] } {
+  const warnings: AgentTurnWarning[] = [];
+  if (ctx.provider?.metadata.fallback === true) {
+    warnings.push({
+      code: 'fallback-provider',
+      message: `Answered by "${providerId}", a fallback provider: no other registered provider satisfies agent "${ctx.input.agent.id}".`,
+    });
+  }
+  for (const [code, message] of ctx.modelWarnings ?? []) warnings.push({ code, message });
+  return warnings.length > 0 ? { warnings } : {};
 }
 
 /**
@@ -59,14 +75,7 @@ export function buildComposeResultHandler(ctx: TurnContext): NodeHandler {
       violations: ctx.nonBlockingViolations ?? [],
       usage,
       provider,
-      ...(ctx.provider?.metadata.fallback === true && {
-        warnings: [
-          {
-            code: 'fallback-provider',
-            message: `Answered by "${provider.id}", a fallback provider: no other registered provider satisfies agent "${ctx.input.agent.id}".`,
-          },
-        ],
-      }),
+      ...turnWarnings(ctx, provider.id),
       ...(ctx.input.agent.output !== undefined && {
         output: kctx.dryRun ? null : structuredAnswer(ctx.finalMessage.content),
       }),

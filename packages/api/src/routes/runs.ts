@@ -23,6 +23,7 @@ import type {
   RunHandlerBinding,
   RunHandlerFailure,
   RunHandlerOutcome,
+  RunTrace,
 } from '../handler-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { MintPublicRunTokenResult } from '../public-run-token.js';
@@ -161,11 +162,13 @@ export function runsRouter(
       return c.json(toWireError(parsed.error, requestId));
     }
 
+    const trace = c.get('trace');
     const invocation = await invokeFromBody(
       binding,
       tenantId,
       parsed.value,
       c.get('principal') as Principal | undefined,
+      trace !== undefined ? { traceId: trace.traceId, spanId: trace.spanId } : undefined,
     );
 
     if (invocation.kind === 'err') {
@@ -630,11 +633,13 @@ function invokeFromBody(
   tenantId: TenantId,
   body: ParsedStartRunBody,
   principal: Principal | undefined,
+  trace?: RunTrace,
 ): Promise<RunHandlerOutcome> {
   const common = {
     tenantId,
     // Whom the run acts for: the authenticated caller, never the body.
     ...(principal !== undefined && { principal }),
+    ...(trace !== undefined && { trace }),
     ...(body.projectId !== undefined && { projectId: body.projectId }),
     input: body.input,
     ...(body.segments !== undefined && { segments: body.segments }),
@@ -698,6 +703,7 @@ function serializeRun(
       row.segments.length > 0 && {
         segments: row.segments.map(({ key, value }) => ({ key, value })),
       }),
+    ...(row.traceId != null && { traceId: row.traceId }),
   };
 }
 

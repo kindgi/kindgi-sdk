@@ -22,7 +22,7 @@ description: >
   kindgi-getting-started.
 type: core
 library: "@kindgi/sdk"
-version: "0.9.3"
+version: "0.9.4"
 sdk_version: "0.0.0"
 pack_languages: [node, python]
 sources:
@@ -305,15 +305,23 @@ kindgi secrets set GROQ_API_KEY --env=local --scope=tenant
 
 **Steps 3–5** same as Path A.
 
-## Path C — Local via in-process ONNX
+## Path C — Local via in-process ONNX (runtime from source only)
+
+> ⚠️ **Not in the runtime image, so not under `kindgi dev`.** The adapter
+> runs ONNX through `onnxruntime-node`, which ships glibc binaries only,
+> and the Kindgi runtime image is Alpine (musl): the adapter can't load
+> there (`Error loading shared library ld-linux-…`). `kindgi dev` runs
+> that image, so this path fails under it. It works only when the
+> runtime itself runs from source on macOS or a glibc Linux. **For a
+> local model under `kindgi dev`, use Ollama** ([Local via Ollama](#local-via-ollama-via-path-b)).
 
 > ⚠️ **Dev-only.** The in-process ONNX adapter writes weights to
 > `~/.cache/huggingface/hub/` — a per-machine cache with no production
 > recipe (no volume-mount recipe, no image-bake pattern, no offline
-> mode, no SHA pinning). Good for local dev, smoke tests, and CI
-> runners that keep the same disk between runs. **Do not ship packs
-> that rely on this adapter to production.** Use hosted providers
-> (Path A) or Ollama (Path B) instead.
+> mode, no SHA pinning). Good for smoke tests and CI runners that run
+> the runtime from source and keep the same disk between runs. **Do not
+> ship packs that rely on this adapter to production.** Use hosted
+> providers (Path A) or Ollama (Path B) instead.
 
 No API key. No network. Bundled with the framework — the adapter ships
 `smollm2-360m` by default (~273 MB weights, cached at
@@ -385,7 +393,8 @@ production. Skip only for scripted teardown where the model is already
 cached (`~/.cache/huggingface/hub/models--HuggingFaceTB--SmolLM2-360M-Instruct/`).
 
 `prepare` is idempotent: subsequent invocations are cache hits and
-return almost instantly, so put it in every `kindgi dev` boot script.
+return almost instantly, so put it in the script that boots your
+from-source runtime.
 
 Multi-model providers: prepare each model separately.
 ```sh
