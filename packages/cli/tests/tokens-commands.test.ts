@@ -35,7 +35,11 @@ const META = {
 const ACCOUNT = {
   serviceAccountId: 'sa-1',
   name: 'acme-ci',
-  grants: [{ kind: 'tenant-admin' }, { kind: 'project', projectId: PROJECT, role: 'editor' }],
+  grants: [
+    { kind: 'tenant-admin' },
+    { kind: 'tenant-member' },
+    { kind: 'project', projectId: PROJECT, role: 'editor' },
+  ],
   createdAt: '2026-10-06T12:00:00Z',
 };
 
@@ -191,18 +195,39 @@ describe('kindgi service-accounts', () => {
     expect(b.calls).toEqual([['sa.ungrant', 'sa-1', { kind: 'tenant-admin' }]]);
     const neither = await run(['service-accounts', 'grant', 'sa-1']);
     expect(neither.out.exitCode).toBe(1);
-    expect(neither.out.stderr).toContain('Give one of --tenant-admin or --project');
+    expect(neither.out.stderr).toContain(
+      'Give one of --tenant-admin, --tenant-member or --project',
+    );
     const noRole = await run(['service-accounts', 'grant', 'sa-1', `--project=${PROJECT}`]);
     expect(noRole.out.stderr).toContain('--role must be one of');
     const badProject = await run(['service-accounts', 'create', 'x', `--project=${PROJECT}`]);
     expect(badProject.out.stderr).toContain('--project must be <project-id>:<role>');
   });
 
+  test('tenant member: on create, granted, taken back; never with another target', async () => {
+    const created = await run(['service-accounts', 'create', 'acme-deploy', '--tenant-member']);
+    expect(created.calls).toEqual([
+      ['sa.create', { name: 'acme-deploy', grants: [{ kind: 'tenant-member' }] }],
+    ]);
+    const granted = await run(['service-accounts', 'grant', 'sa-1', '--tenant-member']);
+    expect(granted.calls).toEqual([['sa.grant', 'sa-1', { kind: 'tenant-member' }]]);
+    const taken = await run(['service-accounts', 'ungrant', 'sa-1', '--tenant-member']);
+    expect(taken.calls).toEqual([['sa.ungrant', 'sa-1', { kind: 'tenant-member' }]]);
+    const both = await run([
+      'service-accounts',
+      'grant',
+      'sa-1',
+      '--tenant-member',
+      '--tenant-admin',
+    ]);
+    expect(both.out.exitCode).toBe(1);
+    expect(both.calls).toEqual([]);
+  });
+
   test('list --all as a table, with each grant in words; unregister', async () => {
     const { out, calls } = await run(['service-accounts', 'list', '--all', '--table']);
     expect(calls).toEqual([['sa.list', { includeUnregistered: true }]]);
-    expect(out.stdout).toContain('tenant admin');
-    expect(out.stdout).toContain(`editor on ${PROJECT}`);
+    expect(out.stdout).toContain(`tenant admin; tenant member; editor on ${PROJECT}`);
     const gone = await run(['service-accounts', 'unregister', 'sa-1']);
     expect(gone.calls).toEqual([['sa.unregister', 'sa-1']]);
   });
@@ -218,6 +243,12 @@ describe('kindgi people', () => {
       displayName: 'Carol',
       email: 'carol@acme.test',
     });
+    // What being added gives them, and what's next.
+    expect(out.stderr).toBe(
+      'Added to the tenant: they can read its settings. Give them a project role to work on its agents and runs, then their first key: kindgi tokens create --for=user:u-9\n',
+    );
+    const quiet = await run(['people', 'add', '--name=Dana', '--quiet']);
+    expect([quiet.out.stdout, quiet.out.stderr]).toEqual(['', '']);
     const missing = await run(['people', 'add']);
     expect(missing.out.stderr).toContain('--name is required');
   });
