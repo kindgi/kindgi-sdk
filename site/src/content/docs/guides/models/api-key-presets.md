@@ -93,6 +93,32 @@ that names no model gets the first by name, and it keeps only the two base
 rates. Register it again: unregister it, then register the preset (or restart
 `kindgi dev` for one the pack's config declares).
 
+## OpenAI
+
+The `openai` preset calls OpenAI through its Responses API, which GPT-6
+models need to call tools. An agent with tools works on any of them, and so
+do typed answers. Every call sends `store: false`, so OpenAI keeps no
+conversation state for Kindgi's calls. A GPT-6 model takes no `temperature`:
+the call goes without it, with a `sampling-unsupported` warning (see
+[Temperature and thinking](../#temperature-and-thinking)).
+
+OpenAI bills cached prompt tokens at a fraction of the input price, writes
+to its prompt cache at more, and a prompt over 272,000 input tokens at higher
+rates for the whole call. The preset's prices follow, per 1K tokens:
+
+| Model | Input | Cached input | Cache write | Output | Past 272,000 input tokens (input / output) |
+| --- | --- | --- | --- | --- | --- |
+| `gpt-6.1-sol` | $0.002 | $0.0001 | $0.0025 | $0.01 | $0.004 / $0.015 |
+| `gpt-6-astra` | $0.01 | $0.001 | $0.0125 | $0.05 | $0.02 / $0.075 |
+| `gpt-6-luna` | $0.0001 | $0.00001 | $0.000125 | $0.0005 | $0.0002 / $0.00075 |
+
+Past 272,000 tokens, cached input and cache writes keep their share of the
+higher input rate. Kindgi counts every input token of a call toward the
+272,000, cached ones included: that's its reading of OpenAI's pricing page,
+which doesn't spell it out. On a data-residency host (`eu.api.openai.com`),
+every rate is 10% higher. The OpenAI registration's settings are on
+[Connect an OpenAI-compatible endpoint](../openai-compatible/#openais-own-api).
+
 ## If it doesn't answer
 
 A wrong key fails the turn with the provider's own message. To change the key,

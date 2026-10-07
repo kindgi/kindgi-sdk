@@ -106,7 +106,8 @@ Anything that isn't a preset registers from a spec: a JSON file you pass with
 `promptUsdPer1kTokens` and `completionUsdPer1kTokens` are per **thousand**
 tokens; vendors quote per million. Divide their price by 1000: "$2 per million
 input tokens" is `0.002`. Agents' cost budgets are computed from these prices,
-so copy them from the vendor's page when you register.
+so copy them from the vendor's page when you register. Kindgi's costs are
+estimates from them; your provider's invoice is what you pay.
 :::
 
 ## Temperature and thinking
@@ -130,7 +131,7 @@ and allows 2,048 tokens for it on top of the 256 its verdict gets.
 | | `claude-haiku-5-5` | no | adaptive | `disabled` |
 | | `claude-haiku-4-5` | yes | not set | |
 | `openai` | `gpt-6.1-sol` | no | adaptive | `low` |
-| | `gpt-6-astra` | no | not set | |
+| | `gpt-6-astra` | no | adaptive | `low` |
 | | `gpt-6-luna` | no | adaptive | `none` |
 | `gemini`, `gemini-api` | `gemini-3.8-flash` | yes | adaptive | `low` |
 | | `gemini-3.5-flash-lite` | yes | adaptive | `minimal` |
