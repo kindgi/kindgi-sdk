@@ -298,7 +298,7 @@ pnpm exec kindgi providers register --preset=gemini --project=<project> --models
 ```
 
 ```text
-✓ Registered gemini: gemini-3.8-flash
+✓ Registered gemini: gemini-3.8-flash (default)
 ```
 
 Without the role, every model call fails (this one was captured with

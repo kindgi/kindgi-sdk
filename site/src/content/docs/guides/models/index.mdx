@@ -87,7 +87,12 @@ Anything that isn't a preset registers from a spec: a JSON file you pass with
 - **`metadata.id`** names the connection; agents prefer it by this id.
   **`metadata.models`** lists the models, by the name the endpoint knows them
   by, each with its `contextWindow`, its `features` (what agents can require)
-  and its `cost`.
+  and its `cost`; optionally its `maxOutputTokens`, `sampling` and `thinking`
+  (see [Temperature and thinking](#temperature-and-thinking)).
+- **`metadata.defaultModel`** (optional) is the model an agent gets when
+  nothing else decides: no preference, and equal weights. Without it, the
+  first model by name. Another name is refused:
+  `provider "ollama" defaultModel must be one of its models (llama3.1), got "llama3.2"`.
 - **`metadata.attributes`** (optional) are labels agents can rank by, such as
   `"local"`; **`metadata.fallback: true`** makes the provider a fallback, like
   `dev-echo`.
@@ -102,8 +107,50 @@ Anything that isn't a preset registers from a spec: a JSON file you pass with
 `promptUsdPer1kTokens` and `completionUsdPer1kTokens` are per **thousand**
 tokens; vendors quote per million. Divide their price by 1000: "$2 per million
 input tokens" is `0.002`. Agents' cost budgets are computed from these prices,
-so copy them from the vendor's page when you register.
+so copy them from the vendor's page when you register. Kindgi's costs are
+estimates from them; your provider's invoice is what you pay.
 :::
+
+## Temperature and thinking
+
+Some models take no `temperature`: the Claude 5.5 models and OpenAI's GPT-6
+models reject one. Their registrations say `"sampling": false`, and Kindgi
+sends their calls without it. The turn then carries a `sampling-unsupported`
+warning instead of failing, and `kindgi runs start` prints it. Here from a
+local `llama3.1` registered with `"sampling": false` and a model-settings
+block asking for `0.2`:
+
+```text
+⚠ llama3.1 doesn't take a temperature, so the call went without one (it asked for 0.2).
+```
+
+Some models think before they answer. A model's `thinking` says how:
+`"mode": "adaptive"` (on unless turned down) or `"always"`, and `lowest`, the
+vendor's own setting for the least thinking. Thinking counts against the
+model's output limit (`maxOutputTokens`) and bills as output, so it's in a
+turn's tokens and cost. A guardrail's model judge asks for the least thinking,
+and allows 2,048 tokens for it on top of the 256 its verdict gets.
+
+| Preset | Model | Takes a temperature | Thinks | Least thinking |
+| --- | --- | --- | --- | --- |
+| `anthropic` | `claude-opus-5-5` | no | always | `low` |
+| | `claude-sonnet-5-5` | no | adaptive | `between_tools` |
+| | `claude-haiku-5-5` | no | adaptive | `disabled` |
+| | `claude-haiku-4-5` | yes | not set | |
+| `openai` | `gpt-6.1-sol` | no | adaptive | `low` |
+| | `gpt-6-astra` | no | adaptive | `low` |
+| | `gpt-6-luna` | no | adaptive | `none` |
+| `gemini`, `gemini-api` | `gemini-3.8-flash` | yes | adaptive | `low` |
+| | `gemini-3.5-flash-lite` | yes | adaptive | `minimal` |
+| `gemini-api` | `gemini-3.1-pro-preview` | yes | not set | |
+
+`groq`'s models take a temperature and set no thinking. On `openrouter`,
+`anthropic/claude-sonnet-5.5`, `openai/gpt-6.1-sol` and `openai/gpt-6-luna`
+take no temperature. A model without `thinking` gets nothing sent for it: it
+thinks, or not, as its vendor's default.
+
+A preset registered before 0.1.4 has none of these marks: register it again
+to pick them up.
 
 ## Declare them in your pack's config
 

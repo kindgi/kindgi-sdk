@@ -56,7 +56,7 @@ use a real model, set one LLM provider's key and register its preset, with
 
 ```sh
 kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant   # no-echo prompt; writes .env.local
-kindgi providers register --preset=anthropic                      # Opus 5.5, Sonnet 5.5, Haiku 4.5
+kindgi providers register --preset=anthropic                      # Opus 5.5, Sonnet 5.5 (default), Haiku 5.5, Haiku 4.5
 ```
 
 Claude takes over from dev-echo on the next turn; nothing to restart.
