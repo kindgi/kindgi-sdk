@@ -9,6 +9,8 @@ import {
   DEV_ECHO_MODEL_NAME,
   DEV_ECHO_PROVIDER_ID,
   DEV_ECHO_PROVIDER_METADATA,
+  DEV_ECHO_WARNING,
+  DEV_ECHO_WARNING_LINE,
   createDevEchoProvider,
 } from '../src/index.js';
 
@@ -48,7 +50,7 @@ describe('createDevEchoProvider', () => {
     expect(provider.metadata.fallback).toBe(true);
   });
 
-  test('a chat-only call (no tools) answers with the last user message', async () => {
+  test('a chat-only call (no tools) answers with the last user message; JSON stays bare (a typed agent parses it)', async () => {
     const provider = createDevEchoProvider();
     const result = await provider.invoke({
       ...baseInput([{ role: 'user', content: '{"remedy":["reinstatement"]}' }]),
@@ -56,6 +58,29 @@ describe('createDevEchoProvider', () => {
     } as unknown as ModelCallInput);
     expect(result.finishReason).toBe('stop');
     expect(result.message).toEqual({ role: 'assistant', content: '{"remedy":["reinstatement"]}' });
+    expect(result.warnings).toEqual([DEV_ECHO_WARNING]);
+  });
+
+  test('a chat-only text answer starts with the warning line', async () => {
+    const provider = createDevEchoProvider();
+    const result = await provider.invoke({
+      ...baseInput([{ role: 'user', content: 'hello there' }]),
+      tools: undefined,
+    } as unknown as ModelCallInput);
+    expect(result.message.content).toBe(`${DEV_ECHO_WARNING_LINE}\n\nhello there`);
+    expect(DEV_ECHO_WARNING_LINE).toMatch(/^⚠ dev-echo isn't a real model/);
+    expect(result.warnings?.[0]?.code).toBe('dev-echo-not-a-model');
+  });
+
+  test('a structuredOutput call gets the bare answer, still with the warning', async () => {
+    const provider = createDevEchoProvider();
+    const result = await provider.invoke({
+      ...baseInput([{ role: 'user', content: 'not json' }]),
+      tools: undefined,
+      structuredOutput: { schema: { type: 'object' } },
+    } as unknown as ModelCallInput);
+    expect(result.message.content).toBe('not json');
+    expect(result.warnings).toEqual([DEV_ECHO_WARNING]);
   });
 
   test('first invocation (no tool result yet) asks the runtime to call demo.echo', async () => {
@@ -70,6 +95,7 @@ describe('createDevEchoProvider', () => {
     expect(call?.arguments).toEqual({ message: 'Hello, Kindgi!' });
     expect(result.costUsd).toBe(0);
     expect(result.provider.id).toBe(DEV_ECHO_PROVIDER_ID);
+    expect(result.warnings).toEqual([DEV_ECHO_WARNING]);
   });
 
   test('second invocation (tool result in trail) emits `Tool responded: ...` final text', async () => {
@@ -87,7 +113,10 @@ describe('createDevEchoProvider', () => {
     );
     expect(result.finishReason).toBe('stop');
     expect(result.message.role).toBe('assistant');
-    expect(result.message.content).toBe('Tool responded: Say something. (echoed)');
+    expect(result.message.content).toBe(
+      `${DEV_ECHO_WARNING_LINE}\n\nTool responded: Say something. (echoed)`,
+    );
+    expect(result.warnings).toEqual([DEV_ECHO_WARNING]);
     expect(result.message.toolCalls).toBeUndefined();
     expect(result.costUsd).toBe(0);
   });
