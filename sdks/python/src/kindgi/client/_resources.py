@@ -465,6 +465,9 @@ OPERATIONS: dict[str, Operation] = {
     "auth.providers.register": Operation(
         "auth.providers.register", "POST", "/v1/auth/providers", "json", True
     ),
+    "auth.signInOptions": Operation(
+        "auth.signInOptions", "GET", "/v1/auth/sign-in-options", "json", False
+    ),
     "auth.providers.unregister": Operation(
         "auth.providers.unregister",
         "POST",
@@ -4634,6 +4637,22 @@ class AuthResource:
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
         self.providers = AuthProvidersResource(client)
+
+    def sign_in_options(
+        self, /, *, email: str | None = None, timeout: float | None = None
+    ) -> _models.SignInOptions:
+        """How a person can sign in. `GET /v1/auth/sign-in-options`
+
+        Public: nobody is signed in yet. With `email`, the identity providers for that email's domain (from the one tenant that claims it); without, the deployment's sign-in buttons when it has exactly one tenant. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`).
+        """
+        return self._client._request(
+            _OPERATIONS["auth.signInOptions"],
+            path={},
+            query={"email": email},
+            headers={},
+            response=_models.SignInOptions,
+            timeout=timeout,
+        )
 
     def login(
         self,
@@ -10551,6 +10570,22 @@ class AsyncAuthResource:
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
         self.providers = AsyncAuthProvidersResource(client)
+
+    async def sign_in_options(
+        self, /, *, email: str | None = None, timeout: float | None = None
+    ) -> _models.SignInOptions:
+        """How a person can sign in. `GET /v1/auth/sign-in-options`
+
+        Public: nobody is signed in yet. With `email`, the identity providers for that email's domain (from the one tenant that claims it); without, the deployment's sign-in buttons when it has exactly one tenant. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`).
+        """
+        return await self._client._request(
+            _OPERATIONS["auth.signInOptions"],
+            path={},
+            query={"email": email},
+            headers={},
+            response=_models.SignInOptions,
+            timeout=timeout,
+        )
 
     async def login(
         self,

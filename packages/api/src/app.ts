@@ -122,6 +122,7 @@ import { runsRouter } from './routes/runs.js';
 import { s3Router } from './routes/s3.js';
 import { schedulesRouter } from './routes/schedules.js';
 import { secretsRouter } from './routes/secrets.js';
+import { type SignInOptionsRateLimit, signInOptionsRouter } from './routes/sign-in-options.js';
 import { signingKeysRouter } from './routes/signing-keys.js';
 import { teamsRouter } from './routes/teams.js';
 import { tenantRouter } from './routes/tenant.js';
@@ -720,6 +721,12 @@ export interface CreateAppInput {
    * login. Mirror of the `idempotencyStore` caller-plugged pattern.
    */
   readonly oauthStateStore?: OauthStateStore;
+  /**
+   * The rate limit on `GET /v1/auth/sign-in-options` (unauthenticated):
+   * requests per client per window, and how to tell clients apart.
+   * Default: 30 a minute, per first `X-Forwarded-For` address.
+   */
+  readonly signInOptionsRateLimit?: SignInOptionsRateLimit;
   /**
    * Optional. Signed-deployment ledger — the audit anchor for every
    * `POST /v1/deployments` landing. Caller-plugged per the pattern
@@ -1392,6 +1399,19 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     // already been installed above, so we mount at the parent scope.
     // Only the deployment's own code exchange serves it.
     if (input.exchangeCode !== undefined) app.route('/v1/auth/callback', routers.callback);
+  }
+  // How a person can sign in, before anyone is: outside the bearer chain
+  // too (mounted ahead of `/v1`, like the callback).
+  if (input.identityProvider !== undefined) {
+    app.route(
+      '/v1/auth/sign-in-options',
+      signInOptionsRouter({
+        identityProvider: input.identityProvider,
+        ...(input.signInOptionsRateLimit !== undefined && {
+          rateLimit: input.signInOptionsRateLimit,
+        }),
+      }),
+    );
   }
   app.route('/v1', v1);
 

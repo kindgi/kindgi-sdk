@@ -23,6 +23,32 @@ export interface IdentityProviderBinding {
   get(input: IdentityProviderGetInput): Promise<ProviderConfig | null>;
   register(input: IdentityProviderRegisterInput): Promise<IdentityProviderRegisterOutcome>;
   unregister(input: IdentityProviderUnregisterInput): Promise<IdentityProviderUnregisterOutcome>;
+  /**
+   * The ways a person can sign in, before anyone is signed in
+   * (`GET /v1/auth/sign-in-options`, unauthenticated). Answer by the email
+   * DOMAIN only, never by whether a person exists:
+   * - with `emailDomain`: the providers whose (verified) `domains` include
+   *   it, from the one tenant that claims it; none when no tenant does,
+   *   or when more than one does;
+   * - without: the providers to show as buttons when the deployment has
+   *   exactly one tenant; none otherwise.
+   * Absent → the route answers an empty list.
+   */
+  readonly signInOptions?: (input: SignInOptionsInput) => Promise<readonly SignInOption[]>;
+}
+
+export interface SignInOptionsInput {
+  /** Lowercase, from the email the person typed. Absent for the buttons. */
+  readonly emailDomain?: string;
+}
+
+/** One way to sign in, as a sign-in page shows it. */
+export interface SignInOption {
+  readonly providerId: string;
+  /** "Sign in with …". */
+  readonly displayName: string;
+  /** Where the browser goes to start signing in with this provider. */
+  readonly signInUrl: string;
 }
 
 /**

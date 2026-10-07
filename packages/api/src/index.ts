@@ -16,6 +16,7 @@ export {
   MULTI_TENANT_LOOKUP,
 } from './middleware/auth.js';
 export type { SessionCookieOptions, TokenResolution, TokenResolver } from './middleware/auth.js';
+export type { SignInOptionsRateLimit } from './routes/sign-in-options.js';
 export type {
   ClaimMappingScopesSpec,
   ClaimMappingSpec,
@@ -35,6 +36,8 @@ export type {
   ProviderSignIn,
   SamlAttributeMapping,
   SamlProviderConfig,
+  SignInOption,
+  SignInOptionsInput,
   ExchangeCodeFn,
   ExchangeCodeInput,
   ExchangeCodeOutcome,

@@ -5990,6 +5990,34 @@ class IdentityProviderCollectionPage(BaseModel):
     """
 
 
+class SignInOption(BaseModel):
+    """
+    One way to sign in, as a sign-in page shows it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    provider_id: Annotated[str, Field(alias="providerId", min_length=1)]
+    display_name: Annotated[str, Field(alias="displayName", min_length=1)]
+    """
+    "Sign in with …".
+    """
+    sign_in_url: Annotated[str, Field(alias="signInUrl")]
+    """
+    Where the browser goes to start signing in with this provider.
+    """
+
+
+class SignInOptions(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[SignInOption]
+
+
 class RegisterIdentityProviderResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",

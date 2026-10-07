@@ -4497,6 +4497,31 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'get',
+    honoPath: '/v1/auth/sign-in-options',
+    openapiPath: '/v1/auth/sign-in-options',
+    operationId: 'auth.signInOptions',
+    summary: 'How a person can sign in',
+    description:
+      "Public: nobody is signed in yet. With `email`, the identity providers for that email's domain (from the one tenant that claims it); without, the deployment's sign-in buttons when it has exactly one tenant. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`).",
+    tags: ['auth'],
+    security: 'public',
+    parameters: [
+      {
+        name: 'email',
+        in: 'query',
+        required: false,
+        schema: { type: 'string', minLength: 3 },
+        description: 'The email the person typed; only its domain is used.',
+      },
+    ],
+    responses: {
+      '200': { description: 'The ways to sign in (possibly none).', schema: ref('SignInOptions') },
+      '400': ErrorResponse('`email` is not an email address.'),
+      '429': ErrorResponse('Too many lookups from this client.'),
+    },
+  },
+  {
     method: 'post',
     honoPath: '/v1/auth/providers',
     openapiPath: '/v1/auth/providers',

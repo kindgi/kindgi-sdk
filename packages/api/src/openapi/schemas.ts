@@ -6167,6 +6167,30 @@ export const IdentityProviderCollectionPageSchema: JsonSchema = {
   },
 };
 
+export const SignInOptionSchema: JsonSchema = {
+  description: 'One way to sign in, as a sign-in page shows it.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['providerId', 'displayName', 'signInUrl'],
+  properties: {
+    providerId: { type: 'string', minLength: 1 },
+    displayName: { type: 'string', minLength: 1, description: '"Sign in with …".' },
+    signInUrl: {
+      type: 'string',
+      description: 'Where the browser goes to start signing in with this provider.',
+    },
+  },
+};
+
+export const SignInOptionsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/SignInOption' } },
+  },
+};
+
 export const RegisterIdentityProviderResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -8663,6 +8687,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['OAuth2IdentityProviderConfig', OAuth2IdentityProviderConfigSchema],
   ['IdentityProviderConfig', IdentityProviderConfigSchema],
   ['IdentityProviderCollectionPage', IdentityProviderCollectionPageSchema],
+  ['SignInOption', SignInOptionSchema],
+  ['SignInOptions', SignInOptionsSchema],
   ['RegisterIdentityProviderResult', RegisterIdentityProviderResultSchema],
   ['UnregisterIdentityProviderResult', UnregisterIdentityProviderResultSchema],
   ['LoginBody', LoginBodySchema],
