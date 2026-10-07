@@ -25,7 +25,7 @@ import uuid
 from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from functools import cache
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from urllib.parse import quote
 
 import httpx
@@ -42,6 +42,11 @@ DEFAULT_TIMEOUT = 60.0
 DEFAULT_MAX_RETRIES = 2
 RETRY_STATUSES = frozenset({429, 502, 503, 504})
 STREAM_ATTEMPTS = 10
+# A run's last event: `_follow` ends after it.
+TERMINAL_KINDS = frozenset({"run.completed", "run.failed", "run.cancelled"})
+# Before reconnecting after a connection that brought no events, so a server
+# that keeps closing at once isn't called in a tight loop.
+FOLLOW_PAUSE = 0.5
 
 
 @dataclass(frozen=True)
@@ -86,6 +91,21 @@ def _query_value(value: Any) -> Any:
     if isinstance(value, bool):
         return "true" if value else "false"
     return value
+
+
+def _is_terminal(data: Any) -> bool:
+    return (
+        isinstance(data, Mapping) and cast("Mapping[str, Any]", data).get("kind") in TERMINAL_KINDS
+    )
+
+
+def _stream_backoff(op: Operation, attempt: int, cause: object) -> float:
+    """How long to wait before a stream's next attempt, or `NetworkError` when it's out of them."""
+    if attempt > STREAM_ATTEMPTS:
+        raise NetworkError(f"{op.id}: the stream dropped {attempt - 1} times: {cause}") from (
+            cause if isinstance(cause, BaseException) else None
+        )
+    return min(0.5 * 2 ** (attempt - 1), 30.0)
 
 
 def _backoff(attempt: int, retry_after: str | None) -> float:
@@ -281,6 +301,65 @@ class SyncClientBase(_Common):
                     ) from cause
                 time.sleep(min(0.5 * 2 ** (attempt - 1), 30.0))
 
+    def _follow(
+        self,
+        op: Operation,
+        *,
+        path: Mapping[str, Any],
+        query: Mapping[str, Any],
+        headers: Mapping[str, Any],
+        response: Any = None,
+        timeout: float | None = None,
+    ) -> Iterator[Any]:
+        """A run's stream, through to its terminal event.
+
+        The server ends a run's stream after its terminal event, or after a time
+        limit while the run goes on. In the second case this reconnects after
+        the last event it saw (`Last-Event-Id`), so each event comes once, and
+        pauses first when a connection brought none. A dropped connection, 429
+        or 502-504 is retried with backoff, as `_stream` retries a drop; any
+        other error answer is raised.
+        """
+        url, params, sent, _ = self._prepare(op, path, query, headers)
+        sent["Accept"] = "text/event-stream"
+        attempt = 0
+        while True:
+            received = 0
+            retry: object = None
+            try:
+                with self._http.stream(
+                    "GET",
+                    url,
+                    params=params,
+                    headers=sent,
+                    timeout=httpx.Timeout(timeout or self.timeout, read=None),
+                ) as answer:
+                    if answer.status_code in RETRY_STATUSES:
+                        retry = f"HTTP {answer.status_code}"
+                    else:
+                        if not answer.is_success:
+                            answer.read()
+                            self._answer(op, answer, None)
+                        attempt = 0
+                        parser = SseParser()
+                        for line in answer.iter_lines():
+                            event = parser.feed(line)
+                            if event is None:
+                                continue
+                            if event.id is not None:
+                                sent["Last-Event-Id"] = event.id
+                            received += 1
+                            yield self._event(response, event.data)
+                            if _is_terminal(event.data):
+                                return
+            except (httpx.TransportError, httpx.StreamError) as cause:
+                retry = cause
+            if retry is not None:
+                attempt += 1
+                time.sleep(_stream_backoff(op, attempt, retry))
+            elif received == 0:
+                time.sleep(FOLLOW_PAUSE)
+
 
 class AsyncClientBase(_Common):
     def __init__(
@@ -387,3 +466,54 @@ class AsyncClientBase(_Common):
                         f"{op.id}: the stream dropped {attempt - 1} times: {cause}"
                     ) from cause
                 await asyncio.sleep(min(0.5 * 2 ** (attempt - 1), 30.0))
+
+    async def _follow(
+        self,
+        op: Operation,
+        *,
+        path: Mapping[str, Any],
+        query: Mapping[str, Any],
+        headers: Mapping[str, Any],
+        response: Any = None,
+        timeout: float | None = None,
+    ) -> AsyncIterator[Any]:
+        """`SyncClientBase._follow`, with asyncio."""
+        url, params, sent, _ = self._prepare(op, path, query, headers)
+        sent["Accept"] = "text/event-stream"
+        attempt = 0
+        while True:
+            received = 0
+            retry: object = None
+            try:
+                async with self._http.stream(
+                    "GET",
+                    url,
+                    params=params,
+                    headers=sent,
+                    timeout=httpx.Timeout(timeout or self.timeout, read=None),
+                ) as answer:
+                    if answer.status_code in RETRY_STATUSES:
+                        retry = f"HTTP {answer.status_code}"
+                    else:
+                        if not answer.is_success:
+                            await answer.aread()
+                            self._answer(op, answer, None)
+                        attempt = 0
+                        parser = SseParser()
+                        async for line in answer.aiter_lines():
+                            event = parser.feed(line)
+                            if event is None:
+                                continue
+                            if event.id is not None:
+                                sent["Last-Event-Id"] = event.id
+                            received += 1
+                            yield self._event(response, event.data)
+                            if _is_terminal(event.data):
+                                return
+            except (httpx.TransportError, httpx.StreamError) as cause:
+                retry = cause
+            if retry is not None:
+                attempt += 1
+                await asyncio.sleep(_stream_backoff(op, attempt, retry))
+            elif received == 0:
+                await asyncio.sleep(FOLLOW_PAUSE)
