@@ -18,11 +18,11 @@ import type { Command, LeafCommand } from './types.js';
 const STATUSES = ['pending', 'running', 'completed', 'failed', 'cancelled'] as const;
 type Status = (typeof STATUSES)[number];
 
-const READS = ['recorded', 'live'] as const;
-const CLASS_WEIGHTS = ['as-recorded', 'restricted-only'] as const;
+export const READS = ['recorded', 'live'] as const;
+export const CLASS_WEIGHTS = ['as-recorded', 'restricted-only'] as const;
 
 /** A flag that takes one of `values`; `undefined` when absent. */
-function oneOfFlag<T extends string>(
+export function oneOfFlag<T extends string>(
   ctx: CommandContext,
   name: string,
   values: readonly T[],
@@ -40,6 +40,10 @@ const IN_PROGRESS: ReadonlySet<string> = new Set(['pending', 'running']);
 export interface FollowEvalRunOptions<T> {
   /** Read the eval run by id (the client's `evalRuns.get`). */
   readonly get: (runId: string) => Promise<T>;
+  /** The statuses it waits through (default `pending` and `running`). */
+  readonly inProgress?: ReadonlySet<string>;
+  /** The command that shows it, for the message when it stops waiting (default `kindgi eval-runs show`). */
+  readonly showCommand?: string;
   /** The pause between reads (default 1 s). */
   readonly pollMs?: number;
   /** The longest it waits (default 30 minutes), counted in pauses. */
@@ -63,10 +67,10 @@ export async function followEvalRun<T extends { readonly status: string }>(
     await sleep(pollMs);
     waited += pollMs;
     const run = await options.get(runId);
-    if (!IN_PROGRESS.has(run.status)) return run;
+    if (!(options.inProgress ?? IN_PROGRESS).has(run.status)) return run;
     if (waited >= maxMs) {
       throw new Error(
-        `Still running after ${Math.round(maxMs / 60_000)} minutes: kindgi eval-runs show ${runId}`,
+        `Still running after ${Math.round(maxMs / 60_000)} minutes: ${options.showCommand ?? 'kindgi eval-runs show'} ${runId}`,
       );
     }
   }

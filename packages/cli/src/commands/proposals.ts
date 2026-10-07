@@ -1,138 +1,356 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { requiredPositional, runSdk, throwUnwired } from './helpers.js';
+import { readFile } from 'node:fs/promises';
+
+import type {
+  CreateProposalInput,
+  FixProposal,
+  FixProposalStatus,
+  ListPage,
+  ProposalContent,
+} from '@kindgi/client';
+
+import type { CommandContext } from '../context.js';
+import { SCOPE_FLAGS, SCOPE_USAGE, scopeCell, scopeFrom } from './agents.js';
+import { CLASS_WEIGHTS, READS, followEvalRun, oneOfFlag } from './eval-runs.js';
+import {
+  type TableSpec,
+  integerFlag,
+  listFlag,
+  readJsonInput,
+  requiredPositional,
+  runSdk,
+  stringFlag,
+} from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
+
+/**
+ * `kindgi proposals`: improvement proposals. New content for one data
+ * block an agent version pins, for one live scope: drafted, evaluated on
+ * a test set, then requested (a promotion of the candidate through the
+ * scope's gate), and rolled back if need be.
+ */
+
+const STATUSES: readonly FixProposalStatus[] = [
+  'draft',
+  'evaluating',
+  'evaluated',
+  'not-better',
+  'evaluation-failed',
+  'in-review',
+  'promoted',
+  'refused',
+  'rejected',
+  'expired',
+  'superseded',
+  'rolled-back',
+  'withdrawn',
+];
+const TIERS = ['settings-block', 'prompt-block'] as const;
+const OBJECTIVES = ['weightedYesShare', 'weightedPrecisionAtK'] as const;
+
+/** The status `evaluate --wait` waits through. */
+const EVALUATING: ReadonlySet<string> = new Set(['evaluating']);
+
+/** A delta with its sign, `+0.120`; `-` before there is one. */
+function deltaCell(p: FixProposal): string {
+  const delta = p.evaluation?.delta;
+  if (delta === undefined || delta === null) return '-';
+  return `${delta > 0 ? '+' : ''}${delta.toFixed(3)}`;
+}
+
+const TABLE: TableSpec<ListPage<FixProposal>, FixProposal> = {
+  rows: (page) => page.data,
+  columns: [
+    { header: 'ID', get: (p) => p.id },
+    { header: 'AGENT', get: (p) => `${p.agentId}@${p.fromVersion}` },
+    { header: 'SCOPE', get: (p) => scopeCell(p.scope as Parameters<typeof scopeCell>[0]) },
+    { header: 'BLOCK', get: (p) => `${p.change.blockId}@${p.change.fromVersion}` },
+    { header: 'STATUS', get: (p) => p.status },
+    { header: 'DELTA', get: deltaCell },
+    { header: 'CREATED', get: (p) => p.createdAt },
+  ],
+};
+
+const IDEMPOTENCY_FLAG = {
+  'idempotency-key': {
+    type: 'string',
+    description: "A retry with the same key returns the first call's result.",
+  },
+} as const;
+
+function idempotency(ctx: CommandContext): { idempotencyKey?: string } {
+  const key = stringFlag(ctx, 'idempotency-key');
+  return key !== undefined ? { idempotencyKey: key } : {};
+}
+
+function reasonFlag(ctx: CommandContext): { reason?: string } {
+  const reason = stringFlag(ctx, 'reason');
+  return reason !== undefined ? { reason } : {};
+}
+
+function required(ctx: CommandContext, flag: string): string {
+  const value = stringFlag(ctx, flag);
+  if (value === undefined) throw new Error(`--${flag} is required`);
+  return value;
+}
 
 const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
-  description: 'List fix proposals.',
-  usage: 'kindgi proposals list [--status=<status>] [--limit=<n>] [--cursor=<c>]',
+  description:
+    'List improvement proposals, newest first: only those of agents you can read. A status filter is applied after the page is read, so a page can hold fewer than --limit.',
+  usage:
+    'kindgi proposals list [--agent=<agent-id>] [--tier=settings-block|prompt-block] [--status=<status>] [--limit=<n>] [--cursor=<cursor>] [--table]',
   optionSpec: {
-    status: {
-      type: 'string',
-      description:
-        'Only proposals in this status: `draft`, `dry-running`, `dry-run-passed`, `dry-run-failed`, `proposed-for-review`, `approved`, `rejected`, `applied`, `rolled-back` or `withdrawn`.',
-    },
-    limit: {
-      type: 'string',
-      description: 'The most proposals to return (default 25, at most 100).',
-    },
-    cursor: {
-      type: 'string',
-      description: "Resume after this cursor, from the previous page's `nextCursor`.",
-    },
+    agent: { type: 'string', description: "Only this agent's proposals." },
+    tier: { type: 'string', description: '`settings-block` or `prompt-block`.' },
+    status: { type: 'string', description: `One of: ${STATUSES.join(', ')}.` },
+    limit: { type: 'string', description: 'Page size.' },
+    cursor: { type: 'string', description: 'The next page, from `nextCursor`.' },
   },
   run: (ctx) =>
-    runSdk(ctx, 'proposals list', async () => throwUnwired('supervisor.proposals.list')),
+    runSdk(
+      ctx,
+      'proposals list',
+      async () => {
+        const agentId = stringFlag(ctx, 'agent');
+        const tier = oneOfFlag(ctx, 'tier', TIERS);
+        const status = oneOfFlag(ctx, 'status', STATUSES);
+        const limit = integerFlag(ctx, 'limit');
+        const cursor = stringFlag(ctx, 'cursor');
+        return await ctx.client().proposals.list({
+          ...(agentId !== undefined && { agentId }),
+          ...(tier !== undefined && { tier }),
+          ...(status !== undefined && { status }),
+          ...(limit !== undefined && { limit }),
+          ...(cursor !== undefined && { cursor }),
+        });
+      },
+      TABLE,
+    ),
 };
 
 const get: LeafCommand = {
   kind: 'leaf',
   name: 'get',
-  description: 'Fetch a fix proposal by id.',
+  description:
+    'Show a proposal: its change, status, candidate versions, the comparison it was evaluated on and its promotion.',
   usage: 'kindgi proposals get <proposal-id>',
   run: (ctx) =>
-    runSdk(ctx, 'proposals get', async () => {
-      requiredPositional(ctx, 0, 'proposal-id');
-      throwUnwired('supervisor.proposals.get');
-    }),
+    runSdk(ctx, 'proposals get', async () =>
+      ctx.client().proposals.get(requiredPositional(ctx, 0, 'proposal-id')),
+    ),
 };
+
+/** `--values` (JSON, a settings block) or `--template` (text, a prompt block): exactly one. */
+async function contentFrom(
+  ctx: CommandContext,
+): Promise<{ tier: (typeof TIERS)[number]; content: ProposalContent }> {
+  const values = stringFlag(ctx, 'values');
+  const template = stringFlag(ctx, 'template');
+  if (values !== undefined && template === undefined) {
+    const parsed = await readJsonInput(values);
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error("--values must be a JSON object: the settings block's new values");
+    }
+    return {
+      tier: 'settings-block',
+      content: { values: parsed as Readonly<Record<string, unknown>> },
+    };
+  }
+  if (template !== undefined && values === undefined) {
+    const text = template.startsWith('@') ? await readFile(template.slice(1), 'utf8') : template;
+    return { tier: 'prompt-block', content: { template: text } };
+  }
+  throw new Error(
+    'Give the new content, one of: --values=<json>|@<file> (a settings block) or --template=<text>|@<file> (a prompt block)',
+  );
+}
 
 const draft: LeafCommand = {
   kind: 'leaf',
   name: 'draft',
-  description: 'Draft fix proposals for an agent version.',
-  usage: 'kindgi proposals draft --input=<json-or-@file>',
+  description:
+    'Draft a proposal by hand: new content for one block the agent version pins (settings values, or a prompt template), for one scope. The same change from the same version for the same scope returns the proposal drafted before. Needs `publish` on the agent.',
+  usage: `kindgi proposals draft --agent=<agent-id> --from-version=<semver> ${SCOPE_USAGE} --block=<block-id> (--values=<json>|@<file> | --template=<text>|@<file>) --hypothesis=<text> [--judgment=<judgment-id>]…`,
   optionSpec: {
-    input: {
+    agent: { type: 'string', description: 'The agent.' },
+    'from-version': {
       type: 'string',
-      description:
-        'The proposal as inline JSON or `@<file>`: `agentId`, `agentVersion`, `tier`, `change`, `patternRefs`, `hypothesis` and `proposerRuleId`.',
+      description: 'The agent version the change applies to.',
     },
+    ...SCOPE_FLAGS,
+    block: { type: 'string', description: 'The data block to change; the version must pin it.' },
+    values: {
+      type: 'string',
+      description: "A settings block's new values: a JSON object, inline or `@<file>`.",
+    },
+    template: {
+      type: 'string',
+      description: "A prompt block's new template: text, inline or `@<file>`.",
+    },
+    hypothesis: { type: 'string', description: 'What the change should improve, and why.' },
+    judgment: {
+      type: 'string',
+      multiple: true,
+      description: 'A judgment behind the change (repeatable): kept as evidence.',
+    },
+    ...IDEMPOTENCY_FLAG,
   },
   run: (ctx) =>
-    runSdk(ctx, 'proposals draft', async () => throwUnwired('supervisor.proposals.draft')),
-};
-
-const dryRun: LeafCommand = {
-  kind: 'leaf',
-  name: 'dry-run',
-  description: 'Dry-run a fix proposal against a dataset.',
-  usage: 'kindgi proposals dry-run <proposal-id> --input=<json-or-@file>',
-  optionSpec: {
-    input: {
-      type: 'string',
-      description:
-        'The dry run as inline JSON or `@<file>`: `datasetId`, `datasetVersion`, and a `criterion` of kind `min-pass-rate` or `strict-improvement`.',
-    },
-  },
-  run: (ctx) =>
-    runSdk(ctx, 'proposals dry-run', async () => {
-      requiredPositional(ctx, 0, 'proposal-id');
-      throwUnwired('supervisor.proposals.dryRun');
+    runSdk(ctx, 'proposals draft', async () => {
+      const agentId = required(ctx, 'agent');
+      const fromVersion = required(ctx, 'from-version');
+      // The proposals client types a scope with branded ids; the flags give plain ones.
+      const scope = scopeFrom(ctx, true) as unknown as CreateProposalInput['scope'];
+      const blockId = required(ctx, 'block');
+      const hypothesis = required(ctx, 'hypothesis');
+      const { tier, content } = await contentFrom(ctx);
+      const judgmentIds = listFlag(ctx, 'judgment');
+      return await ctx.client().proposals.create({
+        agentId,
+        fromVersion,
+        scope,
+        tier,
+        change: { blockId, content },
+        hypothesis,
+        ...(judgmentIds.length > 0 && { evidence: { judgmentIds } }),
+        ...idempotency(ctx),
+      });
     }),
 };
 
-const submitReview: LeafCommand = {
+const evaluate: LeafCommand = {
   kind: 'leaf',
-  name: 'submit-review',
-  description: 'Submit a proposal for reviewer approval.',
-  usage: 'kindgi proposals submit-review <proposal-id> [--input=<json-or-@file>]',
+  name: 'evaluate',
+  description:
+    'Evaluate a proposal on a test set: a comparison of the candidate with the version it changes. The first evaluation publishes the block version and derives the agent version; they serve no scope until promoted, so the agent needs a live version for the whole tenant (`kindgi agents promote <agent-id> <version> --tenant`). The proposal is `evaluating`, then `evaluated` (better), `not-better` or `evaluation-failed`. Needs `publish` on the agent.',
+  usage:
+    'kindgi proposals evaluate <proposal-id> --test-set=<suite-id> [--objective=weightedYesShare|weightedPrecisionAtK] [--reads=recorded|live] [--repetitions=<n>] [--k=<n>] [--class-weights=as-recorded|restricted-only] [--wait]',
   optionSpec: {
-    input: {
+    'test-set': { type: 'string', description: 'The test set: a judged eval suite, by id.' },
+    objective: {
       type: 'string',
       description:
-        'Review options as inline JSON or `@<file>`: `requiredRole`, and `expiresAt` for the approval deadline. Omit it to take the defaults.',
+        'The metric that says whether the candidate is better: `weightedYesShare` (the default) or `weightedPrecisionAtK`.',
     },
+    reads: {
+      type: 'string',
+      description:
+        "Whether replayed reads use the past run's results when it has them (`recorded`, the default) or run live.",
+    },
+    repetitions: {
+      type: 'string',
+      description:
+        'Run each case this many times (1 to 10, default 1): a delta counts as better only above the spread.',
+    },
+    k: {
+      type: 'string',
+      description: 'How many ranked items weighted precision@k looks at (1 to 100, default 10).',
+    },
+    'class-weights': {
+      type: 'string',
+      description:
+        '`as-recorded` (the default) or `restricted-only`: only judgments of restricted judge classes count.',
+    },
+    wait: {
+      type: 'boolean',
+      description:
+        'Wait until the evaluation is done (at most 30 minutes), then print the proposal.',
+    },
+    ...IDEMPOTENCY_FLAG,
   },
   run: (ctx) =>
-    runSdk(ctx, 'proposals submit-review', async () => {
-      requiredPositional(ctx, 0, 'proposal-id');
-      throwUnwired('supervisor.proposals.submitForReview');
+    runSdk(ctx, 'proposals evaluate', async () => {
+      const id = requiredPositional(ctx, 0, 'proposal-id');
+      const suiteId = required(ctx, 'test-set');
+      const objective = oneOfFlag(ctx, 'objective', OBJECTIVES);
+      const reads = oneOfFlag(ctx, 'reads', READS);
+      const classWeights = oneOfFlag(ctx, 'class-weights', CLASS_WEIGHTS);
+      const repetitions = integerFlag(ctx, 'repetitions');
+      const k = integerFlag(ctx, 'k');
+      const proposals = ctx.client().proposals;
+      const started = await proposals.evaluate(id, {
+        suiteId,
+        ...(objective !== undefined && { objective }),
+        ...(reads !== undefined && { reads }),
+        ...(repetitions !== undefined && { repetitions }),
+        ...(k !== undefined && { k }),
+        ...(classWeights !== undefined && { classWeights }),
+        ...idempotency(ctx),
+      });
+      if (ctx.options.wait !== true) return started;
+      return await followEvalRun(id, {
+        get: (proposalId) => proposals.get(proposalId),
+        inProgress: EVALUATING,
+        showCommand: 'kindgi proposals get',
+      });
     }),
 };
 
-const apply: LeafCommand = {
+const request: LeafCommand = {
   kind: 'leaf',
-  name: 'apply',
-  description: 'Apply an approved proposal.',
-  usage: 'kindgi proposals apply <proposal-id>',
+  name: 'request',
+  description:
+    "Request a proposal's promotion: its candidate version, for its scope, through the scope's gate with its evaluation. The proposal is `promoted`, or `in-review` (a reviewer decides the promotion's approval: `kindgi approvals complete`); a gate refusal lists every check. Needs `promote` on the agent.",
+  usage: 'kindgi proposals request <proposal-id> [--reason=<text>]',
+  optionSpec: {
+    reason: { type: 'string', description: 'Why, kept on the promotion.' },
+    ...IDEMPOTENCY_FLAG,
+  },
   run: (ctx) =>
-    runSdk(ctx, 'proposals apply', async () => {
-      requiredPositional(ctx, 0, 'proposal-id');
-      throwUnwired('supervisor.proposals.apply');
-    }),
+    runSdk(ctx, 'proposals request', async () =>
+      ctx.client().proposals.request(requiredPositional(ctx, 0, 'proposal-id'), {
+        ...reasonFlag(ctx),
+        ...idempotency(ctx),
+      }),
+    ),
 };
 
 const rollback: LeafCommand = {
   kind: 'leaf',
   name: 'rollback',
-  description: 'Roll back an applied proposal.',
-  usage: 'kindgi proposals rollback <proposal-id>',
+  description:
+    'Roll back a promoted proposal: its scope goes back to the version that served it before. The proposal and its versions stay, as history. Needs `promote` on the agent.',
+  usage: 'kindgi proposals rollback <proposal-id> [--reason=<text>]',
+  optionSpec: {
+    reason: { type: 'string', description: 'Why, kept on the record.' },
+    ...IDEMPOTENCY_FLAG,
+  },
   run: (ctx) =>
-    runSdk(ctx, 'proposals rollback', async () => {
-      requiredPositional(ctx, 0, 'proposal-id');
-      throwUnwired('supervisor.proposals.rollback');
-    }),
+    runSdk(ctx, 'proposals rollback', async () =>
+      ctx.client().proposals.rollback(requiredPositional(ctx, 0, 'proposal-id'), {
+        ...reasonFlag(ctx),
+        ...idempotency(ctx),
+      }),
+    ),
 };
 
 const withdraw: LeafCommand = {
   kind: 'leaf',
   name: 'withdraw',
-  description: 'Withdraw a pending proposal.',
-  usage: 'kindgi proposals withdraw <proposal-id>',
+  description:
+    'Withdraw a proposal before review, or after its promotion was refused, superseded or expired. Needs `publish` on the agent.',
+  usage: 'kindgi proposals withdraw <proposal-id> --reason=<text>',
+  optionSpec: {
+    reason: { type: 'string', description: 'Why, kept on the record (required).' },
+    ...IDEMPOTENCY_FLAG,
+  },
   run: (ctx) =>
-    runSdk(ctx, 'proposals withdraw', async () => {
-      requiredPositional(ctx, 0, 'proposal-id');
-      throwUnwired('supervisor.proposals.withdraw');
-    }),
+    runSdk(ctx, 'proposals withdraw', async () =>
+      ctx.client().proposals.withdraw(requiredPositional(ctx, 0, 'proposal-id'), {
+        reason: required(ctx, 'reason'),
+        ...idempotency(ctx),
+      }),
+    ),
 };
 
 export const proposalsCommand: Command = {
   kind: 'group',
   name: 'proposals',
-  description: 'Manage supervisor fix proposals.',
-  subcommands: [list, get, draft, dryRun, submitReview, apply, rollback, withdraw],
+  description:
+    "Improvement proposals: new content for a data block an agent pins, for one scope; evaluated on a test set, then promoted through the scope's gate (list / get / draft / evaluate / request / rollback / withdraw).",
+  subcommands: [list, get, draft, evaluate, request, rollback, withdraw],
 };

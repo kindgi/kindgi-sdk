@@ -311,8 +311,6 @@ describe('not-implemented-in-preview SDK errors', () => {
 
   test.each([
     [['observations', 'list'], "doesn't record supervisor observations yet"],
-    [['proposals', 'list'], "doesn't draft or apply supervisor fix proposals yet"],
-    [['proposals', 'get', 'p-1'], "doesn't draft or apply supervisor fix proposals yet"],
     [['artifacts', 'list'], "doesn't serve `/v1/artifacts` yet"],
     [['artifacts', 'download', 'blob-1'], 'no artifacts to list, upload, download or delete'],
     [['capabilities', 'list'], "doesn't serve `/v1/capabilities` yet"],
