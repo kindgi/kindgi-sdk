@@ -48,15 +48,19 @@ parameters are all optional also has a form without them.
 methods, answering `CompletableFuture`s; a failed call completes
 exceptionally with the same typed exception.
 
-**Streams:** `runs().stream(runId)` is an `EventStream<RunEvent>`: iterate
-it, or `stream()` it. A dropped connection resumes with `Last-Event-Id`
-(backoff 0.5 s → 30 s, 10 attempts); the stream ends when the server closes
-it. Close it to stop early. On the async client a stream is a
-`Flow.Publisher`.
+**Streams:** `runs().follow(runId)` is an `EventStream<RunEvent>` of a
+run's events through to its end (`run.completed`, `run.failed` or
+`run.cancelled`). Iterate it, or `stream()` it. The server ends a stream
+after a time limit while the run is still going. `follow` reconnects with
+`Last-Event-Id`, so each event comes once, and so does a dropped connection
+(backoff 0.5 s → 30 s, 10 attempts). Close it to stop early.
+`followProgress(runId)` does the same for the progress events (no payloads).
+`runs().stream(runId)` is the plain operation, which ends when the server
+closes it. On the async client these are `Flow.Publisher`s.
 
 ```java
 // in src/main/java/com/acme/Follow.java
-try (EventStream<RunEvent> events = client.runs().stream(run.id())) {
+try (EventStream<RunEvent> events = client.runs().follow(run.id())) {
   for (RunEvent event : events) {
     System.out.println(event.kind());
   }
