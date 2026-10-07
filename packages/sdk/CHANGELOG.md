@@ -1,5 +1,23 @@
 # @kindgi/sdk
 
+## 0.1.4-rc.4
+
+### Patch Changes
+
+- dd9e856: The providers skill says the in-process ONNX path (Path C) runs only with the runtime from source on macOS or a glibc Linux. It doesn't load in the runtime image, so it doesn't run under `kindgi dev`; local users go to Ollama.
+- f56432f: The Python skills run the CLI from PyPI, `kindgi-cli`, with no Node install: `uvx --from "kindgi-cli>=0.1,<0.2" kindgi init`, `uv add --dev "kindgi-cli>=0.1,<0.2"` in an existing app, then `uv run kindgi <command>`. The authoring skills (agents, tools, flows, guardrails) no longer say the CLI is on `PATH`.
+- Updated dependencies [f999acd]
+- Updated dependencies [5608264]
+  - @kindgi/agents@0.1.4-rc.4
+  - @kindgi/client@0.1.4-rc.4
+  - @kindgi/guardrails@0.1.4-rc.4
+  - @kindgi/crypto@0.1.4-rc.4
+  - @kindgi/flow@0.1.4-rc.4
+  - @kindgi/handler-runtime@0.1.4-rc.4
+  - @kindgi/schema@0.1.4-rc.4
+  - @kindgi/tools@0.1.4-rc.4
+  - @kindgi/types@0.1.4-rc.4
+
 ## 0.1.4-rc.3
 
 ### Patch Changes
