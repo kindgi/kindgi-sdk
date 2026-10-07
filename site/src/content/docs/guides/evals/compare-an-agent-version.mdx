@@ -226,7 +226,11 @@ the same tool with the same arguments.
 - **A read-only tool** (`mutating: false`, no effect that changes things, and
   no approval to ask for) gets the past run's result for the same call, and
   runs live when the past run didn't make it (the case is then `diverged`).
-  With `--reads=live` (`reads: 'live'` in the clients), it always runs live.
+  It also runs live when the version you compare pins other settings blocks
+  than the past run's version, so a tool that reads its
+  [settings](../change-a-prompt-or-setting/) shows the change; that counts
+  as `diverged` too. With `--reads=live` (`reads: 'live'` in the clients), it
+  always runs live.
 - **A read that reaches outside** (a `network` or `sensitive-data-egress`
   effect) only ever gets the past run's result for the same call.
 - **Any other tool** gets the past run's result for the same call, or doesn't

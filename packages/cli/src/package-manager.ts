@@ -23,7 +23,40 @@ export type PackageManager = 'pnpm' | 'npm' | 'yarn' | 'bun';
  * How a pack runs its bins: through its package manager, or — a Python
  * pack, which has no npm project to install the CLI into — from `PATH`.
  */
-export type BinRunner = PackageManager | 'path';
+export type BinRunner = PackageManager | 'path' | 'uv' | 'poetry' | 'venv';
+
+/**
+ * How this CLI was installed: from npm (`@kindgi/cli`), or from PyPI
+ * (`kindgi-cli`, with Node from a wheel), whose launcher sets
+ * `KINDGI_CLI_INSTALL=pypi`. A Python pack then runs the CLI from its own
+ * Python environment (`uv run kindgi`), not through npx.
+ */
+export function cliInstall(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): 'npm' | 'pypi' {
+  return env.KINDGI_CLI_INSTALL === 'pypi' ? 'pypi' : 'npm';
+}
+
+/**
+ * A Python pack's runner. From the npm CLI: `path` (npx, within this CLI's
+ * minor). From the PyPI CLI, the pack's own environment: `poetry run` for a
+ * Poetry project (a `poetry.lock` at or above `dir`), else `uv run`.
+ */
+export async function pythonBinRunner(
+  dir: string,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+  io: DetectIo = defaultIo,
+): Promise<BinRunner> {
+  if (cliInstall(env) !== 'pypi') return 'path';
+  let current = dir;
+  for (;;) {
+    if (await io.exists(join(current, 'poetry.lock'))) return 'poetry';
+    if (await io.exists(join(current, 'uv.lock'))) return 'uv';
+    const parent = dirname(current);
+    if (parent === current) return 'uv';
+    current = parent;
+  }
+}
 
 /** Lockfile / workspace marker → manager, checked in this order per directory. */
 const MARKERS: readonly (readonly [string, PackageManager])[] = [
@@ -39,9 +72,40 @@ const MARKERS: readonly (readonly [string, PackageManager])[] = [
 export interface DetectIo {
   readonly readFile: (path: string) => Promise<string | null>;
   readonly exists: (path: string) => Promise<boolean>;
+  /**
+   * Whether `pm` runs on this machine (`<pm> --version`). Absent: assume
+   * it does. npm is never asked: it comes with Node.
+   */
+  readonly runs?: (pm: PackageManager) => Promise<boolean>;
 }
 
-const defaultIo: DetectIo = {
+/** `<pm> --version`, once per manager per process: corepack never prompts; gives up after 15 s. */
+const probed = new Map<PackageManager, Promise<boolean>>();
+function managerRuns(pm: PackageManager): Promise<boolean> {
+  let known = probed.get(pm);
+  if (known === undefined) {
+    known = new Promise<boolean>((done) => {
+      const child = spawn(pm, ['--version'], {
+        env: { ...process.env, COREPACK_ENABLE_DOWNLOAD_PROMPT: '0' },
+        stdio: 'ignore',
+      });
+      const timer = setTimeout(() => child.kill(), 15_000);
+      child.on('error', () => {
+        clearTimeout(timer);
+        done(false);
+      });
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        done(code === 0);
+      });
+    });
+    probed.set(pm, known);
+  }
+  return known;
+}
+
+/** The real file reads and the real `<pm> --version` probe. */
+export const defaultDetectIo: DetectIo = {
   readFile: async (path) => {
     try {
       return await readFile(path, 'utf8');
@@ -57,7 +121,9 @@ const defaultIo: DetectIo = {
       return false;
     }
   },
+  runs: managerRuns,
 };
+const defaultIo = defaultDetectIo;
 
 /**
  * Walk up from `dir`; at each level the `packageManager` field of
@@ -153,13 +219,31 @@ function parsePackageManagerField(raw: string | null): PackageManager | undefine
   }
 }
 
-/** The pack's `BinRunner`: `path` for a Python pack, else its package manager. */
+/**
+ * The manager that runs this project's commands on this machine: the one
+ * its folders declare (`detectPackageManager`) when it's installed here,
+ * else npm, which comes with Node and runs whatever any manager put in
+ * `node_modules/.bin`. `declared` names a declared manager this machine
+ * doesn't have, so a printed command never names it.
+ */
+export async function usablePackageManager(
+  dir: string,
+  io: DetectIo = defaultIo,
+): Promise<{ readonly pm: PackageManager; readonly declared?: PackageManager }> {
+  const pm = await detectPackageManager(dir, io);
+  if (pm === 'npm' || io.runs === undefined || (await io.runs(pm))) return { pm };
+  return { pm: 'npm', declared: pm };
+}
+
+/** The pack's `BinRunner`: `pythonBinRunner`'s for a Python pack, else the manager that runs here. */
 export async function detectBinRunner(
   dir: string,
   language: PackLanguage,
   io: DetectIo = defaultIo,
+  env: Readonly<Record<string, string | undefined>> = process.env,
 ): Promise<BinRunner> {
-  return language === 'python' ? 'path' : await detectPackageManager(dir, io);
+  if (language === 'python') return await pythonBinRunner(dir, env, io);
+  return (await usablePackageManager(dir, io)).pm;
 }
 
 /**
@@ -195,6 +279,14 @@ export function binCommand(
       return { command: 'yarn', args: [bin, ...args] };
     case 'bun':
       return { command: 'bun', args: ['run', bin, ...args] };
+    case 'uv':
+      // The PyPI CLI (`kindgi-cli`) in the pack's uv environment.
+      return { command: 'uv', args: ['run', bin, ...args] };
+    case 'poetry':
+      return { command: 'poetry', args: ['run', bin, ...args] };
+    case 'venv':
+      // The PyPI CLI's script in the app's own (activated) environment.
+      return { command: bin, args: [...args] };
     case 'path':
       // No npm project to install the CLI into (a Python pack): the published
       // CLI through npx, within this CLI's minor (as Python packs pin

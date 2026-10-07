@@ -17,6 +17,12 @@ Begin here.
 4. [Add Kindgi to an existing app](existing-app/): your app's own code as
    tools.
 5. [Your coding agent](coding-agents/): the skills that teach it Kindgi.
+6. Or let your coding agent set it all up: paste this into it, and do what it
+   asks ([what it follows](agent/)):
+
+   ```text
+   Set up Kindgi for me: read https://docs.kindgi.com/next/start/agent/ and follow it step by step. Tell me whenever you need me to do something, and wait for me.
+   ```
 
 :::tip[Working with a coding agent?]
 Once `kindgi init` has run, your coding agent has Kindgi's skills. You can

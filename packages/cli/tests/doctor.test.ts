@@ -357,10 +357,22 @@ describe('a TypeScript project', () => {
     });
   });
 
+  test('a pnpm project on a machine without pnpm: the fixes fall back to npm', async () => {
+    await tsProject();
+    await writeFile(join(dir, 'pnpm-lock.yaml'), '');
+    const { check } = await doctor({ seam: seam({ tools: { pnpm: null } }) });
+    expect(check('dependencies')?.fix).toBe(
+      "Install them: npm install (the project names pnpm, which isn't installed here)",
+    );
+    expect(check('model-key')?.fix).toMatch(
+      /^With kindgi dev running: npx --no kindgi secrets set ANTHROPIC_API_KEY /,
+    );
+  });
+
   test('a pnpm project: the fixes are its own commands (pnpm install, pnpm exec kindgi …)', async () => {
     await tsProject();
     await writeFile(join(dir, 'pnpm-lock.yaml'), '');
-    const { check } = await doctor();
+    const { check } = await doctor({ seam: seam({ tools: { pnpm: '10.28.0' } }) });
     expect(check('dependencies')?.fix).toBe('Install them: pnpm install');
     expect(check('model-key')?.fix).toMatch(
       /^With kindgi dev running: pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant /,
@@ -407,6 +419,48 @@ describe('a Python project', () => {
     await pyProject();
     const { check } = await doctor({ seam: seam({ tools: { python3: 'Python 3.10.12' } }) });
     expect(check('python')).toMatchObject({ status: 'fail' });
+  });
+});
+
+describe('under kindgi-cli, the PyPI build (T127)', () => {
+  const PYPI = { KINDGI_CLI_INSTALL: 'pypi' };
+
+  test("Node is the wheel's and npm isn't needed: neither fails, with no node or npm on PATH", async () => {
+    const { report, check } = await doctor({
+      env: PYPI,
+      seam: seam({ nodeVersion: '24.19.0', tools: { npm: null } }),
+    });
+    expect(check('node')).toMatchObject({
+      status: 'pass',
+      message: 'Node 24.19.0, bundled with kindgi-cli.',
+    });
+    expect(check('npm')).toMatchObject({ status: 'skip' });
+    expect(check('npm')?.message).toContain('kindgi-cli (from PyPI)');
+    expect(report?.checks.filter((c) => c.status === 'fail')).toEqual([]);
+  });
+
+  test('outside a project, the fixes run kindgi-cli through uvx, and start a Python pack', async () => {
+    const { check } = await doctor({
+      env: PYPI,
+      seam: seam({ docker: dockerThat('no-access'), tools: { npm: null } }),
+    });
+    expect(check('project')?.fix).toBe(
+      'Create one: uvx --from kindgi-cli kindgi init <name> --template=python, then run doctor in its folder.',
+    );
+    expect(check('registry')?.fix).toContain('uvx --from kindgi-cli kindgi auth registry');
+    expect(check('registry')?.fix).not.toContain('npx');
+  });
+
+  test("in a Python project, the fixes run the project's own kindgi (uv run kindgi …)", async () => {
+    await writeFile(
+      join(dir, 'pyproject.toml'),
+      '[project]\nname = "acme"\n\n[tool.kindgi.pack]\nid = "acme"\n',
+    );
+    const { check } = await doctor({
+      env: PYPI,
+      seam: seam({ docker: dockerThat('no-access'), tools: { npm: null } }),
+    });
+    expect(check('registry')?.fix).toContain('uv run kindgi auth registry');
   });
 });
 
