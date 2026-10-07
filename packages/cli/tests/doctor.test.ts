@@ -357,10 +357,22 @@ describe('a TypeScript project', () => {
     });
   });
 
+  test('a pnpm project on a machine without pnpm: the fixes fall back to npm', async () => {
+    await tsProject();
+    await writeFile(join(dir, 'pnpm-lock.yaml'), '');
+    const { check } = await doctor({ seam: seam({ tools: { pnpm: null } }) });
+    expect(check('dependencies')?.fix).toBe(
+      "Install them: npm install (the project names pnpm, which isn't installed here)",
+    );
+    expect(check('model-key')?.fix).toMatch(
+      /^With kindgi dev running: npx --no kindgi secrets set ANTHROPIC_API_KEY /,
+    );
+  });
+
   test('a pnpm project: the fixes are its own commands (pnpm install, pnpm exec kindgi …)', async () => {
     await tsProject();
     await writeFile(join(dir, 'pnpm-lock.yaml'), '');
-    const { check } = await doctor();
+    const { check } = await doctor({ seam: seam({ tools: { pnpm: '10.28.0' } }) });
     expect(check('dependencies')?.fix).toBe('Install them: pnpm install');
     expect(check('model-key')?.fix).toMatch(
       /^With kindgi dev running: pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant /,
