@@ -33,6 +33,22 @@
         "description": "Balanced performance and cost."
       },
       {
+        "name": "claude-haiku-5-5",
+        "contextWindow": 1000000,
+        "maxOutputTokens": 16000,
+        "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
+        "cost": {
+          "promptUsdPer1kTokens": 0.0001,
+          "completionUsdPer1kTokens": 0.0005,
+          "longContext": {
+            "thresholdTokens": 100000,
+            "promptUsdPer1kTokens": 0.0005,
+            "completionUsdPer1kTokens": 0.0025
+          }
+        },
+        "description": "Fastest and cheapest \u2014 routing, classification, simple calls. A prompt over 100,000 tokens costs 5\u00d7."
+      },
+      {
         "name": "claude-haiku-4-5",
         "contextWindow": 200000,
         "maxOutputTokens": 8192,
@@ -41,7 +57,7 @@
           "promptUsdPer1kTokens": 0.001,
           "completionUsdPer1kTokens": 0.005
         },
-        "description": "Fastest and cheapest \u2014 routing, classification, simple calls. Anthropic retires it on or after 2026-10-15: pin another model before then."
+        "description": "Fastest and cheapest \u2014 routing, classification, simple calls. Anthropic retires it on or after 2026-10-15: move to claude-haiku-5-5 before then."
       }
     ]
   }

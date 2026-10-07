@@ -67,6 +67,7 @@ describe('the bundled presets', () => {
     expect(presets.anthropic?.metadata.models.map((m) => m.name)).toEqual([
       'claude-opus-5-5',
       'claude-sonnet-5-5',
+      'claude-haiku-5-5',
       'claude-haiku-4-5',
     ]);
   });
