@@ -65,6 +65,15 @@ export interface GeminiProviderOptions {
 const CLOUD_PLATFORM_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
 
 /**
+ * The SDK retries a call only when it's given `retryOptions`: three
+ * attempts on a transient status (408, 429, 500, 502, 503, 504), backing
+ * off from a second, with jitter, the OpenAI and Anthropic SDKs' default
+ * count. Unlike theirs, it doesn't retry a failed connection (Node's
+ * `fetch failed`).
+ */
+const RETRY_ATTEMPTS = 3;
+
+/**
  * A Gemini `ModelProvider`, on Vertex AI (`vertex`) or the Gemini
  * Developer API (`apiKey`). Non-streaming, tool-use enabled: one
  * `generateContent` call per `invoke`.
@@ -91,7 +100,10 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
         );
       }
       if (cached?.key === key) return cached.client;
-      const client = new GoogleGenAI({ apiKey: key, httpOptions: { fetch: attempts.fetch } });
+      const client = new GoogleGenAI({
+        apiKey: key,
+        httpOptions: { fetch: attempts.fetch, retryOptions: { attempts: RETRY_ATTEMPTS } },
+      });
       cached = { key, client };
       return client;
     }
@@ -102,7 +114,7 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
       vertexai: true,
       project: vertex.project,
       location: vertex.location,
-      httpOptions: { fetch: attempts.fetch },
+      httpOptions: { fetch: attempts.fetch, retryOptions: { attempts: RETRY_ATTEMPTS } },
       ...(key !== '' && {
         googleAuthOptions: {
           credentials: parseServiceAccountKey(key),

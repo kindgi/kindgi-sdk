@@ -23,6 +23,7 @@ One non-streaming `models.generateContent` call per `invoke`:
 - **Thinking parts** (`thought: true`) are left out of the message text. Thinking tokens count as completion tokens, since they bill as output.
 - **Structured output.** `structuredOutput` becomes `responseMimeType: 'application/json'` plus `responseJsonSchema`.
 - `temperature`, `maxOutputTokens` (the call's, else the model's `ModelInfo.maxOutputTokens`) and `abortSignal` are passed through.
+- **Retries.** A call that fails with a transient status (408, 429, 500, 502, 503, 504) is retried: three attempts in all, backing off from a second, with jitter. The `@google/genai` client retries only when it's told to, and the adapter tells it. A failed connection isn't retried. The result's `attempts` counts every attempt; a call that still fails throws the last error, and `attemptsOf(error)` (`@kindgi/capabilities/attempts`) counts them. An injected `client` keeps its own settings.
 - **`finishReason`:**
   - a response with function calls → `tool-use`;
   - `STOP` or unspecified → `stop`;
