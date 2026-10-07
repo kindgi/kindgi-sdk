@@ -11,9 +11,10 @@ import java.util.stream.StreamSupport;
 import org.jspecify.annotations.Nullable;
 
 /**
- * A stream of server-sent events, read as they come. After a dropped connection it reconnects
- * with {@code Last-Event-Id}, so no event is lost (backing off from 0.5 s to 30 s, up to 10
- * attempts); it ends when the server closes it. Close it to stop early:
+ * A stream of server-sent events, read as they come. After a dropped connection, or a 429 or
+ * 502–504 answer, it reconnects with {@code Last-Event-Id}, so no event is lost (backing off from
+ * 0.5 s to 30 s, up to 10 in a row); any other error answer throws. It ends when the server closes
+ * it ({@code runs().follow} goes on to the run's end). Close it to stop early:
  *
  * <pre>{@code
  * try (EventStream<RunEvent> events = client.runs().stream(run.id())) {

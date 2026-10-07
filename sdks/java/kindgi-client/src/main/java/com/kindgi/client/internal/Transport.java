@@ -583,7 +583,10 @@ public final class Transport {
       connect(0);
     }
 
-    /** Connects, retrying a connection error; a refused call throws. */
+    /**
+     * Connects, retrying a connection error and a 429 or 502–504 (backing off, up to 10 in a row);
+     * any other refusal throws.
+     */
     private void connect(int priorAttempts) {
       int attempt = priorAttempts;
       while (true) {
@@ -595,6 +598,18 @@ public final class Transport {
         try {
           HttpResponse<InputStream> response =
               http.send(p.request(timeout, "text/event-stream"), HttpResponse.BodyHandlers.ofInputStream());
+          if (RETRY_STATUSES.contains(response.statusCode())) {
+            // Busy or briefly away (429, 502–504): retried like a drop, as the other clients do.
+            closeQuietly(response.body());
+            attempt++;
+            if (attempt > STREAM_ATTEMPTS) {
+              throw new NetworkException(
+                  prepared.operation.id() + ": the stream couldn't connect after " + (attempt - 1) + " attempts: HTTP " + response.statusCode(),
+                  response.statusCode(), null);
+            }
+            sleep(streamBackoff(attempt));
+            continue;
+          }
           check(prepared.operation, response);
           body = response.body();
           reader = new BufferedReader(new InputStreamReader(body, StandardCharsets.UTF_8));
@@ -709,6 +724,14 @@ public final class Transport {
     public void close() {
       closed = true;
       closeBody();
+    }
+
+    private void closeQuietly(InputStream in) {
+      try {
+        in.close();
+      } catch (IOException e) {
+        // An answer we don't read: nothing to do.
+      }
     }
 
     private void closeBody() {
