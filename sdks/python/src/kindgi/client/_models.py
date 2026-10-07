@@ -5620,6 +5620,10 @@ class Tool1(BaseModel):
     tool_version: Annotated[str, Field(alias="toolVersion")]
     arguments: Any
     source: Literal["live", "recorded", "refused"]
+    recomputed: bool | None = None
+    """
+    With `source: 'live'`: the call ran again from the same arguments because the compared version pins other settings, and the tool reads from nowhere, so it didn't diverge. Absent from older servers, and otherwise.
+    """
     reason: str | None = None
 
 

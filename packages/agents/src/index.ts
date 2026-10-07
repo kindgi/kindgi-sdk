@@ -45,7 +45,7 @@ export type { GateDecision, GateDecisionValue } from './handlers/gate-decision.j
 export type { EffectiveHitlPolicy } from './hitl-policy.js';
 export { agentStepOutput, invokeAgent, resumeAgentTurn } from './invoke.js';
 export { parseFailureMessage, turnFailureMessage } from './handlers/errors.js';
-export { isReadOnlyTool } from './handlers/replay.js';
+export { isComputeOnlyTool, isReadOnlyTool } from './handlers/replay.js';
 export { SESSION_GATE_RECORD } from './handlers/setup.js';
 export type {
   ReplayApproval,

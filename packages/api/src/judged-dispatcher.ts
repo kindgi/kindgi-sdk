@@ -10,8 +10,8 @@
  *
  * Per case: the replay runs, the items kept, dropped and new (new ones
  * for experts to judge), the tool calls and what happened to each, and
- * whether the replay diverged (a read with no recording ran live under
- * `reads: 'recorded'`). The summary (`JudgedComparisonSummary`) is what a
+ * whether the replay diverged (a read ran live under `reads: 'recorded'`,
+ * other than a recomputed one). The summary (`JudgedComparisonSummary`) is what a
  * promotion gate reads.
  */
 
@@ -112,7 +112,11 @@ export interface JudgedComparisonSummary {
   /** Where the test set's judgments came from. */
   readonly scope: { readonly projectId?: string };
   readonly cases: number;
-  /** Cases where a read with no recording ran live under `reads: 'recorded'`. */
+  /**
+   * Cases where a read ran live under `reads: 'recorded'`: one with no
+   * recording, or one re-run because the candidate pins other settings
+   * that reads from somewhere. A recomputed call (reads from nowhere) isn't.
+   */
   readonly diverged: number;
   /** Tool calls refused across the cases (what the candidate would have done). */
   readonly refusedWrites: number;
@@ -299,7 +303,11 @@ class CaseTally {
     this.candidate.push(scoreItems(matched, comparison.k));
     const tools = outcome.replay?.tools ?? [];
     this.refusedWrites = Math.max(this.refusedWrites, refusedCount(outcome));
-    if (comparison.reads === 'recorded' && tools.some((t) => t.source === 'live')) {
+    // A recomputed call read nothing new: only a live read diverges.
+    if (
+      comparison.reads === 'recorded' &&
+      tools.some((t) => t.source === 'live' && t.recomputed !== true)
+    ) {
       this.diverged = true;
     }
     if (outcome.replay?.approval === 'skipped') this.approvalSkipped = true;

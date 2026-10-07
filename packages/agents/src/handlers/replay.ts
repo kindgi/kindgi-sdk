@@ -9,6 +9,12 @@
  *   - `live`: the tool runs. Only a tool declared read-only (see
  *     `isReadOnlyTool`) with no approval to wait for can; a `live`
  *     decision for any other is refused here, whatever the binding says;
+ *   - `recomputed`: the tool runs, as for `live`, because the replayed
+ *     version pins other settings than the past run's, and the tool
+ *     reads from nowhere (no `reads`, `network` or `sensitive-data-egress`
+ *     effect): its result is computed again from the same arguments, so
+ *     the replay hasn't diverged from the past run. A tool that does read
+ *     from somewhere runs as `live`;
  *   - `recorded`: the past run's result for the same call is used;
  *   - `refused`: the tool doesn't run, and the model gets the given result.
  *
@@ -54,6 +60,7 @@ export interface ReplayToolInput extends ReplayTurnRef {
 
 export type ReplayToolDecision =
   | { readonly kind: 'live' }
+  | { readonly kind: 'recomputed' }
   | { readonly kind: 'recorded'; readonly result: unknown }
   | { readonly kind: 'refused'; readonly result: unknown; readonly reason: string };
 
@@ -91,6 +98,12 @@ export interface ReplayToolTrace {
   readonly toolVersion: string;
   readonly arguments: unknown;
   readonly source: 'live' | 'recorded' | 'refused';
+  /**
+   * With `live`: it ran again from the same arguments under other
+   * settings and reads from nowhere, so its result isn't new data (the
+   * replay hasn't diverged). Absent otherwise.
+   */
+  readonly recomputed?: true;
   /** Why it was refused. A refused call is what the turn would have done. */
   readonly reason?: string;
 }
@@ -118,6 +131,20 @@ const CHANGING_EFFECTS: ReadonlySet<string> = new Set([
   'emits-event',
   'external-side-effect',
 ]);
+
+/** Effects that read from somewhere: a re-run of such a tool can see other data. */
+const READING_EFFECTS: ReadonlySet<string> = new Set(['reads', 'network', 'sensitive-data-egress']);
+
+/** A read-only tool that reads from nowhere either: its result follows from its arguments (and settings). */
+export function isComputeOnlyTool(tool: {
+  readonly mutating?: boolean;
+  readonly effects?: readonly { readonly kind: string }[] | readonly string[];
+}): boolean {
+  return (
+    isReadOnlyTool(tool) &&
+    !(tool.effects ?? []).some((e) => READING_EFFECTS.has(typeof e === 'string' ? e : e.kind))
+  );
+}
 
 /** A tool that declares it changes nothing: `mutating: false`, and no changing effect. */
 export function isReadOnlyTool(tool: {
@@ -202,14 +229,17 @@ export async function decideReplayTool(
       if (decision.kind === 'refused') {
         return { ...base, source: 'refused', reason: decision.reason, result: decision.result };
       }
-      // `live` runs only a read-only tool, and never waits for an approval.
+      // `live` and `recomputed` run only a read-only tool, and never wait
+      // for an approval; a tool that reads from somewhere is `live`.
       if (!isReadOnlyTool(call.tool)) return refuse(CHANGES_REASON);
       if (call.gated) return refuse(GATED_REASON);
-      return { ...base, source: 'live' };
+      const recomputed = decision.kind === 'recomputed' && isComputeOnlyTool(call.tool);
+      return { ...base, source: 'live', ...(recomputed && { recomputed: true as const }) };
     },
   );
   addReplayTrace(ctx, traceOf(decided));
-  if (decided.source === 'live') return { kind: 'live' };
+  if (decided.source === 'live')
+    return { kind: decided.recomputed === true ? 'recomputed' : 'live' };
   if (decided.source === 'recorded') return { kind: 'recorded', result: decided.result };
   return { kind: 'refused', result: decided.result, reason: decided.reason ?? CHANGES_REASON };
 }

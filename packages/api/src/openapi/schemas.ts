@@ -5835,6 +5835,11 @@ export const ComparisonCaseResultSchema: JsonSchema = {
           toolVersion: { type: 'string' },
           arguments: {},
           source: { type: 'string', enum: ['live', 'recorded', 'refused'] },
+          recomputed: {
+            type: 'boolean',
+            description:
+              "With `source: 'live'`: the call ran again from the same arguments because the compared version pins other settings, and the tool reads from nowhere, so it didn't diverge. Absent from older servers, and otherwise.",
+          },
           reason: { type: 'string' },
         },
       },
