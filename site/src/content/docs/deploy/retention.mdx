@@ -190,6 +190,11 @@ purged:
 - **A purged record is gone for good.** Sweeping again purges nothing new
   until more records pass their grace. Over HTTP: `GET /v1/retention/scheduled`
   and `POST /v1/retention/sweep` (or `/v1/retention/sweep/<domain>`).
+- **A purge that fails is kept and tried again.** If deleting a record fails
+  (its database errors in the middle of a sweep), the record stays, counts in
+  that domain's `remaining`, and the next sweep tries it again. Its
+  `retention:purge` audit event says `outcome: failed`, with the error in
+  `evidence.error`.
 
 **To sweep on a schedule,** set `KINDGI_RETENTION_SWEEP_INTERVAL_MS` in
 `kindgi.env`: how often, in milliseconds, at least `60000` (`3600000` is
