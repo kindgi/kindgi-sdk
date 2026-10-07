@@ -184,6 +184,7 @@ export function mountAgentReleaseRoutes(
         passed: gate.result.passed,
         ...(gate.result.approval !== undefined && { approval: gate.result.approval }),
         servingVersion: gate.servingVersion as Semver,
+        ...(gate.pinInPlace && { pinInPlace: true }),
       },
     });
     if (outcome.kind === 'err') return failed(c, requestId, outcome.error);
@@ -441,10 +442,32 @@ function summaryOf(run: EvalRun): JudgedComparisonSummary | null {
     : null;
 }
 
+/** Whether two live scopes are the same scope. */
+function sameScope(a: LiveScope, b: LiveScope): boolean {
+  switch (a.kind) {
+    case 'tenant':
+      return b.kind === 'tenant';
+    case 'org':
+      return b.kind === 'org' && b.orgId === a.orgId;
+    case 'project':
+      return b.kind === 'project' && b.projectId === a.projectId;
+    case 'segment':
+      return (
+        b.kind === 'segment' &&
+        b.projectId === a.projectId &&
+        b.path.length === a.path.length &&
+        b.path.every((s, i) => s.key === a.path[i]?.key && s.value === a.path[i]?.value)
+      );
+  }
+}
+
 /**
  * The gate for a promotion request: what serves the scope now, the
  * comparison it names, and the policy's checks against them. With no
- * policy there's nothing to check.
+ * policy there's nothing to check. A pin in place (the scope has no pin
+ * of its own and serves exactly the version already) changes nothing any
+ * run gets, so the policy's checks and approval don't apply: one passing
+ * `pinInPlace` check, and `pinInPlace` for the binding to re-check.
  */
 async function runGate(
   registry: AgentRegistryBinding,
@@ -459,7 +482,7 @@ async function runGate(
   },
   policy: GatePolicy | null,
 ): Promise<
-  | { kind: 'ok'; result: GateResult; servingVersion: string }
+  | { kind: 'ok'; result: GateResult; servingVersion: string; pinInPlace?: boolean }
   | { kind: 'err'; error: { code: string; message: string } }
 > {
   const { tenantId, agentId } = req;
@@ -483,6 +506,27 @@ async function runGate(
     servingVersion = latest.version as unknown as string;
   }
   if (policy === null) return { kind: 'ok', result: { checks: [], passed: true }, servingVersion };
+  if (servingVersion === (req.version as unknown as string)) {
+    const pins = await releases.live.list({ tenantId, agentId });
+    if (!pins.some((pin) => sameScope(pin.scope, req.scope))) {
+      const from = live === null ? 'as the latest version' : 'from a pin above it';
+      return {
+        kind: 'ok',
+        result: {
+          checks: [
+            {
+              name: 'pinInPlace',
+              passed: true,
+              message: `${agentId} ${servingVersion} already serves this scope (${from}), so pinning it here changes nothing for runs: the gate's checks and approval don't apply.`,
+            },
+          ],
+          passed: true,
+        },
+        servingVersion,
+        pinInPlace: true,
+      };
+    }
+  }
 
   let summary: JudgedComparisonSummary | null = null;
   if (req.evalRunId !== undefined) {

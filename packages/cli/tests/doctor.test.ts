@@ -365,7 +365,35 @@ describe('a TypeScript project', () => {
       "Install them: npm install (the project names pnpm, which isn't installed here)",
     );
     expect(check('model-key')?.fix).toMatch(
-      /^With kindgi dev running: npx --no kindgi secrets set ANTHROPIC_API_KEY /,
+      /^With kindgi dev running, set one LLM provider's key: npx --no kindgi secrets set ANTHROPIC_API_KEY /,
+    );
+  });
+
+  test('several key presets: the model-key fix offers any one of their keys', async () => {
+    await tsProject();
+    const keyed = (name: string, secret: string) => ({
+      name,
+      description: '',
+      adapterId: 'x',
+      secret,
+      pricesCheckedAt: '',
+      metadata: {} as never,
+    });
+    const { check } = await doctor({
+      seam: {
+        ...seam(),
+        presets: async () => ({
+          anthropic: keyed('anthropic', 'ANTHROPIC_API_KEY'),
+          openai: keyed('openai', 'OPENAI_API_KEY'),
+          openrouter: keyed('openrouter', 'OPENROUTER_API_KEY'),
+        }),
+      },
+    });
+    expect(check('model-key')?.message).toContain(
+      'looked for ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY',
+    );
+    expect(check('model-key')?.fix).toContain(
+      'secrets set ANTHROPIC_API_KEY --env=local --scope=tenant, or the same with OPENAI_API_KEY or OPENROUTER_API_KEY',
     );
   });
 
@@ -375,7 +403,7 @@ describe('a TypeScript project', () => {
     const { check } = await doctor({ seam: seam({ tools: { pnpm: '10.28.0' } }) });
     expect(check('dependencies')?.fix).toBe('Install them: pnpm install');
     expect(check('model-key')?.fix).toMatch(
-      /^With kindgi dev running: pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant /,
+      /^With kindgi dev running, set one LLM provider's key: pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant /,
     );
     expect(check('runtime')?.fix).toBe(
       'Start it: pnpm exec kindgi dev (it keeps running; stop it with Ctrl+C).',

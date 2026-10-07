@@ -148,7 +148,7 @@ from kindgi import CheckResult, RunTrace, guardrail
 
 
 class Config(BaseModel):
-    min_length: int = Field(1, alias="minLength", ge=0)
+    min_length: int = Field(default=1, alias="minLength", ge=0)
 
 
 @guardrail(id="acme.ledger.response-not-empty", on_violation="halt", severity="error")
