@@ -1196,8 +1196,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // unauthenticated tenant resolution).
   if (input.triggerRegistry !== undefined) {
     v1.route('/schedules', schedulesRouter(input.triggerRegistry));
-    v1.route('/event-triggers', eventTriggersRouter(input.triggerRegistry));
-    v1.route('/webhooks', webhooksRouter(input.triggerRegistry));
+    v1.route('/event-triggers', eventTriggersRouter(input.triggerRegistry, authorizer));
+    v1.route('/webhooks', webhooksRouter(input.triggerRegistry, authorizer));
   }
   if (input.webhookEndpoints !== undefined) {
     v1.route('/webhook-endpoints', webhookEndpointsRouter(input.webhookEndpoints, authorizer));
