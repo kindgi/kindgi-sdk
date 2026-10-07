@@ -420,6 +420,24 @@ function validateIntent(intent: RetrievalIntent, i: number): Issue[] {
       message: 'an intent over conversations has no types: it recalls messages',
     });
   }
+  if (intent.roles !== undefined) {
+    const roles = intent.roles as readonly unknown[];
+    if (source !== 'conversations') {
+      out.push({
+        path: `/retrieval/${i}/roles`,
+        message: 'roles are for an intent over conversations',
+      });
+    } else if (
+      !Array.isArray(roles) ||
+      roles.length === 0 ||
+      roles.some((r) => r !== 'user' && r !== 'agent')
+    ) {
+      out.push({
+        path: `/retrieval/${i}/roles`,
+        message: "roles must list 'user', 'agent' or both (absent: 'user', the people's own words)",
+      });
+    }
+  }
   const scopes = source === 'facts' ? RETRIEVAL_SCOPES : RECALL_SCOPES;
   if (!scopes.includes(intent.scope)) {
     out.push({

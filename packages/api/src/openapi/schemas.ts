@@ -1314,6 +1314,14 @@ export const RetrievalIntentSchema: JsonSchema = {
       minItems: 1,
       description: 'The fact types it retrieves: required for facts; not used for conversations.',
     },
+    roles: {
+      type: 'array',
+      items: { type: 'string', enum: ['user', 'agent'] },
+      minItems: 1,
+      uniqueItems: true,
+      description:
+        "For conversations: whose messages it recalls. Default `['user']`, the people's own words. Adding `agent` recalls the agent's earlier answers too, which can carry its mistakes: they are quoted as unverified earlier answers, and publishing warns `recall-agent-answers`.",
+    },
     scope: {
       type: 'string',
       enum: ['same-conversation', 'same-user', 'same-segment', 'same-project', 'tenant'],

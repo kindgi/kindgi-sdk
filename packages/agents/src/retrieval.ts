@@ -242,19 +242,26 @@ export const MEMORY_DATA_RULE =
  * Recalled messages follow the facts, as quotes from an earlier
  * conversation (never as turns of this one): its date, the message and
  * the ones either side, and `anotherPerson` when the conversation was
- * someone else's (who, it doesn't say).
+ * someone else's (who, it doesn't say). An agent's earlier answer
+ * (recalled only when the intent asks for it) carries
+ * `note: "earlier answer by the agent, not verified"`.
  */
 export function formatRetrievedForPrompt(
   facts: readonly RetrievedFact[],
   recalled: readonly RecalledMemory[] = [],
 ): string {
   if (facts.length === 0 && recalled.length === 0) return '';
+  const quoted = (m: { readonly role: 'user' | 'agent'; readonly text: string }) => ({
+    role: m.role,
+    text: m.text,
+    ...(m.role === 'agent' && { note: EARLIER_ANSWER_NOTE }),
+  });
   const quotes = recalled.map(({ message, anotherPerson }) => ({
     earlierConversation: message.createdAt.slice(0, 10),
     ...(anotherPerson === true && { anotherPerson: true }),
-    ...(message.before !== undefined && { before: message.before }),
-    message: { role: message.role, text: message.text },
-    ...(message.after !== undefined && { after: message.after }),
+    ...(message.before !== undefined && { before: quoted(message.before) }),
+    message: quoted(message),
+    ...(message.after !== undefined && { after: quoted(message.after) }),
   }));
   const data = facts.map(({ fact }) => ({
     id: fact.id,
@@ -438,6 +445,12 @@ async function searchLeg(
   return { kind: 'ok', value: unique.slice(0, topK) };
 }
 
+/** Whose messages recall returns by default: the people's own words, never the agent's answers. */
+export const RECALL_DEFAULT_ROLES: readonly ('user' | 'agent')[] = ['user'];
+
+/** How the `<memory>` block labels an agent's earlier answer it quotes. */
+export const EARLIER_ANSWER_NOTE = 'earlier answer by the agent, not verified';
+
 /** One recall: who's asking, from where. */
 interface RecallQuery {
   readonly agent: Agent;
@@ -483,6 +496,8 @@ async function recallIntent(
         readers,
         selections,
         mode,
+        // The people's own words unless the intent asks for the agent's answers too.
+        roles: intent.roles ?? RECALL_DEFAULT_ROLES,
         ...(mode !== 'list' && { query: q.userMessage }),
         ...(mode === 'semantic' && {
           embeddingRegistry: bindings.embeddingRegistry as EmbeddingProviderRegistry,

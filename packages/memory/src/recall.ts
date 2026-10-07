@@ -24,9 +24,9 @@ export interface RecalledMessage {
   readonly participantId?: string;
   /** The Kindgi user its turns acted for, when one did. */
   readonly userId?: string;
-  /** The indexed message just before it in its conversation, if any. */
+  /** The indexed message (of the roles recalled) just before it in its conversation, if any. */
   readonly before?: { readonly role: 'user' | 'agent'; readonly text: string };
-  /** The indexed message just after it, if any. */
+  /** The indexed message (of the roles recalled) just after it, if any. */
   readonly after?: { readonly role: 'user' | 'agent'; readonly text: string };
 }
 
@@ -62,6 +62,12 @@ export interface SearchConversationsInput {
   readonly selections: readonly RecallSelection[];
   /** `list`: the newest first, no query. `keyword`: full-text. `semantic`: by meaning. */
   readonly mode: 'list' | 'keyword' | 'semantic';
+  /**
+   * Whose messages: the hits and their neighbours alike. Default
+   * `['user']`, the people's own words; an agent's earlier answers only
+   * when asked for.
+   */
+  readonly roles?: readonly ('user' | 'agent')[];
   readonly query?: string;
   /** For `semantic`: the registry the query is embedded with. */
   readonly embeddingRegistry?: EmbeddingProviderRegistry;

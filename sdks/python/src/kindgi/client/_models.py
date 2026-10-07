@@ -1840,6 +1840,10 @@ class RetrievalIntent(BaseModel):
     """
     The fact types it retrieves: required for facts; not used for conversations.
     """
+    roles: Annotated[list[Literal["user", "agent"]] | None, Field(min_length=1)] = None
+    """
+    For conversations: whose messages it recalls. Default `['user']`, the people's own words. Adding `agent` recalls the agent's earlier answers too, which can carry its mistakes: they are quoted as unverified earlier answers, and publishing warns `recall-agent-answers`.
+    """
     scope: Literal["same-conversation", "same-user", "same-segment", "same-project", "tenant"]
     """
     What the intent selects within what the run may see. Facts: this conversation's; this run's end user's and user's; the run's project's (none without a project); or every fact of the type it may see (`tenant`). Conversations: this person's other conversations with the agent (`same-user`); this conversation's messages older than the history window (`same-conversation`); conversations in the run's segment path (`same-segment`) or its project (`same-project`), whoever had them: those two quote other people's conversations, so publishing warns and their messages are marked as another person's. `same-segment` is for conversations only, `tenant` for facts only.

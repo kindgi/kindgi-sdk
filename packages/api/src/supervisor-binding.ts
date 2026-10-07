@@ -424,6 +424,8 @@ export interface RetrievalIntentShape {
   readonly source?: 'facts' | 'conversations';
   /** Required for facts; not used for conversations. */
   readonly types?: readonly string[];
+  /** For conversations: whose messages (default the people's own). */
+  readonly roles?: readonly ('user' | 'agent')[];
   readonly scope: 'same-conversation' | 'same-user' | 'same-segment' | 'same-project' | 'tenant';
   readonly limit?: number;
   readonly mode?: 'keyword' | 'semantic' | 'both';

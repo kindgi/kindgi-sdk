@@ -258,6 +258,13 @@
           "items": { "type": "string", "minLength": 1 },
           "description": "The fact types it retrieves: required for facts, absent for conversations."
         },
+        "roles": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "enum": ["user", "agent"] },
+          "description": "For conversations: whose messages it recalls. Default [\"user\"], the people's own words. Adding \"agent\" recalls the agent's earlier answers too, which can carry its mistakes: they are quoted as unverified earlier answers, and publishing warns."
+        },
         "scope": {
           "type": "string",
           "enum": ["same-conversation", "same-user", "same-segment", "same-project", "tenant"],
@@ -285,6 +292,7 @@
         "required": ["types"],
         "properties": {
           "types": true,
+          "roles": false,
           "scope": { "enum": ["same-conversation", "same-user", "same-project", "tenant"] }
         }
       }

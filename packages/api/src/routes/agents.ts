@@ -720,6 +720,25 @@ function recallWarnings(
   agent: Agent,
   capabilities: AgentPublishCapabilities,
 ): { readonly code: string; readonly message: string }[] {
+  const answers = agent.retrieval.findIndex(
+    (intent) => intent.source === 'conversations' && intent.roles?.includes('agent') === true,
+  );
+  const answersWarning =
+    answers >= 0 && capabilities.conversationRecall !== false
+      ? [
+          {
+            code: 'recall-agent-answers',
+            message: `Retrieval intent ${answers} recalls the agent's own earlier answers: they can carry its earlier mistakes. They are quoted as "earlier answer by the agent, not verified"; recall only the people's own words (the default) to leave them out.`,
+          },
+        ]
+      : [];
+  return [...answersWarning, ...perIntentRecallWarnings(agent, capabilities)];
+}
+
+function perIntentRecallWarnings(
+  agent: Agent,
+  capabilities: AgentPublishCapabilities,
+): { readonly code: string; readonly message: string }[] {
   return agent.retrieval.flatMap((intent, i) => {
     if (intent.source !== 'conversations') return [];
     if (capabilities.conversationRecall === false) {

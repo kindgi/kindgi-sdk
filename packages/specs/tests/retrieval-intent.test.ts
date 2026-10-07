@@ -24,6 +24,7 @@ describe('agent.schema.json RetrievalIntent', () => {
     { source: 'facts', types: ['acme.note'], scope: 'same-user', mode: 'both' },
     { source: 'conversations', scope: 'same-user' },
     { source: 'conversations', scope: 'same-segment', mode: 'keyword', limit: 5 },
+    { source: 'conversations', scope: 'same-user', roles: ['user', 'agent'] },
   ])('valid: %j', (intent) => {
     expect(valid(intent)).toBe(true);
   });
@@ -34,6 +35,9 @@ describe('agent.schema.json RetrievalIntent', () => {
     { source: 'conversations', types: ['acme.note'], scope: 'same-user' },
     { source: 'conversations', scope: 'tenant' },
     { source: 'files', scope: 'same-user' },
+    { types: ['acme.note'], scope: 'tenant', roles: ['user'] },
+    { source: 'conversations', scope: 'same-user', roles: ['tool'] },
+    { source: 'conversations', scope: 'same-user', roles: [] },
   ])('invalid: %j', (intent) => {
     expect(valid(intent)).toBe(false);
   });

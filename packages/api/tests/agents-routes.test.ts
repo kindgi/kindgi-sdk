@@ -680,6 +680,18 @@ describe('API — publishing an agent that searches memory by meaning', () => {
       "other users' conversations in the run's segment",
     );
     expect(wide.body.warnings[1].message).toContain("the run's project");
+    const answers = await publish(app(true), {
+      ...agentSpec({ id: 'acme.recalls-answers' }),
+      retrieval: [
+        { source: 'conversations', scope: 'same-user', roles: ['user', 'agent'] },
+        { source: 'conversations', scope: 'same-conversation', roles: ['agent'] },
+      ],
+    });
+    // Once per agent, naming the first intent that asks for them.
+    expect(answers.body.warnings).toEqual([
+      expect.objectContaining({ code: 'recall-agent-answers' }),
+    ]);
+    expect(answers.body.warnings[0].message).toContain('Retrieval intent 0');
     const off = await publish(app(false), recalling('acme.recalls-off'));
     expect(off.body.warnings.map((w: { code: string }) => w.code)).toEqual([
       'recall-unavailable',

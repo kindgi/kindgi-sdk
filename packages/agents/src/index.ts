@@ -108,7 +108,9 @@ export type {
 } from './streaming.js';
 export { AUTO_INJECTED_VARS, renderInstructions } from './prompt.js';
 export {
+  EARLIER_ANSWER_NOTE,
   MEMORY_DATA_RULE,
+  RECALL_DEFAULT_ROLES,
   formatPoliciesForPrompt,
   formatRetrievedForPrompt,
   isPolicyFact,

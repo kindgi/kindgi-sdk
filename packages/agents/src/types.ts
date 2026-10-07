@@ -129,6 +129,13 @@ export interface RetrievalIntent {
    * and their messages are marked as another person's.
    */
   readonly source?: 'facts' | 'conversations';
+  /**
+   * For conversations: whose messages it recalls. Default `['user']`: the
+   * people's own words. Adding `'agent'` recalls the agent's earlier
+   * answers too, which can carry its mistakes: they are marked as
+   * unverified earlier answers, and publishing warns.
+   */
+  readonly roles?: readonly ('user' | 'agent')[];
   /** The fact types it retrieves: at least one, for facts. Not used for conversations. */
   readonly types?: readonly string[];
   readonly scope: 'same-conversation' | 'same-user' | 'same-segment' | 'same-project' | 'tenant';
