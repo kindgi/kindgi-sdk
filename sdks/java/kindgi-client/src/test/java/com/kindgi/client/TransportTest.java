@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.kindgi.client.models.Run;
 import com.kindgi.client.models.RunEvent;
+import com.kindgi.client.models.RunProgressEvent;
 import com.kindgi.client.models.ScopeSegment;
 import com.kindgi.client.models.StartRunBody;
 import com.kindgi.client.models.ValidationException;
@@ -243,8 +244,16 @@ class TransportTest {
   }
 
   private static String event(int sequence) {
+    return event(sequence, "run.step-completed");
+  }
+
+  private static String event(int sequence, String kind) {
     return "{\"eventId\":\"" + RUN_ID + ":" + sequence + "\",\"runId\":\"" + RUN_ID + "\",\"tenantId\":\"t\","
-        + "\"timestamp\":\"2026-10-07T10:00:0" + sequence + "Z\",\"kind\":\"run.step-completed\",\"sequence\":" + sequence + "}";
+        + "\"timestamp\":\"2026-10-07T10:00:0" + sequence + "Z\",\"kind\":\"" + kind + "\",\"sequence\":" + sequence + "}";
+  }
+
+  private static String frame(int sequence, String kind) {
+    return "id: a:" + sequence + "\ndata: " + event(sequence, kind) + "\n\n";
   }
 
   private static void sse(HttpExchange ex, String body, boolean drop) throws IOException {
@@ -319,5 +328,120 @@ class TransportTest {
     });
     assertThat(done.await(10, TimeUnit.SECONDS)).isTrue();
     assertThat(sequences).containsExactly(1L, 2L);
+  }
+
+  @Test
+  void followReconnectsAfterTheServersTimeLimitUntilTheRunEnds() {
+    // The server ends the first stream while the run goes on (its time limit); the second brings the end.
+    handler = (ex, n) -> sse(ex, n == 1
+        ? frame(1, "run.started") + frame(2, "run.step-completed")
+        : frame(3, "run.completed"), false);
+    List<String> kinds = new ArrayList<>();
+    try (EventStream<RunEvent> events = client.runs().follow(RUN_ID)) {
+      events.forEachRemaining(e -> kinds.add(e.kind().asString()));
+    }
+    assertThat(kinds).containsExactly("run.started", "run.step-completed", "run.completed");
+    assertThat(seen).hasSize(2);
+    assertThat(seen.get(0).header("Last-Event-Id")).isNull();
+    assertThat(seen.get(1).header("Last-Event-Id")).isEqualTo("a:2");
+    assertThat(seen.get(1).uri()).isEqualTo("/v1/runs/" + RUN_ID + "/stream");
+  }
+
+  @Test
+  void followEndsAtTheTerminalEventEvenWhenTheServerKeepsTheStreamOpen() {
+    CountDownLatch release = new CountDownLatch(1);
+    handler = (ex, n) -> {
+      ex.getResponseHeaders().set("Content-Type", "text/event-stream");
+      ex.sendResponseHeaders(200, 0);
+      OutputStream out = ex.getResponseBody();
+      out.write((frame(1, "run.failed")).getBytes(StandardCharsets.UTF_8));
+      out.flush();
+      try {
+        release.await(10, TimeUnit.SECONDS);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+      out.close();
+    };
+    long started = System.nanoTime();
+    try (EventStream<RunEvent> events = client.runs().follow(RUN_ID)) {
+      assertThat(events.next().kind().asString()).isEqualTo("run.failed");
+      assertThat(events.hasNext()).isFalse();
+    } finally {
+      release.countDown();
+    }
+    assertThat((System.nanoTime() - started) / 1_000_000L).isLessThan(3_000);
+  }
+
+  @Test
+  void followPausesAfterAConnectionThatBroughtNothing() {
+    handler = (ex, n) -> sse(ex, n == 1 ? ": keep-alive\n\n" : frame(1, "run.cancelled"), false);
+    long started = System.nanoTime();
+    try (EventStream<RunEvent> events = client.runs().follow(RUN_ID)) {
+      assertThat(events.next().kind().asString()).isEqualTo("run.cancelled");
+      assertThat(events.hasNext()).isFalse();
+    }
+    assertThat((System.nanoTime() - started) / 1_000_000L).isGreaterThanOrEqualTo(450);
+    assertThat(seen).hasSize(2);
+  }
+
+  @Test
+  void followDoesntRetryARefusedReconnect() {
+    handler = (ex, n) -> {
+      if (n == 1) {
+        sse(ex, frame(1, "run.started"), false);
+      } else {
+        answer(ex, 401, "{\"error\":{\"code\":\"auth-invalid\",\"message\":\"Token expired.\"}}");
+      }
+    };
+    try (EventStream<RunEvent> events = client.runs().follow(RUN_ID)) {
+      assertThat(events.next().kind().asString()).isEqualTo("run.started");
+      assertThatThrownBy(events::hasNext).isInstanceOf(AuthException.class);
+    }
+    assertThat(seen).hasSize(2);
+  }
+
+  @Test
+  void followProgressFollowsTheProgressStream() {
+    handler = (ex, n) -> sse(ex, n == 1
+        ? "id: a:1\ndata: {\"eventId\":\"a:1\",\"runId\":\"" + RUN_ID + "\",\"timestamp\":\"2026-10-07T10:00:01Z\",\"kind\":\"run.started\",\"sequence\":1}\n\n"
+        : "id: a:2\ndata: {\"eventId\":\"a:2\",\"runId\":\"" + RUN_ID + "\",\"timestamp\":\"2026-10-07T10:00:02Z\",\"kind\":\"run.completed\",\"sequence\":2}\n\n", false);
+    List<String> kinds = new ArrayList<>();
+    try (EventStream<RunProgressEvent> events = client.runs().followProgress(RUN_ID)) {
+      events.forEachRemaining(e -> kinds.add(e.kind()));
+    }
+    assertThat(kinds).containsExactly("run.started", "run.completed");
+    assertThat(seen.get(1).uri()).isEqualTo("/v1/runs/" + RUN_ID + "/progress/stream");
+    assertThat(seen.get(1).header("Last-Event-Id")).isEqualTo("a:1");
+  }
+
+  @Test
+  void anAsyncFollowPublishesThroughTheRunsEnd() throws InterruptedException {
+    handler = (ex, n) -> sse(ex, n == 1 ? frame(1, "run.started") : frame(2, "run.completed"), false);
+    List<String> kinds = new CopyOnWriteArrayList<>();
+    CountDownLatch done = new CountDownLatch(1);
+    client.async().runs().follow(RUN_ID).subscribe(new Flow.Subscriber<RunEvent>() {
+      @Override
+      public void onSubscribe(Flow.Subscription s) {
+        s.request(Long.MAX_VALUE);
+      }
+
+      @Override
+      public void onNext(RunEvent item) {
+        kinds.add(item.kind().asString());
+      }
+
+      @Override
+      public void onError(Throwable throwable) {
+        done.countDown();
+      }
+
+      @Override
+      public void onComplete() {
+        done.countDown();
+      }
+    });
+    assertThat(done.await(10, TimeUnit.SECONDS)).isTrue();
+    assertThat(kinds).containsExactly("run.started", "run.completed");
   }
 }
