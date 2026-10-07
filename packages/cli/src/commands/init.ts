@@ -172,6 +172,7 @@ export async function runInit(
     }
     return runInitJavaAugment({
       targetDir: detected.targetDir,
+      templatesRoot,
       ...(skillsRoot !== undefined && { skillsRoot }),
       ...(typeof packIdRaw === 'string' && packIdRaw !== '' && { packIdOverride: packIdRaw }),
       force: ctx.options.force === true,
@@ -528,6 +529,7 @@ async function runInitJava(
       JAVA_PACKAGE: javaPackage,
       JAVA_PACKAGE_PATH: javaPackage.split('.').join('/'),
       KINDGI_JAVA_VERSION: source.version,
+      KINDGI_CLI_VERSION: CLI_VERSION,
     },
   });
   const skillsWritten = await copyClaudeSkills({
@@ -551,7 +553,7 @@ async function runInitJava(
     ...install,
     `cd ${displayPath}`,
     './mvnw test',
-    `${binDisplay('path', 'kindgi', ['dev'])}  # boots Kindgi locally + compiles and runs this pack, recompiling on save`,
+    `${binDisplay('kindgiw', 'kindgi', ['dev'])}  # the CLI the pack pins (kindgi.config.json "cli"): boots Kindgi locally + compiles and runs this pack, recompiling on save`,
   ];
   const stderr = [
     `✓ Java pack scaffolded at ${args.targetDir}/`,
@@ -636,8 +638,8 @@ async function scaffoldTemplate(inputs: {
     } else {
       const bytes = await readFile(src);
       await writeFile(dest, bytes);
-      // The Maven wrapper runs as a program (npm drops the template's own mode).
-      if (basename(dest) === 'mvnw') await chmod(dest, 0o755);
+      // The wrappers run as programs (npm drops the template's own mode).
+      if (basename(dest) === 'mvnw' || basename(dest) === 'kindgiw') await chmod(dest, 0o755);
     }
     written.push(dest);
   }

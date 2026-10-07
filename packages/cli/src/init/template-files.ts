@@ -30,6 +30,8 @@ export interface Substitutions {
   readonly JAVA_PACKAGE_PATH?: string;
   /** The java template's `com.kindgi:kindgi-pack` version. */
   readonly KINDGI_JAVA_VERSION?: string;
+  /** The java template's pinned CLI (`"cli"` in kindgi.config.json, which kindgiw runs). */
+  readonly KINDGI_CLI_VERSION?: string;
 }
 
 /** Java's reserved words, which a package segment can't be. */
@@ -106,5 +108,6 @@ export function substitute(raw: string, subs: Substitutions): string {
     .replaceAll('{{DEV_DEPENDENCIES}}', subs.DEV_DEPENDENCIES ?? '"pytest>=8"')
     .replaceAll('{{JAVA_PACKAGE_PATH}}', subs.JAVA_PACKAGE_PATH ?? '')
     .replaceAll('{{JAVA_PACKAGE}}', subs.JAVA_PACKAGE ?? '')
-    .replaceAll('{{KINDGI_JAVA_VERSION}}', subs.KINDGI_JAVA_VERSION ?? '');
+    .replaceAll('{{KINDGI_JAVA_VERSION}}', subs.KINDGI_JAVA_VERSION ?? '')
+    .replaceAll('{{KINDGI_CLI_VERSION}}', subs.KINDGI_CLI_VERSION ?? '');
 }

@@ -17,4 +17,8 @@
   - the index, built in the image, byte-identical to the local one;
   - the pack service on a pinned JRE 17, as user 65532.
 - **`kindgi doctor`** checks a Java project's JDK, its Maven, and the kindgi-pack dependency.
+- **A Java pack pins its CLI.** `"cli": "<version>"` in `kindgi.config.json` is the version its wrapper runs:
+  - `./kindgiw` (`kindgiw.cmd` on Windows), written by `init`, runs it with npx when Node is installed, else with uvx from PyPI (no Node needed), else says how to install either.
+  - A command run in the pack with another CLI warns, naming both versions.
+  - **`kindgi upgrade [--to=<version>]`** moves the pin, and the `kindgi.version` of the pack's `pom.xml` with it.
 - **The loader** reads `kindgi.config.json`. That file next to another pack config (`kindgi.config.ts`, `[tool.kindgi]`) is refused, naming both files and which one to keep.

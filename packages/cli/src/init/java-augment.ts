@@ -17,7 +17,7 @@
  * profiles — that an edit could get wrong).
  */
 
-import { readFile, stat, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { PACK_ID_REGEX } from '../commands/init.js';
@@ -25,6 +25,7 @@ import { syncSkills } from '../commands/skills.js';
 import type { CommandResult } from '../commands/types.js';
 import { renderJson } from '../output.js';
 import { binDisplay } from '../package-manager.js';
+import { CLI_VERSION } from '../version-info.js';
 import {
   KINDGI_PACK_ON_MAVEN_CENTRAL,
   type KindgiJavaSource,
@@ -37,6 +38,8 @@ const FOLDERS = ['tools', 'guardrails', 'agents', 'flows'] as const;
 
 export interface RunInitJavaAugmentInputs {
   readonly targetDir: string;
+  /** Where the java template's `kindgiw` wrappers are. */
+  readonly templatesRoot: string;
   readonly skillsRoot?: string;
   readonly packIdOverride?: string;
   /** Overwrite an existing `kindgi.config.json` and the skills. */
@@ -98,7 +101,7 @@ export async function runInitJavaAugment(inputs: RunInitJavaAugmentInputs): Prom
   const configPath = join(inputs.targetDir, 'kindgi.config.json');
   if ((await exists(configPath)) && !inputs.force) {
     return fail(
-      `${configPath} already exists — this app is a Kindgi pack. Run \`${binDisplay('path', 'kindgi', ['dev'])}\` here (or --force to write it again).`,
+      `${configPath} already exists — this app is a Kindgi pack. Run \`${binDisplay('kindgiw', 'kindgi', ['dev'])}\` here (or --force to write it again).`,
     );
   }
   const identity = readPomIdentity(pom);
@@ -130,9 +133,20 @@ export async function runInitJavaAugment(inputs: RunInitJavaAugmentInputs): Prom
   const discovery = Object.fromEntries(
     FOLDERS.map((folder) => [folder, `src/main/java/**/kindgi/${folder}/**/*.java`]),
   );
-  const config = { language: 'java', pack: { id: packId, version }, discovery };
+  const config = { language: 'java', cli: CLI_VERSION, pack: { id: packId, version }, discovery };
   await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
   created.push(configPath);
+  // The wrappers that run the pinned CLI (`cli` above).
+  for (const wrapper of ['kindgiw', 'kindgiw.cmd']) {
+    const dest = join(inputs.targetDir, wrapper);
+    if ((await exists(dest)) && !inputs.force) {
+      skipped.push(dest);
+      continue;
+    }
+    await copyFile(join(inputs.templatesRoot, 'java', wrapper), dest);
+    if (wrapper === 'kindgiw') await chmod(dest, 0o755);
+    created.push(dest);
+  }
 
   if (inputs.skillsRoot !== undefined) {
     const report = await syncSkills({
@@ -177,7 +191,7 @@ export async function runInitJavaAugment(inputs: RunInitJavaAugmentInputs): Prom
             .join('\n')}`,
         ]),
     'Put tools in a `kindgi.tools` package under your own (e.g. com.acme.app.kindgi.tools), guardrails in `kindgi.guardrails`, agents in `kindgi.agents`, flows in `kindgi.flows`',
-    `${binDisplay('path', 'kindgi', ['dev'])}  # boots Kindgi locally + compiles and runs the pack with Maven, recompiling on save`,
+    `${binDisplay('kindgiw', 'kindgi', ['dev'])}  # the CLI the pack pins (kindgi.config.json "cli"): boots Kindgi locally + compiles and runs the pack with Maven, recompiling on save`,
   ];
   const summary = {
     kind: 'augment',
