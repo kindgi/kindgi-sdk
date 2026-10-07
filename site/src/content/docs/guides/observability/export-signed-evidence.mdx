@@ -31,7 +31,13 @@ Make a key for this alone:
 openssl genpkey -algorithm ed25519 -out export-signing.pem && chmod 600 export-signing.pem
 ```
 
-The key's type sets the export's `algorithm`. An Ed25519 key signs `ed25519`, the default. An EC P-256 key signs `ecdsa-p256-sha256`, for a key store that has no Ed25519 (`openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256`). Both verifiers below check either, and refuse an algorithm they don't know.
+The key's type sets the export's `algorithm`. An Ed25519 key signs `ed25519`, the default. An EC P-256 key signs `ecdsa-p256-sha256`, for a key store that has no Ed25519:
+
+```sh
+openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out export-signing.pem && chmod 600 export-signing.pem
+```
+
+The verifiers below check either, and refuse an algorithm they don't know (see [An algorithm the verifier doesn't know](#an-algorithm-the-verifier-doesnt-know)).
 
 - **`kindgi dev`** signs with a key the runtime makes at startup, so exports work with nothing set. That key is a throwaway, though. To keep one across restarts, set `KINDGI_EXPORT_SIGNING_KEY_PATH` to the absolute path of a key file on your machine, in the shell or the pack's `.env`. `kindgi dev` mounts that file into the runtime's container, read-only.
 - **On Cloud Run,** set `export_signing = "secret"` in the Terraform module, then add the key's version:
@@ -39,6 +45,8 @@ The key's type sets the export's `algorithm`. An Ed25519 key signs `ed25519`, th
   ```sh
   openssl genpkey -algorithm ed25519 | base64 | gcloud secrets versions add $N-export-signing-key --data-file=-
   ```
+
+  For a P-256 key, put `openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256` in place of the first command; the rest is the same.
 
   Or set `export_signing = "kms"` and `export_signing_kms_key` to a key version: the module grants the server's service account `roles/cloudkms.signerVerifier` and `roles/cloudkms.publicKeyViewer` on its key.
 - **Without a key** (outside development), the exports answer `404 signing-not-configured`.
@@ -133,6 +141,25 @@ An auditor without access to your deployment passes the PEM you gave them: `trus
 
 </TabItem>
 </Tabs>
+
+### An algorithm the verifier doesn't know
+
+An export whose `algorithm` the verifier doesn't know is refused, never checked another way. Here, an export whose `algorithm` was edited to `ecdsa-p384-sha384`:
+
+```text
+$ kindgi exports verify approval.json --trust=export-signing.pub.pem
+{
+  "valid": false,
+  "kind": "audit-bundle",
+  "signingKeyId": "ex_sD1K1gmwO-S3BJxR",
+  "checkedAgainst": "trusted-keys",
+  "issues": [
+    "algorithm \"ecdsa-p384-sha384\" isn't one this verifier knows (ed25519, ecdsa-p256-sha256): a newer verifier may check it"
+  ]
+}
+```
+
+It exits 1. The TypeScript and Python verifiers give the same line in `issues`. A file signed with a newer algorithm needs a newer verifier; a file someone edited is refused either way.
 
 Checked without trusted keys, a valid export only proves its bytes weren't changed: anyone could have signed it with a key of their own. Checking against your deployment's keys is what tells you it's yours.
 
