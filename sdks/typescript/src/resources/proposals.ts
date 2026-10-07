@@ -121,6 +121,12 @@ export interface EvaluateProposalInput {
   readonly repetitions?: number;
   readonly k?: number;
   readonly classWeights?: 'as-recorded' | 'restricted-only';
+  /** Only part of the test set: the hold-out part proves a candidate (a gate refuses the search part). */
+  readonly sample?: {
+    readonly part: 'search' | 'hold-out';
+    readonly seed: string;
+    readonly holdOutShare: number;
+  };
   readonly idempotencyKey?: string;
 }
 

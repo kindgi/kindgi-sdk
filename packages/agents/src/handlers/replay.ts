@@ -88,6 +88,16 @@ export interface ReplayBinding {
    * gate is skipped, and the result says so.
    */
   sessionApproval?(input: ReplayTurnRef): Promise<ReplayApproval | undefined>;
+  /**
+   * Settings values the replay runs instead of the agent version's pinned
+   * ones, by settings block id (a comparison's `overrides`: an improvement
+   * pass's search). The same for every turn of a replay, on resume too.
+   * `undefined` (or absent): the pinned values.
+   */
+  settings?(input: {
+    readonly tenantId: TenantId;
+    readonly replay: RunReplayRef;
+  }): Promise<Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined>;
 }
 
 /** One tool call of a replay turn, and what happened to it. */

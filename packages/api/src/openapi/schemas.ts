@@ -3606,6 +3606,7 @@ export const EvaluateProposalBodySchema: JsonSchema = {
     repetitions: { type: 'integer', minimum: 1, maximum: 10 },
     k: { type: 'integer', minimum: 1, maximum: 100 },
     classWeights: { type: 'string', enum: ['as-recorded', 'restricted-only'] },
+    sample: { $ref: '#/components/schemas/EvalSample' },
   },
 };
 
@@ -5495,6 +5496,33 @@ export const EvalBaselineSchema: JsonSchema = {
   ],
 };
 
+export const EvalOverridesSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "For an agent candidate: settings values its replays run instead of the version's pinned ones (an improvement pass's search), by settings block id. Each block must be one the version pins, and the values must satisfy its schema (`400 validation-failed`). A comparison with overrides can't gate a promotion.",
+  properties: {
+    settings: {
+      type: 'object',
+      maxProperties: 20,
+      additionalProperties: { type: 'object', additionalProperties: true },
+    },
+  },
+};
+
+export const EvalSampleSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['part', 'seed', 'holdOutShare'],
+  description:
+    "Only part of the test set's cases: split once, by a hash of each case id and `seed`, into a hold-out part (about `holdOutShare` of them) and a search part (the rest). The same seed always splits the same way. A promotion gate refuses a comparison on the search part (`comparison.sample`).",
+  properties: {
+    part: { type: 'string', enum: ['search', 'hold-out'] },
+    seed: { type: 'string', minLength: 1, maxLength: 200 },
+    holdOutShare: { type: 'number', minimum: 0.1, maximum: 0.9 },
+  },
+};
+
 export const EvalComparisonSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -5517,6 +5545,8 @@ export const EvalComparisonSchema: JsonSchema = {
       description:
         "Which judgments count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Judgment.restricted`), the others weighing 0 (`restricted-only`).",
     },
+    overrides: { $ref: '#/components/schemas/EvalOverrides' },
+    sample: { $ref: '#/components/schemas/EvalSample' },
   },
 };
 
@@ -5576,6 +5606,14 @@ export const ComparisonCandidateSchema: JsonSchema = {
           type: 'string',
           description:
             "The version's pinsDigest: what it ran, as a promotion gate checks. Absent for a version published before pins, and from a comparison recorded before it.",
+        },
+        overrides: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['settings'],
+          description:
+            "The settings blocks whose values the replays replaced (`overrides`): no published version ran, so it can't gate a promotion. Absent otherwise.",
+          properties: { settings: { type: 'array', items: { type: 'string' } } },
         },
       },
     },
@@ -5697,6 +5735,10 @@ export const JudgedComparisonSummarySchema: JsonSchema = {
       enum: ['as-recorded', 'restricted-only'],
       description:
         'Which judgments counted. Absent from a comparison recorded before restricted classes: `as-recorded`.',
+    },
+    sample: {
+      $ref: '#/components/schemas/EvalSample',
+      description: 'The part of the test set it ran. Absent: every case.',
     },
     sampling: {
       type: 'object',
@@ -5940,6 +5982,8 @@ export const StartEvalRunBodySchema: JsonSchema = {
       description:
         "Which judgments count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Judgment.restricted`), the others weighing 0 (`restricted-only`).",
     },
+    overrides: { $ref: '#/components/schemas/EvalOverrides' },
+    sample: { $ref: '#/components/schemas/EvalSample' },
   },
   description:
     "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`).",
@@ -8507,6 +8551,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['EvalRunAgentRef', EvalRunAgentRefSchema],
   ['EvalRunFlowRef', EvalRunFlowRefSchema],
   ['EvalBaseline', EvalBaselineSchema],
+  ['EvalOverrides', EvalOverridesSchema],
+  ['EvalSample', EvalSampleSchema],
   ['EvalComparison', EvalComparisonSchema],
   ['ComparisonMetric', ComparisonMetricSchema],
   ['ComparisonCandidate', ComparisonCandidateSchema],

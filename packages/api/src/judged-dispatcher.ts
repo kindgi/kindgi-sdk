@@ -21,13 +21,20 @@ import type { RunId } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from './agent-binding.js';
 import type { EvalCaseStoreBinding, JudgedEvalCase } from './eval-case-binding.js';
-import type { AgentRef, EvalClassWeights, EvalComparison, FlowRef } from './eval-run-binding.js';
+import type {
+  AgentRef,
+  EvalClassWeights,
+  EvalComparison,
+  EvalSample,
+  FlowRef,
+} from './eval-run-binding.js';
 import type {
   DispatchContext,
   DispatchResult,
   EvalRunDispatcher,
   EvalRunSubjectInvokeOutcome,
 } from './eval-run-dispatcher.js';
+import { inSample } from './eval-sample.js';
 import {
   type ItemChanges,
   type OutputScore,
@@ -92,6 +99,12 @@ export type ComparisonCandidate =
        * without an agent registry.
        */
       readonly pinsDigest?: string;
+      /**
+       * The settings blocks whose values the replays replaced
+       * (`comparison.overrides`): it ran no published version, so it
+       * can't gate a promotion.
+       */
+      readonly overrides?: { readonly settings: readonly string[] };
     }
   | {
       readonly kind: 'flow';
@@ -134,6 +147,8 @@ export interface JudgedComparisonSummary {
    * from a summary recorded before T200: `as-recorded`.
    */
   readonly classWeights?: EvalClassWeights;
+  /** The part of the test set it ran (absent: every case). */
+  readonly sample?: EvalSample;
   /** The models that answered the candidate's replays, and how many replays each. */
   readonly sampling: {
     readonly models: readonly {
@@ -180,6 +195,9 @@ export interface JudgedDispatcherOptions {
 /** Cases read per page. */
 const CASE_PAGE = 100;
 
+export const OVERRIDES_NEED_AN_AGENT =
+  "`overrides` replaces an agent version's settings values: it needs `agentRef`.";
+
 export const VERSIONS_NEED_A_FLOW =
   '`versions` runs a flow with some of its agents or tools at other versions: it needs `flowRef`.';
 
@@ -204,6 +222,9 @@ function validateComparison(
   if (c.versions !== undefined && 'agentId' in target) {
     return { kind: 'err', message: VERSIONS_NEED_A_FLOW };
   }
+  if (c.overrides !== undefined && !('agentId' in target)) {
+    return { kind: 'err', message: OVERRIDES_NEED_AN_AGENT };
+  }
   if (c.baseline !== 'recorded') {
     return { kind: 'err', message: "Only `baseline: 'recorded'` runs today." };
   }
@@ -216,7 +237,10 @@ export function createJudgedDispatcher(options: JudgedDispatcherOptions): EvalRu
     validate: validateComparison,
     async dispatch(ctx): Promise<DispatchResult> {
       const comparison = ctx.comparison ?? DEFAULT_COMPARISON;
-      const stored = await allCases(options.cases, ctx);
+      const sample = comparison.sample;
+      const stored = (await allCases(options.cases, ctx)).filter(
+        (c) => sample === undefined || inSample(c.caseId, sample),
+      );
       const all =
         comparison.classWeights === 'restricted-only' ? stored.map(restrictedOnly) : stored;
       if (ctx.dryRun) {
@@ -513,7 +537,7 @@ function summarize(
           : 'failed',
     completedAt: new Date().toISOString(),
     suite: { id: ctx.suite.id, version: ctx.suite.version },
-    candidate: candidateOf(ctx.target, ctx.comparison?.versions, pinsDigest),
+    candidate: candidateOf(ctx.target, ctx.comparison, pinsDigest),
     baseline: {
       kind: 'recorded',
       versions: [...versions.values()].map(
@@ -531,6 +555,7 @@ function summarize(
     stopped,
     reads: comparison.reads,
     classWeights: comparison.classWeights ?? 'as-recorded',
+    ...(comparison.sample !== undefined && { sample: comparison.sample }),
     sampling: { models },
     repetitions: comparison.repetitions,
     metrics: {
@@ -587,15 +612,18 @@ async function candidatePins(
 
 function candidateOf(
   target: AgentRef | FlowRef,
-  versions: FlowVersionOverrides | undefined,
+  comparison: EvalComparison | undefined,
   pinsDigest?: string,
 ): ComparisonCandidate {
+  const versions = comparison?.versions;
+  const overridden = Object.keys(comparison?.overrides?.settings ?? {});
   return 'agentId' in target
     ? {
         kind: 'agent',
         agentId: target.agentId as unknown as string,
         version: target.version ?? '',
         ...(pinsDigest !== undefined && { pinsDigest }),
+        ...(overridden.length > 0 && { overrides: { settings: overridden.sort() } }),
       }
     : {
         kind: 'flow',

@@ -5,12 +5,18 @@ import type { AgentId } from '@kindgi/agents';
 import type { FlowVersionOverrides } from '@kindgi/flow';
 import type { ProjectId, Semver } from '@kindgi/types';
 
-import type { EvalBaseline, EvalComparison } from '../eval-run-binding.js';
+import type {
+  EvalBaseline,
+  EvalComparison,
+  EvalOverrides,
+  EvalSample,
+} from '../eval-run-binding.js';
 import { DEFAULT_COMPARISON } from '../judged-dispatcher.js';
 import { parseSegmentsBody } from './segments.js';
 
 const MAX_REPETITIONS = 10;
 const MAX_K = 100;
+const MAX_OVERRIDDEN_BLOCKS = 20;
 
 function obj(value: unknown): Record<string, unknown> | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -84,6 +90,47 @@ function integerIn(raw: unknown, name: string, max: number): number | string {
     : `\`${name}\` must be an integer from 1 to ${max}`;
 }
 
+/** `overrides: { settings: { blockId: { … } } }`; `undefined` when it names nothing. */
+function parseOverrides(raw: unknown): EvalOverrides | undefined | string {
+  const o = obj(raw);
+  if (o === undefined) return '`overrides` must be an object: { settings: { blockId: { … } } }';
+  const extra = Object.keys(o).filter((key) => key !== 'settings');
+  if (extra.length > 0) return `\`overrides\` takes \`settings\`, not \`${extra[0]}\``;
+  if (o.settings === undefined) return undefined;
+  const settings = obj(o.settings);
+  const blocks = settings === undefined ? [] : Object.entries(settings);
+  if (
+    settings === undefined ||
+    blocks.length > MAX_OVERRIDDEN_BLOCKS ||
+    blocks.some(([id, values]) => id === '' || obj(values) === undefined)
+  ) {
+    return `\`overrides.settings\` must be an object of { blockId: { …values } } (at most ${MAX_OVERRIDDEN_BLOCKS} blocks)`;
+  }
+  return blocks.length === 0
+    ? undefined
+    : { settings: settings as Readonly<Record<string, Readonly<Record<string, unknown>>>> };
+}
+
+/** `sample: { part, seed, holdOutShare }`, or an error message. */
+function parseSample(raw: unknown): EvalSample | string {
+  const o = obj(raw);
+  const share = o?.holdOutShare;
+  if (
+    o === undefined ||
+    (o.part !== 'search' && o.part !== 'hold-out') ||
+    typeof o.seed !== 'string' ||
+    o.seed === '' ||
+    o.seed.length > 200 ||
+    typeof share !== 'number' ||
+    share < 0.1 ||
+    share > 0.9 ||
+    Object.keys(o).some((key) => !['part', 'seed', 'holdOutShare'].includes(key))
+  ) {
+    return "`sample` must be { part: 'search' | 'hold-out', seed, holdOutShare } with holdOutShare from 0.1 to 0.9";
+  }
+  return { part: o.part, seed: o.seed, holdOutShare: share };
+}
+
 /**
  * A comparison eval run's settings from the start body: `baseline`,
  * `reads`, `repetitions`, `k`, `classWeights` and a flow candidate's
@@ -99,13 +146,19 @@ export function parseComparison(
   const { baseline, reads, repetitions, k, classWeights } = b;
   const versions = b.versions === undefined ? undefined : parseVersions(b.versions);
   if (typeof versions === 'string') return { kind: 'err', message: versions };
+  const overrides = b.overrides === undefined ? undefined : parseOverrides(b.overrides);
+  if (typeof overrides === 'string') return { kind: 'err', message: overrides };
+  const sample = b.sample === undefined ? undefined : parseSample(b.sample);
+  if (typeof sample === 'string') return { kind: 'err', message: sample };
   if (
     baseline === undefined &&
     reads === undefined &&
     repetitions === undefined &&
     k === undefined &&
     versions === undefined &&
-    classWeights === undefined
+    classWeights === undefined &&
+    overrides === undefined &&
+    sample === undefined
   ) {
     return { kind: 'ok' };
   }
@@ -144,6 +197,8 @@ export function parseComparison(
       k: topK,
       ...(versions !== undefined && { versions }),
       ...(classWeights !== undefined && { classWeights }),
+      ...(overrides !== undefined && { overrides }),
+      ...(sample !== undefined && { sample }),
     },
   };
 }

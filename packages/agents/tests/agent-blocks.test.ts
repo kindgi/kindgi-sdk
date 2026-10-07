@@ -148,6 +148,60 @@ describe('a turn loads the blocks it references', () => {
     expect(resumed?.prompt?.version).toBe('1.1.0');
   });
 
+  test("a replay turn takes the replay's settings values (a comparison's overrides), keeping the pinned versions", async () => {
+    const asked: unknown[] = [];
+    const replayTurn = (overrides: Record<string, Record<string, unknown>> | undefined) => {
+      const ctx = turn(agent(), reader());
+      return {
+        ...ctx,
+        input: { ...ctx.input, replay: { of: 'run-past', evalRunId: 'eval-1' } },
+        bindings: {
+          ...ctx.bindings,
+          replay: {
+            decideTool: async () => ({ kind: 'live' as const }),
+            settings: async (input: unknown) => {
+              asked.push(input);
+              return overrides;
+            },
+          },
+        },
+      } as unknown as TurnContext;
+    };
+    const blocks = await resolveTurnBlocks(
+      replayTurn({ 'acme.weights': { recency: 0.9 }, 'acme.model': { temperature: 0.5 } }),
+    );
+    expect(blocks?.settings).toEqual({ 'acme.weights': { recency: 0.9 } });
+    expect(blocks?.modelSettings).toEqual({ temperature: 0.5 });
+    expect(blocks?.versions.settings).toEqual({ 'acme.weights': '1.2.0', 'acme.model': '1.0.0' });
+    expect(asked).toEqual([{ tenantId, replay: { of: 'run-past', evalRunId: 'eval-1' } }]);
+
+    const plain = await resolveTurnBlocks(replayTurn(undefined));
+    expect(plain?.settings).toEqual({ 'acme.weights': { recency: 0.7 } });
+    await expect(
+      resolveTurnBlocks(replayTurn({ 'acme.model': { temperature: 9 } })),
+    ).rejects.toThrow(/with the replay's values/);
+  });
+
+  test('a turn that is not a replay never asks for replay settings', async () => {
+    let asked = 0;
+    const ctx = turn(agent(), reader());
+    const blocks = await resolveTurnBlocks({
+      ...ctx,
+      bindings: {
+        ...ctx.bindings,
+        replay: {
+          decideTool: async () => ({ kind: 'live' as const }),
+          settings: async () => {
+            asked += 1;
+            return { 'acme.weights': { recency: 0.9 } };
+          },
+        },
+      },
+    } as unknown as TurnContext);
+    expect(asked).toBe(0);
+    expect(blocks?.settings).toEqual({ 'acme.weights': { recency: 0.7 } });
+  });
+
   test('the prompt block renders as the instructions, reading the settings', async () => {
     const a = agent();
     const blocks = await resolveTurnBlocks(turn(a, reader()));

@@ -20,6 +20,7 @@ import {
 import { VERSIONS_NEED_A_FLOW } from '../judged-dispatcher.js';
 import type { AppEnv } from '../types.js';
 import { parseComparison } from './eval-comparison.js';
+import { type SettingsOverridesCheck, checkSettingsOverrides } from './eval-overrides.js';
 import { type FlowVersionsCheck, checkFlowVersions } from './eval-versions.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams } from './scope-params.js';
@@ -57,9 +58,10 @@ export interface EvalRunsRouters {
 export function evalRunsRouters(
   binding: EvalRunBinding,
   versionsCheck?: FlowVersionsCheck,
+  overridesCheck?: SettingsOverridesCheck,
 ): EvalRunsRouters {
   return {
-    start: startRouter(binding, versionsCheck),
+    start: startRouter(binding, versionsCheck, overridesCheck),
     readback: readbackRouter(binding),
   };
 }
@@ -91,7 +93,42 @@ async function versionsRefusal(
   };
 }
 
-function startRouter(binding: EvalRunBinding, versionsCheck?: FlowVersionsCheck): Hono<AppEnv> {
+/** The `validation-failed` error for an agent candidate's settings `overrides` that don't fit it; `undefined` when they do. */
+async function overridesRefusal(
+  check: SettingsOverridesCheck | undefined,
+  tenantId: TenantId,
+  start: ParsedStartBody,
+) {
+  const settings = start.comparison?.overrides?.settings;
+  const agentRef = start.agentRef;
+  if (settings === undefined || agentRef?.version === undefined) return undefined;
+  if (check === undefined) {
+    return {
+      code: 'validation-failed' as const,
+      message:
+        "This runtime can't check settings overrides (it serves no agent or block registry).",
+      issues: [],
+    };
+  }
+  const issues = await checkSettingsOverrides(
+    check,
+    tenantId,
+    { agentId: agentRef.agentId as unknown as string, version: agentRef.version },
+    settings,
+  );
+  if (issues.length === 0) return undefined;
+  return {
+    code: 'validation-failed' as const,
+    message: `The overrides don't fit ${agentRef.agentId as unknown as string} ${agentRef.version} (${issues.length} issue${issues.length === 1 ? '' : 's'})`,
+    issues: issues as unknown as Record<string, unknown>[],
+  };
+}
+
+function startRouter(
+  binding: EvalRunBinding,
+  versionsCheck?: FlowVersionsCheck,
+  overridesCheck?: SettingsOverridesCheck,
+): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
   r.post('/:suiteId/runs', async (c) => {
@@ -119,7 +156,9 @@ function startRouter(binding: EvalRunBinding, versionsCheck?: FlowVersionsCheck)
       c.status(statusFor(parsed.error.code) as never);
       return c.json(toWireError(parsed.error, requestId));
     }
-    const refusal = await versionsRefusal(versionsCheck, tenantId, parsed.value);
+    const refusal =
+      (await versionsRefusal(versionsCheck, tenantId, parsed.value)) ??
+      (await overridesRefusal(overridesCheck, tenantId, parsed.value));
     if (refusal !== undefined) {
       c.status(statusFor(refusal.code) as never);
       return c.json(toWireError(refusal, requestId));

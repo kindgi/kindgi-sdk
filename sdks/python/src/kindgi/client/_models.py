@@ -3535,31 +3535,6 @@ class CreateProposalBody(BaseModel):
     evidence: Evidence1 | None = None
 
 
-class EvaluateProposalBody(BaseModel):
-    """
-    Compare the proposal's candidate on a test set. The first evaluation publishes the block version and derives the agent version (both serve nowhere until promoted).
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    suite_id: Annotated[str, Field(alias="suiteId")]
-    """
-    The test set: a judged eval suite.
-    """
-    objective: Literal["weightedYesShare", "weightedPrecisionAtK"] | None = "weightedYesShare"
-    """
-    The metric that says whether the candidate is better.
-    """
-    reads: Literal["recorded", "live"] | None = None
-    repetitions: Annotated[int | None, Field(ge=1, le=10)] = None
-    k: Annotated[int | None, Field(ge=1, le=100)] = None
-    class_weights: Annotated[
-        Literal["as-recorded", "restricted-only"] | None, Field(alias="classWeights")
-    ] = None
-
-
 class ProposalReasonBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -5291,6 +5266,32 @@ class EvalBaseline2(BaseModel):
     live: Live
 
 
+class EvalOverrides(BaseModel):
+    """
+    For an agent candidate: settings values its replays run instead of the version's pinned ones (an improvement pass's search), by settings block id. Each block must be one the version pins, and the values must satisfy its schema (`400 validation-failed`). A comparison with overrides can't gate a promotion.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    settings: Annotated[dict[str, dict[str, Any]] | None, Field(max_length=20)] = None
+
+
+class EvalSample(BaseModel):
+    """
+    Only part of the test set's cases: split once, by a hash of each case id and `seed`, into a hold-out part (about `holdOutShare` of them) and a search part (the rest). The same seed always splits the same way. A promotion gate refuses a comparison on the search part (`comparison.sample`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    part: Literal["search", "hold-out"]
+    seed: Annotated[str, Field(max_length=200, min_length=1)]
+    hold_out_share: Annotated[float, Field(alias="holdOutShare", ge=0.1, le=0.9)]
+
+
 class EvalComparison(BaseModel):
     """
     A comparison eval run's settings (a `judged` suite).
@@ -5317,6 +5318,8 @@ class EvalComparison(BaseModel):
     """
     Which judgments count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Judgment.restricted`), the others weighing 0 (`restricted-only`).
     """
+    overrides: EvalOverrides | None = None
+    sample: EvalSample | None = None
 
 
 class ComparisonMetric(BaseModel):
@@ -5346,6 +5349,18 @@ class ComparisonMetric(BaseModel):
     """
 
 
+class Overrides(BaseModel):
+    """
+    The settings blocks whose values the replays replaced (`overrides`): no published version ran, so it can't gate a promotion. Absent otherwise.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    settings: list[str]
+
+
 class ComparisonCandidate1(BaseModel):
     """
     What ran on the cases: an agent version, or a flow version (with any versions it swapped in).
@@ -5361,6 +5376,10 @@ class ComparisonCandidate1(BaseModel):
     pins_digest: Annotated[str | None, Field(alias="pinsDigest")] = None
     """
     The version's pinsDigest: what it ran, as a promotion gate checks. Absent for a version published before pins, and from a comparison recorded before it.
+    """
+    overrides: Overrides | None = None
+    """
+    The settings blocks whose values the replays replaced (`overrides`): no published version ran, so it can't gate a promotion. Absent otherwise.
     """
 
 
@@ -5519,6 +5538,10 @@ class JudgedComparisonSummary(BaseModel):
     ] = None
     """
     Which judgments counted. Absent from a comparison recorded before restricted classes: `as-recorded`.
+    """
+    sample: EvalSample | None = None
+    """
+    The part of the test set it ran. Absent: every case.
     """
     sampling: Sampling
     repetitions: Annotated[int, Field(ge=1)]
@@ -5763,6 +5786,8 @@ class StartEvalRunBody(BaseModel):
     """
     Which judgments count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Judgment.restricted`), the others weighing 0 (`restricted-only`).
     """
+    overrides: EvalOverrides | None = None
+    sample: EvalSample | None = None
 
 
 class StartEvalRunResult(BaseModel):
@@ -8458,6 +8483,32 @@ class AgentCollectionPage(BaseModel):
     Opaque cursor for the next page. Absent when `hasMore: false`.
     """
     has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class EvaluateProposalBody(BaseModel):
+    """
+    Compare the proposal's candidate on a test set. The first evaluation publishes the block version and derives the agent version (both serve nowhere until promoted).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    suite_id: Annotated[str, Field(alias="suiteId")]
+    """
+    The test set: a judged eval suite.
+    """
+    objective: Literal["weightedYesShare", "weightedPrecisionAtK"] | None = "weightedYesShare"
+    """
+    The metric that says whether the candidate is better.
+    """
+    reads: Literal["recorded", "live"] | None = None
+    repetitions: Annotated[int | None, Field(ge=1, le=10)] = None
+    k: Annotated[int | None, Field(ge=1, le=100)] = None
+    class_weights: Annotated[
+        Literal["as-recorded", "restricted-only"] | None, Field(alias="classWeights")
+    ] = None
+    sample: EvalSample | None = None
 
 
 class CallUsage(BaseModel):

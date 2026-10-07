@@ -1351,6 +1351,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
             ...(input.toolRegistry !== undefined && { tools: input.toolRegistry }),
           }
         : undefined,
+      input.agentRegistry !== undefined && input.blockRegistry !== undefined
+        ? { agents: input.agentRegistry, blocks: input.blockRegistry }
+        : undefined,
     );
     v1.route('/eval-suites', evalRuns.start);
     v1.route('/eval-runs', evalRuns.readback);
