@@ -169,8 +169,8 @@ function toInput(messages: readonly ModelMessage[], model: string): InputItem[] 
  * An assistant turn. With tool calls this model made, and their carried
  * output (`readCarried`), it goes back as the response gave it: reasoning,
  * message and calls in their order, linked by their ids. Otherwise as its
- * text and its calls, without ids: a call id sent without its reasoning
- * item is refused.
+ * text and its calls, without ids: an item id names output the reasoning
+ * belongs with, so none is sent without it.
  */
 function assistantItems(m: ModelMessage, model: string): InputItem[] {
   const calls = m.toolCalls ?? [];

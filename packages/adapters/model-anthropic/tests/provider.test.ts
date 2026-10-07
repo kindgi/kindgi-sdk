@@ -528,3 +528,39 @@ describe("createAnthropicProvider — thinking: 'lowest'", () => {
     expect(result.usage.completionTokens).toBe(90);
   });
 });
+
+describe('createAnthropicProvider — a long prompt', () => {
+  test("prices at the registration's long-context rates", async () => {
+    const { client } = fakeClient(
+      fakeResponse({ usage: { input_tokens: 150_000, output_tokens: 2000 } }),
+    );
+    const provider = createAnthropicProvider({
+      apiKey: 'sk-unused',
+      metadata: {
+        id: 'anthropic',
+        region: 'us-east-1',
+        models: [
+          {
+            ...OPUS_MODEL,
+            name: 'claude-haiku-5-5',
+            cost: {
+              promptUsdPer1kTokens: 0.0001,
+              completionUsdPer1kTokens: 0.0005,
+              longContext: {
+                thresholdTokens: 100_000,
+                promptUsdPer1kTokens: 0.0005,
+                completionUsdPer1kTokens: 0.0025,
+              },
+            },
+          },
+        ],
+      },
+      client,
+    });
+    const result = await provider.invoke({
+      model: 'claude-haiku-5-5',
+      messages: [{ role: 'user', content: 'Summarize the attached corpus.' }],
+    });
+    expect(result.costUsd).toBeCloseTo((150_000 * 0.0005 + 2000 * 0.0025) / 1000, 10);
+  });
+});
