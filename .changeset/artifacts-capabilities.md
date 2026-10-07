@@ -4,6 +4,7 @@
 "@kindgi/capabilities": patch
 "@kindgi/cli": patch
 "@kindgi/client": patch
+"@kindgi/env-schema": patch
 "@kindgi/policy-contract": patch
 ---
 
@@ -24,6 +25,10 @@ Artifacts belong to a project, and the capability catalog says what each feature
   - `put` and `get` stay unwired and point at `upload`/`download`.
   - `artifact-too-large` is an invalid request.
 - **Python client:** the new fields; a 413 is an `InvalidRequestError`.
+- **Runtime settings (`@kindgi/env-schema`):**
+  - `KINDGI_ARTIFACTS` is `local:<absolute dir>` or `gcs:<bucket>[/<prefix>]`; it turns on `/v1/artifacts`.
+  - `KINDGI_ARTIFACT_MAX_BYTES` sets the upload cap.
+  - `kindgi dev` sets artifacts to the pack's `.kindgi/dev/artifacts`, which is gitignored.
 - **CLI:**
   - `kindgi artifacts list|get|upload|download|delete` and `kindgi capabilities list|get` are wired; they were hidden as unwired.
   - `artifacts head` is folded into `get`.

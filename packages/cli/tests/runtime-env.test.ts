@@ -45,6 +45,7 @@ describe('buildRuntimeEnv', () => {
       KINDGI_API_TOKEN: 'kgi_bt_dev',
       KINDGI_SEED_USER_ID: BASE.seedUserId,
       KINDGI_PACK_DIR: '/pack',
+      KINDGI_ARTIFACTS: 'local:/pack/.kindgi/dev/artifacts',
       KINDGI_DEV_CONSOLE_LOGIN: 'true',
       KINDGI_SECRETS_BACKEND: 'dotenv',
       KINDGI_SECRETS_DOTENV_DIR: '/pack',

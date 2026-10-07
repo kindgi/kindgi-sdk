@@ -83,6 +83,9 @@ export function buildRuntimeEnv(input: RuntimeEnvInput): Record<string, string> 
     KINDGI_API_TOKEN: input.token,
     KINDGI_SEED_USER_ID: input.seedUserId,
     KINDGI_PACK_DIR: input.packDir,
+    // Artifacts' files in the pack's dev directory (gitignored), where the
+    // runtime sees it: /pack in the container, the pack itself otherwise.
+    KINDGI_ARTIFACTS: `local:${input.packDir}/.kindgi/dev/artifacts`,
     KINDGI_DEV_CONSOLE_LOGIN: 'true',
     KINDGI_SECRETS_BACKEND: 'dotenv',
     KINDGI_SECRETS_DOTENV_DIR: input.packDir,
