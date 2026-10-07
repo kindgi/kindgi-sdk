@@ -385,6 +385,17 @@ describe('the gate', () => {
     expect(check(s, 'sameContents')).toMatchObject({ passed: false });
     expect(check(s, 'sameContents')?.message).toContain('compare the published version');
     expect(gate(s).passed).toBe(false);
+    const prompts = summary({
+      candidate: {
+        kind: 'agent',
+        agentId: 'acme.agent',
+        version: '2.0.0',
+        pinsDigest: 'sha-2',
+        overrides: { prompts: ['acme.prompt'] },
+      },
+    });
+    expect(check(prompts, 'sameContents')).toMatchObject({ passed: false });
+    expect(check(prompts, 'sameContents')?.message).toContain('acme.prompt');
   });
 
   test('the search part fails comparison.sample; the hold-out part passes it; no sample, no check', () => {

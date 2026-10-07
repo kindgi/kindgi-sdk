@@ -444,6 +444,8 @@ async function harness(
     readOnly?: boolean;
     tunable?: boolean;
     passes?: ImprovementPassBinding;
+    /** Instructions inline, not from a pinned prompt block. */
+    inlineInstructions?: boolean;
   } = {},
 ) {
   const agents = agentBinding();
@@ -490,7 +492,7 @@ async function harness(
   });
   const pinned = {
     tools: {},
-    prompts: { 'acme.scorer-prompt': '1.0.0' },
+    prompts: opts.inlineInstructions === true ? {} : { 'acme.scorer-prompt': '1.0.0' },
     settings: { [WEIGHTS]: '1.0.0' },
   };
   await agents.publish({
@@ -500,7 +502,10 @@ async function harness(
       id: AGENT,
       version: '1.0.0',
       name: 'Scorer',
-      instructions: { prompt: 'acme.scorer-prompt', version: '^1.0.0' },
+      instructions:
+        opts.inlineInstructions === true
+          ? 'Score it.'
+          : { prompt: 'acme.scorer-prompt', version: '^1.0.0' },
       settings: [{ id: WEIGHTS, version: '^1.0.0' }],
       capabilities: [],
       tools: [],
@@ -1141,6 +1146,20 @@ describe('improvement passes', () => {
         })
       ).status,
     ).toBe(400);
+  });
+
+  test('a prompt pass on a version with inline instructions is refused (400)', async () => {
+    const passes = inMemoryPasses();
+    const h = await harness({ passes: passes.binding, inlineInstructions: true });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', {
+      ...IMPROVE,
+      tiers: ['prompt'],
+      model: { providerId: 'acme-llm', model: 'm-1' },
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toContain('pinned prompt block');
+    expect(passes.started).toHaveLength(0);
   });
 
   test('a version that pins nothing tunable is refused (400), saying how to mark keys', async () => {
