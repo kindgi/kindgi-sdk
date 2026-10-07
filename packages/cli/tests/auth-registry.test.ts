@@ -21,7 +21,12 @@ import {
   imageOnRegistry,
   registryOf,
 } from '../src/dev/runtime-image.js';
-import { digestOnly, registryLoginCommand } from '../src/dev/runtime-registry.js';
+import {
+  credentialHelperFailure,
+  credentialHelperHint,
+  digestOnly,
+  registryLoginCommand,
+} from '../src/dev/runtime-registry.js';
 import { runCli } from '../src/main.js';
 import { PromptCancelled } from '../src/terminal-input.js';
 
@@ -395,6 +400,56 @@ describe('--check', () => {
   });
 });
 
+describe("a credential helper Docker can't run (T276)", () => {
+  const HELPER: DockerOutcome = {
+    code: 1,
+    stdout: '',
+    stderr:
+      'error getting credentials - err: exec: "docker-credential-desktop": executable file not found in $PATH, out: ``\n',
+  };
+
+  test('the check names the helper and how to fix it, not the network', async () => {
+    const fake = fakeDocker({ 'buildx imagetools inspect': HELPER });
+    const out = await runRegistry(['--check'], { docker: fake.run });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(`✗ Couldn't check ${DEFAULT_RUNTIME_IMAGE}`);
+    expect(out.stderr).toContain("names docker-credential-desktop, and Docker couldn't run it");
+    expect(out.stderr).not.toContain('the network, a proxy or a firewall');
+  });
+
+  test('credentialHelperFailure: the helper named when it is; nothing for other errors', () => {
+    expect(
+      credentialHelperFailure(
+        'error getting credentials - err: exec: "docker-credential-desktop": executable file not found in $PATH',
+      ),
+    ).toEqual({ helper: 'desktop' });
+    expect(credentialHelperFailure('error getting credentials - err: exit status 1')).toEqual({});
+    expect(credentialHelperFailure('unauthorized: authentication required')).toBeUndefined();
+    expect(credentialHelperFailure(`no such manifest: ${DEFAULT_RUNTIME_IMAGE}`)).toBeUndefined();
+    expect(credentialHelperHint('desktop')).toContain('names docker-credential-desktop');
+    expect(credentialHelperHint(undefined)).toContain('names a credential helper');
+  });
+
+  test('so does a login that fails on it', async () => {
+    const fake = fakeDocker({
+      login: {
+        code: 1,
+        stdout: '',
+        stderr:
+          'Error saving credentials: error storing credentials - err: exec: "docker-credential-desktop": executable file not found in $PATH, out: ``\n',
+      },
+    });
+    const out = await runRegistry(['--username=acme+robot', '--password-stdin'], {
+      docker: fake.run,
+      readStdin: async () => TOKEN,
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('names docker-credential-desktop');
+    expect(out.stderr).not.toContain('Check the username and the token');
+    expect(out.stderr).not.toContain(TOKEN);
+  });
+});
+
 describe('without docker buildx', () => {
   const NO_BUILDX: DockerOutcome = {
     code: 1,
@@ -470,6 +525,10 @@ describe('without docker buildx', () => {
     const notFound = await runRegistry(['--check'], { docker: missing.run });
     expect(notFound.exitCode).toBe(1);
     expect(notFound.stderr).toContain(`✗ Couldn't find ${DEFAULT_RUNTIME_IMAGE}`);
+    // Without credentials, docker manifest inspect says "no such manifest" too.
+    expect(notFound.stderr).toContain(
+      "docker manifest inspect says this both when the image isn't on quay.io and when Docker has no access to it",
+    );
   });
 
   test('no fallback when buildx is there and the check fails for another reason', async () => {

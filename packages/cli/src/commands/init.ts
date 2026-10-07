@@ -28,13 +28,15 @@ import {
 } from '../init/template-files.js';
 import { renderJson } from '../output.js';
 import {
+  type DetectIo,
   binDisplay,
   cliInstall,
   declaredPackageManager,
-  detectPackageManager,
+  defaultDetectIo,
   installCommand,
   isPackageVersion,
   readPnpmVersion,
+  usablePackageManager,
 } from '../package-manager.js';
 import { resolveSdkPackageRoot } from '../sdk-package.js';
 import { CLI_VERSION } from '../version-info.js';
@@ -276,14 +278,18 @@ async function runInitFresh(
 
   // A standalone pack pins the pnpm that will install it, so the image
   // (`kindgi build`), CI and a teammate all use that one (T196).
-  const pnpmPin = await pinStandalonePnpm(ctx, args.targetDir);
+  const runs = ctx.initSeam?.packageManagerRuns;
+  const detectIo = { ...defaultDetectIo, ...(runs !== undefined && { runs }) };
+  const pnpmPin = await pinStandalonePnpm(ctx, args.targetDir, detectIo);
 
   // The template pins `@kindgi/sdk` + `@kindgi/cli` as `workspace:*`.
   // Rewrite both to what resolves from here — see `dependency-specs.ts`
   // (workspace inside the Kindgi checkout, `link:` to the checkout from
   // anywhere else or with --link-local, the running CLI's versions once
   // published). The pack then runs its own pinned `kindgi`.
-  const packageManager = await detectPackageManager(args.targetDir);
+  // The manager that will install it here: the template declares pnpm,
+  // but on a machine without pnpm the project installs and runs with npm.
+  const packageManager = (await usablePackageManager(args.targetDir, detectIo)).pm;
   const resolvedSpecs = await resolveKindgiDependencySpecs({
     targetDir: args.targetDir,
     packageManager,
@@ -346,6 +352,8 @@ type PnpmPin =
   | { readonly kind: 'pinned'; readonly version: string }
   /** The pack sits inside a project that already says how it installs. */
   | { readonly kind: 'inside' }
+  /** pnpm isn't installed here: the pack installs and runs with npm (T280). */
+  | { readonly kind: 'not-installed' }
   | { readonly kind: 'unread'; readonly reason: string };
 
 /**
@@ -354,8 +362,13 @@ type PnpmPin =
  * the pnpm `pnpm --version` gives in the new pack's folder. Inside an
  * existing project, the project's own setup governs: nothing is written.
  */
-async function pinStandalonePnpm(ctx: CommandContext, packDir: string): Promise<PnpmPin> {
+async function pinStandalonePnpm(
+  ctx: CommandContext,
+  packDir: string,
+  io: DetectIo,
+): Promise<PnpmPin> {
   if ((await declaredPackageManager(dirname(packDir))) !== undefined) return { kind: 'inside' };
+  if (io.runs !== undefined && !(await io.runs('pnpm'))) return { kind: 'not-installed' };
   let version: string;
   try {
     version = await (ctx.initSeam?.pnpmVersion ?? readPnpmVersion)(packDir);

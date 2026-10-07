@@ -31,15 +31,16 @@ import { LOCAL_ENV_NAME, displayEnvPath, readPackEnv } from '@kindgi/secrets-dot
 import type { CommandContext } from '../context.js';
 import { type DockerRunner, docker } from '../dev/runtime-container.js';
 import { DEFAULT_RUNTIME_IMAGE, registryOf } from '../dev/runtime-image.js';
-import { checkDocker, checkImageAccess } from '../dev/runtime-registry.js';
+import { checkDocker, checkImageAccess, credentialHelperHint } from '../dev/runtime-registry.js';
 import { renderJson } from '../output.js';
 import {
+  type PackageManager,
   binCommand,
   cliInstall,
-  detectBinRunner,
-  detectPackageManager,
+  defaultDetectIo,
   publishedCliSpec,
   pythonBinRunner,
+  usablePackageManager,
 } from '../package-manager.js';
 import { type ProviderPreset, loadProviderPresets } from '../providers/preset-loader.js';
 import { CLI_VERSION } from '../version-info.js';
@@ -155,7 +156,7 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
   const language =
     config === undefined ? undefined : config.format === 'pyproject' ? 'python' : 'node';
   const pypi = cliInstall(ctx.env) === 'pypi';
-  const kindgi = await kindgiCommand(dir, language, pypi);
+  const kindgi = await kindgiCommand(dir, language, pypi, tool);
 
   checks.push(...(await nodeChecks(seam.nodeVersion ?? process.versions.node, tool, pypi)));
   checks.push(...(await pythonChecks(tool, language)));
@@ -182,7 +183,7 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
 
   const rc = await readKindgirc(dir);
   checks.push(projectCheck(dir, language, rc));
-  checks.push(await dependenciesCheck(dir, language));
+  checks.push(await dependenciesCheck(dir, language, tool));
   checks.push(await modelKeyCheck(dir, seam, ctx.env, kindgi));
   const runtime = await runtimeCheck(ctx, rc, kindgi);
   checks.push(runtime.check);
@@ -351,6 +352,7 @@ async function registryCheck(
 ): Promise<DoctorCheck> {
   const access = await checkImageAccess(run, image);
   const host = registryOf(image);
+  const login = `${kindgi('auth', 'registry', '--username', '<robot name>', '--password-stdin')} (the robot name and token come from access.kindgi.com; pipe the token in, never paste it into a chat)`;
   switch (access.kind) {
     case 'ok':
       return pass('registry', `Docker can pull the runtime image (${image}).`);
@@ -358,13 +360,25 @@ async function registryCheck(
       return fail(
         'registry',
         `Docker can't pull the runtime image from ${host}: ${firstLine(access.detail)}`,
-        `Log Docker in with your pull token: ${kindgi('auth', 'registry', '--username', '<robot name>', '--password-stdin')} (the robot name and token come from access.kindgi.com; pipe the token in, never paste it into a chat). Then run doctor again.`,
+        `Log Docker in with your pull token: ${login}. Then run doctor again.`,
       );
     case 'not-found':
+      return access.maybeNoAccess === true
+        ? fail(
+            'registry',
+            `Docker has no access to the runtime image on ${host}, or it isn't there: docker manifest inspect can't tell them apart (${firstLine(access.detail)}).`,
+            `If you haven't logged Docker in yet: ${login}. Otherwise check this machine can reach ${host}, then run doctor again.`,
+          )
+        : fail(
+            'registry',
+            `Couldn't find the runtime image on ${host}: ${firstLine(access.detail)}`,
+            `Check this machine can reach ${host} (the network, a proxy or a firewall), then run doctor again.`,
+          );
+    case 'credential-helper':
       return fail(
         'registry',
-        `Couldn't find the runtime image on ${host}: ${firstLine(access.detail)}`,
-        `Check this machine can reach ${host} (the network, a proxy or a firewall), then run doctor again.`,
+        `Docker couldn't run its credential helper${access.helper !== undefined ? ` (docker-credential-${access.helper})` : ''}: ${firstLine(access.detail)}`,
+        credentialHelperHint(access.helper),
       );
     case 'no-tool':
       return fail(
@@ -423,7 +437,11 @@ function projectCheck(dir: string, language: 'node' | 'python', rc: Kindgirc): D
   );
 }
 
-async function dependenciesCheck(dir: string, language: 'node' | 'python'): Promise<DoctorCheck> {
+async function dependenciesCheck(
+  dir: string,
+  language: 'node' | 'python',
+  tool: NonNullable<DoctorSeam['tool']>,
+): Promise<DoctorCheck> {
   if (language === 'python') {
     return (await pythonPackageInstalled(dir))
       ? pass('dependencies', 'The kindgi package is installed in .venv.')
@@ -436,11 +454,11 @@ async function dependenciesCheck(dir: string, language: 'node' | 'python'): Prom
   if (await nodePackageInstalled(dir, '@kindgi/sdk')) {
     return pass('dependencies', '@kindgi/sdk is installed.');
   }
-  const pm = await detectPackageManager(dir);
+  const { pm, declared } = await installedPackageManager(dir, tool);
   return fail(
     'dependencies',
     "@kindgi/sdk isn't installed: the project's dependencies aren't.",
-    `Install them: ${pm} install`,
+    `Install them: ${pm} install${declared !== undefined ? ` (the project names ${declared}, which isn't installed here)` : ''}`,
   );
 }
 
@@ -590,6 +608,7 @@ async function kindgiCommand(
   dir: string,
   language: 'node' | 'python' | undefined,
   pypi: boolean,
+  tool: NonNullable<DoctorSeam['tool']>,
 ): Promise<Kindgi> {
   if (pypi) {
     // The PyPI build runs from the project's own environment; outside one, uvx.
@@ -603,7 +622,7 @@ async function kindgiCommand(
     };
   }
   if (language === 'node') {
-    const runner = await detectBinRunner(dir, 'node');
+    const runner = (await installedPackageManager(dir, tool)).pm;
     return (...args) => {
       const c = binCommand(runner, 'kindgi', args);
       return [c.command, ...c.args].join(' ');
@@ -611,6 +630,20 @@ async function kindgiCommand(
   }
   const spec = publishedCliSpec(CLI_VERSION);
   return (...args) => ['npx', spec, ...args].join(' ');
+}
+
+/**
+ * The package manager that runs here (`usablePackageManager`), asking
+ * through doctor's tool seam whether a declared one is installed.
+ */
+function installedPackageManager(
+  dir: string,
+  tool: NonNullable<DoctorSeam['tool']>,
+): Promise<{ readonly pm: PackageManager; readonly declared?: PackageManager }> {
+  return usablePackageManager(dir, {
+    ...defaultDetectIo,
+    runs: async (pm) => (await tool(pm, ['--version'])).code === 0,
+  });
 }
 
 /** Run a tool to completion; `code: null` when it isn't installed. Gives up after 15 s. */

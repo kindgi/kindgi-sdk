@@ -28,7 +28,7 @@ const IMAGE = 'quay.io/kindgi/runtime:1.0.0@sha256:abc';
 
 /** Docker that is running and can pull the image, unless told otherwise. */
 const dockerThat =
-  (state: 'ok' | 'missing' | 'stopped' | 'no-access'): DockerRunner =>
+  (state: 'ok' | 'missing' | 'stopped' | 'no-access' | 'helper'): DockerRunner =>
   async (args) => {
     if (state === 'missing') return { code: null, stdout: '', stderr: 'spawn docker ENOENT' };
     if (args[0] === 'version') {
@@ -39,6 +39,14 @@ const dockerThat =
             stderr: 'Cannot connect to the Docker daemon. Is the docker daemon running?',
           }
         : { code: 0, stdout: '27.3.1\n', stderr: '' };
+    }
+    if (state === 'helper') {
+      return {
+        code: 1,
+        stdout: '',
+        stderr:
+          'error getting credentials - err: exec: "docker-credential-desktop": executable file not found in $PATH, out: ``',
+      };
     }
     if (state === 'no-access') {
       return {
@@ -213,6 +221,15 @@ describe('the machine', () => {
     );
   });
 
+  test("a credential helper Docker can't run: named, with the fix, not a network problem", async () => {
+    const { check } = await doctor({ seam: seam({ docker: dockerThat('helper') }) });
+    expect(check('registry')).toMatchObject({ status: 'fail' });
+    expect(check('registry')?.message).toContain(
+      "Docker couldn't run its credential helper (docker-credential-desktop)",
+    );
+    expect(check('registry')?.fix).toContain('/Applications/Docker.app/Contents/Resources/bin');
+  });
+
   test('an old Node, and no npm', async () => {
     const { check } = await doctor({
       seam: seam({ nodeVersion: '20.11.1', tools: { npm: null } }),
@@ -340,10 +357,22 @@ describe('a TypeScript project', () => {
     });
   });
 
+  test('a pnpm project on a machine without pnpm: the fixes fall back to npm', async () => {
+    await tsProject();
+    await writeFile(join(dir, 'pnpm-lock.yaml'), '');
+    const { check } = await doctor({ seam: seam({ tools: { pnpm: null } }) });
+    expect(check('dependencies')?.fix).toBe(
+      "Install them: npm install (the project names pnpm, which isn't installed here)",
+    );
+    expect(check('model-key')?.fix).toMatch(
+      /^With kindgi dev running: npx --no kindgi secrets set ANTHROPIC_API_KEY /,
+    );
+  });
+
   test('a pnpm project: the fixes are its own commands (pnpm install, pnpm exec kindgi …)', async () => {
     await tsProject();
     await writeFile(join(dir, 'pnpm-lock.yaml'), '');
-    const { check } = await doctor();
+    const { check } = await doctor({ seam: seam({ tools: { pnpm: '10.28.0' } }) });
     expect(check('dependencies')?.fix).toBe('Install them: pnpm install');
     expect(check('model-key')?.fix).toMatch(
       /^With kindgi dev running: pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant /,

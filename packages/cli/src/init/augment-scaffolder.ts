@@ -29,6 +29,9 @@
  *     one): a decision for esbuild's install script, `allowBuilds.esbuild:
  *     false` (esbuild works without it), without which pnpm 11+ refuses to
  *     install `@kindgi/cli` (`pnpm-workspace-patcher.ts`)
+ *   - in an npm app, the same decision in `package.json`'s `allowScripts`
+ *     (`esbuild: false`), without which npm 11 warns that esbuild's script
+ *     isn't covered by allowScripts (`decideAllowScripts`)
  *
  * What augment mode does NOT write:
  *   - env files — `kindgi dev` reads the project's own `.env` /
@@ -58,7 +61,11 @@ import {
 } from '../package-manager.js';
 import { type KindgiDependencySpecs, resolveKindgiDependencySpecs } from './dependency-specs.js';
 import { patchGitignore, patchPrettierignore } from './gitignore-patcher.js';
-import { type WantedDependency, patchPackageJson } from './package-json-patcher.js';
+import {
+  type WantedDependency,
+  decideAllowScripts,
+  patchPackageJson,
+} from './package-json-patcher.js';
 import {
   ESBUILD,
   ESBUILD_DECISION,
@@ -671,15 +678,50 @@ async function applyAugmentPatches(args: {
     created.push(`${prettierignorePath} (patched: +${patchPrettier.appended.join(', +')})`);
   }
 
-  if (args.packageManager === 'pnpm') {
-    const workspace = await decideEsbuildInPnpm(args.targetDir);
-    if (workspace.kind === 'err') return workspace;
-    created.push(...workspace.created);
-    skipped.push(...workspace.skipped);
-    warnings.push(...workspace.warnings);
+  const esbuild =
+    args.packageManager === 'pnpm'
+      ? await decideEsbuildInPnpm(args.targetDir)
+      : args.packageManager === 'npm'
+        ? await decideEsbuildInNpm(args.pkgJsonPath)
+        : undefined;
+  if (esbuild?.kind === 'err') return esbuild;
+  if (esbuild !== undefined) {
+    created.push(...esbuild.created);
+    skipped.push(...esbuild.skipped);
+    warnings.push(...esbuild.warnings);
   }
 
   return { kind: 'ok', created, skipped, warnings };
+}
+
+/**
+ * A decision for esbuild's install script (`allowScripts.esbuild: false`) in
+ * the npm app's `package.json`, unless it has one: npm 11's counterpart of
+ * pnpm's `allowBuilds`.
+ */
+async function decideEsbuildInNpm(pkgJsonPath: string): Promise<PatchesResult> {
+  const setting = `allowScripts.${ESBUILD}`;
+  const result = await decideAllowScripts(pkgJsonPath, ESBUILD, ESBUILD_DECISION);
+  const rows = { created: [] as string[], skipped: [] as string[], warnings: [] as string[] };
+  switch (result.kind) {
+    case 'error':
+      return { kind: 'err', stderr: `Failed to patch ${pkgJsonPath}: ${result.message}\n` };
+    case 'patched':
+      rows.created.push(`${pkgJsonPath} (patched: +${setting}: ${ESBUILD_DECISION})`);
+      break;
+    case 'already-decided':
+      rows.skipped.push(
+        `${pkgJsonPath} (allowScripts.${result.key} already ${String(result.value)})`,
+      );
+      break;
+    case 'refused':
+      rows.skipped.push(`${pkgJsonPath} (not edited: ${result.reason})`);
+      rows.warnings.push(
+        `npm: couldn't add ${setting}: ${ESBUILD_DECISION} to ${pkgJsonPath} (${result.reason}). Add it by hand, or npm 11 warns that esbuild's install script isn't covered by allowScripts.`,
+      );
+      break;
+  }
+  return { kind: 'ok', ...rows };
 }
 
 /**

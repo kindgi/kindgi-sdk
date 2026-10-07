@@ -23,7 +23,12 @@ import {
   RUNTIME_PACK_DIR,
   RUNTIME_PUBLIC_TOKEN_KEY,
 } from './runtime-env.js';
-import { isRegistryAuthFailure, registryLoginCommand } from './runtime-registry.js';
+import {
+  credentialHelperFailure,
+  credentialHelperHint,
+  isRegistryAuthFailure,
+  registryLoginCommand,
+} from './runtime-registry.js';
 
 export type RuntimeNetwork = 'alias' | 'host-network';
 
@@ -116,9 +121,13 @@ export async function ensureRuntimeImage(
   const pulled = await docker(['pull', image]);
   if (pulled.code === 0) return { kind: 'ok' };
   const detail = lastLines(pulled.stderr);
-  const auth = isRegistryAuthFailure(pulled.stderr)
-    ? `\n  The runtime image is in private preview: request access at contact@kindgi.com, log in with the pull credentials you receive (${registryLoginCommand(image)}), then run kindgi dev again.`
-    : '';
+  const helper = credentialHelperFailure(pulled.stderr);
+  const auth =
+    helper !== undefined
+      ? `\n  ${credentialHelperHint(helper.helper)}`
+      : isRegistryAuthFailure(pulled.stderr)
+        ? `\n  The runtime image is in private preview: request access at contact@kindgi.com, log in with the pull credentials you receive (${registryLoginCommand(image)}), then run kindgi dev again.`
+        : '';
   return { kind: 'error', message: `Couldn't pull ${image}: ${detail}${auth}` };
 }
 
