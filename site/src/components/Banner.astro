@@ -1,7 +1,7 @@
 ---
 /*
  * Starlight's page banner, plus a notice on docs that aren't the latest
- * release's ("you're reading v0.1", or a release candidate under `/next/`,
+ * release's (an older release, or a release candidate under `/next/`,
  * filled in from `/versions.json`), and on every page of a private preview
  * build.
  */
@@ -51,8 +51,9 @@ const preview = import.meta.env.PUBLIC_KINDGI_DOCS_PREVIEW === '1';
         link,
       );
     } else {
-      link.textContent = `Go to the latest (v${latest})`;
-      element.append(`You're reading the docs for v${current.version}. `, link);
+      // An older release: its pages may have what a later release fixed.
+      link.textContent = `v${latest}`;
+      element.append(`You're reading the docs for v${current.version}. The latest is `, link, '.');
     }
     element.hidden = false;
   }

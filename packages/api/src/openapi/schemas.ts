@@ -1013,6 +1013,15 @@ export const ServiceAccountGrantTenantAdminSchema: JsonSchema = {
   properties: { kind: { type: 'string', enum: ['tenant-admin'] } },
 };
 
+export const ServiceAccountGrantTenantMemberSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind'],
+  description:
+    "Tenant member: read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. A service account has it only when granted; a person has it from being added.",
+  properties: { kind: { type: 'string', enum: ['tenant-member'] } },
+};
+
 export const ServiceAccountGrantProjectSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -1026,18 +1035,21 @@ export const ServiceAccountGrantProjectSchema: JsonSchema = {
 };
 
 export const ServiceAccountGrantSchema: JsonSchema = {
-  description: 'What a service account may do: tenant admin, or a role on one project.',
+  description:
+    "What a service account may do: tenant admin, tenant member (read the tenant's settings), or a role on one project.",
   oneOf: [
     { $ref: '#/components/schemas/ServiceAccountGrantTenantAdmin' },
+    { $ref: '#/components/schemas/ServiceAccountGrantTenantMember' },
     { $ref: '#/components/schemas/ServiceAccountGrantProject' },
   ],
   discriminator: { propertyName: 'kind' },
 };
 
 export const ServiceAccountGrantBodySchema: JsonSchema = {
-  description: 'The grant to add: tenant admin, or a role on one project.',
+  description: 'The grant to add: tenant admin, tenant member, or a role on one project.',
   oneOf: [
     { $ref: '#/components/schemas/ServiceAccountGrantTenantAdmin' },
+    { $ref: '#/components/schemas/ServiceAccountGrantTenantMember' },
     { $ref: '#/components/schemas/ServiceAccountGrantProject' },
   ],
   discriminator: { propertyName: 'kind' },
@@ -1055,9 +1067,10 @@ export const ServiceAccountUngrantProjectSchema: JsonSchema = {
 };
 
 export const ServiceAccountUngrantBodySchema: JsonSchema = {
-  description: 'The grant to remove: tenant admin, or the role on a project.',
+  description: 'The grant to remove: tenant admin, tenant member, or the role on a project.',
   oneOf: [
     { $ref: '#/components/schemas/ServiceAccountGrantTenantAdmin' },
+    { $ref: '#/components/schemas/ServiceAccountGrantTenantMember' },
     { $ref: '#/components/schemas/ServiceAccountUngrantProject' },
   ],
   discriminator: { propertyName: 'kind' },
@@ -8414,6 +8427,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ApiTokenPage', ApiTokenPageSchema],
   ['ApiKeyPrincipal', ApiKeyPrincipalSchema],
   ['ServiceAccountGrantTenantAdmin', ServiceAccountGrantTenantAdminSchema],
+  ['ServiceAccountGrantTenantMember', ServiceAccountGrantTenantMemberSchema],
   ['ServiceAccountGrantProject', ServiceAccountGrantProjectSchema],
   ['ServiceAccountGrant', ServiceAccountGrantSchema],
   ['ServiceAccountGrantBody', ServiceAccountGrantBodySchema],

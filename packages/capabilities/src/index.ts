@@ -34,6 +34,7 @@ export type {
   ModelCallInput,
   ModelUsageRecord,
   ModelCallResult,
+  ModelCallWarning,
   ModelMessage,
   ModelInfo,
   ModelProvider,
