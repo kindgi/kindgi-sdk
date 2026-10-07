@@ -15,7 +15,7 @@ import { describe, expect, test } from 'vitest';
 import { createStubAppBindings } from '@kindgi/testing';
 import type { ProjectId, RunId, TenantId } from '@kindgi/types';
 
-import { inSample } from '../src/eval-sample.js';
+import { sampleCases } from '../src/eval-sample.js';
 import type {
   AgentRegistryBinding,
   AgentVersionRecord,
@@ -25,6 +25,7 @@ import type {
   EvalSuiteRegistryBinding,
   GatePolicySpec,
   JudgedComparisonSummary,
+  JudgedEvalCase,
   RunHandlerBinding,
   TokenResolver,
 } from '../src/index.js';
@@ -56,23 +57,54 @@ const suite: EvalSuite = {
   spec: { source: 'judgments', caseCount: CASES.length },
 };
 
-describe('inSample', () => {
-  const sample = { seed: 'pass-1', holdOutShare: 0.3 } as const;
-  test('splits the same cases the same way, into two parts that cover every case once', () => {
-    const holdOut = CASES.filter((id) => inSample(id, { ...sample, part: 'hold-out' }));
-    const search = CASES.filter((id) => inSample(id, { ...sample, part: 'search' }));
-    expect(holdOut.length + search.length).toBe(CASES.length);
+function judgedCase(caseId: string, no = false): JudgedEvalCase {
+  return {
+    caseId,
+    subject: { kind: 'agent', id: 'acme.agent', version: '1.0.0' },
+    input: caseId,
+    output: { appended: [{ role: 'agent', content: 'Hi.' }] },
+    items: [
+      {
+        key: 'answer',
+        pointer: '/appended/0/content',
+        yes: no ? 0 : 1,
+        no: no ? 1 : 0,
+        yesWeight: no ? 0 : 1,
+        totalWeight: 1,
+        reasons: [],
+      },
+    ],
+  } as JudgedEvalCase;
+}
+
+describe('sampleCases', () => {
+  const sample: { seed: string; holdOutShare: number } = { seed: 'pass-1', holdOutShare: 0.3 };
+  const cases = [
+    ...Array.from({ length: 10 }, (_, i) => judgedCase(`no-${i}`, true)),
+    ...Array.from({ length: 30 }, (_, i) => judgedCase(`yes-${i}`)),
+  ];
+  const ids = (part: 'search' | 'hold-out', seed = sample.seed) =>
+    sampleCases(cases, { ...sample, seed, part }).map((c) => c.caseId);
+
+  test('splits by judgment: about the share of the "no" cases and of the others, every case once', () => {
+    const holdOut = ids('hold-out');
+    const search = ids('search');
+    expect(holdOut.length + search.length).toBe(cases.length);
     expect(holdOut.filter((id) => search.includes(id))).toEqual([]);
-    expect(CASES.filter((id) => inSample(id, { ...sample, part: 'hold-out' }))).toEqual(holdOut);
-    // About the share, for a set this size.
-    expect(holdOut.length).toBeGreaterThan(4);
-    expect(holdOut.length).toBeLessThan(20);
+    expect(holdOut.filter((id) => id.startsWith('no-'))).toHaveLength(3);
+    expect(holdOut.filter((id) => id.startsWith('yes-'))).toHaveLength(9);
   });
 
-  test('another seed splits differently', () => {
-    const a = CASES.filter((id) => inSample(id, { ...sample, part: 'hold-out' }));
-    const b = CASES.filter((id) => inSample(id, { ...sample, seed: 'pass-2', part: 'hold-out' }));
-    expect(a).not.toEqual(b);
+  test('the same seed splits the same way; another seed differently', () => {
+    expect(ids('hold-out')).toEqual(ids('hold-out'));
+    expect(ids('hold-out', 'pass-2')).not.toEqual(ids('hold-out'));
+  });
+
+  test('a stratum of two puts one in each part; a stratum of one stays in the search part', () => {
+    const two = [judgedCase('a', true), judgedCase('b', true), judgedCase('c')];
+    const holdOut = sampleCases(two, { ...sample, part: 'hold-out' }).map((c) => c.caseId);
+    expect(holdOut.filter((id) => id !== 'c')).toHaveLength(1);
+    expect(holdOut).not.toContain('c');
   });
 });
 
@@ -222,7 +254,10 @@ describe('a sample of the test set', () => {
     const res = await start({ sample });
     expect(res.status, JSON.stringify(res.body)).toBe(201);
     const run = await settled(binding, res.body.runId);
-    const expected = CASES.filter((id) => inSample(id, sample as Parameters<typeof inSample>[1]));
+    const expected = sampleCases(
+      CASES.map((id) => judgedCase(id)),
+      sample as Parameters<typeof sampleCases>[1],
+    ).map((c) => c.caseId);
     expect([...invoked].sort()).toEqual([...expected].sort());
     const summary = run.result?.summary as JudgedComparisonSummary;
     expect(summary.cases).toBe(expected.length);

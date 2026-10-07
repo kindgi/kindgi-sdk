@@ -34,7 +34,7 @@ import type {
   EvalRunDispatcher,
   EvalRunSubjectInvokeOutcome,
 } from './eval-run-dispatcher.js';
-import { inSample } from './eval-sample.js';
+import { sampleCases } from './eval-sample.js';
 import {
   type ItemChanges,
   type OutputScore,
@@ -237,10 +237,9 @@ export function createJudgedDispatcher(options: JudgedDispatcherOptions): EvalRu
     validate: validateComparison,
     async dispatch(ctx): Promise<DispatchResult> {
       const comparison = ctx.comparison ?? DEFAULT_COMPARISON;
-      const sample = comparison.sample;
-      const stored = (await allCases(options.cases, ctx)).filter(
-        (c) => sample === undefined || inSample(c.caseId, sample),
-      );
+      const every = await allCases(options.cases, ctx);
+      const stored =
+        comparison.sample === undefined ? every : sampleCases(every, comparison.sample);
       const all =
         comparison.classWeights === 'restricted-only' ? stored.map(restrictedOnly) : stored;
       if (ctx.dryRun) {
