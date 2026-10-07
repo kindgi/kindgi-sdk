@@ -98,6 +98,7 @@ export type {
   RunHandlerBinding,
   RunHandlerFailure,
   RunHandlerOutcome,
+  RunTrace,
 } from './handler-binding.js';
 export type {
   ReviewerBinding,

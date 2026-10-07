@@ -637,6 +637,12 @@ export const RunSchema: JsonSchema = {
       description:
         "The segment path the run was started with (coarse to fine), which picks live agent versions. A child run has its parent's. Absent when there was none.",
     },
+    traceId: {
+      type: 'string',
+      pattern: '^[0-9a-f]{32}$',
+      description:
+        "The W3C trace id of the request that started the run: the caller's (from its `traceparent`) or one the API minted. The runtime's records about the run carry it; `GET` responses answer `traceresponse` with each request's own. Absent for a run no request started, and on runs from before runs recorded it.",
+    },
     publicAccessToken: {
       type: 'string',
       description:
