@@ -20,7 +20,7 @@ import type {
   ProviderMetadata,
   UsageCounters,
 } from '@kindgi/capabilities';
-import { samplingFor } from '@kindgi/capabilities';
+import { adapterConfigError, samplingFor } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
 import { nameToolsAsSent } from '@kindgi/capabilities/tool-names';
 
@@ -423,13 +423,15 @@ export const openAICompatAdapterEntry: AdapterFactoryEntry = {
 /** What the checks read of a registration. */
 type Registration = Pick<AdapterFactoryInput, 'metadata' | 'config'>;
 
-function throwIf(problem: AdapterConfigProblem | undefined): void {
-  if (problem !== undefined) throw new Error(problem.message);
+function throwIf(input: Registration, problem: AdapterConfigProblem | undefined): void {
+  if (problem !== undefined) {
+    throw adapterConfigError(OPENAI_COMPAT_ADAPTER_ID, input.metadata.id, problem);
+  }
 }
 
 /** The endpoint a registration names (see `openAICompatAdapterFactory`). */
 export function openAICompatBaseUrl(input: AdapterFactoryInput): string {
-  throwIf(baseUrlProblem(input));
+  throwIf(input, baseUrlProblem(input));
   return input.config?.baseURL as string;
 }
 
@@ -438,7 +440,7 @@ function baseUrlProblem(input: Registration): AdapterConfigProblem | undefined {
   if (typeof value === 'string' && /^https?:\/\/[^\s/]+/.test(value)) return undefined;
   return {
     path: '/adapter_config/baseURL',
-    message: `${OPENAI_COMPAT_ADAPTER_ID}: provider "${input.metadata.id}" needs adapter_config.baseURL, an http(s) URL (e.g. ${BASE_URLS.OPENAI}).`,
+    message: `needs adapter_config.baseURL, an http(s) URL (e.g. ${BASE_URLS.OPENAI}).`,
   };
 }
 
@@ -448,7 +450,7 @@ function baseUrlProblem(input: Registration): AdapterConfigProblem | undefined {
  * Throws, naming the key, on an API the adapter doesn't speak.
  */
 export function openAICompatApi(input: AdapterFactoryInput): OpenAICompatApi {
-  throwIf(apiProblem(input));
+  throwIf(input, apiProblem(input));
   return apiOf(input);
 }
 
@@ -457,7 +459,7 @@ function apiProblem(input: Registration): AdapterConfigProblem | undefined {
   if (value === undefined || OPENAI_COMPAT_APIS.some((known) => known === value)) return undefined;
   return {
     path: '/adapter_config/api',
-    message: `${OPENAI_COMPAT_ADAPTER_ID}: provider "${input.metadata.id}": adapter_config.api must be one of ${OPENAI_COMPAT_APIS.join(', ')}.`,
+    message: `adapter_config.api must be one of ${OPENAI_COMPAT_APIS.join(', ')}.`,
   };
 }
 
@@ -490,7 +492,7 @@ export function openAICompatExtraBody(
   input: AdapterFactoryInput,
 ): Readonly<Record<string, unknown>> | undefined {
   const { body, problems } = readExtraBody(input);
-  throwIf(problems[0]);
+  throwIf(input, problems[0]);
   return body;
 }
 
@@ -500,11 +502,7 @@ function readExtraBody(input: Registration): {
   readonly problems: readonly AdapterConfigProblem[];
 } {
   const problems: AdapterConfigProblem[] = [];
-  const at = (path: string, problem: string) =>
-    problems.push({
-      path,
-      message: `${OPENAI_COMPAT_ADAPTER_ID}: provider "${input.metadata.id}": ${problem}`,
-    });
+  const at = (path: string, problem: string) => problems.push({ path, message: problem });
   const config = input.config ?? {};
   if (Object.hasOwn(config, 'extraBody')) {
     at(

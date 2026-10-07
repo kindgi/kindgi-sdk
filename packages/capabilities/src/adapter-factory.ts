@@ -82,8 +82,26 @@ export interface AdapterConfigProblem {
    * `/metadata/models/<i>/name`.
    */
   readonly path: string;
-  /** What's wrong and what it takes: the error the adapter's factory throws for it. */
+  /**
+   * What's wrong with that setting and what it takes, without the adapter
+   * or provider (e.g. `adapter_config.api must be one of responses,
+   * chat-completions.`): the API lists it under its own sentence. The
+   * factory throws it as `adapterConfigError` words it.
+   */
   readonly message: string;
+}
+
+/**
+ * The error an adapter's factory throws for a problem its `checkConfig`
+ * reports: `<adapterId>: provider "<providerId>": <message>`. Both read the
+ * registration through the same functions, so they say the same thing.
+ */
+export function adapterConfigError(
+  adapterId: string,
+  providerId: string,
+  problem: AdapterConfigProblem,
+): Error {
+  return new Error(`${adapterId}: provider "${providerId}": ${problem.message}`);
 }
 
 /**

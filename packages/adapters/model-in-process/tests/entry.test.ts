@@ -45,9 +45,11 @@ describe('inProcessAdapterEntry', () => {
       expect(problems).toHaveLength(1);
       expect(problems[0]?.path).toBe('/metadata/models/1/name');
       expect(problems[0]?.message).toBe(
-        `${IN_PROCESS_ADAPTER_ID}: unknown model "${name}" in provider "acme-local". Valid values: ${Object.keys(MODEL_SPECS).join(', ')}.`,
+        `unknown model "${name}". Valid values: ${Object.keys(MODEL_SPECS).join(', ')}.`,
       );
-      expect(() => inProcessAdapterEntry.factory(input)).toThrow(problems[0]?.message);
+      expect(() => inProcessAdapterEntry.factory(input)).toThrow(
+        `${IN_PROCESS_ADAPTER_ID}: provider "acme-local": ${problems[0]?.message}`,
+      );
     },
   );
 

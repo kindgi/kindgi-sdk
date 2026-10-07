@@ -40,10 +40,12 @@ describe('anthropicAdapterEntry', () => {
     expect(problems).toEqual([
       {
         path: '/secret_ref',
-        message: `${ANTHROPIC_ADAPTER_ID}: provider "acme-claude" needs secret_ref: its Anthropic API key.`,
+        message: 'needs secret_ref: its Anthropic API key.',
       },
     ]);
-    expect(() => anthropicAdapterEntry.factory({ metadata })).toThrow(problems[0]?.message);
+    expect(() => anthropicAdapterEntry.factory({ metadata })).toThrow(
+      `${ANTHROPIC_ADAPTER_ID}: provider "acme-claude": needs secret_ref: its Anthropic API key.`,
+    );
   });
 
   test('the entry carries the check', () => {

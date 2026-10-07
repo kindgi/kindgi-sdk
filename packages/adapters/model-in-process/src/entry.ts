@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type {
-  AdapterConfigCheckInput,
-  AdapterConfigProblem,
-  AdapterFactory,
-  AdapterFactoryEntry,
+import {
+  type AdapterConfigCheckInput,
+  type AdapterConfigProblem,
+  type AdapterFactory,
+  type AdapterFactoryEntry,
+  adapterConfigError,
 } from '@kindgi/capabilities';
 
 import { type PrepareInProcessParams, prepareInProcessModel } from './prepare.js';
@@ -20,7 +21,8 @@ export const IN_PROCESS_ADAPTER_ID = '@kindgi/adapter-model-in-process';
  */
 export const inProcessAdapterFactory: AdapterFactory = (input) => {
   const problem = modelsProblem(input.metadata);
-  if (problem !== undefined) throw new Error(problem.message);
+  if (problem !== undefined)
+    throw adapterConfigError(IN_PROCESS_ADAPTER_ID, input.metadata.id, problem);
   return createInProcessModelProvider({
     models: input.metadata.models.map((m) => m.name as LocalModel),
     providerId: input.metadata.id,
@@ -56,8 +58,6 @@ function modelsProblem(
   if (unknown === undefined) return undefined;
   return {
     path: `/metadata/models/${index}/name`,
-    message:
-      `${IN_PROCESS_ADAPTER_ID}: unknown model "${unknown.name}" in provider "${metadata.id}". ` +
-      `Valid values: ${Object.keys(MODEL_SPECS).join(', ')}.`,
+    message: `unknown model "${unknown.name}". Valid values: ${Object.keys(MODEL_SPECS).join(', ')}.`,
   };
 }

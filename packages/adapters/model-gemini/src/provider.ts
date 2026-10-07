@@ -19,7 +19,7 @@ import type {
   ModelProvider,
   ProviderMetadata,
 } from '@kindgi/capabilities';
-import { samplingFor } from '@kindgi/capabilities';
+import { adapterConfigError, samplingFor } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
 
 import { type GeminiModelInfo, computeCostUsd, toFrameworkUsage } from './cost.js';
@@ -243,7 +243,7 @@ export function parseServiceAccountKey(key: string): Record<string, string> {
 export const geminiAdapterFactory: AdapterFactory = (input) => {
   const metadata = input.metadata as GeminiProviderOptions['metadata'];
   const hasSecretRef = input.resolveApiKey !== undefined;
-  throwIf(apiProblem(input) ?? developerKeyProblem(input, hasSecretRef));
+  throwIf(input.metadata.id, apiProblem(input) ?? developerKeyProblem(input, hasSecretRef));
   if (apiOf(input) === 'developer') {
     return createGeminiProvider({ metadata, apiKey: input.resolveApiKey as () => Promise<string> });
   }
@@ -282,8 +282,8 @@ export const geminiAdapterEntry: AdapterFactoryEntry = {
 /** What the checks read of a registration. */
 type Registration = Pick<AdapterFactoryInput, 'metadata' | 'config'>;
 
-function throwIf(problem: AdapterConfigProblem | undefined): void {
-  if (problem !== undefined) throw new Error(problem.message);
+function throwIf(providerId: string, problem: AdapterConfigProblem | undefined): void {
+  if (problem !== undefined) throw adapterConfigError(GEMINI_ADAPTER_ID, providerId, problem);
 }
 
 function apiOf(input: Registration): unknown {
@@ -295,7 +295,7 @@ function apiProblem(input: Registration): AdapterConfigProblem | undefined {
   if (api === 'vertex' || api === 'developer') return undefined;
   return {
     path: '/adapter_config/api',
-    message: `${GEMINI_ADAPTER_ID}: provider "${input.metadata.id}" adapter_config.api must be "vertex" or "developer", got ${JSON.stringify(api)}.`,
+    message: `adapter_config.api must be "vertex" or "developer", got ${JSON.stringify(api)}.`,
   };
 }
 
@@ -306,7 +306,8 @@ function developerKeyProblem(
   if (apiOf(input) !== 'developer' || hasSecretRef) return undefined;
   return {
     path: '/secret_ref',
-    message: `${GEMINI_ADAPTER_ID}: provider "${input.metadata.id}" uses the Gemini Developer API (adapter_config.api "developer") and needs secret_ref: its Gemini API key.`,
+    message:
+      'uses the Gemini Developer API (adapter_config.api "developer") and needs secret_ref: its Gemini API key.',
   };
 }
 
@@ -314,7 +315,7 @@ function developerKeyProblem(
 export function vertexTarget(
   input: Parameters<AdapterFactory>[0],
 ): NonNullable<GeminiProviderOptions['vertex']> {
-  throwIf(vertexTargetProblems(input)[0]);
+  throwIf(input.metadata.id, vertexTargetProblems(input)[0]);
   return {
     project: input.config?.project as string,
     location: locationOf(input),
@@ -331,11 +332,11 @@ function vertexTargetProblems(input: Registration): AdapterConfigProblem[] {
     return [
       {
         path: '/adapter_config/project',
-        message: `${GEMINI_ADAPTER_ID}: provider "${input.metadata.id}" needs adapter_config.project (the Vertex AI project).`,
+        message: 'needs adapter_config.project (the Vertex AI project).',
       },
     ];
   }
-  return vertexTargetProblemsOf(input.metadata.id, { project, location: locationOf(input) });
+  return vertexTargetProblemsOf({ project, location: locationOf(input) });
 }
 
 /** A provider names exactly one target: Vertex AI, or a Gemini API key. */
@@ -345,7 +346,7 @@ function checkTarget(providerId: string, options: GeminiProviderOptions): void {
       `${GEMINI_ADAPTER_ID}: provider "${providerId}" needs exactly one of vertex (a Vertex AI project) or apiKey (a Gemini Developer API key).`,
     );
   }
-  if (options.vertex !== undefined) throwIf(vertexTargetProblemsOf(providerId, options.vertex)[0]);
+  if (options.vertex !== undefined) throwIf(providerId, vertexTargetProblemsOf(options.vertex)[0]);
 }
 
 /**
@@ -355,20 +356,19 @@ function checkTarget(providerId: string, options: GeminiProviderOptions): void {
  * with the server's credentials, to another host.
  */
 function vertexTargetProblemsOf(
-  providerId: string,
   vertex: NonNullable<GeminiProviderOptions['vertex']>,
 ): AdapterConfigProblem[] {
   const problems: AdapterConfigProblem[] = [];
   if (!VERTEX_PROJECT.test(vertex.project)) {
     problems.push({
       path: '/adapter_config/project',
-      message: `${GEMINI_ADAPTER_ID}: provider "${providerId}" adapter_config.project must be a Google Cloud project id or number.`,
+      message: 'adapter_config.project must be a Google Cloud project id or number.',
     });
   }
   if (!VERTEX_LOCATION.test(vertex.location)) {
     problems.push({
       path: '/metadata/region',
-      message: `${GEMINI_ADAPTER_ID}: provider "${providerId}" metadata.region must be a Vertex AI location (one DNS label, e.g. us-central1).`,
+      message: 'metadata.region must be a Vertex AI location (one DNS label, e.g. us-central1).',
     });
   }
   return problems;

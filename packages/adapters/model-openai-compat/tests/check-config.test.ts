@@ -10,7 +10,11 @@
 
 import { describe, expect, test } from 'vitest';
 
-import type { AdapterConfig, ProviderMetadata } from '@kindgi/capabilities';
+import {
+  type AdapterConfig,
+  type ProviderMetadata,
+  adapterConfigError,
+} from '@kindgi/capabilities';
 
 import {
   BASE_URLS,
@@ -124,12 +128,13 @@ describe('openAICompatCheckConfig agrees with the factory', () => {
       expect(problems.length).toBeGreaterThan(0);
       const problem = problems.find((p) => p.path === path);
       expect(problem?.message).toContain(says);
-      expect(problem?.message.startsWith(`${OPENAI_COMPAT_ADAPTER_ID}: provider "acme-llm"`)).toBe(
-        true,
-      );
-      // The factory refuses it, with one of the check's own messages.
+      // The issue names the setting, not the adapter or provider (the API's sentence does).
+      expect(problem?.message).not.toContain(OPENAI_COMPAT_ADAPTER_ID);
+      // The factory refuses it, with one of the check's own problems, worded as its error.
       expect(thrown).toBeDefined();
-      expect(problems.map((p) => p.message)).toContain(thrown);
+      expect(
+        problems.map((p) => adapterConfigError(OPENAI_COMPAT_ADAPTER_ID, 'acme-llm', p).message),
+      ).toContain(thrown);
     },
   );
 

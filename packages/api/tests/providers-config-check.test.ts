@@ -60,13 +60,11 @@ const checked: AdapterFactoryEntry = {
       ? [
           {
             path: '/adapter_config/region',
-            message: `provider "${input.metadata.id}": region "moon" isn't one.`,
+            message: 'adapter_config.region "moon" isn\'t one.',
           },
         ]
       : []),
-    ...(input.hasSecretRef
-      ? []
-      : [{ path: '/secret_ref', message: `provider "${input.metadata.id}" needs secret_ref.` }]),
+    ...(input.hasSecretRef ? [] : [{ path: '/secret_ref', message: 'needs secret_ref.' }]),
   ],
 };
 const unchecked: AdapterFactoryEntry = {
@@ -174,11 +172,11 @@ describe('POST /v1/providers checks the registration with its adapter', () => {
     };
     expect(body.error.code).toBe('provider-config-invalid');
     expect(body.error.message).toBe(
-      'provider "acme": region "moon" isn\'t one. provider "acme" needs secret_ref.',
+      'Provider "acme" doesn\'t fit adapter @acme/adapter-model-acme: adapter_config.region "moon" isn\'t one (and 1 more).',
     );
     expect(body.error.details.issues).toEqual([
-      { path: '/adapter_config/region', message: 'provider "acme": region "moon" isn\'t one.' },
-      { path: '/secret_ref', message: 'provider "acme" needs secret_ref.' },
+      { path: '/adapter_config/region', message: 'adapter_config.region "moon" isn\'t one.' },
+      { path: '/secret_ref', message: 'needs secret_ref.' },
     ]);
     expect(registry.stored.size).toBe(0);
   });
@@ -187,8 +185,13 @@ describe('POST /v1/providers checks the registration with its adapter', () => {
     const { app } = makeApp(true);
     const res = await register(app, { metadata: metadata('acme'), adapter_id: '@acme/gone' });
     expect(res.status).toBe(422);
-    const body = (await res.json()) as { error: { details: { issues: { path: string }[] } } };
+    const body = (await res.json()) as {
+      error: { message: string; details: { issues: { path: string }[] } };
+    };
     expect(body.error.details.issues.map((p) => p.path)).toEqual(['/adapter_id']);
+    expect(body.error.message).toBe(
+      'This runtime has no adapter "@acme/gone", so it can\'t build provider "acme".',
+    );
   });
 
   test('an adapter without a check takes any flat adapter_config', async () => {
@@ -238,8 +241,8 @@ describe('GET /v1/providers/{providerId}/check', () => {
       adapterId: ADAPTER,
       checked: true,
       issues: [
-        { path: '/adapter_config/region', message: 'provider "old": region "moon" isn\'t one.' },
-        { path: '/secret_ref', message: 'provider "old" needs secret_ref.' },
+        { path: '/adapter_config/region', message: 'adapter_config.region "moon" isn\'t one.' },
+        { path: '/secret_ref', message: 'needs secret_ref.' },
       ],
     });
     expect(await (await check(app, 'good')).json()).toMatchObject({ checked: true, issues: [] });

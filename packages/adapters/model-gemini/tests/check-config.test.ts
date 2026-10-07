@@ -10,7 +10,11 @@
 
 import { describe, expect, test } from 'vitest';
 
-import type { AdapterConfig, ProviderMetadata } from '@kindgi/capabilities';
+import {
+  type AdapterConfig,
+  type ProviderMetadata,
+  adapterConfigError,
+} from '@kindgi/capabilities';
 
 import { GEMINI_ADAPTER_ID, geminiAdapterEntry, geminiCheckConfig } from '../src/index.js';
 
@@ -107,11 +111,11 @@ describe('geminiCheckConfig agrees with the factory', () => {
       const { problems, thrown } = both(region, config, key);
       const problem = problems.find((p) => p.path === path);
       expect(problem?.message).toContain(says);
-      expect(problem?.message.startsWith(`${GEMINI_ADAPTER_ID}: provider "acme-gemini"`)).toBe(
-        true,
-      );
+      expect(problem?.message).not.toContain(GEMINI_ADAPTER_ID);
       expect(thrown).toBeDefined();
-      expect(problems.map((p) => p.message)).toContain(thrown);
+      expect(
+        problems.map((p) => adapterConfigError(GEMINI_ADAPTER_ID, 'acme-gemini', p).message),
+      ).toContain(thrown);
     },
   );
 

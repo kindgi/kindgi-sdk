@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type {
-  AdapterConfigCheckInput,
-  AdapterConfigProblem,
-  AdapterFactory,
-  AdapterFactoryEntry,
+import {
+  type AdapterConfigCheckInput,
+  type AdapterConfigProblem,
+  type AdapterFactory,
+  type AdapterFactoryEntry,
+  adapterConfigError,
 } from '@kindgi/capabilities';
 
 import { createAnthropicProvider } from './provider.js';
@@ -19,8 +20,9 @@ export const ANTHROPIC_ADAPTER_ID = '@kindgi/adapter-model-anthropic';
  * effect on the next one.
  */
 export const anthropicAdapterFactory: AdapterFactory = (input) => {
-  const problem = keyProblem(input.metadata.id, input.resolveApiKey !== undefined);
-  if (problem !== undefined) throw new Error(problem.message);
+  const problem = keyProblem(input.resolveApiKey !== undefined);
+  if (problem !== undefined)
+    throw adapterConfigError(ANTHROPIC_ADAPTER_ID, input.metadata.id, problem);
   return createAnthropicProvider({
     apiKey: input.resolveApiKey as () => Promise<string>,
     metadata: input.metadata,
@@ -35,7 +37,7 @@ export const anthropicAdapterFactory: AdapterFactory = (input) => {
 export function anthropicCheckConfig(
   input: AdapterConfigCheckInput,
 ): readonly AdapterConfigProblem[] {
-  const problem = keyProblem(input.metadata.id, input.hasSecretRef);
+  const problem = keyProblem(input.hasSecretRef);
   return problem !== undefined ? [problem] : [];
 }
 
@@ -47,10 +49,7 @@ export const anthropicAdapterEntry: AdapterFactoryEntry = {
   checkConfig: anthropicCheckConfig,
 };
 
-function keyProblem(providerId: string, hasSecretRef: boolean): AdapterConfigProblem | undefined {
+function keyProblem(hasSecretRef: boolean): AdapterConfigProblem | undefined {
   if (hasSecretRef) return undefined;
-  return {
-    path: '/secret_ref',
-    message: `${ANTHROPIC_ADAPTER_ID}: provider "${providerId}" needs secret_ref: its Anthropic API key.`,
-  };
+  return { path: '/secret_ref', message: 'needs secret_ref: its Anthropic API key.' };
 }

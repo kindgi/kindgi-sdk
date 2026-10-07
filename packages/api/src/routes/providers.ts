@@ -244,7 +244,7 @@ export function providersRouter(
         toWireError(
           {
             code: 'provider-config-invalid',
-            message: problems.map((p) => p.message).join(' '),
+            message: refusalOf(validation.value.id, bodyObj.adapter_id, problems),
             issues: problems,
           },
           requestId,
@@ -739,6 +739,22 @@ function configProblems(
     ...(registration.adapterConfig !== undefined && { config: registration.adapterConfig }),
     hasSecretRef: registration.secretRef !== undefined,
   });
+}
+
+/**
+ * The 422's message: one sentence naming the provider, its adapter and the
+ * first problem, with a count of the rest (`details.issues` lists each).
+ */
+function refusalOf(
+  providerId: string,
+  adapterId: string,
+  problems: readonly AdapterConfigProblem[],
+): string {
+  const [first, ...rest] = problems;
+  if (first === undefined) return `Provider "${providerId}" doesn't fit adapter ${adapterId}.`;
+  if (first.path === '/adapter_id') return first.message;
+  const more = rest.length > 0 ? ` (and ${rest.length} more)` : '';
+  return `Provider "${providerId}" doesn't fit adapter ${adapterId}: ${first.message.replace(/\.$/, '')}${more}.`;
 }
 
 /**

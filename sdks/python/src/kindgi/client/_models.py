@@ -4227,7 +4227,7 @@ class AdapterConfigProblem(BaseModel):
     """
     message: str
     """
-    What's wrong and what it takes: the error the runtime would hit building the provider.
+    What's wrong with that setting and what it takes (e.g. `adapter_config.api must be one of responses, chat-completions.`). The error's `message` names the provider and its adapter.
     """
 
 
