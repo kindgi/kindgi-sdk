@@ -472,6 +472,14 @@ const ObservationUntilQueryParam: ParameterSpec = {
   schema: { type: 'string', format: 'date-time' },
 };
 
+const ErasureIdPathParam: ParameterSpec = {
+  name: 'erasureId',
+  in: 'path',
+  required: true,
+  description: 'The erasure (a UUID).',
+  schema: { type: 'string', format: 'uuid' },
+};
+
 const FactIdPathParam: ParameterSpec = {
   name: 'factId',
   in: 'path',
@@ -2951,6 +2959,101 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '501': ErrorResponse(
         "`memory-operation-unsupported`: this runtime's memory can't retrieve by intent.",
       ),
+    },
+  },
+
+  // ---------- memory erasures (a person's words) ----------
+  {
+    method: 'post',
+    honoPath: '/v1/memory/erasures',
+    openapiPath: '/v1/memory/erasures',
+    operationId: 'memory.createErasure',
+    summary: "Erase a person's words",
+    description:
+      "Starts erasing, in the background, one fact (`factId`), a person (`subject`: an app's end user `participant`, a Kindgi `user`, or an `external` subject facts name) or one conversation (`conversationId`): their facts, conversations (messages, recall rows), the runs that served them (input, output, journal, snapshots) and the free text they left in provenance; facts written from them go to review. Answers `202` with the erasure; follow it with `GET /v1/memory/erasures/{erasureId}`. A completed erasure keeps no identifier, only a keyed hash for a replay after a backup restore; `warnings` says when this deployment can't keep one (`erasure-unmatchable`: no secrets AAD key). Requires `admin` on the tenant.",
+    tags: ['memory'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('MemoryErasureSelector') },
+    responses: {
+      '202': { description: 'Started.', schema: ref('MemoryErasureCreated') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('Not exactly one of `factId`, `subject` or `conversationId`.'),
+      '403': ErrorResponse('Not a tenant admin.'),
+      '409': ErrorResponse(
+        '`legal-hold`: a fact it reaches is under legal hold (`details.factIds`); nothing started.',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/memory/erasures',
+    openapiPath: '/v1/memory/erasures',
+    operationId: 'memory.listErasures',
+    summary: 'List erasures',
+    description:
+      'Cursor-paginated, newest first: each erasure, how far it got and what it cleared. A completed one shows no selector. Requires `admin` on the tenant.',
+    tags: ['memory'],
+    security: 'bearer',
+    parameters: [LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': { description: 'Page of erasures.', schema: ref('MemoryErasurePage') },
+      ...CommonAuthErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '400': ErrorResponse('`cursor` is not one this list issued.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/memory/erasures/export',
+    openapiPath: '/v1/memory/erasures/export',
+    operationId: 'memory.exportErasures',
+    summary: 'Export the erasure ledger',
+    description:
+      "The whole ledger, oldest first, content-free: each erasure's selector kind, the keyed hash of whom it erased, who asked and when. Keep it off-box: restoring a backup rolls the ledger back too, and `POST /v1/memory/erasures/replay` with it runs the erasures again. Requires `admin` on the tenant.",
+    tags: ['memory'],
+    security: 'bearer',
+    responses: {
+      '200': { description: 'The ledger.', schema: ref('MemoryErasureLedger') },
+      ...CommonAuthErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/memory/erasures/replay',
+    openapiPath: '/v1/memory/erasures/replay',
+    operationId: 'memory.replayErasures',
+    summary: 'Replay erasures after a backup restore',
+    description:
+      "Takes the ledger `GET /v1/memory/erasures/export` gave, puts back the rows the restore lost, and finds each erasure's person (or fact, or conversation) again by its keyed hash: those run again (`replayed`); ones nothing in the tenant matches are only restored (`restored`); ones with no keyed hash, or a key this deployment doesn't hold, are `unmatched`. Requires `admin` on the tenant.",
+    tags: ['memory'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('ReplayMemoryErasuresBody') },
+    responses: {
+      '200': { description: 'What was replayed.', schema: ref('ReplayMemoryErasuresResult') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('Not `{erasures: [...]}` as the export gave them.'),
+      '403': ErrorResponse('Not a tenant admin.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/memory/erasures/:erasureId',
+    openapiPath: '/v1/memory/erasures/{erasureId}',
+    operationId: 'memory.getErasure',
+    summary: 'Get an erasure',
+    description:
+      'One erasure: its status (`pending`, `running`, `completed`, `failed`), phase, what each store cleared (`counts`), and `lastError` (a code, or `not-yet:<reason>` while it waits for a run to finish). Requires `admin` on the tenant.',
+    tags: ['memory'],
+    security: 'bearer',
+    parameters: [ErasureIdPathParam],
+    responses: {
+      '200': { description: 'The erasure.', schema: ref('MemoryErasure') },
+      ...CommonAuthErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse('No such erasure in this tenant.'),
     },
   },
 

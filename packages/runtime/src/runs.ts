@@ -66,6 +66,11 @@ export interface KernelRunRecord {
    * when it is a flow run. Absent when it was started without one.
    */
   readonly segments?: readonly ScopeSegment[];
+  /**
+   * When an erasure cleared the run's content (its input, output, failure
+   * message and journal payloads). Absent on every other run.
+   */
+  readonly contentErasedAt?: Timestamp;
 }
 
 /**

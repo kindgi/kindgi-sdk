@@ -694,6 +694,9 @@ function serializeRun(
     ...(row.replayOf != null && { replayOf: row.replayOf as unknown as string }),
     ...(row.evalRunId != null && { evalRunId: row.evalRunId }),
     ...(row.versions != null && { versions: row.versions }),
+    ...(row.contentErasedAt !== undefined && {
+      contentErasedAt: row.contentErasedAt as unknown as string,
+    }),
     ...(row.segments !== undefined &&
       row.segments.length > 0 && {
         segments: row.segments.map(({ key, value }) => ({ key, value })),

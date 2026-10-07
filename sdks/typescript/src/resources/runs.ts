@@ -298,6 +298,11 @@ export interface Run {
   readonly agent?: RunAgent;
   /** The segment path the run was started with; a child run has its parent's. */
   readonly segments?: readonly ScopeSegment[];
+  /**
+   * When an erasure cleared the run's content (its input, output, failure
+   * message and journal payloads): a person's words were erased.
+   */
+  readonly contentErasedAt?: string;
 }
 
 /**

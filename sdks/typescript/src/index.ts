@@ -126,7 +126,12 @@ export type {
   ConversationsClient,
   MessageFilter,
 } from './resources/conversations.js';
-export type { FactsClient, LogsClient, MemoryClient } from './resources/memory.js';
+export type {
+  FactsClient,
+  LogsClient,
+  MemoryClient,
+  MemoryErasuresClient,
+} from './resources/memory.js';
 export type { ProvenanceClient, ProvenanceExportInput } from './resources/provenance.js';
 export type { TenantClient, TenantConfigClient } from './resources/tenant.js';
 export type {
@@ -543,6 +548,12 @@ export type {
   ProviderId,
   ProviderSpec,
   PutArtifactInput,
+  MemoryErasure,
+  MemoryErasureCreated,
+  MemoryErasureLedgerEntry,
+  MemoryErasureSelector,
+  MemoryErasureStatus,
+  ReplayMemoryErasuresResult,
   RetrievalResult,
   RevokeSessionsResult,
   RouteResult,

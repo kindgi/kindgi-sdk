@@ -610,6 +610,12 @@ export const RunSchema: JsonSchema = {
       description:
         "The run's output once it completed. Present on single-run responses; on lists only with `?include=output`.",
     },
+    contentErasedAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "When an erasure cleared the run's content (its input, output, failure message and journal payloads): a person's words were erased. Structure (status, times, ids) stays.",
+    },
     parentRunId: {
       type: 'string',
       format: 'uuid',
@@ -3470,6 +3476,212 @@ export const RetrieveMemoryResultSchema: JsonSchema = {
   required: ['results'],
   properties: {
     results: { type: 'array', items: { $ref: '#/components/schemas/RetrievalHit' } },
+  },
+};
+
+// ---------------- memory erasures ----------------
+
+const ErasureSelectorKindSchema: JsonSchema = {
+  type: 'string',
+  enum: ['fact', 'participant', 'user', 'external', 'conversation'],
+};
+
+const ErasureStatusSchema: JsonSchema = {
+  type: 'string',
+  enum: ['pending', 'running', 'completed', 'failed'],
+};
+
+/** Whose words to erase: exactly one of a fact, a person or a conversation. */
+export const MemoryErasureSelectorSchema: JsonSchema = {
+  description:
+    "Whose words to erase: one fact (`factId`), a person (`subject`: an app's end user `participant`, a Kindgi `user`, or an `external` subject facts name), or one conversation (`conversationId`).",
+  oneOf: [
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['factId'],
+      properties: { factId: { type: 'string', minLength: 1, maxLength: 256 } },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['subject'],
+      properties: {
+        subject: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['kind', 'id'],
+          properties: {
+            kind: { type: 'string', enum: ['participant', 'user', 'external'] },
+            id: { type: 'string', minLength: 1, maxLength: 256 },
+          },
+        },
+      },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['conversationId'],
+      properties: { conversationId: { type: 'string', minLength: 1, maxLength: 256 } },
+    },
+  ],
+};
+
+export const MemoryErasureSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'id',
+    'selectorKind',
+    'status',
+    'phase',
+    'requestedBy',
+    'matchable',
+    'counts',
+    'attempts',
+    'createdAt',
+  ],
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    selectorKind: ErasureSelectorKindSchema,
+    selector: {
+      $ref: '#/components/schemas/MemoryErasureSelector',
+      description: 'Only while it runs: a completed or failed erasure keeps no identifier.',
+    },
+    status: ErasureStatusSchema,
+    phase: { type: 'string', enum: ['seed', 'expand', 'erase', 'done'] },
+    requestedBy: { type: 'string', description: '`user:<id>` or `service:<id>`.' },
+    matchable: {
+      type: 'boolean',
+      description:
+        'A replay after a backup restore can find this person again: a keyed hash was kept.',
+    },
+    counts: {
+      type: 'object',
+      additionalProperties: { type: 'integer', minimum: 0 },
+      description: 'What each store cleared or deleted, by store.',
+    },
+    attempts: { type: 'integer', minimum: 0, description: 'Failed attempts so far.' },
+    lastError: {
+      type: 'string',
+      description: "The last failure's code, or `not-yet:<reason>` while it waits. Never content.",
+    },
+    createdAt: { type: 'string', format: 'date-time' },
+    startedAt: { type: 'string', format: 'date-time' },
+    completedAt: { type: 'string', format: 'date-time' },
+    replayedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const MemoryErasureCreatedSchema: JsonSchema = {
+  allOf: [
+    { $ref: '#/components/schemas/MemoryErasure' },
+    {
+      type: 'object',
+      properties: {
+        warnings: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['code', 'message'],
+            properties: {
+              code: {
+                type: 'string',
+                enum: ['erasure-unmatchable'],
+                description:
+                  "`erasure-unmatchable`: this deployment has no secrets AAD key, so a replay after a restore can't find this person.",
+              },
+              message: { type: 'string' },
+            },
+          },
+        },
+      },
+    },
+  ],
+};
+
+export const MemoryErasurePageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/MemoryErasure' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+  },
+};
+
+export const MemoryErasureLedgerEntrySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'selectorKind', 'requestedBy', 'status', 'createdAt'],
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    selectorKind: ErasureSelectorKindSchema,
+    selectorHmac: {
+      type: 'string',
+      pattern: '^[0-9a-f]{64}$',
+      description: "HMAC-SHA256 of the selector under the tenant's ledger key; absent without one.",
+    },
+    keyId: { type: 'string', description: 'Which ledger key made `selectorHmac`.' },
+    requestedBy: { type: 'string' },
+    status: ErasureStatusSchema,
+    createdAt: { type: 'string', format: 'date-time' },
+    completedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const MemoryErasureLedgerSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/MemoryErasureLedgerEntry' } },
+  },
+};
+
+export const ReplayMemoryErasuresBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['erasures'],
+  properties: {
+    erasures: {
+      type: 'array',
+      maxItems: 10_000,
+      items: { $ref: '#/components/schemas/MemoryErasureLedgerEntry' },
+      description: 'The ledger as `GET /v1/memory/erasures/export` gave it.',
+    },
+  },
+};
+
+export const ReplayMemoryErasuresResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['replayed', 'restored', 'unmatched'],
+  properties: {
+    replayed: {
+      type: 'array',
+      items: { type: 'string', format: 'uuid' },
+      description: 'Found in the tenant again: run again.',
+    },
+    restored: {
+      type: 'array',
+      items: { type: 'string', format: 'uuid' },
+      description: 'Put back in the ledger; nothing in the tenant matches.',
+    },
+    unmatched: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['id', 'reason'],
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          reason: { type: 'string', enum: ['no-keyed-hash', 'unknown-key'] },
+        },
+      },
+    },
   },
 };
 
@@ -8615,6 +8827,14 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RetrieveMemoryBody', RetrieveMemoryBodySchema],
   ['RetrievalHit', RetrievalHitSchema],
   ['RetrieveMemoryResult', RetrieveMemoryResultSchema],
+  ['MemoryErasureSelector', MemoryErasureSelectorSchema],
+  ['MemoryErasure', MemoryErasureSchema],
+  ['MemoryErasureCreated', MemoryErasureCreatedSchema],
+  ['MemoryErasurePage', MemoryErasurePageSchema],
+  ['MemoryErasureLedgerEntry', MemoryErasureLedgerEntrySchema],
+  ['MemoryErasureLedger', MemoryErasureLedgerSchema],
+  ['ReplayMemoryErasuresBody', ReplayMemoryErasuresBodySchema],
+  ['ReplayMemoryErasuresResult', ReplayMemoryErasuresResultSchema],
   ['ProposalTier', ProposalTierSchema],
   ['FixProposalStatus', FixProposalStatusSchema],
   ['PatternRef', PatternRefSchema],

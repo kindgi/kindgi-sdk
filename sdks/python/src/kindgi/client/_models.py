@@ -3431,6 +3431,196 @@ class RetrieveMemoryResult(BaseModel):
     results: list[RetrievalHit]
 
 
+class MemoryErasureSelector1(BaseModel):
+    """
+    Whose words to erase: one fact (`factId`), a person (`subject`: an app's end user `participant`, a Kindgi `user`, or an `external` subject facts name), or one conversation (`conversationId`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    fact_id: Annotated[str, Field(alias="factId", max_length=256, min_length=1)]
+
+
+class Subject(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["participant", "user", "external"]
+    id: Annotated[str, Field(max_length=256, min_length=1)]
+
+
+class MemoryErasureSelector2(BaseModel):
+    """
+    Whose words to erase: one fact (`factId`), a person (`subject`: an app's end user `participant`, a Kindgi `user`, or an `external` subject facts name), or one conversation (`conversationId`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    subject: Subject
+
+
+class MemoryErasureSelector3(BaseModel):
+    """
+    Whose words to erase: one fact (`factId`), a person (`subject`: an app's end user `participant`, a Kindgi `user`, or an `external` subject facts name), or one conversation (`conversationId`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    conversation_id: Annotated[str, Field(alias="conversationId", max_length=256, min_length=1)]
+
+
+CountsAdditionalProperty = TypeAliasType("CountsAdditionalProperty", Annotated[int, Field(ge=0)])
+
+
+class MemoryErasure(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: UUID
+    selector_kind: Annotated[
+        Literal["fact", "participant", "user", "external", "conversation"],
+        Field(alias="selectorKind"),
+    ]
+    selector: MemoryErasureSelector1 | MemoryErasureSelector2 | MemoryErasureSelector3 | None = None
+    """
+    Only while it runs: a completed or failed erasure keeps no identifier.
+    """
+    status: Literal["pending", "running", "completed", "failed"]
+    phase: Literal["seed", "expand", "erase", "done"]
+    requested_by: Annotated[str, Field(alias="requestedBy")]
+    """
+    `user:<id>` or `service:<id>`.
+    """
+    matchable: bool
+    """
+    A replay after a backup restore can find this person again: a keyed hash was kept.
+    """
+    counts: dict[str, CountsAdditionalProperty]
+    """
+    What each store cleared or deleted, by store.
+    """
+    attempts: Annotated[int, Field(ge=0)]
+    """
+    Failed attempts so far.
+    """
+    last_error: Annotated[str | None, Field(alias="lastError")] = None
+    """
+    The last failure's code, or `not-yet:<reason>` while it waits. Never content.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    started_at: Annotated[AwareDatetime | None, Field(alias="startedAt")] = None
+    completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
+    replayed_at: Annotated[AwareDatetime | None, Field(alias="replayedAt")] = None
+
+
+class Warning1(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    code: Literal["erasure-unmatchable"]
+    """
+    `erasure-unmatchable`: this deployment has no secrets AAD key, so a replay after a restore can't find this person.
+    """
+    message: str
+
+
+class MemoryErasureCreated(MemoryErasure):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    warnings: list[Warning1] | None = None
+
+
+class MemoryErasurePage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[MemoryErasure]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class MemoryErasureLedgerEntry(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: UUID
+    selector_kind: Annotated[
+        Literal["fact", "participant", "user", "external", "conversation"],
+        Field(alias="selectorKind"),
+    ]
+    selector_hmac: Annotated[str | None, Field(alias="selectorHmac", pattern="^[0-9a-f]{64}$")] = (
+        None
+    )
+    """
+    HMAC-SHA256 of the selector under the tenant's ledger key; absent without one.
+    """
+    key_id: Annotated[str | None, Field(alias="keyId")] = None
+    """
+    Which ledger key made `selectorHmac`.
+    """
+    requested_by: Annotated[str, Field(alias="requestedBy")]
+    status: Literal["pending", "running", "completed", "failed"]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
+
+
+class MemoryErasureLedger(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[MemoryErasureLedgerEntry]
+
+
+class ReplayMemoryErasuresBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    erasures: Annotated[list[MemoryErasureLedgerEntry], Field(max_length=10000)]
+    """
+    The ledger as `GET /v1/memory/erasures/export` gave it.
+    """
+
+
+class UnmatchedItem(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: UUID
+    reason: Literal["no-keyed-hash", "unknown-key"]
+
+
+class ReplayMemoryErasuresResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    replayed: list[UUID]
+    """
+    Found in the tenant again: run again.
+    """
+    restored: list[UUID]
+    """
+    Put back in the ledger; nothing in the tenant matches.
+    """
+    unmatched: list[UnmatchedItem]
+
+
 class ProposalTier(RootModel[Literal["prompt", "retrieval", "tool-config"]]):
     root: Literal["prompt", "retrieval", "tool-config"]
 
@@ -6548,7 +6738,7 @@ class Actor(BaseModel):
     user_agent: Annotated[str | None, Field(alias="userAgent")] = None
 
 
-class Subject(BaseModel):
+class Subject1(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -6641,7 +6831,7 @@ class ComplianceEvidence(BaseModel):
     """
     timestamp: AwareDatetime
     actor: Actor | None = None
-    subject: Subject | None = None
+    subject: Subject1 | None = None
     outcome: Literal["allowed", "denied", "succeeded", "failed", "escalated"] | None = None
     payload: dict[str, Any]
     """
@@ -8296,6 +8486,10 @@ class Run(BaseModel):
     """
     The run's output once it completed. Present on single-run responses; on lists only with `?include=output`.
     """
+    content_erased_at: Annotated[AwareDatetime | None, Field(alias="contentErasedAt")] = None
+    """
+    When an erasure cleared the run's content (its input, output, failure message and journal payloads): a person's words were erased. Structure (status, times, ids) stays.
+    """
     parent_run_id: Annotated[UUID | None, Field(alias="parentRunId")] = None
     """
     Set on a child run (a sub-flow run, or the agent turn an agent step started): the run that started it.
@@ -8355,6 +8549,10 @@ class Datum(BaseModel):
     output: Any | None = None
     """
     The run's output once it completed. Present on single-run responses; on lists only with `?include=output`.
+    """
+    content_erased_at: Annotated[AwareDatetime | None, Field(alias="contentErasedAt")] = None
+    """
+    When an erasure cleared the run's content (its input, output, failure message and journal payloads): a person's words were erased. Structure (status, times, ids) stays.
     """
     parent_run_id: Annotated[UUID | None, Field(alias="parentRunId")] = None
     """

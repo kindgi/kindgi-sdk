@@ -45,6 +45,7 @@ import type {
   JudgmentRegistryBinding,
   MCPEndpointRegistryBinding,
   MemoryBinding,
+  MemoryErasureBinding,
   PolicyRegistryBinding,
   ProviderRegistryBinding,
   PublicRunTokenConfig,
@@ -357,6 +358,17 @@ const noopRetention: RetentionBinding = {
   sweep: async () => ({ perDomain: [], totalPurged: 0 }),
 };
 
+const noopMemoryErasures: MemoryErasureBinding = {
+  create: async () => ({
+    kind: 'refused',
+    refusal: { code: 'legal-hold', message: 'noop' },
+  }),
+  get: async () => undefined,
+  list: async () => ({ data: [] }),
+  exportLedger: async () => [],
+  replay: async () => ({ replayed: [], restored: [], unmatched: [] }),
+};
+
 const noopAgentReleases: AgentReleaseBindings = {
   live: { resolve: async () => null, list: async () => [] },
   promotions: {
@@ -565,6 +577,7 @@ function collectMountedRoutes(): HonoRouteRecord[] {
     toolRegistry: noopToolRegistry,
     guardrailRegistry: noopGuardrailRegistry,
     memory: noopMemory,
+    memoryErasures: noopMemoryErasures,
     supervisor: noopSupervisor,
     blobStorage: noopBlobStorage,
     capabilityRegistry: noopCapabilityRegistry,

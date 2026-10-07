@@ -1235,6 +1235,75 @@ export interface RetrievalResult {
   readonly score?: number;
 }
 
+// -- Memory erasures ------------------------------------------
+
+/**
+ * Whose words to erase: one fact, a person (an app's end user
+ * `participant`, a Kindgi `user`, or an `external` subject facts name),
+ * or one conversation. Matches `@kindgi/api/openapi.json#MemoryErasureSelector`.
+ */
+export type MemoryErasureSelector =
+  | { readonly factId: string }
+  | {
+      readonly subject: {
+        readonly kind: 'participant' | 'user' | 'external';
+        readonly id: string;
+      };
+    }
+  | { readonly conversationId: string };
+
+export type MemoryErasureStatus = 'pending' | 'running' | 'completed' | 'failed';
+
+/** An erasure and how far it got. Matches `@kindgi/api/openapi.json#MemoryErasure`. */
+export interface MemoryErasure {
+  readonly id: string;
+  readonly selectorKind: 'fact' | 'participant' | 'user' | 'external' | 'conversation';
+  /** Only while it runs: a completed or failed erasure keeps no identifier. */
+  readonly selector?: MemoryErasureSelector;
+  readonly status: MemoryErasureStatus;
+  readonly phase: 'seed' | 'expand' | 'erase' | 'done';
+  readonly requestedBy: string;
+  /** A replay after a backup restore can find this person again. */
+  readonly matchable: boolean;
+  /** What each store cleared or deleted, by store. */
+  readonly counts: Readonly<Record<string, number>>;
+  readonly attempts: number;
+  /** The last failure's code, or `not-yet:<reason>` while it waits. Never content. */
+  readonly lastError?: string;
+  readonly createdAt: string;
+  readonly startedAt?: string;
+  readonly completedAt?: string;
+  readonly replayedAt?: string;
+}
+
+/** `POST /v1/memory/erasures`'s answer: the erasure, and what to know about it. */
+export interface MemoryErasureCreated extends MemoryErasure {
+  /** `erasure-unmatchable`: no secrets AAD key, so a replay after a restore can't find this person. */
+  readonly warnings?: readonly { readonly code: 'erasure-unmatchable'; readonly message: string }[];
+}
+
+/** One ledger row, as exported off-box and given back to a replay. Content-free. */
+export interface MemoryErasureLedgerEntry {
+  readonly id: string;
+  readonly selectorKind: MemoryErasure['selectorKind'];
+  readonly selectorHmac?: string;
+  readonly keyId?: string;
+  readonly requestedBy: string;
+  readonly status: MemoryErasureStatus;
+  readonly createdAt: string;
+  readonly completedAt?: string;
+}
+
+export interface ReplayMemoryErasuresResult {
+  /** Found in the tenant again: run again. */
+  readonly replayed: readonly string[];
+  /** Put back in the ledger; nothing in the tenant matches. */
+  readonly restored: readonly string[];
+  readonly unmatched: readonly {
+    readonly id: string;
+    readonly reason: 'no-keyed-hash' | 'unknown-key';
+  }[];
+}
 // ============================================================
 // Provenance shapes — read + export + verify.
 // ============================================================

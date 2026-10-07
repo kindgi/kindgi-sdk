@@ -563,6 +563,17 @@ export type {
   MemoryWriteFactOutcome,
 } from './memory-binding.js';
 export type {
+  CreateMemoryErasureOutcome,
+  MemoryErasure,
+  MemoryErasureBinding,
+  MemoryErasureLedgerEntry,
+  MemoryErasureSelector,
+  MemoryErasureSelectorKind,
+  MemoryErasureStatus,
+  MemoryErasureWarning,
+  ReplayMemoryErasuresResult,
+} from './memory-erasure-binding.js';
+export type {
   SupervisorApplyOutcome,
   SupervisorApplyProposalInput,
   SupervisorBinding,

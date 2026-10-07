@@ -1345,6 +1345,11 @@
           "output": {
             "description": "The run's output once it completed. Present on single-run responses; on lists only with `?include=output`."
           },
+          "contentErasedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When an erasure cleared the run's content (its input, output, failure message and journal payloads): a person's words were erased. Structure (status, times, ids) stays."
+          },
           "parentRunId": {
             "type": "string",
             "format": "uuid",
@@ -1594,6 +1599,11 @@
                 },
                 "output": {
                   "description": "The run's output once it completed. Present on single-run responses; on lists only with `?include=output`."
+                },
+                "contentErasedAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "When an erasure cleared the run's content (its input, output, failure message and journal payloads): a person's words were erased. Structure (status, times, ids) stays."
                 },
                 "parentRunId": {
                   "type": "string",
@@ -6840,6 +6850,361 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/RetrievalHit"
+            }
+          }
+        }
+      },
+      "MemoryErasureSelector": {
+        "description": "Whose words to erase: one fact (`factId`), a person (`subject`: an app's end user `participant`, a Kindgi `user`, or an `external` subject facts name), or one conversation (`conversationId`).",
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "factId"
+            ],
+            "properties": {
+              "factId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "subject"
+            ],
+            "properties": {
+              "subject": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "id"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "participant",
+                      "user",
+                      "external"
+                    ]
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  }
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "conversationId"
+            ],
+            "properties": {
+              "conversationId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              }
+            }
+          }
+        ]
+      },
+      "MemoryErasure": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "selectorKind",
+          "status",
+          "phase",
+          "requestedBy",
+          "matchable",
+          "counts",
+          "attempts",
+          "createdAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "selectorKind": {
+            "type": "string",
+            "enum": [
+              "fact",
+              "participant",
+              "user",
+              "external",
+              "conversation"
+            ]
+          },
+          "selector": {
+            "$ref": "#/components/schemas/MemoryErasureSelector",
+            "description": "Only while it runs: a completed or failed erasure keeps no identifier."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "completed",
+              "failed"
+            ]
+          },
+          "phase": {
+            "type": "string",
+            "enum": [
+              "seed",
+              "expand",
+              "erase",
+              "done"
+            ]
+          },
+          "requestedBy": {
+            "type": "string",
+            "description": "`user:<id>` or `service:<id>`."
+          },
+          "matchable": {
+            "type": "boolean",
+            "description": "A replay after a backup restore can find this person again: a keyed hash was kept."
+          },
+          "counts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "What each store cleared or deleted, by store."
+          },
+          "attempts": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Failed attempts so far."
+          },
+          "lastError": {
+            "type": "string",
+            "description": "The last failure's code, or `not-yet:<reason>` while it waits. Never content."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "replayedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "MemoryErasureCreated": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MemoryErasure"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "warnings": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "enum": [
+                        "erasure-unmatchable"
+                      ],
+                      "description": "`erasure-unmatchable`: this deployment has no secrets AAD key, so a replay after a restore can't find this person."
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "MemoryErasurePage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MemoryErasure"
+            }
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        }
+      },
+      "MemoryErasureLedgerEntry": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "selectorKind",
+          "requestedBy",
+          "status",
+          "createdAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "selectorKind": {
+            "type": "string",
+            "enum": [
+              "fact",
+              "participant",
+              "user",
+              "external",
+              "conversation"
+            ]
+          },
+          "selectorHmac": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "HMAC-SHA256 of the selector under the tenant's ledger key; absent without one."
+          },
+          "keyId": {
+            "type": "string",
+            "description": "Which ledger key made `selectorHmac`."
+          },
+          "requestedBy": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "completed",
+              "failed"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "MemoryErasureLedger": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MemoryErasureLedgerEntry"
+            }
+          }
+        }
+      },
+      "ReplayMemoryErasuresBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "erasures"
+        ],
+        "properties": {
+          "erasures": {
+            "type": "array",
+            "maxItems": 10000,
+            "items": {
+              "$ref": "#/components/schemas/MemoryErasureLedgerEntry"
+            },
+            "description": "The ledger as `GET /v1/memory/erasures/export` gave it."
+          }
+        }
+      },
+      "ReplayMemoryErasuresResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "replayed",
+          "restored",
+          "unmatched"
+        ],
+        "properties": {
+          "replayed": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Found in the tenant again: run again."
+          },
+          "restored": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Put back in the ledger; nothing in the tenant matches."
+          },
+          "unmatched": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "reason"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "no-keyed-hash",
+                    "unknown-key"
+                  ]
+                }
+              }
             }
           }
         }
@@ -22949,6 +23314,398 @@
             }
           }
         },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/memory/erasures": {
+      "post": {
+        "operationId": "memory.createErasure",
+        "summary": "Erase a person's words",
+        "tags": [
+          "memory"
+        ],
+        "responses": {
+          "202": {
+            "description": "Started.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryErasureCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not exactly one of `factId`, `subject` or `conversationId`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`legal-hold`: a fact it reaches is under legal hold (`details.factIds`); nothing started.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Starts erasing, in the background, one fact (`factId`), a person (`subject`: an app's end user `participant`, a Kindgi `user`, or an `external` subject facts name) or one conversation (`conversationId`): their facts, conversations (messages, recall rows), the runs that served them (input, output, journal, snapshots) and the free text they left in provenance; facts written from them go to review. Answers `202` with the erasure; follow it with `GET /v1/memory/erasures/{erasureId}`. A completed erasure keeps no identifier, only a keyed hash for a replay after a backup restore; `warnings` says when this deployment can't keep one (`erasure-unmatchable`: no secrets AAD key). Requires `admin` on the tenant.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoryErasureSelector"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "memory.listErasures",
+        "summary": "List erasures",
+        "tags": [
+          "memory"
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of erasures.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryErasurePage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`cursor` is not one this list issued.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Cursor-paginated, newest first: each erasure, how far it got and what it cleared. A completed one shows no selector. Requires `admin` on the tenant.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Opaque cursor from a prior response. Absent → first page."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/memory/erasures/export": {
+      "get": {
+        "operationId": "memory.exportErasures",
+        "summary": "Export the erasure ledger",
+        "tags": [
+          "memory"
+        ],
+        "responses": {
+          "200": {
+            "description": "The ledger.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryErasureLedger"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "The whole ledger, oldest first, content-free: each erasure's selector kind, the keyed hash of whom it erased, who asked and when. Keep it off-box: restoring a backup rolls the ledger back too, and `POST /v1/memory/erasures/replay` with it runs the erasures again. Requires `admin` on the tenant.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/memory/erasures/replay": {
+      "post": {
+        "operationId": "memory.replayErasures",
+        "summary": "Replay erasures after a backup restore",
+        "tags": [
+          "memory"
+        ],
+        "responses": {
+          "200": {
+            "description": "What was replayed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReplayMemoryErasuresResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not `{erasures: [...]}` as the export gave them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Takes the ledger `GET /v1/memory/erasures/export` gave, puts back the rows the restore lost, and finds each erasure's person (or fact, or conversation) again by its keyed hash: those run again (`replayed`); ones nothing in the tenant matches are only restored (`restored`); ones with no keyed hash, or a key this deployment doesn't hold, are `unmatched`. Requires `admin` on the tenant.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplayMemoryErasuresBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/memory/erasures/{erasureId}": {
+      "get": {
+        "operationId": "memory.getErasure",
+        "summary": "Get an erasure",
+        "tags": [
+          "memory"
+        ],
+        "responses": {
+          "200": {
+            "description": "The erasure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryErasure"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such erasure in this tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "One erasure: its status (`pending`, `running`, `completed`, `failed`), phase, what each store cleared (`counts`), and `lastError` (a code, or `not-yet:<reason>` while it waits for a run to finish). Requires `admin` on the tenant.",
+        "parameters": [
+          {
+            "name": "erasureId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The erasure (a UUID)."
+          }
+        ],
         "security": [
           {
             "bearerAuth": []

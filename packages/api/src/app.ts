@@ -51,6 +51,7 @@ import type { JudgmentRegistryBinding } from './judgment-binding.js';
 import type { AgentReleaseBindings } from './live-version-binding.js';
 import type { MCPClientProbeBinding, MCPEndpointRegistryBinding } from './mcp-endpoint-binding.js';
 import type { MemoryBinding } from './memory-binding.js';
+import type { MemoryErasureBinding } from './memory-erasure-binding.js';
 import { type TokenResolver, bearerAuthMiddleware } from './middleware/auth.js';
 import { type Authorizer, createAuthorizer } from './middleware/authorize.js';
 import { mapThrownError } from './middleware/error-mapper.js';
@@ -101,6 +102,7 @@ import { identityRouter } from './routes/identity.js';
 import { judgedSuitesRouter } from './routes/judged-suites.js';
 import { judgeClassesRouter, judgmentsRouter } from './routes/judgments.js';
 import { mcpRouter } from './routes/mcp.js';
+import { memoryErasuresRouter } from './routes/memory-erasures.js';
 import { memoryRouter } from './routes/memory.js';
 import { observationsRouter } from './routes/observations.js';
 import { orgsRouter } from './routes/orgs.js';
@@ -387,6 +389,13 @@ export interface CreateAppInput {
    * the memory subsystem runtime + their embedding registry.
    */
   readonly memory?: MemoryBinding;
+  /**
+   * Optional. When present, mounts erasing a person's words
+   * (`/v1/memory/erasures`: create, get, list, export, replay), for a
+   * tenant admin only. The Kindgi runtime supplies an implementation over
+   * its erasure jobs and ledger.
+   */
+  readonly memoryErasures?: MemoryErasureBinding;
   /**
    * Optional. When present, mounts the supervisor proposals surface
    * (`/v1/proposals` list/get/draft, plus lifecycle actions
@@ -1098,6 +1107,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   }
   if (input.retention !== undefined) {
     v1.route('/retention', retentionRouter(input.retention, authorizer));
+  }
+  // Before `/memory`, so its routes answer first.
+  if (input.memoryErasures !== undefined) {
+    v1.route('/memory/erasures', memoryErasuresRouter(input.memoryErasures, authorizer));
   }
   if (input.memory !== undefined) {
     v1.route(
