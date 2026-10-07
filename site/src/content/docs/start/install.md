@@ -43,13 +43,14 @@ The first `kindgi dev` then pulls the image (about 700 MB; `amd64` and
 
 ### Check this machine
 
-`kindgi doctor` checks what Kindgi needs: Node, Docker, access to the
-runtime image and, in a project's folder, the project, its dependencies, its
-model key, the runtime and a provider. Each check that fails says how to fix
-it, and it exits `1` until nothing does:
+`kindgi doctor` checks what Kindgi needs: Node (or Python and uv), Docker,
+access to the runtime image and, in a project's folder, the project, its
+dependencies, its model key, the runtime and a provider. Each check that
+fails says how to fix it, and it exits `1` until nothing does:
 
 ```sh
 npx --yes @kindgi/cli@0.1 doctor     # in a project: pnpm exec kindgi doctor, or npx --no kindgi doctor
+uvx --from "kindgi-cli>=0.1,<0.2" kindgi doctor   # without Node; in a Python project: uv run kindgi doctor
 ```
 
 Here, with a Docker config whose `credsStore` names a helper Docker can't
