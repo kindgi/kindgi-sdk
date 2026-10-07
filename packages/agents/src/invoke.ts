@@ -289,6 +289,7 @@ export type {
   ModelInvocationError,
   OutputSchemaViolationError,
   RunSnapshotError,
+  SemanticUnavailableError,
   ToolInvocationError,
   UnresolvedToolError,
 } from './handlers/errors.js';

@@ -316,6 +316,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_MEMORY_EMBEDDINGS',
+    description:
+      "Turns on memory search by meaning: the embedding model, as `local:<model>`, run inside the server (no key, no outside call; the model downloads on first use, ~130 MB for the default). Models: `bge-small-en-v1.5` (384 dimensions), `nomic-embed-text-v1.5` (768), `mxbai-embed-large-v1` (1024). Facts are embedded when written, and a background job embeds the ones already there; agents' `semantic` and `both` retrieval and `/v1/memory/retrieve` then search by meaning. Unset (the default): keyword search only; a `semantic` intent fails its turn with `semantic-unavailable`, `both` runs its keyword half, and publishing such an agent warns. Any other value refuses to start.",
+    example: 'local:bge-small-en-v1.5',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_RETENTION_SWEEP_INTERVAL_MS',
     description:
       "How often the server purges deleted rows on its own, in milliseconds: in every tenant it serves, it purges for good the tombstones past their retention policy's grace, as `POST /v1/retention/sweep` does, holds (`graceSeconds: -1`) kept, and logs what it purged. Unset (the default): nothing purges on its own; sweep with `POST /v1/retention/sweep` or the console. At least 60000, or the server refuses to start.",

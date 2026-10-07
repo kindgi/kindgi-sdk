@@ -1303,9 +1303,33 @@ export const RetrievalIntentSchema: JsonSchema = {
   required: ['types', 'scope'],
   properties: {
     types: { type: 'array', items: { type: 'string' }, minItems: 1 },
-    scope: { type: 'string', enum: ['same-conversation', 'same-project', 'tenant'] },
+    scope: {
+      type: 'string',
+      enum: ['same-conversation', 'same-user', 'same-project', 'tenant'],
+      description:
+        "What the intent selects within what the run may see: this conversation's facts; this run's end user's and user's; the run's project's (none without a project); or every fact of the type it may see.",
+    },
     limit: { type: 'integer', minimum: 1 },
-    mode: { type: 'string', enum: ['keyword', 'semantic', 'both'] },
+    mode: {
+      type: 'string',
+      enum: ['keyword', 'semantic', 'both'],
+      description:
+        "With the user's message as the query: full-text, by meaning (fails the turn with `semantic-unavailable` on a runtime without embeddings), or both fused by rank (without embeddings, the keyword half). Absent: the newest facts.",
+    },
+  },
+};
+
+export const AgentMemoryPolicySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'How the agent uses what it retrieves.',
+  properties: {
+    instructionTypes: {
+      type: 'array',
+      items: { type: 'string', minLength: 1 },
+      description:
+        "Fact types that are instructions for this agent: a retrieved, verified fact of one of these types goes into the system message under 'Policies (verified)'. Default: none.",
+    },
   },
 };
 
@@ -1440,6 +1464,7 @@ export const AgentSchema: JsonSchema = {
     capabilities: { type: 'array', items: { $ref: '#/components/schemas/Capability' } },
     tools: { type: 'array', items: { $ref: '#/components/schemas/ToolRef' } },
     retrieval: { type: 'array', items: { $ref: '#/components/schemas/RetrievalIntent' } },
+    memory: { $ref: '#/components/schemas/AgentMemoryPolicy' },
     guardrails: { type: 'array', items: { type: 'string' } },
     preferredProvider: {
       type: 'string',
@@ -1605,6 +1630,7 @@ export const PublishAgentBodySchema: JsonSchema = {
     capabilities: { type: 'array', items: { $ref: '#/components/schemas/Capability' } },
     tools: { type: 'array', items: { $ref: '#/components/schemas/ToolRef' } },
     retrieval: { type: 'array', items: { $ref: '#/components/schemas/RetrievalIntent' } },
+    memory: { $ref: '#/components/schemas/AgentMemoryPolicy' },
     guardrails: { type: 'array', items: { type: 'string' } },
     preferredProvider: {
       type: 'string',
@@ -1633,6 +1659,17 @@ export const PublishAgentResultSchema: JsonSchema = {
   properties: {
     agentId: { type: 'string' },
     version: { type: 'string' },
+    warnings: {
+      type: 'array',
+      description:
+        'What the agent should know about this deployment before its first turn, e.g. `semantic-unavailable`: a retrieval intent searches by meaning and the deployment has no embeddings.',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['code', 'message'],
+        properties: { code: { type: 'string' }, message: { type: 'string' } },
+      },
+    },
   },
 };
 
@@ -3329,7 +3366,7 @@ export const VerifyFactBodySchema: JsonSchema = {
 
 export const RetrieveIntentSchema: JsonSchema = {
   description:
-    'Retrieval intent — mirrors `RetrievalIntent` from `@kindgi/agents`, widened for direct-HTTP use. `mode: "list"` returns a plain scoped list (no query). `mode: "keyword"` runs full-text search. `mode: "semantic"` runs vector similarity search — requires an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`. `mode: "both"` unions keyword + semantic results, dedup by fact id.',
+    'Retrieval intent — mirrors `RetrievalIntent` from `@kindgi/agents`, widened for direct-HTTP use. `mode: "list"` returns a plain scoped list (no query), newest first. `mode: "keyword"` runs full-text search. `mode: "semantic"` searches by meaning — it needs embeddings on the deployment; without them the route answers `422 semantic-unavailable`. `mode: "both"` runs both and fuses them by rank (reciprocal rank fusion), as `semantic` needing embeddings.',
   type: 'object',
   additionalProperties: false,
   required: ['mode'],
@@ -3357,7 +3394,7 @@ export const RetrievalHitSchema: JsonSchema = {
     score: {
       type: 'number',
       description:
-        'Relevance score. Keyword mode returns an implementation-defined rank (higher = better). Semantic mode returns cosine similarity in [-1, 1] (higher = better). Absent for `list` mode.',
+        'Relevance score. Keyword mode returns an implementation-defined rank (higher = better). Semantic mode returns cosine similarity in [-1, 1] (higher = better). Both: the fused rank score, `Σ 1/(60 + rank)` (higher = better). Absent for `list` mode.',
     },
   },
 };
@@ -8429,6 +8466,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['BuildJudgedSuiteResult', BuildJudgedSuiteResultSchema],
   ['PromptParameter', PromptParameterSchema],
   ['RetrievalIntent', RetrievalIntentSchema],
+  ['AgentMemoryPolicy', AgentMemoryPolicySchema],
   ['ConversationPolicy', ConversationPolicySchema],
   ['TurnBudget', TurnBudgetSchema],
   ['Capability', CapabilitySchema],

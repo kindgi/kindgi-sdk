@@ -51,6 +51,7 @@ async function memory(argv: readonly string[]) {
       ({
         identity: { whoami: record('whoami', { tenantId: 't-1', scopes: [] }) },
         memory: {
+          search: record('search', [{ fact: FACT, score: 2 / 61 }]),
           facts: {
             list: record('list', { data: [FACT], hasMore: false, items: [FACT] }),
             read: record('read', FACT),
@@ -217,20 +218,32 @@ describe('kindgi memory facts (T238)', () => {
     expect(rows[1]).toContain('superseded 2026-10-07T00:00:00Z by user:u-1');
   });
 
-  test('help names the whole path and leaves out retrieve', async () => {
+  test('help names the whole path and every command', async () => {
     const { out } = await memory(['--help']);
     expect(out.exitCode).toBe(0);
     expect(out.stdout).toContain('Usage: kindgi memory facts <subcommand>');
-    for (const name of ['write', 'supersede', 'delete', 'verify', 'revisions']) {
+    for (const name of ['write', 'supersede', 'delete', 'verify', 'revisions', 'retrieve']) {
       expect(out.stdout).toMatch(new RegExp(`^ {2}${name} `, 'm'));
     }
-    expect(out.stdout).not.toMatch(/^ {2}retrieve /m);
   });
 
-  test('retrieve says why it is not available', async () => {
-    const retrieve = await memory(['retrieve', '--query={"mode":"list"}']);
-    expect(retrieve.out.exitCode).toBe(2);
-    expect(retrieve.out.stderr).toContain("the Kindgi runtime doesn't search memory yet");
-    expect(retrieve.out.stderr).toContain('kindgi memory facts list --type=<type> --scope=<json>');
+  test('retrieve --query searches, and --table shows the hits best first', async () => {
+    const { out, calls } = await memory([
+      'retrieve',
+      '--query={"mode":"both","query":"refund","limit":5}',
+      '--table',
+    ]);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['search', { mode: 'both', query: 'refund', limit: 5 }]]);
+    expect(out.stdout).toContain('fact-1');
+    expect(out.stdout).toContain('0.0328');
+  });
+
+  test('retrieve needs --query, an object', async () => {
+    const missing = await memory(['retrieve']);
+    expect(missing.out.stderr).toContain('--query=<json-or-@file> is required');
+    const bad = await memory(['retrieve', '--query=[1]']);
+    expect(bad.out.stderr).toContain('--query must be a JSON object');
+    expect([...missing.calls, ...bad.calls]).toEqual([]);
   });
 });

@@ -2576,7 +2576,7 @@ class MemoryResource:
     ) -> _models.RetrieveMemoryResult:
         """Retrieve facts by intent. `POST /v1/memory/retrieve`
 
-        Cross-history retrieval over the facts the caller may see (as for listing). Body is a `RetrieveIntent` shape mirroring the agent-side declarative retrieval. Semantic modes require an embedding provider bound on the deployment.
+        Retrieval over the facts the caller may see (as for listing), current revisions only. `mode`: `list` (newest first, no query), `keyword` (full-text), `semantic` (by meaning), or `both` (the two searches fused by rank: reciprocal rank fusion). Searching by meaning needs embeddings on the deployment (`KINDGI_MEMORY_EMBEDDINGS`); without them `semantic` and `both` answer `422 semantic-unavailable`.
         """
         return self._client._request(
             _OPERATIONS["memory.retrieve"],
@@ -8482,7 +8482,7 @@ class AsyncMemoryResource:
     ) -> _models.RetrieveMemoryResult:
         """Retrieve facts by intent. `POST /v1/memory/retrieve`
 
-        Cross-history retrieval over the facts the caller may see (as for listing). Body is a `RetrieveIntent` shape mirroring the agent-side declarative retrieval. Semantic modes require an embedding provider bound on the deployment.
+        Retrieval over the facts the caller may see (as for listing), current revisions only. `mode`: `list` (newest first, no query), `keyword` (full-text), `semantic` (by meaning), or `both` (the two searches fused by rank: reciprocal rank fusion). Searching by meaning needs embeddings on the deployment (`KINDGI_MEMORY_EMBEDDINGS`); without them `semantic` and `both` answer `422 semantic-unavailable`.
         """
         return await self._client._request(
             _OPERATIONS["memory.retrieve"],

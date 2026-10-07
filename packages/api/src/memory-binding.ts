@@ -40,6 +40,13 @@ import type { Cursor, FactId, TenantId, Timestamp } from '@kindgi/types';
  */
 export interface MemoryBinding {
   /**
+   * Whether this memory can search by meaning (an embedding model is
+   * configured). Absent: unknown. When `false`, publishing an agent whose
+   * retrieval searches by meaning warns, and a semantic retrieval answers
+   * `422 semantic-unavailable`.
+   */
+  readonly semanticSearch?: boolean;
+  /**
    * Cursor-paginated list of facts under the tenant. Filters:
    *   - `type` — exact fact-type match.
    *   - `scope` — partial-match filter (see `Scope` in the memory subsystem).

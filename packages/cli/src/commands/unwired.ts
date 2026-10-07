@@ -19,7 +19,6 @@ export const UNWIRED_COMMANDS: ReadonlySet<string> = new Set([
   'observations',
   'proposals',
   'tokens',
-  'memory facts retrieve',
 ]);
 
 /** Why `kindgi tokens` is unwired: the runtime wires no `tokenAdmin`, so `/v1/tokens` isn't mounted (T243). */
@@ -33,10 +32,6 @@ const TOKENS_NOT_SERVED =
 export const UNWIRED_REASONS: ReadonlyMap<string, string> = new Map([
   ['tokens create', TOKENS_NOT_SERVED],
   ['tokens revoke', TOKENS_NOT_SERVED],
-  [
-    'memory facts retrieve',
-    "the Kindgi runtime doesn't search memory yet (keyword or semantic): a retrieval would find nothing. To list facts by type or scope: `kindgi memory facts list --type=<type> --scope=<json>`.",
-  ],
   [
     'observations',
     "the Kindgi runtime doesn't record supervisor observations yet, so there's nothing to list; how a run went is in `kindgi runs get <run-id>` and `kindgi runs journal <run-id>`.",

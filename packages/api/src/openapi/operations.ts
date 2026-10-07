@@ -2910,7 +2910,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'memory.retrieve',
     summary: 'Retrieve facts by intent',
     description:
-      'Cross-history retrieval over the facts the caller may see (as for listing). Body is a `RetrieveIntent` shape mirroring the agent-side declarative retrieval. Semantic modes require an embedding provider bound on the deployment.',
+      'Retrieval over the facts the caller may see (as for listing), current revisions only. `mode`: `list` (newest first, no query), `keyword` (full-text), `semantic` (by meaning), or `both` (the two searches fused by rank: reciprocal rank fusion). Searching by meaning needs embeddings on the deployment (`KINDGI_MEMORY_EMBEDDINGS`); without them `semantic` and `both` answer `422 semantic-unavailable`.',
     tags: ['memory'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -2918,11 +2918,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Retrieval results.', schema: ref('RetrieveMemoryResult') },
       ...CommonMutationErrors,
-      '400': ErrorResponse(
-        'Malformed intent, or semantic mode requested and no embedding provider is bound.',
+      '400': ErrorResponse('Malformed intent.'),
+      '422': ErrorResponse(
+        '`semantic-unavailable`: `semantic` or `both` asked to search by meaning, and the deployment has no embeddings (`KINDGI_MEMORY_EMBEDDINGS`).',
       ),
       '501': ErrorResponse(
-        "`memory-operation-unsupported`: this runtime's memory can't retrieve by intent yet.",
+        "`memory-operation-unsupported`: this runtime's memory can't retrieve by intent.",
       ),
     },
   },

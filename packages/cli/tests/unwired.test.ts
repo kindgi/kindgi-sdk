@@ -50,15 +50,13 @@ describe('commands the API does not wire yet', () => {
       (c) => c.name === 'facts',
     )!;
     const help = commandHelpText(facts, ['memory', 'facts']);
-    expect(help).toMatch(/^ {2}supersede /m);
-    expect(help).not.toMatch(/^ {2}retrieve /m);
+    expect(help).toMatch(/^ {2}retrieve /m);
 
     const reference = describeCommands();
     expect(reference.map((c) => c.name)).not.toContain('capabilities');
     const memoryRef = reference.find((c) => c.name === 'memory')!;
     const factsRef = memoryRef.subcommands.find((s) => s.name === 'facts')!;
-    expect(factsRef.subcommands.map((s) => s.name)).toContain('supersede');
-    expect(factsRef.subcommands.map((s) => s.name)).not.toContain('retrieve');
+    expect(factsRef.subcommands.map((s) => s.name)).toContain('retrieve');
     // `runs resume` is wired (T272): it says what a run waits for.
     const runsRef = reference.find((c) => c.name === 'runs')!;
     expect(runsRef.subcommands.map((s) => s.name)).toContain('resume');
