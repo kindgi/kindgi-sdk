@@ -586,6 +586,7 @@ export type {
 } from './supervisor-binding.js';
 export type {
   ImprovementBudget,
+  ImprovementModel,
   ImprovementPass,
   ImprovementPassBinding,
   ImprovementPassComparison,

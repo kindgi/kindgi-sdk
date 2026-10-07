@@ -3,6 +3,7 @@
 
 import type { Cursor, LiveScope, ProjectId, TenantId, Timestamp } from '@kindgi/types';
 
+import type { EvalClassWeights } from './eval-run-binding.js';
 import type { PromotionActor } from './live-version-binding.js';
 import type { ProposalObjective } from './supervisor-binding.js';
 
@@ -41,8 +42,14 @@ export interface ImprovementPassBinding {
   >;
 }
 
-/** What a pass tunes: settings blocks (prompts come later). */
-export type ImprovementTier = 'settings';
+/** What a pass tunes: settings values, or (drafted by a model) a prompt template. */
+export type ImprovementTier = 'settings' | 'prompt';
+
+/** A provider and model, by the tenant's provider id. */
+export interface ImprovementModel {
+  readonly providerId: string;
+  readonly model: string;
+}
 
 export interface ImprovementBudget {
   /** The most the pass's comparisons may cost, in US dollars. */
@@ -64,6 +71,12 @@ export interface StartImprovementPassInput {
   readonly suiteId: string;
   readonly tiers: readonly ImprovementTier[];
   readonly objective: ProposalObjective;
+  /** Which judgments its comparisons count (K4: trusted ones only, by default). */
+  readonly classWeights: EvalClassWeights;
+  /** For a prompt pass: what drafts the templates. */
+  readonly model?: ImprovementModel;
+  /** For a prompt pass: how many templates it drafts. */
+  readonly candidates?: number;
   readonly budget: ImprovementBudget;
   readonly requestedBy: PromotionActor;
 }
@@ -104,6 +117,9 @@ export interface ImprovementPass {
   readonly suiteId: string;
   readonly tiers: readonly ImprovementTier[];
   readonly objective: ProposalObjective;
+  readonly classWeights: EvalClassWeights;
+  readonly model?: ImprovementModel;
+  readonly candidates?: number;
   readonly budget: ImprovementBudget;
   /** `user:<id>` or `service:<id>`. */
   readonly requestedBy: string;

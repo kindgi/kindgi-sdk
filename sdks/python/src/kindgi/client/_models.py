@@ -3519,6 +3519,19 @@ class ImprovementPassOutcome(BaseModel):
     message: str | None = None
 
 
+class Model1(BaseModel):
+    """
+    For a prompt pass: the provider and model that drafts the templates.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    provider_id: Annotated[str, Field(alias="providerId")]
+    model: str
+
+
 class Comparison1(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -3559,8 +3572,22 @@ class ImprovementPass(BaseModel):
     """
     The test set it searches and proves on.
     """
-    tiers: list[Literal["settings"]]
+    tiers: list[Literal["settings", "prompt"]]
     objective: Literal["weightedYesShare", "weightedPrecisionAtK"]
+    class_weights: Annotated[
+        Literal["as-recorded", "restricted-only"] | None, Field(alias="classWeights")
+    ] = None
+    """
+    Which judgments its comparisons count. Absent from older servers: `restricted-only`.
+    """
+    model: Model1 | None = None
+    """
+    For a prompt pass: the provider and model that drafts the templates.
+    """
+    candidates: Annotated[int | None, Field(ge=1, le=5)] = None
+    """
+    For a prompt pass: how many templates it drafts.
+    """
     budget: ImprovementBudget
     requested_by: Annotated[str, Field(alias="requestedBy")]
     status: Literal["running", "completed", "failed", "cancelled"]
@@ -3587,6 +3614,19 @@ class ImprovementPassCollectionPage(BaseModel):
     data: list[ImprovementPass]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class Model2(BaseModel):
+    """
+    For a prompt pass: the tenant's provider and model that drafts the templates.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    provider_id: Annotated[str, Field(alias="providerId")]
+    model: str
 
 
 class Budget2(BaseModel):
@@ -3627,7 +3667,26 @@ class ImproveBody(BaseModel):
     """
     The test set (a judged eval suite). The pass splits it into a search part and a hold-out part, and proves its best candidate on the hold-out part.
     """
-    tiers: list[Literal["settings"]] | None = ["settings"]
+    tiers: Annotated[
+        list[Literal["settings", "prompt"]] | None, Field(max_length=1, min_length=1)
+    ] = ["settings"]
+    """
+    `['settings']`: values for the tunable settings keys. `['prompt']`: a model drafts templates for the prompt block (needs `model`); a template that reads or names anything the agent doesn't have is refused, and a drafted proposal always waits for a reviewer.
+    """
+    model: Model2 | None = None
+    """
+    For a prompt pass: the tenant's provider and model that drafts the templates.
+    """
+    candidates: Annotated[int | None, Field(ge=1, le=5)] = 3
+    """
+    For a prompt pass: how many templates it drafts.
+    """
+    class_weights: Annotated[
+        Literal["as-recorded", "restricted-only"] | None, Field(alias="classWeights")
+    ] = "restricted-only"
+    """
+    Which judgments the pass learns from: by default only those recorded under a restricted (trusted) judge class.
+    """
     objective: Literal["weightedYesShare", "weightedPrecisionAtK"] | None = "weightedYesShare"
     budget: Budget2 | None = None
     """
@@ -5424,9 +5483,17 @@ class EvalBaseline2(BaseModel):
     live: Live
 
 
+class Prompts(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    template: str
+
+
 class EvalOverrides(BaseModel):
     """
-    For an agent candidate: settings values its replays run instead of the version's pinned ones (an improvement pass's search), by settings block id. Each block must be one the version pins, and the values must satisfy its schema (`400 validation-failed`). A comparison with overrides can't gate a promotion.
+    For an agent candidate: block content its replays run instead of the version's pinned content (an improvement pass's search). `settings`: values by settings block id, each a block the version pins, satisfying its schema. `prompts`: a template for the prompt block the version pins, which reads and names only what the agent has (its parameters, the variables the current template reads, the settings blocks it pins, its tools' and blocks' ids) and is at most twice as long. Anything else is `400 validation-failed`. A comparison with overrides can't gate a promotion.
     """
 
     model_config = ConfigDict(
@@ -5434,6 +5501,7 @@ class EvalOverrides(BaseModel):
         populate_by_name=True,
     )
     settings: Annotated[dict[str, dict[str, Any]] | None, Field(max_length=20)] = None
+    prompts: Annotated[dict[str, Prompts] | None, Field(max_length=1)] = None
 
 
 class EvalSample(BaseModel):
@@ -5509,14 +5577,15 @@ class ComparisonMetric(BaseModel):
 
 class Overrides(BaseModel):
     """
-    The settings blocks whose values the replays replaced (`overrides`): no published version ran, so it can't gate a promotion. Absent otherwise.
+    The blocks whose content the replays replaced (`overrides`): no published version ran, so it can't gate a promotion. Absent otherwise.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    settings: list[str]
+    settings: list[str] | None = None
+    prompts: list[str] | None = None
 
 
 class ComparisonCandidate1(BaseModel):
@@ -5537,7 +5606,7 @@ class ComparisonCandidate1(BaseModel):
     """
     overrides: Overrides | None = None
     """
-    The settings blocks whose values the replays replaced (`overrides`): no published version ran, so it can't gate a promotion. Absent otherwise.
+    The blocks whose content the replays replaced (`overrides`): no published version ran, so it can't gate a promotion. Absent otherwise.
     """
 
 
@@ -5617,7 +5686,7 @@ class Scope(BaseModel):
     project_id: Annotated[str | None, Field(alias="projectId")] = None
 
 
-class Model1(BaseModel):
+class Model3(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -5632,7 +5701,7 @@ class Sampling(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    models: list[Model1]
+    models: list[Model3]
     """
     The models that answered the candidate's replays, and how many replays each.
     """

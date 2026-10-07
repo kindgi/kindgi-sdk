@@ -240,7 +240,7 @@ function sameContentsCheck(input: GateInput): GateCheck {
     return {
       name,
       passed: false,
-      message: `The comparison ran ${compared} with other values for ${candidate.overrides.settings.join(', ')} than it pins (an improvement pass's search): compare the published version.`,
+      message: `The comparison ran ${compared} with other content for ${[...(candidate.overrides.settings ?? []), ...(candidate.overrides.prompts ?? [])].join(', ')} than it pins (an improvement pass's search): compare the published version.`,
     };
   }
   if (candidate.agentId !== promotion.agentId || candidate.version !== promotion.version) {

@@ -3622,8 +3622,27 @@ export const ImprovementPassSchema: JsonSchema = {
     fromVersion: { type: 'string', description: 'The version whose settings it tunes.' },
     scope: { $ref: '#/components/schemas/LiveScope' },
     suiteId: { type: 'string', description: 'The test set it searches and proves on.' },
-    tiers: { type: 'array', items: { type: 'string', enum: ['settings'] } },
+    tiers: { type: 'array', items: { type: 'string', enum: ['settings', 'prompt'] } },
     objective: { type: 'string', enum: ['weightedYesShare', 'weightedPrecisionAtK'] },
+    classWeights: {
+      type: 'string',
+      enum: ['as-recorded', 'restricted-only'],
+      description:
+        'Which judgments its comparisons count. Absent from older servers: `restricted-only`.',
+    },
+    model: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['providerId', 'model'],
+      description: 'For a prompt pass: the provider and model that drafts the templates.',
+      properties: { providerId: { type: 'string' }, model: { type: 'string' } },
+    },
+    candidates: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 5,
+      description: 'For a prompt pass: how many templates it drafts.',
+    },
     budget: { $ref: '#/components/schemas/ImprovementBudget' },
     requestedBy: { type: 'string' },
     status: { type: 'string', enum: ['running', 'completed', 'failed', 'cancelled'] },
@@ -3685,8 +3704,33 @@ export const ImproveBodySchema: JsonSchema = {
     },
     tiers: {
       type: 'array',
-      items: { type: 'string', enum: ['settings'] },
+      items: { type: 'string', enum: ['settings', 'prompt'] },
+      minItems: 1,
+      maxItems: 1,
       default: ['settings'],
+      description:
+        "`['settings']`: values for the tunable settings keys. `['prompt']`: a model drafts templates for the prompt block (needs `model`); a template that reads or names anything the agent doesn't have is refused, and a drafted proposal always waits for a reviewer.",
+    },
+    model: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['providerId', 'model'],
+      description: "For a prompt pass: the tenant's provider and model that drafts the templates.",
+      properties: { providerId: { type: 'string' }, model: { type: 'string' } },
+    },
+    candidates: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 5,
+      default: 3,
+      description: 'For a prompt pass: how many templates it drafts.',
+    },
+    classWeights: {
+      type: 'string',
+      enum: ['as-recorded', 'restricted-only'],
+      default: 'restricted-only',
+      description:
+        'Which judgments the pass learns from: by default only those recorded under a restricted (trusted) judge class.',
     },
     objective: {
       type: 'string',
@@ -5655,12 +5699,22 @@ export const EvalOverridesSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    "For an agent candidate: settings values its replays run instead of the version's pinned ones (an improvement pass's search), by settings block id. Each block must be one the version pins, and the values must satisfy its schema (`400 validation-failed`). A comparison with overrides can't gate a promotion.",
+    "For an agent candidate: block content its replays run instead of the version's pinned content (an improvement pass's search). `settings`: values by settings block id, each a block the version pins, satisfying its schema. `prompts`: a template for the prompt block the version pins, which reads and names only what the agent has (its parameters, the variables the current template reads, the settings blocks it pins, its tools' and blocks' ids) and is at most twice as long. Anything else is `400 validation-failed`. A comparison with overrides can't gate a promotion.",
   properties: {
     settings: {
       type: 'object',
       maxProperties: 20,
       additionalProperties: { type: 'object', additionalProperties: true },
+    },
+    prompts: {
+      type: 'object',
+      maxProperties: 1,
+      additionalProperties: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['template'],
+        properties: { template: { type: 'string' } },
+      },
     },
   },
 };
@@ -5765,10 +5819,12 @@ export const ComparisonCandidateSchema: JsonSchema = {
         overrides: {
           type: 'object',
           additionalProperties: false,
-          required: ['settings'],
           description:
-            "The settings blocks whose values the replays replaced (`overrides`): no published version ran, so it can't gate a promotion. Absent otherwise.",
-          properties: { settings: { type: 'array', items: { type: 'string' } } },
+            "The blocks whose content the replays replaced (`overrides`): no published version ran, so it can't gate a promotion. Absent otherwise.",
+          properties: {
+            settings: { type: 'array', items: { type: 'string' } },
+            prompts: { type: 'array', items: { type: 'string' } },
+          },
         },
       },
     },

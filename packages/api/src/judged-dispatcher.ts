@@ -100,11 +100,14 @@ export type ComparisonCandidate =
        */
       readonly pinsDigest?: string;
       /**
-       * The settings blocks whose values the replays replaced
+       * The blocks whose content the replays replaced
        * (`comparison.overrides`): it ran no published version, so it
        * can't gate a promotion.
        */
-      readonly overrides?: { readonly settings: readonly string[] };
+      readonly overrides?: {
+        readonly settings?: readonly string[];
+        readonly prompts?: readonly string[];
+      };
     }
   | {
       readonly kind: 'flow';
@@ -196,7 +199,7 @@ export interface JudgedDispatcherOptions {
 const CASE_PAGE = 100;
 
 export const OVERRIDES_NEED_AN_AGENT =
-  "`overrides` replaces an agent version's settings values: it needs `agentRef`.";
+  "`overrides` replaces an agent version's block content: it needs `agentRef`.";
 
 export const VERSIONS_NEED_A_FLOW =
   '`versions` runs a flow with some of its agents or tools at other versions: it needs `flowRef`.';
@@ -615,14 +618,19 @@ function candidateOf(
   pinsDigest?: string,
 ): ComparisonCandidate {
   const versions = comparison?.versions;
-  const overridden = Object.keys(comparison?.overrides?.settings ?? {});
+  const settings = Object.keys(comparison?.overrides?.settings ?? {}).sort();
+  const prompts = Object.keys(comparison?.overrides?.prompts ?? {}).sort();
+  const overrides = {
+    ...(settings.length > 0 && { settings }),
+    ...(prompts.length > 0 && { prompts }),
+  };
   return 'agentId' in target
     ? {
         kind: 'agent',
         agentId: target.agentId as unknown as string,
         version: target.version ?? '',
         ...(pinsDigest !== undefined && { pinsDigest }),
-        ...(overridden.length > 0 && { overrides: { settings: overridden.sort() } }),
+        ...(Object.keys(overrides).length > 0 && { overrides }),
       }
     : {
         kind: 'flow',

@@ -404,6 +404,9 @@ function inMemoryPasses() {
         suiteId: input.suiteId,
         tiers: input.tiers,
         objective: input.objective,
+        classWeights: input.classWeights,
+        ...(input.model !== undefined && { model: input.model }),
+        ...(input.candidates !== undefined && { candidates: input.candidates }),
         budget: input.budget,
         requestedBy: `${input.requestedBy.kind}:${input.requestedBy.id}`,
         status: 'running',
@@ -1089,7 +1092,13 @@ describe('improvement passes', () => {
       status: 'running',
       requestedBy: 'user:user-1',
     });
-    expect(passes.started[0]).toMatchObject({ projectId, fromVersion: '1.0.0' });
+    expect(passes.started[0]).toMatchObject({
+      projectId,
+      fromVersion: '1.0.0',
+      // K4: a pass learns from trusted judgments only, by default.
+      classWeights: 'restricted-only',
+    });
+    expect(res.body.classWeights).toBe('restricted-only');
     const read = await h.call('GET', `/v1/improvement-passes/${res.body.id}`);
     expect(read.body.id).toBe(res.body.id);
     const listed = await h.call('GET', `/v1/improvement-passes?agentId=${AGENT}`);
@@ -1099,6 +1108,39 @@ describe('improvement passes', () => {
     const again = await h.call('POST', `/v1/improvement-passes/${res.body.id}/cancel`, {});
     expect(again.status).toBe(409);
     expect(again.body.error.code).toBe('improvement-pass-finished');
+  });
+
+  test('a prompt pass needs a model, drafts 3 templates by default, and needs a prompt block', async () => {
+    const passes = inMemoryPasses();
+    const h = await harness({ passes: passes.binding });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const noModel = await h.call('POST', '/v1/proposals/improve', {
+      ...IMPROVE,
+      tiers: ['prompt'],
+    });
+    expect(noModel.status).toBe(400);
+    expect(noModel.body.error.message).toContain('`model` is required for a prompt pass');
+    const model = { providerId: 'acme-llm', model: 'm-1' };
+    const res = await h.call('POST', '/v1/proposals/improve', {
+      ...IMPROVE,
+      tiers: ['prompt'],
+      model,
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(res.body).toMatchObject({ tiers: ['prompt'], model, candidates: 3 });
+    expect(passes.started[0]).toMatchObject({ tiers: ['prompt'], model, candidates: 3 });
+    const settingsWithModel = await h.call('POST', '/v1/proposals/improve', { ...IMPROVE, model });
+    expect(settingsWithModel.status).toBe(400);
+    expect(
+      (
+        await h.call('POST', '/v1/proposals/improve', {
+          ...IMPROVE,
+          tiers: ['prompt'],
+          model,
+          candidates: 9,
+        })
+      ).status,
+    ).toBe(400);
   });
 
   test('a version that pins nothing tunable is refused (400), saying how to mark keys', async () => {
@@ -1157,6 +1199,7 @@ describe('improvement passes', () => {
       suiteId: 's',
       tiers: ['settings'],
       objective: 'weightedYesShare',
+      classWeights: 'restricted-only',
       budget: { maxCostUsd: 1, maxCandidates: 1 },
       requestedBy: { kind: 'user', id: 'u' },
     });

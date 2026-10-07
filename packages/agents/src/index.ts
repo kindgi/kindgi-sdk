@@ -16,6 +16,8 @@ export type {
   RunSnapshotRecord,
   RunSnapshotWriteInput,
 } from './run-snapshot-binding.js';
+export { DRAFTED_TEMPLATE_MAX, checkDraftedTemplate } from './drafted-template.js';
+export type { DraftedTemplateContext } from './drafted-template.js';
 export { defineAgent } from './define.js';
 export {
   BLOCK_KINDS,
@@ -53,6 +55,7 @@ export { SESSION_GATE_RECORD } from './handlers/setup.js';
 export type {
   ReplayApproval,
   ReplayBinding,
+  ReplayOverrides,
   ReplayToolDecision,
   ReplayToolInput,
   ReplayToolTrace,
