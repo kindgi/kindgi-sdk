@@ -4998,7 +4998,9 @@ class IdentityUsersResource:
             timeout=timeout,
         )
 
-    def grants(self, user_id: str, /, *, timeout: float | None = None) -> _models.PersonGrants:
+    def grants(
+        self, user_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.PersonGrants:
         """Read a person's grants. `GET /v1/identity/users/{userId}/grants`
 
         What the person may do, as granted directly: tenant admin, project and team roles, the reviewer roster. A tenant admin reads anyone's; anyone else only their own.
@@ -5014,7 +5016,7 @@ class IdentityUsersResource:
 
     def grant(
         self,
-        user_id: str,
+        user_id: str | UUID,
         body: _models.PersonGrantBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -5038,7 +5040,7 @@ class IdentityUsersResource:
 
     def ungrant(
         self,
-        user_id: str,
+        user_id: str | UUID,
         body: _models.PersonGrantBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -11145,7 +11147,7 @@ class AsyncIdentityUsersResource:
         )
 
     async def grants(
-        self, user_id: str, /, *, timeout: float | None = None
+        self, user_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.PersonGrants:
         """Read a person's grants. `GET /v1/identity/users/{userId}/grants`
 
@@ -11162,7 +11164,7 @@ class AsyncIdentityUsersResource:
 
     async def grant(
         self,
-        user_id: str,
+        user_id: str | UUID,
         body: _models.PersonGrantBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -11186,7 +11188,7 @@ class AsyncIdentityUsersResource:
 
     async def ungrant(
         self,
-        user_id: str,
+        user_id: str | UUID,
         body: _models.PersonGrantBody | Mapping[str, Any] | None = None,
         /,
         *,
