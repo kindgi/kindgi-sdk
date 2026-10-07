@@ -469,7 +469,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_AZURE_CLIENT_ID',
     description:
-      "Client id of the user-assigned managed identity the server signs in to Azure with, for its Azure settings (`KINDGI_SECRETS_BACKEND_KMS=azure`, `KINDGI_IMAGE_REGISTRY_AUTH=azure`). Unset: the service's system-assigned identity. With `KINDGI_DEV=true` and no managed identity, the Azure CLI's sign-in (`az login`). Kindgi keeps no key or secret for it.",
+      "Client id of the user-assigned managed identity the server signs in to Azure with, for its Azure settings (`KINDGI_SECRETS_BACKEND_KMS=azure`, `KINDGI_IMAGE_REGISTRY_AUTH=azure`). Unset: the service's system-assigned identity. With `KINDGI_DEV=true` (a laptop), the Azure CLI's sign-in (`az login`) first, then the managed identity. Kindgi keeps no key or secret for it.",
     example: '11111111-2222-3333-4444-555555555555',
     required: false,
     appliesTo: appliesToServer,
