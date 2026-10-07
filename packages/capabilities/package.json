@@ -25,6 +25,11 @@
       "types": "./dist/attempts.d.ts",
       "import": "./dist/attempts.js",
       "default": "./dist/attempts.js"
+    },
+    "./tool-names": {
+      "types": "./dist/tool-names.d.ts",
+      "import": "./dist/tool-names.js",
+      "default": "./dist/tool-names.js"
     }
   },
   "files": ["dist", "src", "README.md", "SPEC.md", "type-manifest.json"],
