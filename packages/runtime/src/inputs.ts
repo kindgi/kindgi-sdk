@@ -155,6 +155,8 @@ export interface RunFlowInput {
    * (a caller, a schedule's creator, a service identity). Stored with
    * the run, so every resume (an approval, a timeout, a child waking its
    * flow, a run recovered after a crash) acts for the same principal.
+   * Only the start stores it: a pending run (`StartRunParams`) keeps the
+   * one it was started with, none included, whoever adopts it.
    * When set together with `authz`, every `ctx.authorize` / `can` /
    * `check` inside handlers is decided against it; on its own it only
    * informs (e.g. whose own memory an agent turn may read).
@@ -187,13 +189,8 @@ export interface ResumeRunInput {
   readonly handlerResolver?: HandlerResolver;
   /** Same shape + semantics as `RunFlowInput.eventBus`. */
   readonly eventBus?: KernelEventBusBinding;
-  /**
-   * The principal to resume under. Absent: the one stored with the run
-   * when it started (`RunFlowInput.principal`), so a resume never drops
-   * it. Carried through so the resumed run keeps enforcing per-tool +
-   * per-subgraph checks.
-   */
-  readonly principal?: Principal;
+  // No principal: a resumed run acts for the one stored when it started
+  // (`RunFlowInput.principal`); a resume can't drop or change it.
   readonly authz?: {
     readonly fgaApiUrl: string;
   };
