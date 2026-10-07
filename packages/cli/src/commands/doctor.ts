@@ -14,6 +14,11 @@
  * project the project's checks are skipped, saying why; a check that
  * needs another (the registry needs Docker) is skipped when that one
  * fails. `skip` is never a failure.
+ *
+ * Under `kindgi-cli` (the PyPI build, `KINDGI_CLI_INSTALL=pypi`), Node is
+ * the one the wheel brings and npm isn't needed, so neither is a failure,
+ * and the fixes say `uv run kindgi …` (or `uvx --from kindgi-cli kindgi …`
+ * outside a project), not npx.
  */
 
 import { spawn } from 'node:child_process';
@@ -30,9 +35,11 @@ import { checkDocker, checkImageAccess } from '../dev/runtime-registry.js';
 import { renderJson } from '../output.js';
 import {
   binCommand,
+  cliInstall,
   detectBinRunner,
   detectPackageManager,
   publishedCliSpec,
+  pythonBinRunner,
 } from '../package-manager.js';
 import { type ProviderPreset, loadProviderPresets } from '../providers/preset-loader.js';
 import { CLI_VERSION } from '../version-info.js';
@@ -147,10 +154,10 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
   const config = await findKindgiConfig(dir);
   const language =
     config === undefined ? undefined : config.format === 'pyproject' ? 'python' : 'node';
-  const kindgi = await kindgiCommand(dir, language);
+  const pypi = cliInstall(ctx.env) === 'pypi';
+  const kindgi = await kindgiCommand(dir, language, pypi);
 
-  checks.push(nodeCheck(seam.nodeVersion ?? process.versions.node));
-  checks.push(await npmCheck(tool));
+  checks.push(...(await nodeChecks(seam.nodeVersion ?? process.versions.node, tool, pypi)));
   checks.push(...(await pythonChecks(tool, language)));
   const dockerCheck = await checkDockerRunning(run);
   checks.push(dockerCheck);
@@ -165,7 +172,7 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
       id: 'project',
       status: 'skip',
       message: `No Kindgi project in ${dir}: no kindgi.config.ts, and no pyproject.toml with [tool.kindgi].`,
-      fix: `Create one: ${kindgi('init', '<name>')} (TypeScript; add --template=python for Python), then run doctor in its folder.`,
+      fix: createProjectFix(kindgi, pypi),
     });
     for (const id of ['dependencies', 'model-key', 'runtime', 'provider'] as const) {
       checks.push(skip(id, 'Not checked: it needs a project.'));
@@ -229,9 +236,32 @@ const skip = (id: DoctorCheckId, message: string, fix?: string): DoctorCheck => 
 
 // ---------- tools ----------
 
-function nodeCheck(version: string): DoctorCheck {
+/** Node and npm. Under kindgi-cli, Node is the one the wheel brings and npm isn't needed. */
+async function nodeChecks(
+  version: string,
+  tool: NonNullable<DoctorSeam['tool']>,
+  pypi: boolean,
+): Promise<DoctorCheck[]> {
+  if (!pypi) return [nodeCheck(version, false), await npmCheck(tool)];
+  return [
+    nodeCheck(version, true),
+    skip(
+      'npm',
+      'Not needed: this kindgi is kindgi-cli (from PyPI), for Python projects, and it brings its own Node.',
+    ),
+  ];
+}
+
+/** How to start a project here: kindgi-cli makes Python packs only. */
+function createProjectFix(kindgi: Kindgi, pypi: boolean): string {
+  return pypi
+    ? `Create one: ${kindgi('init', '<name>', '--template=python')}, then run doctor in its folder.`
+    : `Create one: ${kindgi('init', '<name>')} (TypeScript; add --template=python for Python), then run doctor in its folder.`;
+}
+
+function nodeCheck(version: string, pypi: boolean): DoctorCheck {
   return atLeast(version, MIN_NODE)
-    ? pass('node', `Node ${version}.`)
+    ? pass('node', pypi ? `Node ${version}, bundled with kindgi-cli.` : `Node ${version}.`)
     : fail(
         'node',
         `Node ${version}; Kindgi needs ${MIN_NODE} or later.`,
@@ -559,7 +589,19 @@ type Kindgi = (...args: string[]) => string;
 async function kindgiCommand(
   dir: string,
   language: 'node' | 'python' | undefined,
+  pypi: boolean,
 ): Promise<Kindgi> {
+  if (pypi) {
+    // The PyPI build runs from the project's own environment; outside one, uvx.
+    if (language === undefined) {
+      return (...args) => ['uvx', '--from', 'kindgi-cli', 'kindgi', ...args].join(' ');
+    }
+    const runner = await pythonBinRunner(dir, { KINDGI_CLI_INSTALL: 'pypi' });
+    return (...args) => {
+      const c = binCommand(runner, 'kindgi', args);
+      return [c.command, ...c.args].join(' ');
+    };
+  }
   if (language === 'node') {
     const runner = await detectBinRunner(dir, 'node');
     return (...args) => {
