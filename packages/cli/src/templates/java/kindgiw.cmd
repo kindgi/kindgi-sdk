@@ -10,15 +10,16 @@ if "%KINDGIW_VERSION%"=="" (
   echo kindgiw: no "cli" version in %KINDGIW_DIR%kindgi.config.json ^(kindgi upgrade writes it^). 1>&2
   exit /b 1
 )
+rem `call`: npx is a batch file, and a batch file run without it never returns.
 where node >nul 2>nul && where npx >nul 2>nul && (
-  npx --yes "@kindgi/cli@%KINDGIW_VERSION%" %*
+  call npx --yes "@kindgi/cli@%KINDGIW_VERSION%" %*
   exit /b
 )
 set "KINDGIW_PEP440=%KINDGIW_VERSION:-alpha.=a%"
 set "KINDGIW_PEP440=%KINDGIW_PEP440:-beta.=b%"
 set "KINDGIW_PEP440=%KINDGIW_PEP440:-rc.=rc%"
 where uvx >nul 2>nul && (
-  uvx --from "kindgi-cli==%KINDGIW_PEP440%" kindgi %*
+  call uvx --from "kindgi-cli==%KINDGIW_PEP440%" kindgi %*
   exit /b
 )
 echo kindgiw: the Kindgi CLI %KINDGIW_VERSION% runs with Node 22.12 or later ^(https://nodejs.org^), 1>&2
