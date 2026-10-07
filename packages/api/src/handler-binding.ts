@@ -3,6 +3,7 @@
 
 import type { AgentId } from '@kindgi/agents';
 import type { FlowVersionOverrides } from '@kindgi/flow';
+import type { RunIdempotencyKey, RunTriggerRef } from '@kindgi/runtime';
 import type { FlowId, ProjectId, RunId, ScopeSegment, Semver, TenantId } from '@kindgi/types';
 
 /**
@@ -101,6 +102,13 @@ export interface InvokeAgentBindingInput {
    * can't run in the background may treat `false` like `true`.
    */
   readonly wait?: boolean;
+  /**
+   * Start the run at most once per key (`RunIdempotencyKey`): a key a run
+   * already has starts nothing and answers that run, with `existing`.
+   */
+  readonly idempotencyKey?: RunIdempotencyKey;
+  /** Set when a trigger starts the run; the run records it (`RunTriggerRef`). */
+  readonly trigger?: RunTriggerRef;
 }
 
 export interface InvokeFlowBindingInput {
@@ -120,12 +128,24 @@ export interface InvokeFlowBindingInput {
    * can't run in the background may treat `false` like `true`.
    */
   readonly wait?: boolean;
+  /**
+   * Start the run at most once per key (`RunIdempotencyKey`): a key a run
+   * already has starts nothing and answers that run, with `existing`.
+   */
+  readonly idempotencyKey?: RunIdempotencyKey;
+  /** Set when a trigger starts the run; the run records it (`RunTriggerRef`). */
+  readonly trigger?: RunTriggerRef;
   /** Agents and tools to run at other exact versions than the flow version's pins (`RunFlowInput.versions`). */
   readonly versions?: FlowVersionOverrides;
 }
 
 export type RunHandlerOutcome =
-  | { readonly kind: 'ok'; readonly runId: RunId }
+  | {
+      readonly kind: 'ok';
+      readonly runId: RunId;
+      /** The `idempotencyKey` named a run that already existed: nothing new started. */
+      readonly existing?: true;
+    }
   | { readonly kind: 'err'; readonly error: RunHandlerFailure };
 
 /**

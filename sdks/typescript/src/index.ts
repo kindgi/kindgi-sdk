@@ -37,6 +37,7 @@ export type {
 export type {
   Run,
   RunAgent,
+  RunTrigger,
   RunsClient,
   ResumeRunInput,
   StartedRun,
