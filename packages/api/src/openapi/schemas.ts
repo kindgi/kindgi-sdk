@@ -3630,6 +3630,25 @@ export const ImprovementPassSchema: JsonSchema = {
     candidatesEvaluated: { type: 'integer', minimum: 0 },
     costUsd: { type: 'string', description: 'What its comparisons have cost so far (US dollars).' },
     outcome: { $ref: '#/components/schemas/ImprovementPassOutcome' },
+    comparisons: {
+      type: 'array',
+      description:
+        'Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the proposal, on the hold-out part). Absent from older servers.',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['role', 'part'],
+        properties: {
+          evalRunId: { type: 'string', format: 'uuid' },
+          role: { type: 'string', enum: ['reference', 'candidate', 'proof'] },
+          part: { type: 'string', enum: ['search', 'hold-out'] },
+          blockId: { type: 'string' },
+          changed: { type: 'object', additionalProperties: true },
+          score: { type: ['number', 'null'] },
+          failed: { type: 'string' },
+        },
+      },
+    },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
     finishedAt: { type: 'string', format: 'date-time' },

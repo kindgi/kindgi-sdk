@@ -250,6 +250,7 @@ export function serializePass(p: ImprovementPass): Record<string, unknown> {
     candidatesEvaluated: p.candidatesEvaluated,
     costUsd: p.costUsd,
     ...(p.outcome !== undefined && { outcome: p.outcome }),
+    ...(p.comparisons !== undefined && { comparisons: p.comparisons }),
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
     ...(p.finishedAt !== undefined && { finishedAt: p.finishedAt }),

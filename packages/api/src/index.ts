@@ -588,6 +588,7 @@ export type {
   ImprovementBudget,
   ImprovementPass,
   ImprovementPassBinding,
+  ImprovementPassComparison,
   ImprovementPassOutcome,
   ImprovementPassStatus,
   ImprovementTier,
