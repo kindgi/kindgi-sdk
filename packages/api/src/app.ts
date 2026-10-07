@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { type Logger, noopLogger } from '@kindgi/log';
 import { Scalar } from '@scalar/hono-api-reference';
 import { Hono } from 'hono';
 
@@ -63,6 +64,7 @@ import { principalMiddleware } from './middleware/principal.js';
 import { PROJECT_REF_ROUTES, refuseBadProjectId } from './middleware/project-ref.js';
 import { publicRunCorsMiddleware, publicRunRouteMatcher } from './middleware/public-run-routes.js';
 import { requestIdMiddleware } from './middleware/request-id.js';
+import { requestLogMiddleware } from './middleware/request-log.js';
 import { sigv4Middleware } from './middleware/sigv4.js';
 import { type GenerateOptions, generateOpenApiDocument } from './openapi/generate.js';
 import type { ProvenanceBinding } from './provenance-binding.js';
@@ -150,6 +152,12 @@ import type { WebhookEndpointBinding } from './webhook-endpoint-binding.js';
  * for tests.
  */
 export interface CreateAppInput {
+  /**
+   * Where the app's records go (`@kindgi/log`): the access line, logged
+   * 500s, and what routes log, each with the request's ids. Default:
+   * `noopLogger`, so an embedding app stays quiet unless it passes one.
+   */
+  readonly logger?: Logger;
   readonly resolveToken: TokenResolver;
   readonly runHandler: RunHandlerBinding;
   /**
@@ -893,7 +901,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
 
   // ---------- global middleware ----------
   app.use('*', requestIdMiddleware());
-  // A thrown exception: a 500 wire error with its message and request id.
+  // The request's trace context and logger, and its access line.
+  app.use('*', requestLogMiddleware(input.logger ?? noopLogger));
+  // A thrown exception: a 500 wire error with its message and request id, logged.
   app.onError(mapThrownError);
 
   // Public run tokens: checked once at startup; CORS for the two routes
@@ -968,6 +978,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // still populate the principal (cheap, and lets `can`/`check` work
   // as inspection helpers even when authorize() enforcement is off).
   v1.use('*', principalMiddleware());
+  // From here on, the request's records carry its tenant.
+  v1.use('*', async (c, next) => {
+    const tenantId = c.get('tenantId');
+    if (tenantId !== undefined) c.set('log', c.get('log').child({ tenantId }));
+    await next();
+  });
   const authorizer: Authorizer | undefined =
     input.authz !== undefined ? createAuthorizer(input.authz.authzCheckBinding) : undefined;
 

@@ -69,17 +69,26 @@ from kindgi.client import Kindgi
 
 kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
+
+def output(run):
+    if run.output is None:  # a run that didn't complete has no output
+        raise SystemExit(f"Run {run.id} ended {run.status}: {run.failure_message}")
+    return run.output
+
+
 first = kindgi.runs.start(
     agent="acme.order-desk",
     input={"userMessage": "Hi, I am Ada. My order is A-1002."},
 )
-conversation_id = first.output["conversationId"]
+conversation_id = output(first)["conversationId"]
 
-second = kindgi.runs.start(
-    agent="acme.order-desk",
-    input={"userMessage": "Has it shipped yet?", "conversationId": conversation_id},
+second = output(
+    kindgi.runs.start(
+        agent="acme.order-desk",
+        input={"userMessage": "Has it shipped yet?", "conversationId": conversation_id},
+    )
 )
-print(second.output["turnNumber"], second.output["response"]["content"])
+print(second["turnNumber"], second["response"]["content"])
 
 history = kindgi.conversations.messages(conversation_id)
 for m in history.data:
