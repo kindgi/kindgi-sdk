@@ -24,7 +24,8 @@ Retrieved memory reaches the model as labelled data, and search by meaning is ne
 - **Operator settings.**
   - `KINDGI_MEMORY_EMBEDDINGS=openai-compat` turns on search by meaning through any embeddings endpoint that speaks OpenAI's `POST /embeddings` (OpenAI, Ollama, vLLM, Hugging Face TEI): set `KINDGI_MEMORY_EMBEDDINGS_URL` and `KINDGI_MEMORY_EMBEDDINGS_MODEL`, plus `KINDGI_MEMORY_EMBEDDINGS_API_KEY` from your secret store if the endpoint takes a key.
   - `local:<model>` runs the model inside a server run from source on macOS or glibc Linux, not in the runtime image.
-  - `@kindgi/adapter-model-openai-compat` adds `createOpenAICompatEmbeddingProvider`. Its `probe()` embeds once at boot, to learn the dimensions.
+  - An endpoint that doesn't answer yet doesn't stop the runtime: it is retried in the background, and search by meaning waits for it.
+  - `@kindgi/adapter-model-openai-compat` adds `createOpenAICompatEmbeddingProvider`. Its `probe()` embeds once, to learn the dimensions.
 - **Specs and SDKs.**
   - The agent spec (schema-version 1.4.0) and pack index carry `memory` and the `same-user` scope; both indexers, TS and Python (`Agent(memory=...)`), keep them.
   - CLI: `kindgi memory facts retrieve --query=<json>` is wired.
