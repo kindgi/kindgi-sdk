@@ -39,6 +39,11 @@ all of them:
 - **`{ feature: … }`**: a feature the model lists in its registration:
   `tool-use`, `parallel-tool-use`, `structured-output`, `long-context`,
   `thinking`, `vision` and others. An agent that calls tools needs `tool-use`.
+  `structured-output` says the model can follow a JSON schema itself; Kindgi
+  doesn't send it the schema yet. An agent's
+  [typed answer](../typed-answer/) comes from its instructions, then a check
+  against the schema and repairs, on every model, so needing
+  `structured-output` only narrows which models qualify.
 - **`{ contextWindow: { op: '>=', value: 500000 } }`**: a context window.
 - **`{ region: 'on-prem' }`**: a provider registered with this `region`.
 - **`{ models: { allow: […] } }`**, **`{ providers: { allow: […] } }`**: only

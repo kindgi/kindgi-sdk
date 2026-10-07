@@ -106,7 +106,11 @@ yours.
 ## Path A — Hosted, native Anthropic
 
 Best fidelity to Anthropic's API (prompt caching, latest models, tool
-use, structured output). Requires an `ANTHROPIC_API_KEY`.
+use). Requires an `ANTHROPIC_API_KEY`.
+
+A model's `structured-output` feature is a routing label: the model can
+follow a JSON schema natively, but Kindgi's typed outputs use instructions,
+then parse, check against the schema and repair, on every provider.
 
 **Step 1 — set the key:**
 ```sh
