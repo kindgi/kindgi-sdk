@@ -31,6 +31,7 @@ leases.warn('could not expire the lease of run r-1', { runId: 'r-1', err });
 - **Pass an error as `{ err: error }`:** it's written as `name`, `message` and `code`. The `stack` is added at `error` level, or when the logger is at `debug` or below.
 - **`child(bindings)`** returns a logger whose records all carry the bindings. A child's `subsystem` replaces its parent's, so name it in full (`kernel.sweeper`).
 - **`isLevelEnabled(level)`** says whether a record would be written, so you can skip building costly fields.
+- **`{ inMessage: [...] }`, a third argument,** names the fields the message already states: `log.info('GET /v1/runs 200 12ms', { method, route, status, durationMs }, { inMessage: ['method', 'route', 'status', 'durationMs'] })`. The pretty format leaves them out; JSON keeps every field.
 - **`noopLogger`** writes nothing. It's the default where a logger isn't given.
 - **Logging never throws.** A sink that fails is ignored.
 

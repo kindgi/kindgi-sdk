@@ -80,6 +80,8 @@ export function requestLogMiddleware(logger: Logger): MiddlewareHandler<AppEnv> 
             durationMs,
             ...(c.get('tenantId') !== undefined && { tenantId: c.get('tenantId') }),
           },
+          // The message says them: a terminal line needn't again.
+          { inMessage: ['method', 'route', 'status', 'durationMs'] },
         );
       }
     }

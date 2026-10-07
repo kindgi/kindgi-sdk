@@ -8,7 +8,14 @@
  * (`createApp({ logger })`) write the same records.
  */
 
-export type { LogFields, LogFormat, LogRecord, Logger, SerializedError } from './types.js';
+export type {
+  LogFields,
+  LogFormat,
+  LogOptions,
+  LogRecord,
+  Logger,
+  SerializedError,
+} from './types.js';
 export {
   LOG_LEVELS,
   type LogLevel,

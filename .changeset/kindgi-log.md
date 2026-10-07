@@ -6,6 +6,7 @@
 
 - **Levels:** `error`, `warn`, `info`, `debug` and `trace`, per subsystem. A dotted name inherits its parent's level: `kernel=debug` covers `kernel.sweeper`.
 - **Child loggers:** `log.child({ subsystem, runId, … })`, and errors passed as `{ err }`.
+- **`{ inMessage: [...] }`:** a third argument names the fields the message already states. The pretty format leaves them out, and JSON keeps them.
 - **Two formats:** JSON (`time`, `level`, `severity`, `subsystem`, `message`, then correlation ids, then fields, one record per line) and a pretty format for terminals.
 - **Redaction** on every record:
   - fields whose key looks secret (`authorization`, `…token`, `…password`, `…secret`, `apiKey`…) are redacted;

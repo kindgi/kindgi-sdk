@@ -4,7 +4,14 @@
 import { formatJson, formatPretty } from './format.js';
 import { type LogLevel, SEVERITY, levelEnabled, levelFor } from './levels.js';
 import { redactValue, scrubText } from './redact.js';
-import type { LogFields, LogFormat, LogRecord, Logger, SerializedError } from './types.js';
+import type {
+  LogFields,
+  LogFormat,
+  LogOptions,
+  LogRecord,
+  Logger,
+  SerializedError,
+} from './types.js';
 
 export interface CreateLoggerOptions {
   /** Records below this level aren't written (`KINDGI_LOG_LEVEL`). Default `info`. */
@@ -121,12 +128,15 @@ function build(shared: Shared, bindings: LogFields): Logger {
     return redacted as LogRecord;
   }
 
-  function write(level: LogLevel, message: string, fields?: LogFields): void {
+  function write(level: LogLevel, message: string, fields?: LogFields, how?: LogOptions): void {
     if (!levelEnabled(level, threshold)) return;
     const rec = record(level, message, fields);
     const line =
       shared.format === 'pretty'
-        ? formatPretty(rec, { color: shared.options.color === true })
+        ? formatPretty(rec, {
+            color: shared.options.color === true,
+            ...(how?.inMessage !== undefined && { omit: how.inMessage }),
+          })
         : formatJson(rec);
     try {
       shared.options.write(line);
@@ -136,11 +146,11 @@ function build(shared: Shared, bindings: LogFields): Logger {
   }
 
   return {
-    error: (message, fields) => write('error', message, fields),
-    warn: (message, fields) => write('warn', message, fields),
-    info: (message, fields) => write('info', message, fields),
-    debug: (message, fields) => write('debug', message, fields),
-    trace: (message, fields) => write('trace', message, fields),
+    error: (message, fields, how) => write('error', message, fields, how),
+    warn: (message, fields, how) => write('warn', message, fields, how),
+    info: (message, fields, how) => write('info', message, fields, how),
+    debug: (message, fields, how) => write('debug', message, fields, how),
+    trace: (message, fields, how) => write('trace', message, fields, how),
     child: (more) => build(shared, { ...bindings, ...more }),
     isLevelEnabled: (level) => levelEnabled(level, threshold),
   };

@@ -92,6 +92,29 @@ describe('the pretty format', () => {
     );
   });
 
+  test('fields the message states (inMessage) are left out of the line, and kept in JSON', () => {
+    const at = () => new Date('2026-10-07T21:58:03.120Z');
+    const lines: string[] = [];
+    const fields = {
+      method: 'POST',
+      route: '/v1/runs',
+      status: 201,
+      durationMs: 12,
+      tenantId: 't-1',
+    };
+    const how = { inMessage: ['method', 'route', 'status', 'durationMs'] };
+    createLogger({ format: 'pretty', write: (l) => lines.push(l), now: at })
+      .child({ subsystem: 'http' })
+      .info('POST /v1/runs 201 12ms', fields, how);
+    expect(lines[0]).toBe('21:58:03.120 INFO  [http] POST /v1/runs 201 12ms tenantId=t-1');
+    createLogger({ format: 'json', write: (l) => lines.push(l), now: at }).info(
+      'POST /v1/runs 201 12ms',
+      fields,
+      how,
+    );
+    expect(JSON.parse(lines[1] ?? '')).toMatchObject(fields);
+  });
+
   test('colours only when asked', () => {
     const lines: string[] = [];
     createLogger({ format: 'pretty', color: true, write: (l) => lines.push(l) }).info('x');

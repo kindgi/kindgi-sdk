@@ -67,17 +67,19 @@ function errorLines(err: SerializedError): string[] {
  * The pretty format, for a person at a terminal:
  * `HH:MM:SS.mmm LEVEL [subsystem] message key=value …`, an error's
  * frames on the lines after. Colours only when `color` is set (a
- * terminal, and `NO_COLOR` unset).
+ * terminal, and `NO_COLOR` unset). `omit`: fields the message already
+ * states (`LogOptions.inMessage`), left out of the line.
  */
 export function formatPretty(
   record: LogRecord,
-  options: { readonly color?: boolean } = {},
+  options: { readonly color?: boolean; readonly omit?: readonly string[] } = {},
 ): string {
   const color = options.color === true;
   const time = record.time.slice(11, 23);
   const label = LEVEL_LABEL[record.level];
+  const omit = options.omit ?? [];
   const fields = Object.entries(record)
-    .filter(([key, value]) => !FIXED.has(key) && value !== undefined)
+    .filter(([key, value]) => !FIXED.has(key) && value !== undefined && !omit.includes(key))
     .map(([key, value]) => `${key}=${pretty(value)}`);
   const head = [
     color ? `${DIM}${time}${RESET}` : time,
