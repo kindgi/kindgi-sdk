@@ -12,4 +12,9 @@ export {
   openAICompatExtraBody,
 } from './provider.js';
 export type { OpenAICompatProviderOptions } from './provider.js';
+export { createOpenAICompatEmbeddingProvider } from './embedding.js';
+export type {
+  OpenAICompatEmbeddingOptions,
+  OpenAICompatEmbeddingProvider,
+} from './embedding.js';
 export type { ModelProvider } from '@kindgi/capabilities';

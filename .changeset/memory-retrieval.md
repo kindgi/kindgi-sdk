@@ -7,6 +7,7 @@
 "@kindgi/handler-runtime": patch
 "@kindgi/client": patch
 "@kindgi/cli": patch
+"@kindgi/adapter-model-openai-compat": patch
 ---
 
 Retrieved memory reaches the model as labelled data, and search by meaning is never skipped silently.
@@ -20,7 +21,10 @@ Retrieved memory reaches the model as labelled data, and search by meaning is ne
 - **The API.**
   - `POST /v1/memory/retrieve` answers `422 semantic-unavailable` for `semantic` or `both` without embeddings. The spec listed `400 bad-input`, but the runtime's retrieve was a stub that answered an empty `200`, so no client could have seen the 400.
   - `POST /v1/agents` returns `warnings` (`semantic-unavailable`) for an agent whose retrieval searches by meaning on such a deployment (`MemoryBinding.semanticSearch`).
-- **Operator setting.** `KINDGI_MEMORY_EMBEDDINGS=local:bge-small-en-v1.5` turns on search by meaning (env schema).
+- **Operator settings.**
+  - `KINDGI_MEMORY_EMBEDDINGS=openai-compat` turns on search by meaning through any embeddings endpoint that speaks OpenAI's `POST /embeddings` (OpenAI, Ollama, vLLM, Hugging Face TEI): set `KINDGI_MEMORY_EMBEDDINGS_URL` and `KINDGI_MEMORY_EMBEDDINGS_MODEL`, plus `KINDGI_MEMORY_EMBEDDINGS_API_KEY` from your secret store if the endpoint takes a key.
+  - `local:<model>` runs the model inside a server run from source on macOS or glibc Linux, not in the runtime image.
+  - `@kindgi/adapter-model-openai-compat` adds `createOpenAICompatEmbeddingProvider`. Its `probe()` embeds once at boot, to learn the dimensions.
 - **Specs and SDKs.**
   - The agent spec (schema-version 1.4.0) and pack index carry `memory` and the `same-user` scope; both indexers, TS and Python (`Agent(memory=...)`), keep them.
   - CLI: `kindgi memory facts retrieve --query=<json>` is wired.

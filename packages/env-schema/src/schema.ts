@@ -318,8 +318,35 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_MEMORY_EMBEDDINGS',
     description:
-      "Turns on memory search by meaning: the embedding model, as `local:<model>`, run inside the server (no key, no outside call; the model downloads on first use, ~130 MB for the default). Models: `bge-small-en-v1.5` (384 dimensions), `nomic-embed-text-v1.5` (768), `mxbai-embed-large-v1` (1024). Facts are embedded when written, and a background job embeds the ones already there; agents' `semantic` and `both` retrieval and `/v1/memory/retrieve` then search by meaning. Unset (the default): keyword search only; a `semantic` intent fails its turn with `semantic-unavailable`, `both` runs its keyword half, and publishing such an agent warns. Any other value refuses to start.",
-    example: 'local:bge-small-en-v1.5',
+      "Turns on memory search by meaning, with the embedding provider: `openai-compat`, an embeddings endpoint that speaks OpenAI's `POST /embeddings` (OpenAI, Ollama, vLLM, Hugging Face TEI, LM Studio; set `KINDGI_MEMORY_EMBEDDINGS_URL` and `KINDGI_MEMORY_EMBEDDINGS_MODEL`), or `local:<model>`, a model run inside the server (`bge-small-en-v1.5`, `nomic-embed-text-v1.5` or `mxbai-embed-large-v1`; only for a server run from source on macOS or glibc Linux: the runtime image can't load it, and the server refuses to start there). Facts are embedded when written, and a background job embeds the ones already there; agents' `semantic` and `both` retrieval and `/v1/memory/retrieve` then search by meaning. Unset (the default): keyword search only; a `semantic` intent fails its turn with `semantic-unavailable`, `both` runs its keyword half, and publishing such an agent warns. The server checks the provider at boot (an embed, which also gives the dimensions) and refuses to start when it doesn't answer.",
+    example: 'openai-compat',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_MEMORY_EMBEDDINGS_URL',
+    description:
+      "With `KINDGI_MEMORY_EMBEDDINGS=openai-compat`: the endpoint's base URL, with its `/v1` (`http://localhost:11434/v1` for Ollama, `https://api.openai.com/v1`). Required then.",
+    example: 'http://localhost:11434/v1',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_MEMORY_EMBEDDINGS_MODEL',
+    description:
+      'With `KINDGI_MEMORY_EMBEDDINGS=openai-compat`: the embedding model the endpoint serves (`nomic-embed-text`, `text-embedding-3-small`). Required then. A different model means a new vector space: the background job re-embeds every fact in it.',
+    example: 'nomic-embed-text',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_MEMORY_EMBEDDINGS_API_KEY',
+    description:
+      "With `KINDGI_MEMORY_EMBEDDINGS=openai-compat`: the endpoint's key, mapped into the environment from your secret store; Kindgi never stores it. Optional: Ollama and a local TEI take none.",
+    example: '',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',

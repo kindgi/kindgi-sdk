@@ -31,6 +31,7 @@
   },
   "dependencies": {
     "@kindgi/capabilities": "workspace:*",
+    "@kindgi/embedding": "workspace:*",
     "openai": "^7.17.0"
   },
   "engines": {
