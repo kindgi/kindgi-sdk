@@ -46,67 +46,37 @@ uses the cost budget.
 
 ## When a turn runs out
 
-Each limit fails the turn with its own error. These are from
-`kindgi runs start … --verbose` on `acme.order-desk`, with one limit set low at
-a time.
+Each limit fails the turn with its own error. `kindgi runs start` prints it
+and exits `1`; the run, on stdout, has `"status": "failed"` and the error in
+its `failureMessage`. These are from `acme.order-desk` with one limit set low
+at a time, on a local `llama3.1` registered with a price.
 
 **Steps.** After a model call that asks for more tool calls, with no steps
 left:
 
 ```text
-Error [server]: Agent turn steps budget exceeded (limit 1, observed 1)
-{
-  "code": "server",
-  "serverCode": "budget-exceeded",
-  "message": "Agent turn steps budget exceeded (limit 1, observed 1)",
-  "fields": {
-    "kind": "steps",
-    "limit": 1,
-    "observed": 1,
-    "runId": "32e87e56-e221-489c-be0e-74885038520d"
-  }
-}
+Error [budget-exceeded]: Agent turn steps budget exceeded (limit 1, observed 1)
 ```
 
 **Cost.** Checked after each model call, against the turn's total so far:
 
 ```text
-Error [server]: Agent turn cost budget exceeded (limit 0.0005, observed 0.000982)
-{
-  "code": "server",
-  "serverCode": "budget-exceeded",
-  "message": "Agent turn cost budget exceeded (limit 0.0005, observed 0.000982)",
-  "fields": {
-    "kind": "cost",
-    "limit": 0.0005,
-    "observed": 0.000982,
-    "runId": "c24f58c5-f883-4b82-8091-a48b053e53b7"
-  }
-}
+Error [budget-exceeded]: Agent turn cost budget exceeded (limit 0.0001, observed 0.0001084)
 ```
 
 **Time.** A timer that starts with the turn; when it fires, the model call in
 flight is cancelled:
 
 ```text
-Error [server]: Agent turn aborted: Request was aborted.
-{
-  "code": "server",
-  "serverCode": "agent-turn-aborted",
-  "message": "Agent turn aborted: Request was aborted.",
-  "fields": {
-    "reason": "timeout",
-    "runId": "2950dd5b-c706-48bd-837f-5329b19c29d4"
-  }
-}
+Error [agent-turn-aborted]: Agent turn aborted: Request was aborted.
 ```
 
-The run is `failed`, and `kindgi runs journal <run-id>` shows how far it got.
+`kindgi runs journal <run-id>` shows how far the run got.
 
 :::caution[The last step has happened]
 The limits are checked after a model call and its tool calls. So when steps or
 cost run out, the call that crossed the limit was made and paid for
-(`observed 0.000982` against a limit of `0.0005` above), and the tools it asked
+(`observed 0.0001084` against a limit of `0.0001` above), and the tools it asked
 for have run. Set `maxCostUsd` with one call's worth of room.
 :::
 
