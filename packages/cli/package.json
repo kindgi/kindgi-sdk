@@ -40,6 +40,7 @@
     "provenance": true
   },
   "dependencies": {
+    "@kindgi/agents": "workspace:*",
     "@kindgi/client": "workspace:*",
     "@kindgi/dotenv-file": "workspace:*",
     "@kindgi/crypto": "workspace:*",

@@ -60,16 +60,21 @@ export function truncateCell(text: string, max: number): string {
 /**
  * Call a leaf that has already produced a `Rendered` (custom formatting
  * such as tables), still routing any thrown value through the standard
- * error formatter.
+ * error formatter. An `exitCode` with it is the command's own (e.g. a run
+ * that failed: its output is still printed, and the exit code says so).
  */
 export async function runSdkRendered(
   ctx: CommandContext,
   commandLabel: string,
-  fn: () => Promise<Rendered>,
+  fn: () => Promise<Rendered & { readonly exitCode?: number }>,
 ): Promise<CommandResult> {
   try {
-    const rendered = await fn();
-    return { kind: 'ok', rendered };
+    const { stdout, stderr, exitCode } = await fn();
+    return {
+      kind: 'ok',
+      rendered: { stdout, stderr },
+      ...(exitCode !== undefined && { exitCode }),
+    };
   } catch (err) {
     return commandResultFromThrown(err, ctx, commandLabel);
   }
