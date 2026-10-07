@@ -8,7 +8,9 @@
  * and compliance evidence need `admin` for every call. Each route, with
  * no grants, is refused 403 having asked the PDP for exactly that, and
  * every pair asked is one the authorization model defines
- * (`OBJECT_ACTIONS`: the tenant has no `write`).
+ * (`OBJECT_ACTIONS`: the tenant has no `write`). Changing the tenant's
+ * config (its secrets and env) needs `admin`, on top of the `read` every
+ * `/v1/tenant` route needs.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -45,13 +47,15 @@ const unreached = () =>
     },
   ) as never;
 
-function harness() {
+/** `granted`: the pairs (`read tenant`) the caller holds; none by default. */
+function harness(granted: readonly string[] = []) {
   const asked: string[] = [];
   const decide = (action: Action, resource: ResourceRef): Decision => {
     asked.push(`${action} ${resource.type}`);
+    const allowed = granted.includes(`${action} ${resource.type}`);
     return {
-      allowed: false,
-      reason: 'test: no grants',
+      allowed,
+      reason: allowed ? 'test: granted' : 'test: no grants',
       evidence: {
         action,
         relation: '',
@@ -147,5 +151,34 @@ describe('tenant-wide routes ask for the tenant', () => {
       const [action, type] = needs.split(' ') as [Action, ObjectType];
       expect(OBJECT_ACTIONS[type], needs).toContain(action);
     }
+  });
+});
+
+describe("the tenant's config: reading it needs `read`, changing it `admin`", () => {
+  const patch = (app: ReturnType<typeof harness>['app']) =>
+    app.request('/v1/tenant/config', {
+      method: 'PATCH',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: '{}',
+    });
+
+  test('PATCH with only `read` is refused (403), having asked for `admin`', async () => {
+    const { app, asked } = harness([READ]);
+    const res = await patch(app);
+    expect(res.status).toBe(403);
+    expect(asked).toEqual([READ, ADMIN]);
+  });
+
+  test('PATCH with `admin` passes the check; GET needs only `read`', async () => {
+    const admin = harness([READ, ADMIN]);
+    expect((await patch(admin.app)).status).not.toBe(403);
+    expect(admin.asked).toEqual([READ, ADMIN]);
+
+    const reader = harness([READ]);
+    const res = await reader.app.request('/v1/tenant/config', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(res.status).not.toBe(403);
+    expect(reader.asked).toEqual([READ]);
   });
 });
