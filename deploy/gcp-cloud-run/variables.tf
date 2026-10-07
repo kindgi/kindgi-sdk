@@ -148,6 +148,24 @@ variable "pack_bucket_readers" {
   default     = []
 }
 
+variable "pack_run_invokers" {
+  description = "Cloud Run services the pack's code calls, IAM-protected (an app's own service): { project, location, service } each, the service's name, not its URL. The pack's service account gets roles/run.invoker on each. The call leaves through the pack's own egress, so the service's ingress must take it (see the README)."
+  type = list(object({
+    project  = string
+    location = string
+    service  = string
+  }))
+  default = []
+  validation {
+    condition     = alltrue([for s in var.pack_run_invokers : can(regex("^[a-z]([-a-z0-9]{0,47}[a-z0-9])?$", s.service))])
+    error_message = "Each pack_run_invokers service is a Cloud Run service name (lowercase letters, digits and dashes), not its URL."
+  }
+  validation {
+    condition     = length(distinct([for s in var.pack_run_invokers : "${s.project}/${s.location}/${s.service}"])) == length(var.pack_run_invokers)
+    error_message = "pack_run_invokers names a service twice."
+  }
+}
+
 # ---- the database -------------------------------------------------------------
 
 variable "database_tier" {

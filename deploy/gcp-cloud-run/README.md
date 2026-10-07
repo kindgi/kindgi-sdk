@@ -134,6 +134,10 @@ kindgi env plan --env=dev > pack-env.json      # exits 1 if a required name has 
 jq '{pack_env: .env, pack_secret_env: .secret_env}' pack-env.json > dev.pack-env.auto.tfvars.json
 ```
 
+**A Cloud Run service the pack's code calls (`pack_run_invokers`).** When a tool calls one of your app's IAM-protected Cloud Run services, list it as `{ project, location, service }`, with the service's name, not its URL. The pack's service account gets `roles/run.invoker` on it. The grant is added beside the service's other members, and nothing else of the service changes.
+- **The token:** the pack's code fetches a Google ID token for the service's URL from the metadata server and sends it as `Authorization: Bearer`. In Node that's google-auth-library's `getIdTokenClient(url)`; in Python, `google.oauth2.id_token.fetch_id_token`.
+- **The ingress:** the call leaves through the pack's own egress. In `direct` that's Cloud Run's internet egress; in `connector`, the connector carries private ranges only. A service with ingress `all` takes the call, with IAM as the guard. A service with internal ingress refuses it: Cloud Run counts a call from another service as internal only when the caller sends all its traffic through a VPC, and the pack doesn't in either shape.
+
 ## 5. The services
 
 ```sh
@@ -169,7 +173,7 @@ Then `kindgi health`, `kindgi tools list` and a run, with `--url "$URL" --token 
 
 ## Testing the module
 
-`terraform init -backend=false && terraform test` runs `tests/module.tftest.hcl` with a mock Google provider. No credentials are used and no cloud calls are made. It plans the module with each option and checks what it would create: the default secrets backend and repository, `secrets_backend = "none"`, the AAD key's pin, and an existing repository in the same project and in another.
+`terraform init -backend=false && terraform test` runs `tests/module.tftest.hcl` with a mock Google provider. No credentials are used and no cloud calls are made. It plans the module with each option and checks what it would create: the default secrets backend and repository, `secrets_backend = "none"`, the AAD key's pin, an existing repository in the same project and in another, and the pack's invoker grants.
 
 ## Operating it
 
