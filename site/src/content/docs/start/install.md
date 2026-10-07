@@ -46,7 +46,8 @@ The first `kindgi dev` then pulls the image (about 700 MB; `amd64` and
 `kindgi doctor` checks what Kindgi needs: Node (or Python and uv), Docker,
 access to the runtime image and, in a project's folder, the project, its
 dependencies, its model key, the runtime and a provider. Each check that
-fails says how to fix it, and it exits `1` until nothing does:
+fails says how to fix it, and it exits `1` until nothing does. A `!` line is
+a warning: it works now, but read it:
 
 ```sh
 npx --yes @kindgi/cli@0.1 doctor     # in a project: pnpm exec kindgi doctor, or npx --no kindgi doctor

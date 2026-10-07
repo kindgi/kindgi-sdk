@@ -87,6 +87,10 @@ The checks come in this order: `node`, `npm`, `python`, `uv`, `docker`,
 - **`fail`:** run its `fix`, as written: it names the CLI to use in that
   folder. When the fix needs the person (start Docker Desktop, sign in, copy
   a key), ask them, then run doctor again.
+- **`warn`:** it works now, but the person should know: tell them its
+  `message` and `fix`, and go on. `ok` stays `true` and the exit code `0`.
+  Today only `provider` warns: agents that name no model land on a model the
+  preset no longer lists, or not on the preset's default.
 - **`skip`:** not applicable yet. Outside a project, `project` and every
   check after it skip; `runtime` skips while `kindgi dev` isn't running.
 
