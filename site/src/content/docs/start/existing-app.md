@@ -455,3 +455,43 @@ Store the run's id on your own row (a `kindgi_run_id` column), and read its
 status, output, steps and sources through the API when your app shows them.
 Never from Kindgi's database, and never by sending users to Kindgi's
 console: see [Show runs in your app](../../guides/runs/show-runs-in-your-app/).
+
+<!-- check-samples: stand-ins for your app's own code that the samples above import; the docs' sample check reads them, readers don't see them.
+
+```json
+// tsconfig.json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "paths": { "@/*": ["./src/*"] }
+  },
+  "include": ["src/**/*.ts", "kindgi/**/*.ts"]
+}
+```
+
+```ts
+// src/lib/requests.ts
+export function findRequest(id: string): { subject: string; body: string } | undefined {
+  return id === 'REQ-1234' ? { subject: 'Refund', body: 'I was charged twice.' } : undefined;
+}
+```
+
+```python
+# acme/orders.py
+from typing import Any
+
+
+def find_orders(customer_id: str) -> list[dict[str, Any]]:
+    return []
+```
+-->
