@@ -178,7 +178,8 @@ If the model provider later refuses the key (a `401`), don't open, measure
 or print `.env.local`. Ask the person to copy the key again, and run the
 `secrets set` command again with `--write-mode=add-version`: without it, a
 key that's already stored is refused (`Version conflict: ANTHROPIC_API_KEY
-already exists`).
+already exists`). The new key is used from the next run: there's no need to
+register the provider again or to restart `kindgi dev`.
 
 ## Step 5: the first agent
 
