@@ -5,11 +5,12 @@ import type { KindgiClient } from '@kindgi/client';
 
 import type { BuildRunners } from './build/runners.js';
 import type { RegistryAuthSeam } from './commands/auth.js';
+import type { DoctorSeam } from './commands/doctor.js';
 import type { EnvInitInputSeam } from './commands/env.js';
 import { ROOT_COMMANDS, findCommand } from './commands/index.js';
 import type { SecretsValueInputSeam } from './commands/secrets.js';
 import type { Command } from './commands/types.js';
-import { loadConfig } from './config.js';
+import { type ResolvedConfig, loadConfig } from './config.js';
 import type { InitSeam } from './context.js';
 import { buildContext } from './context.js';
 import type { DeployRunners } from './deploy/runners.js';
@@ -109,6 +110,25 @@ export interface RunCliInputs {
    */
   readonly registryAuthSeam?: RegistryAuthSeam;
   readonly initSeam?: InitSeam;
+  /** `kindgi doctor`'s seams (tools, docker, Node version, image, presets). */
+  readonly doctorSeam?: DoctorSeam;
+}
+
+/**
+ * The resolved config. `kindgi doctor` runs on a config file it can't
+ * read (malformed JSON), which it reports itself; every other command
+ * fails on it.
+ */
+async function configFor(
+  topLevel: string | undefined,
+  loading: Promise<ResolvedConfig>,
+): Promise<ResolvedConfig> {
+  try {
+    return await loading;
+  } catch (err) {
+    if (topLevel !== 'doctor') throw err;
+    return { apiUrl: undefined, token: undefined, source: { apiUrl: 'unset', token: 'unset' } };
+  }
 }
 
 export interface CliOutcome {
@@ -170,14 +190,17 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
     return { stdout: `${CLI_VERSION}\n`, stderr: '', exitCode: 0 };
   }
 
-  const config = await loadConfig({
-    ...(parsed.globals.url !== undefined ? { flagUrl: parsed.globals.url } : {}),
-    ...(parsed.globals.token !== undefined ? { flagToken: parsed.globals.token } : {}),
-    ...(inputs.env !== undefined ? { env: inputs.env } : {}),
-    ...(inputs.cwd !== undefined ? { cwd: inputs.cwd } : {}),
-    ...(inputs.home !== undefined ? { home: inputs.home } : {}),
-    ...(inputs.configReadFile !== undefined ? { readFile: inputs.configReadFile } : {}),
-  });
+  const config = await configFor(
+    argv[0],
+    loadConfig({
+      ...(parsed.globals.url !== undefined ? { flagUrl: parsed.globals.url } : {}),
+      ...(parsed.globals.token !== undefined ? { flagToken: parsed.globals.token } : {}),
+      ...(inputs.env !== undefined ? { env: inputs.env } : {}),
+      ...(inputs.cwd !== undefined ? { cwd: inputs.cwd } : {}),
+      ...(inputs.home !== undefined ? { home: inputs.home } : {}),
+      ...(inputs.configReadFile !== undefined ? { readFile: inputs.configReadFile } : {}),
+    }),
+  );
 
   // Lazily wire dev runners so commands other than `kindgi dev` don't
   // load the dev loop. Tests supplying `inputs.devRunners` always win.
@@ -228,6 +251,7 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
     ...(inputs.envInitInputSeam !== undefined ? { envInitInputSeam: inputs.envInitInputSeam } : {}),
     ...(inputs.registryAuthSeam !== undefined ? { registryAuthSeam: inputs.registryAuthSeam } : {}),
     ...(inputs.initSeam !== undefined ? { initSeam: inputs.initSeam } : {}),
+    ...(inputs.doctorSeam !== undefined ? { doctorSeam: inputs.doctorSeam } : {}),
   });
 
   const label = commandLabel(command, argv, consumed);
