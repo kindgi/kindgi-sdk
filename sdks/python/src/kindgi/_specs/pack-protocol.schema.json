@@ -47,7 +47,7 @@
         "env": {
           "type": "object",
           "additionalProperties": { "type": "string" },
-          "description": "The env values the tool declares (`needsSpec.env`), by name, resolved for this call: the project's value, else its org's, else the tenant's, in the env the runtime serves; a schema `default` when no scope sets one (protocol 2.5.0). The runtime records them with the call, so a retry or a replay sends the same values. Absent when the tool declares none, and from an older runtime."
+          "description": "The env values the tool declares (`needsSpec.env`), by name, resolved for this call: the project's value, else its org's, else the tenant's, in the env the runtime serves; a schema `default` when no scope sets one (protocol 2.5.0). The runtime records them with the call, so the call re-run after a wait or a retry sends the same values. Absent when the tool declares none, and from an older runtime."
         },
         "secrets": { "type": "object", "description": "Resolved secrets for the call (open)." },
         "config": {

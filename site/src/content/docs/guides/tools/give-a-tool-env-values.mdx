@@ -100,8 +100,9 @@ def find_order(lookup: Lookup, ctx: ToolContext) -> Found:
   gets its `default`. A required name with no value, or a value that doesn't
   fit its schema, fails the call before the handler runs; the failure names
   the tool and the value, and gives the command that sets it.
-- **The values a call used are recorded with it**, so a retry, a resumed run
-  or a replay of the run sees the same ones, even after someone changes them.
+- **The values a call used are recorded with it**, so the call re-run after a
+  wait (an approval, say) or a retry sees the same ones, even after someone
+  changes them. A replay of the run reads today's values for now.
 - **The context** holds only what the tool declares. `ctx.env` is optional in
   the TypeScript type because a unit test builds its own context.
 

@@ -144,12 +144,26 @@ export interface ToolContext {
    * Every declared name is present: one with neither a value nor a
    * default, or whose value doesn't match its schema, fails the call
    * before the handler runs. The runtime records the values with the
-   * call, so a retry, a resume or a replay sees the same ones. Not for
-   * credentials: env values are shown with the run (use `secrets`).
+   * call (`record`), so the call re-run after a wait or a retry sees the
+   * same ones. Not for credentials: env values are shown with the run
+   * (use `secrets`).
    * Absent when the tool declares none, and from an older runtime — a
    * unit test passes its own.
    */
   readonly env?: Readonly<Record<string, string>>;
+  /**
+   * Decide once for this call, durably: the step that runs the tool's
+   * `NodeContext.record`, under a key for this call. The first call for
+   * `key` runs `decide`, journals its result, then returns it; when the
+   * step runs again (resumed after a wait, or retried), it returns the
+   * journaled result and `decide` doesn't run. A throw or `undefined`
+   * isn't journaled. The result is kept as JSON.
+   *
+   * The runtime keeps a call's resolved env here, so a re-run sees the
+   * values the call first saw. Set by the dispatch site (an agent turn's
+   * tool dispatch, a flow's tool step); absent outside a run.
+   */
+  readonly record?: <T>(key: string, decide: () => T | Promise<T>) => Promise<T>;
 }
 
 /**
