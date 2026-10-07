@@ -391,7 +391,7 @@ describe('kindgi key trust', () => {
       );
       expect(out.exitCode).toBe(1);
       expect(out.stderr).toBe(
-        'Error [server]: refused\nTo trust another key: `kindgi key create <newId>`, then `kindgi key trust <newId>`.\n',
+        `Error [${serverCode}]: refused\nTo trust another key: \`kindgi key create <newId>\`, then \`kindgi key trust <newId>\`.\n`,
       );
     },
   );
@@ -412,7 +412,7 @@ describe('kindgi key trust', () => {
       }),
     );
     expect(out.exitCode).toBe(1);
-    expect(out.stderr).toBe('Error [server]: boom\n');
+    expect(out.stderr).toBe('Error [internal-error]: boom\n');
   });
 });
 

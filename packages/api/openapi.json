@@ -241,6 +241,8 @@
           "budget-exceeded": 422,
           "output-schema-violation": 422,
           "model-invocation-failed": 422,
+          "capability-unsatisfiable": 422,
+          "tool-version-unresolvable": 422,
           "tool-invocation-failed": 422,
           "capability-routing-failed": 422,
           "runtime-not-configured": 422,
