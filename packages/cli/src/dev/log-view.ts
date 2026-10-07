@@ -183,6 +183,19 @@ export function sourceLogLevels(view: DevLogView): Record<string, string> {
 }
 
 /**
+ * The levels the runtime gets: the view's, with its `boot` record kept
+ * (`boot` at info at least). In JSON the runtime writes its banner as that
+ * record, and `kindgi dev` waits for it to know the runtime serves, so a
+ * higher level (`--quiet`, `--log-level=warn`) would leave it waiting.
+ * Whether the banner is shown is still the view's.
+ */
+export function runtimeLogLevels(view: DevLogView): Record<string, string> {
+  return shows(view, 'info', 'boot')
+    ? sourceLogLevels(view)
+    : sourceLogLevels({ ...view, levels: { ...view.levels, boot: 'info' } });
+}
+
+/**
  * The settings a source `kindgi dev` reads gets: the levels shown, as
  * records (the pack service and the indexer; the runtime container adds
  * the format itself, since a runtime you run writes to your terminal).

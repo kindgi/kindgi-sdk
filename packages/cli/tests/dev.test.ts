@@ -2409,13 +2409,14 @@ describe('kindgi dev — logs', () => {
 
   test('a level given in the shell is used when no flag is', async () => {
     const { logLevels } = await boot([], { KINDGI_LOG_LEVEL: 'warn' });
-    expect(logLevels).toEqual({ KINDGI_LOG_LEVEL: 'warn' });
+    // The runtime's boot record (its banner, which kindgi dev waits for) stays at info.
+    expect(logLevels).toEqual({ KINDGI_LOG_LEVEL: 'warn', KINDGI_LOG_LEVELS: 'boot=info' });
   });
 
   test('--quiet: errors only; no progress, no info records', async () => {
     const { out, stderr, logLevels } = await boot(['--quiet']);
     expect(out.exitCode).toBe(0);
-    expect(logLevels).toEqual({ KINDGI_LOG_LEVEL: 'error' });
+    expect(logLevels).toEqual({ KINDGI_LOG_LEVEL: 'error', KINDGI_LOG_LEVELS: 'boot=info' });
     expect(stderr).toContain('ERROR [kernel] step failed');
     expect(stderr).not.toContain('[http]');
     expect(stderr).not.toContain('Kindgi is up');

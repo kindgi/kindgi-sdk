@@ -14,6 +14,7 @@ import {
   type DevLogView,
   parseDevLogFlags,
   resolveDevLogView,
+  runtimeLogLevels,
   showIndexerLine,
   showLine,
   sourceLogEnv,
@@ -159,6 +160,22 @@ describe('the view', () => {
       KINDGI_LOG_LEVELS: 'http=warn,pack=trace',
     });
     expect(sourceLogEnv(PRETTY)).toEqual({ KINDGI_LOG_FORMAT: 'json', KINDGI_LOG_LEVEL: 'info' });
+  });
+
+  test('the runtime keeps its boot record (its banner, which kindgi dev waits for) at info', () => {
+    expect(runtimeLogLevels(PRETTY)).toEqual({ KINDGI_LOG_LEVEL: 'info' });
+    expect(runtimeLogLevels({ ...PRETTY, level: 'debug' })).toEqual({ KINDGI_LOG_LEVEL: 'debug' });
+    expect(runtimeLogLevels({ ...PRETTY, quiet: true, level: 'error' })).toEqual({
+      KINDGI_LOG_LEVEL: 'error',
+      KINDGI_LOG_LEVELS: 'boot=info',
+    });
+    expect(runtimeLogLevels({ ...PRETTY, levels: { boot: 'warn', http: 'debug' } })).toEqual({
+      KINDGI_LOG_LEVEL: 'info',
+      KINDGI_LOG_LEVELS: 'boot=info,http=debug',
+    });
+    // Shown or not is still the view's: under --quiet the banner isn't.
+    const quiet = { ...PRETTY, quiet: true, level: 'error' } as const;
+    expect(showLine('runtime', BOOT, quiet)).toBeUndefined();
   });
 });
 

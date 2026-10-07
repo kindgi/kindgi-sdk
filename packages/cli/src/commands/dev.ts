@@ -68,11 +68,11 @@ import {
   type DevOutput,
   parseDevLogFlags,
   resolveDevLogView,
+  runtimeLogLevels,
   showIndexerLine,
   showLine,
   showText,
   sourceLogEnv,
-  sourceLogLevels,
 } from '../dev/log-view.js';
 import { type PackCode, resolvePackCode } from '../dev/pack-code.js';
 import { devPackEnv, devPackEnvFiles } from '../dev/pack-env.js';
@@ -661,7 +661,7 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
         }),
         runtimeImage: args.runtimeImage,
         ...(args.runtimeUrl !== undefined && { runtimeUrl: args.runtimeUrl }),
-        logLevels: sourceLogLevels(logView),
+        logLevels: runtimeLogLevels(logView),
         onLog: (line, stream) => emitOutput(showLine('runtime', line, logView, stream)),
         onProgress: emitProgress,
         ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
