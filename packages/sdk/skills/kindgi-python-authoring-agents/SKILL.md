@@ -15,7 +15,7 @@ description: >
   model by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.1"
+version: "0.1.3"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -77,7 +77,7 @@ brief_writer = Agent(
     instructions=(
         "You are drafting a brief in {{ jurisdiction }}. The user provides the case "
         "facts; you produce a Section IV argument citing at least two precedents. "
-        "Call acme.verify-citation on every cite before using it. Never invent one."
+        "Check every cite with the verify-citation tool before using it. Never invent one."
     ),
     capabilities=[{"needs": [{"feature": "tool-use"}]}],
     tools=[verify_citation, fetch_precedent],      # Tool objects — or {"id", "version"} refs
@@ -111,7 +111,11 @@ brief_writer = Agent(
   `parameters` or the runtime's own variables (`today`, `now`,
   `agent.*`, `conversation.*`), rendered strictly: an unknown variable
   fails the turn. Write it as a brief for a capable colleague: what to
-  do, which tools to prefer, what to refuse, the quality bar.
+  do, which tools to prefer, what to refuse, the quality bar. Name a
+  tool by what it does ("the verify-citation tool"), never by its dotted
+  id: the model sees ids in its provider's form (`acme__verify-citation`
+  for Anthropic and OpenAI-compatible models), and `acme.verify-citation`
+  in the instructions can make it call a name it wasn't given.
 - **`capabilities`** — what the model must support, e.g.
   `[{"needs": [{"feature": "tool-use"}]}]`. The turn routes its first
   capability to pick a provider and model; none declared fails the turn.
@@ -161,8 +165,9 @@ brief_writer = Agent(
 Agents run on a registered model provider; the router picks one whose
 models satisfy `capabilities`. `kindgi dev` gives a new pack `dev-echo`,
 a **fallback** that answers only while no other provider fits — it
-calls the first tool and replies "Tool responded: …", and the turn
-carries a `fallback-provider` warning. Register a real model and it
+calls the first tool and replies "⚠ dev-echo isn't a real model: …"
+then "Tool responded: …", and the turn carries the `fallback-provider` and
+`dev-echo-not-a-model` warnings. Register a real model and it
 takes over: see `kindgi-authoring-providers`
 (`kindgi providers register --preset=anthropic`).
 
