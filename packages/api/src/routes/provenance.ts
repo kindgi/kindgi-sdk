@@ -25,6 +25,7 @@ import type {
 import type { AppEnv } from '../types.js';
 import { clampLimit, decodeCursor, encodeCursor } from './pagination.js';
 import { parseListScope } from './scope-params.js';
+import { UUID_RE } from './uuid-param.js';
 
 /**
  * Provenance resource routes.
@@ -73,9 +74,14 @@ export function provenanceRouter(
   const r = new Hono<AppEnv>();
   if (authorizer !== undefined) {
     // A run that isn't there is the handler's 404 (`read` on the tenant).
+    // An id that isn't a run id is never looked up (its uuid cast would
+    // fail the query as a 500).
     const onRunProject = async (c: Context<AppEnv>, next: Next) => {
       const tenantId = c.get('tenantId') as TenantId;
-      const run = await options.runBinding?.getRun(tenantId, c.req.param('runId') as RunId);
+      const runId = c.req.param('runId') ?? '';
+      const run = UUID_RE.test(runId)
+        ? await options.runBinding?.getRun(tenantId, runId as RunId)
+        : undefined;
       const at =
         run === undefined || run === null
           ? ref('tenant', tenantId as unknown as string)

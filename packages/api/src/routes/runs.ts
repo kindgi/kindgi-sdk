@@ -108,11 +108,13 @@ export function runsRouter(
   // GET /               — list; rows filtered to `read` on their project
   if (authorizer !== undefined) {
     // A run that isn't there is the handler's 404: `read` on the tenant
-    // (which every reader has) lets it through without masking it.
+    // (which every reader has) lets it through without masking it. An id
+    // that isn't a run id is never looked up (its uuid cast would fail
+    // the query as a 500): the route's own 400 answers it.
     const projectFromRun = async (c: import('hono').Context<AppEnv>) => {
       const tenantId = c.get('tenantId') as TenantId;
       const runId = c.req.param('runId') ?? '';
-      const row = runId.length === 0 ? null : await runBinding.getRun(tenantId, runId as RunId);
+      const row = UUID_RE.test(runId) ? await runBinding.getRun(tenantId, runId as RunId) : null;
       return row === null
         ? ref('tenant', tenantId as unknown as string)
         : ref('project', row.projectId as unknown as string);

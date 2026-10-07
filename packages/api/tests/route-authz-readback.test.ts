@@ -35,6 +35,7 @@ const THEIRS = randomUUID();
 const RUN_MINE = randomUUID();
 const RUN_THEIRS = randomUUID();
 const TENANT_READ = `read tenant:${tenantId}`;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const observation = (id: string, agentId: string) => ({
   id,
@@ -86,8 +87,11 @@ function harness(grants: readonly string[]) {
   const runs: Record<string, string> = { [RUN_MINE]: MINE, [RUN_THEIRS]: THEIRS };
   const run = {
     ...stubs.kernelBinding.run,
-    getRun: async (_t: TenantId, runId: string) =>
-      runs[runId] === undefined ? null : ({ projectId: runs[runId] } as KernelRunRecord),
+    // As Postgres's uuid cast does, a malformed id fails the query.
+    getRun: async (_t: TenantId, runId: string) => {
+      if (!UUID.test(runId)) throw new Error(`invalid input syntax for type uuid: "${runId}"`);
+      return runs[runId] === undefined ? null : ({ projectId: runs[runId] } as KernelRunRecord);
+    },
   } as unknown as RunBinding;
   const costs = [
     costRecord('c-mine', MINE),
@@ -215,6 +219,11 @@ describe("provenance needs `read` on the run's project", () => {
     const { call } = harness([`read project:${MINE}`]);
     expect((await call('GET', `/v1/provenance/${RUN_MINE}`)).status).toBe(404);
     expect((await call('POST', `/v1/provenance/${RUN_MINE}/export`, {})).status).not.toBe(403);
+  });
+
+  test("an id that isn't a run id is never looked up: the handler answers, not a 500", async () => {
+    const { call } = harness([TENANT_READ]);
+    expect((await call('GET', '/v1/provenance/None')).status).toBe(404);
   });
 
   test('a run that is not there is the handler’s 404, behind `read` on the tenant', async () => {

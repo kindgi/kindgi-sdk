@@ -26,6 +26,7 @@ import type {
 } from '../src/index.js';
 
 const tenantId = randomUUID() as TenantId;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TOKEN = 'route-authz-runs';
 const resolveToken: TokenResolver = async (token) =>
   token === TOKEN ? { tenantId, userId: 'user-1' as UserId } : null;
@@ -72,8 +73,11 @@ function harness(grants: readonly string[]) {
   const stubs = createStubAppBindings();
   const run = {
     ...stubs.kernelBinding.run,
-    getRun: async (_t: TenantId, runId: string) =>
-      [mine, theirs].find((r) => r.runId === runId) ?? null,
+    // As Postgres's uuid cast does, a malformed id fails the query.
+    getRun: async (_t: TenantId, runId: string) => {
+      if (!UUID.test(runId)) throw new Error(`invalid input syntax for type uuid: "${runId}"`);
+      return [mine, theirs].find((r) => r.runId === runId) ?? null;
+    },
     listRuns: async (_input: ListRunsInput) => ({ data: [mine, theirs], hasMore: false }),
     cancelRun: async () => ({ kind: 'err', error: { code: 'run-not-found', message: 'x' } }),
   } as unknown as RunBinding;
@@ -144,6 +148,14 @@ describe('the run list and a run that is not there', () => {
     const { call } = harness([`read tenant:${tenantId}`]);
     const res = await call('POST', `/v1/runs/${randomUUID()}/cancel`);
     expect(res.status).toBe(404);
+  });
+
+  test("an id that isn't a run id is never looked up: the route's 400, not a 500", async () => {
+    const { call } = harness([`read tenant:${tenantId}`]);
+    expect((await call('GET', '/v1/runs/None')).status).toBe(400);
+    expect((await call('POST', '/v1/runs/None/cancel')).status).toBe(400);
+    // Resume answers with its own refusal.
+    expect((await call('POST', '/v1/runs/None/resume')).status).toBe(422);
   });
 
   test("another project's run is refused on cancel", async () => {
