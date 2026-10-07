@@ -27,6 +27,7 @@ import type {
 import type { Authorizer } from '../middleware/authorize.js';
 import type { MintPublicRunTokenResult } from '../public-run-token.js';
 import type { AppEnv } from '../types.js';
+import { deniedBy } from './denied.js';
 import { liveScopeToWire } from './live-scope-wire.js';
 import type { DecodedCursor } from './pagination.js';
 import { clampLimit, decodeCursor } from './pagination.js';
@@ -59,6 +60,16 @@ export interface RunsRouterOptions {
   readonly publicRunTokens?: {
     readonly mint: (tenantId: TenantId, runIds: readonly RunId[]) => MintPublicRunTokenResult;
   };
+  /**
+   * Whether the tenant has the agent or flow a run names. With an
+   * authorizer, starting a run needs `execute` on an existing target; one
+   * that doesn't exist is left to the run handler's 404. Absent: the
+   * check always runs.
+   */
+  readonly targetExists?: (
+    tenantId: TenantId,
+    target: { readonly kind: 'agent' | 'flow'; readonly id: string },
+  ) => Promise<boolean>;
 }
 
 /** How far up the parent chain a public token's grant reaches. */
@@ -87,60 +98,53 @@ export function runsRouter(
   // Each check resolves the run's project (by run id) and asks the
   // authorizer about that project:
   //
-  // POST /              — no route-level check; `execute` on the agent
-  //                       or flow is up to the run handler binding.
+  // POST /              — execute on the agent or flow it names (an
+  //                       existing one; a missing one is the handler's 404)
   // GET /:runId         — read on the run's project
   // POST /:runId/cancel — write on the run's project
-  // POST /:runId/resume — execute on the run's project
+  // POST /:runId/resume — write on the run's project
   // GET /:runId/journal — read on the run's project
   // GET /:runId/stream  — read on the run's project
-  // GET /               — list; tenant-scoped, the scope filter narrows
-  //                       further (rows are not filtered per permission)
+  // GET /               — list; rows filtered to `read` on their project
   if (authorizer !== undefined) {
+    // A run that isn't there is the handler's 404: `read` on the tenant
+    // (which every reader has) lets it through without masking it.
     const projectFromRun = async (c: import('hono').Context<AppEnv>) => {
       const tenantId = c.get('tenantId') as TenantId;
       const runId = c.req.param('runId') ?? '';
-      if (runId.length === 0) return ref('tenant', tenantId as unknown as string);
-      const row = await runBinding.getRun(tenantId, runId as RunId);
-      if (row === null) {
-        // Fall back to tenant so the underlying handler surfaces
-        // 404 rather than the middleware masking it as 403.
-        return ref('tenant', tenantId as unknown as string);
-      }
-      return ref('project', row.projectId as unknown as string);
+      const row = runId.length === 0 ? null : await runBinding.getRun(tenantId, runId as RunId);
+      return row === null
+        ? ref('tenant', tenantId as unknown as string)
+        : ref('project', row.projectId as unknown as string);
     };
+    const onRunProject =
+      (action: 'read' | 'write') =>
+      async (c: import('hono').Context<AppEnv>, next: import('hono').Next) => {
+        const resource = await projectFromRun(c);
+        const mw = authorizer.authorize(
+          resource.type === 'tenant' ? 'read' : action,
+          () => resource,
+        );
+        return mw(c, next);
+      };
     r.use('/:runId', async (c, next) => {
       if (c.req.method !== 'GET') return next();
-      const mw = authorizer.authorize('read', projectFromRun);
-      return mw(c, next);
+      return onRunProject('read')(c, next);
     });
-    r.use('/:runId/journal', async (c, next) => {
-      const mw = authorizer.authorize('read', projectFromRun);
-      return mw(c, next);
-    });
-    r.use('/:runId/stream', async (c, next) => {
-      const mw = authorizer.authorize('read', projectFromRun);
-      return mw(c, next);
-    });
+    r.use('/:runId/journal', onRunProject('read'));
+    r.use('/:runId/stream', onRunProject('read'));
     // Progress: `read` for API tokens. A public run token has no
     // principal; the handlers check that its grant covers the run.
     const progressAuth = async (c: import('hono').Context<AppEnv>, next: import('hono').Next) => {
       if (c.get('tokenKind') === 'public-run') return next();
-      const mw = authorizer.authorize('read', projectFromRun);
-      return mw(c, next);
+      return onRunProject('read')(c, next);
     };
     r.use('/:runId/progress', progressAuth);
     r.use('/:runId/progress/stream', progressAuth);
-    r.use('/:runId/cancel', async (c, next) => {
-      const mw = authorizer.authorize('write', projectFromRun);
-      return mw(c, next);
-    });
+    r.use('/:runId/cancel', onRunProject('write'));
     // As cancel: changing a run is `write` on its project (a project has
     // no `execute`; asking for it refused everyone, T243 A).
-    r.use('/:runId/resume', async (c, next) => {
-      const mw = authorizer.authorize('write', projectFromRun);
-      return mw(c, next);
-    });
+    r.use('/:runId/resume', onRunProject('write'));
   }
 
   // ---------- POST / (start a run — agent | flow) ----------
@@ -161,6 +165,15 @@ export function runsRouter(
     if (parsed.kind === 'err') {
       c.status(statusFor(parsed.error.code) as never);
       return c.json(toWireError(parsed.error, requestId));
+    }
+
+    const target =
+      parsed.value.kind === 'agent'
+        ? { kind: 'agent' as const, id: parsed.value.agentId as unknown as string }
+        : { kind: 'flow' as const, id: parsed.value.flowId as unknown as string };
+    if ((await options.targetExists?.(tenantId, target)) !== false) {
+      const refused = await deniedBy(authorizer, c, 'execute', ref(target.kind, target.id));
+      if (refused !== undefined) return refused;
     }
 
     const invocation = await invokeFromBody(binding, tenantId, parsed.value);
@@ -272,8 +285,14 @@ export function runsRouter(
         filter: listFilter.value,
       }),
     );
+    const visible =
+      authorizer === undefined
+        ? page.data
+        : await authorizer.filterByCan(c, 'read', page.data, (row) =>
+            ref('project', row.projectId as unknown as string),
+          );
     return c.json({
-      data: page.data.map((row) => serializeRun(row, { output: includeOutput })),
+      data: visible.map((row) => serializeRun(row, { output: includeOutput })),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });

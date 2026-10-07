@@ -996,6 +996,15 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       runBinding,
       {
         ...(input.eventBus !== undefined && { eventBus: input.eventBus }),
+        ...(input.agentRegistry !== undefined &&
+          input.flowRegistry !== undefined && {
+            targetExists: async (tenantId, target) =>
+              target.kind === 'agent'
+                ? (await input.agentRegistry?.get({ tenantId, agentId: target.id as never })) !==
+                  null
+                : (await input.flowRegistry?.get({ tenantId, flowId: target.id as never })) !==
+                  null,
+          }),
         ...(publicRunTokenLimits !== undefined && {
           publicRunTokens: {
             mint: (tenantId, runIds) =>
