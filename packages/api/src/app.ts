@@ -1398,6 +1398,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       exchangeCode: input.exchangeCode,
       ...(input.refreshToken !== undefined && { refreshToken: input.refreshToken }),
       stateStore: input.oauthStateStore ?? createInMemoryOauthStateStore(),
+      ...(authorizer !== undefined && { authorizer }),
     });
     v1.route('/auth', routers.authed);
     // Callback mounts on the parent `app` under /v1/auth/callback so it

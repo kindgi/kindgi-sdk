@@ -3,7 +3,8 @@
 
 /**
  * Tenant-wide routes ask for the tenant (T243 A, finding g): providers,
- * policies, adapters, capabilities, signing keys and deployments need
+ * policies, adapters, capabilities, signing keys, deployments and the
+ * sign-in provider catalog (`/v1/auth/providers`) need
  * `read` on the tenant to read and `admin` to change; webhook endpoints
  * and compliance evidence need `admin` for every call. Each route, with
  * no grants, is refused 403 having asked the PDP for exactly that, and
@@ -79,6 +80,9 @@ function harness(granted: readonly string[] = []) {
     auditEvents: unreached(),
     complianceClassifier: unreached(),
     complianceGenerator: unreached(),
+    sessionStore: unreached(),
+    identityProvider: unreached(),
+    exchangeCode: unreached(),
     authz: {
       fgaApiUrl: 'http://fga.invalid',
       authzCheckBinding: {
@@ -129,6 +133,9 @@ const ROUTES: readonly (readonly [string, string, string])[] = [
   ['GET', '/v1/webhook-endpoints/e/deliveries', ADMIN],
   ['POST', '/v1/webhook-endpoints/e/deliveries/d/redeliver', ADMIN],
   ['POST', '/v1/webhook-endpoints/e/test', ADMIN],
+  ['GET', '/v1/auth/providers', READ],
+  ['POST', '/v1/auth/providers', ADMIN],
+  ['POST', '/v1/auth/providers/p/unregister', ADMIN],
   ['GET', '/v1/compliance/evidence', ADMIN],
   ['GET', '/v1/compliance/evidence/x', ADMIN],
   ['POST', '/v1/compliance/evidence/export', ADMIN],
