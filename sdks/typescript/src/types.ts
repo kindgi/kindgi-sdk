@@ -2092,20 +2092,23 @@ export interface ApiTokenCreated {
 }
 
 /**
- * What a service account may do: tenant admin, or a role on one project.
+ * What a service account may do: tenant admin, tenant member (read the
+ * tenant's settings), or a role on one project.
  * Matches `@kindgi/api/openapi.json#ServiceAccountGrant`.
  */
 export type ServiceAccountGrant =
   | { readonly kind: 'tenant-admin' }
+  | { readonly kind: 'tenant-member' }
   | {
       readonly kind: 'project';
       readonly projectId: string;
       readonly role: 'viewer' | 'editor' | 'owner' | 'admin' | 'member';
     };
 
-/** A grant to remove: tenant admin, or whatever role the account has on a project. */
+/** A grant to remove: tenant admin, tenant member, or whatever role the account has on a project. */
 export type ServiceAccountGrantTarget =
   | { readonly kind: 'tenant-admin' }
+  | { readonly kind: 'tenant-member' }
   | { readonly kind: 'project'; readonly projectId: string };
 
 /** Matches `@kindgi/api/openapi.json#ServiceAccount`. */

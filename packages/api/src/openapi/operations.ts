@@ -1613,7 +1613,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'serviceAccounts.create',
     summary: 'Create a service account',
     description:
-      'A named, non-human principal with its first grants, written before it is returned. Mint its keys at `POST /v1/tokens` with `for`. Tenant admins only. Mounted when the deployment supplies a `ServiceAccountBinding`.',
+      "A named, non-human principal with its first grants, written before it is returned. It isn't a tenant member unless a grant makes it one (`{kind: 'tenant-member'}`: read the tenant's settings); give it only what its job needs. Mint its keys at `POST /v1/tokens` with `for`. Tenant admins only. Mounted when the deployment supplies a `ServiceAccountBinding`.",
     tags: ['service-accounts'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -4817,7 +4817,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.users.create',
     summary: 'Add a person',
     description:
-      'Adds a person to the tenant, with no grants: give them a role (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. Tenant admins only. Mounted when the identity directory can add people.',
+      "Adds a person to the tenant as a tenant member, written before it answers: they can read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. Give them a role to work (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. Tenant admins only. Mounted when the identity directory can add people.",
     tags: ['identity'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],

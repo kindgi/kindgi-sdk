@@ -235,11 +235,11 @@ function parseCreateBody(b: Record<string, unknown>): Parsed<{
   };
 }
 
-/** `{kind: 'tenant-admin'}` or `{kind: 'project', projectId, role}`. */
+/** `{kind: 'tenant-admin'}`, `{kind: 'tenant-member'}` or `{kind: 'project', projectId, role}`. */
 function parseGrant(raw: unknown): Parsed<ServiceAccountGrant> {
   const target = parseGrantTarget(raw);
   if (target.kind === 'err') return target;
-  if (target.value.kind === 'tenant-admin') return { kind: 'ok', value: target.value };
+  if (target.value.kind !== 'project') return { kind: 'ok', value: target.value };
   const role = (raw as { role?: unknown }).role;
   if (typeof role !== 'string' || !PROJECT_ROLES.includes(role as ProjectRole)) {
     return badInput(`A project grant's \`role\` must be one of: ${PROJECT_ROLES.join(', ')}`);
@@ -247,15 +247,16 @@ function parseGrant(raw: unknown): Parsed<ServiceAccountGrant> {
   return { kind: 'ok', value: { ...target.value, role: role as ProjectRole } };
 }
 
-/** `{kind: 'tenant-admin'}` or `{kind: 'project', projectId}`. */
+/** `{kind: 'tenant-admin'}`, `{kind: 'tenant-member'}` or `{kind: 'project', projectId}`. */
 function parseGrantTarget(raw: unknown): Parsed<ServiceAccountGrantTarget> {
   const g = (raw ?? {}) as { kind?: unknown; projectId?: unknown };
   if (g.kind === 'tenant-admin') return { kind: 'ok', value: { kind: 'tenant-admin' } };
+  if (g.kind === 'tenant-member') return { kind: 'ok', value: { kind: 'tenant-member' } };
   if (g.kind === 'project') {
     if (typeof g.projectId !== 'string' || g.projectId === '') {
       return badInput('A project grant needs `projectId`');
     }
     return { kind: 'ok', value: { kind: 'project', projectId: g.projectId } };
   }
-  return badInput("A grant's `kind` must be 'tenant-admin' or 'project'");
+  return badInput("A grant's `kind` must be 'tenant-admin', 'tenant-member' or 'project'");
 }
