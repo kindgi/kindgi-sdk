@@ -139,8 +139,14 @@ upgrade, with nothing to register again. To keep Chat Completions, set
 `extraBody` fields written for Chat Completions (`reasoning_effort`) either
 stay on that API or move to the Responses names (`extraBody.reasoning.effort`).
 
-A value of `api` other than these two isn't refused when you register. The
-first turn finds no provider for it, and the runtime's log names the setting.
+A value of `api` other than these two isn't refused when you register, but
+the runtime can't build the provider. Turns then go to another registered
+model, or to `dev-echo` with a `fallback-provider` warning, and the runtime's
+log names the setting:
+
+```text
+WARN  [providers] factory throw tenantId=5c0a7e11-0000-4000-8000-00000000c0de providerId=acme-llm adapterId=@kindgi/adapter-model-openai-compat err="Error: @kindgi/adapter-model-openai-compat: provider \"acme-llm\": adapter_config.api must be one of responses, chat-completions."
+```
 
 ## Cached prompts, long prompts and data residency
 
