@@ -9,5 +9,3 @@ The TypeScript pack service writes `@kindgi/log` records on stderr (subsystem `p
 `ctx.log` (an optional `ToolContext.log`): a logger bound to the call, so a tool's own records carry the run's ids and trace (`ctx.log.info('looked up order', { orderId })`, subsystem `pack.tool`). `kindgi dev` shows them as `[pack]` lines.
 
 The supervisor reads records and older bare events, acts only on the service's own lifecycle, and no longer swallows the pack's own JSON output that happens to have a `kind` field. It runs its child with `KINDGI_LOG_FORMAT=json`. `createPackService` takes `log`; its `logger` callback still gets the events.
-
-The supervisor's front passes the caller's `traceparent` on to the pack service, so under `kindgi dev` a call's records carry the runtime's trace too. It dropped the header before.

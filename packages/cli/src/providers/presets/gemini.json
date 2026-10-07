@@ -8,33 +8,27 @@
       "description": "The Google Cloud project Vertex AI bills and authorises against."
     }
   ],
-  "pricesCheckedAt": "2026-10-01",
+  "pricesCheckedAt": "2026-10-07",
   "metadata": {
     "id": "gemini",
     "region": "global",
     "description": "Gemini on Vertex AI",
     "models": [
       {
-        "name": "gemini-2.5-pro",
+        "name": "gemini-3.8-flash",
         "contextWindow": 1048576,
         "maxOutputTokens": 65536,
-        "features": ["tool-use"],
-        "cost": {
-          "promptUsdPer1kTokens": 0.00125,
-          "completionUsdPer1kTokens": 0.01,
-          "longContext": {
-            "thresholdTokens": 200000,
-            "promptUsdPer1kTokens": 0.0025,
-            "completionUsdPer1kTokens": 0.015
-          }
-        }
+        "features": ["tool-use", "structured-output", "long-context"],
+        "cost": { "promptUsdPer1kTokens": 0.00075, "completionUsdPer1kTokens": 0.00375 },
+        "description": "Fast and inexpensive; Google's replacement for gemini-2.5-pro and gemini-2.5-flash, which Vertex AI retires on 2026-10-20 (its prices rise on 2027-01-01)."
       },
       {
-        "name": "gemini-2.5-flash",
+        "name": "gemini-3.5-flash-lite",
         "contextWindow": 1048576,
         "maxOutputTokens": 65536,
-        "features": ["tool-use"],
-        "cost": { "promptUsdPer1kTokens": 0.0003, "completionUsdPer1kTokens": 0.0025 }
+        "features": ["tool-use", "structured-output", "long-context"],
+        "cost": { "promptUsdPer1kTokens": 0.0003, "completionUsdPer1kTokens": 0.0025 },
+        "description": "Cheapest \u2014 routing, classification, simple calls."
       }
     ]
   }

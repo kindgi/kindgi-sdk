@@ -1,5 +1,24 @@
 # @kindgi/sdk
 
+## 0.1.4-rc.5
+
+### Patch Changes
+
+- 6eb47c1: Agent instructions name tools by what they do, not by their dotted id. A model sees a tool's id in its provider's form (`my-pack__greet` for Anthropic and OpenAI-compatible models), so `my-pack.greet` in the instructions could make it call a name it wasn't given. The `kindgi init` echo agent (TypeScript and Python) now says "greet them with the greet tool … echo their message with the echo tool", and the authoring-agents skills say to name tools this way.
+- 17f552d: The providers and Python skills describe dev-echo's "isn't a real model" first line and its `dev-echo-not-a-model` warning, and the providers skill lists the one-key presets: openai, gemini-api, groq and openrouter.
+- c744326: The Python guardrails skill's sample config gives its default as `Field(default=1, …)`, so type checkers such as pyright see the field as optional; `Field(1, …)` made `Config()` look like it needs `minLookups`.
+- Updated dependencies [d69c8e9]
+- Updated dependencies [9801f64]
+  - @kindgi/client@0.1.4-rc.5
+  - @kindgi/handler-runtime@0.1.4-rc.5
+  - @kindgi/agents@0.1.4-rc.5
+  - @kindgi/flow@0.1.4-rc.5
+  - @kindgi/guardrails@0.1.4-rc.5
+  - @kindgi/schema@0.1.4-rc.5
+  - @kindgi/tools@0.1.4-rc.5
+  - @kindgi/crypto@0.1.4-rc.5
+  - @kindgi/types@0.1.4-rc.5
+
 ## 0.1.4-rc.4
 
 ### Patch Changes

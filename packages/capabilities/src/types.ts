@@ -7,6 +7,12 @@ import type { ProjectId, RunId, TenantId } from '@kindgi/types';
  * The closed set of feature flags an agent can require. Matches
  * `@kindgi/specs/capability.schema.json` FeatureRequirement enum. Providers self-
  * report which of these they satisfy.
+ *
+ * `structured-output`: the model can follow a JSON schema natively
+ * (`ModelCallInput.structuredOutput`, where its adapter maps it). An
+ * agent's typed output (`output`) doesn't use that yet: on every provider
+ * it's the agent's instructions, then a parse and a check against the
+ * schema, with repairs.
  */
 export const FEATURES = [
   'structured-output',
