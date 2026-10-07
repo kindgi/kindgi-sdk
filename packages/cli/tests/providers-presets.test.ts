@@ -100,6 +100,16 @@ describe('the bundled presets', () => {
     expect(vertex.kind === 'ok' && vertex.input.secret_ref).toBeUndefined();
   });
 
+  test("the openai preset speaks OpenAI's Responses API, the one GPT-6 calls tools through", async () => {
+    const { openai } = await loadProviderPresets();
+    if (openai === undefined) throw new Error('preset missing');
+    const registration = presetRegistration(openai, { envName: 'local', settings: {} });
+    expect(registration.kind === 'ok' && registration.input.adapter_config).toEqual({
+      baseURL: 'https://api.openai.com/v1',
+      api: 'responses',
+    });
+  });
+
   test('openai and openrouter: an OpenAI-compatible endpoint the preset fixes, and its key', async () => {
     const { openai, openrouter } = await loadProviderPresets();
     if (openai === undefined || openrouter === undefined) throw new Error('presets missing');

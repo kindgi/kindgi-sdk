@@ -21,25 +21,8 @@ import { samplingFor } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
 import { nameToolsAsSent } from '@kindgi/capabilities/tool-names';
 
-/**
- * OpenAI (and every downstream compat endpoint — Ollama, vLLM, Groq,
- * OpenRouter, Together, Fireworks, LiteLLM, ...) constrains
- * `function.name` to `^[a-zA-Z0-9_-]{1,128}$` — dots are rejected.
- * The framework's tool id convention is `<pack>.<tool>`, so this
- * adapter transparently encodes on send and decodes on receive.
- *
- * See the sibling comment in
- * `packages/adapters/model-anthropic/src/translate.ts` — same
- * substitution (`.` → `__`), same reversibility caveat (authors
- * should not put literal `__` in tool ids).
- */
-function encodeToolName(name: string): string {
-  return name.replace(/\./g, '__');
-}
-
-function decodeToolName(name: string): string {
-  return name.replace(/__/g, '.');
-}
+import { EXTRA_BODY_RESERVED_RESPONSES, invokeResponses } from './responses.js';
+import { computeCost, decodeToolName, encodeToolName } from './wire.js';
 
 /**
  * Configuration for an OpenAI-compatible ModelProvider. `baseURL` is the
@@ -81,17 +64,47 @@ export interface OpenAICompatProviderOptions {
     'apiKey' | 'baseURL'
   >;
   /**
-   * Fields merged into every Chat Completions request body: settings an
-   * endpoint takes that the OpenAI format has no field for. A Qwen
-   * thinking model served by vLLM, SGLang or llama-server answers with its
-   * thinking first unless asked not to:
-   * `{ chat_template_kwargs: { enable_thinking: false } }`. The fields the
-   * adapter sets itself (`EXTRA_BODY_RESERVED`) are refused.
+   * Which OpenAI API the adapter speaks (`OPENAI_COMPAT_APIS`):
+   *   - `'responses'`: OpenAI's Responses API, the one OpenAI's GPT-6
+   *     models call tools through. Stateless: every call sends
+   *     `store: false`, so OpenAI keeps no conversation state.
+   *   - `'chat-completions'`: Chat Completions, the format the
+   *     OpenAI-compatible servers (Ollama, vLLM, Groq, OpenRouter, …) speak.
+   * Absent: `'responses'` for a `baseURL` on `api.openai.com` (or one of
+   * its data-residency hosts, `eu.api.openai.com`), `'chat-completions'`
+   * for any other (`defaultOpenAICompatApi`).
+   */
+  readonly api?: OpenAICompatApi;
+  /**
+   * Fields merged into every request body: settings an endpoint takes
+   * that the OpenAI format has no field for. A Qwen thinking model served
+   * by vLLM, SGLang or llama-server answers with its thinking first unless
+   * asked not to: `{ chat_template_kwargs: { enable_thinking: false } }`.
+   * The fields the adapter sets itself are refused: `EXTRA_BODY_RESERVED`
+   * on Chat Completions, `EXTRA_BODY_RESERVED_RESPONSES` on Responses.
    */
   readonly extraBody?: Readonly<Record<string, unknown>>;
 }
 
-/** Request fields the adapter sets itself; `extraBody` can't override them. */
+/** The OpenAI APIs the adapter speaks (`OpenAICompatProviderOptions.api`). */
+export const OPENAI_COMPAT_APIS = ['responses', 'chat-completions'] as const;
+export type OpenAICompatApi = (typeof OPENAI_COMPAT_APIS)[number];
+
+/** The API a provider speaks when it doesn't say (`OpenAICompatProviderOptions.api`). */
+export function defaultOpenAICompatApi(baseURL: string): OpenAICompatApi {
+  let host: string | undefined;
+  try {
+    host = new URL(baseURL).hostname;
+  } catch {
+    host = undefined;
+  }
+  // OpenAI's own API, its data-residency hosts (`eu.api.openai.com`) included.
+  return host === 'api.openai.com' || host?.endsWith('.api.openai.com') === true
+    ? 'responses'
+    : 'chat-completions';
+}
+
+/** Request fields the adapter sets itself on Chat Completions; `extraBody` can't override them. */
 export const EXTRA_BODY_RESERVED = [
   'model',
   'messages',
@@ -111,7 +124,14 @@ export function createOpenAICompatModelProvider(
   options: OpenAICompatProviderOptions,
 ): ModelProvider {
   const metadata = options.metadata;
-  const problem = extraBodyProblem(options.extraBody);
+  if (options.api !== undefined && !OPENAI_COMPAT_APIS.includes(options.api)) {
+    // A caller outside TypeScript can pass anything.
+    throw new Error(
+      `${OPENAI_COMPAT_ADAPTER_ID}: provider "${metadata.id}": api must be one of ${OPENAI_COMPAT_APIS.join(', ')}`,
+    );
+  }
+  const api = options.api ?? defaultOpenAICompatApi(options.baseURL);
+  const problem = extraBodyProblem(options.extraBody, api);
   if (problem !== undefined) {
     throw new Error(`${OPENAI_COMPAT_ADAPTER_ID}: provider "${metadata.id}": ${problem}`);
   }
@@ -148,17 +168,36 @@ export function createOpenAICompatModelProvider(
       }
       const startedAt = Date.now();
       const openai = await clientForCall();
-
       // The system prompt names the call's tools as they're sent (`acme__lookup_order`):
-      // a model told to call `acme.lookup_order` calls a name it wasn't given (T311).
+      // a model told to call `acme.lookup_order` calls a name it wasn't given.
       const toolIds = input.tools?.map((t) => t.name) ?? [];
-      const messages = input.messages.map((m) =>
-        toOpenAiMessage(
-          m.role === 'system'
-            ? { ...m, content: nameToolsAsSent(m.content, toolIds, encodeToolName) }
-            : m,
-        ),
+      const sent = input.messages.map((m) =>
+        m.role === 'system'
+          ? { ...m, content: nameToolsAsSent(m.content, toolIds, encodeToolName) }
+          : m,
       );
+      const sampling = samplingFor(modelInfo, input);
+      // A caller that wants as little thinking as the model allows (a judge).
+      const lowestThinking =
+        input.thinking === 'lowest' && modelInfo.thinking !== undefined
+          ? modelInfo.thinking.lowest
+          : undefined;
+      if (api === 'responses') {
+        return invokeResponses({
+          client: openai,
+          attempts,
+          input: { ...input, messages: sent },
+          modelInfo,
+          providerId: metadata.id,
+          extraBody,
+          ...(sampling.temperature !== undefined && { temperature: sampling.temperature }),
+          ...(lowestThinking !== undefined && { reasoningEffort: lowestThinking }),
+          warnings: sampling.warnings,
+          startedAt,
+        });
+      }
+
+      const messages = sent.map(toOpenAiMessage);
       const tools = input.tools?.map(toOpenAiTool);
 
       const responseFormat = input.structuredOutput
@@ -172,7 +211,6 @@ export function createOpenAICompatModelProvider(
           }
         : undefined;
 
-      const sampling = samplingFor(modelInfo, input);
       const counted = await attempts.count(() =>
         openai.chat.completions.create(
           {
@@ -182,12 +220,11 @@ export function createOpenAICompatModelProvider(
             ...(tools !== undefined && tools.length > 0 && { tools }),
             ...(responseFormat !== undefined && { response_format: responseFormat }),
             ...(sampling.temperature !== undefined && { temperature: sampling.temperature }),
-            ...(input.thinking === 'lowest' &&
-              modelInfo.thinking !== undefined && {
-                reasoning_effort: modelInfo.thinking.lowest as NonNullable<
-                  OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming['reasoning_effort']
-                >,
-              }),
+            ...(lowestThinking !== undefined && {
+              reasoning_effort: lowestThinking as NonNullable<
+                OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming['reasoning_effort']
+              >,
+            }),
             ...(input.maxOutputTokens !== undefined && { max_tokens: input.maxOutputTokens }),
             stream: false,
           },
@@ -307,12 +344,6 @@ function mapFinishReason(reason: string | null | undefined): ModelCallResult['fi
   }
 }
 
-function computeCost(modelInfo: ModelInfo, promptTokens: number, completionTokens: number): number {
-  const promptCost = (promptTokens / 1000) * modelInfo.cost.promptUsdPer1kTokens;
-  const completionCost = (completionTokens / 1000) * modelInfo.cost.completionUsdPer1kTokens;
-  return promptCost + completionCost;
-}
-
 /**
  * Well-known base URLs — surfaced as constants so callers can import
  * without typos. Adding a new alias here doesn't lock anyone in; the
@@ -348,12 +379,14 @@ const NO_KEY = 'unused';
  * a placeholder key, as local runners (Ollama, vLLM, llama-server)
  * expect. Its `extraBody.*` keys (`EXTRA_BODY_PREFIX`) are extra request
  * fields, merged into every request (`OpenAICompatProviderOptions.extraBody`).
+ * Its `adapter_config.api` picks the OpenAI API (`openAICompatApi`).
  */
 export const openAICompatAdapterFactory: AdapterFactory = (input) => {
   const extraBody = openAICompatExtraBody(input);
   return createOpenAICompatModelProvider({
     metadata: input.metadata,
     baseURL: openAICompatBaseUrl(input),
+    api: openAICompatApi(input),
     apiKey: input.resolveApiKey ?? NO_KEY,
     ...(extraBody !== undefined && { extraBody }),
     // The registration chose the endpoint: the runtime's fetch decides
@@ -371,6 +404,26 @@ export function openAICompatBaseUrl(input: AdapterFactoryInput): string {
     );
   }
   return value;
+}
+
+/**
+ * The API a registration speaks: its `adapter_config.api` (`OPENAI_COMPAT_APIS`),
+ * or without one, the default for its base URL (`defaultOpenAICompatApi`).
+ * Throws, naming the key, on an API the adapter doesn't speak.
+ */
+export function openAICompatApi(input: AdapterFactoryInput): OpenAICompatApi {
+  const value = input.config?.api;
+  if (value === undefined) {
+    const baseURL = input.config?.baseURL;
+    return defaultOpenAICompatApi(typeof baseURL === 'string' ? baseURL : '');
+  }
+  const api = OPENAI_COMPAT_APIS.find((known) => known === value);
+  if (api === undefined) {
+    throw new Error(
+      `${OPENAI_COMPAT_ADAPTER_ID}: provider "${input.metadata.id}": adapter_config.api must be one of ${OPENAI_COMPAT_APIS.join(', ')}.`,
+    );
+  }
+  return api;
 }
 
 /**
@@ -409,7 +462,7 @@ export function openAICompatExtraBody(
     const problem = setField(body, key.slice(EXTRA_BODY_PREFIX.length).split('.'), value);
     if (problem !== undefined) fail(`adapter_config "${key}" ${problem}`);
   }
-  const problem = extraBodyProblem(body);
+  const problem = extraBodyProblem(body, openAICompatApi(input));
   if (problem !== undefined) fail(`adapter_config ${problem}`);
   return body;
 }
@@ -438,12 +491,13 @@ function setField(body: Record<string, unknown>, path: readonly string[], value:
   return undefined;
 }
 
-function extraBodyProblem(value: unknown): string | undefined {
+function extraBodyProblem(value: unknown, api: OpenAICompatApi): string | undefined {
   if (value === undefined) return undefined;
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     return 'extraBody must be an object of request fields, e.g. { chat_template_kwargs: { enable_thinking: false } }';
   }
-  const reserved = EXTRA_BODY_RESERVED.filter((key) => Object.hasOwn(value, key));
+  const fields = api === 'responses' ? EXTRA_BODY_RESERVED_RESPONSES : EXTRA_BODY_RESERVED;
+  const reserved = fields.filter((key) => Object.hasOwn(value, key));
   return reserved.length > 0
     ? `extraBody can't set ${reserved.join(', ')}: the adapter sets ${reserved.length === 1 ? 'it' : 'them'}`
     : undefined;
