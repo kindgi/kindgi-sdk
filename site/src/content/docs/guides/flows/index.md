@@ -33,6 +33,7 @@ Use a single agent when the model should decide the order.
 The examples build up one pack, `acme`, from the `sample` template
 (`kindgi init acme --template=sample`, or `--template=python`). Each page
 shows the tools it adds; [Write a flow](write-a-flow/) has the first ones.
-Where a model matters, the output is from Claude Haiku 4.5, registered with
-`kindgi providers register --preset=anthropic` (see
+Where a model matters, the output is from Claude Haiku 4.5 (retiring on or
+after 2026-10-15; outputs on newer models differ in wording, not shape),
+registered with `kindgi providers register --preset=anthropic` (see
 [Models](../models/)).
