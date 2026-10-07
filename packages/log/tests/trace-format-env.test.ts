@@ -4,8 +4,10 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+  type LogRecord,
   childSpan,
   createLogger,
+  formatPretty,
   formatTraceparent,
   loggerFromEnv,
   newTraceContext,
@@ -92,7 +94,7 @@ describe('the pretty format', () => {
     );
   });
 
-  test('fields the message states (inMessage) are left out of the line, and kept in JSON', () => {
+  test('fields the message states (inMessage) are left out of the line, kept in JSON and named there', () => {
     const at = () => new Date('2026-10-07T21:58:03.120Z');
     const lines: string[] = [];
     const fields = {
@@ -107,12 +109,30 @@ describe('the pretty format', () => {
       .child({ subsystem: 'http' })
       .info('POST /v1/runs 201 12ms', fields, how);
     expect(lines[0]).toBe('21:58:03.120 INFO  [http] POST /v1/runs 201 12ms tenantId=t-1');
-    createLogger({ format: 'json', write: (l) => lines.push(l), now: at }).info(
-      'POST /v1/runs 201 12ms',
-      fields,
-      how,
-    );
-    expect(JSON.parse(lines[1] ?? '')).toMatchObject(fields);
+    createLogger({ format: 'json', write: (l) => lines.push(l), now: at })
+      .child({ subsystem: 'http' })
+      .info('POST /v1/runs 201 12ms', fields, how);
+    const json = JSON.parse(lines[1] ?? '') as LogRecord;
+    expect(json).toMatchObject(fields);
+    expect(json.inMessage).toEqual(['method', 'route', 'status', 'durationMs']);
+    // Read back from JSON, the record renders as it did at the source.
+    expect(formatPretty(json)).toBe(lines[0]);
+  });
+
+  test("inMessage names only fields the record has; a field called inMessage is the event's own", () => {
+    const lines: string[] = [];
+    const log = createLogger({ format: 'json', write: (l) => lines.push(l) });
+    log.info('tool acme.lookup ok 12ms', { id: 'acme.lookup', durationMs: 12 }, {
+      inMessage: ['target', 'id', 'durationMs', 'message', 'err'],
+    });
+    log.info('no stated fields', { durationMs: 12 }, { inMessage: ['target'] });
+    log.info('a field named inMessage', { inMessage: 'mine' });
+    const [stated, none, own] = lines.map((l) => JSON.parse(l) as Record<string, unknown>);
+    expect(stated?.inMessage).toEqual(['id', 'durationMs']);
+    expect(Object.keys(stated ?? {}).at(-1)).toBe('inMessage');
+    expect(none).not.toHaveProperty('inMessage');
+    expect(own?.inMessage).toBeUndefined();
+    expect(own?.fields).toEqual({ inMessage: 'mine' });
   });
 
   test('colours only when asked', () => {
