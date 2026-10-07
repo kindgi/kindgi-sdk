@@ -319,11 +319,22 @@ async function followUntilSettled(ctx: CommandContext, started: Run): Promise<Ru
 function renderTurnWarnings(output: unknown): string {
   const warnings = (output as { readonly warnings?: unknown } | null | undefined)?.warnings;
   if (!Array.isArray(warnings)) return '';
-  return warnings
-    .map((w) => (w as { readonly message?: unknown }).message)
-    .filter((m): m is string => typeof m === 'string')
-    .map((m) => `⚠ ${m}\n`)
-    .join('');
+  const codes = new Set(warnings.map((w) => (w as { readonly code?: unknown }).code));
+  return (
+    warnings
+      // dev-echo's own warning says more than "a fallback provider answered".
+      .filter(
+        (w) =>
+          !(
+            (w as { readonly code?: unknown }).code === 'fallback-provider' &&
+            codes.has('dev-echo-not-a-model')
+          ),
+      )
+      .map((w) => (w as { readonly message?: unknown }).message)
+      .filter((m): m is string => typeof m === 'string')
+      .map((m) => `⚠ ${m}\n`)
+      .join('')
+  );
 }
 
 const resume: LeafCommand = {
