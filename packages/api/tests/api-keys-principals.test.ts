@@ -592,6 +592,80 @@ describe('/v1/service-accounts', () => {
   });
 });
 
+describe("a key limited to a project reaches only that project's resources", () => {
+  /** An authorizer whose store places agents `a1` in P1 and `a2` in P2, and allows any grant. */
+  function authorizerWith(placed: boolean) {
+    const asked: string[] = [];
+    const binding = {
+      check: async () => ({ allowed: true }),
+      checkBatch: async (_p: unknown, _a: unknown, refs: readonly ResourceRef[]) =>
+        refs.map(() => ({ allowed: true })),
+      ...(placed && {
+        inProject: async (_p: unknown, r: ResourceRef, projectId: string) => {
+          asked.push(`${r.type}:${r.id}@${projectId}`);
+          return (r.id === 'a1' && projectId === P1) || (r.id === 'a2' && projectId === P2);
+        },
+      }),
+    } as unknown as AuthzCheckBinding;
+    return { authorizer: createAuthorizer(binding), asked };
+  }
+  async function decide(placed: boolean, keyProject: string | undefined, agentId: string) {
+    const { authorizer, asked } = authorizerWith(placed);
+    const r = new Hono<AppEnv>();
+    r.get('/', async (c) => {
+      c.set('principal' as never, userPrincipal('bob' as UserId, tenantId) as never);
+      if (keyProject !== undefined) c.set('tokenProjectId', keyProject);
+      return c.json(await authorizer.check(c, 'read', ref('agent', agentId)));
+    });
+    return { decision: (await (await r.request('/')).json()) as Decision, asked };
+  }
+
+  test('in its project: allowed; in another: denied, as the scope', async () => {
+    expect((await decide(true, P1, 'a1')).decision.allowed).toBe(true);
+    const other = await decide(true, P1, 'a2');
+    expect(other.decision).toMatchObject({ allowed: false, failing: 'scope' });
+    expect(other.decision.reason).toContain(P1);
+  });
+
+  test("a store that can't place resources: the key reaches none", async () => {
+    expect((await decide(false, P1, 'a1')).decision.allowed).toBe(false);
+  });
+
+  test('a caller without a limited key is never asked about projects', async () => {
+    const { decision, asked } = await decide(true, undefined, 'a2');
+    expect(decision.allowed).toBe(true);
+    expect(asked).toEqual([]);
+  });
+
+  test("filterByCan keeps the key's project's resources only", async () => {
+    const { authorizer } = authorizerWith(true);
+    const r = new Hono<AppEnv>();
+    r.get('/', async (c) => {
+      c.set('principal' as never, userPrincipal('bob' as UserId, tenantId) as never);
+      c.set('tokenProjectId', P1);
+      return c.json(
+        await authorizer.filterByCan(c, 'read', ['a1', 'a2'], (id) => ref('agent', id)),
+      );
+    });
+    expect(await (await r.request('/')).json()).toEqual(['a1']);
+  });
+
+  test('admin on an org or a team is above the key', async () => {
+    const { authorizer } = authorizerWith(true);
+    const r = new Hono<AppEnv>();
+    r.get('/', async (c) => {
+      c.set('principal' as never, userPrincipal('bob' as UserId, tenantId) as never);
+      c.set('tokenProjectId', P1);
+      return c.json([
+        (await authorizer.check(c, 'admin', ref('org', 'o1'))).allowed,
+        (await authorizer.check(c, 'admin', ref('team', 't1'))).allowed,
+        (await authorizer.check(c, 'read', ref('org', 'o1'))).allowed,
+      ]);
+    });
+    expect(await (await r.request('/')).json()).toEqual([false, false, true]);
+  });
+});
+
 describe('revoking sessions', () => {
   test("a person revokes their own sessions; only a tenant admin someone else's", async () => {
     const h = harness();

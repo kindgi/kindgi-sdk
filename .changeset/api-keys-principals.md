@@ -1,5 +1,6 @@
 ---
 "@kindgi/api": patch
+"@kindgi/authz": patch
 "@kindgi/client": patch
 ---
 
@@ -12,7 +13,8 @@ API keys act for a person or a service account, with that principal's grants. Al
 - **A key's `role` is a ceiling.** A `member` key takes no `admin` action, even for an admin. The authorizer applies a key's limits in `filterByCan` too, so a list never shows what the key can't reach.
 - **A key's `projectId` is a limit:**
   - A request naming another project, in the path (`/projects/<id>`), the query (`projectId`, or `scopeKind=project&scopeId`) or a write body (`projectId`, `scope.projectId`), is `403 key-project-mismatch`.
-  - Such a key takes no `admin` action on the tenant, and mints only keys limited to the same project.
+  - Such a key takes no `admin` action on the tenant, an org or a team, and mints only keys limited to the same project.
+  - It reaches only its project's resources (an agent, a run, a secret, …): the authorizer asks the authorization store with the new optional `AuthzCheckBinding.inProject` from `@kindgi/authz`. A store without it limits the key to the project itself.
 - **Refusals:**
   - `404 principal-not-found`: `for` names nobody.
   - `403 role-exceeds-principal`: an `admin` key for a principal who isn't a tenant admin.

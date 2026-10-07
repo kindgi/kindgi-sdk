@@ -60,6 +60,24 @@ export interface Authorizer {
 }
 
 export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
+  /**
+   * Whether a resource is inside the project the caller's API key is
+   * limited to (always, for a caller with no such key). The tenant, orgs,
+   * teams and projects are held by `keyCeilingDeny`; anything else must
+   * belong to the key's project, as the store says (`inProject`). Without
+   * that answer, the key reaches no other resource.
+   */
+  async function inKeyProject(
+    c: Context<AppEnv>,
+    principal: Principal,
+    resource: ResourceRef,
+  ): Promise<boolean> {
+    const keyProject = c.get('tokenProjectId');
+    if (keyProject === undefined || STRUCTURAL.has(resource.type)) return true;
+    if (binding.inProject === undefined) return false;
+    return binding.inProject(principal, resource, keyProject);
+  }
+
   async function checkInternal(
     c: Context<AppEnv>,
     action: Action,
@@ -81,6 +99,13 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
     }
     const ceiling = keyCeilingDeny(c, action, resource);
     if (ceiling !== undefined) return ceiling;
+    if (!(await inKeyProject(c, principal, resource))) {
+      return keyDecision(
+        action,
+        resource,
+        `the API key is limited to project ${c.get('tokenProjectId')}`,
+      );
+    }
     const requestId = c.get('requestId');
     const ctx =
       typeof requestId === 'string' && requestId.length > 0
@@ -127,7 +152,14 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
       const principal = c.get('principal') as Principal | undefined;
       if (principal === undefined) return [];
       // What the key itself rules out never reaches the store.
-      const open = items.filter((item) => keyCeilingDeny(c, action, refFn(item)) === undefined);
+      const allowedByKey = await Promise.all(
+        items.map(
+          async (item) =>
+            keyCeilingDeny(c, action, refFn(item)) === undefined &&
+            (await inKeyProject(c, principal, refFn(item))),
+        ),
+      );
+      const open = items.filter((_, i) => allowedByKey[i]);
       if (open.length === 0) return [];
       const refs = open.map(refFn);
       const requestId = c.get('requestId');
@@ -145,6 +177,23 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
   };
 }
 
+/** Types a key's project limit is checked on directly, not through `inProject`. */
+const STRUCTURAL: ReadonlySet<string> = new Set(['tenant', 'org', 'team', 'project']);
+
+function keyDecision(action: Action, resource: ResourceRef, reason: string): Decision {
+  return {
+    allowed: false,
+    failing: 'scope',
+    reason,
+    evidence: {
+      action,
+      relation: '',
+      resource: `${resource.type}:${resource.id}`,
+      actorSubject: '',
+    },
+  };
+}
+
 /**
  * What an API key itself rules out, before the principal's grants are
  * asked: a key can do less than its principal, never more.
@@ -152,31 +201,23 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
  * - A `member` key takes no `admin` action, even for a principal who is an
  *   admin: a day-to-day key can't change keys, grants or policies.
  * - A key limited to a project acts on no other project, and takes no
- *   `admin` action on the tenant.
+ *   `admin` action on the tenant, an org or a team. Other resources must
+ *   be in its project (`inKeyProject`).
  */
 function keyCeilingDeny(
   c: Context<AppEnv>,
   action: Action,
   resource: ResourceRef,
 ): Decision | undefined {
-  const resourceKey = `${resource.type}:${resource.id}`;
-  const deny = (reason: string): Decision => ({
-    allowed: false,
-    failing: 'scope',
-    reason,
-    evidence: { action, relation: '', resource: resourceKey, actorSubject: '' },
-  });
   if (action === 'admin' && c.get('tokenRole') === 'member') {
-    return deny('a member API key takes no admin action');
+    return keyDecision(action, resource, 'a member API key takes no admin action');
   }
   const keyProject = c.get('tokenProjectId');
-  if (keyProject !== undefined) {
-    if (resource.type === 'project' && resource.id !== keyProject) {
-      return deny(`the API key is limited to project ${keyProject}`);
-    }
-    if (resource.type === 'tenant' && action === 'admin') {
-      return deny(`the API key is limited to project ${keyProject}`);
-    }
-  }
-  return undefined;
+  if (keyProject === undefined) return undefined;
+  const otherProject = resource.type === 'project' && resource.id !== keyProject;
+  const aboveIt =
+    resource.type !== 'project' && STRUCTURAL.has(resource.type) && action === 'admin';
+  return otherProject || aboveIt
+    ? keyDecision(action, resource, `the API key is limited to project ${keyProject}`)
+    : undefined;
 }
