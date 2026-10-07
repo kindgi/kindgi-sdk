@@ -62,6 +62,9 @@ Both answer the record:
 }
 ```
 
+This record was captured on `claude-haiku-4-5` (retiring on or after
+2026-10-15); a newer model's record differs in tokens and cost, not shape.
+
 Read it from the answer backwards: the answer (`model-output:2`) was
 produced by the second model call. That call answered the user's message
 (`caused-by input:0`) and read the echo tool's result (`influenced-by`), which
@@ -197,7 +200,7 @@ kindgi runs journal <flow-run-id>
     "nodeId": "respond",
     "payload": {
       "output": {
-        "text": "Tool responded: …",
+        "text": "⚠ dev-echo isn't a real model: …\n\nTool responded: …",
         "runId": "4bdae2f9-ff67-48a3-9549-49028d290cc1",
         …
 ```

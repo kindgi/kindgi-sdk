@@ -669,7 +669,7 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
     envFiles: projectEnv.envFilesLabel,
   });
   const providers = await registeredProviders(client);
-  const registerProviderCommand = kindgi('providers', 'register', '--preset=anthropic');
+  const registerProviderCommand = await registerProviderHint(kindgi);
 
   const bannerLines = renderDevBanner({
     baseUrl: server.baseUrl,
@@ -1650,6 +1650,20 @@ function describeBrowserOrigins(origins: readonly string[]): string {
   return origins.length > 0
     ? `${origins.join(', ')} (browsers may follow runs with public run tokens)`
     : 'none (set KINDGI_CORS_ORIGINS so a browser app can follow runs)';
+}
+
+/**
+ * How to get a real model, for the banner: the presets that take an LLM
+ * provider key (anthropic, openai, gemini-api, groq, openrouter…), as
+ * the dev-echo warning and doctor name them.
+ */
+async function registerProviderHint(kindgi: (...args: string[]) => string): Promise<string> {
+  const keyed = Object.values(await loadProviderPresets()).flatMap((p) =>
+    p.secret !== undefined ? [p.name] : [],
+  );
+  return keyed.length > 1
+    ? `set an LLM provider key, then ${kindgi('providers', 'register', `--preset=<${keyed.join('|')}>`)}`
+    : kindgi('providers', 'register', `--preset=${keyed[0] ?? 'anthropic'}`);
 }
 
 /**

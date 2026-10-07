@@ -22,7 +22,7 @@ description: >
   kindgi-getting-started.
 type: core
 library: "@kindgi/sdk"
-version: "0.9.3"
+version: "0.9.6"
 sdk_version: "0.0.0"
 pack_languages: [node, python]
 sources:
@@ -106,7 +106,11 @@ yours.
 ## Path A — Hosted, native Anthropic
 
 Best fidelity to Anthropic's API (prompt caching, latest models, tool
-use, structured output). Requires an `ANTHROPIC_API_KEY`.
+use). Requires an `ANTHROPIC_API_KEY`.
+
+A model's `structured-output` feature is a routing label: the model can
+follow a JSON schema natively, but Kindgi's typed outputs use instructions,
+then parse, check against the schema and repair, on every provider.
 
 **Step 1 — set the key:**
 ```sh
@@ -124,8 +128,10 @@ credential on argv.
 **Step 2 — register it, from the preset:**
 ```sh
 kindgi providers register --preset=anthropic                          # Opus 5.5, Sonnet 5.5, Haiku 4.5
-kindgi providers register --preset=anthropic --models=claude-haiku-4-5  # just one
+kindgi providers register --preset=anthropic --models=claude-sonnet-5-5  # just one
 ```
+Don't pin `claude-haiku-4-5`: Anthropic retires it on or after 2026-10-15,
+and a turn routed to it then fails.
 The preset carries the models, context windows, output limits and current
 prices (`kindgi providers presets` lists the presets and when their prices
 were checked); `--max-output-tokens=<n>` sets another output limit. In a pack it refuses until the key is in the pack's env files —
@@ -139,8 +145,8 @@ needs under `kindgi dev`:
 ```ts
 // in kindgi.config.ts
 providers: [
-  { preset: 'anthropic', models: ['claude-haiku-4-5'] },   // key ANTHROPIC_API_KEY, from the env files
-  { preset: 'gemini', project: 'acme-gcp', models: ['gemini-2.5-flash'] },
+  { preset: 'anthropic', models: ['claude-sonnet-5-5'] },  // key ANTHROPIC_API_KEY, from the env files
+  { preset: 'gemini', project: 'acme-gcp', models: ['gemini-3.8-flash'] },
   { spec: { /* the provider.json body below */ } },
 ],
 ```
@@ -148,7 +154,7 @@ providers: [
 # in pyproject.toml: one table per provider, same keys
 [[tool.kindgi.providers]]
 preset = "anthropic"
-models = ["claude-haiku-4-5"]
+models = ["claude-sonnet-5-5"]
 ```
 - A preset entry takes `models`, `project`, `secret` (the key's name, in place
   of the preset's) and `maxOutputTokens`, spelled the same in `pyproject.toml`;
@@ -167,7 +173,7 @@ models = ["claude-haiku-4-5"]
   providers with `kindgi providers register`.
 
 **Step 2 (by hand) — write `provider.json`** at the pack root. One connection,
-three models — matches how the Anthropic SDK actually works (the API
+two models — matches how the Anthropic SDK actually works (the API
 key is per-vendor; the model is per-call):
 ```json
 {
@@ -194,16 +200,6 @@ key is per-vendor; the model is per-call):
           "completionUsdPer1kTokens": 0.01
         },
         "description": "Balanced performance/cost."
-      },
-      {
-        "name": "claude-haiku-4-5",
-        "contextWindow": 200000,
-        "features": ["tool-use"],
-        "cost": {
-          "promptUsdPer1kTokens": 0.001,
-          "completionUsdPer1kTokens": 0.005
-        },
-        "description": "Fastest and cheapest — routing, classification, simple calls."
       }
     ],
     "description": "Anthropic Claude via native adapter."
@@ -241,7 +237,14 @@ capability requirement (see "How the router picks…" below).
 
 Nothing to switch off: `dev-echo` is a fallback, so the new provider
 answers every agent it satisfies. A turn that still lands on dev-echo
-carries a `fallback-provider` warning — see mistake 9.
+carries the `fallback-provider` and `dev-echo-not-a-model` warnings — see
+mistake 9.
+
+**The other one-key presets** work the same way, with their own key:
+`--preset=openai` (`OPENAI_API_KEY`), `--preset=gemini-api` (`GEMINI_API_KEY`,
+a Google AI Studio key; `gemini` is Vertex AI), `--preset=groq`
+(`GROQ_API_KEY`) and `--preset=openrouter` (`OPENROUTER_API_KEY`).
+`kindgi providers presets` lists them with their models.
 
 ## Path B — Hosted via OpenAI-compat
 
@@ -305,15 +308,23 @@ kindgi secrets set GROQ_API_KEY --env=local --scope=tenant
 
 **Steps 3–5** same as Path A.
 
-## Path C — Local via in-process ONNX
+## Path C — Local via in-process ONNX (runtime from source only)
+
+> ⚠️ **Not in the runtime image, so not under `kindgi dev`.** The adapter
+> runs ONNX through `onnxruntime-node`, which ships glibc binaries only,
+> and the Kindgi runtime image is Alpine (musl): the adapter can't load
+> there (`Error loading shared library ld-linux-…`). `kindgi dev` runs
+> that image, so this path fails under it. It works only when the
+> runtime itself runs from source on macOS or a glibc Linux. **For a
+> local model under `kindgi dev`, use Ollama** ([Local via Ollama](#local-via-ollama-via-path-b)).
 
 > ⚠️ **Dev-only.** The in-process ONNX adapter writes weights to
 > `~/.cache/huggingface/hub/` — a per-machine cache with no production
 > recipe (no volume-mount recipe, no image-bake pattern, no offline
-> mode, no SHA pinning). Good for local dev, smoke tests, and CI
-> runners that keep the same disk between runs. **Do not ship packs
-> that rely on this adapter to production.** Use hosted providers
-> (Path A) or Ollama (Path B) instead.
+> mode, no SHA pinning). Good for smoke tests and CI runners that run
+> the runtime from source and keep the same disk between runs. **Do not
+> ship packs that rely on this adapter to production.** Use hosted
+> providers (Path A) or Ollama (Path B) instead.
 
 No API key. No network. Bundled with the framework — the adapter ships
 `smollm2-360m` by default (~273 MB weights, cached at
@@ -385,7 +396,8 @@ production. Skip only for scripted teardown where the model is already
 cached (`~/.cache/huggingface/hub/models--HuggingFaceTB--SmolLM2-360M-Instruct/`).
 
 `prepare` is idempotent: subsequent invocations are cache hits and
-return almost instantly, so put it in every `kindgi dev` boot script.
+return almost instantly, so put it in the script that boots your
+from-source runtime.
 
 Multi-model providers: prepare each model separately.
 ```sh
@@ -469,24 +481,16 @@ outside Google Cloud: put a service-account key (its JSON) in a secret
     "region": "global",
     "models": [
       {
-        "name": "gemini-2.5-pro",
+        "name": "gemini-3.8-flash",
         "contextWindow": 1048576,
-        "features": ["tool-use"],
+        "features": ["tool-use", "structured-output", "long-context"],
         "maxOutputTokens": 65536,
-        "cost": {
-          "promptUsdPer1kTokens": 0.00125,
-          "completionUsdPer1kTokens": 0.01,
-          "longContext": {
-            "thresholdTokens": 200000,
-            "promptUsdPer1kTokens": 0.0025,
-            "completionUsdPer1kTokens": 0.015
-          }
-        }
+        "cost": { "promptUsdPer1kTokens": 0.00075, "completionUsdPer1kTokens": 0.00375 }
       },
       {
-        "name": "gemini-2.5-flash",
+        "name": "gemini-3.5-flash-lite",
         "contextWindow": 1048576,
-        "features": ["tool-use"],
+        "features": ["tool-use", "structured-output", "long-context"],
         "maxOutputTokens": 65536,
         "cost": { "promptUsdPer1kTokens": 0.0003, "completionUsdPer1kTokens": 0.0025 }
       }
@@ -501,11 +505,17 @@ outside Google Cloud: put a service-account key (its JSON) in a secret
 - `metadata.region` is the Vertex location: `global`, or a region such as
   `us-central1` or `northamerica-northeast1` when data must stay in one
   place. `unspecified` means `global`. Different locations are different
-  provider rows.
+  provider rows. Check that the location serves the model: Gemini 3.8 Flash
+  isn't served from `us-central1`.
+- Don't register `gemini-2.5-pro` or `gemini-2.5-flash`: Vertex AI retires
+  both on 2026-10-20.
 - Rates are per 1K tokens, from Google's published pricing; check them
-  before relying on budgets. Thinking tokens bill as output.
-  `longContext` switches the whole call to the higher rates past the
-  threshold; `cachedPromptMultiplier` (default 0.25) prices cached
+  before relying on budgets. Thinking tokens bill as output, and Gemini 3.8
+  Flash thinks by default. `gemini-3.8-flash`'s rates above are Google's
+  launch price, through 2026-12-31 ($0.0015 / $0.0075 from 2027-01-01).
+  `longContext` (`{ thresholdTokens, promptUsdPer1kTokens,
+  completionUsdPer1kTokens }` in a model's `cost`) switches the whole call
+  to the higher rates past the threshold; `cachedPromptMultiplier` (default 0.25) prices cached
   prompt tokens.
 
 **Step 3 — register and check:**
@@ -687,8 +697,9 @@ defineAgent({
    does nothing. Pin the model with a `models: { allow: [...] }`
    requirement instead.
 
-9. **Replies still come from dev-echo** (`Tool responded: …`; the turn's
-   result has a `fallback-provider` warning). dev-echo is a fallback: it
+9. **Replies still come from dev-echo** (`⚠ dev-echo isn't a real model: …`
+   then `Tool responded: …`; the turn's result has the `fallback-provider`
+   and `dev-echo-not-a-model` warnings). dev-echo is a fallback: it
    answers only when no registered provider satisfies the agent. So your
    provider doesn't — check its models' `features` against the agent's
    `capabilities.needs` (mistake 2), a `models` / `providers` allow-list

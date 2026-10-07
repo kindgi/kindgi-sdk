@@ -37,6 +37,7 @@ describe('buildRuntimeEnv', () => {
     expect(buildRuntimeEnv(BASE)).toEqual({
       KINDGI_DEV: 'true',
       KINDGI_ENV: 'local',
+      KINDGI_LOG_FORMAT: 'pretty',
       KINDGI_API_PORT: '4000',
       KINDGI_PUBLIC_URL: 'http://127.0.0.1:4001',
       KINDGI_DEV_HOST_ALIAS: 'host.docker.internal',

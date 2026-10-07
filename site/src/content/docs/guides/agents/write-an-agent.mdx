@@ -103,7 +103,7 @@ const defined = defineAgent({
   description: "Answers customers' questions about their orders.",
   instructions: [
     'You answer customer questions about Acme orders. Today is {{ today }}.',
-    'Look an order up with acme.lookup-order before you say anything about it.',
+    'Look an order up with the lookup-order tool before you say anything about it.',
     'If the customer gives no order id, ask for it. Never guess a status or a date.',
     'Answer in two sentences at most.',
   ].join('\n'),
@@ -141,7 +141,7 @@ order_desk = Agent(
     description="Answers customers' questions about their orders.",
     instructions="\n".join([
         "You answer customer questions about Acme orders. Today is {{ today }}.",
-        "Look an order up with acme.lookup-order before you say anything about it.",
+        "Look an order up with the lookup-order tool before you say anything about it.",
         "If the customer gives no order id, ask for it. Never guess a status or a date.",
         "Answer in two sentences at most.",
     ]),
@@ -161,7 +161,10 @@ camelCase; only the keyword arguments are snake_case.
 
 - **`id`** is `<pack>.<name>`; **`version`** is an exact semver.
 - **`instructions`** is what the model is told at the start of every turn: a
-  template, below.
+  template, below. Name a tool by what it does ("the lookup-order tool"), not
+  by its id: a model sees a tool's id in its provider's form
+  (`acme__lookup-order` for Anthropic and OpenAI-compatible models), and an id
+  with a dot in the instructions can make it call a name it wasn't given.
 - **`capabilities`** says what the model must support. `tool-use` is the one
   an agent that calls tools needs. Kindgi picks the model when the turn starts:
   see [Choose the model an agent uses](../choose-a-model/).
@@ -213,6 +216,8 @@ The turn took two steps: the model asked for `acme.lookup-order`, the tool
 ran, and the model answered with its result. `response.content` is the
 answer; `appended` is everything the turn added to its conversation. The rest
 of the result is on [Give an agent its input](../give-an-agent-input/#what-a-turn-returns).
+This run was captured on `claude-haiku-4-5` (retiring on or after 2026-10-15);
+outputs on newer models differ in wording, not shape.
 
 Edit the file and save: `kindgi dev` reloads it, and the next run uses it.
 
@@ -237,7 +242,7 @@ Rendering is strict. A variable that is neither built in nor declared fails
 the turn before the model is called:
 
 ```text
-Error [server]: Prompt render failed: Template references an unresolved variable: customer
+Error [model-invocation-failed]: Prompt render failed: Template references an unresolved variable: customer
 ```
 
 The rendered instructions are in the run's journal
@@ -256,7 +261,7 @@ see [Agent and tool versions](../agent-and-tool-versions/). When no
 registered version is in the range, the turn fails:
 
 ```text
-Error [server]: Tool "acme.lookup-order" has no version satisfying "^0.2.0" (available: 0.1.0)
+Error [tool-version-unresolvable]: Tool "acme.lookup-order" has no version satisfying "^0.2.0" (available: 0.1.0)
 ```
 
 A tool given as a plain string is refused before anything runs: TypeScript

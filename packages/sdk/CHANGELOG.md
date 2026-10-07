@@ -1,5 +1,42 @@
 # @kindgi/sdk
 
+## 0.1.4-rc.5
+
+### Patch Changes
+
+- 6eb47c1: Agent instructions name tools by what they do, not by their dotted id. A model sees a tool's id in its provider's form (`my-pack__greet` for Anthropic and OpenAI-compatible models), so `my-pack.greet` in the instructions could make it call a name it wasn't given. The `kindgi init` echo agent (TypeScript and Python) now says "greet them with the greet tool … echo their message with the echo tool", and the authoring-agents skills say to name tools this way.
+- 17f552d: The providers and Python skills describe dev-echo's "isn't a real model" first line and its `dev-echo-not-a-model` warning, and the providers skill lists the one-key presets: openai, gemini-api, groq and openrouter.
+- c744326: The Python guardrails skill's sample config gives its default as `Field(default=1, …)`, so type checkers such as pyright see the field as optional; `Field(1, …)` made `Config()` look like it needs `minLookups`.
+- Updated dependencies [d69c8e9]
+- Updated dependencies [9801f64]
+  - @kindgi/client@0.1.4-rc.5
+  - @kindgi/handler-runtime@0.1.4-rc.5
+  - @kindgi/agents@0.1.4-rc.5
+  - @kindgi/flow@0.1.4-rc.5
+  - @kindgi/guardrails@0.1.4-rc.5
+  - @kindgi/schema@0.1.4-rc.5
+  - @kindgi/tools@0.1.4-rc.5
+  - @kindgi/crypto@0.1.4-rc.5
+  - @kindgi/types@0.1.4-rc.5
+
+## 0.1.4-rc.4
+
+### Patch Changes
+
+- dd9e856: The providers skill says the in-process ONNX path (Path C) runs only with the runtime from source on macOS or a glibc Linux. It doesn't load in the runtime image, so it doesn't run under `kindgi dev`; local users go to Ollama.
+- f56432f: The Python skills run the CLI from PyPI, `kindgi-cli`, with no Node install: `uvx --from "kindgi-cli>=0.1,<0.2" kindgi init`, `uv add --dev "kindgi-cli>=0.1,<0.2"` in an existing app, then `uv run kindgi <command>`. The authoring skills (agents, tools, flows, guardrails) no longer say the CLI is on `PATH`.
+- Updated dependencies [f999acd]
+- Updated dependencies [5608264]
+  - @kindgi/agents@0.1.4-rc.4
+  - @kindgi/client@0.1.4-rc.4
+  - @kindgi/guardrails@0.1.4-rc.4
+  - @kindgi/crypto@0.1.4-rc.4
+  - @kindgi/flow@0.1.4-rc.4
+  - @kindgi/handler-runtime@0.1.4-rc.4
+  - @kindgi/schema@0.1.4-rc.4
+  - @kindgi/tools@0.1.4-rc.4
+  - @kindgi/types@0.1.4-rc.4
+
 ## 0.1.4-rc.3
 
 ### Patch Changes

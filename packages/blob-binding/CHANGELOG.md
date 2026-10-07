@@ -1,5 +1,19 @@
 # @kindgi/blob-binding
 
+## 0.1.4-rc.5
+
+### Patch Changes
+
+- @kindgi/platform@0.1.4-rc.5
+  - @kindgi/types@0.1.4-rc.5
+
+## 0.1.4-rc.4
+
+### Patch Changes
+
+- @kindgi/platform@0.1.4-rc.4
+  - @kindgi/types@0.1.4-rc.4
+
 ## 0.1.4-rc.3
 
 ### Patch Changes

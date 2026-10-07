@@ -637,6 +637,12 @@ export const RunSchema: JsonSchema = {
       description:
         "The segment path the run was started with (coarse to fine), which picks live agent versions. A child run has its parent's. Absent when there was none.",
     },
+    traceId: {
+      type: 'string',
+      pattern: '^[0-9a-f]{32}$',
+      description:
+        "The W3C trace id of the request that started the run: the caller's (from its `traceparent`) or one the API minted. The runtime's records about the run carry it; `GET` responses answer `traceresponse` with each request's own. Absent for a run no request started, and on runs from before runs recorded it.",
+    },
     publicAccessToken: {
       type: 'string',
       description:
@@ -4036,6 +4042,28 @@ export const CapabilityCollectionPageSchema: JsonSchema = {
   },
 };
 
+/** `ModelInfo.thinking`: how a model thinks, so a judge can ask for its least. */
+export const ModelThinkingSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['mode', 'lowest'],
+  description:
+    "How the model thinks before it answers, so a call that wants as little as it allows (a judge's) gets it. Absent: it doesn't think, or nothing is known.",
+  properties: {
+    mode: {
+      type: 'string',
+      enum: ['adaptive', 'always'],
+      description: '`adaptive`: on unless turned down. `always`: on, and it can only be lowered.',
+    },
+    lowest: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "The vendor's own setting for the least thinking: for Anthropic `disabled`, `between_tools` or an effort (`low`); for Gemini a thinking level (`low`, `minimal`); for OpenAI a reasoning effort (`low`, `none`).",
+    },
+  },
+};
+
 export const ProviderCostSchema: JsonSchema = {
   type: 'object',
   // Adapters widen the cost table with their own rates (Anthropic's
@@ -4087,6 +4115,12 @@ export const ModelInfoSchema: JsonSchema = {
       description:
         'Fallback cap on output tokens. Adapters that require `max_tokens` on every request (e.g. Anthropic) use this when `ModelCallInput.maxOutputTokens` is unset.',
     },
+    sampling: {
+      type: 'boolean',
+      description:
+        "Whether the model takes sampling settings (`temperature`). `false`: its API rejects a non-default value, so the call goes without one and the answer's `warnings` say so (`sampling-unsupported`). Absent: it takes them.",
+    },
+    thinking: { $ref: '#/components/schemas/ModelThinking' },
     description: {
       type: 'string',
       description: 'Short per-model description surfaced in logs.',
@@ -4123,6 +4157,12 @@ export const ProviderMetadataSchema: JsonSchema = {
       items: { $ref: '#/components/schemas/ModelInfo' },
       description:
         'Models this connection exposes. Non-empty. `models[i].name` must be unique within the list.',
+    },
+    defaultModel: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "The model to use when an agent doesn't choose: one of `models[].name`. When candidates rank equally, it comes before the provider's other models; without it, ties break by model name. A preset sets it. A runtime before 0.1.4 ignores it.",
     },
     attributes: {
       type: 'array',
@@ -8401,6 +8441,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['Feature', FeatureSchema],
   ['CapabilityDescriptor', CapabilityDescriptorSchema],
   ['CapabilityCollectionPage', CapabilityCollectionPageSchema],
+  ['ModelThinking', ModelThinkingSchema],
   ['ProviderCost', ProviderCostSchema],
   ['ModelInfo', ModelInfoSchema],
   ['ProviderMetadata', ProviderMetadataSchema],

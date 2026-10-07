@@ -217,4 +217,10 @@ export const PACK_HEADERS = {
   requestId: 'kindgi-request-id',
   artifactVersion: 'kindgi-artifact-version',
   durationMs: 'kindgi-duration-ms',
+  /**
+   * W3C Trace Context: the run's trace, so a pack service's records carry
+   * the same `traceId` as the runtime's. Optional: runtimes from 0.1.5 send
+   * it on every call; a pack service that doesn't read it ignores it.
+   */
+  traceparent: 'traceparent',
 } as const;

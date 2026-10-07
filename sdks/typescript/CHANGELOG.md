@@ -1,5 +1,37 @@
 # @kindgi/client
 
+## 0.1.4-rc.5
+
+### Patch Changes
+
+- d69c8e9: The Python client takes a model's id straight back: every id parameter (a path or query parameter named `…Id`, or one the API declares as a UUID) accepts `str | UUID`. The models carry ids as `UUID`, so `kindgi.runs.get(run.id)` and `kindgi.approvals.complete(approval.id, decision="approve")` now type-check under pyright and mypy; they always worked at runtime. Lists of ids accept `list[str | UUID]`.
+- 9801f64: **Request logs and trace context.**
+  
+  - **`createApp({ logger })`** takes a `@kindgi/log` logger. Without one, the app stays quiet.
+    - Each request gets `c.var.log`, with subsystem `http` and its `requestId`, `traceId` and `spanId` (plus `tenantId` once authenticated), and `c.var.trace`.
+    - An incoming `traceparent` is honoured, with a new span; a missing or malformed one starts a fresh trace. Every response answers `traceresponse`.
+  - **The access line:** `METHOD /v1/runs/:runId 200 12ms`, with the route's pattern and never the raw path.
+    - Writes and 4xx are logged at `info`, 5xx at `error`.
+    - Successful reads, probes and stream openings are logged at `debug`, so `info` stays readable while a console polls.
+    - A 500 also logs the error itself, redacted.
+  - **Runs carry their trace.** Starting a run hands the request's trace to the run handler (`RunTrace` on the agent and flow invoke inputs). `RunFlowInput`, `StartRunParams` and `KernelRunRecord` take an optional `traceId`. `Run.traceId` is on the wire when a run has one: optional in the TypeScript client, `trace_id` in the Python client.
+  - **Pack protocol 2.4.1:** the optional `traceparent` request header (`PACK_HEADERS.traceparent`), so a pack service's records can carry the run's trace id.
+  - **`KINDGI_LOG_LEVEL`, `KINDGI_LOG_LEVELS` and `KINDGI_LOG_FORMAT`** are in the env schema, for the runtime server. Under `auto`, the format is pretty on a terminal or with `KINDGI_DEV=true`.
+  - **`kindgi dev`** runs the runtime with pretty logs (`KINDGI_LOG_FORMAT=pretty`) and keeps only its last 200 lines in memory.
+
+## 0.1.4-rc.4
+
+### Patch Changes
+
+- 5608264: A gated scope holds its own live version, and a change above it can't move it without its gate.
+  
+  - **Publishing or reinstating a gate policy** for a scope with no pin of its own is refused (`409 gate-policy-scope-unpinned`), even when a scope above it is pinned. A promotion there would otherwise change the gated scope without its gate.
+  - **A promotion, rollback or unpin** that would also move a narrower gated scope with no pin of its own (one gated before this rule) is refused with the new `409 gate-policy-descendant-unpinned`. The message names each such scope and its current version: pin it there first. A gated promotion's approval re-checks this, and is `superseded` if it would.
+  - **A pin in place skips the gate.** Promoting a scope that has no live version of its own to exactly the version it serves now (the fix the new 409 asks for) changes nothing any run gets. So the gate's checks and approval don't apply: it's `201`, with one passing `pinInPlace` check, the policy recorded, and a reason starting `pin-in-place`; `…/promotions/check` says the same. `PromotionRequestInput.gate.pinInPlace` tells the binding, which re-checks it as it writes (`409 promotion-superseded` if the scope moved).
+  - **The follower guard only refuses a real change:** a promotion that leaves a gated follower on the version it already serves goes through.
+  - **Unpinning a gated scope's own pin** is `409 gate-policy-needs-pin`: unregister the gate policy first, or roll back instead.
+  - **Clients:** `gate-policy-descendant-unpinned` is a conflict in TypeScript and Python, like the other gate codes.
+
 ## 0.1.4-rc.3
 
 ### Patch Changes

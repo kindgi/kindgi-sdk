@@ -305,4 +305,9 @@ export type SecretError =
       readonly message: string;
       readonly currentVersion: number;
     }
+  /**
+   * The store doesn't do this by design (the dev store keeps no versions to
+   * rotate and no revocation): the message says what to do instead.
+   */
+  | { readonly code: 'secret-operation-unsupported'; readonly message: string }
   | { readonly code: 'secret-store-error'; readonly message: string; readonly cause?: unknown };

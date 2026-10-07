@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/crypto",
-  "version": "0.1.4-rc.3",
+  "version": "0.1.4-rc.5",
   "description": "Kindgi™ cryptographic primitives. Ed25519 signatures for asymmetric use (signed audit bundles, provenance exports, deployment attestations) and HMAC-SHA256 for symmetric use (webhook payloads). Includes SigningKeyBinding interface + in-memory reference impl, PEM/base64 key format converters, and typed error interfaces. Pure Node built-ins, zero runtime deps. Deployments plug their own key store (KMS, Vault, env-var) via SigningKeyBinding.",
   "license": "Apache-2.0",
   "repository": {

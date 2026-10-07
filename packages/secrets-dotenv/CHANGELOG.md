@@ -1,5 +1,28 @@
 # @kindgi/secrets-dotenv
 
+## 0.1.4-rc.5
+
+### Patch Changes
+
+- 52c8f98: Rotating or revoking a secret under `kindgi dev` (the env-file store) answered `500 secret-store-error`, which reads as "the server broke, try again". The store doesn't do either by design, so it's now `501 secret-operation-unsupported`. The message says what to do instead: edit the value in the env files, or remove the name there. `SecretError` gains the code.
+- Updated dependencies [29fbd56]
+- Updated dependencies [52c8f98]
+- Updated dependencies [9801f64]
+  - @kindgi/api@0.1.4-rc.5
+  - @kindgi/dotenv-file@0.1.4-rc.5
+  - @kindgi/platform@0.1.4-rc.5
+  - @kindgi/types@0.1.4-rc.5
+
+## 0.1.4-rc.4
+
+### Patch Changes
+
+- Updated dependencies [5608264]
+  - @kindgi/api@0.1.4-rc.4
+  - @kindgi/dotenv-file@0.1.4-rc.4
+  - @kindgi/platform@0.1.4-rc.4
+  - @kindgi/types@0.1.4-rc.4
+
 ## 0.1.4-rc.3
 
 ### Patch Changes
