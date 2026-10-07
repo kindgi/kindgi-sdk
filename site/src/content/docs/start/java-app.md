@@ -101,7 +101,7 @@ public final class StartRun {
         .build());
     System.out.println("started " + run.id());
 
-    try (EventStream<RunEvent> events = client.runs().stream(run.id())) {
+    try (EventStream<RunEvent> events = client.runs().follow(run.id())) {
       for (RunEvent event : events) {
         System.out.println(event.kind());
       }
@@ -138,7 +138,10 @@ completed: ⚠ dev-echo isn't a real model: it only repeats what it's given. Add
 Tool responded: {"echo":"hi","echoedAt":"2026-10-07T19:26:53.907Z","characterCount":2}
 ```
 
-The run's events stream in as they happen, and the stream ends with the run.
+The run's events come in as they happen, and `follow` ends with the run. A
+server ends one stream after 5 minutes; for a longer run, `follow` reconnects
+and carries on after the last event it read. (`runs().stream(runId)` is the
+plain operation, which ends when the server closes it.)
 The answer comes from `dev-echo`, the stand-in a new pack gets until you
 [connect a model](../quickstart-typescript/#6-connect-a-real-model). A run's
 `output` is the JSON its agent or flow answered, so the app reads it as maps.
