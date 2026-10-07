@@ -16,14 +16,20 @@ import type { Cursor, Result, TenantId, Timestamp } from '@kindgi/types';
  * tombstone: its grants go, its keys stop working, and it stays readable.
  */
 
-/** What a service account may do: tenant admin, or a role on one project. */
+/**
+ * What a service account may do: tenant admin, tenant member (read the
+ * tenant's settings), or a role on one project. Unlike a person, an
+ * account isn't a tenant member unless it's granted that.
+ */
 export type ServiceAccountGrant =
   | { readonly kind: 'tenant-admin' }
+  | { readonly kind: 'tenant-member' }
   | { readonly kind: 'project'; readonly projectId: string; readonly role: ProjectRole };
 
-/** A grant to remove: tenant admin, or whatever role the account has on a project. */
+/** A grant to remove: tenant admin, tenant member, or whatever role the account has on a project. */
 export type ServiceAccountGrantTarget =
   | { readonly kind: 'tenant-admin' }
+  | { readonly kind: 'tenant-member' }
   | { readonly kind: 'project'; readonly projectId: string };
 
 export interface ServiceAccount {

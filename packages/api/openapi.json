@@ -2202,6 +2202,22 @@
           }
         }
       },
+      "ServiceAccountGrantTenantMember": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind"
+        ],
+        "description": "Tenant member: read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. A service account has it only when granted; a person has it from being added.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tenant-member"
+            ]
+          }
+        }
+      },
       "ServiceAccountGrantProject": {
         "type": "object",
         "additionalProperties": false,
@@ -2228,10 +2244,13 @@
         }
       },
       "ServiceAccountGrant": {
-        "description": "What a service account may do: tenant admin, or a role on one project.",
+        "description": "What a service account may do: tenant admin, tenant member (read the tenant's settings), or a role on one project.",
         "oneOf": [
           {
             "$ref": "#/components/schemas/ServiceAccountGrantTenantAdmin"
+          },
+          {
+            "$ref": "#/components/schemas/ServiceAccountGrantTenantMember"
           },
           {
             "$ref": "#/components/schemas/ServiceAccountGrantProject"
@@ -2242,10 +2261,13 @@
         }
       },
       "ServiceAccountGrantBody": {
-        "description": "The grant to add: tenant admin, or a role on one project.",
+        "description": "The grant to add: tenant admin, tenant member, or a role on one project.",
         "oneOf": [
           {
             "$ref": "#/components/schemas/ServiceAccountGrantTenantAdmin"
+          },
+          {
+            "$ref": "#/components/schemas/ServiceAccountGrantTenantMember"
           },
           {
             "$ref": "#/components/schemas/ServiceAccountGrantProject"
@@ -2277,10 +2299,13 @@
         }
       },
       "ServiceAccountUngrantBody": {
-        "description": "The grant to remove: tenant admin, or the role on a project.",
+        "description": "The grant to remove: tenant admin, tenant member, or the role on a project.",
         "oneOf": [
           {
             "$ref": "#/components/schemas/ServiceAccountGrantTenantAdmin"
+          },
+          {
+            "$ref": "#/components/schemas/ServiceAccountGrantTenantMember"
           },
           {
             "$ref": "#/components/schemas/ServiceAccountUngrantProject"
@@ -16929,7 +16954,7 @@
             }
           }
         },
-        "description": "A named, non-human principal with its first grants, written before it is returned. Mint its keys at `POST /v1/tokens` with `for`. Tenant admins only. Mounted when the deployment supplies a `ServiceAccountBinding`.",
+        "description": "A named, non-human principal with its first grants, written before it is returned. It isn't a tenant member unless a grant makes it one (`{kind: 'tenant-member'}`: read the tenant's settings); give it only what its job needs. Mint its keys at `POST /v1/tokens` with `for`. Tenant admins only. Mounted when the deployment supplies a `ServiceAccountBinding`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -31299,7 +31324,7 @@
             }
           }
         },
-        "description": "Adds a person to the tenant, with no grants: give them a role (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. Tenant admins only. Mounted when the identity directory can add people.",
+        "description": "Adds a person to the tenant as a tenant member, written before it answers: they can read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. Give them a role to work (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. Tenant admins only. Mounted when the identity directory can add people.",
         "parameters": [
           {
             "name": "Idempotency-Key",

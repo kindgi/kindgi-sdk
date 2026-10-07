@@ -223,7 +223,7 @@ function harness(options: { createUser?: boolean } = {}) {
       const others = a.grants.filter((g) =>
         grant.kind === 'project'
           ? !(g.kind === 'project' && g.projectId === grant.projectId)
-          : g.kind !== 'tenant-admin',
+          : g.kind !== grant.kind,
       );
       const next = { ...a, grants: [...others, grant] };
       accounts.set(serviceAccountId, next);
@@ -239,7 +239,7 @@ function harness(options: { createUser?: boolean } = {}) {
         grants: a.grants.filter((g) =>
           grant.kind === 'project'
             ? !(g.kind === 'project' && g.projectId === grant.projectId)
-            : g.kind !== 'tenant-admin',
+            : g.kind !== grant.kind,
         ),
       };
       accounts.set(serviceAccountId, next);
@@ -544,6 +544,37 @@ describe('/v1/service-accounts', () => {
       const r = await h.call(ALICE, 'POST', '/v1/service-accounts', body);
       expect(r.status, JSON.stringify(body)).toBe(400);
     }
+  });
+
+  test('tenant member is a grant of its own: on create, after, and taken back', async () => {
+    const h = harness();
+    const created = await h.call(ALICE, 'POST', '/v1/service-accounts', {
+      name: 'acme-deploy',
+      grants: [{ kind: 'tenant-member' }, { kind: 'project', projectId: P1, role: 'editor' }],
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.grants).toEqual([
+      { kind: 'tenant-member' },
+      { kind: 'project', projectId: P1, role: 'editor' },
+    ]);
+    await h.call(ALICE, 'POST', '/v1/service-accounts', { name: 'acme-ci' });
+    const granted = await h.call(ALICE, 'POST', '/v1/service-accounts/sa-acme-ci/grant', {
+      kind: 'tenant-member',
+    });
+    expect(granted.body.grants).toEqual([{ kind: 'tenant-member' }]);
+    const admin = await h.call(ALICE, 'POST', '/v1/service-accounts/sa-acme-ci/grant', {
+      kind: 'tenant-admin',
+    });
+    // Tenant admin doesn't replace tenant member: each is its own grant.
+    expect(admin.body.grants).toEqual([{ kind: 'tenant-member' }, { kind: 'tenant-admin' }]);
+    const ungranted = await h.call(ALICE, 'POST', '/v1/service-accounts/sa-acme-ci/ungrant', {
+      kind: 'tenant-member',
+    });
+    expect(ungranted.body.grants).toEqual([{ kind: 'tenant-admin' }]);
+    const bad = await h.call(ALICE, 'POST', '/v1/service-accounts/sa-acme-ci/grant', {
+      kind: 'tenant-reader',
+    });
+    expect(bad.status).toBe(400);
   });
 
   test('grant, ungrant, list, get, unregister', async () => {
