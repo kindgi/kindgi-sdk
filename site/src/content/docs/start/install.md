@@ -59,7 +59,8 @@ run:
       Fix: Docker's config (~/.docker/config.json, or the one in $DOCKER_CONFIG: "credsStore" or "credHelpers") names docker-credential-kindgi-nope, and Docker couldn't run it. Put it on your PATH (Docker Desktop on macOS keeps it in /Applications/Docker.app/Contents/Resources/bin), or remove that entry from the config, then run this again.
 ```
 
-`--json` gives the same checks as JSON, for a script or a coding agent.
+`--json` gives the same checks as JSON, for a script or a coding agent
+([Set up with a coding agent](../agent/) has an agent read it).
 
 ## A TypeScript project
 
