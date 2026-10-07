@@ -93,6 +93,9 @@ class Operation:
     response: str | None  # model class name
     response_kind: str  # json | sse | binary | empty
     status: int
+    # When the 2xx answers carry different models: each status's model
+    # class name (`secrets.rotate`: 201 sync, 202 async). Empty otherwise.
+    responses: dict[int, str] = field(default_factory=dict)
 
     @property
     def resource(self) -> tuple[str, ...]:
@@ -234,6 +237,19 @@ def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]
                 elif content:
                     response_kind = "binary"
                 break
+            # The client picks the model by status when the 2xx answers differ,
+            # as the Java client does; otherwise every 2xx is the first's model.
+            responses: dict[int, str] = {}
+            if response_kind == "json":
+                answers = op.get("responses", {})
+                first = answers[str(status)]["content"]["application/json"]["schema"]
+                for code, answer in sorted(answers.items()):
+                    schema = answer.get("content", {}).get("application/json", {}).get("schema")
+                    if code.startswith("2") and int(code) != status and schema not in (None, first):
+                        responses[int(code)] = hoist(doc, schema, f"{pascal(op_id)}Response{code}")
+                if responses:
+                    assert response is not None
+                    responses = {status: response, **responses}
             ops.append(
                 Operation(
                     id=op_id,
@@ -247,6 +263,7 @@ def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]
                     response=response,
                     response_kind=response_kind,
                     status=status,
+                    responses=responses,
                 )
             )
     ops += [replace(op, id=alias) for op in list(ops) for alias in ALIASES.get(op.id, ())]
@@ -301,7 +318,9 @@ def signature(op: Operation, asynchronous: bool) -> str:
     if op.body_kind == "json":
         parts.append("**fields: Any")
     returns = {
-        "json": f"_models.{op.response}",
+        "json": " | ".join(f"_models.{m}" for m in dict.fromkeys(op.responses.values()))
+        if op.responses
+        else f"_models.{op.response}",
         "empty": "None",
         "binary": "bytes",
         "sse": f"{'AsyncIterator' if asynchronous else 'Iterator'}[_models.{op.response}]",
@@ -326,7 +345,10 @@ def call(op: Operation, asynchronous: bool) -> str:
     if op.body_kind == "multipart":
         args.append("files=files")
         args.append("data=data")
-    if op.response_kind in ("json", "sse"):
+    if op.responses:
+        by_status = ", ".join(f"{code}: _models.{m}" for code, m in op.responses.items())
+        args.append(f"response={{{by_status}}}")
+    elif op.response_kind in ("json", "sse"):
         args.append(f"response=_models.{op.response}")
     args.append("timeout=timeout")
     inner = ", ".join(args)

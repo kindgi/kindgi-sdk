@@ -25,7 +25,7 @@ import uuid
 from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from functools import cache
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from urllib.parse import quote
 
 import httpx
@@ -155,6 +155,12 @@ class _Common:
             raise NetworkError(
                 f"{op.id}: the response body is not JSON", status=response.status_code
             ) from cause
+        if isinstance(model, Mapping):
+            # An operation whose answers carry different models by status
+            # (`secrets.rotate`: 201 sync, 202 async). An undeclared 2xx is
+            # read as the first status's model, as any operation reads one.
+            models = cast("Mapping[int, Any]", model)
+            model = models.get(response.status_code, next(iter(models.values())))
         if model is None:
             return data
         try:

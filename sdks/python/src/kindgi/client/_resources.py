@@ -5944,7 +5944,7 @@ class SecretsResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.SecretRotateResponseSync:
+    ) -> _models.SecretRotateResponseSync | _models.SecretRotateResponseAsync:
         """Rotate a secret (sync or async). `POST /v1/secrets/{name}/rotate`
 
         Requires the `secrets:rotate` capability. The scope comes from body `scope`, else from `scopeKind` + `scopeId` in the query; one of them is required, and when both are present they must name the same scope. Authorization checks that scope. Sync providers return 201 with `{ kind: "sync", newVersionId, oldVersionId, oldVersionRevokedAt? }`. Async providers return 202 with `{ kind: "async", rotationId, statusUrl, eventsUrl }`; poll via `GET /v1/secrets/:name/rotations/:rotationId` or subscribe via SSE at the events URL. `kind` is the discriminant.
@@ -5955,7 +5955,10 @@ class SecretsResource:
             query={"envName": env_name, "scopeKind": scope_kind, "scopeId": scope_id},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.SecretRotateRequest, body, fields),
-            response=_models.SecretRotateResponseSync,
+            response={
+                201: _models.SecretRotateResponseSync,
+                202: _models.SecretRotateResponseAsync,
+            },
             timeout=timeout,
         )
 
@@ -11865,7 +11868,7 @@ class AsyncSecretsResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.SecretRotateResponseSync:
+    ) -> _models.SecretRotateResponseSync | _models.SecretRotateResponseAsync:
         """Rotate a secret (sync or async). `POST /v1/secrets/{name}/rotate`
 
         Requires the `secrets:rotate` capability. The scope comes from body `scope`, else from `scopeKind` + `scopeId` in the query; one of them is required, and when both are present they must name the same scope. Authorization checks that scope. Sync providers return 201 with `{ kind: "sync", newVersionId, oldVersionId, oldVersionRevokedAt? }`. Async providers return 202 with `{ kind: "async", rotationId, statusUrl, eventsUrl }`; poll via `GET /v1/secrets/:name/rotations/:rotationId` or subscribe via SSE at the events URL. `kind` is the discriminant.
@@ -11876,7 +11879,10 @@ class AsyncSecretsResource:
             query={"envName": env_name, "scopeKind": scope_kind, "scopeId": scope_id},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.SecretRotateRequest, body, fields),
-            response=_models.SecretRotateResponseSync,
+            response={
+                201: _models.SecretRotateResponseSync,
+                202: _models.SecretRotateResponseAsync,
+            },
             timeout=timeout,
         )
 
