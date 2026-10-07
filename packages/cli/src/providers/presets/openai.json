@@ -11,12 +11,15 @@
   "metadata": {
     "id": "openai",
     "region": "unspecified",
+    "defaultModel": "gpt-6.1-sol",
     "description": "GPT on the OpenAI API",
     "models": [
       {
         "name": "gpt-6.1-sol",
         "contextWindow": 1050000,
         "maxOutputTokens": 128000,
+        "thinking": { "mode": "adaptive", "lowest": "low" },
+        "sampling": false,
         "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
         "cost": {
           "promptUsdPer1kTokens": 0.002,
@@ -36,6 +39,7 @@
         "name": "gpt-6-astra",
         "contextWindow": 1050000,
         "maxOutputTokens": 128000,
+        "sampling": false,
         "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
         "cost": {
           "promptUsdPer1kTokens": 0.01,
@@ -55,6 +59,8 @@
         "name": "gpt-6-luna",
         "contextWindow": 1050000,
         "maxOutputTokens": 128000,
+        "thinking": { "mode": "adaptive", "lowest": "none" },
+        "sampling": false,
         "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
         "cost": {
           "promptUsdPer1kTokens": 0.0001,

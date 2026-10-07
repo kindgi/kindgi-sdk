@@ -610,3 +610,70 @@ describe('what a reasoning model carries between its tool calls', () => {
     ]);
   });
 });
+
+describe('the Responses path follows the model data', () => {
+  const thinkingModels: ProviderMetadata = {
+    id: 'openai',
+    region: 'unspecified',
+    models: [
+      {
+        name: 'gpt-6.1-sol',
+        contextWindow: 1050000,
+        features: ['tool-use'],
+        cost: { promptUsdPer1kTokens: 0.002, completionUsdPer1kTokens: 0.01 },
+        sampling: false,
+        thinking: { mode: 'adaptive', lowest: 'low' },
+      },
+    ],
+  };
+  const provider = (endpoint: { fetch: typeof fetch }, config: Record<string, string> = {}) =>
+    openAICompatAdapterFactory({
+      metadata: thinkingModels,
+      config: { baseURL: BASE_URLS.OPENAI, ...config },
+      fetch: endpoint.fetch,
+    });
+
+  test("a temperature the model doesn't take isn't sent, and the answer says so", async () => {
+    const endpoint = fakeEndpoint(response([textMessage('ok')]));
+    const result = await provider(endpoint).invoke({ ...ask(), temperature: 0.2 });
+    expect(endpoint.seen[0]?.body).not.toHaveProperty('temperature');
+    expect(result.warnings).toEqual([expect.objectContaining({ code: 'sampling-unsupported' })]);
+  });
+
+  test("thinking 'lowest' sends the model's lowest effort, keeping a registration's other reasoning fields", async () => {
+    const endpoint = fakeEndpoint(response([textMessage('PASS')]));
+    await provider(endpoint).invoke({ ...ask(), thinking: 'lowest' });
+    await provider(endpoint).invoke(ask());
+    await provider(endpoint, { 'extraBody.reasoning.summary': 'auto' }).invoke({
+      ...ask(),
+      thinking: 'lowest',
+    });
+    expect(endpoint.seen.map((s) => s.body.reasoning)).toEqual([
+      { effort: 'low' },
+      undefined,
+      { summary: 'auto', effort: 'low' },
+    ]);
+  });
+
+  test('the developer message names the tools as they are sent', async () => {
+    const endpoint = fakeEndpoint(response([textMessage('ok')]));
+    await provider(endpoint).invoke({
+      model: 'gpt-6.1-sol',
+      messages: [
+        { role: 'system', content: 'Use acme.lookup_order to find orders.' },
+        { role: 'user', content: 'Where is A-1?' },
+      ],
+      tools: [
+        {
+          name: 'acme.lookup_order',
+          description: 'Look up an order',
+          inputSchema: { type: 'object' },
+        },
+      ],
+    });
+    expect((endpoint.seen[0]?.body.input as unknown[])[0]).toEqual({
+      role: 'developer',
+      content: 'Use acme__lookup_order to find orders.',
+    });
+  });
+});
