@@ -182,6 +182,14 @@ const RunEvalRunIdQueryParam: ParameterSpec = {
   schema: { type: 'string', minLength: 1 },
 };
 
+const RunTriggerIdQueryParam: ParameterSpec = {
+  name: 'triggerId',
+  in: 'query',
+  required: false,
+  description: 'Only the runs this trigger started (`Run.trigger.triggerId`).',
+  schema: { type: 'string', format: 'uuid' },
+};
+
 const LiveProjectQueryParam: ParameterSpec = {
   name: 'projectId',
   in: 'query',
@@ -1274,6 +1282,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       RunAgentIdQueryParam,
       RunReplaysQueryParam,
       RunEvalRunIdQueryParam,
+      RunTriggerIdQueryParam,
       RunIncludeQueryParam,
     ],
     responses: {

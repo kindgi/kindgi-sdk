@@ -209,6 +209,29 @@ describe('runs.list — filters', () => {
     expect(new URL(stub.calls[1]?.url ?? '').searchParams.get('evalRunId')).toBe('eval-1');
   });
 
+  it("sends triggerId, and reads a run's trigger", async () => {
+    const trigger = {
+      triggerId: '0b6f2c64-4a1e-4b8a-9d55-1f0e8d2c7a10',
+      kind: 'schedule',
+      fireId: 'f-1',
+      scheduledFor: '2026-10-07T07:00:00.000Z',
+    };
+    const stub = recordingFetch([
+      {
+        status: 200,
+        body: JSON.stringify({ data: [{ id: 'r-1', trigger }], hasMore: false }),
+      },
+    ]);
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    const page = await client.runs.list({ triggerId: trigger.triggerId });
+    expect(new URL(stub.calls[0]?.url ?? '').searchParams.get('triggerId')).toBe(trigger.triggerId);
+    expect(page.data[0]?.trigger).toEqual(trigger);
+  });
+
   it('sends a project or org scope as scopeKind + scopeId', async () => {
     const stub = recordingFetch([
       { status: 200, body: JSON.stringify({ data: [], hasMore: false }) },

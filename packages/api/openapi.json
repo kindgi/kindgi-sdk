@@ -504,6 +504,39 @@
           }
         }
       },
+      "RunTrigger": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "triggerId",
+          "kind",
+          "fireId"
+        ],
+        "description": "Set on a run a trigger started (a schedule, an event trigger or an inbound webhook): the trigger and the fire that started it. Absent on other runs.",
+        "properties": {
+          "triggerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "schedule",
+              "event",
+              "webhook"
+            ]
+          },
+          "fireId": {
+            "type": "string",
+            "description": "The fire that started the run: one entry of the trigger's fire history."
+          },
+          "scheduledFor": {
+            "type": "string",
+            "format": "date-time",
+            "description": "A schedule's fire: the occurrence the run is for."
+          }
+        }
+      },
       "ScopeSegment": {
         "type": "object",
         "additionalProperties": false,
@@ -1352,6 +1385,9 @@
           "agent": {
             "$ref": "#/components/schemas/RunAgent"
           },
+          "trigger": {
+            "$ref": "#/components/schemas/RunTrigger"
+          },
           "replayOf": {
             "type": "string",
             "format": "uuid",
@@ -1601,6 +1637,9 @@
                 },
                 "agent": {
                   "$ref": "#/components/schemas/RunAgent"
+                },
+                "trigger": {
+                  "$ref": "#/components/schemas/RunTrigger"
                 },
                 "replayOf": {
                   "type": "string",
@@ -15233,6 +15272,16 @@
             },
             "required": false,
             "description": "Only the replay runs of this eval run. Implies replays are included; cannot be combined with `replays=exclude`."
+          },
+          {
+            "name": "triggerId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "description": "Only the runs this trigger started (`Run.trigger.triggerId`)."
           },
           {
             "name": "include",
