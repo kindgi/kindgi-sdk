@@ -328,6 +328,54 @@ describe('API — mcp endpoints register + get', () => {
     expect(body.error.details?.reason).toBe('invalid-streamable-http-url');
   });
 
+  describe('sendTraceparent (logging phase 2)', () => {
+    const http = {
+      endpointId: 'acme.tickets',
+      name: 'Tickets',
+      transport: 'streamable-http',
+      config: { transport: 'streamable-http', url: 'https://mcp.acme.test/mcp' },
+      scopeKind: 'tenant',
+    };
+    const post = (app: ReturnType<typeof makeApp>['app'], body: Record<string, unknown>) =>
+      app.request('/v1/mcp/endpoints', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+    test('on an HTTP endpoint it is stored and read back; absent, it is not there', async () => {
+      const { app } = makeApp();
+      expect((await post(app, { ...http, sendTraceparent: true })).status).toBe(201);
+      const get = await app.request('/v1/mcp/endpoints/acme.tickets', {
+        headers: { authorization: `Bearer ${TOKEN}` },
+      });
+      expect(((await get.json()) as MCPEndpoint).sendTraceparent).toBe(true);
+      expect((await post(app, { ...http, endpointId: 'acme.plain' })).status).toBe(201);
+      const plain = await app.request('/v1/mcp/endpoints/acme.plain', {
+        headers: { authorization: `Bearer ${TOKEN}` },
+      });
+      expect(((await plain.json()) as MCPEndpoint).sendTraceparent).toBeUndefined();
+    });
+
+    test('not a boolean, or true on a stdio endpoint → 400 invalid-mcp-endpoint', async () => {
+      const { app } = makeApp();
+      for (const body of [
+        { ...http, sendTraceparent: 'yes' },
+        { ...stdioEndpoint(), scopeKind: 'tenant', sendTraceparent: true },
+      ]) {
+        const res = await post(app, body);
+        expect(res.status).toBe(400);
+        const error = (
+          (await res.json()) as { error: { code: string; details?: { reason?: string } } }
+        ).error;
+        expect([error.code, error.details?.reason]).toEqual([
+          'invalid-mcp-endpoint',
+          'invalid-send-traceparent',
+        ]);
+      }
+    });
+  });
+
   test('non-JSON body → 400 bad-input', async () => {
     const { app } = makeApp();
     const res = await app.request('/v1/mcp/endpoints', {

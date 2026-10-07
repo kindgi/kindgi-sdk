@@ -257,6 +257,17 @@ there when the endpoint is registered, no tools are registered, and the
 Store the secret (`kindgi secrets set INVENTORY_TOKEN --env=local --scope=tenant`),
 then register the endpoint again, as below.
 
+## Send the run's trace
+
+Add `"sendTraceparent": true` to the registration, and each tool call to the
+server carries the W3C `traceparent` of the run that made it, as a request
+header. The server's logs can then be matched to the run
+([Follow a request or a run](../../../deploy/logs/#follow-a-request-or-a-run)).
+Only the ids go: the trace id and a span id, never the tool's input or output.
+It's off by default, and HTTP transports only: a `stdio` server gets no
+headers, so `true` there is refused (`invalid-mcp-endpoint`, reason
+`invalid-send-traceparent`).
+
 ## When the server changes
 
 The runtime lists an endpoint's tools when the endpoint is registered and

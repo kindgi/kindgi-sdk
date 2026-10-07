@@ -91,10 +91,13 @@ function metadata(id: string): ProviderMetadata {
 /** Keeps what the runtime reads back (`resolveForRuntime`), as a real binding does. */
 function binding(): ProviderRegistryBinding & {
   readonly stored: Map<string, ProviderRuntimeEntry>;
+  readonly sent: Map<string, boolean>;
 } {
   const stored = new Map<string, ProviderRuntimeEntry>();
+  const sent = new Map<string, boolean>();
   return {
     stored,
+    sent,
     async list() {
       return { data: [...stored.values()].map((e) => e.metadata) };
     },
@@ -108,6 +111,7 @@ function binding(): ProviderRegistryBinding & {
         ...(input.secretRef !== undefined && { secretRef: input.secretRef }),
         ...(input.adapterConfig !== undefined && { adapterConfig: input.adapterConfig }),
       });
+      if (input.sendTraceparent !== undefined) sent.set(input.metadata.id, input.sendTraceparent);
       return { kind: 'ok', providerId: input.metadata.id };
     },
     async unregister({ providerId }) {
@@ -145,6 +149,70 @@ const register = (app: ReturnType<typeof makeApp>['app'], body: Record<string, u
   });
 
 const SECRET = { envName: 'local', name: 'ACME_API_KEY' };
+
+describe('POST /v1/providers: send_traceparent (logging phase 2)', () => {
+  test('a boolean is stored with the registration; absent, nothing is', async () => {
+    const { app, registry } = makeApp(true);
+    for (const [id, value] of [
+      ['acme-on', true],
+      ['acme-off', false],
+    ] as const) {
+      const res = await register(app, {
+        metadata: metadata(id),
+        adapter_id: ADAPTER,
+        secret_ref: SECRET,
+        send_traceparent: value,
+      });
+      expect(res.status).toBe(201);
+    }
+    expect(
+      (
+        await register(app, {
+          metadata: metadata('acme-unset'),
+          adapter_id: ADAPTER,
+          secret_ref: SECRET,
+        })
+      ).status,
+    ).toBe(201);
+    expect([...registry.sent.entries()]).toEqual([
+      ['acme-on', true],
+      ['acme-off', false],
+    ]);
+  });
+
+  test("anything else is 422 provider-config-invalid, the registration's own issue first, then the adapter's, in one answer", async () => {
+    const { app, registry } = makeApp(true);
+    const res = await register(app, {
+      metadata: metadata('acme'),
+      adapter_id: ADAPTER,
+      send_traceparent: 'yes',
+    });
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as {
+      error: { code: string; message: string; details: { issues: unknown[] } };
+    };
+    expect(body.error.code).toBe('provider-config-invalid');
+    expect(body.error.message).toBe(
+      'Provider "acme": send_traceparent must be true or false (and 1 more).',
+    );
+    expect(body.error.details.issues).toEqual([
+      { path: '/send_traceparent', message: 'send_traceparent must be true or false.' },
+      { path: '/secret_ref', message: 'needs secret_ref.' },
+    ]);
+    expect(registry.stored.size).toBe(0);
+  });
+
+  test("checked even without the deployment's adapter factories", async () => {
+    const { app, registry } = makeApp(false);
+    const res = await register(app, {
+      metadata: metadata('acme'),
+      adapter_id: ADAPTER,
+      send_traceparent: 1,
+    });
+    expect(res.status).toBe(422);
+    expect(registry.stored.size).toBe(0);
+  });
+});
 
 describe('POST /v1/providers checks the registration with its adapter', () => {
   test('a registration the adapter takes is stored', async () => {

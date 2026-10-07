@@ -165,12 +165,15 @@ export function providersRouter(
     //                                     runtime bridge),
     //     "adapter_config": { … }         (optional — the adapter's flat,
     //                                     non-secret connection settings)
+    //     "send_traceparent": boolean     (optional — send each call's
+    //                                     traceparent to the provider)
     //   }
     const bodyObj = body as {
       readonly metadata?: unknown;
       readonly adapter_id?: unknown;
       readonly secret_ref?: unknown;
       readonly adapter_config?: unknown;
+      readonly send_traceparent?: unknown;
     };
     if (bodyObj.metadata === undefined) {
       c.status(statusFor('bad-input') as never);
@@ -230,15 +233,18 @@ export function providersRouter(
       );
     }
 
-    // The adapter's own check of what it'll be built from: refused now,
-    // naming the field, instead of skipped at the first model call.
-    const problems = configProblems(factories, {
+    // The registration's own fields first, then the adapter's check of what
+    // it'll be built from: refused now, naming the field, instead of skipped
+    // at the first model call. One answer lists them all.
+    const sendTraceparent = bodyObj.send_traceparent;
+    const adapterProblems = configProblems(factories, {
       metadata: validation.value,
       adapterId: bodyObj.adapter_id,
       ...(secretRefResult.value !== undefined && { secretRef: secretRefResult.value }),
       ...(adapterConfigResult.value !== undefined && { adapterConfig: adapterConfigResult.value }),
     });
-    if (problems !== undefined && problems.length > 0) {
+    const problems = [...registrationProblems(bodyObj), ...(adapterProblems ?? [])];
+    if (problems.length > 0) {
       c.status(statusFor('provider-config-invalid') as never);
       return c.json(
         toWireError(
@@ -258,6 +264,7 @@ export function providersRouter(
       adapterId: bodyObj.adapter_id,
       ...(secretRefResult.value !== undefined && { secretRef: secretRefResult.value }),
       ...(adapterConfigResult.value !== undefined && { adapterConfig: adapterConfigResult.value }),
+      ...(typeof sendTraceparent === 'boolean' && { sendTraceparent }),
     });
     if (outcome.kind === 'already-registered') {
       c.status(statusFor('provider-already-registered') as never);
@@ -742,8 +749,23 @@ function configProblems(
 }
 
 /**
+ * What's wrong with the registration's own fields, before its adapter's:
+ * `send_traceparent`, when present, is a boolean. The runtime, not the
+ * adapter, reads it.
+ */
+export function registrationProblems(body: {
+  readonly send_traceparent?: unknown;
+}): readonly AdapterConfigProblem[] {
+  const value = body.send_traceparent;
+  return value === undefined || typeof value === 'boolean'
+    ? []
+    : [{ path: '/send_traceparent', message: 'send_traceparent must be true or false.' }];
+}
+
+/**
  * The 422's message: one sentence naming the provider, its adapter and the
  * first problem, with a count of the rest (`details.issues` lists each).
+ * A problem with the registration's own fields names the provider alone.
  */
 function refusalOf(
   providerId: string,
@@ -754,8 +776,14 @@ function refusalOf(
   if (first === undefined) return `Provider "${providerId}" doesn't fit adapter ${adapterId}.`;
   if (first.path === '/adapter_id') return first.message;
   const more = rest.length > 0 ? ` (and ${rest.length} more)` : '';
-  return `Provider "${providerId}" doesn't fit adapter ${adapterId}: ${first.message.replace(/\.$/, '')}${more}.`;
+  const what = first.message.replace(/\.$/, '');
+  return REGISTRATION_PATHS.has(first.path)
+    ? `Provider "${providerId}": ${what}${more}.`
+    : `Provider "${providerId}" doesn't fit adapter ${adapterId}: ${what}${more}.`;
 }
+
+/** The paths `registrationProblems` reports: the registration's own fields, not its adapter's. */
+const REGISTRATION_PATHS: ReadonlySet<string> = new Set(['/send_traceparent']);
 
 /**
  * Parse the optional `adapter_config` on the register request body: a
