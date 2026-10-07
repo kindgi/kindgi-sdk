@@ -122,7 +122,7 @@ export interface PackRelayCall {
   readonly requestId?: string;
   /** The caller's protocol version (`kindgi-protocol`), passed on as is. */
   readonly protocol?: string;
-  /** The caller's W3C trace context, passed on as is, so the child's records carry its trace. */
+  /** The caller's W3C trace context (`traceparent`), passed on as is, so the child's records carry its trace. */
   readonly traceparent?: string;
 }
 
