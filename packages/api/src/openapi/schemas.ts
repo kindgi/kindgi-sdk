@@ -3419,7 +3419,8 @@ export const ProposalDrafterSchema: JsonSchema = {
     },
     passId: {
       type: 'string',
-      description: 'For a drafter: the improvement pass that drafted it (`GET /v1/improvement-passes/{passId}`).',
+      description:
+        'For a drafter: the improvement pass that drafted it (`GET /v1/improvement-passes/{passId}`).',
     },
   },
 };
