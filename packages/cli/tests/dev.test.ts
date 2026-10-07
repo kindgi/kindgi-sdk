@@ -2119,7 +2119,7 @@ describe('kindgi dev — a database per project', () => {
 
   test('another folder owns a database of the same name: refused, naming the way out', async () => {
     const message =
-      'the database kindgi_acme belongs to /elsewhere/acme, another folder whose project is also named "acme". Give this one its own name: set `project` in kindgi.config.ts (or `project` under [tool.kindgi] in pyproject.toml), or pass --database-url.';
+      'the database kindgi_acme belongs to /elsewhere/acme, another folder whose project is also named "acme". Give this one its own name: set `project` in kindgi.config.ts (or `project` under [tool.kindgi] in pyproject.toml, or in kindgi.config.json), or pass --database-url.';
     const { fixtures } = withProjectDatabase({ ensure: { kind: 'refused', message } });
     const { out, opts } = await boot(fixtures);
     expect(out.exitCode).toBe(1);
