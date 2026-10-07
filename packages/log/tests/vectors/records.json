@@ -302,13 +302,7 @@
         "outcome": "ok",
         "durationMs": 12
       },
-      "inMessage": [
-        "target",
-        "id",
-        "outcome",
-        "durationMs",
-        "message"
-      ],
+      "inMessage": ["target", "id", "outcome", "durationMs", "message"],
       "expected": {
         "time": "2026-10-08T12:00:00.000Z",
         "level": "info",
@@ -321,11 +315,7 @@
         "id": "acme.lookup",
         "outcome": "ok",
         "durationMs": 12,
-        "inMessage": [
-          "id",
-          "outcome",
-          "durationMs"
-        ]
+        "inMessage": ["id", "outcome", "durationMs"]
       }
     },
     {
