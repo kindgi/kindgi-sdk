@@ -3,13 +3,7 @@
 
 import { readFile } from 'node:fs/promises';
 
-import type {
-  CreateProposalInput,
-  FixProposal,
-  FixProposalStatus,
-  ListPage,
-  ProposalContent,
-} from '@kindgi/client';
+import type { FixProposal, FixProposalStatus, ListPage, ProposalContent } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
 import { SCOPE_FLAGS, SCOPE_USAGE, scopeCell, scopeFrom } from './agents.js';
@@ -65,7 +59,7 @@ const TABLE: TableSpec<ListPage<FixProposal>, FixProposal> = {
   columns: [
     { header: 'ID', get: (p) => p.id },
     { header: 'AGENT', get: (p) => `${p.agentId}@${p.fromVersion}` },
-    { header: 'SCOPE', get: (p) => scopeCell(p.scope as Parameters<typeof scopeCell>[0]) },
+    { header: 'SCOPE', get: (p) => scopeCell(p.scope) },
     { header: 'BLOCK', get: (p) => `${p.change.blockId}@${p.change.fromVersion}` },
     { header: 'STATUS', get: (p) => p.status },
     { header: 'DELTA', get: deltaCell },
@@ -100,11 +94,11 @@ const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
   description:
-    'List improvement proposals, newest first: only those of agents you can read. A status filter is applied after the page is read, so a page can hold fewer than --limit.',
-  usage:
-    'kindgi proposals list [--agent=<agent-id>] [--tier=settings-block|prompt-block] [--status=<status>] [--limit=<n>] [--cursor=<cursor>] [--table]',
+    'List improvement proposals, newest first: only those of agents you can read. A scope flag keeps the proposals for exactly that scope. A status filter is applied after the page is read, so a page can hold fewer than --limit.',
+  usage: `kindgi proposals list [--agent=<agent-id>] [${SCOPE_USAGE}] [--tier=settings-block|prompt-block] [--status=<status>] [--limit=<n>] [--cursor=<cursor>] [--table]`,
   optionSpec: {
     agent: { type: 'string', description: "Only this agent's proposals." },
+    ...SCOPE_FLAGS,
     tier: { type: 'string', description: '`settings-block` or `prompt-block`.' },
     status: { type: 'string', description: `One of: ${STATUSES.join(', ')}.` },
     limit: { type: 'string', description: 'Page size.' },
@@ -116,12 +110,14 @@ const list: LeafCommand = {
       'proposals list',
       async () => {
         const agentId = stringFlag(ctx, 'agent');
+        const scope = scopeFrom(ctx, false);
         const tier = oneOfFlag(ctx, 'tier', TIERS);
         const status = oneOfFlag(ctx, 'status', STATUSES);
         const limit = integerFlag(ctx, 'limit');
         const cursor = stringFlag(ctx, 'cursor');
         return await ctx.client().proposals.list({
           ...(agentId !== undefined && { agentId }),
+          ...(scope !== undefined && { scope }),
           ...(tier !== undefined && { tier }),
           ...(status !== undefined && { status }),
           ...(limit !== undefined && { limit }),
@@ -203,8 +199,7 @@ const draft: LeafCommand = {
     runSdk(ctx, 'proposals draft', async () => {
       const agentId = required(ctx, 'agent');
       const fromVersion = required(ctx, 'from-version');
-      // The proposals client types a scope with branded ids; the flags give plain ones.
-      const scope = scopeFrom(ctx, true) as unknown as CreateProposalInput['scope'];
+      const scope = scopeFrom(ctx, true);
       const blockId = required(ctx, 'block');
       const hypothesis = required(ctx, 'hypothesis');
       const { tier, content } = await contentFrom(ctx);
@@ -294,7 +289,7 @@ const request: LeafCommand = {
   kind: 'leaf',
   name: 'request',
   description:
-    "Request a proposal's promotion: its candidate version, for its scope, through the scope's gate with its evaluation. The proposal is `promoted`, or `in-review` (a reviewer decides the promotion's approval: `kindgi approvals complete`); a gate refusal lists every check. Needs `promote` on the agent.",
+    "Request a proposal's promotion: its candidate version, for its scope, through the scope's gate with its evaluation. The proposal is `promoted`, or `in-review` (a reviewer decides the promotion's approval: `kindgi approvals complete`); a gate refusal lists every check. Allowed once evaluated, also when `not-better`: the gate decides. Needs `promote` on the agent.",
   usage: 'kindgi proposals request <proposal-id> [--reason=<text>]',
   optionSpec: {
     reason: { type: 'string', description: 'Why, kept on the promotion.' },

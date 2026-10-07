@@ -322,6 +322,24 @@ describe('kindgi proposals list / get', () => {
     expect(out.stdout).toContain('-0.034');
   });
 
+  test('a scope keeps the proposals for exactly that scope', async () => {
+    const { calls, rec } = recorder();
+    const list = rec('list', { data: [], hasMore: false });
+    await run(['proposals', 'list', '--tenant'], { proposals: { list } });
+    await run(['proposals', 'list', `--project=${PROJECT}`, '--segment=company:acme'], {
+      proposals: { list },
+    });
+    expect(calls).toEqual([
+      ['list', { scope: { kind: 'tenant' } }],
+      [
+        'list',
+        {
+          scope: { kind: 'segment', projectId: PROJECT, path: [{ key: 'company', value: 'acme' }] },
+        },
+      ],
+    ]);
+  });
+
   test('an unknown status or tier is refused before any call', async () => {
     const { calls, rec } = recorder();
     for (const flag of ['--status=approved', '--tier=prompt']) {

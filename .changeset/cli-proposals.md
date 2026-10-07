@@ -11,4 +11,4 @@
   - `--wait` waits until it's `evaluated`, `not-better` or `evaluation-failed`.
 - **`request <id>`:** its promotion through the scope's gate.
 - **`rollback <id>`** and **`withdraw <id> --reason`**.
-- **`list`** (`--agent`, `--tier`, `--status`; `--table` shows the scope, block, status and the evaluation's delta) and **`get`**.
+- **`list`** (`--agent`; a scope, `--tenant`, `--org` or `--project` with `--segment`s, for exactly that scope; `--tier`; `--status`; `--table` shows the scope, block, status and the evaluation's delta) and **`get`**.
