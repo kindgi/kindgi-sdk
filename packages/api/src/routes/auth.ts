@@ -380,7 +380,7 @@ export function authRouters(options: AuthRouterOptions): {
         tenantId,
         userId: current.userId,
         providerId: current.providerId,
-        accessToken: current.accessToken,
+        ...(current.accessToken !== undefined && { accessToken: current.accessToken }),
         ...(current.refreshToken !== undefined && { refreshToken: current.refreshToken }),
         expiresAt: current.expiresAt,
         scopes: current.scopes,

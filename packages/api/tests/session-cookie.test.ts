@@ -55,7 +55,7 @@ function makeStore() {
           tenantId: input.tenantId,
           userId: input.userId,
           providerId: input.providerId,
-          accessToken: input.accessToken,
+          ...(input.accessToken !== undefined && { accessToken: input.accessToken }),
           expiresAt: input.expiresAt,
           scopes: input.scopes,
           createdAt: new Date().toISOString() as Timestamp,

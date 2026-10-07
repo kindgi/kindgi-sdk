@@ -72,8 +72,12 @@ export interface SessionCreateInput {
   readonly userId: UserId;
   /** ProviderId of the `IdentityProviderBinding` that authenticated the user. */
   readonly providerId: string;
-  /** Opaque provider access-token — server-side only. */
-  readonly accessToken: string;
+  /**
+   * Opaque provider access-token, server-side only. Absent when the
+   * deployment keeps no identity-provider tokens (a sign-in that only
+   * establishes who the person is).
+   */
+  readonly accessToken?: string;
   /** Opaque provider refresh-token — server-side only, may be absent. */
   readonly refreshToken?: string;
   readonly expiresAt: Timestamp;
@@ -131,7 +135,8 @@ export interface Session {
   readonly tenantId: TenantId;
   readonly userId: UserId;
   readonly providerId: string;
-  readonly accessToken: string;
+  /** Absent when the deployment keeps no identity-provider tokens. */
+  readonly accessToken?: string;
   readonly refreshToken?: string;
   readonly expiresAt: Timestamp;
   readonly scopes: readonly string[];
