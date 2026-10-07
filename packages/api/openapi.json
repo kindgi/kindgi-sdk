@@ -392,6 +392,7 @@
           "secret-provider-unauthorized": 502,
           "secret-provider-rate-limited": 429,
           "secret-store-error": 500,
+          "secret-operation-unsupported": 501,
           "env-store-error": 500,
           "trigger-not-found": 404,
           "trigger-invalid-config": 400,
@@ -34439,6 +34440,16 @@
                 }
               }
             }
+          },
+          "501": {
+            "description": "The store doesn't revoke (`secret-operation-unsupported`): under `kindgi dev` secrets live in the env files; the message says to remove the name there.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
           }
         },
         "description": "Requires the `secrets:revoke` capability (soft-revoke) or `secrets:revoke:hard` when `?hard=true` (cryptographic erasure). Optional `?reason=<text>` records the revoke reason.",
@@ -34801,6 +34812,16 @@
           },
           "500": {
             "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "The store doesn't rotate (`secret-operation-unsupported`): under `kindgi dev` secrets live in the env files and have no versions; the message says what to do instead.",
             "content": {
               "application/json": {
                 "schema": {

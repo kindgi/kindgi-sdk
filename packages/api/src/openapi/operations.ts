@@ -6077,6 +6077,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '403': ErrorResponse('Bearer token missing `secrets:rotate` capability.'),
       '404': ErrorResponse('Unknown secret.'),
+      '501': ErrorResponse(
+        "The store doesn't rotate (`secret-operation-unsupported`): under `kindgi dev` secrets live in the env files and have no versions; the message says what to do instead.",
+      ),
     },
   },
   {
@@ -6173,6 +6176,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse('Missing or malformed scope / envName.'),
       '403': ErrorResponse('Bearer token missing revoke capability.'),
       '404': ErrorResponse('Unknown secret.'),
+      '501': ErrorResponse(
+        "The store doesn't revoke (`secret-operation-unsupported`): under `kindgi dev` secrets live in the env files; the message says to remove the name there.",
+      ),
     },
   },
 
