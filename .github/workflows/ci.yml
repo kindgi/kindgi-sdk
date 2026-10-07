@@ -151,7 +151,16 @@ jobs:
       # and search index, from the workspace built above.
       - name: Docs site
         run: pnpm run docs:build
-      # Every sample that is a whole file compiles (TypeScript) or indexes
+      # The Java SDK, for the docs' Java samples: they compile against it.
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+      - name: The Java SDK (for the docs' Java samples)
+        working-directory: sdks/java
+        run: ./mvnw -B -ntp package -DskipTests
+      # Every sample that is a whole file compiles (TypeScript, Java) or indexes
       # (Python).
       - name: Docs samples
         run: pnpm run docs:samples
