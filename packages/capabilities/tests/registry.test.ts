@@ -164,6 +164,38 @@ describe('createProviderRegistry', () => {
     }
   });
 
+  test('thinking: a mode and the vendor setting is kept; anything else is refused', () => {
+    const { registry, register } = createProviderRegistry();
+    const model = {
+      name: 'sonnet',
+      contextWindow: 200000,
+      features: ['tool-use' as const],
+      cost: { promptUsdPer1kTokens: 0.003, completionUsdPer1kTokens: 0.015 },
+    };
+    const thinking = { mode: 'adaptive' as const, lowest: 'between_tools' };
+    expect(
+      register(TENANT_A, fakeProvider({ id: 'a', region: 'us', models: [{ ...model, thinking }] }))
+        .kind,
+    ).toBe('ok');
+    expect(registry.get(TENANT_A, 'a')?.metadata.models[0]?.thinking).toEqual(thinking);
+    for (const [i, bad] of [
+      { mode: 'sometimes', lowest: 'low' },
+      { mode: 'always', lowest: '' },
+      { mode: 'always' },
+      { mode: 'always', lowest: 'low', budget: 0 },
+      'low',
+    ].entries()) {
+      const r = register(
+        TENANT_A,
+        fakeProvider({ id: `b${i}`, region: 'us', models: [{ ...model, thinking: bad as never }] }),
+      );
+      expect(r.kind, JSON.stringify(bad)).toBe('err');
+      if (r.kind === 'err' && r.error.code === 'invalid-provider') {
+        expect(r.error.reason).toBe('invalid-thinking');
+      }
+    }
+  });
+
   test('sampling: a boolean is kept; anything else is refused', () => {
     const { registry, register } = createProviderRegistry();
     const model = {

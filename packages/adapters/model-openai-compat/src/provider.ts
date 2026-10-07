@@ -172,6 +172,12 @@ export function createOpenAICompatModelProvider(
             ...(tools !== undefined && tools.length > 0 && { tools }),
             ...(responseFormat !== undefined && { response_format: responseFormat }),
             ...(sampling.temperature !== undefined && { temperature: sampling.temperature }),
+            ...(input.thinking === 'lowest' &&
+              modelInfo.thinking !== undefined && {
+                reasoning_effort: modelInfo.thinking.lowest as NonNullable<
+                  OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming['reasoning_effort']
+                >,
+              }),
             ...(input.maxOutputTokens !== undefined && { max_tokens: input.maxOutputTokens }),
             stream: false,
           },

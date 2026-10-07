@@ -6,6 +6,7 @@ import {
   type GenerateContentParameters,
   type GenerateContentResponse,
   GoogleGenAI,
+  type ThinkingLevel,
 } from '@google/genai';
 import type {
   AdapterFactory,
@@ -138,6 +139,11 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
           responseJsonSchema: input.structuredOutput.schema,
         }),
         ...(sampling.temperature !== undefined && { temperature: sampling.temperature }),
+        ...(input.thinking === 'lowest' &&
+          model.thinking !== undefined && {
+            // Gemini's thinking levels: `low`, `minimal` (3.8 Flash refuses `minimal`).
+            thinkingConfig: { thinkingLevel: model.thinking.lowest.toUpperCase() as ThinkingLevel },
+          }),
         ...(maxOutputTokens !== undefined && { maxOutputTokens }),
         ...(input.abortSignal !== undefined && { abortSignal: input.abortSignal }),
       };

@@ -4016,6 +4016,28 @@ export const CapabilityCollectionPageSchema: JsonSchema = {
   },
 };
 
+/** `ModelInfo.thinking`: how a model thinks, so a judge can ask for its least. */
+export const ModelThinkingSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['mode', 'lowest'],
+  description:
+    "How the model thinks before it answers, so a call that wants as little as it allows (a judge's) gets it. Absent: it doesn't think, or nothing is known.",
+  properties: {
+    mode: {
+      type: 'string',
+      enum: ['adaptive', 'always'],
+      description: '`adaptive`: on unless turned down. `always`: on, and it can only be lowered.',
+    },
+    lowest: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "The vendor's own setting for the least thinking: for Anthropic `disabled`, `between_tools` or an effort (`low`); for Gemini a thinking level (`low`, `minimal`); for OpenAI a reasoning effort (`low`, `none`).",
+    },
+  },
+};
+
 export const ProviderCostSchema: JsonSchema = {
   type: 'object',
   // Adapters widen the cost table with their own rates (Anthropic's
@@ -4072,6 +4094,7 @@ export const ModelInfoSchema: JsonSchema = {
       description:
         "Whether the model takes sampling settings (`temperature`). `false`: its API rejects a non-default value, so the call goes without one and the answer's `warnings` say so (`sampling-unsupported`). Absent: it takes them.",
     },
+    thinking: { $ref: '#/components/schemas/ModelThinking' },
     description: {
       type: 'string',
       description: 'Short per-model description surfaced in logs.',
@@ -8431,6 +8454,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['Feature', FeatureSchema],
   ['CapabilityDescriptor', CapabilityDescriptorSchema],
   ['CapabilityCollectionPage', CapabilityCollectionPageSchema],
+  ['ModelThinking', ModelThinkingSchema],
   ['ProviderCost', ProviderCostSchema],
   ['ModelInfo', ModelInfoSchema],
   ['ProviderMetadata', ProviderMetadataSchema],

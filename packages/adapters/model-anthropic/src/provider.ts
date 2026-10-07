@@ -167,6 +167,7 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
         input.abortSignal !== undefined ? { signal: input.abortSignal } : {};
       const maxTokens = input.maxOutputTokens ?? modelInfo.maxOutputTokens ?? DEFAULT_MAX_TOKENS;
       const sampling = samplingFor(modelInfo, input);
+      const thinking = input.thinking === 'lowest' ? lowestThinking(modelInfo) : {};
 
       const counted = await attempts.count(() =>
         client.messages.create(
@@ -177,6 +178,7 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
             messages: [...messages],
             ...(tools !== undefined && { tools: [...tools] }),
             ...(sampling.temperature !== undefined && { temperature: sampling.temperature }),
+            ...thinking,
           },
           requestOptions,
         ),
@@ -206,4 +208,21 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
       };
     },
   };
+}
+
+/**
+ * The request fields for a model's least thinking (`ModelCallInput.thinking:
+ * 'lowest'`). A thinking type that turns it off (Haiku 5.5's `disabled`,
+ * Sonnet 5.5's `between_tools`) is taken only at effort `high` or below,
+ * so it goes with effort `low`; a model that always thinks (Opus 5.5) gets
+ * the effort alone. The SDK's types predate both fields; the API takes them
+ * as sent.
+ */
+function lowestThinking(model: ModelInfo): Record<string, unknown> {
+  const lowest = model.thinking?.lowest;
+  if (lowest === undefined) return {};
+  if (lowest === 'disabled' || lowest === 'between_tools') {
+    return { thinking: { type: lowest }, output_config: { effort: 'low' } };
+  }
+  return { output_config: { effort: lowest } };
 }

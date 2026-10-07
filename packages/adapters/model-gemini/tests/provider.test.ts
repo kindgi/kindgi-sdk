@@ -315,3 +315,70 @@ describe("a model that doesn't take sampling", () => {
     ]);
   });
 });
+
+describe("thinking: 'lowest'", () => {
+  // Recorded on Vertex AI (global, 2026-10-07): gemini-3.8-flash judging at
+  // thinkingLevel LOW thought 31 tokens and answered in 11; MINIMAL is refused.
+  const RECORDED: Partial<GenerateContentResponse> = {
+    candidates: [
+      {
+        content: {
+          role: 'model',
+          parts: [
+            { text: 'PASS\nThe answer directly and accurately addresses the question asked.' },
+          ],
+        },
+        finishReason: 'STOP' as never,
+      },
+    ],
+    usageMetadata: { promptTokenCount: 53, candidatesTokenCount: 11, thoughtsTokenCount: 31 },
+  };
+  const metadata = {
+    ...METADATA,
+    models: METADATA.models.map((m) => ({
+      ...m,
+      thinking: { mode: 'adaptive' as const, lowest: 'low' },
+    })),
+  };
+
+  test("sends the model's lowest thinking level, and reads the verdict and the thinking it cost", async () => {
+    const client = fakeClient(RECORDED);
+    const provider = createGeminiProvider({
+      metadata,
+      vertex: { project: 'acme-dev', location: 'global' },
+      client,
+    });
+    const result = await provider.invoke({
+      model: 'gemini-2.5-pro',
+      messages: [{ role: 'user', content: 'Judge it.' }],
+      thinking: 'lowest',
+      maxOutputTokens: 2304,
+    });
+    expect(client.calls[0]?.config).toMatchObject({
+      thinkingConfig: { thinkingLevel: 'LOW' },
+      maxOutputTokens: 2304,
+    });
+    expect(result.message.content).toMatch(/^PASS\n/);
+    expect(result.usage).toMatchObject({ completionTokens: 42, reasoningTokens: 31 });
+  });
+
+  test('without the hint, or for a model with no thinking data, no thinkingConfig', async () => {
+    for (const [meta, hint] of [
+      [metadata, false],
+      [METADATA, true],
+    ] as const) {
+      const client = fakeClient(OK_ANSWER);
+      const provider = createGeminiProvider({
+        metadata: meta,
+        vertex: { project: 'acme-dev', location: 'global' },
+        client,
+      });
+      await provider.invoke({
+        model: 'gemini-2.5-pro',
+        messages: [{ role: 'user', content: 'hi' }],
+        ...(hint && { thinking: 'lowest' as const }),
+      });
+      expect(client.calls[0]?.config).not.toHaveProperty('thinkingConfig');
+    }
+  });
+});

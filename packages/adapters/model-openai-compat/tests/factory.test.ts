@@ -437,3 +437,31 @@ describe("a model that doesn't take sampling", () => {
     expect(withIt).not.toHaveProperty('warnings');
   });
 });
+
+describe("thinking: 'lowest'", () => {
+  test("sends the model's lowest reasoning effort; nothing without the hint or the data", async () => {
+    const endpoint = fakeEndpoint();
+    const provider = createOpenAICompatModelProvider({
+      baseURL: 'http://llm.test/v1',
+      apiKey: 'k',
+      metadata: {
+        ...metadata,
+        models: [
+          ...metadata.models,
+          {
+            ...metadata.models[0],
+            name: 'gpt-reasoning',
+            thinking: { mode: 'adaptive', lowest: 'low' },
+          } as never,
+        ],
+      },
+      clientOptions: { fetch: endpoint.fetch, maxRetries: 0 },
+    });
+    await provider.invoke({ ...call, model: 'gpt-reasoning', thinking: 'lowest' });
+    await provider.invoke({ ...call, model: 'gpt-reasoning' });
+    await provider.invoke({ ...call, thinking: 'lowest' });
+    expect(endpoint.seen[0]?.body.reasoning_effort).toBe('low');
+    expect(endpoint.seen[1]?.body).not.toHaveProperty('reasoning_effort');
+    expect(endpoint.seen[2]?.body).not.toHaveProperty('reasoning_effort');
+  });
+});

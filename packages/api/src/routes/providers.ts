@@ -9,6 +9,7 @@ import {
   type Feature,
   type ModelInfo,
   type ProviderMetadata,
+  isModelThinking,
   validateProviderLabels,
 } from '@kindgi/capabilities';
 import type { Cursor, TenantId } from '@kindgi/types';
@@ -312,6 +313,7 @@ function serializeProvider(m: ProviderMetadata): Record<string, unknown> {
       ...(model.p95LatencyMs !== undefined && { p95LatencyMs: model.p95LatencyMs }),
       ...(model.maxOutputTokens !== undefined && { maxOutputTokens: model.maxOutputTokens }),
       ...(model.sampling !== undefined && { sampling: model.sampling }),
+      ...(model.thinking !== undefined && { thinking: model.thinking }),
       ...(model.description !== undefined && { description: model.description }),
     })),
     ...(m.defaultModel !== undefined && { defaultModel: m.defaultModel }),
@@ -574,6 +576,15 @@ function validateModelInfo(
       },
     };
   }
+  if (m.thinking !== undefined && !isModelThinking(m.thinking)) {
+    return {
+      kind: 'err',
+      error: {
+        message: `provider "${providerId}" model "${m.name}" thinking must be { mode: 'adaptive' | 'always', lowest: <the vendor's setting> }`,
+        reason: 'invalid-thinking',
+      },
+    };
+  }
   if (m.description !== undefined && typeof m.description !== 'string') {
     return {
       kind: 'err',
@@ -594,6 +605,9 @@ function validateModelInfo(
     ...(m.p95LatencyMs !== undefined && { p95LatencyMs: m.p95LatencyMs }),
     ...(m.maxOutputTokens !== undefined && { maxOutputTokens: m.maxOutputTokens }),
     ...(m.sampling !== undefined && { sampling: m.sampling }),
+    ...(m.thinking !== undefined && {
+      thinking: { mode: m.thinking.mode, lowest: m.thinking.lowest },
+    }),
     ...(m.description !== undefined && { description: m.description }),
   };
   return { kind: 'ok', value };
