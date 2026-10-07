@@ -1517,7 +1517,7 @@ class Flow(BaseModel):
 
 class JudgedRunContext(BaseModel):
     """
-    What a judged run needs besides its input to be replayed, captured when it was first judged. For an agent turn: the conversation before it, what its retrievals returned, and the decision at its session approval gate. For a flow run: its tool calls with their results.
+    What a judged run needs besides its input to be replayed, captured when it was first judged. For an agent turn: the conversation before it, what its retrievals returned, and the decision at its session approval gate. For a flow run: its tool calls with their results. For both: the env values its tools were sent.
     """
 
     model_config = ConfigDict(
@@ -1543,6 +1543,10 @@ class JudgedRunContext(BaseModel):
     flow: Flow | None = None
     """
     For a flow run: what it did, kept at its first judgment so it can be replayed. Every tool call it made with its result (at its tool nodes, in its agent steps' turns and in its sub-flows), at most 500, and its agent steps.
+    """
+    tool_env: Annotated[dict[str, dict[str, str]] | None, Field(alias="toolEnv")] = None
+    """
+    The env values each tool's calls were sent (`needsSpec.env`), by tool id: its first call's, as the run recorded them. A replay sends them to a read-only tool it runs live, so the tool reads the config the run saw, not today's. Absent for a run from before env was recorded.
     """
 
 
