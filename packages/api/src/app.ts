@@ -47,6 +47,7 @@ import type {
   RefreshTokenFn,
 } from './identity-provider-binding.js';
 import type { ImageRegistryBinding } from './image-registry-binding.js';
+import type { ImprovementPassBinding } from './improvement-pass-binding.js';
 import type { JudgmentRegistryBinding } from './judgment-binding.js';
 import type { AgentReleaseBindings } from './live-version-binding.js';
 import type { MCPClientProbeBinding, MCPEndpointRegistryBinding } from './mcp-endpoint-binding.js';
@@ -98,6 +99,7 @@ import { flowsRouter } from './routes/flows.js';
 import { gatePoliciesRouter } from './routes/gate-policies.js';
 import { guardrailsRouter } from './routes/guardrails.js';
 import { identityRouter } from './routes/identity.js';
+import { improvementPassesRouter, mountImproveRoute } from './routes/improvement-passes.js';
 import { judgedSuitesRouter } from './routes/judged-suites.js';
 import { judgeClassesRouter, judgmentsRouter } from './routes/judgments.js';
 import { mcpRouter } from './routes/mcp.js';
@@ -400,6 +402,13 @@ export interface CreateAppInput {
    * registry. See `supervisor-binding.ts` for the full contract.
    */
   readonly supervisor?: SupervisorBinding;
+  /**
+   * Optional. Improvement passes (`POST /v1/proposals/improve`,
+   * `/v1/improvement-passes`): the runtime's search for better settings
+   * values, written as an improvement proposal. Without it, both answer
+   * `501 improve-unsupported`. Mounted with `/v1/proposals`.
+   */
+  readonly improvementPasses?: ImprovementPassBinding;
   /**
    * Optional. Caller-plugged key store for signed provenance exports
    * (`POST /v1/provenance/:runId/export`). When omitted, the export
@@ -1098,6 +1107,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     input.evalRunBinding !== undefined &&
     input.agentReleases !== undefined
   ) {
+    const improveDeps = {
+      ...(input.improvementPasses !== undefined && { passes: input.improvementPasses }),
+      agents: input.agentRegistry,
+      blocks: input.blockRegistry,
+      releases: input.agentReleases,
+    };
     v1.route(
       '/proposals',
       proposalsRouter(
@@ -1110,8 +1125,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
         },
         authorizer,
+        (r) => mountImproveRoute(r, improveDeps, authorizer),
       ),
     );
+    v1.route('/improvement-passes', improvementPassesRouter(input.improvementPasses, authorizer));
   }
   v1.route(
     '/provenance',

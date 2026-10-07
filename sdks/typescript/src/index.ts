@@ -56,8 +56,14 @@ export type {
   WithdrawProposalInput,
 } from './resources/supervisor.js';
 export type {
+  ImprovementPassesClient,
+  ImprovementPassesListInput,
+} from './resources/improvement-passes.js';
+export type {
   CreateProposalInput,
   EvaluateProposalInput,
+  ImproveInput,
+  ImprovementPass,
   ProposalReasonInput,
   ProposalsClient,
   ProposalsListInput,

@@ -584,6 +584,19 @@ export type {
   SupervisorQueryObservationsInput,
   SupervisorQueryObservationsOutcome,
 } from './supervisor-binding.js';
+export type {
+  ImprovementBudget,
+  ImprovementPass,
+  ImprovementPassBinding,
+  ImprovementPassOutcome,
+  ImprovementPassStatus,
+  ImprovementTier,
+  ListImprovementPassesInput,
+  StartImprovementPassInput,
+} from './improvement-pass-binding.js';
+export { DEFAULT_BUDGET as DEFAULT_IMPROVEMENT_BUDGET } from './routes/improvement-passes.js';
+export { inSample } from './eval-sample.js';
+export type { EvalOverrides, EvalSample } from './eval-run-binding.js';
 export {
   DRAFTED_PROPOSAL_APPROVAL,
   createProposalService,

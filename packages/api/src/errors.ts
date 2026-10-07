@@ -138,6 +138,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'proposal-invalid-state-transition': 409,
   // Evaluating would make a version that serves every unpinned scope.
   'proposal-needs-pin': 409,
+  // Improvement passes.
+  'improve-unsupported': 501,
+  'improvement-pass-not-found': 404,
+  'improvement-pass-finished': 409,
   'version-already-exists': 409,
   'supervisor-header-missing': 400,
   // Artifacts.

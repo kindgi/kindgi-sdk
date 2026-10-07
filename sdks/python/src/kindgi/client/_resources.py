@@ -233,6 +233,9 @@ OPERATIONS: dict[str, Operation] = {
     "memory.retrieve": Operation("memory.retrieve", "POST", "/v1/memory/retrieve", "json", True),
     "proposals.list": Operation("proposals.list", "GET", "/v1/proposals", "json", False),
     "proposals.create": Operation("proposals.create", "POST", "/v1/proposals", "json", True),
+    "proposals.improve": Operation(
+        "proposals.improve", "POST", "/v1/proposals/improve", "json", True
+    ),
     "proposals.get": Operation("proposals.get", "GET", "/v1/proposals/{proposalId}", "json", False),
     "proposals.evaluate": Operation(
         "proposals.evaluate", "POST", "/v1/proposals/{proposalId}/evaluate", "json", True
@@ -245,6 +248,15 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "proposals.withdraw": Operation(
         "proposals.withdraw", "POST", "/v1/proposals/{proposalId}/withdraw", "json", True
+    ),
+    "improvementPasses.list": Operation(
+        "improvementPasses.list", "GET", "/v1/improvement-passes", "json", False
+    ),
+    "improvementPasses.get": Operation(
+        "improvementPasses.get", "GET", "/v1/improvement-passes/{passId}", "json", False
+    ),
+    "improvementPasses.cancel": Operation(
+        "improvementPasses.cancel", "POST", "/v1/improvement-passes/{passId}/cancel", "json", True
     ),
     "provenance.list": Operation("provenance.list", "GET", "/v1/provenance", "json", False),
     "provenance.get": Operation("provenance.get", "GET", "/v1/provenance/{runId}", "json", False),
@@ -2581,6 +2593,29 @@ class ProposalsResource:
             timeout=timeout,
         )
 
+    def improve(
+        self,
+        body: _models.ImproveBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ImprovementPass:
+        """Start an improvement pass. `POST /v1/proposals/improve`
+
+        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes writes (`409 registry-read-only`), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.
+        """
+        return self._client._request(
+            _OPERATIONS["proposals.improve"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ImproveBody, body, fields),
+            response=_models.ImprovementPass,
+            timeout=timeout,
+        )
+
     def get(self, proposal_id: str, /, *, timeout: float | None = None) -> _models.FixProposal:
         """Fetch an improvement proposal. `GET /v1/proposals/{proposalId}`
 
@@ -2713,6 +2748,65 @@ class ProposalsResource:
         """Removed in 0.1.5: use `client.proposals.request`."""
         raise InvalidRequestError(
             "proposals.apply was removed in 0.1.5: use client.proposals.request", issues=[]
+        )
+
+
+class ImprovementPassesResource:
+    """`client.improvement_passes` — the `improvementPasses` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        agent_id: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ImprovementPassCollectionPage:
+        """List improvement passes. `GET /v1/improvement-passes`
+
+        Newest first, only the passes of agents the caller can read. `?agentId=` narrows them.
+        """
+        return self._client._request(
+            _OPERATIONS["improvementPasses.list"],
+            path={},
+            query={"limit": limit, "cursor": cursor, "agentId": agent_id},
+            headers={},
+            response=_models.ImprovementPassCollectionPage,
+            timeout=timeout,
+        )
+
+    def get(self, pass_id: str, /, *, timeout: float | None = None) -> _models.ImprovementPass:
+        """Fetch an improvement pass. `GET /v1/improvement-passes/{passId}`
+
+        Its status, the candidates it compared and what they cost, and once it ends, what it found. Needs `read` on its agent.
+        """
+        return self._client._request(
+            _OPERATIONS["improvementPasses.get"],
+            path={"passId": pass_id},
+            query={},
+            headers={},
+            response=_models.ImprovementPass,
+            timeout=timeout,
+        )
+
+    def cancel(
+        self, pass_id: str, /, *, idempotency_key: str | None = None, timeout: float | None = None
+    ) -> _models.ImprovementPass:
+        """Cancel an improvement pass. `POST /v1/improvement-passes/{passId}/cancel`
+
+        A running pass stops and ends `cancelled`, writing no proposal. Needs `publish` on its agent.
+        """
+        return self._client._request(
+            _OPERATIONS["improvementPasses.cancel"],
+            path={"passId": pass_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ImprovementPass,
+            timeout=timeout,
         )
 
 
@@ -8407,6 +8501,29 @@ class AsyncProposalsResource:
             timeout=timeout,
         )
 
+    async def improve(
+        self,
+        body: _models.ImproveBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ImprovementPass:
+        """Start an improvement pass. `POST /v1/proposals/improve`
+
+        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes writes (`409 registry-read-only`), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.
+        """
+        return await self._client._request(
+            _OPERATIONS["proposals.improve"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ImproveBody, body, fields),
+            response=_models.ImprovementPass,
+            timeout=timeout,
+        )
+
     async def get(
         self, proposal_id: str, /, *, timeout: float | None = None
     ) -> _models.FixProposal:
@@ -8541,6 +8658,67 @@ class AsyncProposalsResource:
         """Removed in 0.1.5: use `client.proposals.request`."""
         raise InvalidRequestError(
             "proposals.apply was removed in 0.1.5: use client.proposals.request", issues=[]
+        )
+
+
+class AsyncImprovementPassesResource:
+    """`client.improvement_passes` — the `improvementPasses` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        agent_id: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ImprovementPassCollectionPage:
+        """List improvement passes. `GET /v1/improvement-passes`
+
+        Newest first, only the passes of agents the caller can read. `?agentId=` narrows them.
+        """
+        return await self._client._request(
+            _OPERATIONS["improvementPasses.list"],
+            path={},
+            query={"limit": limit, "cursor": cursor, "agentId": agent_id},
+            headers={},
+            response=_models.ImprovementPassCollectionPage,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, pass_id: str, /, *, timeout: float | None = None
+    ) -> _models.ImprovementPass:
+        """Fetch an improvement pass. `GET /v1/improvement-passes/{passId}`
+
+        Its status, the candidates it compared and what they cost, and once it ends, what it found. Needs `read` on its agent.
+        """
+        return await self._client._request(
+            _OPERATIONS["improvementPasses.get"],
+            path={"passId": pass_id},
+            query={},
+            headers={},
+            response=_models.ImprovementPass,
+            timeout=timeout,
+        )
+
+    async def cancel(
+        self, pass_id: str, /, *, idempotency_key: str | None = None, timeout: float | None = None
+    ) -> _models.ImprovementPass:
+        """Cancel an improvement pass. `POST /v1/improvement-passes/{passId}/cancel`
+
+        A running pass stops and ends `cancelled`, writing no proposal. Needs `publish` on its agent.
+        """
+        return await self._client._request(
+            _OPERATIONS["improvementPasses.cancel"],
+            path={"passId": pass_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ImprovementPass,
+            timeout=timeout,
         )
 
 
@@ -12401,6 +12579,7 @@ class Resources:
     conversations: ConversationsResource
     memory: MemoryResource
     proposals: ProposalsResource
+    improvement_passes: ImprovementPassesResource
     provenance: ProvenanceResource
     artifacts: ArtifactsResource
     observations: ObservationsResource
@@ -12447,6 +12626,7 @@ class Resources:
         self.conversations = ConversationsResource(client)
         self.memory = MemoryResource(client)
         self.proposals = ProposalsResource(client)
+        self.improvement_passes = ImprovementPassesResource(client)
         self.provenance = ProvenanceResource(client)
         self.artifacts = ArtifactsResource(client)
         self.observations = ObservationsResource(client)
@@ -12495,6 +12675,7 @@ class AsyncResources:
     conversations: AsyncConversationsResource
     memory: AsyncMemoryResource
     proposals: AsyncProposalsResource
+    improvement_passes: AsyncImprovementPassesResource
     provenance: AsyncProvenanceResource
     artifacts: AsyncArtifactsResource
     observations: AsyncObservationsResource
@@ -12541,6 +12722,7 @@ class AsyncResources:
         self.conversations = AsyncConversationsResource(client)
         self.memory = AsyncMemoryResource(client)
         self.proposals = AsyncProposalsResource(client)
+        self.improvement_passes = AsyncImprovementPassesResource(client)
         self.provenance = AsyncProvenanceResource(client)
         self.artifacts = AsyncArtifactsResource(client)
         self.observations = AsyncObservationsResource(client)

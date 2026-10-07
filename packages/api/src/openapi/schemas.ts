@@ -3550,6 +3550,142 @@ export const FixProposalCollectionPageSchema: JsonSchema = {
   },
 };
 
+export const ImprovementBudgetSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['maxCostUsd', 'maxCandidates'],
+  properties: {
+    maxCostUsd: {
+      type: 'number',
+      exclusiveMinimum: 0,
+      maximum: 100,
+      description: "The most the pass's comparisons may cost, in US dollars.",
+    },
+    maxCandidates: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 200,
+      description: 'The most candidates it compares.',
+    },
+  },
+};
+
+export const ImprovementPassOutcomeSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind'],
+  description:
+    "What a finished pass found. `proposed`: its best candidate beat the current values on the test set's hold-out part, so it wrote an improvement proposal (`proposalId`) for a reviewer to decide. `nothing-found`: no candidate beat them by more than the noise, or within the budget (`reason`; `holdOut` has the best candidate's numbers when one got that far). `failed`: `message` says why.",
+  properties: {
+    kind: { type: 'string', enum: ['proposed', 'nothing-found', 'failed'] },
+    proposalId: { type: 'string', format: 'uuid' },
+    reason: { type: 'string' },
+    holdOut: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['baseline', 'candidate', 'delta'],
+      properties: {
+        baseline: { type: ['number', 'null'] },
+        candidate: { type: ['number', 'null'] },
+        delta: { type: ['number', 'null'] },
+        spread: { type: 'number' },
+      },
+    },
+    message: { type: 'string' },
+  },
+};
+
+export const ImprovementPassSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "An improvement pass: the runtime looking for better values for an agent version's tunable settings (`x-kindgi-tunable`) on a test set, within a budget. Its best candidate becomes an improvement proposal.",
+  required: [
+    'id',
+    'agentId',
+    'fromVersion',
+    'scope',
+    'suiteId',
+    'tiers',
+    'objective',
+    'budget',
+    'requestedBy',
+    'status',
+    'candidatesEvaluated',
+    'costUsd',
+    'createdAt',
+    'updatedAt',
+  ],
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    agentId: { type: 'string' },
+    fromVersion: { type: 'string', description: 'The version whose settings it tunes.' },
+    scope: { $ref: '#/components/schemas/LiveScope' },
+    suiteId: { type: 'string', description: 'The test set it searches and proves on.' },
+    tiers: { type: 'array', items: { type: 'string', enum: ['settings'] } },
+    objective: { type: 'string', enum: ['weightedYesShare', 'weightedPrecisionAtK'] },
+    budget: { $ref: '#/components/schemas/ImprovementBudget' },
+    requestedBy: { type: 'string' },
+    status: { type: 'string', enum: ['running', 'completed', 'failed', 'cancelled'] },
+    candidatesEvaluated: { type: 'integer', minimum: 0 },
+    costUsd: { type: 'string', description: 'What its comparisons have cost so far (US dollars).' },
+    outcome: { $ref: '#/components/schemas/ImprovementPassOutcome' },
+    createdAt: { type: 'string', format: 'date-time' },
+    updatedAt: { type: 'string', format: 'date-time' },
+    finishedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const ImprovementPassCollectionPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/ImprovementPass' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+  },
+};
+
+export const ImproveBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['agentId', 'scope', 'suiteId'],
+  description: 'Start an improvement pass.',
+  properties: {
+    agentId: { type: 'string' },
+    fromVersion: {
+      type: 'string',
+      description: 'The version whose settings it tunes. Default: the one serving `scope`.',
+    },
+    scope: { $ref: '#/components/schemas/LiveScope' },
+    suiteId: {
+      type: 'string',
+      description:
+        'The test set (a judged eval suite). The pass splits it into a search part and a hold-out part, and proves its best candidate on the hold-out part.',
+    },
+    tiers: {
+      type: 'array',
+      items: { type: 'string', enum: ['settings'] },
+      default: ['settings'],
+    },
+    objective: {
+      type: 'string',
+      enum: ['weightedYesShare', 'weightedPrecisionAtK'],
+      default: 'weightedYesShare',
+    },
+    budget: {
+      type: 'object',
+      additionalProperties: false,
+      description: 'Default: $5 and 30 candidates.',
+      properties: {
+        maxCostUsd: { type: 'number', exclusiveMinimum: 0, maximum: 100 },
+        maxCandidates: { type: 'integer', minimum: 1, maximum: 200 },
+      },
+    },
+  },
+};
+
 export const CreateProposalBodySchema: JsonSchema = {
   description:
     'A hand-written proposal: new content for a data block that `fromVersion` pins, for a live scope. The same change from the same version for the same scope is one proposal (answered with `X-Proposal-Deduped: true`).',
@@ -8455,6 +8591,11 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ProposalPromotion', ProposalPromotionSchema],
   ['FixProposal', FixProposalSchema],
   ['FixProposalCollectionPage', FixProposalCollectionPageSchema],
+  ['ImprovementBudget', ImprovementBudgetSchema],
+  ['ImprovementPassOutcome', ImprovementPassOutcomeSchema],
+  ['ImprovementPass', ImprovementPassSchema],
+  ['ImprovementPassCollectionPage', ImprovementPassCollectionPageSchema],
+  ['ImproveBody', ImproveBodySchema],
   ['CreateProposalBody', CreateProposalBodySchema],
   ['EvaluateProposalBody', EvaluateProposalBodySchema],
   ['ProposalReasonBody', ProposalReasonBodySchema],

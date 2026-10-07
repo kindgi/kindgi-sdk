@@ -37,10 +37,13 @@ import type {
   EvalRunStartInput,
   GatePolicy,
   GatePolicySpec,
+  ImprovementPass,
+  ImprovementPassBinding,
   JudgedComparisonSummary,
   LivePin,
   Promotion,
   RunHandlerBinding,
+  StartImprovementPassInput,
   TokenResolver,
 } from '../src/index.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
@@ -386,7 +389,60 @@ function decision(grants: readonly string[], action: Action, resource: ResourceR
   };
 }
 
-async function harness(opts: { grants?: readonly string[]; readOnly?: boolean } = {}) {
+function inMemoryPasses() {
+  const rows = new Map<string, ImprovementPass>();
+  const started: StartImprovementPassInput[] = [];
+  const binding: ImprovementPassBinding = {
+    async start(input) {
+      started.push(input);
+      const pass: ImprovementPass = {
+        id: randomUUID(),
+        tenantId: input.tenantId,
+        agentId: input.agentId,
+        fromVersion: input.fromVersion,
+        scope: input.scope,
+        suiteId: input.suiteId,
+        tiers: input.tiers,
+        objective: input.objective,
+        budget: input.budget,
+        requestedBy: `${input.requestedBy.kind}:${input.requestedBy.id}`,
+        status: 'running',
+        candidatesEvaluated: 0,
+        costUsd: '0',
+        createdAt: NOW,
+        updatedAt: NOW,
+      };
+      rows.set(pass.id, pass);
+      return pass;
+    },
+    async get({ passId }) {
+      return rows.get(passId) ?? null;
+    },
+    async list({ agentId }) {
+      return {
+        data: [...rows.values()].filter((p) => agentId === undefined || p.agentId === agentId),
+      };
+    },
+    async cancel({ passId }) {
+      const pass = rows.get(passId);
+      if (pass === undefined) return { kind: 'not-found' };
+      if (pass.status !== 'running') return { kind: 'finished', pass };
+      const cancelled = { ...pass, status: 'cancelled' as const, finishedAt: NOW };
+      rows.set(passId, cancelled);
+      return { kind: 'ok', pass: cancelled };
+    },
+  };
+  return { binding, started, rows };
+}
+
+async function harness(
+  opts: {
+    grants?: readonly string[];
+    readOnly?: boolean;
+    tunable?: boolean;
+    passes?: ImprovementPassBinding;
+  } = {},
+) {
   const agents = agentBinding();
   const blocks = inMemoryBlocks([projectId]);
   await blocks.publish({
@@ -401,8 +457,18 @@ async function harness(opts: { grants?: readonly string[]; readOnly?: boolean } 
         schema: {
           type: 'object',
           properties: {
-            recency: { type: 'number', minimum: 0, maximum: 1 },
-            fit: { type: 'number', minimum: 0, maximum: 1 },
+            recency: {
+              type: 'number',
+              minimum: 0,
+              maximum: 1,
+              ...(opts.tunable === true && { 'x-kindgi-tunable': true }),
+            },
+            fit: {
+              type: 'number',
+              minimum: 0,
+              maximum: 1,
+              ...(opts.tunable === true && { 'x-kindgi-tunable': true }),
+            },
           },
           required: ['recency', 'fit'],
         },
@@ -458,6 +524,7 @@ async function harness(opts: { grants?: readonly string[]; readOnly?: boolean } 
     evalRunBinding: evalRuns.binding,
     agentReleases: releases.releases,
     supervisor: proposals,
+    ...(opts.passes !== undefined && { improvementPasses: opts.passes }),
     ...(grants !== undefined && {
       authz: {
         fgaApiUrl: 'http://fga.invalid',
@@ -1000,5 +1067,100 @@ describe('a proposal a drafter wrote (not a person)', () => {
       version: '1.0.1' as Semver,
     });
     expect(derived?.derivedFrom).toMatchObject({ by: 'service:improvement-pass' });
+  });
+});
+
+describe('improvement passes', () => {
+  const IMPROVE = { agentId: AGENT, scope: SEGMENT_WIRE, suiteId: 'acme.scoring-judged' };
+
+  test('improve starts a pass for the version serving the scope, with the default budget (202)', async () => {
+    const passes = inMemoryPasses();
+    const h = await harness({ tunable: true, passes: passes.binding });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(res.body).toMatchObject({
+      agentId: AGENT,
+      fromVersion: '1.0.0',
+      scope: SEGMENT_WIRE,
+      tiers: ['settings'],
+      objective: 'weightedYesShare',
+      budget: { maxCostUsd: 5, maxCandidates: 30 },
+      status: 'running',
+      requestedBy: 'user:user-1',
+    });
+    expect(passes.started[0]).toMatchObject({ projectId, fromVersion: '1.0.0' });
+    const read = await h.call('GET', `/v1/improvement-passes/${res.body.id}`);
+    expect(read.body.id).toBe(res.body.id);
+    const listed = await h.call('GET', `/v1/improvement-passes?agentId=${AGENT}`);
+    expect(listed.body.data.map((p: { id: string }) => p.id)).toEqual([res.body.id]);
+    const cancelled = await h.call('POST', `/v1/improvement-passes/${res.body.id}/cancel`, {});
+    expect(cancelled.body.status).toBe('cancelled');
+    const again = await h.call('POST', `/v1/improvement-passes/${res.body.id}/cancel`, {});
+    expect(again.status).toBe(409);
+    expect(again.body.error.code).toBe('improvement-pass-finished');
+  });
+
+  test('a version that pins nothing tunable is refused (400), saying how to mark keys', async () => {
+    const passes = inMemoryPasses();
+    const h = await harness({ passes: passes.binding });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toContain('x-kindgi-tunable');
+    expect(passes.started).toHaveLength(0);
+  });
+
+  test('without a tenant-wide live version: 409 proposal-needs-pin', async () => {
+    const passes = inMemoryPasses();
+    const h = await harness({ tunable: true, passes: passes.binding });
+    const res = await h.call('POST', '/v1/proposals/improve', { ...IMPROVE, fromVersion: '1.0.0' });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('proposal-needs-pin');
+  });
+
+  test.each([
+    [{ tiers: ['prompt'] }],
+    [{ budget: { maxCostUsd: 500 } }],
+    [{ budget: { maxCandidates: 0 } }],
+    [{ objective: 'speed' }],
+    [{ extra: 1 }],
+  ])('a malformed request is bad input: %j', async (patch) => {
+    const h = await harness({ tunable: true, passes: inMemoryPasses().binding });
+    const res = await h.call('POST', '/v1/proposals/improve', { ...IMPROVE, ...patch });
+    expect(res.status).toBe(400);
+  });
+
+  test('without improvement passes in the runtime: 501 improve-unsupported, for reads too', async () => {
+    const h = await harness({ tunable: true });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(res.status).toBe(501);
+    expect(res.body.error.code).toBe('improve-unsupported');
+    expect((await h.call('GET', '/v1/improvement-passes')).status).toBe(501);
+  });
+
+  test('improve needs publish on the agent; a pass of an agent the caller cannot read is 404', async () => {
+    const passes = inMemoryPasses();
+    const h = await harness({
+      tunable: true,
+      passes: passes.binding,
+      grants: [`read agent:${AGENT}`],
+    });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    expect((await h.call('POST', '/v1/proposals/improve', IMPROVE)).status).toBe(403);
+    const pass = await passes.binding.start({
+      tenantId,
+      agentId: 'acme.secret',
+      fromVersion: '1.0.0',
+      scope: { kind: 'tenant' },
+      suiteId: 's',
+      tiers: ['settings'],
+      objective: 'weightedYesShare',
+      budget: { maxCostUsd: 1, maxCandidates: 1 },
+      requestedBy: { kind: 'user', id: 'u' },
+    });
+    expect((await h.call('GET', `/v1/improvement-passes/${pass.id}`)).status).toBe(404);
+    expect((await h.call('GET', '/v1/improvement-passes')).body.data).toEqual([]);
   });
 });
