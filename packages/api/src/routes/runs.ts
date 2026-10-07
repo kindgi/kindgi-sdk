@@ -135,8 +135,10 @@ export function runsRouter(
       const mw = authorizer.authorize('write', projectFromRun);
       return mw(c, next);
     });
+    // As cancel: changing a run is `write` on its project (a project has
+    // no `execute`; asking for it refused everyone, T243 A).
     r.use('/:runId/resume', async (c, next) => {
-      const mw = authorizer.authorize('execute', projectFromRun);
+      const mw = authorizer.authorize('write', projectFromRun);
       return mw(c, next);
     });
   }
