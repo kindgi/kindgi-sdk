@@ -4,8 +4,8 @@
 /**
  * `@kindgi/log` — Kindgi's structured logger: levels (per subsystem, with
  * dotted inheritance), JSON and pretty formats, redaction, and the W3C
- * trace-context helpers. Zero dependencies. The runtime, `@kindgi/api`
- * (`createApp({ logger })`) and pack services write the same records.
+ * trace-context helpers. Zero dependencies. The runtime and `@kindgi/api`
+ * (`createApp({ logger })`) write the same records.
  */
 
 export type { LogFields, LogFormat, LogRecord, Logger, SerializedError } from './types.js';

@@ -2,7 +2,7 @@
 "@kindgi/log": patch
 ---
 
-**`@kindgi/log`, a new package: Kindgi's structured logger.** The runtime, `@kindgi/api` and pack services write the same records. It has zero runtime dependencies.
+**`@kindgi/log`, a new package: Kindgi's structured logger.** The runtime and `@kindgi/api` write the same records. It has zero runtime dependencies.
 
 - **Levels:** `error`, `warn`, `info`, `debug` and `trace`, per subsystem. A dotted name inherits its parent's level: `kernel=debug` covers `kernel.sweeper`.
 - **Child loggers:** `log.child({ subsystem, runId, … })`, and errors passed as `{ err }`.

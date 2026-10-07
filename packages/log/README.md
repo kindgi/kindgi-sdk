@@ -1,6 +1,6 @@
 # `@kindgi/log`
 
-Kindgi's structured logger. The runtime, `@kindgi/api` (`createApp({ logger })`) and pack services write the same records, so `kindgi dev`, Cloud Logging, Datadog or Loki read them the same way. Zero runtime dependencies.
+Kindgi's structured logger. The runtime and `@kindgi/api` (`createApp({ logger })`) write the same records, so `kindgi dev`, Cloud Logging, Datadog or Loki read them the same way. Zero runtime dependencies.
 
 - **Levels per subsystem:** `error`, `warn`, `info`, `debug` and `trace`, set per subsystem. A dotted name inherits its parent's level, so `kernel=debug` covers `kernel.sweeper`.
 - **Two formats:**

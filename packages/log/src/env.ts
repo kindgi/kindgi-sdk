@@ -10,7 +10,7 @@ import type { LogFormat, Logger } from './types.js';
  * `auto` (the default) is pretty on a terminal or in development mode
  * (`dev`: `KINDGI_DEV`, which every `kindgi dev` sets, so an older CLI that
  * passes no format still shows pretty lines), and JSON otherwise. So the
- * CLI, the runtime and a pack service agree. `undefined` for any other
+ * CLI and the runtime agree. `undefined` for any other
  * value.
  */
 export function resolveLogFormat(
