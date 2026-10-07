@@ -2941,6 +2941,9 @@ export const JudgedRunContextSchema: JsonSchema = {
               agentId: { type: 'string' },
               agentVersion: { type: 'string' },
               retrieved: { description: "What the step's turn retrieved." },
+              recalled: {
+                description: "Messages of earlier conversations the step's turn recalled.",
+              },
             },
           },
         },

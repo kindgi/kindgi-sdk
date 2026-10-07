@@ -272,6 +272,8 @@ export interface JudgedRunContext {
   readonly historyTruncated?: boolean;
   /** What the turn's retrievals returned. */
   readonly retrieved?: unknown;
+  /** Messages of earlier conversations the turn recalled. A replay of the turn reuses them. */
+  readonly recalled?: unknown;
   /**
    * The reviewer's decision at the turn's session approval gate, when the
    * turn waited on one. A replay of the turn follows it.
@@ -303,6 +305,8 @@ export interface JudgedFlowStep {
   readonly agentVersion: string;
   /** What the turn's retrievals returned. */
   readonly retrieved?: unknown;
+  /** Messages of earlier conversations the turn recalled. */
+  readonly recalled?: unknown;
 }
 
 /**

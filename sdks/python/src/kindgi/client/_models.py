@@ -1496,6 +1496,10 @@ class Step(BaseModel):
     """
     What the step's turn retrieved.
     """
+    recalled: Any | None = None
+    """
+    Messages of earlier conversations the step's turn recalled.
+    """
 
 
 class Flow(BaseModel):

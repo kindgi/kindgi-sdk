@@ -422,6 +422,35 @@ describe("the context captured on a turn's first judgment", () => {
     });
   });
 
+  test('what the turn recalled of earlier conversations is kept too', async () => {
+    const run = turn();
+    const recalled = [
+      {
+        message: { conversationId: 'c-old', sequence: 4, role: 'user', text: 'Order 12 broke' },
+        intent: { source: 'conversations', scope: 'same-user' },
+      },
+    ];
+    const h = harness([run], {
+      messages,
+      journal: [
+        journal[0],
+        {
+          kind: 'step.completed',
+          nodeId: 'run-retrievals',
+          payload: { output: { retrieved: [], recalled } },
+        },
+      ],
+    });
+    const first = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { key: 'c1' },
+      verdict: 'yes',
+    });
+    expect(first.status).toBe(201);
+    const got = await h.call('GET', `/v1/judgments/${first.body.id}`);
+    expect(got.body.run.context).toMatchObject({ retrieved: [], recalled });
+  });
+
   test("the decision at the turn's session approval gate is kept", async () => {
     const gated = (value: unknown) => [
       ...journal,

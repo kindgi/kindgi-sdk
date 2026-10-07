@@ -147,7 +147,7 @@ async function nodeCalls(
   }
 }
 
-/** An agent step's turn: its calls, and what it retrieved. */
+/** An agent step's turn: its calls, and what it retrieved and recalled. */
 async function stepTurn(r: Reader, c: Collector, child: KernelRunRecord): Promise<void> {
   const agent = child.agent;
   if (agent === undefined) return;
@@ -156,6 +156,7 @@ async function stepTurn(r: Reader, c: Collector, child: KernelRunRecord): Promis
   const nodeId = (child.parentNodeId as unknown as string | null | undefined) ?? undefined;
   const scope = child.parentScope ?? undefined;
   const retrieved = obj(output)?.retrieved;
+  const recalled = obj(output)?.recalled;
   c.steps.push({
     runId: child.runId as unknown as string,
     ...(nodeId !== undefined && { nodeId }),
@@ -163,6 +164,7 @@ async function stepTurn(r: Reader, c: Collector, child: KernelRunRecord): Promis
     agentId: agent.id,
     agentVersion: agent.version,
     ...(retrieved !== undefined && { retrieved }),
+    ...(recalled !== undefined && { recalled }),
   });
   for (const call of turnToolCalls(output)) {
     c.add({
