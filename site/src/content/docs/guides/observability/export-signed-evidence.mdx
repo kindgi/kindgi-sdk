@@ -31,7 +31,7 @@ Make a key for this alone:
 openssl genpkey -algorithm ed25519 -out export-signing.pem && chmod 600 export-signing.pem
 ```
 
-- **`kindgi dev`** signs with a key the runtime makes at startup, so exports work with nothing set. They're signed by a throwaway key, though: set `KINDGI_EXPORT_SIGNING_KEY_PATH` (in the shell or the pack's `.env`) to keep one across restarts.
+- **`kindgi dev`** signs with a key the runtime makes at startup, so exports work with nothing set. That key is a throwaway, though. To keep one across restarts, set `KINDGI_EXPORT_SIGNING_KEY_PATH` to the absolute path of a key file on your machine, in the shell or the pack's `.env`. `kindgi dev` mounts that file into the runtime's container, read-only.
 - **On Cloud Run,** set `export_signing = "secret"` in the Terraform module, then add the key's version:
 
   ```sh
@@ -83,23 +83,23 @@ kindgi exports verify approval.json --from-runtime
 <TabItem label="TypeScript">
 
 ```ts
+// verify-export.ts
 import { readFile } from 'node:fs/promises';
 
-import { createClient, verifySignedExport } from '@kindgi/client';
+import { createClient, verifySignedExport } from '@kindgi/sdk/client';
 
-const client = createClient({
-  apiUrl: process.env.KINDGI_API_URL ?? '',
-  auth: { kind: 'apiToken', token: process.env.KINDGI_API_TOKEN ?? '' },
-});
-const exported = JSON.parse(await readFile('approval.json', 'utf8'));
-const keys = await client.exportSigningKeys.list();
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+const exported = JSON.parse(await readFile(process.argv[2] ?? 'approval.json', 'utf8'));
+const keys = await kindgi.exportSigningKeys.list();
 const checked = await verifySignedExport(exported, {
-  trustedKeys: keys.map((k) => k.publicKeyPem),
+  trustedKeys: keys.map((key) => key.publicKeyPem),
 });
 if (!checked.valid) throw new Error(checked.issues?.join('; '));
+console.log(`signed by ${checked.signingKeyId}`);
 ```
 
-It uses Web Crypto, so it runs in Node and in a browser.
+It uses Web Crypto, so it runs in Node and in a browser. An auditor without access to your deployment passes the PEM you gave them as `trustedKeys`.
 
 </TabItem>
 <TabItem label="Python">
@@ -109,17 +109,25 @@ pip install 'kindgi[verify]'
 ```
 
 ```python
+# verify_export.py
 import json
+import sys
 from pathlib import Path
 
 from kindgi import exports
+from kindgi.client import Kindgi
 
-exported = json.loads(Path("approval.json").read_text())
-pinned_pem = Path("export-signing.pub.pem").read_text()
-checked = exports.verify_signed_export(exported, trusted_keys=[pinned_pem])
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+exported = json.loads(Path(sys.argv[1] if len(sys.argv) > 1 else "approval.json").read_text())
+keys = [key.public_key_pem for key in kindgi.export_signing_keys.list().data]
+checked = exports.verify_signed_export(exported, trusted_keys=keys)
 if not checked.valid:
     raise SystemExit("; ".join(checked.issues))
+print(f"signed by {checked.signing_key_id}")
 ```
+
+An auditor without access to your deployment passes the PEM you gave them: `trusted_keys=[Path("export-signing.pub.pem").read_text()]`.
 
 </TabItem>
 </Tabs>
