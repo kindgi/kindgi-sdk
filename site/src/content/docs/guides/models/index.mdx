@@ -26,6 +26,11 @@ it offers: each model's features, context window and price.
 How a turn picks among them is on
 [Choose the model an agent uses](../agents/choose-a-model/).
 
+A model call that fails on a passing error, a rate limit (`429`) or an
+overloaded model (`503`), is retried with a backoff before the turn fails:
+three attempts in all. The Gemini adapter sets that; the Anthropic and
+OpenAI-compatible adapters keep their SDKs' defaults, also three attempts.
+
 ## Before you register one
 
 A new pack's tenant has `dev-echo`, a stand-in that answers without a model
