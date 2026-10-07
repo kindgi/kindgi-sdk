@@ -2420,6 +2420,8 @@ describe('kindgi dev — logs', () => {
     expect(stderr).not.toContain('[http]');
     expect(stderr).not.toContain('Kindgi is up');
     expect(stderr).not.toContain('Bundling');
+    // Nor the summary --no-watch ends with.
+    expect(out.stderr).toBe('');
   });
 
   test('--log-format=json: records on stdout as written; the rest stays on stderr', async () => {

@@ -290,7 +290,7 @@ async function withHeartbeat<T>(
   const started = Date.now();
   const tick = setInterval(() => {
     const elapsed = Math.round((Date.now() - started) / 1000);
-    process.stderr.write(`  ⋯ ${label} (${elapsed}s elapsed)\n`);
+    emitProgress(`⋯ ${label} (${elapsed}s elapsed)`);
   }, intervalMs);
   try {
     return await work();
@@ -983,7 +983,11 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   const stdout = ctx.globals.formatRequested ? renderJson(summary, ctx.globals.format).stdout : '';
   return {
     kind: 'ok',
-    rendered: { stdout, stderr: args.watch ? '' : `${bannerLines.join('\n')}\n` },
+    // --quiet: errors only, so no summary.
+    rendered: {
+      stdout,
+      stderr: args.watch || logView.quiet ? '' : `${bannerLines.join('\n')}\n`,
+    },
   };
 }
 
