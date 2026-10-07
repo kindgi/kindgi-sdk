@@ -221,10 +221,11 @@ describe("provenance needs `read` on the run's project", () => {
     expect((await call('POST', `/v1/provenance/${RUN_MINE}/export`, {})).status).not.toBe(403);
   });
 
-  test("an id that isn't a run id is never looked up: a 400, not a 500", async () => {
+  test("an id that isn't a run id is never looked up for the check: the handler's 404", async () => {
+    // A run id that isn't one names a run with no provenance, as an
+    // unknown one does (the runtime answers it without a query, T312).
     const { call } = harness([TENANT_READ]);
-    expect((await call('GET', '/v1/provenance/None')).status).toBe(400);
-    expect((await call('POST', '/v1/provenance/None/export', {})).status).toBe(400);
+    expect((await call('GET', '/v1/provenance/None')).status).toBe(404);
   });
 
   test('a run that is not there is the handler’s 404, behind `read` on the tenant', async () => {
