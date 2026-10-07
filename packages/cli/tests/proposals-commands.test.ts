@@ -484,6 +484,7 @@ describe('kindgi proposals passes', () => {
     expect(out.stdout).toContain('proposed prop-9');
     expect(out.stdout).toContain('nothing better');
     expect(out.stdout).toContain('$0.84');
+    expect(out.stdout).toContain('$0.00');
     expect(out.stdout).toContain('running');
   });
 

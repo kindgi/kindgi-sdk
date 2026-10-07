@@ -351,6 +351,12 @@ const withdraw: LeafCommand = {
 /** The statuses `improve --wait` waits through. */
 const PASS_RUNNING: ReadonlySet<string> = new Set(['running']);
 
+/** Dollars to the cent, as the console shows them: `$0.84`. */
+function costCell(costUsd: string): string {
+  const n = Number(costUsd);
+  return Number.isFinite(n) ? `$${n.toFixed(2)}` : `$${costUsd}`;
+}
+
 /** What a pass found, in a table cell. */
 function outcomeCell(p: ImprovementPass): string {
   const o = p.outcome;
@@ -368,7 +374,7 @@ const PASSES_TABLE: TableSpec<ListPage<ImprovementPass>, ImprovementPass> = {
     { header: 'SCOPE', get: (p) => scopeCell(p.scope) },
     { header: 'STATUS', get: (p) => p.status },
     { header: 'CANDIDATES', get: (p) => String(p.candidatesEvaluated) },
-    { header: 'COST', get: (p) => `$${p.costUsd}` },
+    { header: 'COST', get: (p) => costCell(p.costUsd) },
     { header: 'OUTCOME', get: outcomeCell },
     { header: 'STARTED', get: (p) => p.createdAt },
   ],
