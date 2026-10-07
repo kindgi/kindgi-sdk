@@ -120,6 +120,14 @@ A setting the schema requires, with no default, must be in `config`:
 guardrails/answer-length/index.ts: guardrail my-pack.answer-length's config doesn't fit its configSchema: must have required property 'maxChars'
 ```
 
+The pack service checks the config again on every call, as sent, against the
+indexed `configSchema`. A guardrail whose config doesn't fit (one registered
+through the API, say) fails, and the check doesn't run:
+
+```text
+input-validation-failed: Check "my-pack.checks.answer-length" config failed validation at /maxChars: must be > 0
+```
+
 </TabItem>
 <TabItem label="Python">
 
@@ -128,7 +136,7 @@ The check gets `config` parsed into its type:
 - **Defaults are filled in.** Give every field a default: a required field
   with no value isn't caught when the pack is indexed, and fails every turn
   the guardrail checks, whatever its action
-  (`input-validation-failed: Check "my-pack.req-cfg" config failed validation`).
+  (`input-validation-failed: Check "my-pack.req-cfg" config failed validation: must have required property 'maxChars'`).
 - **Values are checked where they're declared.** A value that doesn't fit is
   a `DefinitionError`, and `python -m kindgi.pack index` (and `kindgi dev`)
   reports the file:
