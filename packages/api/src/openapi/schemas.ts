@@ -581,6 +581,22 @@ export const UnpinBodySchema: JsonSchema = {
   },
 };
 
+export const RunFailureSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['code', 'message'],
+  description:
+    "Why a failed run failed; present only on a `failed` run. An agent turn's failure carries its own code (`budget-exceeded`, `capability-routing-failed`, `model-invocation-failed`, …); any other failure is `run-failed`, with the run's failure message.",
+  properties: {
+    code: { type: 'string' },
+    message: { type: 'string' },
+    cause: {
+      description:
+        "What the error came from, when it says: e.g. for `capability-routing-failed`, the router's `capability-unsatisfiable` with its reasons, by provider.",
+    },
+  },
+};
+
 export const RunSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -605,7 +621,12 @@ export const RunSchema: JsonSchema = {
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
     completedAt: { type: 'string', format: 'date-time' },
-    failureMessage: { type: 'string' },
+    failureMessage: {
+      type: 'string',
+      description:
+        'The failure as the runtime recorded it. Read `failure` instead: an agent turn records its typed error here in an internal form.',
+    },
+    failure: { $ref: '#/components/schemas/RunFailure' },
     output: {
       description:
         "The run's output once it completed. Present on single-run responses; on lists only with `?include=output`.",
@@ -8239,6 +8260,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RollbackBody', RollbackBodySchema],
   ['UnpinBody', UnpinBodySchema],
   ['Run', RunSchema],
+  ['RunFailure', RunFailureSchema],
   ['StartRunOptions', StartRunOptionsSchema],
   ['StartRunBody', StartRunBodySchema],
   ['ResumeRunBody', ResumeRunBodySchema],

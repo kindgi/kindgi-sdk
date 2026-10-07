@@ -477,6 +477,23 @@ class UnpinBody(BaseModel):
     reason: Annotated[str | None, Field(max_length=2000)] = None
 
 
+class RunFailure(BaseModel):
+    """
+    Why a failed run failed; present only on a `failed` run. An agent turn's failure carries its own code (`budget-exceeded`, `capability-routing-failed`, `model-invocation-failed`, …); any other failure is `run-failed`, with the run's failure message.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    code: str
+    message: str
+    cause: Any | None = None
+    """
+    What the error came from, when it says: e.g. for `capability-routing-failed`, the router's `capability-unsatisfiable` with its reasons, by provider.
+    """
+
+
 class StartRunOptions(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -8051,6 +8068,10 @@ class Run(BaseModel):
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
     completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
     failure_message: Annotated[str | None, Field(alias="failureMessage")] = None
+    """
+    The failure as the runtime recorded it. Read `failure` instead: an agent turn records its typed error here in an internal form.
+    """
+    failure: RunFailure | None = None
     output: Any | None = None
     """
     The run's output once it completed. Present on single-run responses; on lists only with `?include=output`.
@@ -8111,6 +8132,10 @@ class Datum(BaseModel):
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
     completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
     failure_message: Annotated[str | None, Field(alias="failureMessage")] = None
+    """
+    The failure as the runtime recorded it. Read `failure` instead: an agent turn records its typed error here in an internal form.
+    """
+    failure: RunFailure | None = None
     output: Any | None = None
     """
     The run's output once it completed. Present on single-run responses; on lists only with `?include=output`.

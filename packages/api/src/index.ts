@@ -172,6 +172,8 @@ export type {
   VerifyPublicRunTokenFailure,
   VerifyPublicRunTokenResult,
 } from './public-run-token.js';
+export { runFailure } from './run-failure.js';
+export type { RunFailure } from './run-failure.js';
 export {
   WEBHOOK_DELIVERY_STATUSES,
   WEBHOOK_EVENT_TYPES,

@@ -37,6 +37,7 @@ export type {
 export type {
   Run,
   RunAgent,
+  RunFailure,
   RunsClient,
   ResumeRunInput,
   StartedRun,

@@ -267,6 +267,15 @@ export interface RunAgent {
   readonly liveScope?: LiveScope;
 }
 
+/** Why a failed run failed. Matches `@kindgi/api/openapi.json#RunFailure`. */
+export interface RunFailure {
+  /** The error's own code, or `run-failed`. */
+  readonly code: string;
+  readonly message: string;
+  /** What the error came from, when it says (e.g. the router's reasons). */
+  readonly cause?: unknown;
+}
+
 /**
  * Wire shape — matches `@kindgi/api/openapi.json#Run`. Runs are
  * flow-native on the wire: an agent run executes as a flow on the
@@ -284,7 +293,14 @@ export interface Run {
   readonly createdAt: Timestamp;
   readonly updatedAt: Timestamp;
   readonly completedAt?: Timestamp;
+  /** The failure as the runtime recorded it; read `failure` instead. */
   readonly failureMessage?: string;
+  /**
+   * Why a failed run failed: an agent turn's own error (`budget-exceeded`,
+   * `capability-routing-failed`, …) or `run-failed`. Absent unless the run
+   * is `failed`, and from runtimes before 0.1.5.
+   */
+  readonly failure?: RunFailure;
   /** The run's output once it completed. Lists carry it only with `includeOutput`. */
   readonly output?: unknown;
   /** Set on a child run: the run that started it. */
