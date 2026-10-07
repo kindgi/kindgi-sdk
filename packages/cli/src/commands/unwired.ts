@@ -17,7 +17,6 @@ export const UNWIRED_COMMANDS: ReadonlySet<string> = new Set([
   'artifacts',
   'capabilities',
   'observations',
-  'proposals',
   'tokens',
   'memory facts supersede',
   'memory facts retrieve',
@@ -46,7 +45,6 @@ export const UNWIRED_REASONS: ReadonlyMap<string, string> = new Map([
     'observations',
     "the Kindgi runtime doesn't record supervisor observations yet, so there's nothing to list; how a run went is in `kindgi runs get <run-id>` and `kindgi runs journal <run-id>`.",
   ],
-  ['proposals', "the Kindgi runtime doesn't draft or apply supervisor fix proposals yet."],
   [
     'artifacts',
     "the Kindgi runtime doesn't serve `/v1/artifacts` yet: it has no blob storage wired, so there are no artifacts to list, upload, download or delete.",
