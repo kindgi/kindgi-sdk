@@ -25,6 +25,7 @@ import type {
   GatePolicy,
   GatePolicySpec,
   JudgedComparisonSummary,
+  LivePin,
   LiveResolution,
   Promotion,
   PromotionError,
@@ -112,7 +113,15 @@ function setup(opts: { request?: boolean; gatePolicies?: boolean } = {}) {
     evalRun: EvalRun | null;
     requestError: PromotionError | null;
     projectOrg: string | undefined;
-  } = { resolved: null, policy: null, evalRun: null, requestError: null, projectOrg: undefined };
+    pins: LivePin[];
+  } = {
+    resolved: null,
+    policy: null,
+    evalRun: null,
+    requestError: null,
+    projectOrg: undefined,
+    pins: [],
+  };
   const record = (method: string, input: unknown) => calls.push({ method, input });
   const promotionOf = (input: PromotionRequestInput): Promotion => ({
     id: 'promo-1',
@@ -138,7 +147,7 @@ function setup(opts: { request?: boolean; gatePolicies?: boolean } = {}) {
         record('resolve', input);
         return state.resolved;
       },
-      list: async () => [],
+      list: async () => state.pins,
     },
     promotions: {
       promote: async (input) => {
@@ -473,5 +482,98 @@ describe('GET /v1/agents/:agentId/gate-policy', () => {
     const { app } = setup();
     const res = await app.request(`/v1/agents/${AGENT}/gate-policy`, { headers: auth });
     expect(res.status).toBe(400);
+  });
+});
+
+describe('a pin in place (T288): the scope has no pin of its own and serves the version already', () => {
+  const STRICT: GatePolicySpec = {
+    ...FAILING,
+    approvals: { role: 'senior', separateApprover: true },
+  };
+  const pinHere = post({ version: '1.1.0', scope: PROJECT_SCOPE });
+
+  test("skips the gate's checks and approval: one passing pinInPlace check, the binding re-checks → 201", async () => {
+    const { app, calls, state } = setup();
+    state.policy = policy(STRICT);
+    // Nothing pinned: the scope serves the latest, 1.1.0.
+    const res = await app.request(`/v1/agents/${AGENT}/promotions`, pinHere);
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as Promotion;
+    expect(body.status).toBe('promoted');
+    expect(body.checks).toEqual([
+      expect.objectContaining({
+        name: 'pinInPlace',
+        passed: true,
+        message: expect.stringContaining('changes nothing for runs'),
+      }),
+    ]);
+    const requested = calls.find((c) => c.method === 'request')?.input as PromotionRequestInput;
+    expect(requested.gate).toMatchObject({
+      policy: { id: 'acme.drafting-prod', version: '1.0.0' },
+      passed: true,
+      servingVersion: '1.1.0',
+      pinInPlace: true,
+    });
+    expect(requested.gate.approval).toBeUndefined();
+    expect(methods(calls)).not.toContain('evalRuns.get');
+  });
+
+  test('serving it from a pin above counts too', async () => {
+    const { app, calls, state } = setup();
+    state.policy = policy(STRICT);
+    state.resolved = { version: '1.2.0' as Semver, scope: { kind: 'tenant' } };
+    const res = await app.request(
+      `/v1/agents/${AGENT}/promotions`,
+      post({ version: '1.2.0', scope: PROJECT_SCOPE }),
+    );
+    expect(res.status).toBe(201);
+    const requested = calls.find((c) => c.method === 'request')?.input as PromotionRequestInput;
+    expect(requested.gate.pinInPlace).toBe(true);
+    expect(requested.gate.checks[0]?.message).toContain('from a pin above it');
+  });
+
+  test('a scope with a pin of its own runs the gate, even for the version it serves', async () => {
+    const { app, calls, state } = setup();
+    state.policy = policy(STRICT);
+    state.resolved = { version: '1.1.0' as Semver, scope: PROJECT_SCOPE as LiveScope };
+    state.pins = [
+      {
+        agentId: AGENT,
+        scope: PROJECT_SCOPE as LiveScope,
+        version: '1.1.0' as Semver,
+        promotionId: 'p-0',
+        setAt: NOW.toISOString() as Timestamp,
+      },
+    ];
+    const res = await app.request(`/v1/agents/${AGENT}/promotions`, pinHere);
+    // The policy wants a comparison, and none was named.
+    expect(res.status).toBe(422);
+    const requested = calls.find((c) => c.method === 'request')?.input as PromotionRequestInput;
+    expect(requested.gate.passed).toBe(false);
+    expect(requested.gate.pinInPlace).toBeUndefined();
+  });
+
+  test('…/check answers the same, recording nothing', async () => {
+    const { app, calls, state } = setup();
+    state.policy = policy(STRICT);
+    const res = await app.request(`/v1/agents/${AGENT}/promotions/check`, pinHere);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      outcome: 'would-promote',
+      checks: [{ name: 'pinInPlace', passed: true }],
+    });
+    expect(methods(calls)).not.toContain('request');
+  });
+
+  test('the scope moved before the write: the binding refuses → 409 promotion-superseded', async () => {
+    const { app, state } = setup();
+    state.policy = policy(STRICT);
+    state.requestError = {
+      code: 'promotion-superseded',
+      message: 'acme.drafting 1.2.0 serves this scope now, not 1.1.0: check again',
+    };
+    const res = await app.request(`/v1/agents/${AGENT}/promotions`, pinHere);
+    expect(res.status).toBe(409);
+    expect(JSON.stringify(await res.json())).toContain('promotion-superseded');
   });
 });

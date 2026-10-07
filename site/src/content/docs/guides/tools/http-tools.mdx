@@ -127,7 +127,7 @@ pnpm exec kindgi runs start --flow=my-pack.note-order --input='{"orderId":"ord_1
 <TabItem label="Python">
 
 ```sh
-npx --yes @kindgi/cli@0.1 runs start --flow=my-pack.note-order --input='{"orderId":"ord_1001","text":"Customer called"}'
+uv run kindgi runs start --flow=my-pack.note-order --input='{"orderId":"ord_1001","text":"Customer called"}'
 ```
 
 </TabItem>
@@ -257,8 +257,8 @@ pnpm exec kindgi runs start --flow=my-pack.try-token --input='{}'
 <TabItem label="Python">
 
 ```sh
-printf 'demo-token-123' | npx --yes @kindgi/cli@0.1 secrets set HTTPBIN_TOKEN --env=local --scope=tenant --from-stdin
-npx --yes @kindgi/cli@0.1 runs start --flow=my-pack.try-token --input='{}'
+printf 'demo-token-123' | uv run kindgi secrets set HTTPBIN_TOKEN --env=local --scope=tenant --from-stdin
+uv run kindgi runs start --flow=my-pack.try-token --input='{}'
 ```
 
 </TabItem>

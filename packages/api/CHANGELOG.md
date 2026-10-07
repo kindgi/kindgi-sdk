@@ -1,5 +1,67 @@
 # @kindgi/api
 
+## 0.1.4-rc.4
+
+### Patch Changes
+
+- 5608264: A gated scope holds its own live version, and a change above it can't move it without its gate.
+  
+  - **Publishing or reinstating a gate policy** for a scope with no pin of its own is refused (`409 gate-policy-scope-unpinned`), even when a scope above it is pinned. A promotion there would otherwise change the gated scope without its gate.
+  - **A promotion, rollback or unpin** that would also move a narrower gated scope with no pin of its own (one gated before this rule) is refused with the new `409 gate-policy-descendant-unpinned`. The message names each such scope and its current version: pin it there first. A gated promotion's approval re-checks this, and is `superseded` if it would.
+  - **A pin in place skips the gate.** Promoting a scope that has no live version of its own to exactly the version it serves now (the fix the new 409 asks for) changes nothing any run gets. So the gate's checks and approval don't apply: it's `201`, with one passing `pinInPlace` check, the policy recorded, and a reason starting `pin-in-place`; `…/promotions/check` says the same. `PromotionRequestInput.gate.pinInPlace` tells the binding, which re-checks it as it writes (`409 promotion-superseded` if the scope moved).
+  - **The follower guard only refuses a real change:** a promotion that leaves a gated follower on the version it already serves goes through.
+  - **Unpinning a gated scope's own pin** is `409 gate-policy-needs-pin`: unregister the gate policy first, or roll back instead.
+  - **Clients:** `gate-policy-descendant-unpinned` is a conflict in TypeScript and Python, like the other gate codes.
+- Updated dependencies [f999acd]
+  - @kindgi/capabilities@0.1.4-rc.4
+  - @kindgi/agents@0.1.4-rc.4
+  - @kindgi/guardrails@0.1.4-rc.4
+  - @kindgi/audit-events@0.1.4-rc.4
+  - @kindgi/authz@0.1.4-rc.4
+  - @kindgi/blob-binding@0.1.4-rc.4
+  - @kindgi/compliance@0.1.4-rc.4
+  - @kindgi/crypto@0.1.4-rc.4
+  - @kindgi/flow@0.1.4-rc.4
+  - @kindgi/memory@0.1.4-rc.4
+  - @kindgi/platform@0.1.4-rc.4
+  - @kindgi/policy-contract@0.1.4-rc.4
+  - @kindgi/provenance@0.1.4-rc.4
+  - @kindgi/runtime@0.1.4-rc.4
+  - @kindgi/schema@0.1.4-rc.4
+  - @kindgi/tools@0.1.4-rc.4
+  - @kindgi/types@0.1.4-rc.4
+
+## 0.1.4-rc.3
+
+### Patch Changes
+
+- 3e427c5: `kindgi runs resume <run-id>` says what a run waits for before it resumes, with an exit code per answer:
+  - **0:** the run isn't waiting (running, or finished).
+  - **3:** it waits for an approval. The command names the approval and the command that decides it (`kindgi approvals complete <id> --decision=approve` or `--decision=reject`).
+  - **4:** it waits on the runtime: a queued start, a child run, a scheduled retry and when, or a lease another run holds. A wait no approval matches is also 4, with a line pointing to `kindgi approvals list --status=pending`.
+  - **5:** reserved for a held run.
+  
+  It reads the run, its journal's open waits, and the approvals linked to them. The never-wired `--waitpoint` and `--value` flags are gone.
+  
+  `GET /v1/approvals` takes `waitTokenId`, repeatable and at most 50: only approvals linked to those run waits. `ListApprovalsBindingInput.waitTokenIds` carries it to the binding. The TypeScript client's `approvals.list({ waitTokenIds })` and the Python client's `approvals.list(wait_token_id=[…])` send it.
+- @kindgi/agents@0.1.4-rc.3
+  - @kindgi/audit-events@0.1.4-rc.3
+  - @kindgi/authz@0.1.4-rc.3
+  - @kindgi/blob-binding@0.1.4-rc.3
+  - @kindgi/capabilities@0.1.4-rc.3
+  - @kindgi/compliance@0.1.4-rc.3
+  - @kindgi/crypto@0.1.4-rc.3
+  - @kindgi/flow@0.1.4-rc.3
+  - @kindgi/guardrails@0.1.4-rc.3
+  - @kindgi/memory@0.1.4-rc.3
+  - @kindgi/platform@0.1.4-rc.3
+  - @kindgi/policy-contract@0.1.4-rc.3
+  - @kindgi/provenance@0.1.4-rc.3
+  - @kindgi/runtime@0.1.4-rc.3
+  - @kindgi/schema@0.1.4-rc.3
+  - @kindgi/tools@0.1.4-rc.3
+  - @kindgi/types@0.1.4-rc.3
+
 ## 0.1.4-rc.2
 
 ### Patch Changes
