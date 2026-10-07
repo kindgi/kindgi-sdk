@@ -294,6 +294,7 @@ function harness(options: { createUser?: boolean; personGrants?: boolean } = {})
       return {
         userId,
         tenantAdmin: admins.has(`user:${userId}`),
+        tenantMember: true,
         projects: userId === 'bob' ? [{ projectId: P1, role: 'editor' }] : [],
         teams: [],
         ...(userId === 'alice' && { reviewer: { role: 'admin' as const } }),
@@ -834,6 +835,7 @@ describe("a person's grants", () => {
     expect(own.body).toEqual({
       userId: 'bob',
       tenantAdmin: false,
+      tenantMember: true,
       projects: [{ projectId: P1, role: 'editor' }],
       teams: [],
     });

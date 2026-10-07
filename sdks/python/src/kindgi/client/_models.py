@@ -9026,6 +9026,10 @@ class PersonGrants(BaseModel):
     """
     Whether the person is a tenant admin. Absent when the runtime has no authorization store: nothing grants it then.
     """
+    tenant_member: Annotated[bool | None, Field(alias="tenantMember")] = None
+    """
+    Whether the person is a tenant member: they read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. A person is one from being added. Absent when the runtime has no authorization store, or doesn't report it.
+    """
     projects: list[PersonProjectRole]
     """
     Direct project memberships.

@@ -21,6 +21,12 @@ export interface PersonGrants {
   readonly userId: string;
   /** Absent when the runtime has no authorization store: nothing grants it then. */
   readonly tenantAdmin?: boolean;
+  /**
+   * A tenant member: reads the tenant's settings, not its projects. A
+   * person is one from being added. Absent when the runtime has no
+   * authorization store, or doesn't report it.
+   */
+  readonly tenantMember?: boolean;
   /** Direct project memberships. */
   readonly projects: readonly { readonly projectId: string; readonly role: ProjectRole }[];
   /** Team memberships. */

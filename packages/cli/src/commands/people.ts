@@ -106,6 +106,7 @@ const get: LeafCommand = {
 const GRANTS_TABLE: TableSpec<PersonGrants, readonly [string, string]> = {
   rows: (g) => [
     ...(g.tenantAdmin === true ? [['tenant', 'admin'] as const] : []),
+    ...(g.tenantMember === true ? [['tenant', 'member (reads its settings)'] as const] : []),
     ...g.projects.map((p) => [`project ${p.projectId}`, p.role] as const),
     ...g.teams.map((t) => [`team ${t.teamId}`, t.role] as const),
     ...(g.reviewer !== undefined ? [['reviewer roster', g.reviewer.role] as const] : []),
@@ -120,7 +121,7 @@ const grants: LeafCommand = {
   kind: 'leaf',
   name: 'grants',
   description:
-    "What a person may do, as granted directly: tenant admin, project and team roles, the reviewer roster. A tenant admin reads anyone's; anyone else only their own.",
+    "What a person may do, as granted directly: tenant admin, tenant member (reads the tenant's settings), project and team roles, the reviewer roster. A tenant admin reads anyone's; anyone else only their own.",
   usage: 'kindgi people grants <user-id> [--table]',
   run: (ctx) =>
     runSdk(

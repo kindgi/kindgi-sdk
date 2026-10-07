@@ -370,6 +370,7 @@ function serializePersonGrants(g: PersonGrants): Record<string, unknown> {
   return {
     userId: g.userId,
     ...(g.tenantAdmin !== undefined && { tenantAdmin: g.tenantAdmin }),
+    ...(g.tenantMember !== undefined && { tenantMember: g.tenantMember }),
     projects: g.projects.map((p) => ({ projectId: p.projectId, role: p.role })),
     teams: g.teams.map((t) => ({ teamId: t.teamId, role: t.role })),
     ...(g.reviewer !== undefined && { reviewer: { role: g.reviewer.role } }),

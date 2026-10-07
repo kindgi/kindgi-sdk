@@ -46,6 +46,7 @@ const ACCOUNT = {
 const GRANTS = {
   userId: 'u-9',
   tenantAdmin: false,
+  tenantMember: true,
   projects: [{ projectId: PROJECT, role: 'editor' }],
   teams: [{ teamId: 'team-1', role: 'member' }],
   reviewer: { role: 'senior' },
@@ -279,7 +280,8 @@ describe("kindgi people: a person's grants", () => {
     expect(out.stdout).toContain(`project ${PROJECT}`);
     expect(out.stdout).toContain('team team-1');
     expect(out.stdout).toContain('reviewer roster');
-    expect(out.stdout).not.toContain('tenant ');
+    expect(out.stdout).toMatch(/tenant\s+member \(reads its settings\)/);
+    expect(out.stdout).not.toMatch(/tenant\s+admin/);
   });
 
   test('grant and ungrant tenant admin; nothing else is granted here', async () => {
