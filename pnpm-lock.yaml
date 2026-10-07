@@ -510,6 +510,9 @@ importers:
 
   packages/cli:
     dependencies:
+      '@kindgi/agents':
+        specifier: workspace:*
+        version: link:../agents
       '@kindgi/client':
         specifier: workspace:*
         version: link:../../sdks/typescript

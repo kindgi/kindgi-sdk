@@ -9,6 +9,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
+import { turnFailureMessage } from '@kindgi/agents';
 import type { KindgiClient } from '@kindgi/client';
 
 import { runCli } from '../src/main.js';
@@ -461,6 +462,99 @@ describe('kindgi runs start', () => {
     });
     expect(JSON.parse(out.stdout)).toEqual({ id: 'run-2', status: 'pending' });
   });
+
+  /** `kindgi runs start <flags>` against a run that is `pending`, then reads as `final`. */
+  function startThenRead(flags: readonly string[], final: Record<string, unknown>) {
+    return runCli(
+      baseInputs({
+        argv: ['runs', 'start', ...flags, '--input={"x":1}', '--url=https://x', '--token=t'],
+        clientFactory: () =>
+          ({
+            runs: {
+              start: async () => ({ id: 'run-5', status: 'pending' }),
+              get: async (id: string) => ({ id, ...final }),
+            },
+          }) as never,
+      }),
+    );
+  }
+
+  // A turn's failure as the runtime records it on the run (`turnFailureMessage`).
+  const routing = turnFailureMessage({
+    code: 'capability-routing-failed',
+    message: 'No registered provider satisfies the capability declaration',
+    cause: { code: 'capability-unsatisfiable', message: 'none', reasons: [] },
+  });
+  const budget = turnFailureMessage({
+    code: 'budget-exceeded',
+    message: 'Agent turn steps budget exceeded (limit 1, observed 1)',
+    kind: 'steps',
+    limit: 1,
+    observed: 1,
+  });
+
+  test("an agent turn that fails: the run still prints, its error's code and message, exit 1", async () => {
+    const failed = { status: 'failed', failureMessage: routing };
+    const out = await startThenRead(['--agent=pack.agent'], failed);
+    expect(out.exitCode).toBe(1);
+    // stdout is the run as `runs get` prints it, its failure message as recorded.
+    expect(JSON.parse(out.stdout)).toEqual({ id: 'run-5', ...failed });
+    expect(out.stderr).toBe(
+      'Error [capability-routing-failed]: No registered provider satisfies the capability declaration\n',
+    );
+  });
+
+  test("failures joined with '; ': the first turn error", async () => {
+    const out = await startThenRead(['--agent=pack.agent'], {
+      status: 'failed',
+      failureMessage: `${budget}; ${routing}`,
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      'Error [budget-exceeded]: Agent turn steps budget exceeded (limit 1, observed 1)\n',
+    );
+  });
+
+  test('a failure in plain words: run-failed, with them', async () => {
+    const out = await startThenRead(['--flow=pack.flow'], {
+      status: 'failed',
+      failureMessage:
+        'Interrupted: the run was ready to continue, but every attempt to resume it failed.',
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      'Error [run-failed]: Interrupted: the run was ready to continue, but every attempt to resume it failed.\n',
+    );
+  });
+
+  test('a flow run that fails with no message: run-failed, naming the run', async () => {
+    const out = await startThenRead(['--flow=pack.flow'], { status: 'failed' });
+    expect([out.exitCode, out.stderr]).toEqual([1, 'Error [run-failed]: Run run-5 failed\n']);
+  });
+
+  test("a turn's warnings stay before the error line", async () => {
+    const out = await startThenRead(['--agent=pack.agent'], {
+      status: 'failed',
+      failureMessage: routing,
+      output: { warnings: [{ code: 'fallback-provider', message: 'Answered by a fallback' }] },
+    });
+    expect(out.stderr).toBe(
+      '⚠ Answered by a fallback\nError [capability-routing-failed]: No registered provider satisfies the capability declaration\n',
+    );
+  });
+
+  test('--quiet: nothing printed, and the exit code still says it failed', async () => {
+    const out = await startThenRead(['--agent=pack.agent', '--quiet'], { status: 'failed' });
+    expect([out.exitCode, out.stdout, out.stderr]).toEqual([1, '', '']);
+  });
+
+  test.each(['completed', 'cancelled', 'suspended'])(
+    'a run that ends %s exits 0',
+    async (status) => {
+      const out = await startThenRead(['--agent=pack.agent'], { status });
+      expect([out.exitCode, out.stderr]).toEqual([0, '']);
+    },
+  );
 
   /** `kindgi runs start <flags>` against a client that records what it started. */
   async function start(flags: readonly string[]) {
