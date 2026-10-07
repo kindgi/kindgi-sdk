@@ -1,5 +1,11 @@
 # @kindgi/pack-conformance
 
+## 0.1.4-rc.3
+
+### Patch Changes
+
+- @kindgi/specs@0.1.4-rc.3
+
 ## 0.1.4-rc.2
 
 ### Patch Changes
