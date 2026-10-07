@@ -3,10 +3,13 @@
 
 package com.kindgi.pack;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import java.util.AbstractMap;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -19,7 +22,8 @@ import org.jspecify.annotations.Nullable;
  * @param projectId the run's project, when sent (set by the runtime, never from input)
  * @param orgId the project's org, when it has one
  * @param env resolved environment values for the call
- * @param secrets resolved secrets for the call, by name (the tool's declared secrets)
+ * @param secrets resolved secrets for the call, by name (the tool's declared secrets); printing them, or
+ *     the context, shows their names, never their values, and the context's JSON leaves them out
  * @param config resolved configuration for the call
  * @param settings the settings blocks the calling agent version pins, by block id
  * @param cancellation fires when the call passes its deadline or its caller goes away
@@ -31,7 +35,7 @@ public record ToolContext(
     @Nullable String projectId,
     @Nullable String orgId,
     Map<String, Object> env,
-    Map<String, Object> secrets,
+    @JsonIgnore Map<String, Object> secrets,
     Map<String, Object> config,
     Map<String, Map<String, Object>> settings,
     Cancellation cancellation) {
@@ -40,7 +44,7 @@ public record ToolContext(
     Objects.requireNonNull(tenantId, "tenantId");
     Objects.requireNonNull(runId, "runId");
     env = Collections.unmodifiableMap(new LinkedHashMap<>(env));
-    secrets = Collections.unmodifiableMap(new LinkedHashMap<>(secrets));
+    secrets = new Hidden(secrets);
     config = Collections.unmodifiableMap(new LinkedHashMap<>(config));
     settings = Collections.unmodifiableMap(new LinkedHashMap<>(settings));
     Objects.requireNonNull(cancellation, "cancellation");
@@ -59,5 +63,38 @@ public record ToolContext(
   @Override
   public String toString() {
     return "ToolContext[tenantId=" + tenantId + ", runId=" + runId + ", requestId=" + requestId + ", secrets=" + secrets.keySet() + "]";
+  }
+
+  /** Secrets: a map like any other, except that printing it never shows a value. */
+  private static final class Hidden extends AbstractMap<String, Object> {
+    private final Map<String, Object> values;
+
+    Hidden(Map<String, Object> values) {
+      this.values = Collections.unmodifiableMap(new LinkedHashMap<>(values));
+    }
+
+    @Override
+    public Set<Map.Entry<String, Object>> entrySet() {
+      return values.entrySet();
+    }
+
+    @Override
+    public Object get(Object key) {
+      return values.get(key);
+    }
+
+    @Override
+    public boolean containsKey(Object key) {
+      return values.containsKey(key);
+    }
+
+    @Override
+    public String toString() {
+      StringBuilder out = new StringBuilder("{");
+      for (String name : values.keySet()) {
+        out.append(out.length() == 1 ? "" : ", ").append(name).append("=<hidden>");
+      }
+      return out.append('}').toString();
+    }
   }
 }

@@ -614,20 +614,28 @@ final class PackService implements HttpServer.Handler {
     if (entry == null) {
       return error("check-not-in-pack", "This pack has no check \"" + checkId + "\"", ids);
     }
+    // The config is checked as sent, before the check runs; the schema's defaults are filled in
+    // after, for the config type (as the TypeScript and Python services do).
     Object config = request.config();
+    if (entry.config() instanceof RuntimeException) {
+      return error("input-validation-failed",
+          "Check \"" + checkId + "\" config schema failed to compile: " + ((RuntimeException) entry.config()).getMessage(), ids);
+    }
     if (entry.config() instanceof SchemaValidator) {
-      config = Defaults.apply((Map<String, Object>) entry.entry().get("configSchema"), config);
       List<Map<String, Object>> issues = ((SchemaValidator) entry.config()).issues(config);
       if (!issues.isEmpty()) {
-        return error("input-validation-failed", "Check \"" + checkId + "\" config failed validation", with(ids, "issues", issues));
+        return error("input-validation-failed", "Check \"" + checkId + "\" config failed validation" + firstIssue(issues),
+            with(ids, "issues", issues));
       }
+      config = Defaults.apply((Map<String, Object>) entry.entry().get("configSchema"), config);
     }
     Object bound;
     try {
       bound = bind(config, entry.guardrail().configType());
     } catch (IllegalArgumentException e) {
-      return error("input-validation-failed", "Check \"" + checkId + "\" config failed validation",
-          with(ids, "issues", List.of(bindingIssue(e))));
+      List<Map<String, Object>> issues = List.of(bindingIssue(e));
+      return error("input-validation-failed", "Check \"" + checkId + "\" config failed validation" + firstIssue(issues),
+          with(ids, "issues", issues));
     }
     if (!(request.trace() instanceof Map)) {
       Map<String, Object> issue = new LinkedHashMap<>();
@@ -675,6 +683,20 @@ final class PackService implements HttpServer.Handler {
     out.put("kind", "check-result");
     out.put("result", wire);
     return out;
+  }
+
+  /**
+   * Where the first issue is and what it says ({@code " at /maxChars: must be > 0"}): a runtime
+   * reports a check's error by its code and message alone.
+   */
+  static String firstIssue(List<Map<String, Object>> issues) {
+    if (issues.isEmpty()) {
+      return "";
+    }
+    Map<String, Object> first = issues.get(0);
+    Object at = first.get("instancePath");
+    Object message = first.get("message");
+    return (at == null || "".equals(at) ? "" : " at " + at) + ": " + (message == null ? "invalid" : message);
   }
 
   /** A JSON value as the handler's type: a {@code Map} stays one, a record is bound by Jackson. */

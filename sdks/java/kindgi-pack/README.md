@@ -50,8 +50,10 @@ from the record types. The service checks both on every call: an input that
 breaks the schema never reaches the handler, and an output that breaks it
 never reaches the runtime.
 
-`mutating(false)` says the tool only reads. A dry run may call it, and approval
-gates skip it. Leave it unset for a tool that writes, sends or charges.
+`mutating(false)` says the tool only reads: a dry run may call it, and approval
+gates skip it. Left unset, a tool counts as one that writes: a dry run skips it
+and approval gates apply. Leave it unset for a tool that writes, sends or
+charges.
 
 ## The pack
 
@@ -120,15 +122,16 @@ Tool.define("acme.search")
     .handler((input, ctx) -> Map.of("hits", search((String) input.get("query"))));
 ```
 
-The service's validator answers exactly as the TypeScript service's Ajv does,
-issue for issue. It takes the JSON Schema keywords tool schemas use, and the
-indexer refuses a schema with any other keyword (`if`, `prefixItems`, a
-remote `$ref`, …).
+The service's validator answers as the TypeScript service's Ajv does, issue
+for issue: a differential test runs every value of its corpus through both
+(see [Build from source](#build-from-source)). It takes the JSON Schema
+keywords tool schemas use, and the indexer refuses a schema with any other
+keyword (`if`, `prefixItems`, a remote `$ref`, …).
 
 ## Guardrails, agents and flows
 
 ```java
-// src/main/java/com/acme/guardrails/Checks.java
+// in src/main/java/com/acme/guardrails/Checks.java
 public record MinLength(@JsonProperty(defaultValue = "1") @Min(0) int minLength) {}
 
 public static final Guardrail<MinLength> RESPONSE_NOT_EMPTY = Guardrail.define("acme.response-not-empty")
@@ -141,17 +144,17 @@ public static final Guardrail<MinLength> RESPONSE_NOT_EMPTY = Guardrail.define("
       return output.length() >= config.minLength() ? CheckResult.pass() : CheckResult.fail("too short");
     });
 
-// src/main/java/com/acme/agents/Bookkeeper.java
+// in src/main/java/com/acme/agents/Bookkeeper.java
 public static final Agent AGENT = Agent.define("acme.bookkeeper")
     .version("1.0.0")
     .name("Bookkeeper")
-    .instructions("Classify the document, then call acme.record-expense.")
+    .instructions("Classify the document, then record it with the record-expense tool.")
     .capability(Map.of("needs", List.of(Map.of("feature", "tool-use"))))
     .tool(RecordExpense.TOOL)
     .guardrail(Checks.RESPONSE_NOT_EMPTY)
     .build();
 
-// src/main/java/com/acme/flows/Record.java
+// in src/main/java/com/acme/flows/Record.java
 public static final Flow FLOW = Flow.define("acme.record")
     .version("1.0.0")
     .toolNode("record", RecordExpense.TOOL)
@@ -163,11 +166,18 @@ public static final Flow FLOW = Flow.define("acme.record")
 An agent or a flow takes any other field of its schema with
 `set(field, value)`.
 
+The service checks a check's config against its schema as sent, before the
+check runs. A config that doesn't fit is answered `input-validation-failed`,
+naming the first issue; then the schema's defaults are filled in for the
+config type.
+
 ## The call context and cancellation
 
 A handler gets a `ToolContext`: `tenantId()`, `runId()`, `requestId()`,
 `projectId()`, `orgId()`, the call's `env()`, `secrets()` and `config()`,
-and the `settings()` blocks its agent pins.
+and the `settings()` blocks its agent pins. Printing the context, or its
+`secrets()`, shows the secrets' names, never their values, and the context's
+JSON leaves them out.
 
 At its deadline (`kindgi-timeout-ms`, 120 s by default), or when the caller
 goes away, the call is answered `deadline-exceeded` or `cancelled`. The
@@ -193,8 +203,13 @@ CP="target/classes:$(cat target/classpath.txt)"
 
 java -cp "$CP" com.kindgi.pack.Main index --pack-dir . --output target/index.json
 java -cp "$CP" com.kindgi.pack.Main launcher > kindgi-pack-java
-KINDGI_PACK_SERVICE_TOKEN=… PORT=8080 sh kindgi-pack-java -cp "$CP" com.kindgi.pack.Main serve --index target/index.json
+export KINDGI_PACK_SERVICE_TOKEN="$(cat /run/secrets/kindgi-pack-token)"
+PORT=8080 sh kindgi-pack-java -cp "$CP" com.kindgi.pack.Main serve --index target/index.json
 ```
+
+The token comes from where your deployment keeps secrets (here a mounted
+secret file), never from a command line, where shell history and process
+listings would keep it.
 
 The indexer writes the same canonical `index.json` the TypeScript and Python
 indexers do: the same classes and pins give the same bytes. `--json` prints
@@ -206,6 +221,12 @@ The service runs the process contract every pack service does: `PORT`,
 `boot-failed` and `call` lines on stderr. SIGTERM drains in-flight calls for
 up to 8 seconds and exits 0. It passes the same conformance suite as the
 TypeScript and Python services (`packages/pack-conformance`).
+
+**Logging:** the service writes those events as plain JSON lines, one per
+line on stderr. The TypeScript and Python services' `@kindgi/log` records
+(levels and redaction set by `KINDGI_LOG_*`) and the handler's `ctx.log`
+aren't in the Java service yet. Until then, a handler logs with your app's
+own logger.
 
 **Start it through the launcher** (`kindgi-pack-java`, a POSIX shell script).
 The token authenticates the service's callers. Your code runs in the same JVM

@@ -16,7 +16,7 @@ import java.util.Map;
  * public static final Agent AGENT = Agent.define("acme.bookkeeper")
  *     .version("1.0.0")
  *     .name("Bookkeeper")
- *     .instructions("Classify the document, then call acme.record-expense.")
+ *     .instructions("Classify the document, then record it with the record-expense tool.")
  *     .capability(Map.of("needs", List.of(Map.of("feature", "tool-use"))))
  *     .tool(RecordExpense.TOOL)
  *     .guardrail(ResponseNotEmpty.GUARDRAIL)

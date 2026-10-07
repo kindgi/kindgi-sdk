@@ -32,6 +32,7 @@ import org.junit.jupiter.api.Test;
 class PackServiceTest {
   private static final String TOKEN = "t0ken";
   private static final String TOOLS = "src/main/java/com/kindgi/pack/testpacks/service/Tools.java";
+  private static final String CHECKS = "src/main/java/com/kindgi/pack/testpacks/service/Checks.java";
 
   private final List<Map<String, Object>> logs = new CopyOnWriteArrayList<>();
   private PackService service;
@@ -60,7 +61,18 @@ class PackServiceTest {
       tools.add(tool(id));
     }
     index.put("tools", tools);
-    index.put("guardrails", List.of());
+    Map<String, Object> min = new LinkedHashMap<>();
+    min.put("id", "acme.min");
+    min.put("checkId", "acme.checks.min");
+    min.put("kind", "zero-llm");
+    min.put("action", Map.of("on-violation", "halt"));
+    min.put("checkModulePath", CHECKS);
+    min.put("configSchema", com.kindgi.pack.internal.SchemaDeriver.schema(com.kindgi.pack.testpacks.service.Checks.MinLength.class));
+    Map<String, Object> broken = new LinkedHashMap<>(min);
+    broken.put("id", "acme.broken");
+    broken.put("checkId", "acme.min");
+    broken.put("configSchema", Map.of("type", "object", "if", Map.of()));
+    index.put("guardrails", List.of(min, broken));
     assertThat(PackService.missingModules(index, getClass().getClassLoader())).isEmpty();
     service = new PackService(index, TOKEN, 4, "strict", Map.of(), logs::add);
     assertThat(service.prewarm(getClass().getClassLoader())).isEmpty();
@@ -112,6 +124,47 @@ class PackServiceTest {
         + "content-length: " + body.length + "\r\n\r\n" + new String(body, StandardCharsets.ISO_8859_1), 10_000);
     assertThat(response).startsWith("HTTP/1.1 200 OK");
     return (Map<String, Object>) Json.parse(response.substring(response.indexOf("\r\n\r\n") + 4).getBytes(StandardCharsets.UTF_8));
+  }
+
+  @SuppressWarnings("unchecked")
+  private Map<String, Object> check(String checkId, Object config) throws IOException {
+    Map<String, Object> message = new LinkedHashMap<>();
+    message.put("v", 2);
+    message.put("kind", "check-invoke");
+    message.put("check", Map.of("id", checkId));
+    message.put("config", config);
+    message.put("trace", Map.of("runId", "r1", "tenantId", "t1", "output", "hello", "toolCalls", List.of(),
+        "toolResults", List.of(), "modelCalls", List.of(), "mode", "runtime"));
+    byte[] body = Json.compact(message);
+    String response = raw("POST /v1/invoke HTTP/1.1\r\nkindgi-pack-token: " + TOKEN + "\r\ncontent-type: application/json\r\n"
+        + "content-length: " + body.length + "\r\n\r\n" + new String(body, StandardCharsets.ISO_8859_1), 10_000);
+    assertThat(response).startsWith("HTTP/1.1 200 OK");
+    return (Map<String, Object>) Json.parse(response.substring(response.indexOf("\r\n\r\n") + 4).getBytes(StandardCharsets.UTF_8));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void aChecksConfigIsCheckedAsSentThenItsDefaultsFilledIn() throws IOException {
+    Map<String, Object> negative = check("acme.checks.min", Map.of("minLength", -1));
+    assertThat(negative).containsEntry("code", "input-validation-failed").containsEntry("checkId", "acme.checks.min")
+        .containsEntry("message", "Check \"acme.checks.min\" config failed validation at /minLength: must be >= 0");
+    assertThat((List<Map<String, Object>>) negative.get("issues")).anySatisfy(i -> assertThat(i)
+        .containsEntry("instancePath", "/minLength").containsEntry("keyword", "minimum"));
+    Map<String, Object> wrongType = check("acme.checks.min", Map.of("minLength", "three"));
+    assertThat((List<Map<String, Object>>) wrongType.get("issues")).anySatisfy(i -> assertThat(i)
+        .containsEntry("instancePath", "/minLength").containsEntry("keyword", "type"));
+    assertThat((String) check("acme.checks.min", Map.of("extra", 1)).get("message"))
+        .isEqualTo("Check \"acme.checks.min\" config failed validation: must NOT have additional properties");
+    // Left out, minLength is its default: the check ran with 1.
+    assertThat(check("acme.checks.min", Map.of())).containsEntry("kind", "check-result")
+        .containsEntry("result", Map.of("passed", true, "attributes", Map.of("minLength", 1)));
+  }
+
+  @Test
+  void aConfigSchemaThatDoesntCompileIsSaid() throws IOException {
+    Map<String, Object> answer = check("acme.min", Map.of());
+    assertThat(answer).containsEntry("code", "input-validation-failed");
+    assertThat((String) answer.get("message")).startsWith("Check \"acme.min\" config schema failed to compile: ");
   }
 
   @Test
