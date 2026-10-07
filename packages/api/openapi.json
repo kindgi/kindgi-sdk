@@ -204,6 +204,7 @@
           "auth-revoked": 401,
           "permission-denied": 403,
           "host-access-denied": 403,
+          "csrf-origin-mismatch": 403,
           "not-found": 404,
           "run-not-found": 404,
           "agent-not-found": 404,

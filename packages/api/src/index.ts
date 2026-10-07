@@ -10,11 +10,12 @@ export type {
 } from './app.js';
 export type { AppEnv } from './types.js';
 export {
+  SESSION_COOKIE_NAME,
   SESSION_TOKEN_PREFIX,
   encodeSessionToken,
   MULTI_TENANT_LOOKUP,
 } from './middleware/auth.js';
-export type { TokenResolution, TokenResolver } from './middleware/auth.js';
+export type { SessionCookieOptions, TokenResolution, TokenResolver } from './middleware/auth.js';
 export type {
   ClaimMappingScopesSpec,
   ClaimMappingSpec,

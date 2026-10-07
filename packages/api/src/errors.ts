@@ -48,6 +48,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // A deployment refuses tenant configuration that reaches its host
   // (KINDGI_TENANT_HOST_ACCESS): a stdio MCP endpoint.
   'host-access-denied': 403,
+  // A request signed in by the session cookie, from an origin the
+  // deployment doesn't allow (or with no Origin): cross-site request
+  // forgery protection for browser sessions.
+  'csrf-origin-mismatch': 403,
   // 404
   'not-found': 404,
   'run-not-found': 404,

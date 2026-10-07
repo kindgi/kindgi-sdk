@@ -52,7 +52,11 @@ import type { JudgmentRegistryBinding } from './judgment-binding.js';
 import type { AgentReleaseBindings } from './live-version-binding.js';
 import type { MCPClientProbeBinding, MCPEndpointRegistryBinding } from './mcp-endpoint-binding.js';
 import type { MemoryBinding } from './memory-binding.js';
-import { type TokenResolver, bearerAuthMiddleware } from './middleware/auth.js';
+import {
+  type SessionCookieOptions,
+  type TokenResolver,
+  bearerAuthMiddleware,
+} from './middleware/auth.js';
 import { type Authorizer, createAuthorizer } from './middleware/authorize.js';
 import { mapThrownError } from './middleware/error-mapper.js';
 import {
@@ -875,6 +879,14 @@ export interface SessionConfig {
    * but coarser inactivity enforcement.
    */
   readonly touchThrottle?: number;
+  /**
+   * Browser sessions in a cookie: the middleware reads the session token
+   * from it when a request has no `Authorization` header, and refuses a
+   * cookie-authenticated unsafe request whose `Origin` isn't allowed
+   * (403 `csrf-origin-mismatch`). Absent → session tokens come only in
+   * the `Authorization` header.
+   */
+  readonly cookie?: SessionCookieOptions;
 }
 
 /**
@@ -971,6 +983,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(sessionCfg?.touchThrottle !== undefined && {
         touchThrottleMs: sessionCfg.touchThrottle,
       }),
+      ...(sessionCfg?.cookie !== undefined && { sessionCookie: sessionCfg.cookie }),
     }),
   );
   // Principal construction — runs after bearer so it can read the
