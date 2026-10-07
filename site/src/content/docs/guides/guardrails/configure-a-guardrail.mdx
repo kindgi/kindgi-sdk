@@ -121,11 +121,14 @@ guardrails/answer-length/index.ts: guardrail my-pack.answer-length's config does
 ```
 
 The pack service checks the config again on every call, as sent, against the
-indexed `configSchema`. A guardrail whose config doesn't fit (one registered
-through the API, say) fails, and the check doesn't run:
+indexed `configSchema`. Under `kindgi dev` the indexer has refused such a
+config already. In a deployment, a guardrail registered through the API
+(`kindgi guardrails register`) can name the pack's check with a config that
+doesn't fit. The check doesn't run, and every turn the guardrail checks
+fails, whatever its action. `kindgi runs start` exits 1 with:
 
 ```text
-input-validation-failed: Check "my-pack.checks.answer-length" config failed validation at /maxChars: must be > 0
+Error [run-failed]: input-validation-failed: Check "my-pack.checks.answer-length" config failed validation at /maxChars: must be > 0
 ```
 
 </TabItem>
@@ -135,8 +138,8 @@ The check gets `config` parsed into its type:
 
 - **Defaults are filled in.** Give every field a default: a required field
   with no value isn't caught when the pack is indexed, and fails every turn
-  the guardrail checks, whatever its action
-  (`input-validation-failed: Check "my-pack.req-cfg" config failed validation: must have required property 'maxChars'`).
+  the guardrail checks, whatever its action. `kindgi runs start` exits 1 with
+  `Error [run-failed]: input-validation-failed: Check "my-pack.req-cfg" config failed validation: must have required property 'maxChars'`.
 - **Values are checked where they're declared.** A value that doesn't fit is
   a `DefinitionError`, and `python -m kindgi.pack index` (and `kindgi dev`)
   reports the file:
