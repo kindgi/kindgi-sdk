@@ -1,5 +1,25 @@
 # @kindgi/agents
 
+## 0.1.4-rc.5
+
+### Patch Changes
+
+- Updated dependencies [9801f64]
+  - @kindgi/runtime@0.1.4-rc.5
+  - @kindgi/capabilities@0.1.4-rc.5
+  - @kindgi/compliance@0.1.4-rc.5
+  - @kindgi/flow@0.1.4-rc.5
+  - @kindgi/guardrails@0.1.4-rc.5
+  - @kindgi/provenance@0.1.4-rc.5
+  - @kindgi/schema@0.1.4-rc.5
+  - @kindgi/tools@0.1.4-rc.5
+  - @kindgi/authz@0.1.4-rc.5
+  - @kindgi/embedding@0.1.4-rc.5
+  - @kindgi/handler@0.1.4-rc.5
+  - @kindgi/memory@0.1.4-rc.5
+  - @kindgi/policy-contract@0.1.4-rc.5
+  - @kindgi/types@0.1.4-rc.5
+
 ## 0.1.4-rc.4
 
 ### Patch Changes
