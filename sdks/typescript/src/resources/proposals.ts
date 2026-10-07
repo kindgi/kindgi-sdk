@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { AgentId, Cursor, FixProposalId, LiveScope } from '@kindgi/types';
+import type { AgentId, Cursor, FixProposalId } from '@kindgi/types';
+
+import type { LiveScope } from '../generated/api.js';
 
 import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { Transport } from '../transport.js';
@@ -12,6 +14,7 @@ import type {
   ProposalObjective,
   ProposalTier,
 } from '../types.js';
+import { scopeQuery } from './agents.js';
 
 /**
  * Improvement proposals (`/v1/proposals`): new content for one data block
@@ -90,6 +93,8 @@ export interface ProposalsListInput {
   readonly tier?: ProposalTier;
   /** Statuses are derived, so a page filtered by status can hold fewer rows than `limit`. */
   readonly status?: FixProposalStatus;
+  /** Only proposals for exactly this live scope. */
+  readonly scope?: LiveScope;
 }
 
 export interface CreateProposalInput {
@@ -151,6 +156,7 @@ export function makeProposalsClient(transport: Transport): ProposalsClient {
           ...(input.agentId !== undefined && { agentId: input.agentId as string }),
           ...(input.tier !== undefined && { tier: input.tier }),
           ...(input.status !== undefined && { status: input.status }),
+          ...(input.scope !== undefined && scopeQuery(input.scope)),
         },
       });
       return listPage(page);

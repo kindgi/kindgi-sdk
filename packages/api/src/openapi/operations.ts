@@ -2818,7 +2818,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'proposals.list',
     summary: 'List improvement proposals',
     description:
-      "Newest first, cursor-paginated, only the proposals of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and `scopeKind`/`scopeId` for the proposals of one project's agents (or every project's in an org).",
+      'Newest first, cursor-paginated, only the proposals of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and the live scope a proposal is for (`scopeKind`, `scopeId`, `segment`, exactly as the promotions history takes it).',
     tags: ['proposals'],
     security: 'bearer',
     parameters: [
@@ -2827,8 +2827,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ProposalStatusQueryParam,
       AgentIdQueryParam,
       ProposalTierQueryParam,
-      ScopeKindQueryParam,
+      PromotionScopeKindQueryParam,
       ScopeIdQueryParam,
+      SegmentQueryParam,
     ],
     responses: {
       '200': { description: 'Page of proposals.', schema: ref('FixProposalCollectionPage') },
@@ -2890,7 +2891,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '404': ErrorResponse('No such proposal, or no such test set.'),
       '409': ErrorResponse(
-        "`proposal-needs-pin`: the agent has no live version for the whole tenant. `proposal-invalid-state-transition`: the proposal's status doesn't allow it.",
+        "`proposal-needs-pin`: the agent has no live version for the whole tenant. `proposal-invalid-state-transition`: the proposal's status doesn't allow it. `registry-read-only`: the agent registry takes no writes (under `kindgi dev`).",
       ),
     },
   },
@@ -2901,7 +2902,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'proposals.request',
     summary: "Request a proposal's promotion for its scope",
     description:
-      "A promotion of the candidate for the proposal's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/promotions` answers. Needs `promote` on the agent. Allowed from `evaluated`, `refused`, `superseded` and `expired`.",
+      "A promotion of the candidate for the proposal's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/promotions` answers. Needs `promote` on the agent. Allowed from `evaluated`, `not-better` (the gate decides), `refused`, `superseded` and `expired`.",
     tags: ['proposals'],
     security: 'bearer',
     parameters: [ProposalIdPathParam, IdempotencyKeyParam],

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Scope } from '@kindgi/platform';
 import type {
   AgentId,
   Cursor,
@@ -176,12 +175,8 @@ export interface ListProposalsInput {
   readonly cursor?: Cursor;
   readonly agentId?: AgentId;
   readonly tier?: ProposalTier;
-  /**
-   * Narrow to a content scope: a proposal belongs to its agent's
-   * project. `{ kind: 'project' }` is that project's, `{ kind: 'org' }`
-   * every project in the org's, `{ kind: 'tenant' }` all.
-   */
-  readonly scope?: Scope;
+  /** Only proposals for exactly this live scope. */
+  readonly liveScope?: LiveScope;
 }
 
 export interface GetProposalInput {

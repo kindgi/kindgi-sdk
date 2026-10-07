@@ -386,7 +386,7 @@ function decision(grants: readonly string[], action: Action, resource: ResourceR
   };
 }
 
-async function harness(opts: { grants?: readonly string[] } = {}) {
+async function harness(opts: { grants?: readonly string[]; readOnly?: boolean } = {}) {
   const agents = agentBinding();
   const blocks = inMemoryBlocks([projectId]);
   await blocks.publish({
@@ -450,7 +450,10 @@ async function harness(opts: { grants?: readonly string[] } = {}) {
     ...createStubAppBindings(),
     resolveToken,
     runHandler: {} as RunHandlerBinding,
-    agentRegistry: agents,
+    agentRegistry:
+      opts.readOnly === true
+        ? { ...agents, readOnly: { reason: 'The pack files are the source: change them instead.' } }
+        : agents,
     blockRegistry: blocks,
     evalRunBinding: evalRuns.binding,
     agentReleases: releases.releases,
@@ -610,6 +613,23 @@ describe('POST /v1/proposals/:id/evaluate', () => {
     expect(evalRuns.started).toHaveLength(0);
   });
 
+  test('with a read-only agent registry (kindgi dev) it refuses (409 registry-read-only) and publishes nothing', async () => {
+    const { call, releases, blocks, evalRuns } = await harness({ readOnly: true });
+    releases.pin({ kind: 'tenant' }, '1.0.0');
+    const created = await call('POST', '/v1/proposals', DRAFT);
+    expect(created.status).toBe(201);
+    const res = await call('POST', `/v1/proposals/${created.body.id}/evaluate`, {
+      suiteId: 'acme.scoring-judged',
+    });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'registry-read-only',
+      message: 'The pack files are the source: change them instead.',
+    });
+    expect([...blocks.rows.keys()].filter((k) => k.startsWith(WEIGHTS))).toHaveLength(1);
+    expect(evalRuns.started).toHaveLength(0);
+  });
+
   test('publishes the block version, derives the agent version for the proposal, and starts the comparison', async () => {
     const { call, id, blocks, agents, evalRuns } = await drafted();
     const res = await call('POST', `/v1/proposals/${id}/evaluate`, {
@@ -732,6 +752,14 @@ describe('POST /v1/proposals/:id/request', () => {
     const res = await call('POST', `/v1/proposals/${id}/request`, {});
     expect(res.status).toBe(409);
     expect(res.body.error.details.status).toBe('draft');
+  });
+
+  test('a not-better proposal can still be requested: the gate decides', async () => {
+    const { call, id } = await evaluated(0);
+    expect((await call('GET', `/v1/proposals/${id}`)).body.status).toBe('not-better');
+    const res = await call('POST', `/v1/proposals/${id}/request`, {});
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.status).toBe('promoted');
   });
 
   test('with no gate policy it promotes the candidate for the scope (201), live now', async () => {
@@ -871,6 +899,22 @@ describe('GET /v1/proposals', () => {
     expect(evaluatedOnly.body.data.map((p: { id: string }) => p.id)).toEqual([second.body.id]);
     expect((await call('GET', '/v1/proposals?agentId=acme.other')).body.data).toEqual([]);
     expect((await call('GET', '/v1/proposals?status=applied')).status).toBe(400);
+  });
+
+  test('filters by the live scope a proposal is for, as the promotions history does', async () => {
+    const { call, id } = await drafted();
+    const tenantWide = await call('POST', '/v1/proposals', {
+      ...DRAFT,
+      scope: { kind: 'tenant' },
+    });
+    const segment = await call(
+      'GET',
+      `/v1/proposals?scopeKind=segment&scopeId=${projectId}&segment=company:acme`,
+    );
+    expect(segment.body.data.map((p: { id: string }) => p.id)).toEqual([id]);
+    const tenant = await call('GET', '/v1/proposals?scopeKind=tenant');
+    expect(tenant.body.data.map((p: { id: string }) => p.id)).toEqual([tenantWide.body.id]);
+    expect((await call('GET', '/v1/proposals?scopeKind=segment')).status).toBe(400);
   });
 });
 

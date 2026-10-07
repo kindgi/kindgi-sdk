@@ -437,7 +437,7 @@ export interface FixProposal {
   /** The agent version the change applies to. */
   readonly fromVersion: string;
   /** The live scope it's for. */
-  readonly scope: import('@kindgi/types').LiveScope;
+  readonly scope: import('./generated/api.js').LiveScope;
   readonly tier: ProposalTier;
   readonly change: {
     readonly blockId: string;

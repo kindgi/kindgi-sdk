@@ -74,6 +74,15 @@ describe('client.proposals', () => {
     });
   });
 
+  it('list sends a live scope as the promotions history takes it', async () => {
+    const stub = jsonFetch({ data: [], hasMore: false });
+    await clientWith(stub).proposals.list({ scope: WIRE_PROPOSAL.scope as never });
+    const url = new URL(stub.calls[0]!.url);
+    expect(url.searchParams.get('scopeKind')).toBe('segment');
+    expect(url.searchParams.get('scopeId')).toBe(PROJECT);
+    expect(url.searchParams.getAll('segment')).toEqual(['company:acme']);
+  });
+
   it.each([
     ['evaluate', { suiteId: 'acme.scoring-judged', repetitions: 3 }],
     ['request', { reason: 'acme wants recency' }],

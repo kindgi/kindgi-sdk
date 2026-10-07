@@ -27,11 +27,14 @@ export function inMemoryProposals(): SupervisorBinding & {
   const store = {
     rows,
     before: undefined as (() => void) | undefined,
-    async listProposals({ tenantId, limit, cursor, agentId, tier }) {
+    async listProposals({ tenantId, limit, cursor, agentId, tier, liveScope }) {
       const all = [...rows.values()]
         .filter((p) => p.tenantId === tenantId)
         .filter((p) => agentId === undefined || p.agentId === agentId)
         .filter((p) => tier === undefined || p.tier === tier)
+        .filter(
+          (p) => liveScope === undefined || JSON.stringify(p.scope) === JSON.stringify(liveScope),
+        )
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       const at = cursor === undefined ? 0 : Number(cursor);
       const data = all.slice(at, at + limit);

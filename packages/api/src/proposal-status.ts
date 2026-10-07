@@ -154,7 +154,9 @@ export const PROPOSAL_ACTIONS = {
     'superseded',
     'expired',
   ],
-  request: ['evaluated', 'refused', 'superseded', 'expired'],
+  // The gate decides what goes live: a candidate that isn't measurably
+  // better (a wording change) can still be requested through it.
+  request: ['evaluated', 'not-better', 'refused', 'superseded', 'expired'],
   rollback: ['promoted'],
   withdraw: [
     'draft',

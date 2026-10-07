@@ -37,6 +37,7 @@ import {
   proposalActionAllowed,
   proposalStatus,
 } from '../proposal-status.js';
+import { refuseReadOnly } from '../registry-read-only.js';
 import type {
   ProposalObjective,
   ProposalStep,
@@ -46,11 +47,10 @@ import type {
   SupervisorBinding,
 } from '../supervisor-binding.js';
 import type { AppEnv } from '../types.js';
-import { actorOf, promotionResponse, requestPromotion } from './agent-releases.js';
+import { actorOf, promotionResponse, requestPromotion, scopeFromQuery } from './agent-releases.js';
 import { parseComparison } from './eval-comparison.js';
 import { liveScopeToWire, parseLiveScopeBody } from './live-scope-wire.js';
 import { clampLimit } from './pagination.js';
-import { parseScopeParams } from './scope-params.js';
 
 /** What the proposal lifecycle runs on besides its own store. */
 export interface ProposalsRouteDeps {
@@ -73,7 +73,7 @@ type Ctx = Context<AppEnv>;
  * for one live scope, taken through the same comparison, gate and
  * promotion as any other version.
  *
- *   GET  /                 list (statuses derived), filterable
+ *   GET  /                 list (statuses derived): by agent, tier, status and live scope
  *   GET  /:id              one
  *   POST /                 a hand-written proposal (a draft)
  *   POST /:id/evaluate     publish the block version and derive the agent
@@ -163,10 +163,8 @@ export function proposalsRouter(
     if (tier !== undefined && !TIERS.includes(tier as ProposalTier)) {
       return badInput(c, `Unknown \`tier\`: ${tier} (one of ${TIERS.join(', ')})`);
     }
-    const scope = parseScopeParams(c.req.query(), { tenantId });
-    if (scope.kind === 'err') {
-      return fail(c, 'scope-invalid', { code: 'scope-invalid', message: scope.message });
-    }
+    const scope = scopeFromQuery((n) => c.req.query(n), c.req.queries('segment') ?? []);
+    if (scope.kind === 'err') return badInput(c, scope.message);
     const agentId = c.req.query('agentId');
     const cursor = c.req.query('cursor');
     const page = await binding.listProposals({
@@ -175,7 +173,7 @@ export function proposalsRouter(
       ...(cursor !== undefined && cursor !== '' && { cursor: cursor as Cursor }),
       ...(agentId !== undefined && agentId !== '' && { agentId: agentId as AgentId }),
       ...(tier !== undefined && { tier: tier as ProposalTier }),
-      ...(scope.scope !== undefined && { scope: scope.scope }),
+      ...(scope.scope !== undefined && { liveScope: scope.scope }),
     });
     const readable =
       authorizer === undefined
@@ -284,6 +282,8 @@ export function proposalsRouter(
     const refused = refuseStatus(c, 'evaluate', stored, await facts.forRequest(tenantId)(stored));
     if (refused !== undefined) return refused;
 
+    // Evaluating derives an agent version: not into a registry that takes no writes.
+    if (deps.agents.readOnly !== undefined) return refuseReadOnly(c, deps.agents.readOnly);
     // A version promoted nowhere is still the agent's latest, and the
     // latest serves every scope nothing is pinned for.
     const tenantPin = await deps.releases.live.resolve({ tenantId, agentId });

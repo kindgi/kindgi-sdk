@@ -2531,13 +2531,14 @@ class ProposalsResource:
         | None = None,
         agent_id: str | None = None,
         tier: Literal["settings-block", "prompt-block"] | None = None,
-        scope_kind: Literal["tenant", "org", "project"] | None = None,
+        scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
         scope_id: str | None = None,
+        segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
     ) -> _models.FixProposalCollectionPage:
         """List improvement proposals. `GET /v1/proposals`
 
-        Newest first, cursor-paginated, only the proposals of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and `scopeKind`/`scopeId` for the proposals of one project's agents (or every project's in an org).
+        Newest first, cursor-paginated, only the proposals of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and the live scope a proposal is for (`scopeKind`, `scopeId`, `segment`, exactly as the promotions history takes it).
         """
         return self._client._request(
             _OPERATIONS["proposals.list"],
@@ -2550,6 +2551,7 @@ class ProposalsResource:
                 "tier": tier,
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
+                "segment": _segments(segments),
             },
             headers={},
             response=_models.FixProposalCollectionPage,
@@ -2629,7 +2631,7 @@ class ProposalsResource:
     ) -> _models.FixProposal:
         """Request a proposal's promotion for its scope. `POST /v1/proposals/{proposalId}/request`
 
-        A promotion of the candidate for the proposal's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/promotions` answers. Needs `promote` on the agent. Allowed from `evaluated`, `refused`, `superseded` and `expired`.
+        A promotion of the candidate for the proposal's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/promotions` answers. Needs `promote` on the agent. Allowed from `evaluated`, `not-better` (the gate decides), `refused`, `superseded` and `expired`.
         """
         return self._client._request(
             _OPERATIONS["proposals.request"],
@@ -8355,13 +8357,14 @@ class AsyncProposalsResource:
         | None = None,
         agent_id: str | None = None,
         tier: Literal["settings-block", "prompt-block"] | None = None,
-        scope_kind: Literal["tenant", "org", "project"] | None = None,
+        scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
         scope_id: str | None = None,
+        segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
     ) -> _models.FixProposalCollectionPage:
         """List improvement proposals. `GET /v1/proposals`
 
-        Newest first, cursor-paginated, only the proposals of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and `scopeKind`/`scopeId` for the proposals of one project's agents (or every project's in an org).
+        Newest first, cursor-paginated, only the proposals of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and the live scope a proposal is for (`scopeKind`, `scopeId`, `segment`, exactly as the promotions history takes it).
         """
         return await self._client._request(
             _OPERATIONS["proposals.list"],
@@ -8374,6 +8377,7 @@ class AsyncProposalsResource:
                 "tier": tier,
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
+                "segment": _segments(segments),
             },
             headers={},
             response=_models.FixProposalCollectionPage,
@@ -8455,7 +8459,7 @@ class AsyncProposalsResource:
     ) -> _models.FixProposal:
         """Request a proposal's promotion for its scope. `POST /v1/proposals/{proposalId}/request`
 
-        A promotion of the candidate for the proposal's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/promotions` answers. Needs `promote` on the agent. Allowed from `evaluated`, `refused`, `superseded` and `expired`.
+        A promotion of the candidate for the proposal's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/promotions` answers. Needs `promote` on the agent. Allowed from `evaluated`, `not-better` (the gate decides), `refused`, `superseded` and `expired`.
         """
         return await self._client._request(
             _OPERATIONS["proposals.request"],

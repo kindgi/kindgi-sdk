@@ -22174,7 +22174,7 @@
             }
           }
         },
-        "description": "Newest first, cursor-paginated, only the proposals of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and `scopeKind`/`scopeId` for the proposals of one project's agents (or every project's in an org).",
+        "description": "Newest first, cursor-paginated, only the proposals of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and the live scope a proposal is for (`scopeKind`, `scopeId`, `segment`, exactly as the promotions history takes it).",
         "parameters": [
           {
             "name": "limit",
@@ -22227,10 +22227,16 @@
             "name": "scopeKind",
             "in": "query",
             "schema": {
-              "$ref": "#/components/schemas/ScopeKind"
+              "type": "string",
+              "enum": [
+                "tenant",
+                "org",
+                "project",
+                "segment"
+              ]
             },
             "required": false,
-            "description": "Optional scope discriminator. If absent, no scope filter is applied."
+            "description": "Only one scope: `tenant`, `org` or `project` (with `scopeId`), or `segment` (with `scopeId` and `segment`)."
           },
           {
             "name": "scopeId",
@@ -22241,6 +22247,19 @@
             },
             "required": false,
             "description": "Required IF scopeKind is `org` or `project`. MUST be absent if scopeKind=`tenant` (tenant is implicit from the session). Malformed combinations return 400 scope-invalid."
+          },
+          {
+            "name": "segment",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "required": false,
+            "description": "One step of the segment path, `key:value`; repeat it in order, coarse to fine.",
+            "x-kindgi-segment-path": true
           }
         ],
         "security": [
@@ -22465,7 +22484,7 @@
             }
           },
           "409": {
-            "description": "`proposal-needs-pin`: the agent has no live version for the whole tenant. `proposal-invalid-state-transition`: the proposal's status doesn't allow it.",
+            "description": "`proposal-needs-pin`: the agent has no live version for the whole tenant. `proposal-invalid-state-transition`: the proposal's status doesn't allow it. `registry-read-only`: the agent registry takes no writes (under `kindgi dev`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -22614,7 +22633,7 @@
             }
           }
         },
-        "description": "A promotion of the candidate for the proposal's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/promotions` answers. Needs `promote` on the agent. Allowed from `evaluated`, `refused`, `superseded` and `expired`.",
+        "description": "A promotion of the candidate for the proposal's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/promotions` answers. Needs `promote` on the agent. Allowed from `evaluated`, `not-better` (the gate decides), `refused`, `superseded` and `expired`.",
         "parameters": [
           {
             "name": "proposalId",
