@@ -137,16 +137,21 @@ are how you write tools and agents for this project.
 
 ## Step 3: start Kindgi
 
-Start `kindgi dev` in the background, from the project's folder, with its
-output in a log file, for example
-`mkdir -p .kindgi && kindgi dev > .kindgi/dev.log 2>&1 &`, with `kindgi`
-as the project runs it (`.kindgi/` is git-ignored). It starts the
-runtime in Docker and answers with a stand-in model, `dev-echo`, until step 4
-adds a real one.
+Start `kindgi dev` from the project's folder so that it keeps running after
+your turn ends: detached, with its output in a log, and note its process id:
+
+```sh
+mkdir -p .kindgi && nohup kindgi dev > .kindgi/dev.log 2>&1 &
+echo $!
+```
+
+(with `kindgi` as the project runs it; `.kindgi/` is git-ignored). It starts
+the runtime in Docker and answers with a stand-in model, `dev-echo`, until
+step 4 adds a real one.
 
 Run doctor every few seconds until `runtime` passes. `model-key` and
-`provider` still fail: that's expected until step 4. Then tell the person it's running, and how to stop it: stop the
-process you started (or press Ctrl+C where it runs).
+`provider` still fail: that's expected until step 4. Then tell the person
+it's running, and how to stop it: `kill <the process id>`.
 
 ## Step 4: the model key
 
@@ -164,6 +169,12 @@ process you started (or press Ctrl+C where it runs).
    ignores. It needs `kindgi dev` running.
 3. Clear the clipboard, if this OS lets you.
 4. Run doctor again; `model-key` and `provider` should pass.
+
+If the model provider later refuses the key (a `401`), don't open, measure
+or print `.env.local`. Ask the person to copy the key again, and run the
+`secrets set` command again with `--write-mode=add-version`: without it, a
+key that's already stored is refused (`Version conflict: ANTHROPIC_API_KEY
+already exists`).
 
 ## Step 5: the first agent
 
@@ -186,7 +197,8 @@ process you started (or press Ctrl+C where it runs).
 Tell the person, in your own words:
 
 > **Your first agent answered.** It runs on your machine, with your model
-> key in `.env.local`. Three things to try next:
+> key in `.env.local`; Kindgi keeps running in the background until you stop
+> it with `kill <the process id>`. Three things to try next:
 >
 > 1. **Give it a tool:** ask me "add a tool that looks up an order, and let
 >    the agent call it".
