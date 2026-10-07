@@ -285,14 +285,15 @@ on the Vertex AI API and grants the runtime's service account
 `roles/aiplatform.user`. Then register the preset:
 
 ```sh
-pnpm exec kindgi providers register --preset=gemini --project=<project> --models=gemini-2.5-flash --url … --token …
+pnpm exec kindgi providers register --preset=gemini --project=<project> --models=gemini-3.8-flash --url … --token …
 ```
 
 ```text
-✓ Registered gemini: gemini-2.5-flash
+✓ Registered gemini: gemini-3.8-flash
 ```
 
-Without the role, every model call fails:
+Without the role, every model call fails (this one was captured with
+`gemini-2.5-flash`; another model's call names that model):
 
 ```text
 Model call to gemini (gemini-2.5-flash) failed: {"error":{"code":403,"message":"Permission 'aiplatform.endpoints.predict' denied on resource '//aiplatform.googleapis.com/projects/<project>/locations/global/publishers/google/models/gemini-2.5-flash' (or it may not exist). …

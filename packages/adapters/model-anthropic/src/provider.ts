@@ -11,9 +11,11 @@ import type {
   ProviderMetadata,
 } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
+import { nameToolsAsSent } from '@kindgi/capabilities/tool-names';
 
 import { type CostRates, computeCostUsd, toFrameworkUsage } from './cost.js';
 import {
+  encodeToolName,
   fromAnthropicResponse,
   mapStopReason,
   toAnthropicMessages,
@@ -154,7 +156,18 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
       const startedAt = Date.now();
       const client = await resolveClient();
 
-      const { system, messages } = toAnthropicMessages(input.messages);
+      const translated = toAnthropicMessages(input.messages);
+      // The system prompt names the call's tools as they're sent (`acme__lookup_order`):
+      // a model told to call `acme.lookup_order` calls a name it wasn't given (T311).
+      const system =
+        translated.system === undefined
+          ? undefined
+          : nameToolsAsSent(
+              translated.system,
+              input.tools?.map((t) => t.name) ?? [],
+              encodeToolName,
+            );
+      const { messages } = translated;
       const tools =
         input.tools !== undefined && input.tools.length > 0
           ? toAnthropicTools(input.tools)

@@ -63,6 +63,9 @@ kindgi eval-runs start acme.article-picks --project=<project-id> --agent=acme-op
 }
 ```
 
+This comparison was captured on `claude-haiku-4-5` (retiring on or after
+2026-10-15); on a newer model the scores differ, not the shape.
+
 Without `--wait`, the command returns the run's id at once, and
 `kindgi eval-runs show <run-id>` reads it later. From your code:
 
