@@ -54,6 +54,12 @@ export interface JudgedEvalCase {
   /** The output that was judged. */
   readonly output: unknown;
   readonly items: readonly JudgedItemSummary[];
+  /**
+   * An erasure cleared this case (a person's words were erased): its
+   * `input`, `output` and `context` are gone and its items empty. Eval
+   * runs leave it out and count it (`erased`).
+   */
+  readonly erased?: true;
 }
 
 export interface EvalCasePutInput {

@@ -123,6 +123,11 @@ export interface JudgedComparisonSummary {
    * refused): no output to score, so they're left out of the metrics.
    */
   readonly stopped: number;
+  /**
+   * Cases an erasure cleared (a person's words were erased): left out of
+   * the run and the metrics. Absent: none.
+   */
+  readonly erased?: number;
   readonly reads: EvalComparison['reads'];
   /**
    * Which judgments counted: `restricted-only` weighs a judgment not
@@ -212,11 +217,16 @@ export function createJudgedDispatcher(options: JudgedDispatcherOptions): EvalRu
     validate: validateComparison,
     async dispatch(ctx): Promise<DispatchResult> {
       const comparison = ctx.comparison ?? DEFAULT_COMPARISON;
-      const stored = await allCases(options.cases, ctx);
+      const listed = await allCases(options.cases, ctx);
+      // An erased case has nothing left to replay: left out, and counted.
+      const stored = listed.filter((c) => c.erased !== true);
+      const erased = listed.length - stored.length;
       const all =
         comparison.classWeights === 'restricted-only' ? stored.map(restrictedOnly) : stored;
       if (ctx.dryRun) {
-        return { result: { dryRun: true, cases: all.length, comparison } };
+        return {
+          result: { dryRun: true, cases: all.length, ...(erased > 0 && { erased }), comparison },
+        };
       }
       const results: JudgedCaseResult[] = [];
       const models = new Map<string, { providerId: string; model: string; runs: number }>();
@@ -227,7 +237,10 @@ export function createJudgedDispatcher(options: JudgedDispatcherOptions): EvalRu
         ctx.onProgress(result as unknown as Readonly<Record<string, unknown>>);
       }
       const pinsDigest = await candidatePins(options.agents, ctx);
-      const summary = summarize(ctx, comparison, all, results, [...models.values()], pinsDigest);
+      const summary = {
+        ...summarize(ctx, comparison, all, results, [...models.values()], pinsDigest),
+        ...(erased > 0 && { erased }),
+      };
       return {
         result: { summary, perCase: results },
         ...(ctx.abortSignal.aborted && { error: 'cancelled' }),

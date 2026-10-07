@@ -3098,6 +3098,12 @@ export const JudgedEvalCaseSchema: JsonSchema = {
     context: { $ref: '#/components/schemas/JudgedRunContext' },
     output: {},
     items: { type: 'array', items: { $ref: '#/components/schemas/JudgedItemSummary' } },
+    erased: {
+      type: 'boolean',
+      const: true,
+      description:
+        "An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, and eval runs leave it out (counted as `erased`).",
+    },
   },
 };
 
@@ -6135,6 +6141,12 @@ export const JudgedComparisonSummarySchema: JsonSchema = {
       description: 'Tool calls refused across the cases (what the candidate would have done).',
     },
     errors: { type: 'integer', minimum: 0, description: 'Cases none of whose repetitions ran.' },
+    erased: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "Cases an erasure cleared (a person's words were erased): left out of the run and the metrics. Absent: none.",
+    },
     stopped: {
       type: 'integer',
       minimum: 0,

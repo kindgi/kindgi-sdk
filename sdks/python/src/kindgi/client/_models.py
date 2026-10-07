@@ -1739,6 +1739,10 @@ class JudgedEvalCase(BaseModel):
     context: JudgedRunContext | None = None
     output: Any
     items: list[JudgedItemSummary]
+    erased: Literal[True] | None = None
+    """
+    An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, and eval runs leave it out (counted as `erased`).
+    """
 
 
 class JudgedEvalCaseCollectionPage(BaseModel):
@@ -5927,6 +5931,10 @@ class JudgedComparisonSummary(BaseModel):
     errors: Annotated[int, Field(ge=0)]
     """
     Cases none of whose repetitions ran.
+    """
+    erased: Annotated[int | None, Field(ge=1)] = None
+    """
+    Cases an erasure cleared (a person's words were erased): left out of the run and the metrics. Absent: none.
     """
     stopped: Annotated[int, Field(ge=0)]
     """
