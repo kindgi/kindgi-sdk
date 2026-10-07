@@ -232,6 +232,19 @@ describe('artifacts.upload / download', () => {
     expect(stub.seen[0]!.init.method).toBe('HEAD');
   });
 
+  it("head's 404 (no body) is a not-found that says so", async () => {
+    const stub = capture(() => new Response(null, { status: 404 }));
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetchImpl,
+    });
+    await expect(client.artifacts.head('gone' as never)).rejects.toMatchObject({
+      message: "No such artifact, or it's in a project you can't read",
+      error: { code: 'not-found' },
+    });
+  });
+
   it('a refusal throws the wire error: over the cap, or not found', async () => {
     const tooBig = capture(
       () =>

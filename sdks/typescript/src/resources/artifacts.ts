@@ -144,7 +144,19 @@ async function raw(
     ...(req.body !== undefined && { body: req.body }),
   });
   if (!res.ok) {
-    const body: unknown = await res.json().catch(() => null);
+    // A HEAD answer has no body: name the refusal from its status.
+    const body: unknown =
+      req.method === 'HEAD'
+        ? {
+            error: {
+              code: res.status === 404 ? 'blob-not-found' : 'unknown',
+              message:
+                res.status === 404
+                  ? "No such artifact, or it's in a project you can't read"
+                  : `HTTP ${res.status}`,
+            },
+          }
+        : await res.json().catch(() => null);
     throw new KindgiApiError(fromWire(unwrapErrorEnvelope(body, res.status), res.status));
   }
   return res;
