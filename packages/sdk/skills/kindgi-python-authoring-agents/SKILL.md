@@ -15,7 +15,7 @@ description: >
   model by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.0"
+version: "0.1.1"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -25,9 +25,11 @@ sources:
 
 # Authoring Kindgi agents in Python
 
-> **Running `kindgi`:** a Python pack has no Node project, so the
-> `kindgi` CLI is the one on `PATH`. Python commands run in the pack's
-> environment: `uv run …` (or `.venv/bin/python …`).
+> **Running `kindgi`:** the CLI is `kindgi-cli` from PyPI, pinned in the
+> pack's dev group, so every `kindgi <command>` below runs as
+> `uv run kindgi <command>` (Poetry: `poetry run kindgi <command>`). Python
+> commands run in the pack's environment the same way: `uv run …` (or
+> `.venv/bin/python …`).
 
 An **agent** is a versioned, model-driven orchestrator: instructions (a
 prompt template), the tools it may call, the capabilities its model

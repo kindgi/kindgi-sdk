@@ -1,0 +1,55 @@
+{
+  "name": "gemini-api",
+  "description": "Gemini on the Gemini Developer API, with an API key from Google AI Studio (key: GEMINI_API_KEY). For Vertex AI, use gemini.",
+  "adapterId": "@kindgi/adapter-model-gemini",
+  "adapterConfigValues": {
+    "api": "developer"
+  },
+  "secret": "GEMINI_API_KEY",
+  "pricesCheckedAt": "2026-10-07",
+  "metadata": {
+    "id": "gemini-api",
+    "region": "unspecified",
+    "description": "Gemini on the Gemini Developer API",
+    "models": [
+      {
+        "name": "gemini-3.8-flash",
+        "contextWindow": 1048576,
+        "maxOutputTokens": 65536,
+        "features": ["tool-use", "long-context"],
+        "cost": {
+          "promptUsdPer1kTokens": 0.00075,
+          "completionUsdPer1kTokens": 0.00375
+        },
+        "description": "Fast and inexpensive (Google's prices for it rise on 2027-01-01)."
+      },
+      {
+        "name": "gemini-3.1-pro-preview",
+        "contextWindow": 1048576,
+        "maxOutputTokens": 65536,
+        "features": ["tool-use", "long-context"],
+        "cost": {
+          "promptUsdPer1kTokens": 0.002,
+          "completionUsdPer1kTokens": 0.012,
+          "longContext": {
+            "thresholdTokens": 200000,
+            "promptUsdPer1kTokens": 0.004,
+            "completionUsdPer1kTokens": 0.018
+          }
+        },
+        "description": "Most capable Gemini (a preview model)."
+      },
+      {
+        "name": "gemini-3.5-flash-lite",
+        "contextWindow": 1048576,
+        "maxOutputTokens": 65536,
+        "features": ["tool-use", "long-context"],
+        "cost": {
+          "promptUsdPer1kTokens": 0.0003,
+          "completionUsdPer1kTokens": 0.0025
+        },
+        "description": "Cheapest — routing, classification, simple calls."
+      }
+    ]
+  }
+}

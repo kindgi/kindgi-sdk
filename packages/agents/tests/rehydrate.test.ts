@@ -214,6 +214,23 @@ describe('rehydrateTurnContext', () => {
     expect(ctx.lastProvider).toEqual({ id: 'second', model: 'second-model' });
   });
 
+  test("keeps the model calls' warnings, so a resumed turn's result still has them", async () => {
+    const warnings = [{ code: 'dev-echo-not-a-model', message: 'not a model' }];
+    // Every journaled copy of the first iteration's model call carries them.
+    const journal = parkedJournal.map((e) => {
+      const payload = e.payload as { readonly output?: { readonly step?: number } };
+      return e.nodeId === 'model-call' && payload.output?.step === 1
+        ? ({
+            ...e,
+            payload: { ...payload, output: { ...payload.output, warnings } },
+          } as JournalEntry)
+        : e;
+    });
+    const ctx = resumedTurn([provider('second')]);
+    expect(await rehydrateTurnContext(ctx, 'run-1', journal)).toBe(true);
+    expect([...(ctx.modelWarnings ?? [])]).toEqual([['dev-echo-not-a-model', 'not a model']]);
+  });
+
   test("fails the turn when setup's model is no longer registered", async () => {
     const ctx = resumedTurn([provider('first')]);
     let failure: unknown;

@@ -347,7 +347,7 @@ kindgi gate-policies publish acme.order-desk-release --policy-version=1.0.0 --ag
 | `comparison.maxAgeHours` | a comparison of the version, finished at most this many hours ago |
 | `evidence.minCases` | each figure resting on at least this many judged cases, for the version and for the live one |
 | `metrics` | each named figure (`weightedYesShare`, `judgedCoverage`, or `weightedPrecisionAtK` with its `k`) at least `minCandidate`, and at most `maxDrop` below the live version |
-| `replay` | at most this many diverged cases, errors, refused writes and stopped cases (`maxDiverged`, `maxErrors`, `maxRefusedWrites`, `maxStopped`); those left out are 0 |
+| `replay` | at most this many diverged cases, errors, refused writes and stopped cases (`maxDiverged`, `maxErrors`, `maxRefusedWrites`, `maxStopped`); those left out are 0. A version with other settings runs read-only tools live, which [counts as diverged](../compare-an-agent-version/#what-a-replay-does), so `maxDiverged: 0` refuses it |
 | `approvals` | then a reviewer with this role (`senior` if left out) approves it, someone other than whoever asked (`separateApprover: false` lets the one who asked approve it) |
 | `onlyRestrictedClasses: true` | a comparison that [counted only restricted judges](../compare-an-agent-version/#count-only-restricted-judges) |
 
