@@ -1834,7 +1834,7 @@ export interface Session {
 /**
  * Wire shape — matches `@kindgi/api/openapi.json#UserRecord`:
  * `{ userId, tenantId, primaryEmail?, displayName?, createdAt,
- * lastActiveAt?, metadata? }`. The API does not own user persistence
+ * lastActiveAt?, unregisteredAt?, metadata? }`. The API does not own user persistence
  * (deployments plug in their identity plane — LDAP, SCIM, or a bespoke
  * store); attributes such as email verification or deactivation, when
  * an identity provider has them, travel in `metadata`.
@@ -1846,7 +1846,20 @@ export interface User {
   readonly displayName?: string;
   readonly createdAt: import('@kindgi/types').Timestamp;
   readonly lastActiveAt?: import('@kindgi/types').Timestamp;
+  /** When they were removed from the tenant (`client.users.unregister`); absent while they're here. */
+  readonly unregisteredAt?: import('@kindgi/types').Timestamp;
   readonly metadata?: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * A removed person and what removing them took away (each 0 when they
+ * were already removed). Matches `@kindgi/api/openapi.json#UnregisterUserResult`.
+ */
+export interface UnregisterUserResult {
+  readonly user: User;
+  readonly keysRevoked: number;
+  readonly sessionsRevoked: number;
+  readonly grantsRemoved: number;
 }
 
 /**

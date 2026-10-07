@@ -551,6 +551,7 @@ export type {
   RetrievalResult,
   RevokeSessionsResult,
   RouteResult,
+  UnregisterUserResult,
   CreateJudgeClassInput,
   CreateJudgmentInput,
   CreateServiceAccountInput,

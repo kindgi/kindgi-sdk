@@ -33,6 +33,18 @@ const TABLE: TableSpec<ListPage<User>, User> = {
   ],
 };
 
+/** `list --include-removed`: when each was removed, too. */
+const TABLE_WITH_REMOVED: TableSpec<ListPage<User>, User> = {
+  rows: TABLE.rows,
+  columns: [
+    ...TABLE.columns,
+    {
+      header: 'REMOVED',
+      get: (u) => (u.unregisteredAt !== undefined ? String(u.unregisteredAt) : ''),
+    },
+  ],
+};
+
 const add: LeafCommand = {
   kind: 'leaf',
   name: 'add',
@@ -66,10 +78,16 @@ const add: LeafCommand = {
 const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
-  description: "List the tenant's people; `--query` matches the start of a name.",
-  usage: 'kindgi people list [--query=<name-prefix>] [--limit=<n>] [--cursor=<c>] [--table]',
+  description:
+    "List the tenant's people; `--query` matches the start of a name. People who were removed are left out unless `--include-removed`.",
+  usage:
+    'kindgi people list [--query=<name-prefix>] [--include-removed] [--limit=<n>] [--cursor=<c>] [--table]',
   optionSpec: {
     query: { type: 'string', description: 'Only names starting with this.' },
+    'include-removed': {
+      type: 'boolean',
+      description: 'People who were removed too, with when (`unregisteredAt`).',
+    },
     limit: { type: 'string', description: 'Page size.' },
     cursor: { type: 'string', description: 'The next page, from `nextCursor`.' },
   },
@@ -85,9 +103,10 @@ const list: LeafCommand = {
           ...(query !== undefined && { query }),
           ...(limit !== undefined && { limit }),
           ...(cursor !== undefined && { cursor: cursor as never }),
+          ...(ctx.options['include-removed'] === true && { includeUnregistered: true }),
         });
       },
-      TABLE,
+      ctx.options['include-removed'] === true ? TABLE_WITH_REMOVED : TABLE,
     ),
 };
 
@@ -170,10 +189,31 @@ const ungrant: LeafCommand = {
     }),
 };
 
+const remove: LeafCommand = {
+  kind: 'leaf',
+  name: 'remove',
+  description:
+    'Remove a person from the tenant: every API key and session of theirs is revoked, and every role and membership taken away, before it answers (their keys get 401 at once). Their record stays, so their history still says who they were; their email is free again (adding it makes a new person). Refused for yourself, the seed user and the only tenant admin. Tenant admins only.',
+  usage: 'kindgi people remove <user-id>',
+  run: (ctx) =>
+    runSdkRendered(ctx, 'people remove', async () => {
+      const id = requiredPositional(ctx, 0, 'user-id');
+      const removed = await ctx.client().users.unregister(id as never);
+      const who = removed.user.displayName ?? String(removed.user.userId);
+      return {
+        stdout: renderJson(removed, ctx.globals.format).stdout,
+        stderr:
+          ctx.globals.format === 'quiet'
+            ? ''
+            : `Removed ${who}: ${removed.keysRevoked} key(s) and ${removed.sessionsRevoked} session(s) revoked, ${removed.grantsRemoved} role(s) and membership(s) taken away.\n`,
+      };
+    }),
+};
+
 export const peopleCommand: Command = {
   kind: 'group',
   name: 'people',
   description:
-    "The tenant's people: add one, list, get, their grants, and tenant admin given or taken (grant / ungrant).",
-  subcommands: [add, list, get, grants, grant, ungrant],
+    "The tenant's people: add one, list, get, their grants, tenant admin given or taken (grant / ungrant), and remove one.",
+  subcommands: [add, list, get, grants, grant, ungrant, remove],
 };

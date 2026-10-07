@@ -218,6 +218,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'last-tenant-admin': 409,
   /** Removing tenant admin from the seed user, whom the runtime re-grants it at every boot. */
   'seed-user-admin': 409,
+  /** Unregistering yourself, or the deployment's seed user (`details.reason`). */
+  'identity-user-unregister-refused': 409,
+  /** A grant or a key for a person who was unregistered. */
+  'identity-user-unregistered': 409,
   /** A person's grants on a runtime without an authorization store. */
   'person-grants-unsupported': 501,
   /** Unregister: the version is live in a scope; move that pin first. */

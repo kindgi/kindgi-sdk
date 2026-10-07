@@ -52,6 +52,8 @@ export interface PersonGrantChange extends PersonRef {
 export type PersonGrantErrorCode =
   /** No such person in the tenant's directory. */
   | 'identity-user-not-found'
+  /** Granting to a person who was removed from the tenant. */
+  | 'identity-user-unregistered'
   /** Removing tenant admin from the only person who holds it. */
   | 'last-tenant-admin'
   /** Removing tenant admin from the seed user, whom the runtime grants it at every boot. */

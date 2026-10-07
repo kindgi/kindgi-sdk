@@ -4804,6 +4804,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
         description: 'Prefix match on `displayName`.',
         schema: { type: 'string' },
       },
+      {
+        name: 'includeUnregistered',
+        in: 'query',
+        required: false,
+        description: 'With `true`, people who were removed (`unregisteredAt`) too.',
+        schema: { type: 'boolean' },
+      },
     ],
     responses: {
       '200': { description: 'Page of users.', schema: ref('UserCollectionPage') },
@@ -4868,6 +4875,33 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'post',
+    honoPath: '/v1/identity/users/:userId/unregister',
+    openapiPath: '/v1/identity/users/{userId}/unregister',
+    operationId: 'identity.users.unregister',
+    summary: 'Remove a person',
+    description:
+      "Removes a person from the tenant, in one step: they're marked removed (`unregisteredAt`; their record stays, so their history still says who they were), every API key and session of theirs is revoked, and every grant and membership they hold is taken away, all before it answers. Their keys get `401` at once. Their email is free again: adding it makes a new person. Removing someone already removed changes nothing. Refused for yourself and the deployment's seed user (`identity-user-unregister-refused`), and for the only tenant admin (`last-tenant-admin`). Tenant admins only. Mounted when the identity directory can remove people.",
+    tags: ['identity'],
+    security: 'bearer',
+    parameters: [
+      { name: 'userId', in: 'path', required: true, schema: { type: 'string', minLength: 1 } },
+      IdempotencyKeyParam,
+    ],
+    responses: {
+      '200': {
+        description: 'The removed person, and what removing them took away.',
+        schema: ref('UnregisterUserResult'),
+      },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse('No user with that id under this tenant (`identity-user-not-found`).'),
+      '409': ErrorResponse(
+        'Yourself or the seed user (`identity-user-unregister-refused`, `details.reason`), the only tenant admin (`last-tenant-admin`), or an idempotency conflict.',
+      ),
+    },
+  },
+  {
+    method: 'post',
     honoPath: '/v1/identity/users/:userId/revoke-sessions',
     openapiPath: '/v1/identity/users/{userId}/revoke-sessions',
     operationId: 'identity.users.revokeSessions',
@@ -4928,6 +4962,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '403': ErrorResponse('Not a tenant admin.'),
       '404': ErrorResponse('No user with that id under this tenant (`identity-user-not-found`).'),
+      '409': ErrorResponse(
+        'The person was removed from the tenant (`identity-user-unregistered`), or an idempotency conflict.',
+      ),
       '501': ErrorResponse('The runtime has no authorization store (`person-grants-unsupported`).'),
     },
   },

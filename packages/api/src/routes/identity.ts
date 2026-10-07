@@ -42,6 +42,7 @@ import { clampLimit } from './pagination.js';
  *   - `POST /v1/identity/users/:userId/revoke-sessions` (admin op)
  *   - `GET  /v1/identity/users/:userId/grants`          (admin, or your own)
  *   - `POST /v1/identity/users/:userId/grant|ungrant`   (tenant admin, tenant admins only)
+ *   - `POST /v1/identity/users/:userId/unregister`      (remove a person; tenant admins, when the directory can)
  *
  * `directory` is optional: deployments without an `IdentityDirectoryBinding`
  * still get `whoami` (returning the minimal `{ tenantId, scopes, ... }` shape
@@ -128,12 +129,14 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
     const limit = clampLimit(c.req.query('limit'));
     const cursorRaw = c.req.query('cursor');
     const queryRaw = c.req.query('query');
+    const includeUnregistered = c.req.query('includeUnregistered') === 'true';
 
     const page = await directory.listUsers({
       tenantId,
       limit,
       ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
       ...(queryRaw !== undefined && queryRaw.length > 0 && { query: queryRaw }),
+      ...(includeUnregistered && { includeUnregistered: true }),
     });
     return c.json({
       data: page.data.map(serializeUser),
@@ -220,6 +223,67 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
   });
+
+  // ---------- POST /users/:userId/unregister (remove a person; tenant admins) ----------
+  const unregisterUser = directory.unregisterUser?.bind(directory);
+  if (unregisterUser !== undefined) {
+    r.post('/users/:userId/unregister', async (c) => {
+      const requestId = c.get('requestId');
+      const userId = c.req.param('userId') as UserId;
+      if (!(await isTenantAdmin(c, authorizer))) {
+        c.status(statusFor('permission-denied') as never);
+        return c.json(
+          toWireError(
+            { code: 'permission-denied', message: 'Only a tenant admin removes people' },
+            requestId,
+          ),
+        );
+      }
+      const unregisteredBy = callerRef(c);
+      const outcome = await unregisterUser({
+        tenantId: c.get('tenantId') as TenantId,
+        userId,
+        ...(unregisteredBy !== undefined && { unregisteredBy }),
+      });
+      if (outcome.kind === 'not-found') {
+        c.status(statusFor('identity-user-not-found') as never);
+        return c.json(
+          toWireError(
+            {
+              code: 'identity-user-not-found',
+              message: `No user with id "${userId as unknown as string}" under this tenant`,
+              userId: userId as unknown as string,
+            },
+            requestId,
+          ),
+        );
+      }
+      if (outcome.kind === 'refused') {
+        const code =
+          outcome.reason === 'last-tenant-admin'
+            ? 'last-tenant-admin'
+            : 'identity-user-unregister-refused';
+        c.status(statusFor(code) as never);
+        return c.json(
+          toWireError(
+            {
+              code,
+              message: outcome.message,
+              reason: outcome.reason,
+              userId: userId as unknown as string,
+            },
+            requestId,
+          ),
+        );
+      }
+      return c.json({
+        user: serializeUser(outcome.user),
+        keysRevoked: outcome.keysRevoked,
+        sessionsRevoked: outcome.sessionsRevoked,
+        grantsRemoved: outcome.grantsRemoved,
+      });
+    });
+  }
 
   // ---------- POST /users/:userId/revoke-sessions (admin, or your own) ----------
   r.post('/users/:userId/revoke-sessions', async (c) => {
@@ -385,6 +449,9 @@ function serializeUser(u: UserRecord): Record<string, unknown> {
     ...(u.displayName !== undefined && { displayName: u.displayName }),
     createdAt: u.createdAt as unknown as string,
     ...(u.lastActiveAt !== undefined && { lastActiveAt: u.lastActiveAt as unknown as string }),
+    ...(u.unregisteredAt !== undefined && {
+      unregisteredAt: u.unregisteredAt as unknown as string,
+    }),
     ...(u.metadata !== undefined && { metadata: u.metadata }),
   };
 }

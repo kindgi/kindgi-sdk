@@ -98,6 +98,17 @@ async function run(argv: readonly string[]) {
           grants: rec('users.grants', GRANTS),
           grant: rec('users.grant', { ...GRANTS, tenantAdmin: true }),
           ungrant: rec('users.ungrant', GRANTS),
+          unregister: rec('users.unregister', {
+            user: {
+              userId: 'u-9',
+              displayName: 'Carol',
+              createdAt: '2026-10-06T12:00:00Z',
+              unregisteredAt: '2026-10-07T12:00:00Z',
+            },
+            keysRevoked: 2,
+            sessionsRevoked: 1,
+            grantsRemoved: 3,
+          }),
         },
       }) as never,
   });
@@ -269,6 +280,29 @@ describe('kindgi people', () => {
     const { out, calls } = await run(['people', 'list', '--query=Ca', '--table']);
     expect(calls).toEqual([['users.list', { query: 'Ca' }]]);
     expect(out.stdout).toContain('carol@acme.test');
+    expect(out.stdout).not.toContain('REMOVED');
+  });
+
+  test('list --include-removed asks for removed people too, with a REMOVED column', async () => {
+    const { out, calls } = await run(['people', 'list', '--include-removed', '--table']);
+    expect(calls).toEqual([['users.list', { includeUnregistered: true }]]);
+    expect(out.stdout).toContain('REMOVED');
+  });
+
+  test('remove: the record on stdout, what went on stderr', async () => {
+    const { out, calls } = await run(['people', 'remove', 'u-9']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['users.unregister', 'u-9']]);
+    expect(JSON.parse(out.stdout)).toMatchObject({
+      user: { userId: 'u-9', unregisteredAt: '2026-10-07T12:00:00Z' },
+      keysRevoked: 2,
+    });
+    expect(out.stderr).toBe(
+      'Removed Carol: 2 key(s) and 1 session(s) revoked, 3 role(s) and membership(s) taken away.\n',
+    );
+    const missing = await run(['people', 'remove']);
+    expect(missing.out.exitCode).toBe(1);
+    expect(missing.calls).toEqual([]);
   });
 });
 

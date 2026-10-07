@@ -336,6 +336,8 @@
           "identity-user-email-taken": 409,
           "last-tenant-admin": 409,
           "seed-user-admin": 409,
+          "identity-user-unregister-refused": 409,
+          "identity-user-unregistered": 409,
           "person-grants-unsupported": 501,
           "agent-version-live": 409,
           "run-not-finished": 409,
@@ -11572,9 +11574,42 @@
             "type": "string",
             "format": "date-time"
           },
+          "unregisteredAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When they were removed from the tenant (`POST /v1/identity/users/{userId}/unregister`); absent while they are here."
+          },
           "metadata": {
             "type": "object",
             "additionalProperties": true
+          }
+        }
+      },
+      "UnregisterUserResult": {
+        "description": "A removed person, and what removing them took away (each 0 when they were already removed).",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "user",
+          "keysRevoked",
+          "sessionsRevoked",
+          "grantsRemoved"
+        ],
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/UserRecord"
+          },
+          "keysRevoked": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sessionsRevoked": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "grantsRemoved": {
+            "type": "integer",
+            "minimum": 0
           }
         }
       },
@@ -31375,6 +31410,15 @@
             },
             "required": false,
             "description": "Prefix match on `displayName`."
+          },
+          {
+            "name": "includeUnregistered",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            },
+            "required": false,
+            "description": "With `true`, people who were removed (`unregisteredAt`) too."
           }
         ],
         "security": [
@@ -31577,6 +31621,114 @@
               "minLength": 1
             },
             "required": true
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/identity/users/{userId}/unregister": {
+      "post": {
+        "operationId": "identity.users.unregister",
+        "summary": "Remove a person",
+        "tags": [
+          "identity"
+        ],
+        "responses": {
+          "200": {
+            "description": "The removed person, and what removing them took away.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnregisterUserResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No user with that id under this tenant (`identity-user-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Yourself or the seed user (`identity-user-unregister-refused`, `details.reason`), the only tenant admin (`last-tenant-admin`), or an idempotency conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Removes a person from the tenant, in one step: they're marked removed (`unregisteredAt`; their record stays, so their history still says who they were), every API key and session of theirs is revoked, and every grant and membership they hold is taken away, all before it answers. Their keys get `401` at once. Their email is free again: adding it makes a new person. Removing someone already removed changes nothing. Refused for yourself and the deployment's seed user (`identity-user-unregister-refused`), and for the only tenant admin (`last-tenant-admin`). Tenant admins only. Mounted when the identity directory can remove people.",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
           }
         ],
         "security": [
@@ -31821,7 +31973,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "The person was removed from the tenant (`identity-user-unregistered`), or an idempotency conflict.",
             "content": {
               "application/json": {
                 "schema": {

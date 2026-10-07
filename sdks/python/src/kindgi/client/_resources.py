@@ -520,6 +520,9 @@ OPERATIONS: dict[str, Operation] = {
     "identity.users.listSessions": Operation(
         "identity.users.listSessions", "GET", "/v1/identity/users/{userId}/sessions", "json", False
     ),
+    "identity.users.unregister": Operation(
+        "identity.users.unregister", "POST", "/v1/identity/users/{userId}/unregister", "json", True
+    ),
     "identity.users.revokeSessions": Operation(
         "identity.users.revokeSessions",
         "POST",
@@ -4912,6 +4915,7 @@ class IdentityUsersResource:
         limit: int | None = None,
         cursor: str | None = None,
         query: str | None = None,
+        include_unregistered: bool | None = None,
         timeout: float | None = None,
     ) -> _models.UserCollectionPage:
         """List users in the tenant. `GET /v1/identity/users`
@@ -4921,7 +4925,12 @@ class IdentityUsersResource:
         return self._client._request(
             _OPERATIONS["identity.users.list"],
             path={},
-            query={"limit": limit, "cursor": cursor, "query": query},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "query": query,
+                "includeUnregistered": include_unregistered,
+            },
             headers={},
             response=_models.UserCollectionPage,
             timeout=timeout,
@@ -4974,6 +4983,27 @@ class IdentityUsersResource:
             query={},
             headers={},
             response=_models.IdentitySessionCollectionPage,
+            timeout=timeout,
+        )
+
+    def unregister(
+        self,
+        user_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.UnregisterUserResult:
+        """Remove a person. `POST /v1/identity/users/{userId}/unregister`
+
+        Removes a person from the tenant, in one step: they're marked removed (`unregisteredAt`; their record stays, so their history still says who they were), every API key and session of theirs is revoked, and every grant and membership they hold is taken away, all before it answers. Their keys get `401` at once. Their email is free again: adding it makes a new person. Removing someone already removed changes nothing. Refused for yourself and the deployment's seed user (`identity-user-unregister-refused`), and for the only tenant admin (`last-tenant-admin`). Tenant admins only. Mounted when the identity directory can remove people.
+        """
+        return self._client._request(
+            _OPERATIONS["identity.users.unregister"],
+            path={"userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterUserResult,
             timeout=timeout,
         )
 
@@ -11058,6 +11088,7 @@ class AsyncIdentityUsersResource:
         limit: int | None = None,
         cursor: str | None = None,
         query: str | None = None,
+        include_unregistered: bool | None = None,
         timeout: float | None = None,
     ) -> _models.UserCollectionPage:
         """List users in the tenant. `GET /v1/identity/users`
@@ -11067,7 +11098,12 @@ class AsyncIdentityUsersResource:
         return await self._client._request(
             _OPERATIONS["identity.users.list"],
             path={},
-            query={"limit": limit, "cursor": cursor, "query": query},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "query": query,
+                "includeUnregistered": include_unregistered,
+            },
             headers={},
             response=_models.UserCollectionPage,
             timeout=timeout,
@@ -11122,6 +11158,27 @@ class AsyncIdentityUsersResource:
             query={},
             headers={},
             response=_models.IdentitySessionCollectionPage,
+            timeout=timeout,
+        )
+
+    async def unregister(
+        self,
+        user_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.UnregisterUserResult:
+        """Remove a person. `POST /v1/identity/users/{userId}/unregister`
+
+        Removes a person from the tenant, in one step: they're marked removed (`unregisteredAt`; their record stays, so their history still says who they were), every API key and session of theirs is revoked, and every grant and membership they hold is taken away, all before it answers. Their keys get `401` at once. Their email is free again: adding it makes a new person. Removing someone already removed changes nothing. Refused for yourself and the deployment's seed user (`identity-user-unregister-refused`), and for the only tenant admin (`last-tenant-admin`). Tenant admins only. Mounted when the identity directory can remove people.
+        """
+        return await self._client._request(
+            _OPERATIONS["identity.users.unregister"],
+            path={"userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterUserResult,
             timeout=timeout,
         )
 

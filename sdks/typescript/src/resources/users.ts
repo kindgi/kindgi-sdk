@@ -11,6 +11,7 @@ import type {
   PersonGrants,
   RevokeSessionsResult,
   Session,
+  UnregisterUserResult,
   User,
   UserPatch,
   UserSpec,
@@ -36,6 +37,8 @@ import type {
  *   - `GET  /v1/identity/users/{userId}/grants` (a person's grants:
  *     tenant admins, or the person) and `POST …/grant|ungrant` (tenant
  *     admin; tenant admins only)
+ *   - `POST /v1/identity/users/{userId}/unregister` (remove a person:
+ *     their keys, sessions and grants go at once; tenant admins only)
  *
  * User records live in the deployment's identity directory (LDAP,
  * SCIM or a bespoke store, plugged in through
@@ -127,6 +130,20 @@ export interface UsersClient {
   ): Promise<PersonGrants>;
 
   /**
+   * Remove a person from the tenant, where the directory can: every API
+   * key and session of theirs is revoked and every grant and membership
+   * taken away before it returns (their keys get 401 at once). Their
+   * record stays, with `unregisteredAt`; their email is free again.
+   * Removing someone already removed changes nothing. Refused for
+   * yourself, the deployment's seed user (`identity-user-unregister-refused`)
+   * and the only tenant admin (`last-tenant-admin`). Tenant admins only.
+   */
+  unregister(
+    id: UserId,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<UnregisterUserResult>;
+
+  /**
    * @unwired No user-update route — users live in the deployment's
    *   identity directory.
    */
@@ -173,6 +190,8 @@ export interface SessionsClient {
 export interface UserFilter extends Filter {
   /** Server-side displayName prefix match. Case-sensitive. */
   readonly query?: string;
+  /** People who were removed (`unregisteredAt`) too. Default: only the people still here. */
+  readonly includeUnregistered?: boolean;
 }
 
 export function makeUsersClient(transport: Transport): UsersClient {
@@ -219,6 +238,7 @@ export function makeUsersClient(transport: Transport): UsersClient {
           ...(filter?.limit !== undefined && { limit: filter.limit }),
           ...(filter?.cursor !== undefined && { cursor: filter.cursor as unknown as string }),
           ...(filter?.query !== undefined && { query: filter.query }),
+          ...(filter?.includeUnregistered === true && { includeUnregistered: 'true' }),
         },
       });
       return listPage(page);
@@ -245,6 +265,15 @@ export function makeUsersClient(transport: Transport): UsersClient {
         method: 'POST',
         path: `/v1/identity/users/${encodeURIComponent(id as unknown as string)}/ungrant`,
         body: grant,
+        ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+      });
+    },
+
+    async unregister(id, options) {
+      return transport.request<UnregisterUserResult>({
+        method: 'POST',
+        path: `/v1/identity/users/${encodeURIComponent(id as unknown as string)}/unregister`,
+        body: {},
         ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
       });
     },
