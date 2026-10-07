@@ -26,7 +26,7 @@ import { LOCAL_ENV_NAME, displayEnvPath, readPackEnv } from '@kindgi/secrets-dot
 import type { CommandContext } from '../context.js';
 import { type DockerRunner, docker } from '../dev/runtime-container.js';
 import { DEFAULT_RUNTIME_IMAGE, registryOf } from '../dev/runtime-image.js';
-import { checkDocker, checkImageAccess } from '../dev/runtime-registry.js';
+import { checkDocker, checkImageAccess, credentialHelperHint } from '../dev/runtime-registry.js';
 import { renderJson } from '../output.js';
 import {
   binCommand,
@@ -321,6 +321,7 @@ async function registryCheck(
 ): Promise<DoctorCheck> {
   const access = await checkImageAccess(run, image);
   const host = registryOf(image);
+  const login = `${kindgi('auth', 'registry', '--username', '<robot name>', '--password-stdin')} (the robot name and token come from access.kindgi.com; pipe the token in, never paste it into a chat)`;
   switch (access.kind) {
     case 'ok':
       return pass('registry', `Docker can pull the runtime image (${image}).`);
@@ -328,13 +329,25 @@ async function registryCheck(
       return fail(
         'registry',
         `Docker can't pull the runtime image from ${host}: ${firstLine(access.detail)}`,
-        `Log Docker in with your pull token: ${kindgi('auth', 'registry', '--username', '<robot name>', '--password-stdin')} (the robot name and token come from access.kindgi.com; pipe the token in, never paste it into a chat). Then run doctor again.`,
+        `Log Docker in with your pull token: ${login}. Then run doctor again.`,
       );
     case 'not-found':
+      return access.maybeNoAccess === true
+        ? fail(
+            'registry',
+            `Docker has no access to the runtime image on ${host}, or it isn't there: docker manifest inspect can't tell them apart (${firstLine(access.detail)}).`,
+            `If you haven't logged Docker in yet: ${login}. Otherwise check this machine can reach ${host}, then run doctor again.`,
+          )
+        : fail(
+            'registry',
+            `Couldn't find the runtime image on ${host}: ${firstLine(access.detail)}`,
+            `Check this machine can reach ${host} (the network, a proxy or a firewall), then run doctor again.`,
+          );
+    case 'credential-helper':
       return fail(
         'registry',
-        `Couldn't find the runtime image on ${host}: ${firstLine(access.detail)}`,
-        `Check this machine can reach ${host} (the network, a proxy or a firewall), then run doctor again.`,
+        `Docker couldn't run its credential helper${access.helper !== undefined ? ` (docker-credential-${access.helper})` : ''}: ${firstLine(access.detail)}`,
+        credentialHelperHint(access.helper),
       );
     case 'no-tool':
       return fail(

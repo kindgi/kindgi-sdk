@@ -15,6 +15,7 @@ import {
   type ImageAccess,
   checkDocker,
   checkImageAccess,
+  credentialHelperHint,
   dockerLogin,
   registryLoginCommand,
 } from '../dev/runtime-registry.js';
@@ -282,11 +283,19 @@ function accessFailure(
         : `    ${args.username} is logged in to ${args.host} but can't pull it: request access at contact@kindgi.com.`,
     ];
   }
+  if (access.kind === 'credential-helper') {
+    return [
+      `  ✗ Couldn't check ${image}: ${access.detail}`,
+      `    ${credentialHelperHint(access.helper)}`,
+    ];
+  }
   if (access.kind === 'not-found') {
     const from = registryOf(image);
     return [
       `  ✗ Couldn't find ${image}: ${access.detail}`,
-      `    Either the image isn't on ${from}, or this machine can't reach ${from} (the network, a proxy or a firewall).`,
+      access.maybeNoAccess === true
+        ? `    docker manifest inspect says this both when the image isn't on ${from} and when Docker has no access to it: if you haven't logged in, ${registryLoginCommand(image)}. Otherwise check this machine can reach ${from}.`
+        : `    Either the image isn't on ${from}, or this machine can't reach ${from} (the network, a proxy or a firewall).`,
     ];
   }
   return [
