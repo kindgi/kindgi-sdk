@@ -189,7 +189,7 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
   checks.push(runtime.check);
   checks.push(
     runtime.check.status === 'pass' && runtime.url !== undefined && rc.token !== undefined
-      ? await providerCheck(ctx, runtime.url, rc.token, kindgi)
+      ? await providerCheck(ctx, runtime.url, rc.token, kindgi, seam)
       : skip('provider', `Not checked: it needs the runtime running (${kindgi('dev')}).`),
   );
   return report(checks, { dir, language });
@@ -489,6 +489,23 @@ async function pythonPackageInstalled(dir: string): Promise<boolean> {
   return false;
 }
 
+/** `a`, `a or b`, `a, b or c`. */
+function orList(items: readonly string[]): string {
+  return items.length <= 1
+    ? (items[0] ?? '')
+    : `${items.slice(0, -1).join(', ')} or ${items[items.length - 1]}`;
+}
+
+/** The presets that take an LLM provider key, with the key's name, in preset order. */
+async function keyedPresets(
+  seam: DoctorSeam,
+): Promise<readonly { readonly name: string; readonly secret: string }[]> {
+  const presets = await (seam.presets ?? (() => loadProviderPresets()))();
+  return Object.values(presets).flatMap((p) =>
+    p.secret !== undefined ? [{ name: p.name, secret: p.secret }] : [],
+  );
+}
+
 /** A model key the presets name, set in the project's env files. Its value is never read out. */
 async function modelKeyCheck(
   dir: string,
@@ -496,10 +513,7 @@ async function modelKeyCheck(
   hostEnv: Readonly<Record<string, string | undefined>>,
   kindgi: Kindgi,
 ): Promise<DoctorCheck> {
-  const presets = await (seam.presets ?? (() => loadProviderPresets()))();
-  const names = [
-    ...new Set(Object.values(presets).flatMap((p) => (p.secret !== undefined ? [p.secret] : []))),
-  ];
+  const names = [...new Set((await keyedPresets(seam)).map((p) => p.secret))];
   const env = await readPackEnv({ packDir: dir, envName: LOCAL_ENV_NAME });
   const files = env.files.read.map((f) => displayEnvPath(dir, f)).join(' or ');
   const found = names.find((name) => (env.values[name] ?? '').trim() !== '');
@@ -512,10 +526,11 @@ async function modelKeyCheck(
   }
   const inShell = names.find((name) => (hostEnv[name] ?? '').trim() !== '');
   const want = names[0] ?? 'ANTHROPIC_API_KEY';
+  const others = names.slice(1);
   return fail(
     'model-key',
     `No model key in ${files} (looked for ${names.join(', ')})${inShell !== undefined ? `; ${inShell} is set in your shell, but kindgi dev reads keys from the project's env files` : ''}.`,
-    `With kindgi dev running: ${kindgi('secrets', 'set', want, '--env=local', '--scope=tenant')} (it prompts without echoing; or pipe it in with --from-stdin). Never paste a key into a chat.`,
+    `With kindgi dev running, set one LLM provider's key: ${kindgi('secrets', 'set', want, '--env=local', '--scope=tenant')}${others.length > 0 ? `, or the same with ${orList(others)}` : ''} (it prompts without echoing; or pipe it in with --from-stdin). Never paste a key into a chat.`,
   );
 }
 
@@ -566,12 +581,17 @@ async function providerCheck(
   apiUrl: string,
   token: string,
   kindgi: Kindgi,
+  seam: DoctorSeam,
 ): Promise<DoctorCheck> {
   try {
     const page = await ctx.clientFor(apiUrl, token).providers.list();
     const ids = page.data.map((p) => (p as { id?: string }).id ?? '?');
     const models = ids.filter((id) => id !== DEV_ECHO_PROVIDER_ID);
-    const register = `Register one: ${kindgi('providers', 'register', '--preset=anthropic')} (its key must be set first; see Model key).`;
+    const presets = (await keyedPresets(seam)).map((p) => p.name);
+    const register =
+      presets.length > 1
+        ? `Register the provider whose key you set: ${kindgi('providers', 'register', '--preset=<preset>')}, where <preset> is ${orList(presets)} (see Model key).`
+        : `Register one: ${kindgi('providers', 'register', `--preset=${presets[0] ?? 'anthropic'}`)} (its key must be set first; see Model key).`;
     if (models.length > 0) {
       return pass(
         'provider',

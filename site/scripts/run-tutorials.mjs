@@ -20,6 +20,8 @@
  * The steps share a shell state: the working directory and exported
  * variables carry from one step to the next. `npx @kindgi/cli…` runs this
  * checkout's CLI (so a page is tested before its release is published), and
+ * so do the PyPI CLI's forms, `uvx --from kindgi-cli… kindgi …` and
+ * `uv run kindgi …` (as `kindgi-cli` runs it: `KINDGI_CLI_INSTALL=pypi`), and
  * a background `kindgi dev` gets a free `--port`, so a run never takes a
  * port another runtime holds. Steps that need a real model or a cloud
  * account stay unmarked: they're release checks, run by hand.
@@ -104,7 +106,11 @@ function freePort() {
   });
 }
 
-/** A PATH directory whose `npx` runs this checkout's CLI for `@kindgi/cli`. */
+/**
+ * A PATH directory whose `npx` runs this checkout's CLI for `@kindgi/cli`,
+ * and whose `uvx` and `uv` do for `kindgi-cli` (`uvx --from kindgi-cli…
+ * kindgi`, `uv run kindgi`); anything else goes to the real command.
+ */
 function shimDir(work) {
   const dir = join(work, '.bin');
   mkdirSync(dir);
@@ -130,6 +136,44 @@ function shimDir(work) {
   ].join('\n');
   writeFileSync(join(dir, 'npx'), shim);
   chmodSync(join(dir, 'npx'), 0o755);
+  // The PyPI CLI's forms, where uv is installed (Python pages need it).
+  const which = (name) =>
+    spawnSync('bash', ['-lc', `command -v ${name}`], { encoding: 'utf8' }).stdout.trim();
+  const pypiCli = `KINDGI_CLI_INSTALL=pypi exec node ${JSON.stringify(cli)}`;
+  const realUvx = which('uvx');
+  if (realUvx) {
+    const uvx = [
+      '#!/usr/bin/env bash',
+      "# `uvx [uvx flags] --from kindgi-cli[<spec>] kindgi <args>` runs this checkout's CLI with <args>.",
+      'from=0; pypi=0; seen=0; args=()',
+      'for each in "$@"; do',
+      '  if [ "$seen" = 1 ]; then args+=("$each"); continue; fi',
+      '  if [ "$from" = 1 ]; then case "$each" in kindgi-cli*) pypi=1 ;; esac; from=0; continue; fi',
+      '  case "$each" in',
+      '    --from) from=1 ;;',
+      '    --from=kindgi-cli*) pypi=1 ;;',
+      '    kindgi) if [ "$pypi" = 1 ]; then seen=1; fi ;;',
+      '  esac',
+      'done',
+      `if [ "$seen" = 1 ]; then ${pypiCli} "\${args[@]}"; fi`,
+      `exec ${JSON.stringify(realUvx)} "$@"`,
+      '',
+    ].join('\n');
+    writeFileSync(join(dir, 'uvx'), uvx);
+    chmodSync(join(dir, 'uvx'), 0o755);
+  }
+  const realUv = which('uv');
+  if (realUv) {
+    const uv = [
+      '#!/usr/bin/env bash',
+      "# `uv run kindgi <args>` runs this checkout's CLI with <args>, as kindgi-cli would in the pack's environment.",
+      `if [ "$1" = run ] && [ "$2" = kindgi ]; then shift 2; ${pypiCli} "$@"; fi`,
+      `exec ${JSON.stringify(realUv)} "$@"`,
+      '',
+    ].join('\n');
+    writeFileSync(join(dir, 'uv'), uv);
+    chmodSync(join(dir, 'uv'), 0o755);
+  }
   return dir;
 }
 

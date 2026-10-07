@@ -10,16 +10,16 @@ The same pack as the [TypeScript quickstart](../quickstart-typescript/), in
 Python: two tools, an agent that calls them, a guardrail and a flow.
 
 **Before you start**, set up what the [Install page](../install/) describes:
-Node 22.12 (for the CLI), Docker, Python 3.11 and uv, and access to the runtime
-image. The image is in private preview: request access at contact@kindgi.com,
+Docker, Python 3.11 and uv, and access to the runtime image. No Node: the CLI
+comes from PyPI. The image is in private preview: request access at contact@kindgi.com,
 then log in once with `kindgi auth registry`.
 
 ## 1. Create the pack
 
 ```sh tutorial=run
-npx --yes @kindgi/cli@0.1 init my-pack --template=python
+uvx --from "kindgi-cli>=0.1,<0.2" kindgi init my-pack --template=python
 cd my-pack
-uv sync          # a .venv with the kindgi package
+uv sync          # a .venv with the kindgi package and the kindgi CLI
 uv run pytest    # the template's tests: the tools and the check, called directly
 ```
 
@@ -57,7 +57,7 @@ run. [How it knows Kindgi](../coding-agents/).
 ## 2. Run it
 
 ```sh tutorial=background ready="Kindgi is up"
-npx --yes @kindgi/cli@0.1 dev
+uv run kindgi dev
 ```
 
 `kindgi dev` starts the Kindgi runtime in Docker, indexes the pack with the
@@ -71,8 +71,8 @@ Leave it running.
 In a second terminal, in `my-pack`:
 
 ```sh tutorial=run
-npx --yes @kindgi/cli@0.1 runs start --agent=my-pack.echo-agent --input='{"userMessage":"Ada"}'
-npx --yes @kindgi/cli@0.1 runs start --flow=my-pack.echo-flow --input='{"message":"Ada"}'
+uv run kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"Ada"}'
+uv run kindgi runs start --flow=my-pack.echo-flow --input='{"message":"Ada"}'
 ```
 
 ```text tutorial=expect
@@ -147,8 +147,8 @@ echo_agent = Agent(
     name="Echo Agent",
     description="Uses the pack's echo and greet tools; the response-not-empty guardrail guards the output.",
     instructions=(
-        "For each user message: if the user sends a name, invoke `my-pack.greet` with it. "
-        "Otherwise invoke `my-pack.echo` with the message text. Quote the tool result verbatim."
+        "For each user message: if the user sends a name, greet them with the greet tool. "
+        "Otherwise echo their message with the echo tool. Quote the tool result verbatim."
     ),
     capabilities=[{"needs": [{"feature": "tool-use"}]}],
     tools=[echo, greet],
@@ -168,8 +168,8 @@ Store an Anthropic key as a secret (you're prompted for it; it isn't
 echoed), then register the provider:
 
 ```sh
-npx --yes @kindgi/cli@0.1 secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
-npx --yes @kindgi/cli@0.1 providers register --preset=anthropic
+uv run kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
+uv run kindgi providers register --preset=anthropic
 ```
 
 It takes over from `dev-echo` at the next turn. Gemini on Vertex AI has a
