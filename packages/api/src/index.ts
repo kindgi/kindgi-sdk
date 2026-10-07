@@ -354,7 +354,12 @@ export type {
   JudgedItemSummary,
   JudgedReason,
 } from './eval-case-binding.js';
-export { MAX_JUDGED_CASES } from './routes/judged-suites.js';
+export { MAX_JUDGED_CASES, buildJudgedSuite } from './routes/judged-suites.js';
+export type {
+  BuildJudgedSuiteInput,
+  BuildJudgedSuiteOutcome,
+  JudgedSuiteQuery,
+} from './routes/judged-suites.js';
 export { segmentsStartWith } from './routes/segments.js';
 export { MAX_JUDGED_HISTORY } from './routes/judgment-context.js';
 export type {
