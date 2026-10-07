@@ -203,7 +203,15 @@ models.
 `kindgi dev` gives your tenant `dev-echo`, a stand-in that needs no key. It
 calls the agent's first tool with `{"message": <the user message>}` and answers
 `Tool responded: <the result>`; an agent with no tools gets its user message
-back. It's a fallback: once a registered model qualifies, it never answers.
+back. Its text answers start with a line that says what it is:
+
+```text
+⚠ dev-echo isn't a real model: it only repeats what it's given. Add an LLM provider key (Anthropic, OpenAI, Gemini, Groq, OpenRouter…) to get real answers.
+
+Tool responded: {"echo":"Hi there","echoedAt":"2026-10-07T13:16:58.923Z","characterCount":8}
+```
+
+It's a fallback: once a registered model qualifies, it never answers.
 
 When it does answer, the turn says so, in its result and on the CLI's stderr:
 
@@ -212,12 +220,16 @@ When it does answer, the turn says so, in its result and on the CLI's stderr:
   {
     "code": "fallback-provider",
     "message": "Answered by \"dev-echo\", a fallback provider: no other registered provider satisfies agent \"acme.echo-agent\"."
+  },
+  {
+    "code": "dev-echo-not-a-model",
+    "message": "dev-echo answered, and it isn't a real model: it only repeats what it's given. Add an LLM provider key: kindgi secrets set <KEY> --env=local --scope=tenant (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY…), then kindgi providers register --preset=<anthropic|openai|gemini-api|groq|openrouter>. kindgi providers presets lists them."
   }
 ]
 ```
 
 ```text
-⚠ Answered by "dev-echo", a fallback provider: no other registered provider satisfies agent "acme.echo-agent".
+⚠ dev-echo answered, and it isn't a real model: it only repeats what it's given. Add an LLM provider key: kindgi secrets set <KEY> --env=local --scope=tenant (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY…), then kindgi providers register --preset=<anthropic|openai|gemini-api|groq|openrouter>. kindgi providers presets lists them.
 ```
 
 If you registered a model and still see this, the agent's needs don't match it:

@@ -22,7 +22,7 @@ description: >
   kindgi-getting-started.
 type: core
 library: "@kindgi/sdk"
-version: "0.9.4"
+version: "0.9.5"
 sdk_version: "0.0.0"
 pack_languages: [node, python]
 sources:
@@ -241,7 +241,14 @@ capability requirement (see "How the router picks…" below).
 
 Nothing to switch off: `dev-echo` is a fallback, so the new provider
 answers every agent it satisfies. A turn that still lands on dev-echo
-carries a `fallback-provider` warning — see mistake 9.
+carries the `fallback-provider` and `dev-echo-not-a-model` warnings — see
+mistake 9.
+
+**The other one-key presets** work the same way, with their own key:
+`--preset=openai` (`OPENAI_API_KEY`), `--preset=gemini-api` (`GEMINI_API_KEY`,
+a Google AI Studio key; `gemini` is Vertex AI), `--preset=groq`
+(`GROQ_API_KEY`) and `--preset=openrouter` (`OPENROUTER_API_KEY`).
+`kindgi providers presets` lists them with their models.
 
 ## Path B — Hosted via OpenAI-compat
 
@@ -696,8 +703,9 @@ defineAgent({
    does nothing. Pin the model with a `models: { allow: [...] }`
    requirement instead.
 
-9. **Replies still come from dev-echo** (`Tool responded: …`; the turn's
-   result has a `fallback-provider` warning). dev-echo is a fallback: it
+9. **Replies still come from dev-echo** (`⚠ dev-echo isn't a real model: …`
+   then `Tool responded: …`; the turn's result has the `fallback-provider`
+   and `dev-echo-not-a-model` warnings). dev-echo is a fallback: it
    answers only when no registered provider satisfies the agent. So your
    provider doesn't — check its models' `features` against the agent's
    `capabilities.needs` (mistake 2), a `models` / `providers` allow-list
