@@ -133,10 +133,19 @@ export type PromotionErrorCode =
   /** The scope's live version changed while the gate ran: check again. */
   | 'promotion-superseded'
   /**
-   * Unpin or rollback: it would leave a scope a gate policy applies to
-   * resolving to the latest version, where publishing goes live ungated.
+   * Unpin: the scope has a gate policy of its own, and a gated scope keeps
+   * its own pin (else a change above it, or a publish, would reach it
+   * ungated). Unregister the gate policy first, or roll back instead.
    */
   | 'gate-policy-needs-pin'
+  /**
+   * Promote, rollback or unpin: the change would also move a narrower
+   * scope a gate policy applies to, which has no pin of its own and so
+   * follows this scope, without its gate. The message names each such
+   * scope: pin it at its current version first. (A gated scope must hold
+   * its own pin; this guards scopes gated before that rule.)
+   */
+  | 'gate-policy-descendant-unpinned'
   | 'persistence-error';
 
 export interface PromotionError {
@@ -172,6 +181,18 @@ export interface PromotionRequestInput extends PromoteInput {
      * promotion whose scope moved on becomes `superseded`.
      */
     readonly servingVersion: Semver;
+    /**
+     * A pin in place: the scope has no pin of its own and serves exactly
+     * the promoted version (`servingVersion`), so pinning it there changes
+     * nothing any run gets. The gate's checks and approval don't apply:
+     * `checks` holds one passing `pinInPlace` line and there's no
+     * `approval`. The binding re-checks both conditions in the write's
+     * transaction, under the scope's lock, and refuses with
+     * `promotion-superseded` when either no longer holds; it records the
+     * promotion `promoted`, with the policy, its reason starting
+     * `pin-in-place`.
+     */
+    readonly pinInPlace?: boolean;
   };
 }
 
@@ -203,22 +224,33 @@ export interface ListPromotionsInput {
 }
 
 export interface PromotionBinding {
-  /** Make `version` live for `scope`. The version must be registered and active. */
+  /**
+   * Make `version` live for `scope`. The version must be registered and
+   * active. `gate-policy-descendant-unpinned` when it would also move a
+   * narrower gated scope with no pin of its own.
+   */
   promote(input: PromoteInput): Promise<Result<Promotion, PromotionError>>;
   /**
    * Record a gated promotion request (evals step 4b): `refused` when the
    * gate failed, `pending-approval` (opening a HITL approval, subject
    * `agent-promotion`) when it passed and the policy wants an approval,
    * else `promoted`. Optional: without it, the route refuses a promotion
-   * a gate policy applies to (`501`), rather than promoting ungated.
+   * a gate policy applies to (`501`), rather than promoting ungated. A
+   * passing request that would also move a narrower gated scope with no
+   * pin of its own is `gate-policy-descendant-unpinned`, and so is its
+   * approval's apply (the promotion is then `superseded`).
    */
   request?(input: PromotionRequestInput): Promise<Result<Promotion, PromotionError>>;
-  /** Back to the scope's previous live version, or a named earlier one. */
+  /**
+   * Back to the scope's previous live version, or a named earlier one,
+   * at once (no gate). `gate-policy-descendant-unpinned` as for `promote`.
+   */
   rollback(input: RollbackInput): Promise<Result<Promotion, PromotionError>>;
   /**
    * Remove the scope's own pin: it falls back to the next scope up. With
-   * gate policies, `gate-policy-needs-pin` when that would leave a gated
-   * scope resolving to the latest version.
+   * gate policies, `gate-policy-needs-pin` when the scope has a gate
+   * policy of its own, and `gate-policy-descendant-unpinned` when a
+   * narrower gated scope with no pin of its own follows it.
    */
   unpin(input: UnpinInput): Promise<Result<Promotion, PromotionError>>;
   list(input: ListPromotionsInput): Promise<{

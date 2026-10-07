@@ -30,7 +30,12 @@ export interface AgentTurnUsage {
  * registered provider satisfies the agent's capability.
  */
 export interface AgentTurnWarning {
-  readonly code: 'fallback-provider';
+  /**
+   * `fallback-provider`: a fallback provider answered. Any other code is a
+   * provider's own warning about its answers (`ModelCallResult.warnings`),
+   * such as dev-echo's `dev-echo-not-a-model`.
+   */
+  readonly code: 'fallback-provider' | 'dev-echo-not-a-model' | (string & {});
   readonly message: string;
 }
 

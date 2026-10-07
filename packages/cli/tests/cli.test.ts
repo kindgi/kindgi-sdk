@@ -598,6 +598,19 @@ describe('kindgi runs start — turn warnings', () => {
     expect(JSON.parse(out.stdout).id).toBe('run-1');
   });
 
+  test("dev-echo's own warning stands for the fallback one: one line, with the fix", async () => {
+    const out = await startWith({
+      warnings: [
+        { code: 'fallback-provider', message: 'Answered by "dev-echo", a fallback provider: …' },
+        {
+          code: 'dev-echo-not-a-model',
+          message: "dev-echo answered, and it isn't a real model: …",
+        },
+      ],
+    });
+    expect(out.stderr).toBe("⚠ dev-echo answered, and it isn't a real model: …\n");
+  });
+
   test('no warnings, nothing on stderr', async () => {
     const out = await startWith({ response: { content: 'Hello, Ada!' } });
     expect(out.stderr).toBe('');

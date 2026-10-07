@@ -6,7 +6,7 @@ requires-python = ">=3.11"
 dependencies = [{{KINDGI_REQUIREMENT}}]
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = [{{DEV_DEPENDENCIES}}]
 
 # The uv versions this pack works with: `kindgi build` installs it with the
 # uv in Kindgi's image, which reads the uv.lock they write.
