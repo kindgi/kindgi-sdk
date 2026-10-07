@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Literal, cast
 
+from ..log import Logger, noop_logger
+
 __all__ = ["CallCancelled", "CancelReason", "Cancellation", "ToolContext"]
 
 CancelReason = Literal["deadline-exceeded", "cancelled"]
@@ -102,8 +104,9 @@ class ToolContext:
     from input. `None` when the project has no org."""
     env: Mapping[str, Any] = field(default_factory=_empty)
     """Environment the runtime resolves for the call — none yet (empty): read `os.environ`."""
-    secrets: Mapping[str, Any] = field(default_factory=_empty)
-    """The secrets the tool declares (`needs_spec["secrets"]`), resolved for this call's tenant."""
+    secrets: Mapping[str, Any] = field(default_factory=_empty, repr=False)
+    """The secrets the tool declares (`needs_spec["secrets"]`), resolved for this call's tenant.
+    Never in the context's `repr`, so printing a context never prints a secret."""
     config: Mapping[str, Any] = field(default_factory=_empty)
     """Configuration the runtime resolves for the call — none yet (empty)."""
     settings: Mapping[str, Mapping[str, Any]] = field(default_factory=_empty)
@@ -112,6 +115,10 @@ class ToolContext:
     runtime (protocol 2.4.0)."""
     cancellation: Cancellation = field(default_factory=Cancellation)
     """Fires when the caller gives up on the call."""
+    log: Logger = field(default=noop_logger, repr=False, compare=False)
+    """A logger bound to this call: its records carry the run's ids and the caller's trace id
+    (`ctx.log.info("looked up order", order_id=…)`). The pack service sets it; in a test it
+    writes nothing unless you pass one. Never put a secret's value in a field."""
 
     @classmethod
     def for_test(
@@ -121,7 +128,9 @@ class ToolContext:
         return cls(tenant_id=tenant_id, run_id=run_id, **kwargs)
 
     @classmethod
-    def from_wire(cls, ctx: Mapping[str, Any], cancellation: Cancellation) -> ToolContext:
+    def from_wire(
+        cls, ctx: Mapping[str, Any], cancellation: Cancellation, log: Logger = noop_logger
+    ) -> ToolContext:
         """The context for a protocol v2 `ctx` (`tenantId`, `runId`, …)."""
 
         def mapping(key: str) -> Mapping[str, Any]:
@@ -145,4 +154,5 @@ class ToolContext:
             config=mapping("config"),
             settings=mapping("settings"),
             cancellation=cancellation,
+            log=log,
         )
