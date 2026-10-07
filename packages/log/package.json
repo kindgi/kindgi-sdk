@@ -1,0 +1,44 @@
+{
+  "name": "@kindgi/log",
+  "version": "0.1.4-rc.3",
+  "description": "Kindgi™ structured logging: levels per subsystem (with dotted inheritance), JSON and pretty formats, redaction of secret keys and token shapes, and W3C trace-context helpers. The runtime, @kindgi/api and pack services write the same records. Zero runtime dependencies.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
+    "directory": "packages/log"
+  },
+  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/log#readme",
+  "bugs": {
+    "url": "https://github.com/kindgi/kindgi-sdk/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "src", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}
