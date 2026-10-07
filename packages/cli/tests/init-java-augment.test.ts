@@ -59,6 +59,7 @@ describe('kindgi init in a Maven app', () => {
     expect(out.exitCode, out.stderr).toBe(0);
     expect(JSON.parse(await readFile(join(app, 'kindgi.config.json'), 'utf8'))).toEqual({
       language: 'java',
+      cli: CLI_VERSION,
       pack: { id: 'acme-ledger', version: '2.4.0' },
       discovery: {
         tools: 'src/main/java/**/kindgi/tools/**/*.java',
@@ -72,6 +73,9 @@ describe('kindgi init in a Maven app', () => {
     expect(out.stderr).toContain('<artifactId>kindgi-pack</artifactId>');
     expect(out.stderr).toContain(`<version>${CLI_VERSION}</version>`);
     expect(out.stderr).toContain('com.acme.app.kindgi.tools');
+    // The wrappers that run the pinned CLI.
+    expect(await readFile(join(app, 'kindgiw'), 'utf8')).toMatch(/^#!\/bin\/sh/);
+    expect(out.stderr).toContain('./kindgiw dev');
     const gitignore = await readFile(join(app, '.gitignore'), 'utf8');
     expect(gitignore).toContain('.kindgirc.json');
     const summary = JSON.parse(out.stdout) as { language: string; dependencyInPom: boolean };

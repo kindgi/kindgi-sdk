@@ -372,6 +372,8 @@ describe('kindgi init — java template', () => {
       'AGENTS.md',
       'README.md',
       'kindgi.config.json',
+      'kindgiw',
+      'kindgiw.cmd',
       'mvnw',
       'pom.xml',
       'src/main/java/acme/billing/agents/EchoAgent.java',
@@ -383,6 +385,7 @@ describe('kindgi init — java template', () => {
     ]);
     expect(JSON.parse(await readFile(join(cwd, 'billing', 'kindgi.config.json'), 'utf8'))).toEqual({
       language: 'java',
+      cli: CLI_VERSION,
       pack: { id: 'acme.billing', version: '0.1.0' },
     });
     const pom = await readFile(join(cwd, 'billing', 'pom.xml'), 'utf8');
@@ -397,10 +400,11 @@ describe('kindgi init — java template', () => {
     expect(echo).toContain('Tool.define("acme.billing.echo")');
     expect(echo).not.toMatch(/\{\{[A-Z_]+\}\}/);
     expect((await stat(join(cwd, 'billing', 'mvnw'))).mode & 0o111).not.toBe(0);
+    expect((await stat(join(cwd, 'billing', 'kindgiw'))).mode & 0o111).not.toBe(0);
     // From a checkout, the next steps install kindgi-pack from its sdks/java.
     expect(out.stderr).toMatch(/\(cd .*sdks\/java && \.\/mvnw -q install -DskipTests\)/);
     expect(out.stderr).toContain('./mvnw test');
-    expect(out.stderr).toContain(`npx --yes ${publishedCliSpec(CLI_VERSION)} dev`);
+    expect(out.stderr).toContain('./kindgiw dev');
   });
 });
 

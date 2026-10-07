@@ -23,7 +23,7 @@ export type PackageManager = 'pnpm' | 'npm' | 'yarn' | 'bun';
  * How a pack runs its bins: through its package manager, or — a Python
  * pack, which has no npm project to install the CLI into — from `PATH`.
  */
-export type BinRunner = PackageManager | 'path' | 'uv' | 'poetry' | 'venv';
+export type BinRunner = PackageManager | 'path' | 'uv' | 'poetry' | 'venv' | 'kindgiw';
 
 /**
  * How this CLI was installed: from npm (`@kindgi/cli`), or from PyPI
@@ -236,9 +236,10 @@ export async function usablePackageManager(
 }
 
 /**
- * The pack's `BinRunner`: `pythonBinRunner`'s for a Python pack; `path` for
- * a Java pack, which has no npm or Python environment (the published CLI
- * through npx, or the `kindgi` on PATH); else the manager that runs here.
+ * The pack's `BinRunner`: `pythonBinRunner`'s for a Python pack; for a Java
+ * pack, which has no npm or Python environment, its `kindgiw` (the CLI
+ * version it pins), else the published CLI through npx; else the manager
+ * that runs here.
  */
 export async function detectBinRunner(
   dir: string,
@@ -247,7 +248,8 @@ export async function detectBinRunner(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): Promise<BinRunner> {
   if (language === 'python') return await pythonBinRunner(dir, env, io);
-  if (language === 'java') return 'path';
+  // A Java pack runs the CLI its kindgiw pins; without the wrapper, the published one.
+  if (language === 'java') return (await io.exists(join(dir, 'kindgiw'))) ? 'kindgiw' : 'path';
   return (await usablePackageManager(dir, io)).pm;
 }
 
@@ -292,6 +294,11 @@ export function binCommand(
     case 'venv':
       // The PyPI CLI's script in the app's own (activated) environment.
       return { command: bin, args: [...args] };
+    case 'kindgiw':
+      // A Java pack's wrapper: the CLI version its kindgi.config.json pins.
+      return bin === 'kindgi'
+        ? { command: './kindgiw', args: [...args] }
+        : { command: bin, args: [...args] };
     case 'path':
       // No npm project to install the CLI into (a Python pack): the published
       // CLI through npx, within this CLI's minor (as Python packs pin
