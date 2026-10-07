@@ -291,6 +291,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'secret-provider-unauthorized': 502,
   'secret-provider-rate-limited': 429,
   'secret-store-error': 500,
+  /** The secret store doesn't do this by design (the dev store's rotate and revoke). */
+  'secret-operation-unsupported': 501,
   'env-store-error': 500,
   // Trigger HTTP surface.
   'trigger-not-found': 404,
