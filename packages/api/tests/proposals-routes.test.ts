@@ -27,7 +27,7 @@ import type {
   UserId,
 } from '@kindgi/types';
 
-import { createApp } from '../src/index.js';
+import { createApp, createProposalService } from '../src/index.js';
 import type {
   AgentRegistryBinding,
   AgentReleaseBindings,
@@ -941,5 +941,64 @@ describe('authorization on the agent', () => {
     const request = await h.call('POST', `/v1/proposals/${h.id}/request`, {});
     expect(request.status).toBe(403);
     expect(request.body.error.message).toContain('promote');
+  });
+});
+
+describe('a proposal a drafter wrote (not a person)', () => {
+  test('its request waits for a reviewer even where no gate policy asks for one (K2)', async () => {
+    const h = await harness();
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const service = createProposalService({
+      store: h.proposals,
+      agents: h.agents,
+      blocks: h.blocks,
+      evalRuns: h.evalRuns.binding,
+      releases: h.releases.releases,
+    });
+    const actor = { kind: 'service' as const, id: 'improvement-pass' };
+    const drafted = await service.draft({
+      tenantId,
+      agentId: AGENT,
+      fromVersion: '1.0.0',
+      scope: SEGMENT,
+      tier: 'settings-block',
+      blockId: WEIGHTS,
+      content: { values: { recency: 0.6, fit: 0.4 } },
+      hypothesis: 'The search found these weights',
+      drafter: { kind: 'settings-optimizer', version: '1' },
+    });
+    if (drafted.kind !== 'ok') throw new Error(JSON.stringify(drafted.error));
+    const evaluated = await service.evaluate({
+      tenantId,
+      proposal: drafted.value.proposal,
+      suiteId: 'acme.scoring-judged',
+      objective: 'weightedYesShare',
+      actor,
+    });
+    if (evaluated.kind !== 'ok') throw new Error(JSON.stringify(evaluated.error));
+    const runId = evaluated.value.evaluation?.evalRunId as string;
+    await h.evalRuns.finish(runId, { delta: 0.2 });
+    const requested = await service.request({ tenantId, proposal: evaluated.value, actor });
+    if (requested.kind !== 'ok') throw new Error(JSON.stringify(requested.error));
+    expect(requested.value.promotion).toMatchObject({
+      kind: 'ok',
+      promotion: { status: 'pending-approval' },
+    });
+    const request = h.releases.calls.find((c) => c.method === 'request')?.input as {
+      gate: unknown;
+      requestedBy: unknown;
+    };
+    expect(request.gate).toMatchObject({
+      policy: null,
+      passed: true,
+      approval: { role: 'standard', count: 1, separateApprover: false },
+    });
+    expect(request.requestedBy).toEqual(actor);
+    const derived = await h.agents.getVersion({
+      tenantId,
+      agentId: AGENT as never,
+      version: '1.0.1' as Semver,
+    });
+    expect(derived?.derivedFrom).toMatchObject({ by: 'service:improvement-pass' });
   });
 });

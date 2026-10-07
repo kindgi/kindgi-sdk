@@ -585,6 +585,20 @@ export type {
   SupervisorQueryObservationsOutcome,
 } from './supervisor-binding.js';
 export {
+  DRAFTED_PROPOSAL_APPROVAL,
+  createProposalService,
+  proposalNotFound,
+} from './proposal-service.js';
+export type {
+  DraftProposalInput,
+  EvaluateProposalInput,
+  ProposalFacts,
+  ProposalOutcome,
+  ProposalService,
+  ProposalServiceDeps,
+  ProposalServiceError,
+} from './proposal-service.js';
+export {
   FIX_PROPOSAL_STATUSES,
   PROPOSAL_ACTIONS,
   evaluationOutcome,
