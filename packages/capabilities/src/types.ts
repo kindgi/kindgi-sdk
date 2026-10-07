@@ -358,7 +358,9 @@ export interface ModelToolDefinition {
  * Adapter coverage:
  *   - `@kindgi/adapter-model-openai-compat` — translates to
  *     `response_format: { type: "json_schema", json_schema: { name,
- *     schema, strict: true } }`.
+ *     schema, strict: true } }` on Chat Completions, and to
+ *     `text.format: { type: "json_schema", name, schema, strict: true }`
+ *     on OpenAI's Responses API.
  *   - `@kindgi/adapter-model-anthropic` — ignores it (see that
  *     package's README).
  */

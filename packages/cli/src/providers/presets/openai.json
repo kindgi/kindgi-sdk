@@ -3,7 +3,8 @@
   "description": "GPT on the OpenAI API (key: OPENAI_API_KEY).",
   "adapterId": "@kindgi/adapter-model-openai-compat",
   "adapterConfigValues": {
-    "baseURL": "https://api.openai.com/v1"
+    "baseURL": "https://api.openai.com/v1",
+    "api": "responses"
   },
   "secret": "OPENAI_API_KEY",
   "pricesCheckedAt": "2026-10-07",
