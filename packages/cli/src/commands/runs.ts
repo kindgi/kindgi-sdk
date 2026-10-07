@@ -168,7 +168,7 @@ const stream: LeafCommand = {
   run: (ctx) =>
     runSdkRendered(ctx, 'runs stream', async () => {
       const runId = requiredPositional(ctx, 0, 'run-id') as RunId;
-      const iterable = ctx.client().runs.stream(runId);
+      const iterable = ctx.client().runs.follow(runId);
       const lines: string[] = [];
       for await (const event of iterable) {
         lines.push(JSON.stringify(event));

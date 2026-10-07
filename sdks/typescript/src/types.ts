@@ -159,7 +159,7 @@ export interface DryRunWarning {
 }
 
 // ============================================================
-// RunEvent — SSE stream shape for client.runs.stream(id).
+// RunEvent — SSE stream shape for client.runs.follow(id).
 // @wire `@kindgi/api/openapi.json#/components/schemas/RunEvent`.
 // SSE frame mapper: `packages/api/src/routes/sse.ts` (journal entry →
 //   wire `RunEvent`; drops journal-only kinds like `edge.evaluated` and
