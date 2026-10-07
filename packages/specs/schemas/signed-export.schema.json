@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kindgi.com/schemas/v1/signed-export.schema.json",
+  "$comment": "schema-version: 1.0.0",
+  "title": "Signed export",
+  "description": "The envelope every signed export answers: an approval's audit bundle (`POST /v1/approvals/{approvalId}/audit-bundle`), a run's provenance (`POST /v1/provenance/{runId}/export`) and compliance evidence (`POST /v1/compliance/evidence/export`). `bundle` is base64 of the exact bytes that were signed: the body, as sorted-key JSON with no whitespace. A verifier checks the Ed25519 `signature` over those bytes and re-serializes nothing. The embedded `publicKey` only proves the bytes weren't changed; pin the deployment's keys (`GET /v1/export-signing-keys`) to know who signed them. The body of an audit bundle is `audit-bundle.schema.json`.",
+  "type": "object",
+  "required": [
+    "bundle",
+    "bundleSchemaVersion",
+    "algorithm",
+    "signingKeyId",
+    "signature",
+    "publicKey",
+    "canonicalization",
+    "exportedAt"
+  ],
+  "properties": {
+    "kind": {
+      "enum": ["audit-bundle", "provenance", "compliance"],
+      "description": "Which export this is. Absent from older servers."
+    },
+    "approvalId": {
+      "type": "string",
+      "description": "An audit bundle's approval."
+    },
+    "runId": {
+      "type": "string",
+      "description": "A provenance export's run."
+    },
+    "tenantId": {
+      "type": "string",
+      "description": "A compliance export's tenant."
+    },
+    "bundle": {
+      "type": "string",
+      "contentEncoding": "base64",
+      "contentMediaType": "application/json",
+      "description": "Base64 of the signed bytes: the body, as sorted-key JSON."
+    },
+    "bundleSchemaVersion": {
+      "type": "string",
+      "description": "The body's version, semver: audit bundle 2.0.0, provenance 1.2.0, compliance 1.0.0."
+    },
+    "algorithm": {
+      "const": "ed25519"
+    },
+    "signingKeyId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The key that signed it: one of `GET /v1/export-signing-keys`."
+    },
+    "signature": {
+      "type": "string",
+      "contentEncoding": "base64",
+      "description": "Base64 of the 64-byte Ed25519 signature over the `bundle` bytes."
+    },
+    "publicKey": {
+      "type": "string",
+      "description": "The signing key's public half, PEM SPKI."
+    },
+    "canonicalization": {
+      "const": "sorted-key-json"
+    },
+    "exportedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When it was signed: the same instant as the signed body's `exportedAt`."
+    }
+  },
+  "additionalProperties": false
+}

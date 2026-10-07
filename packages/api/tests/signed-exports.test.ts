@@ -13,6 +13,8 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 
 import { describe, expect, test } from 'vitest';
 
@@ -27,6 +29,7 @@ import {
   verifyEd25519,
 } from '@kindgi/crypto';
 import type { ExportSigningBinding } from '@kindgi/crypto';
+import { compileInlineSchema } from '@kindgi/schema';
 import { createStubAppBindings } from '@kindgi/testing';
 import type { SigningKeyId, TenantId, UserId } from '@kindgi/types';
 
@@ -252,6 +255,28 @@ describe.each(EXPORTS)('the %s export', (kind, path, subjectKey, subject, versio
     expect(answer.status).toBe(500);
     expect(answer.json).not.toHaveProperty('bundle');
     expect(answer.json.error).toMatchObject({ code: 'persistence-error' });
+  });
+});
+
+async function specValidator(name: string) {
+  const path = createRequire(import.meta.url).resolve(`@kindgi/specs/${name}.schema.json`);
+  const compiled = compileInlineSchema(JSON.parse(await readFile(path, 'utf8')));
+  if (compiled.kind !== 'ok') throw new Error(compiled.error.message);
+  return compiled.value;
+}
+
+describe('the published specs describe what ships', () => {
+  test.each(EXPORTS)('a %s envelope is a signed-export.schema.json', async (_kind, path) => {
+    const envelope = (await harness().post(path)).json;
+    const checked = (await specValidator('signed-export')).validate(envelope);
+    expect(checked.kind, JSON.stringify(checked)).toBe('ok');
+  });
+
+  test("an audit bundle's signed body is an audit-bundle.schema.json", async () => {
+    const envelope = (await harness().post(`/v1/approvals/${approvalId}/audit-bundle`)).json;
+    const body = JSON.parse(Buffer.from(envelope.bundle as string, 'base64').toString('utf8'));
+    const checked = (await specValidator('audit-bundle')).validate(body);
+    expect(checked.kind, JSON.stringify(checked)).toBe('ok');
   });
 });
 
