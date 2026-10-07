@@ -1,5 +1,11 @@
 # @kindgi/schema
 
+## 0.1.4-rc.4
+
+### Patch Changes
+
+- @kindgi/types@0.1.4-rc.4
+
 ## 0.1.4-rc.3
 
 ### Patch Changes

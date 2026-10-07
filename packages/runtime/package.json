@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/runtime",
-  "version": "0.1.4-rc.3",
+  "version": "0.1.4-rc.4",
   "description": "Kindgi™ runtime wire-vocabulary + binding interfaces. Public shape covering: RunStatus / RunResult / RunOptions / JournalEntry / JournalKind and all fanout/subgraph/iteration/step payload types; all kernel error shapes (KernelError, RunNotFoundError, HandlerMissingError, WaitpointError, etc.); run inputs and records (RunFlowInput / ResumeRunInput / StartRunParams, FlowResolver, HandlerResolver, ParentRunRef, KernelRunRecord, ListRunsInput); trigger schemas (Cron/Event/Webhook records + inputs + errors, plus TriggerRegistryBinding + RunFlowBinding + TRIGGER_KINDS); versioning envelope + wrap/unwrap; event-bus channel + KernelEventBusBinding; and the binding interfaces (RunBinding, SchedulerBinding, WaitpointBinding, RunRetentionBinding, umbrella KernelBinding) that deployments plug into `createApp`. Types + pure derivation functions — no runtime state, no dependency on a runtime implementation. The Kindgi runtime implements the bindings.",
   "license": "Apache-2.0",
   "repository": {

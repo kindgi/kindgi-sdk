@@ -826,7 +826,7 @@ describe('kindgi dev — boot flow (no watch)', () => {
     expect(out.stderr).toContain('1 agents');
     expect(out.stderr).toContain('1 flows');
     expect(out.stderr).toContain(
-      'Providers          dev-echo (fallback) — canned replies; for a real model: npx --no kindgi providers register --preset=anthropic',
+      'Providers          dev-echo (fallback) — canned replies; for a real model: set an LLM provider key, then npx --no kindgi providers register --preset=<anthropic|gemini-api|groq|openai|openrouter>',
     );
   });
 
@@ -914,7 +914,7 @@ describe('kindgi dev — boot flow (no watch)', () => {
       argv: ['dev', '--no-watch', `--path=${packDir}`],
     });
     expect(out.stderr).toContain(
-      'Providers          none — agent turns fail until one is registered: npx --no kindgi providers register --preset=anthropic',
+      'Providers          none — agent turns fail until one is registered: set an LLM provider key, then npx --no kindgi providers register --preset=<anthropic|gemini-api|groq|openai|openrouter>',
     );
   });
 

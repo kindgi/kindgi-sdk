@@ -217,6 +217,9 @@ export function pauseUnlessStopped(ms: number, signal: AbortSignal | undefined):
   });
 }
 
+/** The runtime lines kept in memory (`startRuntimeContainer`): the boot banner and a failure's tail. */
+export const KEPT_LINES = 200;
+
 /** How the docker CLI starts its own error lines. */
 const DOCKER_DAEMON_ERROR = 'Error response from daemon: ';
 
@@ -238,6 +241,8 @@ export async function startRuntimeContainer(
     throw new Error(`docker run failed: ${lastLines(started.stderr)}`);
   }
 
+  // The runtime's latest lines, enough for the boot wait and a failure's
+  // tail: a long session's lines aren't kept (they're printed as they come).
   const lines: string[] = [];
   let logs: ChildProcess | undefined = spawn('docker', ['logs', '--follow', name], {
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -249,6 +254,7 @@ export async function startRuntimeContainer(
       // get logs from container which is dead…". They aren't the runtime's.
       if (line === '' || line.startsWith(DOCKER_DAEMON_ERROR)) continue;
       lines.push(line);
+      if (lines.length > KEPT_LINES) lines.splice(0, lines.length - KEPT_LINES);
       options.onLog(line);
     }
   };
