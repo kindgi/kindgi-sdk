@@ -32,7 +32,7 @@ kindgi providers register --preset=anthropic
 {
   "providerId": "anthropic"
 }
-✓ Registered anthropic: claude-opus-5-5, claude-sonnet-5-5, claude-haiku-4-5 — key ANTHROPIC_API_KEY (env local)
+✓ Registered anthropic: claude-opus-5-5, claude-sonnet-5-5 (default), claude-haiku-5-5, claude-haiku-4-5 — key ANTHROPIC_API_KEY (env local)
 ```
 
 - `--models=claude-sonnet-5-5` registers only the models you list

@@ -41,15 +41,15 @@ kindgi providers register --preset=openai
 {
   "providerId": "openai"
 }
-✓ Registered openai: gpt-6.1-sol, gpt-6-astra, gpt-6-luna — key OPENAI_API_KEY (env local)
+✓ Registered openai: gpt-6.1-sol (default), gpt-6-astra, gpt-6-luna — key OPENAI_API_KEY (env local)
 ```
 
 The others answer the same way:
 
 ```text
-✓ Registered gemini-api: gemini-3.8-flash, gemini-3.1-pro-preview, gemini-3.5-flash-lite — key GEMINI_API_KEY (env local)
-✓ Registered groq: openai/gpt-oss-120b, openai/gpt-oss-20b — key GROQ_API_KEY (env local)
-✓ Registered openrouter: anthropic/claude-sonnet-5.5, openai/gpt-6.1-sol, google/gemini-3.8-flash, openai/gpt-6-luna — key OPENROUTER_API_KEY (env local)
+✓ Registered gemini-api: gemini-3.8-flash (default), gemini-3.1-pro-preview, gemini-3.5-flash-lite — key GEMINI_API_KEY (env local)
+✓ Registered groq: openai/gpt-oss-120b (default), openai/gpt-oss-20b — key GROQ_API_KEY (env local)
+✓ Registered openrouter: anthropic/claude-sonnet-5.5 (default), openai/gpt-6.1-sol, google/gemini-3.8-flash, openai/gpt-6-luna — key OPENROUTER_API_KEY (env local)
 ```
 
 As with Anthropic, the preset checks that its key is there first, `--models`

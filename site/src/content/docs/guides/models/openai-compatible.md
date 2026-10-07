@@ -168,8 +168,11 @@ bills that way (the `openai` preset fills them in):
 ```
 
 Each extra rate must be a non-negative number, or an object of them one level
-deep, as `longContext` is; anything else is refused when you register (`400`,
-`invalid-cost`, naming the model).
+deep, as `longContext` is. Anything else is refused when you register:
+
+```text
+Error [invalid-request]: provider "ollama" model "llama3.1" cost table's other rates must be non-negative numbers, or objects of them (e.g. longContext: { thresholdTokens, promptUsdPer1kTokens, completionUsdPer1kTokens })
+```
 
 ## More than one model
 

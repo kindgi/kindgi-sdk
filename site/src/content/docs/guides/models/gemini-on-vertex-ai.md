@@ -53,7 +53,7 @@ instead: `{ preset: 'gemini', project: '<gcp-project>' }` in
 {
   "providerId": "gemini"
 }
-✓ Registered gemini: gemini-3.8-flash
+✓ Registered gemini: gemini-3.8-flash (default)
 ```
 
 ## What it registers
