@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import type { Logger } from '@kindgi/log';
 import type { Context } from 'hono';
 
 import { statusFor, toWireError } from '../errors.js';
@@ -28,6 +29,8 @@ export function mapThrownError(cause: Error, c: Context): Response {
     return c.newResponse(res.body, res);
   }
   const requestId = (c.get('requestId') as string | undefined) ?? 'req-unknown';
+  // A 500 is something an operator should look at: logged, with the error.
+  (c.get('log') as Logger | undefined)?.error('unhandled error', { err: cause });
   const body = toWireError(
     {
       code: 'internal-server-error',

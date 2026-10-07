@@ -181,7 +181,7 @@ const start: LeafCommand = {
   kind: 'leaf',
   name: 'start',
   description:
-    'Start a run for an agent or flow. Waits until it finishes or waits on an approval; if the wait is stopped (Ctrl+C), the run goes on and its id is printed. With --no-wait it prints as soon as the run exists (follow it with `runs get` / `runs stream`). --dry-run runs only read-only tools.',
+    'Start a run for an agent or flow. Waits until it finishes or waits on an approval; if the wait is stopped (Ctrl+C), the run goes on and its id is printed. A run that fails is still printed, its error goes to stderr (`Error [<code>]: …`), and the command exits 1. With --no-wait it prints as soon as the run exists (follow it with `runs get` / `runs stream`). --dry-run runs only read-only tools.',
   usage:
     'kindgi runs start (--agent=<agent-id> [--agent-version=<v>] | --flow=<flow-id> [--flow-version=<v>]) --input=<json-or-@file> [--project=<project-id>] [--segment=<key:value>]… [--no-wait] [--dry-run] [--idempotency-key=<key>]',
   optionSpec: {
@@ -289,9 +289,34 @@ const start: LeafCommand = {
       const run =
         ctx.options['no-wait'] === true ? started : await followUntilSettled(ctx, started);
       const rendered = renderJson(run, ctx.globals.format);
-      return { stdout: rendered.stdout, stderr: renderTurnWarnings(run.output) };
+      const warnings = renderTurnWarnings(run.output);
+      if (run.status !== 'failed') return { stdout: rendered.stdout, stderr: warnings };
+      // A run that failed still prints, so its id and failure are at hand;
+      // the exit code says it failed, for scripts.
+      return {
+        stdout: rendered.stdout,
+        stderr: ctx.globals.format === 'quiet' ? '' : `${warnings}${await runFailedLine(run)}`,
+        exitCode: 1,
+      };
     }),
 };
+
+/**
+ * The stderr line for a run that ended `failed`. An agent turn's failure
+ * reads back as its typed error, as the SDK's `invokeAgent` reads it
+ * (`parseFailureMessage`); any other shows the run's failure message.
+ */
+async function runFailedLine(run: Run): Promise<string> {
+  // Loaded only for a failed run: it brings in the whole agent loop.
+  const { parseFailureMessage } = await import('@kindgi/agents');
+  const error = parseFailureMessage(run.failureMessage);
+  if (error !== undefined) return `Error [${error.code}]: ${error.message}\n`;
+  const message =
+    run.failureMessage !== undefined && run.failureMessage !== ''
+      ? run.failureMessage
+      : `Run ${run.id} failed`;
+  return `Error [run-failed]: ${message}\n`;
+}
 
 /**
  * Follow a started run until it settles. Ctrl+C stops the wait, not the

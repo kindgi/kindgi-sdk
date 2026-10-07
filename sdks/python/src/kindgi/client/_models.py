@@ -8086,6 +8086,10 @@ class Run(BaseModel):
     """
     The segment path the run was started with (coarse to fine), which picks live agent versions. A child run has its parent's. Absent when there was none.
     """
+    trace_id: Annotated[str | None, Field(alias="traceId", pattern="^[0-9a-f]{32}$")] = None
+    """
+    The W3C trace id of the request that started the run: the caller's (from its `traceparent`) or one the API minted. The runtime's records about the run carry it; `GET` responses answer `traceresponse` with each request's own. Absent for a run no request started, and on runs from before runs recorded it.
+    """
     public_access_token: Annotated[str | None, Field(alias="publicAccessToken")] = None
     """
     Only in the response to `POST /v1/runs`, when the deployment issues public run tokens: a read-only token for this run (and its descendants) to hand to a browser, for `GET /v1/runs/{runId}/progress` and its stream.
@@ -8145,6 +8149,10 @@ class Datum(BaseModel):
     segments: list[ScopeSegment] | None = None
     """
     The segment path the run was started with (coarse to fine), which picks live agent versions. A child run has its parent's. Absent when there was none.
+    """
+    trace_id: Annotated[str | None, Field(alias="traceId", pattern="^[0-9a-f]{32}$")] = None
+    """
+    The W3C trace id of the request that started the run: the caller's (from its `traceparent`) or one the API minted. The runtime's records about the run carry it; `GET` responses answer `traceresponse` with each request's own. Absent for a run no request started, and on runs from before runs recorded it.
     """
     public_access_token: Annotated[str | None, Field(alias="publicAccessToken")] = None
     """

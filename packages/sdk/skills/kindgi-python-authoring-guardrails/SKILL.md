@@ -14,7 +14,7 @@ description: >
   kindgi-python-authoring-tools.
 type: core
 library: "kindgi (Python)"
-version: "0.1.2"
+version: "0.1.3"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -51,7 +51,7 @@ from kindgi import CheckResult, RunTrace, guardrail
 
 
 class Config(BaseModel):
-    min_lookups: int = Field(1, alias="minLookups", ge=0)
+    min_lookups: int = Field(default=1, alias="minLookups", ge=0)
 
 
 @guardrail(

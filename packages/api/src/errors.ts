@@ -88,6 +88,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'budget-exceeded': 422,
   'output-schema-violation': 422,
   'model-invocation-failed': 422,
+  /** No registered provider satisfies the agent's capability declaration (`needs`). */
+  'capability-unsatisfiable': 422,
+  /** A tool the agent names has no version satisfying its range (or the pinned one is gone). */
+  'tool-version-unresolvable': 422,
   'tool-invocation-failed': 422,
   'capability-routing-failed': 422,
   'runtime-not-configured': 422,
@@ -307,6 +311,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'secret-provider-unauthorized': 502,
   'secret-provider-rate-limited': 429,
   'secret-store-error': 500,
+  /** The secret store doesn't do this by design (the dev store's rotate and revoke). */
+  'secret-operation-unsupported': 501,
   'env-store-error': 500,
   // Trigger HTTP surface.
   'trigger-not-found': 404,
