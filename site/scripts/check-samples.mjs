@@ -20,8 +20,12 @@
  * calls. The pack's id is the one the samples use. Its Java files
  * (`// src/main/java/com/acme/Name.java`) are compiled together with
  * `javac --release 17` against the Java SDK this checkout builds
- * (`sdks/java`: the client's jar and what its published POM depends on),
- * offline. A sample without a file name is a fragment and isn't checked.
+ * (`sdks/java`: the client's jar and what its published POM depends on,
+ * and kindgi-pack's classes and dependencies), offline. When they're a
+ * pack's (they use `com.kindgi.pack`), they go over a fresh `java` pack,
+ * compile with its sources, and the pack is indexed
+ * (`com.kindgi.pack.Main index`), with no file errors allowed. A sample
+ * without a file name is a fragment and isn't checked.
  *
  * A sample may import the reader's own app code (`@/lib/requests`,
  * `acme.orders`). The page gives the checker a stand-in for it in a comment
@@ -75,8 +79,12 @@ const LANGUAGES = {
     id: /\bid:\s*'([a-z0-9-]+)\.[^']+'/,
   },
   python: { template: 'python', file: /^#\s*(\S+\.py)\s*$/, id: /\bid="([a-z0-9-]+)\.[^"]+"/ },
-  // An app's Java file: no pack, compiled against the Java SDK.
-  java: { file: /^\/\/\s*(src\/main\/java\/\S+\.java)\s*$/ },
+  // A Java file: an app's (compiled against the Java SDK) or a pack's (over a `java` pack).
+  java: {
+    template: 'java',
+    file: /^\/\/\s*(src\/main\/java\/\S+\.java)\s*$/,
+    id: /\bdefine\("([a-z0-9-]+)\.[^"]+"\)/,
+  },
 };
 const FENCE_LANGUAGE = {
   ts: 'ts',
@@ -192,10 +200,13 @@ function freshPack(template, packId) {
     );
     if (!init.ok)
       throw new Error(`kindgi init ${packId} --template=${template} failed:\n${init.output}`);
+    // A Java pack compiles against the SDK this checkout built (`java()`): nothing to install.
     const prepare =
       template === 'python'
         ? run('uv', ['sync', '--quiet'], dir)
-        : run('pnpm', ['install', '--prefer-offline', '--silent'], dir);
+        : template === 'java'
+          ? { ok: true, output: '' }
+          : run('pnpm', ['install', '--prefer-offline', '--silent'], dir);
     if (!prepare.ok) throw new Error(`preparing the ${template} pack failed:\n${prepare.output}`);
     scaffolds.set(key, dir);
   }
@@ -227,7 +238,8 @@ function java() {
       )
     : undefined;
   const classpathFile = join(target('kindgi-client'), 'samples-classpath.txt');
-  if (client === undefined || !existsSync(classpathFile)) {
+  const packClasspathFile = join(target('kindgi-pack'), 'classpath.txt');
+  if (client === undefined || !existsSync(classpathFile) || !existsSync(packClasspathFile)) {
     throw new Error(
       'Java samples compile against the Java SDK this checkout builds, and it is not built: run `cd sdks/java && ./mvnw package -DskipTests` first.',
     );
@@ -235,34 +247,69 @@ function java() {
   const classpath = [
     join(target('kindgi-client'), client),
     ...readFileSync(classpathFile, 'utf8').trim().split(delimiter),
+    join(target('kindgi-pack'), 'classes'),
+    ...readFileSync(packClasspathFile, 'utf8').trim().split(delimiter),
   ];
   javaToolchain = { javac, classpath: classpath.join(delimiter) };
   return javaToolchain;
 }
 
+/** Every `.java` file under `dir`, relative to it. */
+function javaSources(dir, rel = '') {
+  return readdirSync(join(dir, rel), { withFileTypes: true }).flatMap((entry) => {
+    const child = rel === '' ? entry.name : `${rel}/${entry.name}`;
+    if (entry.isDirectory()) return javaSources(dir, child);
+    return entry.name.endsWith('.java') ? [child] : [];
+  });
+}
+
 function checkJava(files) {
-  const dir = mkdtempSync(join(work, 'java-'));
+  // A pack's samples go over a fresh `java` pack and are indexed; an app's compile alone.
+  const pack = files.some((file) => /\bimport com\.kindgi\.pack\./.test(file.content));
+  const packId = files.map((file) => file.content.match(LANGUAGES.java.id)?.[1]).find(Boolean);
+  const dir = pack ? freshPack('java', packId ?? 'my-pack') : mkdtempSync(join(work, 'java-'));
   for (const file of files) {
     const target = join(dir, file.path);
     mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, file.content);
   }
   const { javac, classpath } = java();
+  const sources = pack ? javaSources(dir, 'src/main/java') : files.map((f) => f.path);
+  const classes = join(dir, 'target', 'classes');
   const compiled = run(
     javac,
+    ['--release', '17', '-Xlint:none', '-d', classes, '-cp', classpath, ...sources],
+    dir,
+  );
+  if (!compiled.ok || !pack) return compiled.ok ? undefined : compiled.output;
+  const javaBin = process.env.JAVA_HOME ? join(process.env.JAVA_HOME, 'bin', 'java') : 'java';
+  const index = run(
+    javaBin,
     [
-      '--release',
-      '17',
-      '-Xlint:none',
-      '-d',
-      join(dir, 'classes'),
       '-cp',
-      classpath,
-      ...files.map((f) => f.path),
+      [classes, classpath].join(delimiter),
+      'com.kindgi.pack.Main',
+      'index',
+      '--pack-dir',
+      dir,
+      '--output',
+      join(dir, 'target', 'index.json'),
+      '--json',
     ],
     dir,
   );
-  return compiled.ok ? undefined : compiled.output;
+  const outcome = (() => {
+    try {
+      return JSON.parse(index.output.slice(index.output.indexOf('{')));
+    } catch {
+      return undefined;
+    }
+  })();
+  if (outcome?.kind !== 'ok') return index.output;
+  const errors = outcome.value.fileErrors ?? [];
+  return errors.length > 0
+    ? errors.map((error) => `${error.filePath}: ${error.code}: ${error.message}`).join('\n')
+    : undefined;
 }
 
 function check(language, files, packDir) {
