@@ -98,7 +98,11 @@ async function supervisor(
 function invoke(
   running: Running,
   tool: string,
-  init: { readonly token?: string; readonly signal?: AbortSignal } = {},
+  init: {
+    readonly token?: string;
+    readonly signal?: AbortSignal;
+    readonly traceparent?: string;
+  } = {},
 ): Promise<Response> {
   return fetch(`${running.url}/v1/invoke`, {
     method: 'POST',
@@ -106,6 +110,7 @@ function invoke(
       'content-type': 'application/json',
       [PACK_HEADERS.token]: init.token ?? running.supervisor.token,
       [PACK_HEADERS.runId]: 'run-1',
+      ...(init.traceparent !== undefined && { [PACK_HEADERS.traceparent]: init.traceparent }),
     },
     body: JSON.stringify({
       v: PACK_PROTOCOL_VERSION,
@@ -173,6 +178,27 @@ describe('createPackServiceSupervisor — children', () => {
     } finally {
       Reflect.deleteProperty(process.env, 'PARENT_SENTINEL');
     }
+  });
+
+  test("a call through the front keeps the caller's trace: the child's call record carries it", async () => {
+    const events: PackServiceSupervisorEvent[] = [];
+    const index = await writePack({ 'pid.mjs': PID_TOOL });
+    const running = await supervisor({}, events);
+    expect((await running.supervisor.start(index)).kind).toBe('ok');
+    const traceId = '4bf92f3577b34da6a3ce929d0e0e4736';
+    const res = await invoke(running, 'pid', {
+      traceparent: `00-${traceId}-00f067aa0ba902b7-01`,
+    });
+    expect(res.status).toBe(200);
+    const deadline = Date.now() + 5000;
+    const call = () =>
+      events.find(
+        (e) => e.kind === 'log' && e.event.kind === 'call' && e.event.traceId === traceId,
+      );
+    while (call() === undefined && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    expect(call()).toBeDefined();
   });
 
   test('start again swaps in the new code behind the same address, and the old child stops', async () => {
