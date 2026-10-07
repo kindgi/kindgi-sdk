@@ -347,7 +347,7 @@ const setCmd: LeafCommand = {
         stderr:
           'Missing required argument: <KEY>.\n' +
           'Usage: kindgi env set <KEY> <VALUE> [--env <name>] [--force]\n',
-        exitCode: 1,
+        exitCode: 2,
       };
     }
     if (typeof value !== 'string') {
@@ -356,7 +356,7 @@ const setCmd: LeafCommand = {
         stderr:
           'Missing required argument: <VALUE>.\n' +
           'Usage: kindgi env set <KEY> <VALUE> [--env <name>] [--force]\n',
-        exitCode: 1,
+        exitCode: 2,
       };
     }
     if (!ENV_KEY_REGEX.test(key)) {
@@ -474,7 +474,7 @@ const unsetCmd: LeafCommand = {
         kind: 'error',
         stderr:
           'Missing required argument: <KEY>.\n' + 'Usage: kindgi env unset <KEY> [--env <name>]\n',
-        exitCode: 1,
+        exitCode: 2,
       };
     }
     if (isRefusedKey(key)) {

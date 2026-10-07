@@ -4,6 +4,7 @@
 import type { ApprovalDecision, ApprovalStatus } from '@kindgi/client';
 import type { ApprovalId } from '@kindgi/types';
 
+import { UsageError } from '../errors.js';
 import { integerFlag, requiredPositional, runSdk, stringFlag } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
@@ -21,7 +22,7 @@ const DECISIONS: readonly ApprovalDecision[] = ['approve', 'reject', 'escalate',
 
 function oneOf<T extends string>(flag: string, value: string, allowed: readonly T[]): T {
   if (!(allowed as readonly string[]).includes(value)) {
-    throw new Error(`--${flag} must be one of ${allowed.join(', ')}, got "${value}"`);
+    throw new UsageError(`--${flag} must be one of ${allowed.join(', ')}, got "${value}"`);
   }
   return value as T;
 }
@@ -89,7 +90,7 @@ const complete: LeafCommand = {
       const id = requiredPositional(ctx, 0, 'approval-id') as ApprovalId;
       const decision = stringFlag(ctx, 'decision');
       if (decision === undefined) {
-        throw new Error(`--decision=${DECISIONS.join('|')} is required`);
+        throw new UsageError(`--decision=${DECISIONS.join('|')} is required`);
       }
       const rationale = stringFlag(ctx, 'rationale');
       return await ctx.client().approvals.decide(id, {

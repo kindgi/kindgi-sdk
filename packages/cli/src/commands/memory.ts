@@ -3,6 +3,7 @@
 
 import type { FactsClient, WriteFactInput } from '@kindgi/client';
 
+import { UsageError } from '../errors.js';
 import {
   type TableSpec,
   integerFlag,
@@ -44,7 +45,7 @@ async function jsonObjectFlag(
 ): Promise<Readonly<Record<string, unknown>>> {
   const value = await readJsonInput(text);
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error(`--${flag} must be a JSON object`);
+    throw new UsageError(`--${flag} must be a JSON object`);
   }
   return value as Readonly<Record<string, unknown>>;
 }
@@ -117,11 +118,11 @@ const factsWrite: LeafCommand = {
   run: (ctx) =>
     runSdk(ctx, 'memory facts write', async () => {
       const inputText = stringFlag(ctx, 'input');
-      if (inputText === undefined) throw new Error('--input=<json-or-@file> is required');
+      if (inputText === undefined) throw new UsageError('--input=<json-or-@file> is required');
       const input = (await jsonObjectFlag(inputText, 'input')) as Partial<WriteFactInput>;
       const scope: unknown = input.scope ?? {};
       if (scope === null || typeof scope !== 'object' || Array.isArray(scope)) {
-        throw new Error('--input `scope` must be a JSON object');
+        throw new UsageError('--input `scope` must be a JSON object');
       }
       const client = ctx.client();
       // The API asks for the scope's tenant, which can only be the caller's.
