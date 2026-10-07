@@ -125,6 +125,14 @@ export function createProviderRegistry(
         };
       }
     }
+    const defaultModel = p.metadata.defaultModel;
+    if (defaultModel !== undefined && !p.metadata.models.some((m) => m.name === defaultModel)) {
+      return {
+        code: 'invalid-provider',
+        message: `provider "${p.metadata.id}" defaultModel "${String(defaultModel)}" isn't one of its models (${p.metadata.models.map((m) => m.name).join(', ')})`,
+        reason: 'unknown-default-model',
+      };
+    }
     const badLabels = validateProviderLabels(p.metadata.id, p.metadata.labels);
     if (badLabels !== undefined) return { code: 'invalid-provider', ...badLabels };
     if (typeof p.invoke !== 'function') {

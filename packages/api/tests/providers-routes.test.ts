@@ -426,6 +426,36 @@ describe('API — providers register + get', () => {
     }
   });
 
+  test('defaultModel round-trips through register + get; a name it lacks → 400 unknown-default-model', async () => {
+    const { app } = makeApp();
+    const spec = providerSpec({ id: 'with-default' });
+    const name = spec.models[0]?.name as string;
+    const register = await app.request('/v1/providers', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        metadata: { ...spec, defaultModel: name },
+        adapter_id: TEST_ADAPTER_ID,
+      }),
+    });
+    expect(register.status).toBe(201);
+    const get = await app.request('/v1/providers/with-default', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(((await get.json()) as { defaultModel?: string }).defaultModel).toBe(name);
+    const bad = await app.request('/v1/providers', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        metadata: { ...providerSpec({ id: 'bad-default' }), defaultModel: 'not-one-of-them' },
+        adapter_id: TEST_ADAPTER_ID,
+      }),
+    });
+    expect(bad.status).toBe(400);
+    const body = (await bad.json()) as { error: { code: string; details?: { reason?: string } } };
+    expect(body.error.details?.reason).toBe('unknown-default-model');
+  });
+
   test('validation failure (non-boolean fallback) → 400 invalid-provider', async () => {
     const { app } = makeApp();
     const res = await app.request('/v1/providers', {

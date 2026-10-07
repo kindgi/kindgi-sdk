@@ -138,6 +138,32 @@ describe('createProviderRegistry', () => {
     }
   });
 
+  test('defaultModel: one of its models is kept; another name is refused', () => {
+    const { registry, register } = createProviderRegistry();
+    const models = [
+      {
+        name: 'sonnet',
+        contextWindow: 200000,
+        features: ['tool-use' as const],
+        cost: { promptUsdPer1kTokens: 0.003, completionUsdPer1kTokens: 0.015 },
+      },
+    ];
+    const ok = register(
+      TENANT_A,
+      fakeProvider({ id: 'a', region: 'us', models, defaultModel: 'sonnet' }),
+    );
+    expect(ok.kind).toBe('ok');
+    expect(registry.get(TENANT_A, 'a')?.metadata.defaultModel).toBe('sonnet');
+    const bad = register(
+      TENANT_A,
+      fakeProvider({ id: 'b', region: 'us', models, defaultModel: 'opus' }),
+    );
+    expect(bad.kind).toBe('err');
+    if (bad.kind === 'err' && bad.error.code === 'invalid-provider') {
+      expect(bad.error.reason).toBe('unknown-default-model');
+    }
+  });
+
   test('labels: kept as given, and out-of-bounds labels are refused', () => {
     const { registry, register } = createProviderRegistry();
     const labels = {

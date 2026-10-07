@@ -10,6 +10,7 @@
   "metadata": {
     "id": "gemini-api",
     "region": "unspecified",
+    "defaultModel": "gemini-3.8-flash",
     "description": "Gemini on the Gemini Developer API",
     "models": [
       {

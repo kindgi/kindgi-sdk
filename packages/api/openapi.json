@@ -7911,6 +7911,11 @@
             },
             "description": "Models this connection exposes. Non-empty. `models[i].name` must be unique within the list."
           },
+          "defaultModel": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The model to use when an agent doesn't choose: one of `models[].name`. When candidates rank equally, it comes before the provider's other models; without it, ties break by model name. A preset sets it. A runtime before 0.1.4 ignores it."
+          },
           "attributes": {
             "type": "array",
             "items": {
