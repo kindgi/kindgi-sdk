@@ -4575,7 +4575,7 @@ class AuthProvidersResource:
     def list(self, /, *, timeout: float | None = None) -> _models.IdentityProviderCollectionPage:
         """List identity providers configured for the tenant. `GET /v1/auth/providers`
 
-        Returns the OAuth 2.0 / OIDC providers a caller can `login` through. `clientSecretRef` is a REFERENCE — the plaintext client secret is never on the wire.
+        Returns the tenant's identity providers (OIDC, SAML, OAuth 2.0), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.
         """
         return self._client._request(
             _OPERATIONS["auth.providers.list"],
@@ -4595,9 +4595,9 @@ class AuthProvidersResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.RegisterIdentityProviderResult:
-        """Register a new OAuth/OIDC identity provider. `POST /v1/auth/providers`
+        """Register an identity provider (OIDC, SAML or OAuth 2.0). `POST /v1/auth/providers`
 
-        Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered` — unregister it first, then register again.
+        Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered` — unregister it first, then register again. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`. The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.
         """
         return self._client._request(
             _OPERATIONS["auth.providers.register"],
@@ -10492,7 +10492,7 @@ class AsyncAuthProvidersResource:
     ) -> _models.IdentityProviderCollectionPage:
         """List identity providers configured for the tenant. `GET /v1/auth/providers`
 
-        Returns the OAuth 2.0 / OIDC providers a caller can `login` through. `clientSecretRef` is a REFERENCE — the plaintext client secret is never on the wire.
+        Returns the tenant's identity providers (OIDC, SAML, OAuth 2.0), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.
         """
         return await self._client._request(
             _OPERATIONS["auth.providers.list"],
@@ -10512,9 +10512,9 @@ class AsyncAuthProvidersResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.RegisterIdentityProviderResult:
-        """Register a new OAuth/OIDC identity provider. `POST /v1/auth/providers`
+        """Register an identity provider (OIDC, SAML or OAuth 2.0). `POST /v1/auth/providers`
 
-        Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered` — unregister it first, then register again.
+        Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered` — unregister it first, then register again. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`. The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.
         """
         return await self._client._request(
             _OPERATIONS["auth.providers.register"],

@@ -16,6 +16,7 @@ import type {
   IdentityProviderBinding,
   ProviderConfig,
   RefreshTokenFn,
+  SamlAttributeMapping,
 } from '../identity-provider-binding.js';
 import { encodeSessionToken } from '../middleware/auth.js';
 import type {
@@ -121,8 +122,26 @@ export function authRouters(options: AuthRouterOptions): {
     }
 
     const outcome = await identityProvider.register({ tenantId, config: parsed.value });
+    if (outcome.kind === 'invalid') {
+      c.status(statusFor('identity-provider-invalid') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'identity-provider-invalid',
+            message: outcome.message,
+            providerId: parsed.value.providerId,
+          },
+          requestId,
+        ),
+      );
+    }
     c.status(201);
-    return c.json({ providerId: outcome.providerId });
+    return c.json({
+      providerId: outcome.providerId,
+      ...(outcome.provider !== undefined && {
+        provider: serializeProviderConfig(outcome.provider),
+      }),
+    });
   });
 
   // ---------- POST /providers/:providerId/unregister ----------
@@ -155,14 +174,28 @@ export function authRouters(options: AuthRouterOptions): {
       const tenantId = c.get('tenantId') as TenantId;
       const providerId = c.req.param('providerId');
 
-      const config = await identityProvider.get({ tenantId, providerId });
-      if (config === null) {
+      const found = await identityProvider.get({ tenantId, providerId });
+      if (found === null) {
         c.status(statusFor('identity-provider-not-found') as never);
         return c.json(
           toWireError(
             {
               code: 'identity-provider-not-found',
               message: `No identity provider registered with id "${providerId}"`,
+              providerId,
+            },
+            requestId,
+          ),
+        );
+      }
+      const config = oauthFlowOf(found);
+      if (config === null) {
+        c.status(statusFor('invalid-provider-config') as never);
+        return c.json(
+          toWireError(
+            {
+              code: 'invalid-provider-config',
+              message: `Identity provider "${providerId}" (${found.kind}) signs in through the deployment's own sign-in, not this endpoint`,
               providerId,
             },
             requestId,
@@ -448,11 +481,12 @@ export function authRouters(options: AuthRouterOptions): {
         tenantId: entry.tenantId,
         providerId,
       });
+      const currentAllowlist =
+        currentConfig === null ? undefined : oauthFlowOf(currentConfig)?.allowedRedirectUris;
       if (
-        currentConfig !== null &&
-        currentConfig.allowedRedirectUris !== undefined &&
-        currentConfig.allowedRedirectUris.length > 0 &&
-        !currentConfig.allowedRedirectUris.includes(entry.redirectUri)
+        currentAllowlist !== undefined &&
+        currentAllowlist.length > 0 &&
+        !currentAllowlist.includes(entry.redirectUri)
       ) {
         c.status(statusFor('redirect-uri-mismatch') as never);
         return c.json(
@@ -524,8 +558,38 @@ function base64Url(buf: Buffer): string {
   return buf.toString('base64url');
 }
 
+/** What this package's own OAuth flow (login + callback) needs from a provider. */
+interface OAuthFlowConfig {
+  readonly clientId: string;
+  readonly authorizationEndpoint: string;
+  readonly scopes: readonly string[];
+  readonly allowedRedirectUris?: readonly string[];
+  readonly metadata?: Record<string, unknown>;
+}
+
+const DEFAULT_OIDC_SCOPES: readonly string[] = ['openid', 'email', 'profile'];
+
+/**
+ * The provider's OAuth flow settings, or `null` when it has none: a SAML
+ * provider, or an OIDC one whose endpoints the deployment hasn't
+ * discovered (it signs in through the deployment's own browser flow).
+ */
+function oauthFlowOf(config: ProviderConfig): OAuthFlowConfig | null {
+  if (config.kind === 'saml') return null;
+  if (config.kind === 'oidc' && config.authorizationEndpoint === undefined) return null;
+  return {
+    clientId: config.clientId,
+    authorizationEndpoint: config.authorizationEndpoint as string,
+    scopes: config.scopes ?? DEFAULT_OIDC_SCOPES,
+    ...(config.allowedRedirectUris !== undefined && {
+      allowedRedirectUris: config.allowedRedirectUris,
+    }),
+    ...(config.metadata !== undefined && { metadata: config.metadata }),
+  };
+}
+
 function buildAuthorizationUrl(input: {
-  readonly config: ProviderConfig;
+  readonly config: OAuthFlowConfig;
   readonly state: string;
   readonly codeChallenge: string;
   readonly redirectUri: string;
@@ -543,24 +607,66 @@ function buildAuthorizationUrl(input: {
 }
 
 function serializeProviderConfig(c: ProviderConfig): Record<string, unknown> {
-  // Every field except clientSecretRef (which is a REFERENCE, not the
-  // secret itself) is safe to return. Clients need enough to render an
-  // "sign in with X" button and know what scopes they're granting.
-  return {
+  // References to secrets (`clientSecretRef`, `spSigningKeyRef`…) are safe
+  // to return: they aren't the secrets. Clients need enough to render a
+  // "Sign in with X" button and to configure the identity provider.
+  const base = {
     providerId: c.providerId,
     kind: c.kind,
-    clientId: c.clientId,
-    clientSecretRef: c.clientSecretRef,
-    authorizationEndpoint: c.authorizationEndpoint,
-    tokenEndpoint: c.tokenEndpoint,
-    ...(c.userinfoEndpoint !== undefined && { userinfoEndpoint: c.userinfoEndpoint }),
-    scopes: c.scopes,
-    ...(c.allowedRedirectUris !== undefined && {
-      allowedRedirectUris: c.allowedRedirectUris,
-    }),
-    ...(c.claimMapping !== undefined && { claimMapping: c.claimMapping }),
-    ...(c.metadata !== undefined && { metadata: c.metadata }),
+    ...definedOf(c, ['displayName', 'domains', 'join', 'signIn', 'metadata']),
   };
+  switch (c.kind) {
+    case 'oauth2':
+      return {
+        ...base,
+        clientId: c.clientId,
+        clientSecretRef: c.clientSecretRef,
+        authorizationEndpoint: c.authorizationEndpoint,
+        tokenEndpoint: c.tokenEndpoint,
+        scopes: c.scopes,
+        ...definedOf(c, ['userinfoEndpoint', 'allowedRedirectUris', 'claimMapping']),
+      };
+    case 'oidc':
+      return {
+        ...base,
+        issuer: c.issuer,
+        clientId: c.clientId,
+        clientSecretRef: c.clientSecretRef,
+        ...definedOf(c, [
+          'scopes',
+          'authorizationEndpoint',
+          'tokenEndpoint',
+          'userinfoEndpoint',
+          'jwksEndpoint',
+          'allowedRedirectUris',
+          'claimMapping',
+        ]),
+      };
+    case 'saml':
+      return {
+        ...base,
+        ...definedOf(c, [
+          'idpMetadataXml',
+          'idpEntityId',
+          'idpSsoUrl',
+          'idpCertificates',
+          'spSigningKeyRef',
+          'spDecryptionKeyRef',
+          'wantAssertionsSigned',
+          'attributeMapping',
+        ]),
+      };
+  }
+}
+
+/** The named fields of `obj` that are set. */
+function definedOf<T extends object, K extends keyof T>(
+  obj: T,
+  keys: readonly K[],
+): Partial<Pick<T, K>> {
+  const out: Partial<Pick<T, K>> = {};
+  for (const k of keys) if (obj[k] !== undefined) out[k] = obj[k];
+  return out;
 }
 
 type ParsedOk<T> = { readonly kind: 'ok'; readonly value: T };
@@ -599,124 +705,234 @@ async function parseOptionalJsonBody(
   }
 }
 
+/**
+ * Fields that would carry a secret itself rather than a reference to one:
+ * refused outright, so a secret sent by mistake is never stored.
+ */
+const PLAINTEXT_SECRET_FIELDS: Readonly<Record<string, string>> = {
+  clientSecret: 'clientSecretRef',
+  spSigningKey: 'spSigningKeyRef',
+  spDecryptionKey: 'spDecryptionKeyRef',
+  privateKey: 'spSigningKeyRef',
+};
+
+const DOMAIN_RE = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
+
+function invalid(message: string): ParsedErr {
+  return { kind: 'err', error: { code: 'invalid-provider-config', message } };
+}
+
+/** Reads typed fields off a request body, collecting the first problem. */
+class FieldReader {
+  error: ParsedErr | undefined;
+  constructor(private readonly b: Record<string, unknown>) {}
+
+  str(k: string): string {
+    const v = this.b[k];
+    if (typeof v !== 'string' || v.length === 0) {
+      this.error ??= invalid(`Field \`${k}\` must be a non-empty string`);
+      return '';
+    }
+    return v;
+  }
+
+  optStr(k: string): string | undefined {
+    const v = this.b[k];
+    if (v === undefined) return undefined;
+    if (typeof v !== 'string' || v.length === 0) {
+      this.error ??= invalid(`\`${k}\` must be a non-empty string when supplied`);
+      return undefined;
+    }
+    return v;
+  }
+
+  url(k: string, required: boolean): string | undefined {
+    const v = required ? this.str(k) : this.optStr(k);
+    if (v === undefined || v === '') return v;
+    try {
+      new URL(v);
+    } catch {
+      this.error ??= invalid(`\`${k}\` must be an absolute URL`);
+    }
+    return v;
+  }
+
+  strings(k: string, required: boolean): readonly string[] | undefined {
+    const v = this.b[k];
+    if (v === undefined) {
+      if (required) this.error ??= invalid(`\`${k}\` must be an array of strings`);
+      return undefined;
+    }
+    if (!Array.isArray(v) || v.some((x) => typeof x !== 'string' || x.length === 0)) {
+      this.error ??= invalid(`\`${k}\` must be an array of non-empty strings`);
+      return undefined;
+    }
+    return v as string[];
+  }
+
+  bool(k: string): boolean | undefined {
+    const v = this.b[k];
+    if (v === undefined) return undefined;
+    if (typeof v !== 'boolean') {
+      this.error ??= invalid(`\`${k}\` must be a boolean when supplied`);
+      return undefined;
+    }
+    return v;
+  }
+
+  object(k: string): Record<string, unknown> | undefined {
+    const v = this.b[k];
+    if (v === undefined) return undefined;
+    if (v === null || typeof v !== 'object' || Array.isArray(v)) {
+      this.error ??= invalid(`\`${k}\` must be an object when supplied`);
+      return undefined;
+    }
+    return v as Record<string, unknown>;
+  }
+}
+
 function parseProviderConfig(body: unknown): ParsedOk<ProviderConfig> | ParsedErr {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) {
     return { kind: 'err', error: { code: 'bad-input', message: 'Request body must be an object' } };
   }
   const b = body as Record<string, unknown>;
-  const requiredStr = (k: string): string | ParsedErr => {
-    const v = b[k];
-    if (typeof v !== 'string' || v.length === 0) {
-      return {
-        kind: 'err',
-        error: {
-          code: 'invalid-provider-config',
-          message: `Field \`${k}\` must be a non-empty string`,
-        },
-      };
+  for (const [field, instead] of Object.entries(PLAINTEXT_SECRET_FIELDS)) {
+    if (b[field] !== undefined) {
+      return invalid(
+        `\`${field}\` is never accepted: register \`${instead}\`, a reference the deployment resolves`,
+      );
     }
-    return v;
+  }
+  const kind = b.kind;
+  if (kind !== 'oauth2' && kind !== 'oidc' && kind !== 'saml') {
+    return invalid('`kind` must be `oidc`, `saml` or `oauth2`');
+  }
+
+  const r = new FieldReader(b);
+  const providerId = r.str('providerId');
+  const displayName = r.optStr('displayName');
+  const domainsRaw = r.strings('domains', false);
+  const domains = domainsRaw?.map((d) => d.toLowerCase());
+  if (domains?.some((d) => !DOMAIN_RE.test(d))) {
+    r.error ??= invalid('`domains` must be email domains, e.g. `acme.com`');
+  }
+  const join = b.join;
+  if (join !== undefined && join !== 'invite' && join !== 'domain') {
+    r.error ??= invalid('`join` must be `invite` or `domain`');
+  }
+  if (join === 'domain' && (domains === undefined || domains.length === 0)) {
+    r.error ??= invalid('`join: domain` needs `domains`');
+  }
+  const metadata = r.object('metadata');
+  const base = {
+    providerId,
+    ...(displayName !== undefined && { displayName }),
+    ...(domains !== undefined && { domains }),
+    ...(join !== undefined && { join: join as 'invite' | 'domain' }),
+    ...(metadata !== undefined && { metadata }),
   };
-  const providerId = requiredStr('providerId');
-  if (typeof providerId !== 'string') return providerId;
-  const clientId = requiredStr('clientId');
-  if (typeof clientId !== 'string') return clientId;
-  const clientSecretRef = requiredStr('clientSecretRef');
-  if (typeof clientSecretRef !== 'string') return clientSecretRef;
-  const authorizationEndpoint = requiredStr('authorizationEndpoint');
-  if (typeof authorizationEndpoint !== 'string') return authorizationEndpoint;
-  const tokenEndpoint = requiredStr('tokenEndpoint');
-  if (typeof tokenEndpoint !== 'string') return tokenEndpoint;
 
-  const kindRaw = b.kind;
-  if (kindRaw !== 'oauth2' && kindRaw !== 'oidc') {
-    return {
-      kind: 'err',
-      error: {
-        code: 'invalid-provider-config',
-        message: '`kind` must be `oauth2` or `oidc`',
-      },
-    };
-  }
-
-  const scopesRaw = b.scopes;
-  if (!Array.isArray(scopesRaw) || scopesRaw.some((s) => typeof s !== 'string')) {
-    return {
-      kind: 'err',
-      error: {
-        code: 'invalid-provider-config',
-        message: '`scopes` must be an array of strings',
-      },
-    };
-  }
-  const scopes = scopesRaw as string[];
-
-  const userinfoEndpointRaw = b.userinfoEndpoint;
-  if (userinfoEndpointRaw !== undefined && typeof userinfoEndpointRaw !== 'string') {
-    return {
-      kind: 'err',
-      error: {
-        code: 'invalid-provider-config',
-        message: '`userinfoEndpoint` must be a string when supplied',
-      },
-    };
-  }
-  const metadataRaw = b.metadata;
-  if (
-    metadataRaw !== undefined &&
-    (metadataRaw === null || typeof metadataRaw !== 'object' || Array.isArray(metadataRaw))
-  ) {
-    return {
-      kind: 'err',
-      error: {
-        code: 'invalid-provider-config',
-        message: '`metadata` must be an object when supplied',
-      },
-    };
-  }
-
-  const allowedRedirectUrisRaw = b.allowedRedirectUris;
-  let allowedRedirectUris: readonly string[] | undefined;
-  if (allowedRedirectUrisRaw !== undefined) {
-    if (
-      !Array.isArray(allowedRedirectUrisRaw) ||
-      allowedRedirectUrisRaw.some((s) => typeof s !== 'string' || s.length === 0)
-    ) {
-      return {
-        kind: 'err',
-        error: {
-          code: 'invalid-provider-config',
-          message: '`allowedRedirectUris` must be an array of non-empty strings when supplied',
-        },
-      };
-    }
-    allowedRedirectUris = allowedRedirectUrisRaw as string[];
-  }
-
-  const claimMappingRaw = b.claimMapping;
   let claimMapping: ClaimMappingSpec | undefined;
-  if (claimMappingRaw !== undefined) {
-    const parsed = parseClaimMapping(claimMappingRaw);
+  if (kind !== 'saml' && b.claimMapping !== undefined) {
+    const parsed = parseClaimMapping(b.claimMapping);
     if (parsed.kind === 'err') return parsed;
     claimMapping = parsed.value;
   }
 
-  return {
-    kind: 'ok',
-    value: {
-      providerId,
-      kind: kindRaw,
+  let value: ProviderConfig;
+  if (kind === 'oauth2') {
+    const clientId = r.str('clientId');
+    const clientSecretRef = r.str('clientSecretRef');
+    const authorizationEndpoint = r.str('authorizationEndpoint');
+    const tokenEndpoint = r.str('tokenEndpoint');
+    const userinfoEndpoint = r.optStr('userinfoEndpoint');
+    const scopes = r.strings('scopes', true) ?? [];
+    const allowedRedirectUris = r.strings('allowedRedirectUris', false);
+    value = {
+      ...base,
+      kind,
       clientId,
       clientSecretRef,
       authorizationEndpoint,
       tokenEndpoint,
-      ...(typeof userinfoEndpointRaw === 'string' && { userinfoEndpoint: userinfoEndpointRaw }),
       scopes,
+      ...(userinfoEndpoint !== undefined && { userinfoEndpoint }),
       ...(allowedRedirectUris !== undefined && { allowedRedirectUris }),
       ...(claimMapping !== undefined && { claimMapping }),
-      ...(metadataRaw !== undefined && { metadata: metadataRaw as Record<string, unknown> }),
-    },
-  };
+    };
+  } else if (kind === 'oidc') {
+    const issuer = r.url('issuer', true) ?? '';
+    const clientId = r.str('clientId');
+    const clientSecretRef = r.str('clientSecretRef');
+    const scopes = r.strings('scopes', false);
+    const authorizationEndpoint = r.url('authorizationEndpoint', false);
+    const tokenEndpoint = r.url('tokenEndpoint', false);
+    const userinfoEndpoint = r.url('userinfoEndpoint', false);
+    const jwksEndpoint = r.url('jwksEndpoint', false);
+    const allowedRedirectUris = r.strings('allowedRedirectUris', false);
+    value = {
+      ...base,
+      kind,
+      issuer,
+      clientId,
+      clientSecretRef,
+      ...(scopes !== undefined && { scopes }),
+      ...(authorizationEndpoint !== undefined && { authorizationEndpoint }),
+      ...(tokenEndpoint !== undefined && { tokenEndpoint }),
+      ...(userinfoEndpoint !== undefined && { userinfoEndpoint }),
+      ...(jwksEndpoint !== undefined && { jwksEndpoint }),
+      ...(allowedRedirectUris !== undefined && { allowedRedirectUris }),
+      ...(claimMapping !== undefined && { claimMapping }),
+    };
+  } else {
+    const idpMetadataXml = r.optStr('idpMetadataXml');
+    const idpEntityId = r.optStr('idpEntityId');
+    const idpSsoUrl = r.url('idpSsoUrl', false);
+    const idpCertificates = r.strings('idpCertificates', false);
+    if (
+      idpMetadataXml === undefined &&
+      (idpEntityId === undefined ||
+        idpSsoUrl === undefined ||
+        idpCertificates === undefined ||
+        idpCertificates.length === 0)
+    ) {
+      r.error ??= invalid(
+        'A SAML provider needs `idpMetadataXml`, or `idpEntityId` + `idpSsoUrl` + `idpCertificates`',
+      );
+    }
+    const spSigningKeyRef = r.optStr('spSigningKeyRef');
+    const spDecryptionKeyRef = r.optStr('spDecryptionKeyRef');
+    const wantAssertionsSigned = r.bool('wantAssertionsSigned');
+    const mappingRaw = r.object('attributeMapping');
+    let attributeMapping: SamlAttributeMapping | undefined;
+    if (mappingRaw !== undefined) {
+      const m = new FieldReader(mappingRaw);
+      const userId = m.optStr('userId');
+      const email = m.optStr('email');
+      const displayName = m.optStr('displayName');
+      if (m.error !== undefined)
+        r.error ??= invalid(`\`attributeMapping\`: ${m.error.error.message}`);
+      attributeMapping = {
+        ...(userId !== undefined && { userId }),
+        ...(email !== undefined && { email }),
+        ...(displayName !== undefined && { displayName }),
+      };
+    }
+    value = {
+      ...base,
+      kind,
+      ...(idpMetadataXml !== undefined && { idpMetadataXml }),
+      ...(idpEntityId !== undefined && { idpEntityId }),
+      ...(idpSsoUrl !== undefined && { idpSsoUrl }),
+      ...(idpCertificates !== undefined && { idpCertificates }),
+      ...(spSigningKeyRef !== undefined && { spSigningKeyRef }),
+      ...(spDecryptionKeyRef !== undefined && { spDecryptionKeyRef }),
+      ...(wantAssertionsSigned !== undefined && { wantAssertionsSigned }),
+      ...(attributeMapping !== undefined && { attributeMapping }),
+    };
+  }
+  if (r.error !== undefined) return r.error;
+  return { kind: 'ok', value };
 }
 
 function parseClaimMapping(raw: unknown): ParsedOk<ClaimMappingSpec> | ParsedErr {

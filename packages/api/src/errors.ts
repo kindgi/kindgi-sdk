@@ -235,6 +235,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'session-inactive': 401,
   'identity-provider-not-found': 404,
   'identity-provider-already-registered': 409,
+  // The deployment couldn't use a provider's configuration (its issuer's
+  // discovery failed, its SAML metadata didn't parse, a host it may not
+  // reach): 422 with what went wrong.
+  'identity-provider-invalid': 422,
   'oauth-state-invalid': 400,
   'oauth-code-exchange-failed': 422,
   'oauth-refresh-failed': 422,

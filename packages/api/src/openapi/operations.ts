@@ -4485,7 +4485,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.providers.list',
     summary: 'List identity providers configured for the tenant',
     description:
-      'Returns the OAuth 2.0 / OIDC providers a caller can `login` through. `clientSecretRef` is a REFERENCE — the plaintext client secret is never on the wire.',
+      "Returns the tenant's identity providers (OIDC, SAML, OAuth 2.0), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.",
     tags: ['auth'],
     security: 'bearer',
     responses: {
@@ -4501,9 +4501,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/auth/providers',
     openapiPath: '/v1/auth/providers',
     operationId: 'auth.providers.register',
-    summary: 'Register a new OAuth/OIDC identity provider',
+    summary: 'Register an identity provider (OIDC, SAML or OAuth 2.0)',
     description:
-      'Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered` — unregister it first, then register again.',
+      'Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered` — unregister it first, then register again. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`. The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.',
     tags: ['auth'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -4514,6 +4514,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('RegisterIdentityProviderResult'),
       },
       ...CommonMutationErrors,
+      '422': ErrorResponse(
+        'The deployment could not use the configuration (`identity-provider-invalid`).',
+      ),
     },
   },
   {
