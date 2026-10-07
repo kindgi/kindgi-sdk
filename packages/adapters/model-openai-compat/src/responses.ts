@@ -57,6 +57,12 @@ export interface ResponsesCall {
   readonly extraBody: Readonly<Record<string, unknown>>;
   /** The temperature to send; absent sends none. */
   readonly temperature?: number;
+  /**
+   * The reasoning effort to send (`reasoning.effort`): the model's lowest,
+   * when the call asks for as little thinking as it allows. Absent: the
+   * model's default, or a registration's `extraBody.reasoning`.
+   */
+  readonly reasoningEffort?: string;
   /** Warnings about the call, for the answer's `warnings`. */
   readonly warnings?: readonly ModelCallWarning[];
   /** When the call started (`Date.now()`), for `durationMs`. */
@@ -84,6 +90,12 @@ export async function invokeResponses(call: ResponsesCall): Promise<ModelCallRes
           },
         }),
         ...(call.temperature !== undefined && { temperature: call.temperature }),
+        ...(call.reasoningEffort !== undefined && {
+          reasoning: {
+            ...(isRecord(call.extraBody.reasoning) ? call.extraBody.reasoning : {}),
+            effort: call.reasoningEffort as OpenAI.ReasoningEffort,
+          },
+        }),
         ...(input.maxOutputTokens !== undefined && { max_output_tokens: input.maxOutputTokens }),
         store: false,
         stream: false,

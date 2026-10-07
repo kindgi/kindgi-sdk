@@ -118,8 +118,8 @@ worktree, after `--reset`, and on a teammate's machine.
 ```ts
 // in kindgi.config.ts
 providers: [
-  { preset: 'anthropic', models: ['claude-haiku-4-5'] }, // its key, ANTHROPIC_API_KEY, from the env files
-  { preset: 'gemini', project: 'acme-gcp', models: ['gemini-2.5-flash'] },
+  { preset: 'anthropic', models: ['claude-sonnet-5-5'] }, // its key, ANTHROPIC_API_KEY, from the env files
+  { preset: 'gemini', project: 'acme-gcp', models: ['gemini-3.8-flash'] },
   { spec: { /* what --spec takes */ } },
 ],
 ```
@@ -131,12 +131,12 @@ providers: [
 # in pyproject.toml
 [[tool.kindgi.providers]]
 preset = "anthropic"
-models = ["claude-haiku-4-5"]   # its key, ANTHROPIC_API_KEY, from the env files
+models = ["claude-sonnet-5-5"]  # its key, ANTHROPIC_API_KEY, from the env files
 
 [[tool.kindgi.providers]]
 preset = "gemini"
 project = "acme-gcp"
-models = ["gemini-2.5-flash"]
+models = ["gemini-3.8-flash"]
 ```
 
 </TabItem>

@@ -20,7 +20,9 @@ import type {
   ProviderMetadata,
   UsageCounters,
 } from '@kindgi/capabilities';
+import { samplingFor } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
+import { nameToolsAsSent } from '@kindgi/capabilities/tool-names';
 
 import { EXTRA_BODY_RESERVED_RESPONSES, invokeResponses } from './responses.js';
 import { computeCost, decodeToolName, encodeToolName } from './wire.js';
@@ -169,20 +171,36 @@ export function createOpenAICompatModelProvider(
       }
       const startedAt = Date.now();
       const openai = await clientForCall();
+      // The system prompt names the call's tools as they're sent (`acme__lookup_order`):
+      // a model told to call `acme.lookup_order` calls a name it wasn't given.
+      const toolIds = input.tools?.map((t) => t.name) ?? [];
+      const sent = input.messages.map((m) =>
+        m.role === 'system'
+          ? { ...m, content: nameToolsAsSent(m.content, toolIds, encodeToolName) }
+          : m,
+      );
+      const sampling = samplingFor(modelInfo, input);
+      // A caller that wants as little thinking as the model allows (a judge).
+      const lowestThinking =
+        input.thinking === 'lowest' && modelInfo.thinking !== undefined
+          ? modelInfo.thinking.lowest
+          : undefined;
       if (api === 'responses') {
         return invokeResponses({
           client: openai,
           attempts,
-          input,
+          input: { ...input, messages: sent },
           modelInfo,
           providerId: metadata.id,
           extraBody,
-          ...(input.temperature !== undefined && { temperature: input.temperature }),
+          ...(sampling.temperature !== undefined && { temperature: sampling.temperature }),
+          ...(lowestThinking !== undefined && { reasoningEffort: lowestThinking }),
+          warnings: sampling.warnings,
           startedAt,
         });
       }
 
-      const messages = input.messages.map(toOpenAiMessage);
+      const messages = sent.map(toOpenAiMessage);
       const tools = input.tools?.map(toOpenAiTool);
 
       const responseFormat = input.structuredOutput
@@ -204,7 +222,12 @@ export function createOpenAICompatModelProvider(
             messages,
             ...(tools !== undefined && tools.length > 0 && { tools }),
             ...(responseFormat !== undefined && { response_format: responseFormat }),
-            ...(input.temperature !== undefined && { temperature: input.temperature }),
+            ...(sampling.temperature !== undefined && { temperature: sampling.temperature }),
+            ...(lowestThinking !== undefined && {
+              reasoning_effort: lowestThinking as NonNullable<
+                OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming['reasoning_effort']
+              >,
+            }),
             ...(input.maxOutputTokens !== undefined && { max_tokens: input.maxOutputTokens }),
             stream: false,
           },
@@ -242,6 +265,7 @@ export function createOpenAICompatModelProvider(
         // An injected client sends with its own fetch: nothing was counted.
         ...(counted.attempts > 0 && { attempts: counted.attempts }),
         ...(completion.usage !== undefined && { rawUsage: { ...completion.usage } }),
+        ...(sampling.warnings.length > 0 && { warnings: sampling.warnings }),
       };
     },
   };
