@@ -10,7 +10,7 @@ This page is written for a coding agent (Claude Code, Cursor, Codex, or any
 other). A person pastes this prompt into their agent:
 
 ```text
-Set up Kindgi for me: read https://docs.kindgi.com/next/start/agent/ and follow it step by step. Tell me whenever you need me to do something, and wait for me.
+Set up Kindgi for me: read https://docs.kindgi.com/start/agent/ and follow it step by step. Tell me whenever you need me to do something, and wait for me.
 ```
 
 If you are that agent: follow the steps below in order. Do everything you
@@ -29,7 +29,7 @@ thing at a time, and wait until they say they've done it.
 - **When something fails, run doctor** (below) and read what it says before
   you guess.
 - **`kindgi` in the commands below** means, until step 2 makes a project:
-  `npx --yes @kindgi/cli@next` if `node --version` works; else, for someone
+  `npx --yes @kindgi/cli@0.1` if `node --version` works; else, for someone
   using Python without Node, `uvx --from "kindgi-cli>=0.1,<0.2" kindgi`
   (the CLI from PyPI; it needs no Node). From step 2 on, from the project's
   folder:
@@ -126,7 +126,7 @@ runtime: skip this step.
 
    ```sh
    # TypeScript
-   npx --yes @kindgi/cli@next init my-agents
+   npx --yes @kindgi/cli@0.1 init my-agents
    cd my-agents
    pnpm install     # if pnpm --version works; else: npm install
    ```
@@ -239,7 +239,7 @@ Tell the person, in your own words:
 >    the agent call it".
 > 2. **Judge a few answers:** say yes or no to what it answered, so later
 >    versions can be checked against your judgments
->    ([Judge a run's output](https://docs.kindgi.com/next/guides/evals/judge-a-runs-output/)).
+>    ([Judge a run's output](https://docs.kindgi.com/guides/evals/judge-a-runs-output/)).
 > 3. **Compare two versions:** change its instructions and see whether people's
 >    judgments rate the new version higher
->    ([Compare a version on a test set](https://docs.kindgi.com/next/guides/evals/compare-an-agent-version/)).
+>    ([Compare a version on a test set](https://docs.kindgi.com/guides/evals/compare-an-agent-version/)).
