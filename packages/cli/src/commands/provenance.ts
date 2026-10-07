@@ -89,12 +89,14 @@ const exportCmd: LeafCommand = {
   kind: 'leaf',
   name: 'export',
   description:
-    "Export a run's provenance as a bundle signed with one of the deployment's signing keys.",
-  usage: 'kindgi provenance export <run-id> --signing-key=<key-id> [--include-messages]',
+    "Export a run's provenance, signed with the deployment's export key. Check it with kindgi exports verify.",
+  usage:
+    'kindgi provenance export <run-id> [--signing-key=<key-id>] [--include-messages] > provenance.json',
   optionSpec: {
     'signing-key': {
       type: 'string',
-      description: "The deployment's signing key to sign with, by id. Required.",
+      description:
+        "Sign with this key (one the runtime lists). Default: the deployment's active key.",
     },
     'include-messages': {
       type: 'boolean',
@@ -105,10 +107,9 @@ const exportCmd: LeafCommand = {
     runSdk(ctx, 'provenance export', async () => {
       const runId = requiredPositional(ctx, 0, 'run-id');
       const signingKeyId = stringFlag(ctx, 'signing-key');
-      if (signingKeyId === undefined) throw new Error('--signing-key=<key-id> is required');
       return await ctx.client().provenance.export({
         runId: runId as never,
-        signingKeyId,
+        ...(signingKeyId !== undefined && { signingKeyId }),
         ...(ctx.options['include-messages'] === true && { includeMessages: true }),
       });
     }),
