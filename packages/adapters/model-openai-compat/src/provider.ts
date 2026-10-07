@@ -168,29 +168,36 @@ export function createOpenAICompatModelProvider(
       }
       const startedAt = Date.now();
       const openai = await clientForCall();
+      // The system prompt names the call's tools as they're sent (`acme__lookup_order`):
+      // a model told to call `acme.lookup_order` calls a name it wasn't given.
+      const toolIds = input.tools?.map((t) => t.name) ?? [];
+      const sent = input.messages.map((m) =>
+        m.role === 'system'
+          ? { ...m, content: nameToolsAsSent(m.content, toolIds, encodeToolName) }
+          : m,
+      );
+      const sampling = samplingFor(modelInfo, input);
+      // A caller that wants as little thinking as the model allows (a judge).
+      const lowestThinking =
+        input.thinking === 'lowest' && modelInfo.thinking !== undefined
+          ? modelInfo.thinking.lowest
+          : undefined;
       if (api === 'responses') {
         return invokeResponses({
           client: openai,
           attempts,
-          input,
+          input: { ...input, messages: sent },
           modelInfo,
           providerId: metadata.id,
           extraBody,
-          ...(input.temperature !== undefined && { temperature: input.temperature }),
+          ...(sampling.temperature !== undefined && { temperature: sampling.temperature }),
+          ...(lowestThinking !== undefined && { reasoningEffort: lowestThinking }),
+          warnings: sampling.warnings,
           startedAt,
         });
       }
 
-      // The system prompt names the call's tools as they're sent (`acme__lookup_order`):
-      // a model told to call `acme.lookup_order` calls a name it wasn't given (T311).
-      const toolIds = input.tools?.map((t) => t.name) ?? [];
-      const messages = input.messages.map((m) =>
-        toOpenAiMessage(
-          m.role === 'system'
-            ? { ...m, content: nameToolsAsSent(m.content, toolIds, encodeToolName) }
-            : m,
-        ),
-      );
+      const messages = sent.map(toOpenAiMessage);
       const tools = input.tools?.map(toOpenAiTool);
 
       const responseFormat = input.structuredOutput
@@ -204,7 +211,6 @@ export function createOpenAICompatModelProvider(
           }
         : undefined;
 
-      const sampling = samplingFor(modelInfo, input);
       const counted = await attempts.count(() =>
         openai.chat.completions.create(
           {
@@ -214,12 +220,11 @@ export function createOpenAICompatModelProvider(
             ...(tools !== undefined && tools.length > 0 && { tools }),
             ...(responseFormat !== undefined && { response_format: responseFormat }),
             ...(sampling.temperature !== undefined && { temperature: sampling.temperature }),
-            ...(input.thinking === 'lowest' &&
-              modelInfo.thinking !== undefined && {
-                reasoning_effort: modelInfo.thinking.lowest as NonNullable<
-                  OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming['reasoning_effort']
-                >,
-              }),
+            ...(lowestThinking !== undefined && {
+              reasoning_effort: lowestThinking as NonNullable<
+                OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming['reasoning_effort']
+              >,
+            }),
             ...(input.maxOutputTokens !== undefined && { max_tokens: input.maxOutputTokens }),
             stream: false,
           },
