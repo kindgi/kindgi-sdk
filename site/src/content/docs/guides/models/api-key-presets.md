@@ -62,29 +62,36 @@ The provider answers from the next turn on; nothing restarts.
 ## Their models
 
 Among the models that meet an agent's needs, Kindgi takes the agent's
-preferred one, else the first alphabetically: for `openai`, that's
-`gpt-6-astra`, its dearest. Register only the model you want
-(`--models=gpt-6-luna`) or set the agent's `preferredModel`: see
+preferred one, else the preset's default, marked below: a mid-priced model, not
+the dearest. Register only the model you want (`--models=gpt-6-luna`) or set
+the agent's `preferredModel`: see
 [Choose the model an agent uses](../../agents/choose-a-model/).
 
 | Preset | Model | Features | Context window | Per 1K input / output tokens |
 | --- | --- | --- | --- | --- |
-| `openai` | `gpt-6.1-sol` | `tool-use`, `parallel-tool-use`, `structured-output`, `long-context` | 1,050,000 | $0.002 / $0.01 |
+| `openai` | `gpt-6.1-sol` (default) | `tool-use`, `parallel-tool-use`, `structured-output`, `long-context` | 1,050,000 | $0.002 / $0.01 |
 | | `gpt-6-astra` | `tool-use`, `parallel-tool-use`, `structured-output`, `long-context` | 1,050,000 | $0.01 / $0.05 |
 | | `gpt-6-luna` | `tool-use`, `parallel-tool-use`, `structured-output`, `long-context` | 1,050,000 | $0.0001 / $0.0005 |
-| `gemini-api` | `gemini-3.8-flash` | `tool-use`, `structured-output`, `long-context` | 1,048,576 | $0.00075 / $0.00375 |
-| | `gemini-3.1-pro-preview` | `tool-use`, `long-context` | 1,048,576 | $0.002 / $0.012 |
+| `gemini-api` | `gemini-3.8-flash` (default) | `tool-use`, `structured-output`, `long-context` | 1,048,576 | $0.00075 / $0.00375 |
+| | `gemini-3.1-pro-preview` | `tool-use`, `long-context` | 1,048,576 | $0.002 / $0.012; a prompt over 200,000 tokens: $0.004 / $0.018 |
 | | `gemini-3.5-flash-lite` | `tool-use`, `structured-output`, `long-context` | 1,048,576 | $0.0003 / $0.0025 |
-| `groq` | `openai/gpt-oss-120b` | `tool-use` | 131,072 | $0.00015 / $0.0006 |
+| `groq` | `openai/gpt-oss-120b` (default) | `tool-use` | 131,072 | $0.00015 / $0.0006 |
 | | `openai/gpt-oss-20b` | `tool-use` | 131,072 | $0.000075 / $0.0003 |
-| `openrouter` | `anthropic/claude-sonnet-5.5` | `tool-use`, `parallel-tool-use`, `structured-output`, `long-context` | 1,000,000 | $0.002 / $0.01 |
+| `openrouter` | `anthropic/claude-sonnet-5.5` (default) | `tool-use`, `parallel-tool-use`, `structured-output`, `long-context` | 1,000,000 | $0.002 / $0.01 |
 | | `openai/gpt-6.1-sol` | `tool-use`, `parallel-tool-use`, `structured-output`, `long-context` | 1,050,000 | $0.002 / $0.01 |
 | | `google/gemini-3.8-flash` | `tool-use`, `parallel-tool-use`, `structured-output`, `long-context` | 1,048,576 | $0.00075 / $0.00375 |
 | | `openai/gpt-6-luna` | `tool-use`, `parallel-tool-use`, `structured-output`, `long-context` | 1,050,000 | $0.0001 / $0.0005 |
 
 The prices are the presets' own, checked against the providers on 2026-10-07
 (`pricesCheckedAt` in `kindgi providers presets`); a turn's `totalCostUsd` uses
-them.
+them. A prompt over a model's long-context threshold prices the whole call at
+the higher rates. Which of these models take a temperature, and which think:
+see [Temperature and thinking](../#temperature-and-thinking).
+
+A provider registered from a preset before 0.1.4 has no default, so an agent
+that names no model gets the first by name, and it keeps only the two base
+rates. Register it again: unregister it, then register the preset (or restart
+`kindgi dev` for one the pack's config declares).
 
 ## If it doesn't answer
 

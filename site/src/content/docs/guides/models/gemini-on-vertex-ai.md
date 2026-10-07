@@ -68,7 +68,7 @@ Gemini 3.8 Flash (it isn't served from `us-central1`). Both models list
 
 | Model | Context window | Per 1K input / output tokens |
 | --- | --- | --- |
-| `gemini-3.8-flash` | 1,048,576 | $0.00075 / $0.00375 |
+| `gemini-3.8-flash` (default) | 1,048,576 | $0.00075 / $0.00375 |
 | `gemini-3.5-flash-lite` | 1,048,576 | $0.0003 / $0.0025 |
 
 - **Gemini 3.8 Flash thinks before it answers,** and Vertex AI bills the

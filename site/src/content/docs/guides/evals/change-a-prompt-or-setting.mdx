@@ -242,7 +242,11 @@ with values a model can't take, refuses the publish, naming each:
 `{ "temperature": 0.2, "maxOutputTokens": 400 }` (a temperature from 0 to 2).
 Its model calls use them, and the version pins the block with its other
 settings. A reply that reaches `maxOutputTokens` stops there, mid-sentence if
-need be, and the run still completes.
+need be, and the run still completes. Some models take no temperature (the
+Claude 5.5 and GPT-6 models): their calls go without it, and the turn carries a
+`sampling-unsupported` warning (see
+[Temperature and thinking](../../models/#temperature-and-thinking)). A model
+that thinks spends part of `maxOutputTokens` on thinking.
 
 ## Change a block
 
