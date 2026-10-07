@@ -11,3 +11,4 @@
 - `@kindgi/capabilities`: `ModelInfo.sampling`, and `samplingFor(model, input)`, the one place an adapter asks what to send.
 - The HTTP API keeps a model's `sampling` (it must be a boolean; otherwise 400, reason `invalid-sampling`) and returns it. The Python client's `ModelInfo` has it too.
 - The `anthropic`, `openai` and `openrouter` presets mark those models. A registration made from an older preset keeps sending the temperature: re-register to pick up the marks.
+- `kindgi providers register --preset` reads the provider back, and on a runtime that drops these rules (older than 0.1.4) says so in one line, naming the models whose temperature may be refused.
