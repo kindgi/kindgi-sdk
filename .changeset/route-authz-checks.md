@@ -6,7 +6,11 @@ With authorization on, every route checks what it touches. A runtime without an 
 - **Never a relation the model lacks.** The authorizer refuses a check whose (type, action) pair isn't in `@kindgi/authz`'s `OBJECT_ACTIONS` before it reaches the store (`failing: 'invalid-action'`). OpenFGA would reject such a check, so it failed for everyone. `POST /v1/runs/:runId/resume` now checks `write` on the run's project, not `execute` on a project.
 - **Tenant-wide settings ask for the tenant:** `read` to read, `admin` to change. That covers providers, policies, adapters, capabilities, signing keys, deployments and the sign-in provider catalog (`/v1/auth/providers`). Webhook endpoints and compliance evidence need `admin` for every call.
 - **Changing the tenant's config needs `admin`.** `PATCH /v1/tenant/config` writes the tenant's secrets and env, and needed only `read`.
-- **Runs:** starting one needs `execute` on the agent or flow it runs. The run list holds only runs in projects the caller may read.
+- **Runs:**
+  - Starting one needs `execute` on the agent or flow it runs.
+  - Naming a `projectId` also needs `write` on that project, since the run is filed there and readable by its viewers. The 403 says so: "naming project … needs write on it; omit `projectId` to run in the agent's own project".
+  - Unnamed, a runtime files the run under the conversation's, the agent's or the flow's own project.
+  - The run list holds only runs in projects the caller may read.
 - **Lists hold only what the caller may read:** agents, flows, tools, guardrails, eval suites, MCP endpoints, conversations, approvals, observations, cost records, provenance, eval runs, and event and webhook triggers.
 - **Conversations:** reading one needs `read` on its project (or its agent). Opening or closing one needs `execute` on the agent.
 - **Approvals:** a reviewer also needs `read` on the approval's project. Another project's approval answers `404`.

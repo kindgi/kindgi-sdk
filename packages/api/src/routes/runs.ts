@@ -15,7 +15,7 @@ import type {
   TenantId,
 } from '@kindgi/types';
 
-import { ref } from '@kindgi/authz';
+import { denyPayload, ref } from '@kindgi/authz';
 
 import { type WireErrorBody, statusFor, toWireError } from '../errors.js';
 import type { EventBusBinding, EventPayload, Subscription } from '../event-bus-binding.js';
@@ -176,6 +176,31 @@ export function runsRouter(
     if ((await options.targetExists?.(tenantId, target)) !== false) {
       const refused = await deniedBy(authorizer, c, 'execute', ref(target.kind, target.id));
       if (refused !== undefined) return refused;
+    }
+    // A run filed under a project the caller names needs `write` on it:
+    // the run lands there, readable by that project's viewers (T307).
+    // Unnamed, the runtime files it under the conversation's, the agent's
+    // or the flow's own project, so a caller who may only run it needs no
+    // more, and the refusal says so.
+    if (authorizer !== undefined && parsed.value.projectId !== undefined) {
+      const named = ref('project', parsed.value.projectId as unknown as string);
+      const decision = await authorizer.check(c, 'write', named);
+      if (!decision.allowed) {
+        const deny = denyPayload('write', named.type, named.id, decision.reason);
+        c.status(403);
+        return c.json(
+          toWireError(
+            {
+              code: deny.code,
+              message: `Permission denied: naming project ${named.id} needs write on it; omit \`projectId\` to run in the ${target.kind}'s own project`,
+              action: deny.action,
+              resource: deny.resource,
+              reason: deny.reason,
+            },
+            requestId,
+          ),
+        );
+      }
     }
 
     const invocation = await invokeFromBody(binding, tenantId, parsed.value);

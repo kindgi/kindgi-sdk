@@ -126,6 +126,32 @@ describe('starting a run', () => {
     expect(invoked).toEqual(['acme.desk']);
   });
 
+  test('naming a project needs write on it, and the refusal says to omit it (T307)', async () => {
+    const named = randomUUID();
+    const { call, asked, invoked } = harness(['execute agent:acme.desk']);
+    const res = await call('POST', '/v1/runs', {
+      agent: 'acme.desk',
+      projectId: named,
+      input: { userMessage: 'hi' },
+    });
+    expect(res.status).toBe(403);
+    expect(asked).toEqual(['execute agent:acme.desk', `write project:${named}`]);
+    const error = ((await res.json()) as { error: { code: string; message: string } }).error;
+    expect(error.code).toBe('permission-denied');
+    expect(error.message).toContain(
+      `naming project ${named} needs write on it; omit \`projectId\` to run in the agent's own project`,
+    );
+    expect(invoked).toEqual([]);
+
+    const writer = harness(['execute agent:acme.desk', `write project:${named}`]);
+    await writer.call('POST', '/v1/runs', {
+      agent: 'acme.desk',
+      projectId: named,
+      input: { userMessage: 'hi' },
+    });
+    expect(writer.invoked).toEqual(['acme.desk']);
+  });
+
   test("an agent that doesn't exist keeps its 404, unchecked", async () => {
     const { call, asked } = harness([]);
     const res = await call('POST', '/v1/runs', {
