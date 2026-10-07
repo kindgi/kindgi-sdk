@@ -366,10 +366,8 @@ function serializeProvider(m: ProviderMetadata): Record<string, unknown> {
       name: model.name,
       contextWindow: model.contextWindow,
       features: model.features,
-      cost: {
-        promptUsdPer1kTokens: model.cost.promptUsdPer1kTokens,
-        completionUsdPer1kTokens: model.cost.completionUsdPer1kTokens,
-      },
+      // As stored: the base rates and any an adapter widens it with.
+      cost: { ...model.cost },
       ...(model.p95LatencyMs !== undefined && { p95LatencyMs: model.p95LatencyMs }),
       ...(model.maxOutputTokens !== undefined && { maxOutputTokens: model.maxOutputTokens }),
       ...(model.sampling !== undefined && { sampling: model.sampling }),
@@ -601,6 +599,16 @@ function validateModelInfo(
       },
     };
   }
+  const extraRates = costExtraRates(cost as unknown as Record<string, unknown>);
+  if (extraRates === undefined) {
+    return {
+      kind: 'err',
+      error: {
+        message: `provider "${providerId}" model "${m.name}" cost table's other rates must be non-negative numbers, or objects of them (e.g. longContext: { thresholdTokens, promptUsdPer1kTokens, completionUsdPer1kTokens })`,
+        reason: 'invalid-cost',
+      },
+    };
+  }
   if (m.p95LatencyMs !== undefined) {
     if (typeof m.p95LatencyMs !== 'number' || m.p95LatencyMs < 0) {
       return {
@@ -659,9 +667,10 @@ function validateModelInfo(
     contextWindow: m.contextWindow,
     features: m.features as readonly Feature[],
     cost: {
+      ...extraRates,
       promptUsdPer1kTokens: cost.promptUsdPer1kTokens,
       completionUsdPer1kTokens: cost.completionUsdPer1kTokens,
-    },
+    } as ModelInfo['cost'],
     ...(m.p95LatencyMs !== undefined && { p95LatencyMs: m.p95LatencyMs }),
     ...(m.maxOutputTokens !== undefined && { maxOutputTokens: m.maxOutputTokens }),
     ...(m.sampling !== undefined && { sampling: m.sampling }),
@@ -671,6 +680,37 @@ function validateModelInfo(
     ...(m.description !== undefined && { description: m.description }),
   };
   return { kind: 'ok', value };
+}
+
+/**
+ * The rates a cost table carries beyond the two base ones: an adapter
+ * widens it with its own (Anthropic's prompt-cache multipliers, Gemini's
+ * cached-prompt share, a long-context tier), each a non-negative number
+ * or one level of an object of them. Returned as given, or `undefined`
+ * when one isn't, so a registration keeps what its adapter prices with.
+ */
+function costExtraRates(
+  cost: Readonly<Record<string, unknown>>,
+): Record<string, number | Record<string, number>> | undefined {
+  const isRate = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
+  const out: Record<string, number | Record<string, number>> = {};
+  for (const [key, value] of Object.entries(cost)) {
+    if (key === 'promptUsdPer1kTokens' || key === 'completionUsdPer1kTokens') continue;
+    if (isRate(value)) {
+      out[key] = value;
+    } else if (
+      typeof value === 'object' &&
+      value !== null &&
+      !Array.isArray(value) &&
+      Object.keys(value).length > 0 &&
+      Object.values(value).every(isRate)
+    ) {
+      out[key] = { ...(value as Record<string, number>) };
+    } else {
+      return undefined;
+    }
+  }
+  return out;
 }
 
 /**
