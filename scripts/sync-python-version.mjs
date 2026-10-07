@@ -43,7 +43,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /** The Python projects (repository-relative directories) that version with the npm packages. */
-export const PYTHON_PROJECTS = ['sdks/python'];
+export const PYTHON_PROJECTS = ['sdks/python', 'sdks/python-cli'];
 
 /** The package whose fixed group sets the version. */
 const CANONICAL = '@kindgi/sdk';

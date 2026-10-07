@@ -212,7 +212,12 @@ async function missingPackSecret(
     env: ctx.env,
   });
   if (Object.hasOwn(packValues(env.values), name)) return undefined;
-  const runner = await detectBinRunner(ctx.cwd, packLanguage(settings.config as KindgiConfig));
+  const runner = await detectBinRunner(
+    ctx.cwd,
+    packLanguage(settings.config as KindgiConfig),
+    undefined,
+    ctx.env,
+  );
   const files = env.files.read.map((p) => displayEnvPath(ctx.cwd, p)).join(', ');
   return [
     `${name} (the ${preset.name} key) is not in ${files}. Set it first, then register again:`,

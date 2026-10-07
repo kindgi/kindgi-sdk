@@ -120,14 +120,21 @@ def deref(doc: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
     return schema
 
 
-def param_annotation(doc: dict[str, Any], schema: dict[str, Any]) -> str:
+ID_PARAM = re.compile(r"(?:^id|Id)$")
+
+
+def param_annotation(doc: dict[str, Any], schema: dict[str, Any], name: str = "") -> str:
     resolved = deref(doc, schema)
     if "enum" in resolved:
         return "Literal[" + ", ".join(json.dumps(v) for v in resolved["enum"]) + "]"
     kind = resolved.get("type")
     if kind == "array":
         # A repeated query parameter (`segment=a&segment=b`): httpx repeats a list's key.
-        return f"list[{param_annotation(doc, resolved.get('items', {}))}]"
+        return f"list[{param_annotation(doc, resolved.get('items', {}), name)}]"
+    if kind == "string" and (resolved.get("format") == "uuid" or ID_PARAM.search(name)):
+        # An id: the models carry ids as `UUID` (`format: uuid`), so a model's
+        # id passes straight back in (`client.runs.get(run.id)`); it's sent as text.
+        return "str | UUID"
     return {"string": "str", "integer": "int", "number": "float", "boolean": "bool"}.get(
         kind if isinstance(kind, str) else "", "Any"
     )
@@ -220,7 +227,7 @@ def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]
                         py=py,
                         where=p["in"],
                         required=bool(p.get("required", p["in"] == "path")),
-                        annotation=param_annotation(doc, p.get("schema", {})),
+                        annotation=param_annotation(doc, p.get("schema", {}), p["name"]),
                         description=p.get("description", ""),
                     )
                 )
@@ -399,6 +406,7 @@ def render_resources(root: Resource, ops: list[Operation]) -> str:
         "",
         "from collections.abc import AsyncIterator, Iterator, Mapping, Sequence",
         "from typing import Any, Literal, NoReturn, cast",
+        "from uuid import UUID",
         "",
         "from . import _models",
         "from ._base import AsyncClientBase, Operation, SyncClientBase, _body, _segments",
@@ -406,7 +414,7 @@ def render_resources(root: Resource, ops: list[Operation]) -> str:
         "",
         '__all__ = ["OPERATIONS", "AsyncResources", "Resources"]',
         "",
-        "_ = Literal  # used in generated annotations",
+        "_ = Literal, UUID  # used in generated annotations",
         "",
         "OPERATIONS: dict[str, Operation] = {",
     ]
