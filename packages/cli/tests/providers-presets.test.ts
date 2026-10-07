@@ -163,19 +163,19 @@ describe('the bundled presets', () => {
     expect(
       caps(presetRegistration(gemini, { envName: 'local', settings: { project: 'acme' } })),
     ).toEqual([
-      ['gemini-2.5-pro', 65_536],
-      ['gemini-2.5-flash', 65_536],
+      ['gemini-3.8-flash', 65_536],
+      ['gemini-3.5-flash-lite', 65_536],
     ]);
     expect(
       caps(
         presetRegistration(gemini, {
           envName: 'local',
           settings: { project: 'acme' },
-          models: ['gemini-2.5-pro'],
+          models: ['gemini-3.8-flash'],
           maxOutputTokens: 16_384,
         }),
       ),
-    ).toEqual([['gemini-2.5-pro', 16_384]]);
+    ).toEqual([['gemini-3.8-flash', 16_384]]);
     expect(
       caps(
         presetRegistration(gemini, {
@@ -229,7 +229,11 @@ describe('kindgi providers presets', () => {
     expect(JSON.parse(out.stdout)).toMatchObject([
       { name: 'anthropic', secret: 'ANTHROPIC_API_KEY' },
       { name: 'gemini-api', secret: 'GEMINI_API_KEY' },
-      { name: 'gemini', needs: ['--project'], models: ['gemini-2.5-pro', 'gemini-2.5-flash'] },
+      {
+        name: 'gemini',
+        needs: ['--project'],
+        models: ['gemini-3.8-flash', 'gemini-3.5-flash-lite'],
+      },
       { name: 'groq', secret: 'GROQ_API_KEY' },
       {
         name: 'openai',
