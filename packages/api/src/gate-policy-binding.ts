@@ -102,9 +102,10 @@ export type GatePolicyErrorCode =
   /** A new version names another agent or scope than the policy's. */
   | 'gate-policy-scope-changed'
   /**
-   * The scope resolves to the agent's latest version (no pin covers it),
-   * so publishing a version would make it live there ungated: pin a
-   * version for the scope, or one above it, first.
+   * The scope has no live version of its own. A gated scope holds its own
+   * pin: following the latest version, a publish would go live there
+   * ungated; following a pin above it, a promotion there would. Pin a
+   * version for the scope first.
    */
   | 'gate-policy-scope-unpinned'
   | 'gate-policy-not-found'
@@ -137,8 +138,9 @@ export interface GatePolicyVersionInput {
 export interface GatePolicyBinding {
   /**
    * Register `id` at `version`: a new policy, or a new version of one
-   * (same agent and scope). A gated scope always resolves to a pin:
-   * `gate-policy-scope-unpinned` when nothing covering the scope is pinned.
+   * (same agent and scope). A gated scope holds its own pin:
+   * `gate-policy-scope-unpinned` when the scope has none (a pin above it
+   * isn't enough). Reinstating a version checks the same.
    */
   publish(input: GatePolicyPublishInput): Promise<Result<GatePolicy, GatePolicyError>>;
   /** The policy's latest active version, or `null`. */

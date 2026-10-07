@@ -10,10 +10,24 @@
  * A sample that is a whole file names it on its first line
  * (`// tools/lookup/index.ts`, `# tools/lookup.py`). For each page, its
  * TypeScript files are written over a fresh `sample` pack and typechecked
- * (`tsc --noEmit`); its Python files over a fresh `python` pack and indexed
- * (`python -m kindgi.pack index`, which imports every module), with no file
- * errors allowed. The pack's id is the one the samples use. A sample without
- * a file name is a fragment and isn't checked.
+ * (`tsc --noEmit`, with every sample file listed: the pack's tsconfig
+ * includes only its own folders, and an app file such as `// release.ts`
+ * would otherwise be skipped). Its Python files go over a fresh `python`
+ * pack: the pack's own modules are indexed (`python -m kindgi.pack index`,
+ * which imports every module it discovers), with no file errors allowed,
+ * and every other file (app code, `# derive.py`) is type-checked with
+ * pyright against the pack's environment, since importing it would run its
+ * calls. The pack's id is the one the samples use. A sample without a file
+ * name is a fragment and isn't checked.
+ *
+ * A sample may import the reader's own app code (`@/lib/requests`,
+ * `acme.orders`). The page gives the checker a stand-in for it in a comment
+ * readers don't see, `<!-- check-samples: … -->` (`{/* check-samples: … *\/}`
+ * in MDX), holding ordinary named-file blocks: they're written into the pack
+ * with the samples but aren't counted as samples. A `tsconfig.json` there (a
+ * `json` block named `// tsconfig.json`) replaces the pack's, for samples from
+ * an app with its own settings (Next.js: `moduleResolution: "bundler"`, the
+ * `@/*` paths).
  *
  * Needs the workspace built (`pnpm run build`), and uv for Python samples.
  *
@@ -40,6 +54,9 @@ const repo = resolve(site, '..');
 const docs = join(site, 'src', 'content', 'docs');
 const cli = join(repo, 'packages', 'cli', 'dist', 'cli.js');
 const skills = join(repo, 'packages', 'sdk', 'skills');
+const pyright = join(site, 'node_modules', '.bin', 'pyright');
+/** The folders a Python pack's indexer discovers by default: other files are app code. */
+const PACK_PYTHON = /^(?:tools|agents|flows|guardrails)\//;
 
 /** Hand-written pages: everything but the generated sections. */
 const GENERATED = ['reference', 'contributing'];
@@ -83,14 +100,28 @@ function skillFiles() {
     .map(([name]) => join(skills, name, 'SKILL.md'));
 }
 
-/** Fenced blocks, `{ language, lines }`, including ones indented in MDX. */
+/**
+ * Fenced blocks, `{ language, lines, stub }`, including ones indented in MDX.
+ * `stub`: the block is in a `check-samples` comment (the reader's app code).
+ */
 function blocks(markdown) {
   const found = [];
   let open;
+  let stubs = false;
   for (const line of markdown.split('\n')) {
     if (open === undefined) {
+      if (/^\s*(?:<!--|\{\/\*)\s*check-samples\b/.test(line)) stubs = true;
+      if (stubs && /(?:-->|\*\/\})\s*$/.test(line)) stubs = false;
       const start = line.match(/^(\s*)(`{3,}|~{3,})\s*([\w-]*)/);
-      if (start) open = { indent: start[1].length, fence: start[2], language: start[3], lines: [] };
+      if (start) {
+        open = {
+          indent: start[1].length,
+          fence: start[2],
+          language: start[3],
+          lines: [],
+          stub: stubs,
+        };
+      }
     } else if (line.trim() === open.fence && line.indexOf(open.fence) === open.indent) {
       found.push(open);
       open = undefined;
@@ -105,10 +136,21 @@ function blocks(markdown) {
 function fileSamples(markdown) {
   const byLanguage = { ts: [], python: [] };
   for (const block of blocks(markdown)) {
+    if (block.stub && ['json', 'jsonc'].includes(block.language)) {
+      const config = block.lines[0]?.match(/^\/\/\s*(\S+\.json)\s*$/);
+      if (config) {
+        const content = `${block.lines.slice(1).join('\n')}\n`;
+        byLanguage.ts.push({ path: config[1], content, stub: true });
+      }
+      continue;
+    }
     const language = FENCE_LANGUAGE[block.language];
     if (language === undefined) continue;
     const name = block.lines[0]?.match(LANGUAGES[language].file);
-    if (name) byLanguage[language].push({ path: name[1], content: `${block.lines.join('\n')}\n` });
+    if (name) {
+      const content = `${block.lines.join('\n')}\n`;
+      byLanguage[language].push({ path: name[1], content, stub: block.stub });
+    }
   }
   return byLanguage;
 }
@@ -153,7 +195,17 @@ function check(language, files, packDir) {
     writeFileSync(target, file.content);
   }
   if (language === 'ts') {
-    const tsc = run(join(packDir, 'node_modules', '.bin', 'tsc'), ['--noEmit', '-p', '.'], packDir);
+    const base = JSON.parse(readFileSync(join(packDir, 'tsconfig.json'), 'utf8'));
+    const include = [...(base.include ?? []), ...files.map((file) => file.path)];
+    writeFileSync(
+      join(packDir, 'tsconfig.samples.json'),
+      JSON.stringify({ extends: './tsconfig.json', include }),
+    );
+    const tsc = run(
+      join(packDir, 'node_modules', '.bin', 'tsc'),
+      ['--noEmit', '-p', 'tsconfig.samples.json'],
+      packDir,
+    );
     return tsc.ok ? undefined : tsc.output;
   }
   const index = run(
@@ -163,9 +215,14 @@ function check(language, files, packDir) {
   );
   if (!index.ok) return index.output;
   const errors = JSON.parse(index.output.slice(index.output.indexOf('{'))).fileErrors ?? [];
-  return errors.length === 0
-    ? undefined
-    : errors.map((error) => `${error.filePath}: ${error.code}: ${error.message}`).join('\n');
+  if (errors.length > 0) {
+    return errors.map((error) => `${error.filePath}: ${error.code}: ${error.message}`).join('\n');
+  }
+  const app = files.map((file) => file.path).filter((path) => !PACK_PYTHON.test(path));
+  if (app.length === 0) return undefined;
+  const python = join(packDir, '.venv', 'bin', 'python');
+  const checked = run(pyright, ['--pythonpath', python, ...app], packDir);
+  return checked.ok ? undefined : checked.output;
 }
 
 const selected = process.argv.slice(2).map((page) => resolve(docs, page));
@@ -179,8 +236,9 @@ try {
       const { template, id } = LANGUAGES[language];
       const packId = files.map((file) => file.content.match(id)?.[1]).find(Boolean) ?? 'my-pack';
       const error = check(language, files, freshPack(template, packId));
-      checked += files.length;
-      const where = `${relative(repo, page)} (${language}: ${files.map((file) => file.path).join(', ')})`;
+      const samples = files.filter((file) => !file.stub);
+      checked += samples.length;
+      const where = `${relative(repo, page)} (${language}: ${samples.map((file) => file.path).join(', ')})`;
       if (error) failures.push(`${where}\n${error.trim()}`);
     }
   }

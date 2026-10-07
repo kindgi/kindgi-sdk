@@ -22,6 +22,7 @@ import { buildBudgetCheckHandler } from '../src/handlers/budget-check.js';
 import { buildComposeResultHandler } from '../src/handlers/compose-result.js';
 import type { AgentTurnIterationOutput, TurnContext } from '../src/handlers/context.js';
 import { parseFailureMessage } from '../src/handlers/errors.js';
+import { addModelWarnings } from '../src/handlers/model-call.js';
 import type { InvokeAgentBindings, InvokeAgentInput } from '../src/handlers/public-types.js';
 import { writeRunSnapshot } from '../src/handlers/run-snapshot.js';
 import {
@@ -245,6 +246,21 @@ describe('the turn result', () => {
       ],
     });
     expect(await result(onProvider(false), kctx())).not.toHaveProperty('warnings');
+  });
+
+  test("a provider's own warnings follow, one per code (dev-echo's dev-echo-not-a-model)", async () => {
+    const c = composed(agent(), 'hi');
+    c.ctx.provider = {
+      metadata: { id: 'dev-echo', region: 'local', models: [], fallback: true },
+      invoke: () => Promise.reject(new Error('not called')),
+    };
+    addModelWarnings(c.ctx, [{ code: 'dev-echo-not-a-model', message: 'not a model (first)' }]);
+    addModelWarnings(c.ctx, [{ code: 'dev-echo-not-a-model', message: 'not a model (second)' }]);
+    const got = (await result(c.handler, kctx())) as {
+      warnings: { code: string; message: string }[];
+    };
+    expect(got.warnings.map((w) => w.code)).toEqual(['fallback-provider', 'dev-echo-not-a-model']);
+    expect(got.warnings[1]?.message).toBe('not a model (first)');
   });
 
   test('a dry run reports output null; an untyped agent has no output', async () => {
