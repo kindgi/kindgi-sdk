@@ -53,6 +53,12 @@ export interface MemoryBinding {
    */
   readonly agentRemember?: boolean;
   /**
+   * Whether agent turns can recall earlier conversations (an intent with
+   * `source: 'conversations'`). Absent: unknown. When `false`, publishing
+   * such an agent warns `recall-unavailable`.
+   */
+  readonly conversationRecall?: boolean;
+  /**
    * Cursor-paginated list of facts under the tenant. Filters:
    *   - `type` — exact fact-type match.
    *   - `scope` — partial-match filter (see `Scope` in the memory subsystem).

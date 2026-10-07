@@ -5,7 +5,12 @@ import type { EvaluationResult } from '@kindgi/guardrails';
 import type { Provenance } from '@kindgi/provenance';
 import type { RunId } from '@kindgi/types';
 
-import type { ConversationId, ConversationMessage, RetrievedFact } from '../types.js';
+import type {
+  ConversationId,
+  ConversationMessage,
+  RecalledMemory,
+  RetrievedFact,
+} from '../types.js';
 
 import type { ReplayTurnReport } from './replay.js';
 
@@ -42,6 +47,8 @@ export interface AgentTurnResult {
   readonly appended: readonly ConversationMessage[];
   readonly response: ConversationMessage;
   readonly retrieved: readonly RetrievedFact[];
+  /** Messages of earlier conversations the turn recalled (intents over conversations). */
+  readonly recalled?: readonly RecalledMemory[];
   readonly violations: readonly EvaluationResult[];
   readonly usage: AgentTurnUsage;
   readonly provider: { readonly id: string; readonly model: string };

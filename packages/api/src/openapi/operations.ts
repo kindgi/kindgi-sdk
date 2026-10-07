@@ -2720,6 +2720,32 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'post',
+    honoPath: '/v1/conversations/:conversationId/unregister',
+    openapiPath: '/v1/conversations/{conversationId}/unregister',
+    operationId: 'conversations.unregister',
+    summary: 'Unregister a conversation',
+    description:
+      "A tombstone: from now on no read, list or recall of earlier conversations returns it, and no message can be added. The retention sweep removes it after the tenant's grace.",
+    tags: ['conversations'],
+    security: 'bearer',
+    parameters: [ConversationIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': {
+        description: 'The conversation, with `unregisteredAt`.',
+        schema: ref('Conversation'),
+      },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('`conversationId` is not a conversation id (a UUID).'),
+      '404': ErrorResponse(
+        'No conversation with that id under this tenant, or it is unregistered already.',
+      ),
+      '501': ErrorResponse(
+        "`conversation-unregister-unsupported`: this runtime can't unregister conversations.",
+      ),
+    },
+  },
+  {
     method: 'get',
     honoPath: '/v1/conversations/:conversationId/messages',
     openapiPath: '/v1/conversations/{conversationId}/messages',

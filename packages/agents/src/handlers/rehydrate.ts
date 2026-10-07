@@ -16,7 +16,7 @@
  *   - the messages the turn stored come back from the conversation, from
  *     the turn's user message (`persist-user-message` journals its
  *     sequence);
- *   - the retrieved facts come from `run-retrievals`' journaled output;
+ *   - the retrieved facts and recalled messages come from `run-retrievals`' journaled output;
  *   - usage is summed from the journaled model calls, so the step and
  *     cost budgets count the whole turn.
  *
@@ -44,7 +44,7 @@ import type { LoopContext } from '@kindgi/handler';
 import { type JournalEntry, type ValueRecordedPayload, bodyStepKey } from '@kindgi/runtime';
 import type { Timestamp } from '@kindgi/types';
 
-import type { ConversationMessage, RetrievedFact } from '../types.js';
+import type { ConversationMessage, RecalledMemory, RetrievedFact } from '../types.js';
 import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
 import { readGateDecision } from './gate-decision.js';
@@ -141,11 +141,12 @@ export async function rehydrateTurnContext(
     ctx.storedBeforePark = storedBeforePark(ctx, steps);
   }
 
-  const retrievals = outputOf<{ readonly retrieved?: readonly RetrievedFact[] }>(
-    steps,
-    'run-retrievals',
-  );
+  const retrievals = outputOf<{
+    readonly retrieved?: readonly RetrievedFact[];
+    readonly recalled?: readonly RecalledMemory[];
+  }>(steps, 'run-retrievals');
   if (retrievals?.retrieved !== undefined) ctx.retrieved = retrievals.retrieved;
+  if (retrievals?.recalled !== undefined) ctx.recalled = retrievals.recalled;
 
   for (const s of steps.filter((s) => s.nodeId === 'model-call' && s.inLoop)) {
     const out = s.output as {
@@ -164,7 +165,7 @@ export async function rehydrateTurnContext(
     if (out.provider !== undefined) ctx.lastProvider = out.provider;
   }
   ctx.toolApprovals = toolApprovalsOf(journal);
-  rebuildProvenance(ctx, steps, retrievals?.retrieved);
+  rebuildProvenance(ctx, steps, retrievals?.retrieved, retrievals?.recalled);
   rehydrateReplay(ctx, journal);
   return true;
 }
@@ -233,12 +234,13 @@ function rebuildProvenance(
   ctx: TurnContext,
   steps: readonly StepRecord[],
   retrieved: readonly RetrievedFact[] | undefined,
+  recalled: readonly RecalledMemory[] | undefined,
 ): void {
   const input = ctx.userMessage;
   if (ctx.provenance === undefined || input === undefined) return;
   addInputNode(ctx.provenance, input);
   if (retrieved !== undefined) {
-    addRetrievalNodes(ctx.provenance, ctx.input.agent.retrieval, retrieved, input);
+    addRetrievalNodes(ctx.provenance, ctx.input.agent.retrieval, retrieved, input, recalled ?? []);
   }
 
   const storedByStep = new Map<number, readonly ConversationMessage[]>();

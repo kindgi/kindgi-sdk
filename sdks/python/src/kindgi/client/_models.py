@@ -1536,6 +1536,10 @@ class JudgedRunContext(BaseModel):
     """
     What the turn's retrievals returned.
     """
+    recalled: Any | None = None
+    """
+    Messages of earlier conversations the turn recalled (intents over conversations), as quoted to the model.
+    """
     session_approval: Annotated[SessionApproval | None, Field(alias="sessionApproval")] = None
     """
     The reviewer's decision at the turn's session approval gate, when the turn waited on one. A replay of the turn follows it.
@@ -1824,10 +1828,17 @@ class RetrievalIntent(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    types: Annotated[list[str], Field(min_length=1)]
-    scope: Literal["same-conversation", "same-user", "same-project", "tenant"]
+    source: Literal["facts", "conversations"] | None = None
     """
-    What the intent selects within what the run may see: this conversation's facts; this run's end user's and user's; the run's project's (none without a project); or every fact of the type it may see.
+    What it reads: facts (the default), or messages of this agent's earlier conversations, quoted in the turn's `<memory>` block as earlier conversation, never as turns.
+    """
+    types: Annotated[list[str] | None, Field(min_length=1)] = None
+    """
+    The fact types it retrieves: required for facts; not used for conversations.
+    """
+    scope: Literal["same-conversation", "same-user", "same-segment", "same-project", "tenant"]
+    """
+    What the intent selects within what the run may see. Facts: this conversation's; this run's end user's and user's; the run's project's (none without a project); or every fact of the type it may see (`tenant`). Conversations: this person's other conversations with the agent (`same-user`); this conversation's messages older than the history window (`same-conversation`); conversations in the run's segment path (`same-segment`) or its project (`same-project`), whoever had them: those two quote other people's conversations, so publishing warns and their messages are marked as another person's. `same-segment` is for conversations only, `tenant` for facts only.
     """
     limit: Annotated[int | None, Field(ge=1)] = None
     mode: Literal["keyword", "semantic", "both"] | None = None
@@ -2214,7 +2225,7 @@ class PublishAgentResult(BaseModel):
     version: str
     warnings: list[Warning] | None = None
     """
-    What the agent should know about this deployment before its first turn, e.g. `semantic-unavailable` (a retrieval intent searches by meaning and the deployment has no embeddings) or `remember-unavailable` (the agent remembers and the deployment cannot store agent memories).
+    What the agent should know about this deployment before its first turn, e.g. `semantic-unavailable` (a retrieval intent searches by meaning and the deployment has no embeddings), `remember-unavailable` (the agent remembers and the deployment cannot store agent memories), `recall-other-people` (an intent recalls conversations in the run's segment or project, whoever had them) or `recall-unavailable` (the deployment cannot recall earlier conversations).
     """
 
 
@@ -2995,6 +3006,10 @@ class Conversation(BaseModel):
     """
     opened_at: Annotated[AwareDatetime, Field(alias="openedAt")]
     closed_at: Annotated[AwareDatetime | None, Field(alias="closedAt")] = None
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    When it was unregistered (`POST /v1/conversations/{conversationId}/unregister`). Only the unregister call returns it: reads no longer do.
+    """
     turn_count: Annotated[int, Field(alias="turnCount", ge=0)]
     last_message_at: Annotated[AwareDatetime | None, Field(alias="lastMessageAt")] = None
     metadata: dict[str, Any] | None = None

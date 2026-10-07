@@ -24,7 +24,7 @@ import type { JournalEntry, ValueRecordedPayload } from '@kindgi/runtime';
 import type { Tool } from '@kindgi/tools';
 import type { RunId, TenantId } from '@kindgi/types';
 
-import type { RetrievedFact } from '../types.js';
+import type { RecalledMemory, RetrievedFact } from '../types.js';
 
 import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
@@ -75,6 +75,12 @@ export interface ReplayBinding {
    * retrieve live. Absent: retrieve live.
    */
   retrievals?(input: ReplayTurnRef): Promise<readonly RetrievedFact[] | undefined>;
+  /**
+   * What the turn's recall of earlier conversations returns when its
+   * retrievals are the past run's: the messages the past run recalled.
+   * Absent (or `undefined`): none, as a run from before recall had.
+   */
+  recalled?(input: ReplayTurnRef): Promise<readonly RecalledMemory[] | undefined>;
   /**
    * The past run's decision at the session approval gate, when the replay
    * reaches that gate: the replay follows it. `undefined` (or absent): the

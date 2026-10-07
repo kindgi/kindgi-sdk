@@ -56,6 +56,7 @@ export function buildComposeResultHandler(ctx: TurnContext): NodeHandler {
       appended: ctx.appended,
       response: ctx.finalMessage,
       retrieved: ctx.retrieved ?? [],
+      ...(ctx.recalled !== undefined && ctx.recalled.length > 0 && { recalled: ctx.recalled }),
       violations: ctx.nonBlockingViolations ?? [],
       usage,
       provider,
@@ -81,6 +82,7 @@ export function buildComposeResultHandler(ctx: TurnContext): NodeHandler {
       turnNumber: ctx.conversation.turnCount + 1,
       response: ctx.finalMessage,
       retrieved: ctx.retrieved ?? [],
+      ...(ctx.recalled !== undefined && ctx.recalled.length > 0 && { recalled: ctx.recalled }),
       durationMs,
       totalCostUsd: ctx.usage.totalCostUsd,
     });

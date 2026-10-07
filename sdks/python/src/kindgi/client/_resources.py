@@ -214,6 +214,13 @@ OPERATIONS: dict[str, Operation] = {
     "conversations.close": Operation(
         "conversations.close", "POST", "/v1/conversations/{conversationId}/close", "json", True
     ),
+    "conversations.unregister": Operation(
+        "conversations.unregister",
+        "POST",
+        "/v1/conversations/{conversationId}/unregister",
+        "json",
+        True,
+    ),
     "conversations.messages": Operation(
         "conversations.messages",
         "GET",
@@ -2368,6 +2375,27 @@ class ConversationsResource:
         """
         return self._client._request(
             _OPERATIONS["conversations.close"],
+            path={"conversationId": conversation_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.Conversation,
+            timeout=timeout,
+        )
+
+    def unregister(
+        self,
+        conversation_id: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.Conversation:
+        """Unregister a conversation. `POST /v1/conversations/{conversationId}/unregister`
+
+        A tombstone: from now on no read, list or recall of earlier conversations returns it, and no message can be added. The retention sweep removes it after the tenant's grace.
+        """
+        return self._client._request(
+            _OPERATIONS["conversations.unregister"],
             path={"conversationId": conversation_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
@@ -8274,6 +8302,27 @@ class AsyncConversationsResource:
         """
         return await self._client._request(
             _OPERATIONS["conversations.close"],
+            path={"conversationId": conversation_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.Conversation,
+            timeout=timeout,
+        )
+
+    async def unregister(
+        self,
+        conversation_id: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.Conversation:
+        """Unregister a conversation. `POST /v1/conversations/{conversationId}/unregister`
+
+        A tombstone: from now on no read, list or recall of earlier conversations returns it, and no message can be added. The retention sweep removes it after the tenant's grace.
+        """
+        return await self._client._request(
+            _OPERATIONS["conversations.unregister"],
             path={"conversationId": conversation_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},

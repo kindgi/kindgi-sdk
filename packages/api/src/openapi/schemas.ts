@@ -1300,14 +1300,25 @@ export const PromptParameterSchema: JsonSchema = {
 export const RetrievalIntentSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['types', 'scope'],
+  required: ['scope'],
   properties: {
-    types: { type: 'array', items: { type: 'string' }, minItems: 1 },
+    source: {
+      type: 'string',
+      enum: ['facts', 'conversations'],
+      description:
+        "What it reads: facts (the default), or messages of this agent's earlier conversations, quoted in the turn's `<memory>` block as earlier conversation, never as turns.",
+    },
+    types: {
+      type: 'array',
+      items: { type: 'string' },
+      minItems: 1,
+      description: 'The fact types it retrieves: required for facts; not used for conversations.',
+    },
     scope: {
       type: 'string',
-      enum: ['same-conversation', 'same-user', 'same-project', 'tenant'],
+      enum: ['same-conversation', 'same-user', 'same-segment', 'same-project', 'tenant'],
       description:
-        "What the intent selects within what the run may see: this conversation's facts; this run's end user's and user's; the run's project's (none without a project); or every fact of the type it may see.",
+        "What the intent selects within what the run may see. Facts: this conversation's; this run's end user's and user's; the run's project's (none without a project); or every fact of the type it may see (`tenant`). Conversations: this person's other conversations with the agent (`same-user`); this conversation's messages older than the history window (`same-conversation`); conversations in the run's segment path (`same-segment`) or its project (`same-project`), whoever had them: those two quote other people's conversations, so publishing warns and their messages are marked as another person's. `same-segment` is for conversations only, `tenant` for facts only.",
     },
     limit: { type: 'integer', minimum: 1 },
     mode: {
@@ -1689,7 +1700,7 @@ export const PublishAgentResultSchema: JsonSchema = {
     warnings: {
       type: 'array',
       description:
-        'What the agent should know about this deployment before its first turn, e.g. `semantic-unavailable` (a retrieval intent searches by meaning and the deployment has no embeddings) or `remember-unavailable` (the agent remembers and the deployment cannot store agent memories).',
+        "What the agent should know about this deployment before its first turn, e.g. `semantic-unavailable` (a retrieval intent searches by meaning and the deployment has no embeddings), `remember-unavailable` (the agent remembers and the deployment cannot store agent memories), `recall-other-people` (an intent recalls conversations in the run's segment or project, whoever had them) or `recall-unavailable` (the deployment cannot recall earlier conversations).",
       items: {
         type: 'object',
         additionalProperties: false,
@@ -2440,6 +2451,12 @@ export const ConversationSchema: JsonSchema = {
     status: ConversationStatusSchema,
     openedAt: { type: 'string', format: 'date-time' },
     closedAt: { type: 'string', format: 'date-time' },
+    unregisteredAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'When it was unregistered (`POST /v1/conversations/{conversationId}/unregister`). Only the unregister call returns it: reads no longer do.',
+    },
     turnCount: { type: 'integer', minimum: 0 },
     lastMessageAt: { type: 'string', format: 'date-time' },
     metadata: { type: 'object', additionalProperties: true },
@@ -2866,6 +2883,10 @@ export const JudgedRunContextSchema: JsonSchema = {
       description: 'Whether older messages were left out of `history`.',
     },
     retrieved: { description: "What the turn's retrievals returned." },
+    recalled: {
+      description:
+        'Messages of earlier conversations the turn recalled (intents over conversations), as quoted to the model.',
+    },
     sessionApproval: {
       type: 'object',
       additionalProperties: false,

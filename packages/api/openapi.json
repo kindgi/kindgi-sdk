@@ -329,6 +329,7 @@
           "item-not-found": 400,
           "test-sets-not-supported": 501,
           "memory-operation-unsupported": 501,
+          "conversation-unregister-unsupported": 501,
           "authz-membership-unsupported": 501,
           "eval-run-already-terminal": 409,
           "dispatcher-not-registered": 422,
@@ -3402,6 +3403,9 @@
           "retrieved": {
             "description": "What the turn's retrievals returned."
           },
+          "recalled": {
+            "description": "Messages of earlier conversations the turn recalled (intents over conversations), as quoted to the model."
+          },
           "sessionApproval": {
             "type": "object",
             "additionalProperties": false,
@@ -3932,26 +3936,35 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "types",
           "scope"
         ],
         "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "facts",
+              "conversations"
+            ],
+            "description": "What it reads: facts (the default), or messages of this agent's earlier conversations, quoted in the turn's `<memory>` block as earlier conversation, never as turns."
+          },
           "types": {
             "type": "array",
             "items": {
               "type": "string"
             },
-            "minItems": 1
+            "minItems": 1,
+            "description": "The fact types it retrieves: required for facts; not used for conversations."
           },
           "scope": {
             "type": "string",
             "enum": [
               "same-conversation",
               "same-user",
+              "same-segment",
               "same-project",
               "tenant"
             ],
-            "description": "What the intent selects within what the run may see: this conversation's facts; this run's end user's and user's; the run's project's (none without a project); or every fact of the type it may see."
+            "description": "What the intent selects within what the run may see. Facts: this conversation's; this run's end user's and user's; the run's project's (none without a project); or every fact of the type it may see (`tenant`). Conversations: this person's other conversations with the agent (`same-user`); this conversation's messages older than the history window (`same-conversation`); conversations in the run's segment path (`same-segment`) or its project (`same-project`), whoever had them: those two quote other people's conversations, so publishing warns and their messages are marked as another person's. `same-segment` is for conversations only, `tenant` for facts only."
           },
           "limit": {
             "type": "integer",
@@ -4621,7 +4634,7 @@
           },
           "warnings": {
             "type": "array",
-            "description": "What the agent should know about this deployment before its first turn, e.g. `semantic-unavailable` (a retrieval intent searches by meaning and the deployment has no embeddings) or `remember-unavailable` (the agent remembers and the deployment cannot store agent memories).",
+            "description": "What the agent should know about this deployment before its first turn, e.g. `semantic-unavailable` (a retrieval intent searches by meaning and the deployment has no embeddings), `remember-unavailable` (the agent remembers and the deployment cannot store agent memories), `recall-other-people` (an intent recalls conversations in the run's segment or project, whoever had them) or `recall-unavailable` (the deployment cannot recall earlier conversations).",
             "items": {
               "type": "object",
               "additionalProperties": false,
@@ -6079,6 +6092,11 @@
           "closedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "unregisteredAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it was unregistered (`POST /v1/conversations/{conversationId}/unregister`). Only the unregister call returns it: reads no longer do."
           },
           "turnCount": {
             "type": "integer",
@@ -21850,6 +21868,115 @@
           }
         },
         "description": "Idempotent: closing an already-closed conversation returns 200 with the current row (no timestamp bump).",
+        "parameters": [
+          {
+            "name": "conversationId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "ConversationId — opaque branded string (a UUID)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/conversations/{conversationId}/unregister": {
+      "post": {
+        "operationId": "conversations.unregister",
+        "summary": "Unregister a conversation",
+        "tags": [
+          "conversations"
+        ],
+        "responses": {
+          "200": {
+            "description": "The conversation, with `unregisteredAt`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conversation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`conversationId` is not a conversation id (a UUID).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No conversation with that id under this tenant, or it is unregistered already.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`conversation-unregister-unsupported`: this runtime can't unregister conversations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A tombstone: from now on no read, list or recall of earlier conversations returns it, and no message can be added. The retention sweep removes it after the tenant's grace.",
         "parameters": [
           {
             "name": "conversationId",

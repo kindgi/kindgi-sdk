@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { Capability } from '@kindgi/capabilities';
-import type { Fact, MemoryScope } from '@kindgi/memory';
+import type { Fact, MemoryScope, RecalledMessage } from '@kindgi/memory';
 import type { ToolErrorsSpec, ToolHitlMode, ToolHitlRule } from '@kindgi/policy-contract';
 import type { Brand, ConversationId, ProjectId, Semver, TenantId, Timestamp } from '@kindgi/types';
 
@@ -114,9 +114,25 @@ export interface PromptParameter {
  *                journal says so (`degraded: no-embeddings`).
  */
 export interface RetrievalIntent {
-  readonly types: readonly string[];
-  readonly scope: 'same-conversation' | 'same-user' | 'same-project' | 'tenant';
-  /** Cap on facts loaded per turn to keep the prompt small. Default 10. */
+  /**
+   * What it reads: `facts` (the default), or `conversations`: messages of
+   * this agent's earlier conversations, quoted in the turn's `<memory>`
+   * block as earlier conversations, never as turns. For conversations:
+   *   - `same-user` (the usual choice): this end user's (or user's) other
+   *     conversations;
+   *   - `same-conversation`: this conversation's messages older than the
+   *     history window;
+   *   - `same-segment`: conversations in the run's segment path (the same
+   *     customer), whoever had them;
+   *   - `same-project`: the project's conversations, whoever had them.
+   * The last two quote other people's conversations: publishing warns,
+   * and their messages are marked as another person's.
+   */
+  readonly source?: 'facts' | 'conversations';
+  /** The fact types it retrieves: at least one, for facts. Not used for conversations. */
+  readonly types?: readonly string[];
+  readonly scope: 'same-conversation' | 'same-user' | 'same-segment' | 'same-project' | 'tenant';
+  /** Cap on facts (or messages) loaded per turn to keep the prompt small. Default 10. */
   readonly limit?: number;
   readonly mode?: 'keyword' | 'semantic' | 'both';
 }
@@ -557,6 +573,8 @@ export interface Conversation {
   readonly openedAt: Timestamp;
   /** Set when the conversation is closed. Reopening is not supported. */
   readonly closedAt?: Timestamp;
+  /** Set when it was unregistered: reads no longer return it. */
+  readonly unregisteredAt?: Timestamp;
   /**
    * Denormalized turn counter — one +1 per completed agent turn.
    * Incremented by the conversation binding when a turn's final
@@ -578,6 +596,25 @@ export interface Conversation {
 export interface AgentBindings {
   /** A retrieval-policy registry from the memory implementation (untyped here). */
   readonly memoryPolicyRegistry?: unknown;
+}
+
+/**
+ * A message of an earlier conversation a retrieval intent over
+ * conversations recalled, with the intent and why: its rank in each
+ * search. Quoted in the turn's `<memory>` block as earlier conversation,
+ * never as a turn.
+ */
+export interface RecalledMemory {
+  readonly message: RecalledMessage;
+  readonly intent: RetrievalIntent;
+  readonly score?: number;
+  readonly ranks?: { readonly keyword?: number; readonly semantic?: number };
+  /**
+   * The conversation was another person's (neither this turn's end user
+   * nor the user it acts for): only `same-segment` and `same-project`
+   * recall those.
+   */
+  readonly anotherPerson?: true;
 }
 
 /** A retrieved fact + the retrieval intent that pulled it. */

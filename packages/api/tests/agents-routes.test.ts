@@ -649,6 +649,45 @@ describe('API — publishing an agent that searches memory by meaning', () => {
     expect(JSON.stringify(reserved.body)).toContain('a tool built into Kindgi');
   });
 
+  test("recalling other people's conversations is said at publish; a runtime that can't recall says so", async () => {
+    const registry = createAgentRegistry();
+    const app = (conversationRecall: boolean | undefined) =>
+      createApp({
+        ...createStubAppBindings(),
+        resolveToken,
+        runHandler,
+        agentRegistry: bindingFromRegistry(registry),
+        memory: {
+          ...inMemoryMemory().binding,
+          ...(conversationRecall !== undefined && { conversationRecall }),
+        },
+      });
+    const recalling = (id: string) => ({
+      ...agentSpec({ id }),
+      retrieval: [
+        { source: 'conversations', scope: 'same-user' },
+        { source: 'conversations', scope: 'same-segment' },
+        { source: 'conversations', scope: 'same-project', mode: 'keyword' },
+      ],
+    });
+    const wide = await publish(app(true), recalling('acme.recalls-wide'));
+    expect(wide.status, JSON.stringify(wide.body)).toBe(201);
+    expect(wide.body.warnings.map((w: { code: string }) => w.code)).toEqual([
+      'recall-other-people',
+      'recall-other-people',
+    ]);
+    expect(wide.body.warnings[0].message).toContain(
+      "other users' conversations in the run's segment",
+    );
+    expect(wide.body.warnings[1].message).toContain("the run's project");
+    const off = await publish(app(false), recalling('acme.recalls-off'));
+    expect(off.body.warnings.map((w: { code: string }) => w.code)).toEqual([
+      'recall-unavailable',
+      'recall-unavailable',
+      'recall-unavailable',
+    ]);
+  });
+
   test("an agent's memory policy is kept and read back", async () => {
     const app = appWithMemory(true);
     const published = await publish(app, {

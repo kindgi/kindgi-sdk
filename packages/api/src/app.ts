@@ -1061,6 +1061,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(input.memory?.agentRemember !== undefined && {
             remember: input.memory.agentRemember,
           }),
+          ...(input.memory?.conversationRecall !== undefined && {
+            conversationRecall: input.memory.conversationRecall,
+          }),
         },
       ),
     );

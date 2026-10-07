@@ -993,6 +993,8 @@ export interface Conversation {
   readonly turnCount: number;
   readonly openedAt: import('@kindgi/types').Timestamp;
   readonly closedAt?: import('@kindgi/types').Timestamp;
+  /** Set on the answer to `unregister`: reads no longer return it. */
+  readonly unregisteredAt?: import('@kindgi/types').Timestamp;
   readonly lastMessageAt?: import('@kindgi/types').Timestamp;
   readonly metadata?: Readonly<Record<string, unknown>>;
 }
