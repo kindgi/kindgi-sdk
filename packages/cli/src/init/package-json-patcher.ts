@@ -48,26 +48,9 @@ export async function patchPackageJson(
   specs: Pick<KindgiDependencySpecs, 'sdk' | 'cli'>,
   extra: readonly WantedDependency[] = [],
 ): Promise<PatchResult> {
-  let raw: string;
-  try {
-    raw = await readFile(pkgJsonPath, 'utf8');
-  } catch (err) {
-    return { kind: 'error', message: `Failed to read ${pkgJsonPath}: ${(err as Error).message}` };
-  }
-
-  let parsed: Record<string, unknown>;
-  try {
-    const p = JSON.parse(raw) as unknown;
-    if (p === null || typeof p !== 'object' || Array.isArray(p)) {
-      return { kind: 'error', message: `${pkgJsonPath} is not a JSON object.` };
-    }
-    parsed = p as Record<string, unknown>;
-  } catch (err) {
-    return {
-      kind: 'error',
-      message: `${pkgJsonPath} is not valid JSON: ${(err as Error).message}`,
-    };
-  }
+  const read = await readPackageJson(pkgJsonPath);
+  if (read.kind === 'error') return read;
+  const { raw, parsed } = read;
 
   const wanted: readonly WantedDependency[] = [
     { name: KINDGI_SDK_PKG, spec: specs.sdk, section: 'dependencies' },
@@ -85,14 +68,90 @@ export async function patchPackageJson(
     bucket[w.name] = w.spec;
     next[w.section] = sortByKey(bucket);
   }
-  const emitted = JSON.stringify(next, null, detectIndent(raw)) + (raw.endsWith('\n') ? '\n' : '');
+  const written = await writePackageJson(pkgJsonPath, raw, next);
+  if (written !== undefined) return written;
+  return { kind: 'patched', added: missing.map((w) => w.name) };
+}
 
+/** What `decideAllowScripts` did with `allowScripts.<name>`. */
+export type AllowScriptsResult =
+  | { readonly kind: 'patched' }
+  | { readonly kind: 'already-decided'; readonly key: string; readonly value: unknown }
+  | { readonly kind: 'refused'; readonly reason: string }
+  | { readonly kind: 'error'; readonly message: string };
+
+/**
+ * Record a decision for a dependency's install script in `package.json`'s
+ * `allowScripts`, npm 11+'s list (`npm approve-scripts` / `deny-scripts`
+ * write it): `false` runs nothing, as `allowBuilds` does for pnpm
+ * (`pnpm-workspace-patcher.ts`). Without one, npm 11 warns that the script
+ * isn't "covered by allowScripts". A decision the app already has for the
+ * package, name-only (`esbuild`) or pinned (`esbuild@0.28.2`), is kept.
+ * npm 10 and pnpm ignore the field.
+ */
+export async function decideAllowScripts(
+  pkgJsonPath: string,
+  name: string,
+  decision: boolean,
+): Promise<AllowScriptsResult> {
+  const read = await readPackageJson(pkgJsonPath);
+  if (read.kind === 'error') return read;
+  const { raw, parsed } = read;
+  const current = parsed.allowScripts;
+  if (current !== undefined && !isRecord(current)) {
+    return { kind: 'refused', reason: '`allowScripts` is not an object' };
+  }
+  const existing = Object.keys(current ?? {}).find(
+    (key) => key === name || key.startsWith(`${name}@`),
+  );
+  if (existing !== undefined) {
+    return { kind: 'already-decided', key: existing, value: current?.[existing] };
+  }
+  const next = { ...parsed, allowScripts: { ...(current ?? {}), [name]: decision } };
+  const written = await writePackageJson(pkgJsonPath, raw, next);
+  return written ?? { kind: 'patched' };
+}
+
+/** The file, parsed: a JSON object, or why not. */
+async function readPackageJson(
+  pkgJsonPath: string,
+): Promise<
+  | { readonly kind: 'ok'; readonly raw: string; readonly parsed: Record<string, unknown> }
+  | { readonly kind: 'error'; readonly message: string }
+> {
+  let raw: string;
+  try {
+    raw = await readFile(pkgJsonPath, 'utf8');
+  } catch (err) {
+    return { kind: 'error', message: `Failed to read ${pkgJsonPath}: ${(err as Error).message}` };
+  }
+  try {
+    const p = JSON.parse(raw) as unknown;
+    if (p === null || typeof p !== 'object' || Array.isArray(p)) {
+      return { kind: 'error', message: `${pkgJsonPath} is not a JSON object.` };
+    }
+    return { kind: 'ok', raw, parsed: p as Record<string, unknown> };
+  } catch (err) {
+    return {
+      kind: 'error',
+      message: `${pkgJsonPath} is not valid JSON: ${(err as Error).message}`,
+    };
+  }
+}
+
+/** Write `next` in the file's own indent and trailing-newline style; an error, or nothing. */
+async function writePackageJson(
+  pkgJsonPath: string,
+  raw: string,
+  next: Record<string, unknown>,
+): Promise<{ readonly kind: 'error'; readonly message: string } | undefined> {
+  const emitted = JSON.stringify(next, null, detectIndent(raw)) + (raw.endsWith('\n') ? '\n' : '');
   try {
     await writeFile(pkgJsonPath, emitted, 'utf8');
   } catch (err) {
     return { kind: 'error', message: `Failed to write ${pkgJsonPath}: ${(err as Error).message}` };
   }
-  return { kind: 'patched', added: missing.map((w) => w.name) };
+  return undefined;
 }
 
 // ---------------------------------------------------------------------

@@ -87,9 +87,8 @@ works the way you would: write, run, look, fix.
 | `kindgi feedback write` | Records a bug it found in Kindgi itself |
 | `kindgi build` | Builds the pack's image for deployment |
 
-In a TypeScript project it runs the CLI the project pins (`pnpm exec
-kindgi`). In a Python project it runs `npx --yes @kindgi/cli@0.1`; `--yes`
-skips npx's install prompt, so the agent never waits on it.
+It runs the CLI the project pins: `pnpm exec kindgi` in a TypeScript
+project, `uv run kindgi` in a Python one.
 
 ## What stays with you
 
@@ -126,7 +125,7 @@ Kindgi, refresh them:
 kindgi skills sync              # keeps skills you edited; --force replaces them
 ```
 
-In a Python project, run it as `npx --yes @kindgi/cli@0.1 skills sync`.
+In a Python project, run it as `uv run kindgi skills sync`.
 
 `kindgi dev` tells you when the installed skills are behind the CLI's.
 `.claude/skills/.kindgi-manifest.json` records what was installed.

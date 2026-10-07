@@ -14,7 +14,7 @@ description: >
   kindgi-python-authoring-tools.
 type: core
 library: "kindgi (Python)"
-version: "0.1.1"
+version: "0.1.3"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -25,9 +25,11 @@ sources:
 
 # Authoring Kindgi guardrails in Python
 
-> **Running `kindgi`:** a Python pack has no Node project, so the
-> `kindgi` CLI is the one on `PATH`. Python commands run in the pack's
-> environment: `uv run …` (or `.venv/bin/python …`).
+> **Running `kindgi`:** the CLI is `kindgi-cli` from PyPI, pinned in the
+> pack's dev group, so every `kindgi <command>` below runs as
+> `uv run kindgi <command>` (Poetry: `poetry run kindgi <command>`). Python
+> commands run in the pack's environment the same way: `uv run …` (or
+> `.venv/bin/python …`).
 
 A **guardrail** is a rule an agent's turn must satisfy: a **check** (a
 function over the turn's trace) plus an **action** (what happens when it
@@ -49,7 +51,7 @@ from kindgi import CheckResult, RunTrace, guardrail
 
 
 class Config(BaseModel):
-    min_lookups: int = Field(1, alias="minLookups", ge=0)
+    min_lookups: int = Field(default=1, alias="minLookups", ge=0)
 
 
 @guardrail(

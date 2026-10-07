@@ -826,7 +826,7 @@ describe('kindgi dev — boot flow (no watch)', () => {
     expect(out.stderr).toContain('1 agents');
     expect(out.stderr).toContain('1 flows');
     expect(out.stderr).toContain(
-      'Providers          dev-echo (fallback) — canned replies; for a real model: npx --no kindgi providers register --preset=anthropic',
+      'Providers          dev-echo (fallback) — canned replies; for a real model: set an LLM provider key, then npx --no kindgi providers register --preset=<anthropic|gemini-api|groq|openai|openrouter>',
     );
   });
 
@@ -914,7 +914,7 @@ describe('kindgi dev — boot flow (no watch)', () => {
       argv: ['dev', '--no-watch', `--path=${packDir}`],
     });
     expect(out.stderr).toContain(
-      'Providers          none — agent turns fail until one is registered: npx --no kindgi providers register --preset=anthropic',
+      'Providers          none — agent turns fail until one is registered: set an LLM provider key, then npx --no kindgi providers register --preset=<anthropic|gemini-api|groq|openai|openrouter>',
     );
   });
 
@@ -1061,6 +1061,22 @@ describe('kindgi dev — boot flow (no watch)', () => {
   // Since the disk-binding switch, every primitive is served from
   // disk and the CLI never POSTs them — there's no 409 path to test.
   // The fixture's `toolStatus: 409` option is unused.
+});
+
+describe('kindgi dev — the PyPI CLI (kindgi-cli)', () => {
+  test('a TypeScript pack is refused before anything starts, naming the npm CLI', async () => {
+    const fixtures = makeFixtures();
+    const spy = vi.spyOn(fixtures.runners, 'startApiServer');
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      env: { ...baseInputs(fixtures).env, KINDGI_CLI_INSTALL: 'pypi' },
+      argv: ['dev', '--no-watch', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('This kindgi is the PyPI build (kindgi-cli), for Python packs');
+    expect(out.stderr).toContain('npm install --save-dev @kindgi/cli');
+    expect(spy).not.toHaveBeenCalled();
+  });
 });
 
 describe('kindgi dev — a stop before the runtime serves (T176)', () => {

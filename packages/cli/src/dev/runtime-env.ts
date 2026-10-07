@@ -74,6 +74,10 @@ export function buildRuntimeEnv(input: RuntimeEnvInput): Record<string, string> 
   const env: Record<string, string> = {
     KINDGI_DEV: 'true',
     KINDGI_ENV: LOCAL_ENV_NAME,
+    // The runtime's records as lines for a person: the container's stdout
+    // isn't a terminal, so `auto` alone would pick JSON. An older runtime
+    // ignores the name.
+    KINDGI_LOG_FORMAT: 'pretty',
     KINDGI_API_PORT: String(input.apiPort),
     ...(input.apiHost !== undefined && { KINDGI_API_HOST: input.apiHost }),
     KINDGI_PUBLIC_URL: input.publicUrl,

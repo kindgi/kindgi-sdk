@@ -1,5 +1,90 @@
 # @kindgi/cli
 
+## 0.1.4-rc.4
+
+### Patch Changes
+
+- dc2250a: `kindgi dev` runs runtime 0.1.4-rc.4.
+- f999acd: **dev-echo says it isn't a model, and there are presets for more LLM provider keys.**
+  
+  - **dev-echo's text answers start with one line:** "⚠ dev-echo isn't a real model: it only repeats what it's given. Add an LLM provider key (Anthropic, OpenAI, Gemini, Groq, OpenRouter…) to get real answers." So a developer can't mistake it for a model wherever the answer shows, their own app included. An answer that is JSON (what a typed-output agent parses) stays bare, as does one asked for with `structuredOutput`.
+  - **Every dev-echo result carries a warning, `dev-echo-not-a-model`,** with the commands that add a model. `ModelCallResult.warnings` (new, optional) lets any provider warn about its answers. An agent turn collects them into its result's `warnings`, a resumed turn too, and `kindgi runs start` prints them on stderr. dev-echo's own warning stands in for the `fallback-provider` one there.
+  - **New presets for key-based LLM providers:**
+    - `openai` (`OPENAI_API_KEY`), `groq` (`GROQ_API_KEY`) and `openrouter` (`OPENROUTER_API_KEY`, many vendors' models with one key), on the OpenAI-compatible adapter;
+    - `gemini-api` (`GEMINI_API_KEY`), Gemini with a Google AI Studio key.
+  
+    A preset can now fix adapter settings itself (`adapterConfigValues`, such as the `baseURL`).
+  - **`@kindgi/adapter-model-gemini` takes a Gemini Developer API key** (`apiKey`, or `adapter_config.api: "developer"` with the key as `secret_ref`), next to Vertex AI. Vertex stays the default and the `gemini` preset, the route for a regulated deployment.
+  - **`kindgi doctor`** looks for every preset's key, and its fixes offer any one of them: the key to set, and the preset to register.
+  - **The init templates** ask for "an LLM provider key" (Anthropic, OpenAI, Gemini, Groq or OpenRouter), not Claude's alone.
+- Updated dependencies [5608264]
+- Updated dependencies [dd9e856]
+- Updated dependencies [f56432f]
+  - @kindgi/client@0.1.4-rc.4
+  - @kindgi/sdk@0.1.4-rc.4
+  - @kindgi/secrets-dotenv@0.1.4-rc.4
+  - @kindgi/crypto@0.1.4-rc.4
+  - @kindgi/dotenv-file@0.1.4-rc.4
+  - @kindgi/env-schema@0.1.4-rc.4
+  - @kindgi/flow@0.1.4-rc.4
+  - @kindgi/handler-runtime@0.1.4-rc.4
+  - @kindgi/platform@0.1.4-rc.4
+  - @kindgi/types@0.1.4-rc.4
+
+## 0.1.4-rc.3
+
+### Patch Changes
+
+- 51ee8e6: `kindgi doctor` checks whether this machine and folder are ready to run Kindgi. Each check says what it found and, when it fails, the exact command or step that fixes it, as the folder runs it (`pnpm exec kindgi …`, `npx --no kindgi …`, or `npx @kindgi/cli@<version> …` outside a project). Any failed check exits 1.
+  
+  The checks, in order:
+  - Node (22.12 or later) and npm;
+  - Python (3.11 or later) and uv, required in a Python project and otherwise reported as installed or not;
+  - Docker running, and pull access to the pinned runtime image;
+  - the project (`kindgi.config.ts`, or a `pyproject.toml` with `[tool.kindgi]`; `.kindgirc.json`) and its dependencies;
+  - a model key in `.env` or `.env.local`, named with its file and never its value;
+  - the runtime `kindgi dev` runs, answering `/health`;
+  - a model provider registered there (`dev-echo` alone fails, since it isn't a model).
+  
+  Outside a project the project's checks are skipped, saying why. `--json` prints `{ ok, cliVersion, project, checks: [{ id, status: 'pass' | 'fail' | 'skip', message, fix? }] }` for a coding agent. `--path` checks another folder. A malformed `.kindgirc.json` no longer stops `doctor` from running; it reports it.
+- 4271bfd: **The CLI knows when it runs as `kindgi-cli`**, the PyPI build for Python developers, with Node from a wheel. Its launcher sets `KINDGI_CLI_INSTALL=pypi`, and then:
+  - **its hints for a Python pack say `uv run kindgi …`**, or `poetry run kindgi …` in a Poetry project, instead of `npx --yes @kindgi/cli@0.x …`, which needs Node;
+  - **`kindgi init --template=python`** lists `kindgi-cli` in the pack's dev group next to pytest, in the same minor range as `kindgi`, so `uv sync` brings the CLI too;
+  - **in an existing Python app**, `kindgi init`'s next steps add the line that installs it (`uv add --dev`, `poetry add --group dev`, or `pip install`);
+  - **a TypeScript pack is refused before anything starts:** the PyPI build has no bundler. The message names the npm CLI (`npm install --save-dev @kindgi/cli`).
+  
+  Every `esbuild` load goes through one loader, which gives the same message.
+  
+  **`kindgi doctor` under kindgi-cli** passes Node as the one the wheel brings, skips npm (a Python pack doesn't need it), and its fixes say `uv run kindgi …`, or `uvx --from kindgi-cli kindgi …` outside a project.
+  
+  From the npm CLI, nothing changes.
+- b2ac856: `kindgi dev` runs runtime 0.1.4-rc.3.
+- fa131f0: The CLI's printed commands name a package manager this machine has. A project from `kindgi init` declares pnpm, but on a machine without pnpm (after `npm install`) the CLI used to print `pnpm install` and `pnpm exec kindgi …`. Now, when the declared manager (pnpm, yarn or bun) doesn't run here (`<pm> --version`), the CLI uses npm: `npm install` and `npx --no kindgi …`. This applies to `init`'s next steps and its dependency specs, `kindgi dev`'s banner, the `providers` hints, `.mcp.json`'s launch command, and `kindgi doctor`'s fixes. doctor's install fix also says which manager the project names. `usablePackageManager` is the shared check, probed once per manager per run.
+- 4d58f1b: `kindgi init` decides esbuild's install script for npm too: a new TypeScript pack's `package.json` has `"allowScripts": { "esbuild": false }`, and `init` in an existing npm app adds it, as it adds `allowBuilds.esbuild: false` for pnpm. npm 11 no longer warns on the first install that esbuild's script is "not yet covered by allowScripts". esbuild works without its script; npm 10 and pnpm ignore the field. An app's own decision for esbuild is kept.
+- 4671396: Docker's access to the runtime image says what's wrong in two more cases, in `kindgi doctor`, `kindgi auth registry` (login and `--check`) and `kindgi dev`'s pull:
+  - **A credential helper Docker can't run** (`credsStore` or `credHelpers` naming, for example, `docker-credential-desktop` that isn't on PATH) used to read as a network problem. Now the helper is named, with the fix: put it on PATH (Docker Desktop on macOS keeps it in `/Applications/Docker.app/Contents/Resources/bin`) or remove that entry from Docker's config.
+  - **Without docker buildx**, the `docker manifest inspect` fallback says "no such manifest" both for a missing image and for no access. The message now says it can be either, and gives the login command.
+- 3e427c5: `kindgi runs resume <run-id>` says what a run waits for before it resumes, with an exit code per answer:
+  - **0:** the run isn't waiting (running, or finished).
+  - **3:** it waits for an approval. The command names the approval and the command that decides it (`kindgi approvals complete <id> --decision=approve` or `--decision=reject`).
+  - **4:** it waits on the runtime: a queued start, a child run, a scheduled retry and when, or a lease another run holds. A wait no approval matches is also 4, with a line pointing to `kindgi approvals list --status=pending`.
+  - **5:** reserved for a held run.
+  
+  It reads the run, its journal's open waits, and the approvals linked to them. The never-wired `--waitpoint` and `--value` flags are gone.
+  
+  `GET /v1/approvals` takes `waitTokenId`, repeatable and at most 50: only approvals linked to those run waits. `ListApprovalsBindingInput.waitTokenIds` carries it to the binding. The TypeScript client's `approvals.list({ waitTokenIds })` and the Python client's `approvals.list(wait_token_id=[…])` send it.
+- Updated dependencies [3e427c5]
+  - @kindgi/client@0.1.4-rc.3
+  - @kindgi/secrets-dotenv@0.1.4-rc.3
+  - @kindgi/sdk@0.1.4-rc.3
+  - @kindgi/crypto@0.1.4-rc.3
+  - @kindgi/dotenv-file@0.1.4-rc.3
+  - @kindgi/env-schema@0.1.4-rc.3
+  - @kindgi/flow@0.1.4-rc.3
+  - @kindgi/handler-runtime@0.1.4-rc.3
+  - @kindgi/platform@0.1.4-rc.3
+  - @kindgi/types@0.1.4-rc.3
+
 ## 0.1.4-rc.2
 
 ### Patch Changes
