@@ -1,0 +1,63 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Kindgi Inc.
+
+package com.kindgi.pack;
+
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Objects;
+import org.jspecify.annotations.Nullable;
+
+/**
+ * A tool call's context, as the runtime sends it (pack protocol v2's call context), plus its
+ * {@link #cancellation()}.
+ *
+ * @param tenantId the tenant the call runs for
+ * @param runId the run the call belongs to
+ * @param requestId the individual call (a model's tool-call id), when sent
+ * @param projectId the run's project, when sent (set by the runtime, never from input)
+ * @param orgId the project's org, when it has one
+ * @param env resolved environment values for the call
+ * @param secrets resolved secrets for the call, by name (the tool's declared secrets)
+ * @param config resolved configuration for the call
+ * @param settings the settings blocks the calling agent version pins, by block id
+ * @param cancellation fires when the call passes its deadline or its caller goes away
+ */
+public record ToolContext(
+    String tenantId,
+    String runId,
+    @Nullable String requestId,
+    @Nullable String projectId,
+    @Nullable String orgId,
+    Map<String, Object> env,
+    Map<String, Object> secrets,
+    Map<String, Object> config,
+    Map<String, Map<String, Object>> settings,
+    Cancellation cancellation) {
+  /** Copies the maps, unmodifiable. */
+  public ToolContext {
+    Objects.requireNonNull(tenantId, "tenantId");
+    Objects.requireNonNull(runId, "runId");
+    env = Collections.unmodifiableMap(new LinkedHashMap<>(env));
+    secrets = Collections.unmodifiableMap(new LinkedHashMap<>(secrets));
+    config = Collections.unmodifiableMap(new LinkedHashMap<>(config));
+    settings = Collections.unmodifiableMap(new LinkedHashMap<>(settings));
+    Objects.requireNonNull(cancellation, "cancellation");
+  }
+
+  /**
+   * A context for a unit test of a handler.
+   *
+   * @return a context with a test tenant and run, and nothing else
+   */
+  public static ToolContext forTest() {
+    return new ToolContext("t-test", "run-test", null, null, null, Map.of(), Map.of(), Map.of(), Map.of(), new Cancellation());
+  }
+
+  /** @return the secrets, without their values (a context may be logged) */
+  @Override
+  public String toString() {
+    return "ToolContext[tenantId=" + tenantId + ", runId=" + runId + ", requestId=" + requestId + ", secrets=" + secrets.keySet() + "]";
+  }
+}

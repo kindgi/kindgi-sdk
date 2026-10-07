@@ -18,6 +18,8 @@
       "packages/api/openapi.json",
       "sdks/python-cli/src/kindgi_cli/_cli/**",
       "scripts/forbidden-names.json",
+      "sdks/java/kindgi-pack/src/test/resources/ajv/oracle.json",
+      "sdks/java/kindgi-pack/src/test/resources/derive/golden.json",
       "pnpm-lock.yaml",
       "**/.astro/**",
       "**/*.astro"

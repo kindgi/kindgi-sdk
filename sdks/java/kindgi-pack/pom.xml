@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (C) 2026 Kindgi Inc. -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.kindgi</groupId>
+    <artifactId>kindgi-java-parent</artifactId>
+    <version>0.1.4-rc.4</version>
+  </parent>
+
+  <artifactId>kindgi-pack</artifactId>
+  <name>Kindgi Java packs</name>
+  <description>Write a Kindgi™ pack's tools and guardrail checks in Java: define them, index the pack, and serve them to the Kindgi runtime over the pack protocol.</description>
+
+  <properties>
+    <!--
+      The app's own Jackson 2 binds its tools' inputs and outputs (its DTOs, with their Jackson
+      annotations). Compiled and tested against 2.15 (Spring Boot 3.2's) so the pack uses nothing
+      newer; an app's newer 2.x wins at run time. Unlike kindgi-client, nothing is shaded: pack code
+      runs inside the app, with its classes.
+    -->
+    <jackson2.version>2.15.4</jackson2.version>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <version>${jackson2.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-core</artifactId>
+      <version>${jackson2.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-annotations</artifactId>
+      <version>${jackson2.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.datatype</groupId>
+      <artifactId>jackson-datatype-jsr310</artifactId>
+      <version>${jackson2.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.datatype</groupId>
+      <artifactId>jackson-datatype-jdk8</artifactId>
+      <version>${jackson2.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.jspecify</groupId>
+      <artifactId>jspecify</artifactId>
+      <version>1.0.1</version>
+    </dependency>
+    <!--
+      Optional: schemas take Jakarta (or javax) Validation constraints when a pack uses them. They're
+      read by name, so a pack without them needs nothing; the tests and the conformance fixture
+      use Jakarta's.
+    -->
+    <dependency>
+      <groupId>jakarta.validation</groupId>
+      <artifactId>jakarta.validation-api</artifactId>
+      <version>3.0.2</version>
+      <optional>true</optional>
+    </dependency>
+
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <configuration>
+          <archive>
+            <manifestEntries>
+              <Automatic-Module-Name>com.kindgi.pack</Automatic-Module-Name>
+            </manifestEntries>
+          </archive>
+        </configuration>
+      </plugin>
+      <plugin>
+        <!--
+          What a pack compiles and runs against besides target/classes. The conformance suite
+          (packages/pack-conformance/tests/java.test.ts) compiles its fixture pack with it.
+        -->
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>classpath</id>
+            <phase>generate-resources</phase>
+            <goals>
+              <goal>build-classpath</goal>
+            </goals>
+            <configuration>
+              <includeScope>runtime</includeScope>
+              <outputFile>${project.build.directory}/classpath.txt</outputFile>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+    <resources>
+      <resource>
+        <directory>src/main/resources</directory>
+      </resource>
+      <resource>
+        <directory>${project.basedir}/../../..</directory>
+        <targetPath>META-INF</targetPath>
+        <includes>
+          <include>LICENSE</include>
+          <include>NOTICE</include>
+        </includes>
+      </resource>
+      <!-- The specs the indexer and the service check against, from the repo (never a copy). -->
+      <resource>
+        <directory>${project.basedir}/../../../packages/specs/schemas</directory>
+        <targetPath>com/kindgi/pack/specs</targetPath>
+        <includes>
+          <include>pack-index.schema.json</include>
+          <include>flow.schema.json</include>
+        </includes>
+      </resource>
+    </resources>
+  </build>
+</project>

@@ -106,11 +106,17 @@ Each record has a builder.
 A property named like a Java keyword or a method every record has gets a
 trailing underscore: `wait` is `wait_()`.
 
+## Tools in Java
+
+[`kindgi-pack`](./kindgi-pack) is the other direction: tools and guardrail
+checks written in Java, which the Kindgi runtime calls. Define them as
+records and lambdas, index the pack, and serve it over the pack protocol.
+
 ## Build from source
 
 ```sh
 cd sdks/java
-./mvnw verify            # the generator, the models and the client, with their tests
+./mvnw verify            # the generator, the models, the client and kindgi-pack, with their tests
 ./mvnw install           # into your local Maven repository, to use from an app
 ./mvnw -Pcompat verify   # also the client inside Spring Boot 3 and 4 apps
 ```
