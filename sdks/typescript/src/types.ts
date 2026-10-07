@@ -1703,6 +1703,8 @@ export type RetentionDomain =
   | 'judgment'
   | 'judge_class'
   | 'provider'
+  | 'api_key'
+  | 'service_account'
   | '*';
 
 /**

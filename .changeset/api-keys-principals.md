@@ -3,6 +3,7 @@
 "@kindgi/authz": patch
 "@kindgi/client": patch
 "@kindgi/compliance": patch
+"@kindgi/policy-contract": patch
 "@kindgi/specs": patch
 ---
 
@@ -30,3 +31,4 @@ API keys act for a person or a service account, with that principal's grants. Al
   - The new error codes are classified.
 - **Python client:** `tokens.mint(for_=…)`, `service_accounts.*` and `identity.users.create`.
 - **Evidence kinds:** `api-key-minted`, `api-key-revoked`, `service-account-created`, `service-account-granted`, `service-account-ungranted`, `service-account-unregistered` and `person-added` join `EVIDENCE_KINDS` and the evidence schema. A key's secret is never in one. The stores learn who acted: `TokenRevokeInput.revokedBy`, and `by` on a service account's grant, ungrant and unregister.
+- **Retention domains `api_key` and `service_account`:** a retention policy can purge revoked and expired keys, and unregistered service accounts, after its grace.

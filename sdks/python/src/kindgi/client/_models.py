@@ -4664,6 +4664,8 @@ class RetentionPolicyConflict(BaseModel):
         "judgment",
         "judge_class",
         "provider",
+        "api_key",
+        "service_account",
         "*",
     ]
     policy_ids: Annotated[list[str], Field(alias="policyIds", min_length=2)]
@@ -4696,6 +4698,8 @@ class RetentionScheduledItem(BaseModel):
         "judgment",
         "judge_class",
         "provider",
+        "api_key",
+        "service_account",
         "*",
     ]
     id: str
@@ -4753,6 +4757,8 @@ class RetentionScheduledPage(BaseModel):
                 "judgment",
                 "judge_class",
                 "provider",
+                "api_key",
+                "service_account",
                 "*",
             ]
         ],
@@ -4778,6 +4784,8 @@ class RetentionScheduledPage(BaseModel):
                 "judgment",
                 "judge_class",
                 "provider",
+                "api_key",
+                "service_account",
                 "*",
             ]
         ],
@@ -4813,6 +4821,8 @@ class RetentionSweepBody(BaseModel):
             "judgment",
             "judge_class",
             "provider",
+            "api_key",
+            "service_account",
             "*",
         ]
         | None
@@ -4857,6 +4867,8 @@ class PerDomainItem(BaseModel):
         "judgment",
         "judge_class",
         "provider",
+        "api_key",
+        "service_account",
         "*",
     ]
     purged: Annotated[int, Field(ge=0)]
