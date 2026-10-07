@@ -17,8 +17,11 @@
  * which imports every module it discovers), with no file errors allowed,
  * and every other file (app code, `# derive.py`) is type-checked with
  * pyright against the pack's environment, since importing it would run its
- * calls. The pack's id is the one the samples use. A sample without a file
- * name is a fragment and isn't checked.
+ * calls. The pack's id is the one the samples use. Its Java files
+ * (`// src/main/java/com/acme/Name.java`) are compiled together with
+ * `javac --release 17` against the Java SDK this checkout builds
+ * (`sdks/java`: the client's jar and what its published POM depends on),
+ * offline. A sample without a file name is a fragment and isn't checked.
  *
  * A sample may import the reader's own app code (`@/lib/requests`,
  * `acme.orders`). The page gives the checker a stand-in for it in a comment
@@ -29,7 +32,10 @@
  * an app with its own settings (Next.js: `moduleResolution: "bundler"`, the
  * `@/*` paths).
  *
- * Needs the workspace built (`pnpm run build`), and uv for Python samples.
+ * Needs the workspace built (`pnpm run build`), uv for Python samples, and for
+ * Java samples a JDK 17 or later and the Java SDK built
+ * (`cd sdks/java && ./mvnw package -DskipTests`). A missing tool fails the
+ * check; it's never skipped.
  *
  * Usage: node site/scripts/check-samples.mjs [<page or skill file> …]
  *   (a page path is relative to site/src/content/docs; default: every page and skill)
@@ -46,7 +52,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, relative, resolve } from 'node:path';
+import { delimiter, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const site = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -69,8 +75,18 @@ const LANGUAGES = {
     id: /\bid:\s*'([a-z0-9-]+)\.[^']+'/,
   },
   python: { template: 'python', file: /^#\s*(\S+\.py)\s*$/, id: /\bid="([a-z0-9-]+)\.[^"]+"/ },
+  // An app's Java file: no pack, compiled against the Java SDK.
+  java: { file: /^\/\/\s*(src\/main\/java\/\S+\.java)\s*$/ },
 };
-const FENCE_LANGUAGE = { ts: 'ts', typescript: 'ts', tsx: 'ts', python: 'python', py: 'python' };
+const FENCE_LANGUAGE = {
+  ts: 'ts',
+  typescript: 'ts',
+  tsx: 'ts',
+  python: 'python',
+  py: 'python',
+  java: 'java',
+};
+const javaSdk = join(repo, 'sdks', 'java');
 
 function pages(dir = docs) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -134,7 +150,7 @@ function blocks(markdown) {
 
 /** A page's samples that are whole files, by language: `{ path, content }[]`. */
 function fileSamples(markdown) {
-  const byLanguage = { ts: [], python: [] };
+  const byLanguage = { ts: [], python: [], java: [] };
   for (const block of blocks(markdown)) {
     if (block.stub && ['json', 'jsonc'].includes(block.language)) {
       const config = block.lines[0]?.match(/^\/\/\s*(\S+\.json)\s*$/);
@@ -188,6 +204,67 @@ function freshPack(template, packId) {
   return copy;
 }
 
+/**
+ * The JDK's javac (JAVA_HOME's, else PATH's) and the classpath of the Java SDK
+ * this checkout built: found once; a missing one fails the check, saying what to do.
+ */
+let javaToolchain;
+function java() {
+  if (javaToolchain) return javaToolchain;
+  const javac = process.env.JAVA_HOME ? join(process.env.JAVA_HOME, 'bin', 'javac') : 'javac';
+  const version = run(javac, ['-version'], repo);
+  const major = Number(version.output.match(/javac (\d+)/)?.[1] ?? 0);
+  if (!version.ok || major < 17) {
+    const found = version.ok ? version.output.trim() : 'no javac';
+    throw new Error(
+      `Java samples need a JDK 17 or later (found: ${found}). Install one (Temurin 17, say) and set JAVA_HOME or put javac on PATH.`,
+    );
+  }
+  const target = (module) => join(javaSdk, module, 'target');
+  const client = existsSync(target('kindgi-client'))
+    ? readdirSync(target('kindgi-client')).find((f) =>
+        /^kindgi-client-[^/]+(?<!-sources|-javadoc)\.jar$/.test(f),
+      )
+    : undefined;
+  const classpathFile = join(target('kindgi-client'), 'samples-classpath.txt');
+  if (client === undefined || !existsSync(classpathFile)) {
+    throw new Error(
+      'Java samples compile against the Java SDK this checkout builds, and it is not built: run `cd sdks/java && ./mvnw package -DskipTests` first.',
+    );
+  }
+  const classpath = [
+    join(target('kindgi-client'), client),
+    ...readFileSync(classpathFile, 'utf8').trim().split(delimiter),
+  ];
+  javaToolchain = { javac, classpath: classpath.join(delimiter) };
+  return javaToolchain;
+}
+
+function checkJava(files) {
+  const dir = mkdtempSync(join(work, 'java-'));
+  for (const file of files) {
+    const target = join(dir, file.path);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, file.content);
+  }
+  const { javac, classpath } = java();
+  const compiled = run(
+    javac,
+    [
+      '--release',
+      '17',
+      '-Xlint:none',
+      '-d',
+      join(dir, 'classes'),
+      '-cp',
+      classpath,
+      ...files.map((f) => f.path),
+    ],
+    dir,
+  );
+  return compiled.ok ? undefined : compiled.output;
+}
+
 function check(language, files, packDir) {
   for (const file of files) {
     const target = join(packDir, file.path);
@@ -233,9 +310,14 @@ try {
     const markdown = readFileSync(page, 'utf8');
     for (const [language, files] of Object.entries(fileSamples(markdown))) {
       if (files.length === 0) continue;
-      const { template, id } = LANGUAGES[language];
-      const packId = files.map((file) => file.content.match(id)?.[1]).find(Boolean) ?? 'my-pack';
-      const error = check(language, files, freshPack(template, packId));
+      let error;
+      if (language === 'java') {
+        error = checkJava(files);
+      } else {
+        const { template, id } = LANGUAGES[language];
+        const packId = files.map((file) => file.content.match(id)?.[1]).find(Boolean) ?? 'my-pack';
+        error = check(language, files, freshPack(template, packId));
+      }
       const samples = files.filter((file) => !file.stub);
       checked += samples.length;
       const where = `${relative(repo, page)} (${language}: ${samples.map((file) => file.path).join(', ')})`;
