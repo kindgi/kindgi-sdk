@@ -55,6 +55,11 @@ export interface ServiceAccountRef {
   readonly serviceAccountId: string;
 }
 
+/** A change to an account, and who made it: `user:<id>` or `service_account:<id>`. */
+export interface ServiceAccountChange extends ServiceAccountRef {
+  readonly by?: string;
+}
+
 export interface ServiceAccountListInput {
   readonly tenantId: TenantId;
   readonly limit: number;
@@ -91,12 +96,12 @@ export interface ServiceAccountBinding {
    * account's role on that project. Not for an unregistered account.
    */
   grant(
-    input: ServiceAccountRef & { readonly grant: ServiceAccountGrant },
+    input: ServiceAccountChange & { readonly grant: ServiceAccountGrant },
   ): Promise<Result<ServiceAccount, ServiceAccountError>>;
   /** Remove a grant (a no-op when not held). */
   ungrant(
-    input: ServiceAccountRef & { readonly grant: ServiceAccountGrantTarget },
+    input: ServiceAccountChange & { readonly grant: ServiceAccountGrantTarget },
   ): Promise<Result<ServiceAccount, ServiceAccountError>>;
   /** Tombstone the account: its grants go and its keys stop working. Idempotent. */
-  unregister(input: ServiceAccountRef): Promise<Result<ServiceAccount, ServiceAccountError>>;
+  unregister(input: ServiceAccountChange): Promise<Result<ServiceAccount, ServiceAccountError>>;
 }

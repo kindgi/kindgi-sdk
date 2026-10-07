@@ -99,6 +99,7 @@ export {
 export type {
   ServiceAccount,
   ServiceAccountBinding,
+  ServiceAccountChange,
   ServiceAccountCreateInput,
   ServiceAccountError,
   ServiceAccountErrorCode,

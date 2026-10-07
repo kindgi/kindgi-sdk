@@ -133,7 +133,12 @@ export function tokensRouter(admin: TokenAdmin, authorizer?: Authorizer): Hono<A
     if ((await visibleKey(c, admin, authorizer, tokenId)) === undefined) {
       return notFound(c, tokenId, requestId);
     }
-    const outcome = await admin.revoke({ tenantId, tokenId });
+    const revokedBy = callerRef(c);
+    const outcome = await admin.revoke({
+      tenantId,
+      tokenId,
+      ...(revokedBy !== undefined && { revokedBy }),
+    });
     if (outcome.kind === 'not-found') return notFound(c, tokenId, requestId);
     return c.json({ tokenId: tokenId as unknown as string, revoked: true });
   });

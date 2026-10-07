@@ -97,7 +97,12 @@ export function serviceAccountsRouter(
     const serviceAccountId = c.req.param('serviceAccountId');
     return respond(
       c,
-      await binding.grant({ tenantId: tenantOf(c), serviceAccountId, grant: grant.value }),
+      await binding.grant({
+        tenantId: tenantOf(c),
+        serviceAccountId,
+        grant: grant.value,
+        ...byCaller(c),
+      }),
     );
   });
 
@@ -109,13 +114,21 @@ export function serviceAccountsRouter(
     const serviceAccountId = c.req.param('serviceAccountId');
     return respond(
       c,
-      await binding.ungrant({ tenantId: tenantOf(c), serviceAccountId, grant: grant.value }),
+      await binding.ungrant({
+        tenantId: tenantOf(c),
+        serviceAccountId,
+        grant: grant.value,
+        ...byCaller(c),
+      }),
     );
   });
 
   r.post('/:serviceAccountId/unregister', async (c) => {
     const serviceAccountId = c.req.param('serviceAccountId');
-    return respond(c, await binding.unregister({ tenantId: tenantOf(c), serviceAccountId }));
+    return respond(
+      c,
+      await binding.unregister({ tenantId: tenantOf(c), serviceAccountId, ...byCaller(c) }),
+    );
   });
 
   return r;
@@ -123,6 +136,12 @@ export function serviceAccountsRouter(
 
 type WireError = { readonly code: string; readonly message: string };
 type Parsed<T> = { kind: 'ok'; value: T } | { kind: 'err'; error: WireError };
+
+/** Who made the change, for the record. */
+function byCaller(c: Context<AppEnv>): { by?: string } {
+  const by = callerRef(c);
+  return by !== undefined ? { by } : {};
+}
 
 function tenantOf(c: Context<AppEnv>): TenantId {
   return c.get('tenantId') as TenantId;

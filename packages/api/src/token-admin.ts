@@ -129,6 +129,8 @@ export interface TokenGetInput {
 export interface TokenRevokeInput {
   readonly tenantId: TenantId;
   readonly tokenId: ApiTokenId;
+  /** Who revoked it: `user:<id>` or `service_account:<id>`. */
+  readonly revokedBy?: string;
 }
 
 export type TokenRevokeOutcome = { readonly kind: 'ok' } | { readonly kind: 'not-found' };

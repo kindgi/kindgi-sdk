@@ -68,6 +68,8 @@ function harness(options: { createUser?: boolean } = {}) {
   );
   const accounts = new Map<string, ServiceAccount>();
   const keys = new Map<string, StoredKey>();
+  /** Who each change was made by, as the routes pass it to the stores. */
+  const changedBy: string[] = [];
 
   const isAdmin = (p: TokenPrincipal): boolean =>
     p.kind === 'user'
@@ -121,7 +123,8 @@ function harness(options: { createUser?: boolean } = {}) {
     async get({ tokenId }) {
       return keys.get(tokenId as unknown as string);
     },
-    async revoke({ tokenId }) {
+    async revoke({ tokenId, revokedBy }) {
+      changedBy.push(`revoke:${revokedBy}`);
       const k = keys.get(tokenId as unknown as string);
       if (k === undefined) return { kind: 'not-found' };
       keys.set(tokenId as unknown as string, { ...k, revokedAt: new Date() });
@@ -205,7 +208,8 @@ function harness(options: { createUser?: boolean } = {}) {
         ),
       };
     },
-    async grant({ serviceAccountId, grant }) {
+    async grant({ serviceAccountId, grant, by }) {
+      changedBy.push(`grant:${by}`);
       const a = accounts.get(serviceAccountId);
       if (a === undefined) {
         return { kind: 'err', error: { code: 'service-account-not-found', message: 'none' } };
@@ -314,7 +318,7 @@ function harness(options: { createUser?: boolean } = {}) {
     expect(r.status, JSON.stringify(r.body)).toBe(201);
     return { token: r.body.token as string, tokenId: r.body.tokenId as string, body: r.body };
   };
-  return { call, code, mint, checked };
+  return { call, code, mint, checked, changedBy };
 }
 
 describe('API keys act for a principal', () => {
@@ -663,6 +667,17 @@ describe("a key limited to a project reaches only that project's resources", () 
       ]);
     });
     expect(await (await r.request('/')).json()).toEqual([false, false, true]);
+  });
+});
+
+describe('who made a change reaches the store', () => {
+  test('revoke and grant name the caller', async () => {
+    const h = harness();
+    const key = await h.mint(BOB);
+    await h.call(BOB, 'POST', `/v1/tokens/${key.tokenId}/revoke`);
+    await h.call(ALICE, 'POST', '/v1/service-accounts', { name: 'acme-ci' });
+    await h.call(ALICE, 'POST', '/v1/service-accounts/sa-acme-ci/grant', { kind: 'tenant-admin' });
+    expect(h.changedBy).toEqual(['revoke:user:bob', 'grant:user:alice']);
   });
 });
 

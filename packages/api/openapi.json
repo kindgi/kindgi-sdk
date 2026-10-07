@@ -12139,7 +12139,14 @@
           "agent-promotion-refused",
           "agent-rollback",
           "agent-live-unpinned",
-          "agent-live-pin-inactive"
+          "agent-live-pin-inactive",
+          "api-key-minted",
+          "api-key-revoked",
+          "service-account-created",
+          "service-account-granted",
+          "service-account-ungranted",
+          "service-account-unregistered",
+          "person-added"
         ]
       },
       "EvidenceActor": {
@@ -12291,7 +12298,14 @@
               "agent-promotion-refused",
               "agent-rollback",
               "agent-live-unpinned",
-              "agent-live-pin-inactive"
+              "agent-live-pin-inactive",
+              "api-key-minted",
+              "api-key-revoked",
+              "service-account-created",
+              "service-account-granted",
+              "service-account-ungranted",
+              "service-account-unregistered",
+              "person-added"
             ]
           },
           "timestamp": {
@@ -12466,7 +12480,14 @@
               "agent-promotion-refused",
               "agent-rollback",
               "agent-live-unpinned",
-              "agent-live-pin-inactive"
+              "agent-live-pin-inactive",
+              "api-key-minted",
+              "api-key-revoked",
+              "service-account-created",
+              "service-account-granted",
+              "service-account-ungranted",
+              "service-account-unregistered",
+              "person-added"
             ]
           },
           "from": {
@@ -12541,7 +12562,14 @@
                   "agent-promotion-refused",
                   "agent-rollback",
                   "agent-live-unpinned",
-                  "agent-live-pin-inactive"
+                  "agent-live-pin-inactive",
+                  "api-key-minted",
+                  "api-key-revoked",
+                  "service-account-created",
+                  "service-account-granted",
+                  "service-account-ungranted",
+                  "service-account-unregistered",
+                  "person-added"
                 ]
               },
               "from": {
