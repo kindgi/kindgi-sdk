@@ -331,6 +331,9 @@
           "service-account-name-taken": 409,
           "service-account-unregistered": 409,
           "identity-user-email-taken": 409,
+          "last-tenant-admin": 409,
+          "seed-user-admin": 409,
+          "person-grants-unsupported": 501,
           "agent-version-live": 409,
           "run-not-finished": 409,
           "item-not-found": 400,
@@ -11554,6 +11557,105 @@
           }
         }
       },
+      "PersonGrants": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "What a person may do, as granted directly: tenant admin, a role on a project (its memberships), a role in a team, and the reviewer roster. What a team's or an org's grants imply is not expanded.",
+        "required": [
+          "userId",
+          "projects",
+          "teams"
+        ],
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "tenantAdmin": {
+            "type": "boolean",
+            "description": "Whether the person is a tenant admin. Absent when the runtime has no authorization store: nothing grants it then."
+          },
+          "projects": {
+            "type": "array",
+            "description": "Direct project memberships.",
+            "items": {
+              "$ref": "#/components/schemas/PersonProjectRole"
+            }
+          },
+          "teams": {
+            "type": "array",
+            "description": "Team memberships.",
+            "items": {
+              "$ref": "#/components/schemas/PersonTeamRole"
+            }
+          },
+          "reviewer": {
+            "$ref": "#/components/schemas/PersonReviewerRole"
+          }
+        }
+      },
+      "PersonProjectRole": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "projectId",
+          "role"
+        ],
+        "description": "A person's direct role on a project.",
+        "properties": {
+          "projectId": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/ProjectRole"
+          }
+        }
+      },
+      "PersonTeamRole": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "teamId",
+          "role"
+        ],
+        "description": "A person's role in a team.",
+        "properties": {
+          "teamId": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/TeamRole"
+          }
+        }
+      },
+      "PersonReviewerRole": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "role"
+        ],
+        "description": "A person's active entry on the reviewer roster.",
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/ReviewerRole"
+          }
+        }
+      },
+      "PersonGrantBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind"
+        ],
+        "description": "The grant to give or take: tenant admin. A person's project and team roles have their own membership routes.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tenant-admin"
+            ]
+          }
+        }
+      },
       "UserCollectionPage": {
         "type": "object",
         "additionalProperties": false,
@@ -12148,7 +12250,9 @@
           "service-account-granted",
           "service-account-ungranted",
           "service-account-unregistered",
-          "person-added"
+          "person-added",
+          "person-granted",
+          "person-ungranted"
         ]
       },
       "EvidenceActor": {
@@ -12307,7 +12411,9 @@
               "service-account-granted",
               "service-account-ungranted",
               "service-account-unregistered",
-              "person-added"
+              "person-added",
+              "person-granted",
+              "person-ungranted"
             ]
           },
           "timestamp": {
@@ -12489,7 +12595,9 @@
               "service-account-granted",
               "service-account-ungranted",
               "service-account-unregistered",
-              "person-added"
+              "person-added",
+              "person-granted",
+              "person-ungranted"
             ]
           },
           "from": {
@@ -12571,7 +12679,9 @@
                   "service-account-granted",
                   "service-account-ungranted",
                   "service-account-unregistered",
-                  "person-added"
+                  "person-added",
+                  "person-granted",
+                  "person-ungranted"
                 ]
               },
               "from": {
@@ -31524,6 +31634,340 @@
             "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
           }
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/identity/users/{userId}/grants": {
+      "get": {
+        "operationId": "identity.users.grants",
+        "summary": "Read a person's grants",
+        "tags": [
+          "identity"
+        ],
+        "responses": {
+          "200": {
+            "description": "The person's grants.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonGrants"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Another person's grants, and not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No user with that id under this tenant (`identity-user-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "The runtime has no authorization store (`person-grants-unsupported`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "What the person may do, as granted directly: tenant admin, project and team roles, the reviewer roster. A tenant admin reads anyone's; anyone else only their own.",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/identity/users/{userId}/grant": {
+      "post": {
+        "operationId": "identity.users.grant",
+        "summary": "Make a person a tenant admin",
+        "tags": [
+          "identity"
+        ],
+        "responses": {
+          "200": {
+            "description": "The person's grants, after.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonGrants"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No user with that id under this tenant (`identity-user-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "The runtime has no authorization store (`person-grants-unsupported`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Written before the call answers, so the person's next request holds it. A no-op when held. Tenant admins only.",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersonGrantBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/identity/users/{userId}/ungrant": {
+      "post": {
+        "operationId": "identity.users.ungrant",
+        "summary": "Remove tenant admin from a person",
+        "tags": [
+          "identity"
+        ],
+        "responses": {
+          "200": {
+            "description": "The person's grants, after.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonGrants"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No user with that id under this tenant (`identity-user-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The only person who is a tenant admin (`last-tenant-admin`), the seed user (`seed-user-admin`), or an idempotency conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "The runtime has no authorization store (`person-grants-unsupported`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A no-op when not held. Refused for the only person who is a tenant admin (`last-tenant-admin`: make someone else one first), and for the seed user, whom the runtime makes tenant admin at every boot (`seed-user-admin`: unset `KINDGI_SEED_USER_ID` and restart it first). Tenant admins only.",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersonGrantBody"
+              }
+            }
+          }
+        },
         "security": [
           {
             "bearerAuth": []

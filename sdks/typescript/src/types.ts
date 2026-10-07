@@ -2122,6 +2122,27 @@ export interface ServiceAccount {
   readonly unregisteredAt?: import('@kindgi/types').Timestamp;
 }
 
+/**
+ * What a person may do, as granted directly: tenant admin, a role on a
+ * project, a role in a team, the reviewer roster. What a team's or an
+ * org's grants imply is not expanded. Matches
+ * `@kindgi/api/openapi.json#PersonGrants`.
+ */
+export interface PersonGrants {
+  readonly userId: string;
+  /** Absent when the runtime has no authorization store: nothing grants it then. */
+  readonly tenantAdmin?: boolean;
+  readonly projects: readonly {
+    readonly projectId: string;
+    readonly role: 'viewer' | 'editor' | 'owner' | 'admin' | 'member';
+  }[];
+  readonly teams: readonly { readonly teamId: string; readonly role: 'member' | 'admin' }[];
+  readonly reviewer?: { readonly role: 'standard' | 'senior' | 'admin' };
+}
+
+/** What `users.grant` / `users.ungrant` take: tenant admin. Matches `#PersonGrantBody`. */
+export type PersonGrant = { readonly kind: 'tenant-admin' };
+
 /** Input for `POST /v1/service-accounts` per `#CreateServiceAccountBody`. */
 export interface CreateServiceAccountInput {
   /** Lowercase letters, digits and hyphens, e.g. `acme-ci`. */

@@ -310,6 +310,8 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'service-account-name-taken':
     case 'service-account-unregistered':
     case 'identity-user-email-taken':
+    case 'last-tenant-admin':
+    case 'seed-user-admin':
       return { code: 'conflict', message, reason: code };
     case 'invalid-request':
     case 'validation-failed':

@@ -511,6 +511,8 @@ export type {
   PackManifest,
   PackToolBinding,
   Page,
+  PersonGrant,
+  PersonGrants,
   PlannedMemoryWrite,
   PlannedNode,
   PlannedRetrieval,

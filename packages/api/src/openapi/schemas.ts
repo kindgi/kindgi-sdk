@@ -6293,6 +6293,72 @@ export const CreateUserBodySchema: JsonSchema = {
   },
 };
 
+export const PersonGrantsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "What a person may do, as granted directly: tenant admin, a role on a project (its memberships), a role in a team, and the reviewer roster. What a team's or an org's grants imply is not expanded.",
+  required: ['userId', 'projects', 'teams'],
+  properties: {
+    userId: { type: 'string' },
+    tenantAdmin: {
+      type: 'boolean',
+      description:
+        'Whether the person is a tenant admin. Absent when the runtime has no authorization store: nothing grants it then.',
+    },
+    projects: {
+      type: 'array',
+      description: 'Direct project memberships.',
+      items: { $ref: '#/components/schemas/PersonProjectRole' },
+    },
+    teams: {
+      type: 'array',
+      description: 'Team memberships.',
+      items: { $ref: '#/components/schemas/PersonTeamRole' },
+    },
+    reviewer: { $ref: '#/components/schemas/PersonReviewerRole' },
+  },
+};
+
+export const PersonProjectRoleSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectId', 'role'],
+  description: "A person's direct role on a project.",
+  properties: {
+    projectId: { type: 'string' },
+    role: { $ref: '#/components/schemas/ProjectRole' },
+  },
+};
+
+export const PersonTeamRoleSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['teamId', 'role'],
+  description: "A person's role in a team.",
+  properties: {
+    teamId: { type: 'string' },
+    role: { $ref: '#/components/schemas/TeamRole' },
+  },
+};
+
+export const PersonReviewerRoleSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['role'],
+  description: "A person's active entry on the reviewer roster.",
+  properties: { role: { $ref: '#/components/schemas/ReviewerRole' } },
+};
+
+export const PersonGrantBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind'],
+  description:
+    "The grant to give or take: tenant admin. A person's project and team roles have their own membership routes.",
+  properties: { kind: { type: 'string', enum: ['tenant-admin'] } },
+};
+
 export const UserCollectionPageSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -8683,6 +8749,11 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['WhoamiResult', WhoamiResultSchema],
   ['UserRecord', UserRecordSchema],
   ['CreateUserBody', CreateUserBodySchema],
+  ['PersonGrants', PersonGrantsSchema],
+  ['PersonProjectRole', PersonProjectRoleSchema],
+  ['PersonTeamRole', PersonTeamRoleSchema],
+  ['PersonReviewerRole', PersonReviewerRoleSchema],
+  ['PersonGrantBody', PersonGrantBodySchema],
   ['UserCollectionPage', UserCollectionPageSchema],
   ['IdentitySessionSummary', IdentitySessionSummarySchema],
   ['IdentitySessionCollectionPage', IdentitySessionCollectionPageSchema],

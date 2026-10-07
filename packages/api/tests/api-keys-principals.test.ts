@@ -27,6 +27,7 @@ import { createApp } from '../src/index.js';
 import type {
   ApiTokenRecord,
   IdentityDirectoryBinding,
+  PersonGrantsBinding,
   RunHandlerBinding,
   ServiceAccount,
   ServiceAccountBinding,
@@ -53,7 +54,9 @@ const runHandler = {} as RunHandlerBinding;
 
 type StoredKey = ApiTokenRecord & { secret: string };
 
-function harness(options: { createUser?: boolean } = {}) {
+function harness(options: { createUser?: boolean; personGrants?: boolean } = {}) {
+  /** Who is a tenant admin; a person's grant or ungrant changes it. */
+  const admins = new Set(ADMINS);
   const users = new Map<string, UserRecord>(
     ['alice', 'bob'].map((id) => [
       id,
@@ -73,7 +76,7 @@ function harness(options: { createUser?: boolean } = {}) {
 
   const isAdmin = (p: TokenPrincipal): boolean =>
     p.kind === 'user'
-      ? ADMINS.has(`user:${p.userId}`)
+      ? admins.has(`user:${p.userId}`)
       : (accounts.get(p.serviceAccountId)?.grants.some((g) => g.kind === 'tenant-admin') ?? false);
 
   const exists = (p: TokenPrincipal): boolean => {
@@ -284,6 +287,42 @@ function harness(options: { createUser?: boolean } = {}) {
     }),
   };
 
+  /** Alice is the seed user; Bob is an editor on P1; Alice is on the reviewer roster. */
+  const personGrants: PersonGrantsBinding = {
+    async read({ userId }) {
+      if (!users.has(userId)) return null;
+      return {
+        userId,
+        tenantAdmin: admins.has(`user:${userId}`),
+        projects: userId === 'bob' ? [{ projectId: P1, role: 'editor' }] : [],
+        teams: [],
+        ...(userId === 'alice' && { reviewer: { role: 'admin' as const } }),
+      };
+    },
+    async grant(input) {
+      changedBy.push(`person-grant:${input.by}`);
+      if (!users.has(input.userId)) {
+        return { kind: 'err', error: { code: 'identity-user-not-found', message: 'none' } };
+      }
+      admins.add(`user:${input.userId}`);
+      return { kind: 'ok', value: (await personGrants.read(input)) as never };
+    },
+    async ungrant(input) {
+      if (!users.has(input.userId)) {
+        return { kind: 'err', error: { code: 'identity-user-not-found', message: 'none' } };
+      }
+      const people = [...admins].filter((a) => a.startsWith('user:'));
+      if (people.length === 1 && people[0] === `user:${input.userId}`) {
+        return { kind: 'err', error: { code: 'last-tenant-admin', message: 'the only one' } };
+      }
+      if (input.userId === 'alice') {
+        return { kind: 'err', error: { code: 'seed-user-admin', message: 'the seed user' } };
+      }
+      admins.delete(`user:${input.userId}`);
+      return { kind: 'ok', value: (await personGrants.read(input)) as never };
+    },
+  };
+
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
@@ -291,6 +330,7 @@ function harness(options: { createUser?: boolean } = {}) {
     tokenAdmin,
     serviceAccountBinding,
     identityDirectory,
+    ...(options.personGrants !== false && { personGrants }),
     authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding },
   });
 
@@ -752,5 +792,94 @@ describe('POST /v1/identity/users: add a person', () => {
     const h = harness({ createUser: false });
     const r = await h.call(ALICE, 'POST', '/v1/identity/users', { displayName: 'Carol' });
     expect(r.status).toBe(404);
+  });
+});
+
+describe("a person's grants", () => {
+  test("a person reads their own; a tenant admin reads anyone's", async () => {
+    const h = harness();
+    const own = await h.call(BOB, 'GET', '/v1/identity/users/bob/grants');
+    expect(own.status).toBe(200);
+    expect(own.body).toEqual({
+      userId: 'bob',
+      tenantAdmin: false,
+      projects: [{ projectId: P1, role: 'editor' }],
+      teams: [],
+    });
+    const other = await h.call(BOB, 'GET', '/v1/identity/users/alice/grants');
+    expect([other.status, h.code(other)]).toEqual([403, 'permission-denied']);
+    const alice = await h.call(ALICE, 'GET', '/v1/identity/users/alice/grants');
+    expect(alice.body).toMatchObject({ tenantAdmin: true, reviewer: { role: 'admin' } });
+    const nobody = await h.call(ALICE, 'GET', '/v1/identity/users/nobody/grants');
+    expect([nobody.status, h.code(nobody)]).toEqual([404, 'identity-user-not-found']);
+  });
+
+  test('a tenant admin makes a person tenant admin: it holds on their next request', async () => {
+    const h = harness();
+    const before = await h.call(BOB, 'POST', '/v1/tokens', { for: { kind: 'user', id: 'alice' } });
+    expect(before.status).toBe(403);
+    const denied = await h.call(BOB, 'POST', '/v1/identity/users/bob/grant', {
+      kind: 'tenant-admin',
+    });
+    expect([denied.status, h.code(denied)]).toEqual([403, 'permission-denied']);
+    const granted = await h.call(ALICE, 'POST', '/v1/identity/users/bob/grant', {
+      kind: 'tenant-admin',
+    });
+    expect(granted.status).toBe(200);
+    expect(granted.body).toMatchObject({ userId: 'bob', tenantAdmin: true });
+    expect(h.changedBy).toContain('person-grant:user:alice');
+    const after = await h.call(BOB, 'POST', '/v1/tokens', { for: { kind: 'user', id: 'alice' } });
+    expect(after.status).toBe(201);
+  });
+
+  test('a member key of a tenant admin changes no grants', async () => {
+    const h = harness();
+    const key = await h.mint(ALICE, { role: 'member' });
+    const r = await h.call(key.token, 'POST', '/v1/identity/users/bob/grant', {
+      kind: 'tenant-admin',
+    });
+    expect([r.status, h.code(r)]).toEqual([403, 'permission-denied']);
+  });
+
+  test('only tenant admin is granted here; project and team roles have their routes', async () => {
+    const h = harness();
+    for (const body of [
+      { kind: 'project', projectId: P1, role: 'editor' },
+      { kind: 'tenant-admin', role: 'admin' },
+      [],
+    ]) {
+      const r = await h.call(ALICE, 'POST', '/v1/identity/users/bob/grant', body);
+      expect([r.status, h.code(r)]).toEqual([400, 'bad-input']);
+      expect(JSON.stringify(r.body)).toContain('/memberships');
+    }
+  });
+
+  test('ungrant: refused for the only tenant admin and for the seed user; otherwise removed', async () => {
+    const h = harness();
+    const only = await h.call(ALICE, 'POST', '/v1/identity/users/alice/ungrant', {
+      kind: 'tenant-admin',
+    });
+    expect([only.status, h.code(only)]).toEqual([409, 'last-tenant-admin']);
+    await h.call(ALICE, 'POST', '/v1/identity/users/bob/grant', { kind: 'tenant-admin' });
+    const seed = await h.call(ALICE, 'POST', '/v1/identity/users/alice/ungrant', {
+      kind: 'tenant-admin',
+    });
+    expect([seed.status, h.code(seed)]).toEqual([409, 'seed-user-admin']);
+    const removed = await h.call(ALICE, 'POST', '/v1/identity/users/bob/ungrant', {
+      kind: 'tenant-admin',
+    });
+    expect(removed.body).toMatchObject({ userId: 'bob', tenantAdmin: false });
+  });
+
+  test('a runtime without the binding says so (after the admin check)', async () => {
+    const h = harness({ personGrants: false });
+    const read = await h.call(BOB, 'GET', '/v1/identity/users/bob/grants');
+    expect([read.status, h.code(read)]).toEqual([501, 'person-grants-unsupported']);
+    const bob = await h.call(BOB, 'POST', '/v1/identity/users/bob/grant', { kind: 'tenant-admin' });
+    expect(bob.status).toBe(403);
+    const alice = await h.call(ALICE, 'POST', '/v1/identity/users/bob/grant', {
+      kind: 'tenant-admin',
+    });
+    expect([alice.status, h.code(alice)]).toEqual([501, 'person-grants-unsupported']);
   });
 });

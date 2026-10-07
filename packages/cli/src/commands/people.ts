@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { ListPage, User } from '@kindgi/client';
+import type { ListPage, PersonGrants, User } from '@kindgi/client';
+
+import type { CommandContext } from '../context.js';
 
 import { type TableSpec, integerFlag, requiredPositional, runSdk, stringFlag } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
 /**
  * `kindgi people`: the tenant's people. A tenant admin adds one, gives
- * them a role (a project or team membership, or tenant admin) and mints
- * their first key: `kindgi tokens create --for=user:<id>`.
+ * them a role (a project or team membership, or tenant admin with
+ * `kindgi people grant <id> --tenant-admin`) and mints their first key:
+ * `kindgi tokens create --for=user:<id>`.
  */
 
 const TABLE: TableSpec<ListPage<User>, User> = {
@@ -84,9 +87,77 @@ const get: LeafCommand = {
     ),
 };
 
+/** `grants --table`: one row per grant, in words. */
+const GRANTS_TABLE: TableSpec<PersonGrants, readonly [string, string]> = {
+  rows: (g) => [
+    ...(g.tenantAdmin === true ? [['tenant', 'admin'] as const] : []),
+    ...g.projects.map((p) => [`project ${p.projectId}`, p.role] as const),
+    ...g.teams.map((t) => [`team ${t.teamId}`, t.role] as const),
+    ...(g.reviewer !== undefined ? [['reviewer roster', g.reviewer.role] as const] : []),
+  ],
+  columns: [
+    { header: 'WHERE', get: (r) => r[0] },
+    { header: 'ROLE', get: (r) => r[1] },
+  ],
+};
+
+const grants: LeafCommand = {
+  kind: 'leaf',
+  name: 'grants',
+  description:
+    "What a person may do, as granted directly: tenant admin, project and team roles, the reviewer roster. A tenant admin reads anyone's; anyone else only their own.",
+  usage: 'kindgi people grants <user-id> [--table]',
+  run: (ctx) =>
+    runSdk(
+      ctx,
+      'people grants',
+      async () => ctx.client().users.grants(requiredPositional(ctx, 0, 'user-id') as never),
+      GRANTS_TABLE,
+    ),
+};
+
+/** Only `--tenant-admin` is granted here: project and team roles are memberships. */
+function tenantAdminFlag(ctx: CommandContext): { readonly kind: 'tenant-admin' } {
+  if (ctx.options['tenant-admin'] !== true) {
+    throw new Error(
+      "Give --tenant-admin: a person's project and team roles are memberships (`/v1/projects/{id}/memberships`, `/v1/teams/{id}/memberships`)",
+    );
+  }
+  return { kind: 'tenant-admin' };
+}
+
+const grant: LeafCommand = {
+  kind: 'leaf',
+  name: 'grant',
+  description:
+    'Make a person a tenant admin, before it answers: their next request holds it. Tenant admins only.',
+  usage: 'kindgi people grant <user-id> --tenant-admin',
+  optionSpec: { 'tenant-admin': { type: 'boolean', description: 'Tenant admin.' } },
+  run: (ctx) =>
+    runSdk(ctx, 'people grant', async () => {
+      const id = requiredPositional(ctx, 0, 'user-id');
+      return await ctx.client().users.grant(id as never, tenantAdminFlag(ctx));
+    }),
+};
+
+const ungrant: LeafCommand = {
+  kind: 'leaf',
+  name: 'ungrant',
+  description:
+    'Remove tenant admin from a person. Refused for the only person who holds it (make someone else one first) and for the seed user (unset KINDGI_SEED_USER_ID and restart the runtime first). Tenant admins only.',
+  usage: 'kindgi people ungrant <user-id> --tenant-admin',
+  optionSpec: { 'tenant-admin': { type: 'boolean', description: 'Tenant admin.' } },
+  run: (ctx) =>
+    runSdk(ctx, 'people ungrant', async () => {
+      const id = requiredPositional(ctx, 0, 'user-id');
+      return await ctx.client().users.ungrant(id as never, tenantAdminFlag(ctx));
+    }),
+};
+
 export const peopleCommand: Command = {
   kind: 'group',
   name: 'people',
-  description: "The tenant's people: add one (tenant admins), list, get.",
-  subcommands: [add, list, get],
+  description:
+    "The tenant's people: add one, list, get, their grants, and tenant admin given or taken (grant / ungrant).",
+  subcommands: [add, list, get, grants, grant, ungrant],
 };

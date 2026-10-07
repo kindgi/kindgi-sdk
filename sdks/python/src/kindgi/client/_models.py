@@ -5835,6 +5835,33 @@ class CreateUserBody(BaseModel):
     """
 
 
+class PersonReviewerRole(BaseModel):
+    """
+    A person's active entry on the reviewer roster.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    role: Literal["standard", "senior", "admin"]
+    """
+    Reviewer role class. Hierarchy: standard < senior < admin.
+    """
+
+
+class PersonGrantBody(BaseModel):
+    """
+    The grant to give or take: tenant admin. A person's project and team roles have their own membership routes.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["tenant-admin"]
+
+
 class UserCollectionPage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -6173,6 +6200,8 @@ class EvidenceKind(RootModel[str]):
                 "service-account-ungranted",
                 "service-account-unregistered",
                 "person-added",
+                "person-granted",
+                "person-ungranted",
             ],
             min_length=1,
         ),
@@ -6332,6 +6361,8 @@ class ComplianceEvidence(BaseModel):
                 "service-account-ungranted",
                 "service-account-unregistered",
                 "person-added",
+                "person-granted",
+                "person-ungranted",
             ],
             min_length=1,
         ),
@@ -6416,6 +6447,8 @@ class ExportComplianceEvidenceFilter(BaseModel):
                 "service-account-ungranted",
                 "service-account-unregistered",
                 "person-added",
+                "person-granted",
+                "person-ungranted",
             ],
             min_length=1,
         ),
@@ -6482,6 +6515,8 @@ class Filter(BaseModel):
                 "service-account-ungranted",
                 "service-account-unregistered",
                 "person-added",
+                "person-granted",
+                "person-ungranted",
             ],
             min_length=1,
         ),
@@ -8874,6 +8909,38 @@ class WhoamiResult(BaseModel):
     """
 
 
+class PersonProjectRole(BaseModel):
+    """
+    A person's direct role on a project.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[str, Field(alias="projectId")]
+    role: Literal["viewer", "editor", "owner", "admin", "member"]
+    """
+    Role on a project membership.
+    """
+
+
+class PersonTeamRole(BaseModel):
+    """
+    A person's role in a team.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    team_id: Annotated[str, Field(alias="teamId")]
+    role: Literal["member", "admin"]
+    """
+    Role on a team membership.
+    """
+
+
 class DeploymentSecretsSyncRequest(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -8912,3 +8979,28 @@ class WebhookEndpointCollectionPage(BaseModel):
     data: list[WebhookEndpoint]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class PersonGrants(BaseModel):
+    """
+    What a person may do, as granted directly: tenant admin, a role on a project (its memberships), a role in a team, and the reviewer roster. What a team's or an org's grants imply is not expanded.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    user_id: Annotated[str, Field(alias="userId")]
+    tenant_admin: Annotated[bool | None, Field(alias="tenantAdmin")] = None
+    """
+    Whether the person is a tenant admin. Absent when the runtime has no authorization store: nothing grants it then.
+    """
+    projects: list[PersonProjectRole]
+    """
+    Direct project memberships.
+    """
+    teams: list[PersonTeamRole]
+    """
+    Team memberships.
+    """
+    reviewer: PersonReviewerRole | None = None

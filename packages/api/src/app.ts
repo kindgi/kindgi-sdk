@@ -66,6 +66,7 @@ import { publicRunCorsMiddleware, publicRunRouteMatcher } from './middleware/pub
 import { requestIdMiddleware } from './middleware/request-id.js';
 import { sigv4Middleware } from './middleware/sigv4.js';
 import { type GenerateOptions, generateOpenApiDocument } from './openapi/generate.js';
+import type { PersonGrantsBinding } from './person-grants-binding.js';
 import type { ProvenanceBinding } from './provenance-binding.js';
 import type { ProviderRegistryBinding } from './provider-binding.js';
 import {
@@ -286,6 +287,13 @@ export interface CreateAppInput {
    * account are minted at `POST /v1/tokens` with `for`.
    */
   readonly serviceAccountBinding?: ServiceAccountBinding;
+  /**
+   * Optional. A person's grants under `/v1/identity/users/:userId`:
+   * `GET grants` (tenant admins, or the person) and `POST grant|ungrant`
+   * (tenant admin; tenant admins only). Without it they answer
+   * `501 person-grants-unsupported`. Needs `identityDirectory`.
+   */
+  readonly personGrants?: PersonGrantsBinding;
   /**
    * Optional. When present, mounts the HITL surface:
    *   - `GET /v1/approvals` (list, role-scoped)
@@ -1158,6 +1166,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.sessionStore !== undefined && { sessionStore: input.sessionStore }),
       ...(input.reviewerBinding !== undefined && { reviewerBinding: input.reviewerBinding }),
       ...(authorizer !== undefined && { authorizer }),
+      ...(input.personGrants !== undefined && { personGrants: input.personGrants }),
     }),
   );
   if (input.cost !== undefined) {

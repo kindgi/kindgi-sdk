@@ -531,6 +531,38 @@ def test_api_keys_for_a_principal_and_service_accounts() -> None:
     ]
 
 
+def test_a_persons_grants_and_tenant_admin() -> None:
+    grants = {
+        "userId": "u-1",
+        "tenantAdmin": True,
+        "projects": [{"projectId": "p-1", "role": "editor"}],
+        "teams": [{"teamId": "t-1", "role": "member"}],
+        "reviewer": {"role": "senior"},
+    }
+    api, seen = client(lambda r: httpx.Response(200, json=grants))
+    read = api.identity.users.grants("u-1")
+    assert isinstance(read, models.PersonGrants) and read.tenant_admin is True
+    assert isinstance(read.projects[0], models.PersonProjectRole)
+    assert isinstance(read.teams[0], models.PersonTeamRole)
+    assert read.reviewer is not None and read.reviewer.role == "senior"
+    api.identity.users.grant("u-1", kind="tenant-admin")
+    api.identity.users.ungrant("u-1", kind="tenant-admin")
+    assert [(r.method, r.url.path) for r in seen] == [
+        ("GET", "/v1/identity/users/u-1/grants"),
+        ("POST", "/v1/identity/users/u-1/grant"),
+        ("POST", "/v1/identity/users/u-1/ungrant"),
+    ]
+    assert json.loads(seen[1].content) == {"kind": "tenant-admin"}
+
+
+def test_named_models_keep_their_names() -> None:
+    # Inline shapes in a new schema once renamed `Team`/`Project` to `Team1`/`Project1`.
+    for name in ("Team", "Project", "Reviewer", "PersonGrants", "ServiceAccountGrantBody"):
+        assert hasattr(models, name), name
+    for name in ("Team1", "Project1", "Reviewer1"):
+        assert not hasattr(models, name), name
+
+
 OPENAPI = Path(__file__).resolve().parents[3] / "packages" / "api" / "openapi.json"
 
 

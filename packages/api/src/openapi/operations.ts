@@ -4884,6 +4884,76 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'get',
+    honoPath: '/v1/identity/users/:userId/grants',
+    openapiPath: '/v1/identity/users/{userId}/grants',
+    operationId: 'identity.users.grants',
+    summary: "Read a person's grants",
+    description:
+      "What the person may do, as granted directly: tenant admin, project and team roles, the reviewer roster. A tenant admin reads anyone's; anyone else only their own.",
+    tags: ['identity'],
+    security: 'bearer',
+    parameters: [
+      { name: 'userId', in: 'path', required: true, schema: { type: 'string', minLength: 1 } },
+    ],
+    responses: {
+      '200': { description: "The person's grants.", schema: ref('PersonGrants') },
+      ...CommonAuthErrors,
+      '403': ErrorResponse("Another person's grants, and not a tenant admin."),
+      '404': ErrorResponse('No user with that id under this tenant (`identity-user-not-found`).'),
+      '501': ErrorResponse('The runtime has no authorization store (`person-grants-unsupported`).'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/identity/users/:userId/grant',
+    openapiPath: '/v1/identity/users/{userId}/grant',
+    operationId: 'identity.users.grant',
+    summary: 'Make a person a tenant admin',
+    description:
+      "Written before the call answers, so the person's next request holds it. A no-op when held. Tenant admins only.",
+    tags: ['identity'],
+    security: 'bearer',
+    parameters: [
+      { name: 'userId', in: 'path', required: true, schema: { type: 'string', minLength: 1 } },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('PersonGrantBody') },
+    responses: {
+      '200': { description: "The person's grants, after.", schema: ref('PersonGrants') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse('No user with that id under this tenant (`identity-user-not-found`).'),
+      '501': ErrorResponse('The runtime has no authorization store (`person-grants-unsupported`).'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/identity/users/:userId/ungrant',
+    openapiPath: '/v1/identity/users/{userId}/ungrant',
+    operationId: 'identity.users.ungrant',
+    summary: 'Remove tenant admin from a person',
+    description:
+      'A no-op when not held. Refused for the only person who is a tenant admin (`last-tenant-admin`: make someone else one first), and for the seed user, whom the runtime makes tenant admin at every boot (`seed-user-admin`: unset `KINDGI_SEED_USER_ID` and restart it first). Tenant admins only.',
+    tags: ['identity'],
+    security: 'bearer',
+    parameters: [
+      { name: 'userId', in: 'path', required: true, schema: { type: 'string', minLength: 1 } },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('PersonGrantBody') },
+    responses: {
+      '200': { description: "The person's grants, after.", schema: ref('PersonGrants') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse('No user with that id under this tenant (`identity-user-not-found`).'),
+      '409': ErrorResponse(
+        'The only person who is a tenant admin (`last-tenant-admin`), the seed user (`seed-user-admin`), or an idempotency conflict.',
+      ),
+      '501': ErrorResponse('The runtime has no authorization store (`person-grants-unsupported`).'),
+    },
+  },
+  {
+    method: 'get',
     honoPath: '/v1/identity/whoami',
     openapiPath: '/v1/identity/whoami',
     operationId: 'identity.whoami',

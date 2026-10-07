@@ -39,6 +39,14 @@ const ACCOUNT = {
   createdAt: '2026-10-06T12:00:00Z',
 };
 
+const GRANTS = {
+  userId: 'u-9',
+  tenantAdmin: false,
+  projects: [{ projectId: PROJECT, role: 'editor' }],
+  teams: [{ teamId: 'team-1', role: 'member' }],
+  reviewer: { role: 'senior' },
+};
+
 async function run(argv: readonly string[]) {
   const calls: unknown[][] = [];
   const rec =
@@ -82,6 +90,9 @@ async function run(argv: readonly string[]) {
             hasMore: false,
           }),
           get: rec('users.get', { userId: 'u-9' }),
+          grants: rec('users.grants', GRANTS),
+          grant: rec('users.grant', { ...GRANTS, tenantAdmin: true }),
+          ungrant: rec('users.ungrant', GRANTS),
         },
       }) as never,
   });
@@ -226,5 +237,30 @@ describe('kindgi people', () => {
     const { out, calls } = await run(['people', 'list', '--query=Ca', '--table']);
     expect(calls).toEqual([['users.list', { query: 'Ca' }]]);
     expect(out.stdout).toContain('carol@acme.test');
+  });
+});
+
+describe("kindgi people: a person's grants", () => {
+  test('grants as a table: one row per grant, in words', async () => {
+    const { out, calls } = await run(['people', 'grants', 'u-9', '--table']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['users.grants', 'u-9']]);
+    expect(out.stdout).toContain(`project ${PROJECT}`);
+    expect(out.stdout).toContain('team team-1');
+    expect(out.stdout).toContain('reviewer roster');
+    expect(out.stdout).not.toContain('tenant ');
+  });
+
+  test('grant and ungrant tenant admin; nothing else is granted here', async () => {
+    const g = await run(['people', 'grant', 'u-9', '--tenant-admin']);
+    expect(g.out.exitCode, g.out.stderr).toBe(0);
+    expect(g.calls).toEqual([['users.grant', 'u-9', { kind: 'tenant-admin' }]]);
+    expect(JSON.parse(g.out.stdout)).toMatchObject({ tenantAdmin: true });
+    const u = await run(['people', 'ungrant', 'u-9', '--tenant-admin']);
+    expect(u.calls).toEqual([['users.ungrant', 'u-9', { kind: 'tenant-admin' }]]);
+    const none = await run(['people', 'grant', 'u-9']);
+    expect(none.out.exitCode).toBe(1);
+    expect(none.out.stderr).toContain('Give --tenant-admin');
+    expect(none.calls).toEqual([]);
   });
 });

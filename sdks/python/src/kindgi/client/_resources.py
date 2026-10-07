@@ -526,6 +526,15 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         True,
     ),
+    "identity.users.grants": Operation(
+        "identity.users.grants", "GET", "/v1/identity/users/{userId}/grants", "json", False
+    ),
+    "identity.users.grant": Operation(
+        "identity.users.grant", "POST", "/v1/identity/users/{userId}/grant", "json", True
+    ),
+    "identity.users.ungrant": Operation(
+        "identity.users.ungrant", "POST", "/v1/identity/users/{userId}/ungrant", "json", True
+    ),
     "identity.whoami": Operation("identity.whoami", "GET", "/v1/identity/whoami", "json", False),
     "deployments.list": Operation("deployments.list", "GET", "/v1/deployments", "json", False),
     "deployments.register": Operation(
@@ -4925,6 +4934,68 @@ class IdentityUsersResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.RevokeSessionsResult,
+            timeout=timeout,
+        )
+
+    def grants(self, user_id: str, /, *, timeout: float | None = None) -> _models.PersonGrants:
+        """Read a person's grants. `GET /v1/identity/users/{userId}/grants`
+
+        What the person may do, as granted directly: tenant admin, project and team roles, the reviewer roster. A tenant admin reads anyone's; anyone else only their own.
+        """
+        return self._client._request(
+            _OPERATIONS["identity.users.grants"],
+            path={"userId": user_id},
+            query={},
+            headers={},
+            response=_models.PersonGrants,
+            timeout=timeout,
+        )
+
+    def grant(
+        self,
+        user_id: str,
+        body: _models.PersonGrantBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PersonGrants:
+        """Make a person a tenant admin. `POST /v1/identity/users/{userId}/grant`
+
+        Written before the call answers, so the person's next request holds it. A no-op when held. Tenant admins only.
+        """
+        return self._client._request(
+            _OPERATIONS["identity.users.grant"],
+            path={"userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PersonGrantBody, body, fields),
+            response=_models.PersonGrants,
+            timeout=timeout,
+        )
+
+    def ungrant(
+        self,
+        user_id: str,
+        body: _models.PersonGrantBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PersonGrants:
+        """Remove tenant admin from a person. `POST /v1/identity/users/{userId}/ungrant`
+
+        A no-op when not held. Refused for the only person who is a tenant admin (`last-tenant-admin`: make someone else one first), and for the seed user, whom the runtime makes tenant admin at every boot (`seed-user-admin`: unset `KINDGI_SEED_USER_ID` and restart it first). Tenant admins only.
+        """
+        return self._client._request(
+            _OPERATIONS["identity.users.ungrant"],
+            path={"userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PersonGrantBody, body, fields),
+            response=_models.PersonGrants,
             timeout=timeout,
         )
 
@@ -10931,6 +11002,70 @@ class AsyncIdentityUsersResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.RevokeSessionsResult,
+            timeout=timeout,
+        )
+
+    async def grants(
+        self, user_id: str, /, *, timeout: float | None = None
+    ) -> _models.PersonGrants:
+        """Read a person's grants. `GET /v1/identity/users/{userId}/grants`
+
+        What the person may do, as granted directly: tenant admin, project and team roles, the reviewer roster. A tenant admin reads anyone's; anyone else only their own.
+        """
+        return await self._client._request(
+            _OPERATIONS["identity.users.grants"],
+            path={"userId": user_id},
+            query={},
+            headers={},
+            response=_models.PersonGrants,
+            timeout=timeout,
+        )
+
+    async def grant(
+        self,
+        user_id: str,
+        body: _models.PersonGrantBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PersonGrants:
+        """Make a person a tenant admin. `POST /v1/identity/users/{userId}/grant`
+
+        Written before the call answers, so the person's next request holds it. A no-op when held. Tenant admins only.
+        """
+        return await self._client._request(
+            _OPERATIONS["identity.users.grant"],
+            path={"userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PersonGrantBody, body, fields),
+            response=_models.PersonGrants,
+            timeout=timeout,
+        )
+
+    async def ungrant(
+        self,
+        user_id: str,
+        body: _models.PersonGrantBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PersonGrants:
+        """Remove tenant admin from a person. `POST /v1/identity/users/{userId}/ungrant`
+
+        A no-op when not held. Refused for the only person who is a tenant admin (`last-tenant-admin`: make someone else one first), and for the seed user, whom the runtime makes tenant admin at every boot (`seed-user-admin`: unset `KINDGI_SEED_USER_ID` and restart it first). Tenant admins only.
+        """
+        return await self._client._request(
+            _OPERATIONS["identity.users.ungrant"],
+            path={"userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PersonGrantBody, body, fields),
+            response=_models.PersonGrants,
             timeout=timeout,
         )
 
