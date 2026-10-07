@@ -4,7 +4,7 @@ A Terraform root module that runs Kindgi in one GCP project:
 - the runtime (the API, agent and flow execution) as a Cloud Run service;
 - your pack's code as a second, IAM-protected Cloud Run service;
 - Kindgi's own Cloud SQL (Postgres 16) instance;
-- everything they stand on: service accounts, an Artifact Registry repository, a KMS key for the runtime's secrets, and Secret Manager containers.
+- everything they stand on: service accounts, an Artifact Registry repository, a KMS key for the runtime's secrets (unless `secrets_backend = "none"`, below), and Secret Manager containers.
 
 **Two network shapes** (`network_mode`):
 
@@ -101,6 +101,7 @@ printf 'kgi_bt_%s' "$(openssl rand -hex 32)" | gcloud secrets versions add $N-ap
 
 # The key for secrets stored in Postgres: 32 bytes, base64, the same on every replica.
 # Its first version is the one `secrets_aad_key_version` pins ("1").
+# Not with secrets_backend = "none": there is no such secret then.
 openssl rand 32 | base64 | gcloud secrets versions add $N-secrets-aad-key --data-file=-
 
 # The key that signs public run tokens: Ed25519, PKCS#8 PEM, base64.
@@ -113,6 +114,12 @@ read -rs LICENSE_KEY && printf '%s' "$LICENSE_KEY" | gcloud secrets versions add
 With `database_private_network` set, the URL is `postgres://kindgi:<password>@<private ip>:5432/kindgi?sslmode=require` (`terraform output database_private_ip`).
 
 **Your pack's own secrets** (`secret_env` in `kindgi env plan --env dev`): create each one and add its value, then list it in `pack_secret_env`. The pack service gets read access to exactly those.
+
+**Without a KMS key (`secrets_backend = "none"`).** By default (`"postgres"`), secrets set through Kindgi's API are envelope-encrypted in its database under a Cloud KMS key this module creates. With `"none"`:
+- **Not created:** the KMS key ring, the key and its grants, and the `<prefix>-secrets-aad-key` secret. `secrets_aad_key_version` isn't needed.
+- **The server stores no secrets of its own.** `/v1/secrets` isn't served, and nothing can be stored through Kindgi's API.
+- **Who it fits:** a deployment whose pack secrets all come by reference (`pack_secret_env`) and whose model uses the service's own identity, Gemini on Vertex AI (`vertex_ai = true`). A provider that needs an API key stored in Kindgi doesn't fit it.
+- **Changing an existing deployment from `"postgres"`:** the key's `prevent_destroy` stops the plan. That's on purpose: secrets stored under the key would become unreadable. Move them out first, then take the key out of state, as in "Taking it down".
 
 ## 4. The pack's env
 
@@ -166,7 +173,7 @@ Then `kindgi health`, `kindgi tools list` and a run, with `--url "$URL" --token 
 ## Taking it down
 
 ```sh
-terraform state rm google_kms_crypto_key.secrets google_kms_key_ring.kindgi   # GCP never deletes key rings or keys
+terraform state rm 'google_kms_crypto_key.secrets[0]' 'google_kms_key_ring.kindgi[0]'   # GCP never deletes key rings or keys (none with secrets_backend = "none")
 terraform destroy -var-file=dev.tfvars
 gcloud kms keys versions destroy 1 --key=$N-secrets --keyring=$N --location=<region>   # scheduled, 30 days
 ```

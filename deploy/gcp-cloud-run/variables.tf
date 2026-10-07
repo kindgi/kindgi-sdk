@@ -278,10 +278,21 @@ variable "subnet_cidr" {
 }
 
 variable "secrets_aad_key_version" {
-  description = "The Secret Manager version of KINDGI_SECRETS_AAD_KEY the server reads: \"1\" for a new deployment (the first version added). Pin it; never \"latest\". Every secret stored in Postgres is bound to this key, so a new version is a key change that needs every stored secret re-encrypted, and a version added by mistake must not reach the server."
+  description = "With secrets_backend = \"postgres\" (required then): the Secret Manager version of KINDGI_SECRETS_AAD_KEY the server reads, \"1\" for a new deployment (the first version added). Pin it; never \"latest\". Every secret stored in Postgres is bound to this key, so a new version is a key change that needs every stored secret re-encrypted, and a version added by mistake must not reach the server."
   type        = string
+  default     = null
   validation {
-    condition     = can(regex("^[1-9][0-9]*$", var.secrets_aad_key_version))
+    condition     = var.secrets_aad_key_version == null || can(regex("^[1-9][0-9]*$", var.secrets_aad_key_version))
     error_message = "secrets_aad_key_version is a version number (\"1\" for a new deployment), never \"latest\": every secret stored in Postgres is bound to the key it names."
+  }
+}
+
+variable "secrets_backend" {
+  description = "Where secrets set through Kindgi's API live (KINDGI_SECRETS_BACKEND). \"postgres\" (default): envelope-encrypted in Kindgi's database under a Cloud KMS key the module creates, with secrets_aad_key_version required. \"none\": the runtime stores no secrets of its own (no KMS key, no AAD key); for a deployment whose pack secrets all come by reference from Secret Manager and whose model uses the service's own credentials."
+  type        = string
+  default     = "postgres"
+  validation {
+    condition     = contains(["postgres", "none"], var.secrets_backend)
+    error_message = "secrets_backend is \"postgres\" or \"none\"."
   }
 }
