@@ -28,6 +28,7 @@ import { keyCommand } from './key.js';
 import { mcpCommand, mcpLaunchCommand } from './mcp.js';
 import { memoryCommand } from './memory.js';
 import { observationsCommand } from './observations.js';
+import { peopleCommand } from './people.js';
 import { projectsCommand } from './projects.js';
 import { proposalsCommand } from './proposals.js';
 import { provenanceCommand } from './provenance.js';
@@ -35,6 +36,7 @@ import { providersCommand } from './providers.js';
 import { reviewersCommand } from './reviewers.js';
 import { runsCommand } from './runs.js';
 import { secretsCommand } from './secrets.js';
+import { serviceAccountsCommand } from './service-accounts.js';
 import { skillsCommand } from './skills.js';
 import { testCommand } from './test.js';
 import { tokensCommand } from './tokens.js';
@@ -75,6 +77,8 @@ export const ROOT_COMMANDS: readonly Command[] = [
   blocksCommand,
   gatePoliciesCommand,
   tokensCommand,
+  serviceAccountsCommand,
+  peopleCommand,
   capabilitiesCommand,
   providersCommand,
   adaptersCommand,

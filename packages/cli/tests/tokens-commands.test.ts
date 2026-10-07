@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-/** `kindgi tokens create / list / get / revoke` (T238), through the client's `tokens`. */
+/** `kindgi tokens`, `kindgi service-accounts` and `kindgi people`, through the client. */
 
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -22,84 +22,209 @@ afterEach(async () => {
   await rm(cwd, { recursive: true, force: true });
 });
 
+const PROJECT = '0b9f4c1e-1111-4a2b-8c3d-000000000001';
 const META = {
   id: 'tok-1',
+  principal: { kind: 'service-account', id: 'sa-1' },
   role: 'member',
   capabilities: ['env:write'],
   label: 'ci',
+  projectId: PROJECT,
+  createdAt: '2026-10-06T12:00:00Z',
+};
+const ACCOUNT = {
+  serviceAccountId: 'sa-1',
+  name: 'acme-ci',
+  grants: [{ kind: 'tenant-admin' }, { kind: 'project', projectId: PROJECT, role: 'editor' }],
   createdAt: '2026-10-06T12:00:00Z',
 };
 
-async function tokens(argv: readonly string[]) {
+async function run(argv: readonly string[]) {
   const calls: unknown[][] = [];
-  const record =
-    (name: string, result: unknown) =>
+  const rec =
+    (name: string, value: unknown) =>
     async (...args: unknown[]) => {
       calls.push([name, ...args]);
-      return result;
+      return value;
     };
   const out = await runCli({
-    argv: ['tokens', ...argv, '--url=https://x', '--token=t'],
+    argv: [...argv, '--url=https://x', '--token=t'],
     env: {},
     cwd,
     home,
     clientFactory: () =>
       ({
         tokens: {
-          create: record('create', { meta: META, secret: 'kgi_bt_secret' }),
-          list: record('list', { items: [META] }),
-          get: record('get', META),
-          revoke: record('revoke', undefined),
+          create: rec('tokens.create', { meta: META, secret: 'kgi_ak_secret' }),
+          list: rec('tokens.list', { data: [META], hasMore: false }),
+          get: rec('tokens.get', META),
+          revoke: rec('tokens.revoke', undefined),
+        },
+        serviceAccounts: {
+          create: rec('sa.create', ACCOUNT),
+          list: rec('sa.list', { data: [ACCOUNT], hasMore: false }),
+          get: rec('sa.get', ACCOUNT),
+          grant: rec('sa.grant', ACCOUNT),
+          ungrant: rec('sa.ungrant', ACCOUNT),
+          unregister: rec('sa.unregister', ACCOUNT),
+        },
+        users: {
+          create: rec('users.create', 'u-9'),
+          list: rec('users.list', {
+            data: [
+              {
+                userId: 'u-9',
+                displayName: 'Carol',
+                primaryEmail: 'carol@acme.test',
+                createdAt: '2026-10-06T12:00:00Z',
+              },
+            ],
+            hasMore: false,
+          }),
+          get: rec('users.get', { userId: 'u-9' }),
         },
       }) as never,
   });
   return { out, calls };
 }
 
-describe('kindgi tokens (T238)', () => {
-  test('create --spec: prints the token with its secret, and says it is shown once', async () => {
-    const { out, calls } = await tokens([
+describe('kindgi tokens', () => {
+  test('create for a service account, limited to a project, expiring: the secret once, a warning on stderr', async () => {
+    const before = Date.now();
+    const { out, calls } = await run([
+      'tokens',
       'create',
-      '--spec={"role":"member","capabilities":["env:write"],"label":"ci"}',
+      '--for=sa:sa-1',
+      '--role=member',
+      `--project=${PROJECT}`,
+      '--expires=30d',
+      '--label=ci',
+      '--capability=env:write',
+    ]);
+    expect(out.exitCode, out.stderr).toBe(0);
+    const spec = calls[0]?.[1] as Record<string, unknown>;
+    expect(spec).toMatchObject({
+      for: { kind: 'service-account', id: 'sa-1' },
+      role: 'member',
+      projectId: PROJECT,
+      label: 'ci',
+      capabilities: ['env:write'],
+    });
+    const expires = Date.parse(spec.expiresAt as string) - before;
+    expect(expires).toBeGreaterThan(29 * 86_400_000);
+    expect(expires).toBeLessThan(31 * 86_400_000);
+    expect(JSON.parse(out.stdout)).toMatchObject({ secret: 'kgi_ak_secret' });
+    expect(out.stderr).toContain('shown once');
+  });
+
+  test('create with nothing: a member key for you', async () => {
+    const { out, calls } = await run(['tokens', 'create']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['tokens.create', {}]]);
+  });
+
+  test.each([
+    [['--for=team:x'], '--for must be user:<id> or sa:<id>'],
+    [['--for=user:'], '--for must be'],
+    [['--role=owner'], '--role must be member or admin'],
+    [['--expires=soon'], '--expires must be like 30d'],
+  ])('create refuses %j before any call', async (flags, message) => {
+    const { out, calls } = await run(['tokens', 'create', ...flags]);
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(message);
+    expect(calls).toEqual([]);
+  });
+
+  test("list --for one principal's keys, as a table: whom each acts for, its project, no secrets", async () => {
+    const { out, calls } = await run(['tokens', 'list', '--for=user:bob', '--table']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['tokens.list', { principal: { kind: 'user', id: 'bob' } }]]);
+    expect(out.stdout).toContain('sa:sa-1');
+    expect(out.stdout).toContain(PROJECT);
+    expect(out.stdout).not.toContain('kgi_ak');
+  });
+
+  test('revoke names the key', async () => {
+    const { calls } = await run(['tokens', 'revoke', 'tok-1']);
+    expect(calls).toEqual([['tokens.revoke', 'tok-1']]);
+  });
+});
+
+describe('kindgi service-accounts', () => {
+  test('create with tenant admin and project roles', async () => {
+    const { out, calls } = await run([
+      'service-accounts',
+      'create',
+      'acme-ci',
+      '--description=CI',
+      '--tenant-admin',
+      `--project=${PROJECT}:editor`,
     ]);
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([
-      ['create', { role: 'member', capabilities: ['env:write'], label: 'ci' }],
+      [
+        'sa.create',
+        {
+          name: 'acme-ci',
+          description: 'CI',
+          grants: [
+            { kind: 'tenant-admin' },
+            { kind: 'project', projectId: PROJECT, role: 'editor' },
+          ],
+        },
+      ],
     ]);
-    expect(JSON.parse(out.stdout)).toEqual({ meta: META, secret: 'kgi_bt_secret' });
-    expect(out.stderr).toContain('The secret of token tok-1 is shown once, above: store it now.');
   });
 
-  test('create with no spec: a member token with no capabilities', async () => {
-    const { out, calls } = await tokens(['create']);
+  test('grant and ungrant: tenant admin, or a project (with a role to grant)', async () => {
+    const a = await run([
+      'service-accounts',
+      'grant',
+      'sa-1',
+      `--project=${PROJECT}`,
+      '--role=viewer',
+    ]);
+    expect(a.calls).toEqual([
+      ['sa.grant', 'sa-1', { kind: 'project', projectId: PROJECT, role: 'viewer' }],
+    ]);
+    const b = await run(['service-accounts', 'ungrant', 'sa-1', '--tenant-admin']);
+    expect(b.calls).toEqual([['sa.ungrant', 'sa-1', { kind: 'tenant-admin' }]]);
+    const neither = await run(['service-accounts', 'grant', 'sa-1']);
+    expect(neither.out.exitCode).toBe(1);
+    expect(neither.out.stderr).toContain('Give one of --tenant-admin or --project');
+    const noRole = await run(['service-accounts', 'grant', 'sa-1', `--project=${PROJECT}`]);
+    expect(noRole.out.stderr).toContain('--role must be one of');
+    const badProject = await run(['service-accounts', 'create', 'x', `--project=${PROJECT}`]);
+    expect(badProject.out.stderr).toContain('--project must be <project-id>:<role>');
+  });
+
+  test('list --all as a table, with each grant in words; unregister', async () => {
+    const { out, calls } = await run(['service-accounts', 'list', '--all', '--table']);
+    expect(calls).toEqual([['sa.list', { includeUnregistered: true }]]);
+    expect(out.stdout).toContain('tenant admin');
+    expect(out.stdout).toContain(`editor on ${PROJECT}`);
+    const gone = await run(['service-accounts', 'unregister', 'sa-1']);
+    expect(gone.calls).toEqual([['sa.unregister', 'sa-1']]);
+  });
+});
+
+describe('kindgi people', () => {
+  test('add prints the new id; --name is required', async () => {
+    const { out, calls } = await run(['people', 'add', '--name=Carol', '--email=carol@acme.test']);
     expect(out.exitCode, out.stderr).toBe(0);
-    expect(calls).toEqual([['create', undefined]]);
+    expect(calls).toEqual([['users.create', { displayName: 'Carol', email: 'carol@acme.test' }]]);
+    expect(JSON.parse(out.stdout)).toEqual({
+      userId: 'u-9',
+      displayName: 'Carol',
+      email: 'carol@acme.test',
+    });
+    const missing = await run(['people', 'add']);
+    expect(missing.out.stderr).toContain('--name is required');
   });
 
-  test('list [--limit] [--cursor], and --table without secrets', async () => {
-    const { out, calls } = await tokens(['list', '--limit=5', '--cursor=c-1']);
-    expect(out.exitCode, out.stderr).toBe(0);
-    expect(calls).toEqual([['list', { limit: 5, cursor: 'c-1' }]]);
-    const table = await tokens(['list', '--table']);
-    expect(table.out.stdout).toContain('tok-1');
-    expect(table.out.stdout).not.toContain('kgi_bt_');
-  });
-
-  test('get <token-id> and revoke <token-id>', async () => {
-    const got = await tokens(['get', 'tok-1']);
-    expect(got.calls).toEqual([['get', 'tok-1']]);
-    const revoked = await tokens(['revoke', 'tok-1']);
-    expect(revoked.out.exitCode, revoked.out.stderr).toBe(0);
-    expect(revoked.calls).toEqual([['revoke', 'tok-1']]);
-    expect(JSON.parse(revoked.out.stdout)).toEqual({ tokenId: 'tok-1', revoked: true });
-  });
-
-  test('get and revoke without the id: a usage error naming it', async () => {
-    for (const command of ['get', 'revoke']) {
-      const { out, calls } = await tokens([command]);
-      expect(out.exitCode).not.toBe(0);
-      expect(out.stderr).toContain('token-id');
-      expect(calls).toEqual([]);
-    }
+  test('list --query as a table', async () => {
+    const { out, calls } = await run(['people', 'list', '--query=Ca', '--table']);
+    expect(calls).toEqual([['users.list', { query: 'Ca' }]]);
+    expect(out.stdout).toContain('carol@acme.test');
   });
 });
