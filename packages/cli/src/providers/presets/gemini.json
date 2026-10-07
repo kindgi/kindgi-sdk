@@ -12,6 +12,7 @@
   "metadata": {
     "id": "gemini",
     "region": "global",
+    "defaultModel": "gemini-3.8-flash",
     "description": "Gemini on Vertex AI",
     "models": [
       {

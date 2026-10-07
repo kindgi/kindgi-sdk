@@ -10,6 +10,7 @@
   "metadata": {
     "id": "openrouter",
     "region": "unspecified",
+    "defaultModel": "anthropic/claude-sonnet-5.5",
     "description": "Models from several vendors through OpenRouter",
     "models": [
       {

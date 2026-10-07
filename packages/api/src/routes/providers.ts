@@ -313,6 +313,7 @@ function serializeProvider(m: ProviderMetadata): Record<string, unknown> {
       ...(model.maxOutputTokens !== undefined && { maxOutputTokens: model.maxOutputTokens }),
       ...(model.description !== undefined && { description: model.description }),
     })),
+    ...(m.defaultModel !== undefined && { defaultModel: m.defaultModel }),
     ...(m.attributes !== undefined && { attributes: m.attributes }),
     ...(m.description !== undefined && { description: m.description }),
     ...(m.capabilityKind !== undefined && { capabilityKind: m.capabilityKind }),
@@ -436,10 +437,20 @@ function validateProviderMetadata(
   }
   const badLabels = validateProviderLabels(b.id, b.labels);
   if (badLabels !== undefined) return { kind: 'err', error: badLabels };
+  if (b.defaultModel !== undefined && !seenNames.has(b.defaultModel as string)) {
+    return {
+      kind: 'err',
+      error: {
+        message: `provider "${b.id}" defaultModel must be one of its models (${[...seenNames].join(', ')}), got ${JSON.stringify(b.defaultModel)}`,
+        reason: 'unknown-default-model',
+      },
+    };
+  }
   const value: ProviderMetadata = {
     id: b.id,
     region: b.region,
     models: validatedModels,
+    ...(b.defaultModel !== undefined && { defaultModel: b.defaultModel as string }),
     ...(b.attributes !== undefined && { attributes: b.attributes as readonly string[] }),
     ...(b.description !== undefined && { description: b.description }),
     ...(b.capabilityKind !== undefined && { capabilityKind: b.capabilityKind as string }),

@@ -7,6 +7,7 @@
   "metadata": {
     "id": "anthropic",
     "region": "unspecified",
+    "defaultModel": "claude-sonnet-5-5",
     "description": "Claude on the Anthropic API",
     "models": [
       {

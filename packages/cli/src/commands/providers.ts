@@ -143,17 +143,47 @@ const register: LeafCommand = {
       }
       const input = await presetInput(ctx, presetName as string);
       const outcome = await ctx.client().providers.register(input);
-      const models = input.metadata.models.map((m) => m.name).join(', ');
+      const wanted = input.metadata.defaultModel;
+      const models = input.metadata.models
+        .map((m) => (m.name === wanted ? `${m.name} (default)` : m.name))
+        .join(', ');
       const key =
         input.secret_ref !== undefined
           ? ` — key ${input.secret_ref.name} (env ${input.secret_ref.envName})`
           : '';
+      const kept =
+        wanted === undefined ? '' : await defaultModelNote(ctx, input.metadata.id, wanted);
       return {
         stdout: renderJson(outcome, ctx.globals.format).stdout,
-        stderr: `✓ Registered ${input.metadata.id}: ${models}${key}\n`,
+        stderr: `✓ Registered ${input.metadata.id}: ${models}${key}\n${kept}`,
       };
     }),
 };
+
+/**
+ * A runtime from before default models drops a provider's `defaultModel` (it keeps
+ * only the fields it knows): read the provider back and say so, with what
+ * an agent that chooses no model gets instead. Nothing when the runtime
+ * kept it, or when the provider can't be read back.
+ */
+async function defaultModelNote(
+  ctx: CommandContext,
+  providerId: string,
+  wanted: string,
+): Promise<string> {
+  let got: {
+    readonly defaultModel?: string;
+    readonly models: readonly { readonly name: string }[];
+  };
+  try {
+    got = await ctx.client().providers.get(providerId);
+  } catch {
+    return '';
+  }
+  if (got.defaultModel === wanted) return '';
+  const first = [...got.models.map((m) => m.name)].sort((a, b) => a.localeCompare(b))[0];
+  return `  This runtime predates default models, so it didn't keep one: an agent that chooses none gets ${first ?? 'the first model by name'}, not ${wanted}. Name one on your agents (preferredModel), or upgrade the runtime.\n`;
+}
 
 /**
  * The registration body for `--preset=<name>`. In `kindgi dev`'s

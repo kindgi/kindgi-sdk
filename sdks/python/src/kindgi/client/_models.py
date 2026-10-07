@@ -4094,6 +4094,10 @@ class ProviderMetadata(BaseModel):
     """
     Models this connection exposes. Non-empty. `models[i].name` must be unique within the list.
     """
+    default_model: Annotated[str | None, Field(alias="defaultModel", min_length=1)] = None
+    """
+    The model to use when an agent doesn't choose: one of `models[].name`. When candidates rank equally, it comes before the provider's other models; without it, ties break by model name. A preset sets it. A runtime before 0.1.4 ignores it.
+    """
     attributes: list[str] | None = None
     """
     Soft attributes for preference-ranking (`local`, `lower-cost`, `higher-accuracy`, ...). Matched by string equality against `Preference.feature`.

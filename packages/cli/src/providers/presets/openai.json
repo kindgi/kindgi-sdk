@@ -10,6 +10,7 @@
   "metadata": {
     "id": "openai",
     "region": "unspecified",
+    "defaultModel": "gpt-6.1-sol",
     "description": "GPT on the OpenAI API",
     "models": [
       {

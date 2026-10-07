@@ -263,3 +263,75 @@ describe('kindgi providers presets', () => {
     ]);
   });
 });
+
+describe('a preset names its default model', () => {
+  test('every bundled preset: a mid-priced model it lists, not its flagship', async () => {
+    const presets = await loadProviderPresets();
+    const defaults = Object.fromEntries(
+      Object.values(presets).map((p) => [p.name, p.metadata.defaultModel]),
+    );
+    expect(defaults).toEqual({
+      anthropic: 'claude-sonnet-5-5',
+      'gemini-api': 'gemini-3.8-flash',
+      gemini: 'gemini-3.8-flash',
+      groq: 'openai/gpt-oss-120b',
+      openai: 'gpt-6.1-sol',
+      openrouter: 'anthropic/claude-sonnet-5.5',
+    });
+  });
+
+  test('a registration keeps the default when it registers that model, and drops it when not', async () => {
+    const { openai } = await loadProviderPresets();
+    if (openai === undefined) throw new Error('no openai preset');
+    const all = presetRegistration(openai, { envName: 'local', settings: {} });
+    expect(all.kind === 'ok' && all.input.metadata.defaultModel).toBe('gpt-6.1-sol');
+    const without = presetRegistration(openai, {
+      models: ['gpt-6-luna'],
+      envName: 'local',
+      settings: {},
+    });
+    expect(without.kind === 'ok' && 'defaultModel' in without.input.metadata).toBe(false);
+  });
+
+  function withGet(defaultModel: string | undefined): RunCliInputs {
+    const base = inputs(['providers', 'register', '--preset=anthropic']);
+    return {
+      ...base,
+      clientFactory: () =>
+        ({
+          providers: {
+            register: vi.fn(async (input: { metadata: { id: string } }) => {
+              registered.push(input);
+              return { providerId: input.metadata.id };
+            }),
+            get: vi.fn(async () => ({
+              id: 'anthropic',
+              models: [
+                { name: 'claude-haiku-4-5' },
+                { name: 'claude-opus-5-5' },
+                { name: 'claude-sonnet-5-5' },
+              ],
+              ...(defaultModel !== undefined && { defaultModel }),
+            })),
+          },
+        }) as never,
+    };
+  }
+
+  test('the line marks the default; a runtime that keeps it says nothing more', async () => {
+    await writeFile(join(packDir, '.env'), 'ANTHROPIC_API_KEY=sk-ant-test\n');
+    const out = await runCli(withGet('claude-sonnet-5-5'));
+    expect(out.exitCode).toBe(0);
+    expect(out.stderr).toContain('claude-sonnet-5-5 (default)');
+    expect(out.stderr).not.toContain('predates default models');
+  });
+
+  test('a runtime that predates default models drops it: one line says what an agent gets instead', async () => {
+    await writeFile(join(packDir, '.env'), 'ANTHROPIC_API_KEY=sk-ant-test\n');
+    const out = await runCli(withGet(undefined));
+    expect(out.exitCode).toBe(0);
+    expect(out.stderr).toContain(
+      "This runtime predates default models, so it didn't keep one: an agent that chooses none gets claude-haiku-4-5, not claude-sonnet-5-5.",
+    );
+  });
+});

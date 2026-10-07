@@ -287,6 +287,14 @@ export interface ProviderMetadata {
    */
   readonly models: readonly ModelInfo[];
   /**
+   * The model to use when an agent doesn't choose: one of `models[].name`.
+   * When the router's candidates rank equally (an agent with no
+   * preference, no `preferredModel`), this provider's default comes before
+   * its other models. Without it, ties break by model name, so the default
+   * is whichever name sorts first.
+   */
+  readonly defaultModel?: string;
+  /**
    * Soft attributes the provider self-reports for preference-ranking.
    * Examples: `'local'`, `'lower-cost'`, `'higher-accuracy'`. Opaque to
    * the router — matched by string equality against `Preference.feature`.
