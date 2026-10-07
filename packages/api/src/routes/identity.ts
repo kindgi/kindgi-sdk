@@ -208,11 +208,25 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
     });
   });
 
-  // ---------- POST /users/:userId/revoke-sessions (admin) ----------
+  // ---------- POST /users/:userId/revoke-sessions (admin, or your own) ----------
   r.post('/users/:userId/revoke-sessions', async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const userId = c.req.param('userId') as UserId;
+    const own =
+      (c.get('userId') as unknown as string | undefined) === (userId as unknown as string);
+    if (!own && !(await isTenantAdmin(c, authorizer))) {
+      c.status(statusFor('permission-denied') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'permission-denied',
+            message: "Only a tenant admin revokes someone else's sessions",
+          },
+          requestId,
+        ),
+      );
+    }
 
     let outcome: Awaited<ReturnType<IdentityDirectoryBinding['revokeAllSessions']>>;
     try {

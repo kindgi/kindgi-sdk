@@ -4868,7 +4868,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.users.revokeSessions',
     summary: 'Revoke every active session for a user',
     description:
-      'Admin op — idempotent. Under the hood, deployments typically delegate to `SessionStoreBinding.revokeAllForUser`. Returns `{ revokedCount: 0 }` when the user was already fully signed out.',
+      "A tenant admin revokes anyone's sessions; anyone else only their own. Idempotent. Under the hood, deployments typically delegate to `SessionStoreBinding.revokeAllForUser`. Returns `{ revokedCount: 0 }` when the user was already fully signed out.",
     tags: ['identity'],
     security: 'bearer',
     parameters: [
@@ -4878,6 +4878,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Revocation outcome.', schema: ref('RevokeSessionsResult') },
       ...CommonMutationErrors,
+      '403': ErrorResponse("Another person's sessions, and not a tenant admin."),
       '500': ErrorResponse('Session revocation failed inside the caller-plugged binding.'),
     },
   },

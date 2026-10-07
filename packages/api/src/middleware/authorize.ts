@@ -126,7 +126,10 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
       if (items.length === 0) return [];
       const principal = c.get('principal') as Principal | undefined;
       if (principal === undefined) return [];
-      const refs = items.map(refFn);
+      // What the key itself rules out never reaches the store.
+      const open = items.filter((item) => keyCeilingDeny(c, action, refFn(item)) === undefined);
+      if (open.length === 0) return [];
+      const refs = open.map(refFn);
       const requestId = c.get('requestId');
       const ctx =
         typeof requestId === 'string' && requestId.length > 0
@@ -134,8 +137,8 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
           : undefined;
       const decisions = await binding.checkBatch(principal, action, refs, ctx);
       const out: (typeof items)[number][] = [];
-      for (let i = 0; i < items.length; i++) {
-        if (decisions[i]?.allowed) out.push(items[i] as (typeof items)[number]);
+      for (let i = 0; i < open.length; i++) {
+        if (decisions[i]?.allowed) out.push(open[i] as (typeof items)[number]);
       }
       return out;
     },

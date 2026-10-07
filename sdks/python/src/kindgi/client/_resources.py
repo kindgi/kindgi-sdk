@@ -4913,7 +4913,7 @@ class IdentityUsersResource:
     ) -> _models.RevokeSessionsResult:
         """Revoke every active session for a user. `POST /v1/identity/users/{userId}/revoke-sessions`
 
-        Admin op — idempotent. Under the hood, deployments typically delegate to `SessionStoreBinding.revokeAllForUser`. Returns `{ revokedCount: 0 }` when the user was already fully signed out.
+        A tenant admin revokes anyone's sessions; anyone else only their own. Idempotent. Under the hood, deployments typically delegate to `SessionStoreBinding.revokeAllForUser`. Returns `{ revokedCount: 0 }` when the user was already fully signed out.
         """
         return self._client._request(
             _OPERATIONS["identity.users.revokeSessions"],
@@ -10915,7 +10915,7 @@ class AsyncIdentityUsersResource:
     ) -> _models.RevokeSessionsResult:
         """Revoke every active session for a user. `POST /v1/identity/users/{userId}/revoke-sessions`
 
-        Admin op — idempotent. Under the hood, deployments typically delegate to `SessionStoreBinding.revokeAllForUser`. Returns `{ revokedCount: 0 }` when the user was already fully signed out.
+        A tenant admin revokes anyone's sessions; anyone else only their own. Idempotent. Under the hood, deployments typically delegate to `SessionStoreBinding.revokeAllForUser`. Returns `{ revokedCount: 0 }` when the user was already fully signed out.
         """
         return await self._client._request(
             _OPERATIONS["identity.users.revokeSessions"],

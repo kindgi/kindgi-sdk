@@ -12,9 +12,16 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
-import type { AuthzCheckBinding, Decision } from '@kindgi/authz';
+import {
+  type AuthzCheckBinding,
+  type Decision,
+  type ResourceRef,
+  ref,
+  userPrincipal,
+} from '@kindgi/authz';
 import { createStubAppBindings } from '@kindgi/testing';
 import type { ApiTokenId, TenantId, Timestamp, UserId } from '@kindgi/types';
+import { Hono } from 'hono';
 
 import { createApp } from '../src/index.js';
 import type {
@@ -30,6 +37,8 @@ import type {
   TokenResolver,
   UserRecord,
 } from '../src/index.js';
+import { createAuthorizer } from '../src/middleware/authorize.js';
+import type { AppEnv } from '../src/types.js';
 
 const tenantId = '00000000-0000-4000-8000-0000000000a1' as TenantId;
 const P1 = '00000000-0000-4000-8000-0000000000b1';
@@ -580,6 +589,41 @@ describe('/v1/service-accounts', () => {
     });
     expect(late.status).toBe(409);
     expect(h.code(late)).toBe('service-account-unregistered');
+  });
+});
+
+describe('revoking sessions', () => {
+  test("a person revokes their own sessions; only a tenant admin someone else's", async () => {
+    const h = harness();
+    expect((await h.call(BOB, 'POST', '/v1/identity/users/bob/revoke-sessions')).status).toBe(200);
+    const others = await h.call(BOB, 'POST', '/v1/identity/users/alice/revoke-sessions');
+    expect(others.status).toBe(403);
+    expect(h.code(others)).toBe('permission-denied');
+    expect((await h.call(ALICE, 'POST', '/v1/identity/users/bob/revoke-sessions')).status).toBe(
+      200,
+    );
+  });
+});
+
+describe('filterByCan holds a key to its limits too', () => {
+  test("a key limited to a project keeps only that project's rows; the store isn't asked about others", async () => {
+    const asked: string[][] = [];
+    const authorizer = createAuthorizer({
+      check: async () => ({ allowed: true }),
+      checkBatch: async (_p: unknown, _a: unknown, refs: readonly ResourceRef[]) => {
+        asked.push(refs.map((r) => r.id));
+        return refs.map(() => ({ allowed: true }));
+      },
+    } as unknown as AuthzCheckBinding);
+    const r = new Hono<AppEnv>();
+    r.get('/', async (c) => {
+      c.set('principal' as never, userPrincipal('bob' as UserId, tenantId) as never);
+      c.set('tokenProjectId', P1);
+      const kept = await authorizer.filterByCan(c, 'read', [P1, P2], (id) => ref('project', id));
+      return c.json(kept);
+    });
+    expect(await (await r.request('/')).json()).toEqual([P1]);
+    expect(asked).toEqual([[P1]]);
   });
 });
 
