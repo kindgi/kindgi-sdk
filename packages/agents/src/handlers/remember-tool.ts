@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * The built-in `kindgi.memory.remember` tool, built for each turn of an
+ * The built-in `kindgi_remember` tool, built for each turn of an
  * agent that declares `memory.remember`. It dispatches like any tool (the
  * agent's `hitl.tools` policy, replay and the tool error policy apply), but
  * it isn't in the tool registry: its input schema lists the agent's own
@@ -136,7 +136,7 @@ function description(policy: RememberPolicy): string {
         : policy.scope === 'same-project'
           ? 'everyone in this project, after a person approves it'
           : 'everyone, after a person approves it';
-  return `Remember a fact for later conversations, for ${whose}. Use it for lasting facts and preferences you were told, not for this turn's working notes. It is stored as unverified.`;
+  return `Use ${REMEMBER_TOOL_ID} to remember a fact for later conversations, for ${whose}. Use it for lasting facts and preferences you were told, not for this turn's working notes. It is stored as unverified.`;
 }
 
 async function remember(

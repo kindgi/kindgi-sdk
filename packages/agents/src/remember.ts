@@ -14,8 +14,12 @@ import type { ConversationId, ProjectId, TenantId, ThreadId, UserId } from '@kin
 
 import type { RememberPolicy, RememberScope } from './types.js';
 
-/** The built-in tool an agent that declares `memory.remember` gets. */
-export const REMEMBER_TOOL_ID = 'kindgi.memory.remember';
+/**
+ * The built-in tool an agent that declares `memory.remember` gets. Built-in
+ * ids (`kindgi_<verb>`) have no dots: the model calls exactly this name,
+ * the one docs and instructions use.
+ */
+export const REMEMBER_TOOL_ID = 'kindgi_remember';
 export const REMEMBER_TOOL_VERSION = '1.0.0';
 /** Days an unverified remembered fact is kept when the agent doesn't say. */
 export const DEFAULT_REMEMBER_DAYS = 30;
@@ -105,7 +109,7 @@ const INSTRUCTION_LIKE: readonly RegExp[] = [
 export function looksLikeInstruction(text: string, toolIds: readonly string[]): boolean {
   if (INSTRUCTION_LIKE.some((pattern) => pattern.test(text))) return true;
   return toolIds.some((id) =>
-    // The id, or the name a provider sees (`.` → `__`), as a whole token.
+    // The id, or the name a provider sees for a dotted one (`.` → `__`), as a whole token.
     [id, id.replace(/\./g, '__')].some((name) =>
       new RegExp(`(^|[^\\w.])${escapeRegExp(name)}($|[^\\w])`, 'i').test(text),
     ),

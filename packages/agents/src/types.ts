@@ -136,7 +136,7 @@ export interface AgentMemoryPolicy {
   readonly instructionTypes?: readonly string[];
   /**
    * Lets the agent remember: the turn offers the built-in tool
-   * `kindgi.memory.remember` (`REMEMBER_TOOL_ID`). Absent: it can't.
+   * `kindgi_remember` (`REMEMBER_TOOL_ID`). Absent: it can't.
    */
   readonly remember?: RememberPolicy;
 }

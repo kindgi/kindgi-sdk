@@ -3,7 +3,7 @@
 
 /**
  * The built-in `remember` tool (T273 M-3): an agent that declares
- * `memory.remember` gets `kindgi.memory.remember`; the fact's scope,
+ * `memory.remember` gets `kindgi_remember`; the fact's scope,
  * subjects, attribution and expiry come from the declaration and the run,
  * never from the model; wide scopes and instruction-like text wait for a
  * person; the write is in the turn's provenance.
@@ -177,6 +177,11 @@ describe('the remember tool in a turn', () => {
       inputSchema: { properties: { type: { enum: string[] } } };
     };
     expect(definition.inputSchema.properties.type.enum).toEqual(['preference']);
+    // The model sees the exact name it calls: no dots to encode, and named in its description.
+    expect(REMEMBER_TOOL_ID).toBe('kindgi_remember');
+    expect((definition as unknown as { description: string }).description).toMatch(
+      /^Use kindgi_remember to remember/,
+    );
     expect(turn.writes).toEqual([
       {
         tenantId,
@@ -464,6 +469,10 @@ describe('declaring remember', () => {
     expect(
       issues({ memory: { remember: { types: ['x'], scope: 'same-user', keepDays: 1.5 } } }),
     ).toEqual(['/memory/remember/keepDays']);
+  });
+
+  test('no agent lists a built-in tool (`kindgi_`), declared or not', () => {
+    expect(issues({ tools: [{ id: 'kindgi_recall', version: '1.0.0' }] })).toEqual(['/tools/0/id']);
   });
 
   test('the built-in id is reserved', () => {

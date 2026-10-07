@@ -9,7 +9,7 @@ import {
   loadZodConverterSync,
   toJSONSchemaSync,
 } from '@kindgi/schema';
-import { pickVersion } from '@kindgi/tools';
+import { BUILT_IN_TOOL_PREFIX, pickVersion } from '@kindgi/tools';
 import type { Result, Semver } from '@kindgi/types';
 
 import type { InvalidAgentError } from './errors.js';
@@ -373,6 +373,11 @@ function validateToolRef(ref: unknown, i: number): Issue[] {
   const obj = ref as Record<string, unknown>;
   if (typeof obj.id !== 'string' || obj.id.trim().length === 0) {
     out.push({ path: `/tools/${i}/id`, message: 'tool id must be a non-empty string' });
+  } else if (obj.id.startsWith(BUILT_IN_TOOL_PREFIX)) {
+    out.push({
+      path: `/tools/${i}/id`,
+      message: `"${obj.id}" is a tool built into Kindgi (the "${BUILT_IN_TOOL_PREFIX}" prefix): an agent gets it from its declaration (memory.remember for ${REMEMBER_TOOL_ID}), not from tools`,
+    });
   }
   if (typeof obj.version !== 'string' || obj.version.trim().length === 0) {
     out.push({
@@ -452,11 +457,11 @@ function validateMemoryPolicy(spec: DefineAgentSpec): Issue[] {
       message: 'instructionTypes must be a list of fact type names',
     });
   }
-  if (memory.remember !== undefined) out.push(...validateRemember(spec, memory.remember));
+  if (memory.remember !== undefined) out.push(...validateRemember(memory.remember));
   return out;
 }
 
-function validateRemember(spec: DefineAgentSpec, remember: RememberPolicy): Issue[] {
+function validateRemember(remember: RememberPolicy): Issue[] {
   if (remember === null || typeof remember !== 'object' || Array.isArray(remember)) {
     return [{ path: '/memory/remember', message: 'remember must be an object' }];
   }
@@ -479,15 +484,6 @@ function validateRemember(spec: DefineAgentSpec, remember: RememberPolicy): Issu
       path: '/memory/remember/keepDays',
       message: `remember.keepDays must be a whole number of days from 1 to ${MAX_REMEMBER_DAYS}`,
     });
-  }
-  if (Array.isArray(spec.tools)) {
-    const i = spec.tools.findIndex((t) => (t as { id?: unknown } | null)?.id === REMEMBER_TOOL_ID);
-    if (i >= 0) {
-      out.push({
-        path: `/tools/${i}/id`,
-        message: `"${REMEMBER_TOOL_ID}" is the built-in remember tool: declare memory.remember instead of listing it`,
-      });
-    }
   }
   return out;
 }

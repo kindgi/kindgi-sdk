@@ -642,11 +642,11 @@ describe('API — publishing an agent that searches memory by meaning', () => {
     expect(((await res.json()) as { memory?: unknown }).memory).toEqual({ remember: declared });
     const reserved = await publish(app, {
       ...agentSpec({ id: 'acme.reserved' }),
-      tools: [{ id: 'kindgi.memory.remember', version: '1.0.0' }],
+      tools: [{ id: 'kindgi_remember', version: '1.0.0' }],
       memory: { remember: declared },
     });
     expect(reserved.status).toBe(400);
-    expect(JSON.stringify(reserved.body)).toContain('built-in remember tool');
+    expect(JSON.stringify(reserved.body)).toContain('a tool built into Kindgi');
   });
 
   test("an agent's memory policy is kept and read back", async () => {

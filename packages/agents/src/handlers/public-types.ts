@@ -144,7 +144,7 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
   readonly memoryBinding: MemoryQueryBinding;
   /**
    * Where an agent that declares `memory.remember` stores what it
-   * remembers (the `kindgi.memory.remember` tool). Absent: the tool still
+   * remembers (the `kindgi_remember` tool). Absent: the tool still
    * shows, and a call answers that this host can't remember.
    */
   readonly memoryWriter?: MemoryRememberBinding;
