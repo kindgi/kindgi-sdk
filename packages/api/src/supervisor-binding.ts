@@ -8,6 +8,7 @@ import type {
   FixProposalId,
   LiveScope,
   ObservationId,
+  ProjectId,
   ProvenanceId,
   RunId,
   Semver,
@@ -137,6 +138,8 @@ export interface ProposalEvaluationRef {
 export interface StoredProposal {
   readonly id: FixProposalId;
   readonly tenantId: TenantId;
+  /** The agent version's project, when known. */
+  readonly projectId?: ProjectId;
   readonly agentId: AgentId;
   /** The agent version the change applies to. */
   readonly fromVersion: string;
@@ -188,6 +191,8 @@ export interface GetProposalInput {
 
 export interface CreateProposalInput {
   readonly tenantId: TenantId;
+  /** The agent version's project, when the agent store records one: what a scoped list narrows by. */
+  readonly projectId?: ProjectId;
   readonly agentId: AgentId;
   readonly fromVersion: string;
   readonly scope: LiveScope;

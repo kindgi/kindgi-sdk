@@ -250,6 +250,7 @@ export function proposalsRouter(
     } as ProposedChange['change'];
     const outcome = await binding.createProposal({
       tenantId,
+      ...(from.projectId !== undefined && { projectId: from.projectId }),
       agentId: parsed.agentId as AgentId,
       fromVersion: parsed.fromVersion,
       scope: parsed.scope,

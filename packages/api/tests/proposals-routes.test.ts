@@ -515,7 +515,7 @@ async function evaluated(delta: number) {
 
 describe('POST /v1/proposals', () => {
   test('a hand-written draft names the block version the agent version pins, and who wrote it', async () => {
-    const { call } = await harness();
+    const { call, proposals } = await harness();
     const res = await call('POST', '/v1/proposals', DRAFT);
     expect(res.status, JSON.stringify(res.body)).toBe(201);
     expect(res.body).toMatchObject({
@@ -528,6 +528,8 @@ describe('POST /v1/proposals', () => {
       status: 'draft',
     });
     expect(res.body.candidate).toBeUndefined();
+    // The store gets the agent version's project, for a scoped list.
+    expect(proposals.rows.get(res.body.id)?.projectId).toBe(projectId);
   });
 
   test('the same change again is the same proposal, marked deduped', async () => {
