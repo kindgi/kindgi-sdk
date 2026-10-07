@@ -151,8 +151,7 @@ const register: LeafCommand = {
         input.secret_ref !== undefined
           ? ` — key ${input.secret_ref.name} (env ${input.secret_ref.envName})`
           : '';
-      const kept =
-        wanted === undefined ? '' : await defaultModelNote(ctx, input.metadata.id, wanted);
+      const kept = await runtimeNotes(ctx, input);
       return {
         stdout: renderJson(outcome, ctx.globals.format).stdout,
         stderr: `✓ Registered ${input.metadata.id}: ${models}${key}\n${kept}`,
@@ -161,28 +160,47 @@ const register: LeafCommand = {
 };
 
 /**
- * A runtime from before default models drops a provider's `defaultModel` (it keeps
- * only the fields it knows): read the provider back and say so, with what
- * an agent that chooses no model gets instead. Nothing when the runtime
- * kept it, or when the provider can't be read back.
+ * A runtime from before 0.1.4 keeps only the provider fields it knows: it
+ * drops `defaultModel`, and each model's `sampling` and `thinking`. Read
+ * the provider back and say what that means: what an agent that chooses
+ * no model gets instead, and that the models' sampling and thinking rules
+ * don't apply. Nothing when the runtime kept them, when there were none
+ * to keep, or when the provider can't be read back.
  */
-async function defaultModelNote(
-  ctx: CommandContext,
-  providerId: string,
-  wanted: string,
-): Promise<string> {
+async function runtimeNotes(ctx: CommandContext, input: RegisterProviderInput): Promise<string> {
+  const wanted = input.metadata.defaultModel;
+  const noSampling = input.metadata.models.filter((m) => m.sampling === false).map((m) => m.name);
+  const thinks = input.metadata.models.some((m) => m.thinking !== undefined);
+  if (wanted === undefined && noSampling.length === 0 && !thinks) return '';
   let got: {
     readonly defaultModel?: string;
-    readonly models: readonly { readonly name: string }[];
+    readonly models: readonly {
+      readonly name: string;
+      readonly sampling?: boolean;
+      readonly thinking?: unknown;
+    }[];
   };
   try {
-    got = await ctx.client().providers.get(providerId);
+    got = await ctx.client().providers.get(input.metadata.id);
   } catch {
     return '';
   }
-  if (got.defaultModel === wanted) return '';
-  const first = [...got.models.map((m) => m.name)].sort((a, b) => a.localeCompare(b))[0];
-  return `  This runtime predates default models, so it didn't keep one: an agent that chooses none gets ${first ?? 'the first model by name'}, not ${wanted}. Name one on your agents (preferredModel), or upgrade the runtime.\n`;
+  const notes: string[] = [];
+  if (wanted !== undefined && got.defaultModel !== wanted) {
+    const first = [...got.models.map((m) => m.name)].sort((a, b) => a.localeCompare(b))[0];
+    notes.push(
+      `  This runtime predates default models, so it didn't keep one: an agent that chooses none gets ${first ?? 'the first model by name'}, not ${wanted}. Name one on your agents (preferredModel), or upgrade the runtime.\n`,
+    );
+  }
+  const keptRules = got.models.some((m) => m.sampling !== undefined || m.thinking !== undefined);
+  if ((noSampling.length > 0 || thinks) && !keptRules) {
+    notes.push(
+      noSampling.length > 0
+        ? `  This runtime doesn't apply the models' sampling and thinking rules: an agent that sets a temperature on ${noSampling.join(', ')} may be refused. Upgrade the runtime to 0.1.4 or later.\n`
+        : "  This runtime doesn't apply the models' thinking rules: a guardrail judge on them may run out of room for its verdict. Upgrade the runtime to 0.1.4 or later.\n",
+    );
+  }
+  return notes.join('');
 }
 
 /**

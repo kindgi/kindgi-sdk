@@ -294,7 +294,7 @@ describe('a preset names its default model', () => {
     expect(without.kind === 'ok' && 'defaultModel' in without.input.metadata).toBe(false);
   });
 
-  function withGet(defaultModel: string | undefined): RunCliInputs {
+  function withGet(defaultModel: string | undefined, keepsRules = true): RunCliInputs {
     const base = inputs(['providers', 'register', '--preset=anthropic']);
     return {
       ...base,
@@ -309,8 +309,14 @@ describe('a preset names its default model', () => {
               id: 'anthropic',
               models: [
                 { name: 'claude-haiku-4-5' },
-                { name: 'claude-opus-5-5' },
-                { name: 'claude-sonnet-5-5' },
+                {
+                  name: 'claude-opus-5-5',
+                  ...(keepsRules && {
+                    sampling: false,
+                    thinking: { mode: 'always', lowest: 'low' },
+                  }),
+                },
+                { name: 'claude-sonnet-5-5', ...(keepsRules && { sampling: false }) },
               ],
               ...(defaultModel !== undefined && { defaultModel }),
             })),
@@ -325,6 +331,16 @@ describe('a preset names its default model', () => {
     expect(out.exitCode).toBe(0);
     expect(out.stderr).toContain('claude-sonnet-5-5 (default)');
     expect(out.stderr).not.toContain('predates default models');
+    expect(out.stderr).not.toContain("doesn't apply");
+  });
+
+  test("a runtime that drops the models' sampling and thinking rules: one line says so, naming the models", async () => {
+    await writeFile(join(packDir, '.env'), 'ANTHROPIC_API_KEY=sk-ant-test\n');
+    const out = await runCli(withGet('claude-sonnet-5-5', false));
+    expect(out.exitCode).toBe(0);
+    expect(out.stderr).toContain(
+      "This runtime doesn't apply the models' sampling and thinking rules: an agent that sets a temperature on claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5 may be refused. Upgrade the runtime to 0.1.4 or later.",
+    );
   });
 
   test('a runtime that predates default models drops it: one line says what an agent gets instead', async () => {

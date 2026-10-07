@@ -242,7 +242,7 @@ Rendering is strict. A variable that is neither built in nor declared fails
 the turn before the model is called:
 
 ```text
-Error [server]: Prompt render failed: Template references an unresolved variable: customer
+Error [model-invocation-failed]: Prompt render failed: Template references an unresolved variable: customer
 ```
 
 The rendered instructions are in the run's journal
@@ -261,7 +261,7 @@ see [Agent and tool versions](../agent-and-tool-versions/). When no
 registered version is in the range, the turn fails:
 
 ```text
-Error [server]: Tool "acme.lookup-order" has no version satisfying "^0.2.0" (available: 0.1.0)
+Error [tool-version-unresolvable]: Tool "acme.lookup-order" has no version satisfying "^0.2.0" (available: 0.1.0)
 ```
 
 A tool given as a plain string is refused before anything runs: TypeScript
