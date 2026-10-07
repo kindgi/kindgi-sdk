@@ -153,7 +153,7 @@ triage = Agent(
     name="Triage",
     description="Classifies a support ticket and drafts a first reply.",
     instructions=(
-        "You triage support tickets. Read the ticket with `acme-desk.get-ticket`, then answer "
+        "You triage support tickets. Read the ticket with the get-ticket tool, then answer "
         "with its category (billing, access or other), its priority (low, normal or urgent) "
         "and a short, friendly first reply to the customer. "
         "A ticket is urgent when the customer cannot work at all."

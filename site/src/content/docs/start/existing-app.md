@@ -126,7 +126,7 @@ const defined = defineAgent({
   name: 'Triage',
   description: 'Reads a support request and sets its priority.',
   instructions:
-    'The user names a support request id. Look it up with `acme-support.get-request`, ' +
+    'The user names a support request id. Look it up with the get-request tool, ' +
     'then answer with its priority and a one-sentence summary.',
   capabilities: [{ needs: [{ feature: 'tool-use' as const }] }],
   tools: [{ id: 'acme-support.get-request', version: '^0.1.0' }],
