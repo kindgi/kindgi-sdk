@@ -4221,9 +4221,9 @@ class AdapterConfigProblem(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    field: str
+    path: str
     """
-    The setting at fault, as a registration names it: `adapter_config.<key>`, `secret_ref`, `metadata.region`, `metadata.models`, or `adapter_id` (an adapter this runtime does not have).
+    The setting at fault, as a JSON pointer into the registration: `/adapter_config/<key>`, `/secret_ref`, `/metadata/region`, `/metadata/models/<i>/name`, or `/adapter_id` (an adapter this runtime does not have).
     """
     message: str
     """
@@ -4240,9 +4240,9 @@ class ProviderCheckResult(BaseModel):
     adapter_id: Annotated[str, Field(alias="adapterId")]
     checked: bool
     """
-    False when this runtime has no check for the provider's adapter; `problems` is then empty.
+    False when this runtime has no check for the provider's adapter; `issues` is then empty.
     """
-    problems: list[AdapterConfigProblem]
+    issues: list[AdapterConfigProblem]
 
 
 class Config(BaseModel):

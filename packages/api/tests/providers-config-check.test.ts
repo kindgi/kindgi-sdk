@@ -59,14 +59,14 @@ const checked: AdapterFactoryEntry = {
     ...(input.config?.region === 'moon'
       ? [
           {
-            field: 'adapter_config.region',
+            path: '/adapter_config/region',
             message: `provider "${input.metadata.id}": region "moon" isn't one.`,
           },
         ]
       : []),
     ...(input.hasSecretRef
       ? []
-      : [{ field: 'secret_ref', message: `provider "${input.metadata.id}" needs secret_ref.` }]),
+      : [{ path: '/secret_ref', message: `provider "${input.metadata.id}" needs secret_ref.` }]),
   ],
 };
 const unchecked: AdapterFactoryEntry = {
@@ -170,15 +170,15 @@ describe('POST /v1/providers checks the registration with its adapter', () => {
     });
     expect(res.status).toBe(422);
     const body = (await res.json()) as {
-      error: { code: string; message: string; details: { problems: unknown[] } };
+      error: { code: string; message: string; details: { issues: unknown[] } };
     };
     expect(body.error.code).toBe('provider-config-invalid');
     expect(body.error.message).toBe(
       'provider "acme": region "moon" isn\'t one. provider "acme" needs secret_ref.',
     );
-    expect(body.error.details.problems).toEqual([
-      { field: 'adapter_config.region', message: 'provider "acme": region "moon" isn\'t one.' },
-      { field: 'secret_ref', message: 'provider "acme" needs secret_ref.' },
+    expect(body.error.details.issues).toEqual([
+      { path: '/adapter_config/region', message: 'provider "acme": region "moon" isn\'t one.' },
+      { path: '/secret_ref', message: 'provider "acme" needs secret_ref.' },
     ]);
     expect(registry.stored.size).toBe(0);
   });
@@ -187,8 +187,8 @@ describe('POST /v1/providers checks the registration with its adapter', () => {
     const { app } = makeApp(true);
     const res = await register(app, { metadata: metadata('acme'), adapter_id: '@acme/gone' });
     expect(res.status).toBe(422);
-    const body = (await res.json()) as { error: { details: { problems: { field: string }[] } } };
-    expect(body.error.details.problems.map((p) => p.field)).toEqual(['adapter_id']);
+    const body = (await res.json()) as { error: { details: { issues: { path: string }[] } } };
+    expect(body.error.details.issues.map((p) => p.path)).toEqual(['/adapter_id']);
   });
 
   test('an adapter without a check takes any flat adapter_config', async () => {
@@ -237,12 +237,12 @@ describe('GET /v1/providers/{providerId}/check', () => {
       providerId: 'old',
       adapterId: ADAPTER,
       checked: true,
-      problems: [
-        { field: 'adapter_config.region', message: 'provider "old": region "moon" isn\'t one.' },
-        { field: 'secret_ref', message: 'provider "old" needs secret_ref.' },
+      issues: [
+        { path: '/adapter_config/region', message: 'provider "old": region "moon" isn\'t one.' },
+        { path: '/secret_ref', message: 'provider "old" needs secret_ref.' },
       ],
     });
-    expect(await (await check(app, 'good')).json()).toMatchObject({ checked: true, problems: [] });
+    expect(await (await check(app, 'good')).json()).toMatchObject({ checked: true, issues: [] });
   });
 
   test('an adapter this runtime does not have is a problem; one without a check is not checked', async () => {
@@ -255,20 +255,20 @@ describe('GET /v1/providers/{providerId}/check', () => {
     });
     expect(await (await check(app, 'gone')).json()).toMatchObject({
       checked: true,
-      problems: [{ field: 'adapter_id' }],
+      issues: [{ path: '/adapter_id' }],
     });
     expect(await (await check(app, 'plain')).json()).toEqual({
       providerId: 'plain',
       adapterId: '@acme/adapter-without-check',
       checked: false,
-      problems: [],
+      issues: [],
     });
   });
 
   test('without the adapter factories, nothing is checked', async () => {
     const { app, registry } = makeApp(false);
     await registry.register({ tenantId, metadata: metadata('old'), adapterId: ADAPTER });
-    expect(await (await check(app, 'old')).json()).toMatchObject({ checked: false, problems: [] });
+    expect(await (await check(app, 'old')).json()).toMatchObject({ checked: false, issues: [] });
   });
 
   test('an unknown provider is 404 provider-not-found', async () => {

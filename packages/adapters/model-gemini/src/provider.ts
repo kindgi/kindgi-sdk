@@ -294,7 +294,7 @@ function apiProblem(input: Registration): AdapterConfigProblem | undefined {
   const api = apiOf(input);
   if (api === 'vertex' || api === 'developer') return undefined;
   return {
-    field: 'adapter_config.api',
+    path: '/adapter_config/api',
     message: `${GEMINI_ADAPTER_ID}: provider "${input.metadata.id}" adapter_config.api must be "vertex" or "developer", got ${JSON.stringify(api)}.`,
   };
 }
@@ -305,7 +305,7 @@ function developerKeyProblem(
 ): AdapterConfigProblem | undefined {
   if (apiOf(input) !== 'developer' || hasSecretRef) return undefined;
   return {
-    field: 'secret_ref',
+    path: '/secret_ref',
     message: `${GEMINI_ADAPTER_ID}: provider "${input.metadata.id}" uses the Gemini Developer API (adapter_config.api "developer") and needs secret_ref: its Gemini API key.`,
   };
 }
@@ -330,7 +330,7 @@ function vertexTargetProblems(input: Registration): AdapterConfigProblem[] {
   if (typeof project !== 'string' || project.length === 0) {
     return [
       {
-        field: 'adapter_config.project',
+        path: '/adapter_config/project',
         message: `${GEMINI_ADAPTER_ID}: provider "${input.metadata.id}" needs adapter_config.project (the Vertex AI project).`,
       },
     ];
@@ -361,13 +361,13 @@ function vertexTargetProblemsOf(
   const problems: AdapterConfigProblem[] = [];
   if (!VERTEX_PROJECT.test(vertex.project)) {
     problems.push({
-      field: 'adapter_config.project',
+      path: '/adapter_config/project',
       message: `${GEMINI_ADAPTER_ID}: provider "${providerId}" adapter_config.project must be a Google Cloud project id or number.`,
     });
   }
   if (!VERTEX_LOCATION.test(vertex.location)) {
     problems.push({
-      field: 'metadata.region',
+      path: '/metadata/region',
       message: `${GEMINI_ADAPTER_ID}: provider "${providerId}" metadata.region must be a Vertex AI location (one DNS label, e.g. us-central1).`,
     });
   }

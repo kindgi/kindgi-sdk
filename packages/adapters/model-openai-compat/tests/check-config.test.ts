@@ -72,57 +72,57 @@ describe('openAICompatCheckConfig agrees with the factory', () => {
     [
       'no config',
       undefined,
-      'adapter_config.baseURL',
+      '/adapter_config/baseURL',
       'needs adapter_config.baseURL, an http(s) URL',
     ],
     [
       'a base URL without a scheme',
       { baseURL: 'api.openai.com/v1' },
-      'adapter_config.baseURL',
+      '/adapter_config/baseURL',
       'needs adapter_config.baseURL',
     ],
     [
       'an API it does not speak',
       { baseURL: BASE_URLS.OPENAI, api: 'completions' },
-      'adapter_config.api',
+      '/adapter_config/api',
       'adapter_config.api must be one of responses, chat-completions.',
     ],
     [
       'extra fields as one JSON key',
       { baseURL: BASE_URLS.VLLM_LOCAL, extraBody: '{"top_k":20}' },
-      'adapter_config.extraBody',
+      '/adapter_config/extraBody',
       'adapter_config takes extra request fields one per key',
     ],
     [
       'an unsafe field name',
       { baseURL: BASE_URLS.VLLM_LOCAL, 'extraBody.__proto__.polluted': true },
-      'adapter_config.extraBody.__proto__.polluted',
+      '/adapter_config/extraBody.__proto__.polluted',
       "isn't a field path",
     ],
     [
       'two keys that collide',
       { baseURL: BASE_URLS.VLLM_LOCAL, 'extraBody.a': 1, 'extraBody.a.b': 2 },
-      'adapter_config.extraBody.a.b',
+      '/adapter_config/extraBody.a.b',
       'nests under a field another key sets',
     ],
     [
       'a field Chat Completions sets',
       { baseURL: BASE_URLS.VLLM_LOCAL, 'extraBody.messages': 'x' },
-      'adapter_config.extraBody.messages',
+      '/adapter_config/extraBody.messages',
       "extraBody can't set messages: the adapter sets it",
     ],
     [
       'a field Responses sets',
       { baseURL: BASE_URLS.OPENAI, 'extraBody.store': true },
-      'adapter_config.extraBody.store',
+      '/adapter_config/extraBody.store',
       "extraBody can't set store: the adapter sets it",
     ],
   ])(
-    '%s: the check names the field, and the factory throws the same message',
-    (_name, config, field, says) => {
+    '%s: the check points at the setting, and the factory throws the same message',
+    (_name, config, path, says) => {
       const { problems, thrown } = both(config as AdapterConfig | undefined);
       expect(problems.length).toBeGreaterThan(0);
-      const problem = problems.find((p) => p.field === field);
+      const problem = problems.find((p) => p.path === path);
       expect(problem?.message).toContain(says);
       expect(problem?.message.startsWith(`${OPENAI_COMPAT_ADAPTER_ID}: provider "acme-llm"`)).toBe(
         true,
@@ -135,10 +135,10 @@ describe('openAICompatCheckConfig agrees with the factory', () => {
 
   test('every problem in a registration is reported, not only the first', () => {
     const { problems } = both({ api: 'completions', 'extraBody.model': 'x' });
-    expect(problems.map((p) => p.field)).toEqual([
-      'adapter_config.baseURL',
-      'adapter_config.api',
-      'adapter_config.extraBody.model',
+    expect(problems.map((p) => p.path)).toEqual([
+      '/adapter_config/baseURL',
+      '/adapter_config/api',
+      '/adapter_config/extraBody.model',
     ]);
   });
 

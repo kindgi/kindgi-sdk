@@ -38,12 +38,12 @@ describe('inProcessAdapterEntry', () => {
   });
 
   test.each([['gpt-9'], ['constructor'], ['__proto__']])(
-    'an unknown model (%s): the check names metadata.models, and the factory throws the same message',
+    'an unknown model (%s): the check points at the model name, and the factory throws the same message',
     (name) => {
       const input = { metadata: metadata(DEFAULT_LOCAL_MODEL, name) };
       const problems = inProcessCheckConfig({ ...input, hasSecretRef: false });
       expect(problems).toHaveLength(1);
-      expect(problems[0]?.field).toBe('metadata.models');
+      expect(problems[0]?.path).toBe('/metadata/models/1/name');
       expect(problems[0]?.message).toBe(
         `${IN_PROCESS_ADAPTER_ID}: unknown model "${name}" in provider "acme-local". Valid values: ${Object.keys(MODEL_SPECS).join(', ')}.`,
       );

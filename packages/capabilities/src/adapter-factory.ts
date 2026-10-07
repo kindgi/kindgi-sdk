@@ -71,13 +71,17 @@ export interface AdapterConfigCheckInput {
   readonly hasSecretRef: boolean;
 }
 
-/** One thing wrong with a registration (`AdapterFactoryEntry.checkConfig`). */
+/**
+ * One thing wrong with a registration (`AdapterFactoryEntry.checkConfig`),
+ * in the shape of the API's validation issues (`{ path, message }`).
+ */
 export interface AdapterConfigProblem {
   /**
-   * The setting at fault, as a registration names it: `adapter_config.<key>`,
-   * `secret_ref`, `metadata.region`, `metadata.models`.
+   * The setting at fault, as a JSON pointer into the registration:
+   * `/adapter_config/<key>`, `/secret_ref`, `/metadata/region`,
+   * `/metadata/models/<i>/name`.
    */
-  readonly field: string;
+  readonly path: string;
   /** What's wrong and what it takes: the error the adapter's factory throws for it. */
   readonly message: string;
 }

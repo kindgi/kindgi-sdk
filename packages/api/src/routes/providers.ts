@@ -245,7 +245,7 @@ export function providersRouter(
           {
             code: 'provider-config-invalid',
             message: problems.map((p) => p.message).join(' '),
-            problems,
+            issues: problems,
           },
           requestId,
         ),
@@ -321,7 +321,7 @@ export function providersRouter(
       providerId,
       adapterId: entry.adapterId,
       checked: problems !== undefined,
-      problems: problems ?? [],
+      issues: problems ?? [],
     });
   });
 
@@ -729,7 +729,7 @@ function configProblems(
   if (entry === undefined) {
     return [
       {
-        field: 'adapter_id',
+        path: '/adapter_id',
         message: `This runtime has no adapter "${registration.adapterId}", so it can't build provider "${registration.metadata.id}".`,
       },
     ];

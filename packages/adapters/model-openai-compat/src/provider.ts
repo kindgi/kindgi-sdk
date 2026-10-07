@@ -437,7 +437,7 @@ function baseUrlProblem(input: Registration): AdapterConfigProblem | undefined {
   const value = input.config?.baseURL;
   if (typeof value === 'string' && /^https?:\/\/[^\s/]+/.test(value)) return undefined;
   return {
-    field: 'adapter_config.baseURL',
+    path: '/adapter_config/baseURL',
     message: `${OPENAI_COMPAT_ADAPTER_ID}: provider "${input.metadata.id}" needs adapter_config.baseURL, an http(s) URL (e.g. ${BASE_URLS.OPENAI}).`,
   };
 }
@@ -456,7 +456,7 @@ function apiProblem(input: Registration): AdapterConfigProblem | undefined {
   const value = input.config?.api;
   if (value === undefined || OPENAI_COMPAT_APIS.some((known) => known === value)) return undefined;
   return {
-    field: 'adapter_config.api',
+    path: '/adapter_config/api',
     message: `${OPENAI_COMPAT_ADAPTER_ID}: provider "${input.metadata.id}": adapter_config.api must be one of ${OPENAI_COMPAT_APIS.join(', ')}.`,
   };
 }
@@ -500,15 +500,15 @@ function readExtraBody(input: Registration): {
   readonly problems: readonly AdapterConfigProblem[];
 } {
   const problems: AdapterConfigProblem[] = [];
-  const at = (field: string, problem: string) =>
+  const at = (path: string, problem: string) =>
     problems.push({
-      field,
+      path,
       message: `${OPENAI_COMPAT_ADAPTER_ID}: provider "${input.metadata.id}": ${problem}`,
     });
   const config = input.config ?? {};
   if (Object.hasOwn(config, 'extraBody')) {
     at(
-      'adapter_config.extraBody',
+      '/adapter_config/extraBody',
       `adapter_config takes extra request fields one per key, "${EXTRA_BODY_PREFIX}<field>" (dots nest), e.g. "${EXTRA_BODY_PREFIX}chat_template_kwargs.enable_thinking": false`,
     );
   }
@@ -517,16 +517,21 @@ function readExtraBody(input: Registration): {
     if (!key.startsWith(EXTRA_BODY_PREFIX)) continue;
     body ??= {};
     const problem = setField(body, key.slice(EXTRA_BODY_PREFIX.length).split('.'), value);
-    if (problem !== undefined) at(`adapter_config.${key}`, `adapter_config "${key}" ${problem}`);
+    if (problem !== undefined) at(pointerTo(key), `adapter_config "${key}" ${problem}`);
   }
   const reserved = reservedIn(body, apiOf(input));
   if (reserved.length > 0) {
     at(
-      `adapter_config.${EXTRA_BODY_PREFIX}${reserved[0]}`,
+      pointerTo(`${EXTRA_BODY_PREFIX}${reserved[0]}`),
       `adapter_config ${reservedProblem(reserved)}`,
     );
   }
   return { ...(body !== undefined && { body }), problems };
+}
+
+/** The JSON pointer to a flat `adapter_config` key (its dots stay in one token). */
+function pointerTo(key: string): string {
+  return `/adapter_config/${key.replace(/~/g, '~0').replace(/\//g, '~1')}`;
 }
 
 /** Set `path` in `body` to `value`; what's wrong, if anything. */

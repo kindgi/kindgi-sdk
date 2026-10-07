@@ -4242,16 +4242,19 @@ export const UnregisterProviderResultSchema: JsonSchema = {
   },
 };
 
-/** One thing an adapter's check finds wrong with a provider registration. */
+/**
+ * One thing an adapter's check finds wrong with a provider registration,
+ * in the shape of the API's validation issues.
+ */
 export const AdapterConfigProblemSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['field', 'message'],
+  required: ['path', 'message'],
   properties: {
-    field: {
+    path: {
       type: 'string',
       description:
-        'The setting at fault, as a registration names it: `adapter_config.<key>`, `secret_ref`, `metadata.region`, `metadata.models`, or `adapter_id` (an adapter this runtime does not have).',
+        'The setting at fault, as a JSON pointer into the registration: `/adapter_config/<key>`, `/secret_ref`, `/metadata/region`, `/metadata/models/<i>/name`, or `/adapter_id` (an adapter this runtime does not have).',
     },
     message: {
       type: 'string',
@@ -4264,16 +4267,16 @@ export const AdapterConfigProblemSchema: JsonSchema = {
 export const ProviderCheckResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['providerId', 'adapterId', 'checked', 'problems'],
+  required: ['providerId', 'adapterId', 'checked', 'issues'],
   properties: {
     providerId: { type: 'string' },
     adapterId: { type: 'string' },
     checked: {
       type: 'boolean',
       description:
-        "False when this runtime has no check for the provider's adapter; `problems` is then empty.",
+        "False when this runtime has no check for the provider's adapter; `issues` is then empty.",
     },
-    problems: {
+    issues: {
       type: 'array',
       items: { $ref: '#/components/schemas/AdapterConfigProblem' },
     },

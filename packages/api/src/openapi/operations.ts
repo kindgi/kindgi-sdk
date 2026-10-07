@@ -3324,7 +3324,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'providers.check',
     summary: "Check a provider's registration",
     description:
-      "Runs the provider's adapter check over its stored registration (its `adapter_config`, its metadata, whether it names a `secret_ref`): the check `POST /v1/providers` runs before it stores one. Static: no network call, no secret read. `problems` lists what would keep the runtime from building the provider, each naming its field; an adapter this runtime doesn't have is one (`field: adapter_id`). `checked` is false when this runtime has no check for the provider's adapter.",
+      "Runs the provider's adapter check over its stored registration (its `adapter_config`, its metadata, whether it names a `secret_ref`): the check `POST /v1/providers` runs before it stores one. Static: no network call, no secret read. `issues` lists what would keep the runtime from building the provider, each with a JSON-pointer `path`; an adapter this runtime doesn't have is one (`/adapter_id`). `checked` is false when this runtime has no check for the provider's adapter.",
     tags: ['providers'],
     security: 'bearer',
     parameters: [ProviderIdPathParam],
@@ -3352,7 +3352,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse('Validation failed (see `details.reason`).'),
       '409': ErrorResponse('Provider already registered at that id.'),
       '422': ErrorResponse(
-        "`provider-config-invalid`: the provider's adapter refuses the registration (its `adapter_config`, its metadata, or a missing `secret_ref`); `details.problems` names each field. Nothing is stored.",
+        "`provider-config-invalid`: the provider's adapter refuses the registration (its `adapter_config`, its metadata, or a missing `secret_ref`); `details.issues` lists each (`path`, a JSON pointer, and `message`), as other validation errors do. Nothing is stored.",
       ),
     },
   },

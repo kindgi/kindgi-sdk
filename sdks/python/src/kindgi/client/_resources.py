@@ -3119,7 +3119,7 @@ class ProvidersResource:
     ) -> _models.ProviderCheckResult:
         """Check a provider's registration. `GET /v1/providers/{providerId}/check`
 
-        Runs the provider's adapter check over its stored registration (its `adapter_config`, its metadata, whether it names a `secret_ref`): the check `POST /v1/providers` runs before it stores one. Static: no network call, no secret read. `problems` lists what would keep the runtime from building the provider, each naming its field; an adapter this runtime doesn't have is one (`field: adapter_id`). `checked` is false when this runtime has no check for the provider's adapter.
+        Runs the provider's adapter check over its stored registration (its `adapter_config`, its metadata, whether it names a `secret_ref`): the check `POST /v1/providers` runs before it stores one. Static: no network call, no secret read. `issues` lists what would keep the runtime from building the provider, each with a JSON-pointer `path`; an adapter this runtime doesn't have is one (`/adapter_id`). `checked` is false when this runtime has no check for the provider's adapter.
         """
         return self._client._request(
             _OPERATIONS["providers.check"],
@@ -9042,7 +9042,7 @@ class AsyncProvidersResource:
     ) -> _models.ProviderCheckResult:
         """Check a provider's registration. `GET /v1/providers/{providerId}/check`
 
-        Runs the provider's adapter check over its stored registration (its `adapter_config`, its metadata, whether it names a `secret_ref`): the check `POST /v1/providers` runs before it stores one. Static: no network call, no secret read. `problems` lists what would keep the runtime from building the provider, each naming its field; an adapter this runtime doesn't have is one (`field: adapter_id`). `checked` is false when this runtime has no check for the provider's adapter.
+        Runs the provider's adapter check over its stored registration (its `adapter_config`, its metadata, whether it names a `secret_ref`): the check `POST /v1/providers` runs before it stores one. Static: no network call, no secret read. `issues` lists what would keep the runtime from building the provider, each with a JSON-pointer `path`; an adapter this runtime doesn't have is one (`/adapter_id`). `checked` is false when this runtime has no check for the provider's adapter.
         """
         return await self._client._request(
             _OPERATIONS["providers.check"],

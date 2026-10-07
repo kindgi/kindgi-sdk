@@ -50,7 +50,7 @@ export const anthropicAdapterEntry: AdapterFactoryEntry = {
 function keyProblem(providerId: string, hasSecretRef: boolean): AdapterConfigProblem | undefined {
   if (hasSecretRef) return undefined;
   return {
-    field: 'secret_ref',
+    path: '/secret_ref',
     message: `${ANTHROPIC_ADAPTER_ID}: provider "${providerId}" needs secret_ref: its Anthropic API key.`,
   };
 }

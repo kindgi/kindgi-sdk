@@ -66,7 +66,7 @@ describe('geminiCheckConfig agrees with the factory', () => {
       'global',
       { project: 'acme-project', api: 'aistudio' },
       false,
-      'adapter_config.api',
+      '/adapter_config/api',
       'adapter_config.api must be "vertex" or "developer"',
     ],
     [
@@ -74,7 +74,7 @@ describe('geminiCheckConfig agrees with the factory', () => {
       'unspecified',
       { api: 'developer' },
       false,
-      'secret_ref',
+      '/secret_ref',
       'needs secret_ref: its Gemini API key',
     ],
     [
@@ -82,7 +82,7 @@ describe('geminiCheckConfig agrees with the factory', () => {
       'global',
       undefined,
       false,
-      'adapter_config.project',
+      '/adapter_config/project',
       'needs adapter_config.project (the Vertex AI project)',
     ],
     [
@@ -90,7 +90,7 @@ describe('geminiCheckConfig agrees with the factory', () => {
       'global',
       { project: 'acme.example.com/x' },
       false,
-      'adapter_config.project',
+      '/adapter_config/project',
       'must be a Google Cloud project id or number',
     ],
     [
@@ -98,14 +98,14 @@ describe('geminiCheckConfig agrees with the factory', () => {
       'evil.example.com',
       { project: 'acme-project' },
       false,
-      'metadata.region',
+      '/metadata/region',
       'must be a Vertex AI location',
     ],
   ] as const)(
-    '%s: the check names the field, and the factory throws the same message',
-    (_name, region, config, key, field, says) => {
+    '%s: the check points at the setting, and the factory throws the same message',
+    (_name, region, config, key, path, says) => {
       const { problems, thrown } = both(region, config, key);
-      const problem = problems.find((p) => p.field === field);
+      const problem = problems.find((p) => p.path === path);
       expect(problem?.message).toContain(says);
       expect(problem?.message.startsWith(`${GEMINI_ADAPTER_ID}: provider "acme-gemini"`)).toBe(
         true,
@@ -117,7 +117,7 @@ describe('geminiCheckConfig agrees with the factory', () => {
 
   test('a bad project and a bad region are both reported', () => {
     const { problems } = both('evil.example.com', { project: 'x' }, false);
-    expect(problems.map((p) => p.field)).toEqual(['adapter_config.project', 'metadata.region']);
+    expect(problems.map((p) => p.path)).toEqual(['/adapter_config/project', '/metadata/region']);
   });
 
   test('the entry a runtime registers carries the check', () => {

@@ -51,10 +51,11 @@ export const inProcessAdapterEntry: AdapterFactoryEntry = {
 function modelsProblem(
   metadata: AdapterConfigCheckInput['metadata'],
 ): AdapterConfigProblem | undefined {
-  const unknown = metadata.models.find((m) => !Object.hasOwn(MODEL_SPECS, m.name));
+  const index = metadata.models.findIndex((m) => !Object.hasOwn(MODEL_SPECS, m.name));
+  const unknown = metadata.models[index];
   if (unknown === undefined) return undefined;
   return {
-    field: 'metadata.models',
+    path: `/metadata/models/${index}/name`,
     message:
       `${IN_PROCESS_ADAPTER_ID}: unknown model "${unknown.name}" in provider "${metadata.id}". ` +
       `Valid values: ${Object.keys(MODEL_SPECS).join(', ')}.`,

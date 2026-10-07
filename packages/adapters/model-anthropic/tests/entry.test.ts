@@ -39,7 +39,7 @@ describe('anthropicAdapterEntry', () => {
     const problems = anthropicCheckConfig({ metadata, hasSecretRef: false });
     expect(problems).toEqual([
       {
-        field: 'secret_ref',
+        path: '/secret_ref',
         message: `${ANTHROPIC_ADAPTER_ID}: provider "acme-claude" needs secret_ref: its Anthropic API key.`,
       },
     ]);
