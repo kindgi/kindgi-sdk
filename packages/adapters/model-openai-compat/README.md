@@ -20,7 +20,7 @@ Translate between the framework's `ModelCallInput` / `ModelCallResult` and one n
   - cached prompt tokens at `cachedPromptMultiplier` of the prompt rate, and cache-write tokens at `promptCacheCreationMultiplier` (each absent: the prompt rate);
   - `longContext: { thresholdTokens, promptUsdPer1kTokens, completionUsdPer1kTokens }`: past the threshold (cached and cache-write prompt tokens included), the whole call bills at those rates, the cache multipliers applying to the long prompt rate;
   - `dataResidencyMultiplier`: an uplift on the whole call, only when `baseURL` is a data-residency host (`eu.api.openai.com`; `isDataResidencyHost`).
-  A rate that isn't a finite, non-negative number is ignored. The `openai` preset carries OpenAI's GPT-6 rates.
+  A rate that isn't a finite, non-negative number is ignored. The `openai` preset carries OpenAI's GPT-6 rates. Its `longContext` applies per call, counting all of the call's input tokens (cached and cache-write ones included) past 272,000: that's how we read OpenAI's pricing page, which doesn't spell it out. These costs are estimates from published prices; the provider's invoice is authoritative.
 
 ### Responses
 
