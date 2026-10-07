@@ -71,6 +71,7 @@ def test_an_unlisted_403_is_forbidden_and_401_unauthenticated() -> None:
         "version-already-exists",
         "gate-policy-already-registered",
         "gate-policy-needs-pin",
+        "gate-policy-descendant-unpinned",
         "promotion-superseded",
     ],
 )

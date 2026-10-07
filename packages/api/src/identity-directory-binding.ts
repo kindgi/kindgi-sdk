@@ -56,8 +56,10 @@ export interface IdentityDirectoryBinding {
    */
   revokeAllSessions(input: IdentityRevokeSessionsInput): Promise<RevokeSessionsResult>;
   /**
-   * Optional. Add a person to the tenant, with no grants: a tenant admin
-   * then gives them a role and mints their first API key. When present,
+   * Optional. Add a person to the tenant as a tenant member, written to
+   * the authorization store before it returns: they can read the
+   * tenant's settings, not its projects. A tenant admin then gives them a
+   * role and mints their first API key. When present,
    * `POST /v1/identity/users` mounts (tenant admins only). An email
    * another person of the tenant has is refused.
    */

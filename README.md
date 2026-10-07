@@ -100,6 +100,10 @@ guardrail checks in Python, with agents and flows as data. Its pack service
 speaks the same pack protocol as the Node one, and both pass
 [`@kindgi/pack-conformance`](./packages/pack-conformance).
 
+[`kindgi-cli`](./sdks/python-cli) (on PyPI from 0.1.4: `uv add --dev kindgi-cli`) — the
+Kindgi CLI for Python developers: `@kindgi/cli` with Node from a wheel, so
+`uv run kindgi dev` needs no Node install.
+
 ## Specs
 
 [`@kindgi/specs`](./packages/specs) holds the canonical JSON Schemas

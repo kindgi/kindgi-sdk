@@ -307,6 +307,7 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'gate-policy-scope-changed':
     case 'gate-policy-scope-unpinned':
     case 'gate-policy-needs-pin':
+    case 'gate-policy-descendant-unpinned':
     case 'service-account-name-taken':
     case 'service-account-unregistered':
     case 'identity-user-email-taken':

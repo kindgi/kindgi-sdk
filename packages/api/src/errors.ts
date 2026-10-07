@@ -195,6 +195,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'gate-policy-scope-changed': 409,
   'gate-policy-scope-unpinned': 409,
   'gate-policy-needs-pin': 409,
+  'gate-policy-descendant-unpinned': 409,
   // API keys: whom a key acts for, and what it may do.
   /** Mint: the person or service account named doesn't exist. */
   'principal-not-found': 404,

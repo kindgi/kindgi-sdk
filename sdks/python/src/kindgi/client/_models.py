@@ -752,6 +752,18 @@ class ServiceAccountGrantTenantAdmin(BaseModel):
     kind: Literal["tenant-admin"]
 
 
+class ServiceAccountGrantTenantMember(BaseModel):
+    """
+    Tenant member: read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. A service account has it only when granted; a person has it from being added.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["tenant-member"]
+
+
 class ServiceAccountUngrantProject(BaseModel):
     """
     Whatever role the account has on one project.
@@ -766,13 +778,20 @@ class ServiceAccountUngrantProject(BaseModel):
 
 
 class ServiceAccountUngrantBody(
-    RootModel[ServiceAccountGrantTenantAdmin | ServiceAccountUngrantProject]
+    RootModel[
+        ServiceAccountGrantTenantAdmin
+        | ServiceAccountGrantTenantMember
+        | ServiceAccountUngrantProject
+    ]
 ):
     root: Annotated[
-        ServiceAccountGrantTenantAdmin | ServiceAccountUngrantProject, Field(discriminator="kind")
+        ServiceAccountGrantTenantAdmin
+        | ServiceAccountGrantTenantMember
+        | ServiceAccountUngrantProject,
+        Field(discriminator="kind"),
     ]
     """
-    The grant to remove: tenant admin, or the role on a project.
+    The grant to remove: tenant admin, tenant member, or the role on a project.
     """
 
 
@@ -8339,13 +8358,20 @@ class ServiceAccountGrantProject(BaseModel):
 
 
 class ServiceAccountGrantBody(
-    RootModel[ServiceAccountGrantTenantAdmin | ServiceAccountGrantProject]
+    RootModel[
+        ServiceAccountGrantTenantAdmin
+        | ServiceAccountGrantTenantMember
+        | ServiceAccountGrantProject
+    ]
 ):
     root: Annotated[
-        ServiceAccountGrantTenantAdmin | ServiceAccountGrantProject, Field(discriminator="kind")
+        ServiceAccountGrantTenantAdmin
+        | ServiceAccountGrantTenantMember
+        | ServiceAccountGrantProject,
+        Field(discriminator="kind"),
     ]
     """
-    The grant to add: tenant admin, or a role on one project.
+    The grant to add: tenant admin, tenant member, or a role on one project.
     """
 
 
@@ -8366,7 +8392,10 @@ class ServiceAccount(BaseModel):
     description: str | None = None
     grants: list[
         Annotated[
-            ServiceAccountGrantTenantAdmin | ServiceAccountGrantProject, Field(discriminator="kind")
+            ServiceAccountGrantTenantAdmin
+            | ServiceAccountGrantTenantMember
+            | ServiceAccountGrantProject,
+            Field(discriminator="kind"),
         ]
     ]
     created_by: Annotated[str | None, Field(alias="createdBy")] = None
@@ -8403,7 +8432,9 @@ class CreateServiceAccountBody(BaseModel):
     grants: (
         list[
             Annotated[
-                ServiceAccountGrantTenantAdmin | ServiceAccountGrantProject,
+                ServiceAccountGrantTenantAdmin
+                | ServiceAccountGrantTenantMember
+                | ServiceAccountGrantProject,
                 Field(discriminator="kind"),
             ]
         ]

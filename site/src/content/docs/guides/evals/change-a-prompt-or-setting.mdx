@@ -404,7 +404,11 @@ print(derived.version, derived.pins.settings if derived.pins else None, derived.
   `Agent "acme-ops.reply-drafter" version "1.0.1" is already registered, and versions never change; publish it as 1.0.2, the next free version`.
 
 Before anyone uses the new version,
-[compare it on a test set](../compare-an-agent-version/).
+[compare it on a test set](../compare-an-agent-version/). Because 1.0.1 pins
+another settings block version than 1.0.0, the comparison runs read-only
+tools such as `acme-ops.refund-check` live rather than reusing the recorded
+results, so the new refund limit shows in the answers. Those cases count as
+`diverged`, which a gate with `replay` and `maxDiverged: 0` refuses.
 
 ## In the console
 

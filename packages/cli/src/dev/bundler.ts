@@ -38,6 +38,7 @@ import {
   collectPackEntries,
   nodeModulesExternalPlugin,
 } from '../build/bundle.js';
+import { loadEsbuild } from '../esbuild-loader.js';
 import { devDistDir } from './paths.js';
 import type { ExternalPackage, PackBuild, PackBuilder } from './runners.js';
 
@@ -123,7 +124,7 @@ export function createDevPackBuilder(options: DevPackBuilderOptions): PackBuilde
     const found = await collectPackEntries(options.packDir, options.patterns);
     const key = JSON.stringify(found.map((e) => e.sourceRel));
     if (context !== undefined && key === entriesKey) return false;
-    const esbuild = await import('esbuild');
+    const esbuild = await loadEsbuild();
     await context?.dispose();
     entries = found;
     entriesKey = key;
@@ -225,7 +226,7 @@ async function configExternalsOf(
 ): Promise<Importers> {
   const found: Importers = new Map();
   if (configPath === undefined) return found;
-  const esbuild = await import('esbuild');
+  const esbuild = await loadEsbuild();
   try {
     await esbuild.build({
       absWorkingDir: packDir,

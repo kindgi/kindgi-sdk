@@ -8,8 +8,9 @@
   - The secret is printed once, with a warning on stderr.
   - `tokens list` (`--for`, `--table`), `get` and `revoke`.
 - **`service-accounts`:**
-  - `create <name> [--tenant-admin] [--project=<id>:<role>]…`;
+  - `create <name> [--tenant-admin] [--tenant-member] [--project=<id>:<role>]…`;
   - `list [--all]`, `get`;
-  - `grant` and `ungrant` (`--tenant-admin`, or `--project` with `--role`);
+  - `grant` and `ungrant` (`--tenant-admin`, `--tenant-member`, or `--project` with `--role`);
+  - a service account reads the tenant's settings only with `--tenant-member`: give it only what its job needs;
   - `unregister`.
-- **`people`:** `add --name [--email]` prints the new person's id. `list [--query]`, `get`.
+- **`people`:** `add --name [--email]` prints the new person's id, and says on stderr what being added gives them: they can read the tenant's settings, and need a project role to work. `list [--query]`, `get`.

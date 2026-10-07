@@ -85,6 +85,7 @@ describe('fromWire — conflicts', () => {
     'promotion-superseded',
     'gate-policy-already-registered',
     'gate-policy-needs-pin',
+    'gate-policy-descendant-unpinned',
     'service-account-name-taken',
     'service-account-unregistered',
     'identity-user-email-taken',

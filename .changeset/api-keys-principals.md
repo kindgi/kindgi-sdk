@@ -22,10 +22,11 @@ API keys act for a person or a service account, with that principal's grants. Al
   - `404 principal-not-found`: `for` names nobody.
   - `403 role-exceeds-principal`: an `admin` key for a principal who isn't a tenant admin.
 - **Service accounts** (`/v1/service-accounts`, tenant admins, with a `ServiceAccountBinding`):
-  - Create one with its first grants (tenant admin, or a role on a project); list, get, `grant`, `ungrant`, and `unregister` (a tombstone: its grants go and its keys stop working).
+  - Create one with its first grants (tenant admin, tenant member, or a role on a project); list, get, `grant`, `ungrant`, and `unregister` (a tombstone: its grants go and its keys stop working).
+  - A service account isn't a tenant member unless it's granted `{kind: 'tenant-member'}`, which lets it read the tenant's settings (providers, policies, adapters, signing keys, deployments). Give it only what its job needs.
   - Errors: `404 service-account-not-found`, `409 service-account-name-taken` and `409 service-account-unregistered`.
 - **Revoking sessions:** `POST /v1/identity/users/{userId}/revoke-sessions` now needs a tenant admin, unless the caller revokes their own sessions (`403 permission-denied`). Any caller could revoke anyone's before.
-- **Add a person:** `POST /v1/identity/users` (`{displayName, primaryEmail?}`), tenant admins only. It is mounted when the identity directory implements the new optional `createUser`. An email another person already has is `409 identity-user-email-taken`.
+- **Add a person:** `POST /v1/identity/users` (`{displayName, primaryEmail?}`), tenant admins only. It is mounted when the identity directory implements the new optional `createUser`. The person becomes a tenant member: they can read the tenant's settings, not its projects, until they're given a role. An email another person already has is `409 identity-user-email-taken`.
 - **TypeScript client:**
   - `tokens.create({ for })`, `tokens.list({ principal })`, the new `serviceAccounts` resource, and `users.create` (it used to throw `not-yet-wired`).
   - The new error codes are classified.
