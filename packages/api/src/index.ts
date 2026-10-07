@@ -50,6 +50,8 @@ export type {
   SessionTouchOutcome,
 } from './session-store-binding.js';
 export type {
+  IdentityCreateUserInput,
+  IdentityCreateUserResult,
   IdentityDirectoryBinding,
   IdentityGetUserInput,
   IdentityListSessionsInput,
@@ -89,9 +91,22 @@ export {
   type TokenListInput,
   type TokenMintInput,
   type TokenMintOutput,
+  type TokenMintRefusal,
+  type TokenPrincipal,
   type TokenRevokeInput,
   type TokenRevokeOutcome,
 } from './token-admin.js';
+export type {
+  ServiceAccount,
+  ServiceAccountBinding,
+  ServiceAccountCreateInput,
+  ServiceAccountError,
+  ServiceAccountErrorCode,
+  ServiceAccountGrant,
+  ServiceAccountGrantTarget,
+  ServiceAccountListInput,
+  ServiceAccountRef,
+} from './service-account-binding.js';
 export type {
   InvokeAgentBindingInput,
   InvokeFlowBindingInput,

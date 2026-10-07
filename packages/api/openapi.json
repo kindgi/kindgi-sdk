@@ -29,6 +29,9 @@
       "description": "API token administration (mint + revoke), and public run tokens: short-lived, read-only tokens a browser uses to follow specific runs."
     },
     {
+      "name": "service-accounts"
+    },
+    {
       "name": "approvals",
       "description": "Human-in-the-loop review queue (role-scoped)."
     },
@@ -321,6 +324,13 @@
           "gate-policy-scope-changed": 409,
           "gate-policy-scope-unpinned": 409,
           "gate-policy-needs-pin": 409,
+          "principal-not-found": 404,
+          "role-exceeds-principal": 403,
+          "key-project-mismatch": 403,
+          "service-account-not-found": 404,
+          "service-account-name-taken": 409,
+          "service-account-unregistered": 409,
+          "identity-user-email-taken": 409,
           "agent-version-live": 409,
           "run-not-finished": 409,
           "item-not-found": 400,
@@ -1888,14 +1898,18 @@
       "MintTokenBody": {
         "type": "object",
         "additionalProperties": false,
+        "description": "A new API key. `for` is whom it acts for: the caller by default; only a tenant admin mints for someone else.",
         "properties": {
+          "for": {
+            "$ref": "#/components/schemas/ApiKeyPrincipal"
+          },
           "role": {
             "type": "string",
             "enum": [
               "admin",
               "member"
             ],
-            "description": "The key's role in its tenant: `admin` administers the tenant (and manages keys); `member` belongs to it and administers nothing. Default `member`."
+            "description": "The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action, whoever it's for. Default `member`; `admin` needs a tenant admin minting it."
           },
           "capabilities": {
             "type": "array",
@@ -1917,7 +1931,8 @@
           },
           "projectId": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "Limit the key to this project: a request naming another project is refused (`key-project-mismatch`). A key limited to a project mints only keys limited to it."
           }
         }
       },
@@ -1937,13 +1952,16 @@
             "type": "string",
             "format": "uuid"
           },
+          "principal": {
+            "$ref": "#/components/schemas/ApiKeyPrincipal"
+          },
           "role": {
             "type": "string",
             "enum": [
               "admin",
               "member"
             ],
-            "description": "The key's role in its tenant: `admin` administers the tenant (and manages keys); `member` belongs to it and administers nothing."
+            "description": "The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action, whoever it's for."
           },
           "capabilities": {
             "type": "array",
@@ -1959,11 +1977,12 @@
           },
           "projectId": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "The project the key is limited to."
           },
           "createdBy": {
             "type": "string",
-            "description": "Who minted it: `user:<id>` or `service_account:<tokenId>`."
+            "description": "Who minted it: `user:<id>` or `service_account:<id>`."
           },
           "createdAt": {
             "type": "string",
@@ -1992,7 +2011,7 @@
       "ApiToken": {
         "type": "object",
         "additionalProperties": false,
-        "description": "An API key: a service account in its tenant. Never includes the secret.",
+        "description": "An API key. Never includes the secret. `principal` is whom it acts for; absent on a key that is a service account of its own (`service_account:<tokenId>`), as keys minted before principals are.",
         "required": [
           "tokenId",
           "role",
@@ -2004,13 +2023,16 @@
             "type": "string",
             "format": "uuid"
           },
+          "principal": {
+            "$ref": "#/components/schemas/ApiKeyPrincipal"
+          },
           "role": {
             "type": "string",
             "enum": [
               "admin",
               "member"
             ],
-            "description": "The key's role in its tenant: `admin` administers the tenant (and manages keys); `member` belongs to it and administers nothing."
+            "description": "The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action, whoever it's for."
           },
           "capabilities": {
             "type": "array",
@@ -2026,11 +2048,12 @@
           },
           "projectId": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "The project the key is limited to."
           },
           "createdBy": {
             "type": "string",
-            "description": "Who minted it: `user:<id>` or `service_account:<tokenId>`."
+            "description": "Who minted it: `user:<id>` or `service_account:<id>`."
           },
           "createdAt": {
             "type": "string",
@@ -2065,7 +2088,7 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "description": "An API key: a service account in its tenant. Never includes the secret.",
+              "description": "An API key. Never includes the secret. `principal` is whom it acts for; absent on a key that is a service account of its own (`service_account:<tokenId>`), as keys minted before principals are.",
               "required": [
                 "tokenId",
                 "role",
@@ -2077,13 +2100,16 @@
                   "type": "string",
                   "format": "uuid"
                 },
+                "principal": {
+                  "$ref": "#/components/schemas/ApiKeyPrincipal"
+                },
                 "role": {
                   "type": "string",
                   "enum": [
                     "admin",
                     "member"
                   ],
-                  "description": "The key's role in its tenant: `admin` administers the tenant (and manages keys); `member` belongs to it and administers nothing."
+                  "description": "The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action, whoever it's for."
                 },
                 "capabilities": {
                   "type": "array",
@@ -2099,11 +2125,12 @@
                 },
                 "projectId": {
                   "type": "string",
-                  "format": "uuid"
+                  "format": "uuid",
+                  "description": "The project the key is limited to."
                 },
                 "createdBy": {
                   "type": "string",
-                  "description": "Who minted it: `user:<id>` or `service_account:<tokenId>`."
+                  "description": "Who minted it: `user:<id>` or `service_account:<id>`."
                 },
                 "createdAt": {
                   "type": "string",
@@ -2132,6 +2159,222 @@
           },
           "hasMore": {
             "type": "boolean"
+          }
+        }
+      },
+      "ApiKeyPrincipal": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "id"
+        ],
+        "description": "Whom an API key acts for: a person, or a service account.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "user",
+              "service-account"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The user id, or the service account id."
+          }
+        }
+      },
+      "ServiceAccountGrantTenantAdmin": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind"
+        ],
+        "description": "Tenant admin.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tenant-admin"
+            ]
+          }
+        }
+      },
+      "ServiceAccountGrantProject": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "projectId",
+          "role"
+        ],
+        "description": "A role on one project; it replaces the account's role there.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "project"
+            ]
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "$ref": "#/components/schemas/ProjectRole"
+          }
+        }
+      },
+      "ServiceAccountGrant": {
+        "description": "What a service account may do: tenant admin, or a role on one project.",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ServiceAccountGrantTenantAdmin"
+          },
+          {
+            "$ref": "#/components/schemas/ServiceAccountGrantProject"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind"
+        }
+      },
+      "ServiceAccountGrantBody": {
+        "description": "The grant to add: tenant admin, or a role on one project.",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ServiceAccountGrantTenantAdmin"
+          },
+          {
+            "$ref": "#/components/schemas/ServiceAccountGrantProject"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind"
+        }
+      },
+      "ServiceAccountUngrantProject": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "projectId"
+        ],
+        "description": "Whatever role the account has on one project.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "project"
+            ]
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "ServiceAccountUngrantBody": {
+        "description": "The grant to remove: tenant admin, or the role on a project.",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ServiceAccountGrantTenantAdmin"
+          },
+          {
+            "$ref": "#/components/schemas/ServiceAccountUngrantProject"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind"
+        }
+      },
+      "ServiceAccount": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "A named, non-human principal (`service_account:<id>`) for an app, a pipeline or a schedule. It acts through API keys minted for it.",
+        "required": [
+          "serviceAccountId",
+          "name",
+          "grants",
+          "createdAt"
+        ],
+        "properties": {
+          "serviceAccountId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "description": "Unique among the tenant's active accounts."
+          },
+          "description": {
+            "type": "string"
+          },
+          "grants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ServiceAccountGrant"
+            }
+          },
+          "createdBy": {
+            "type": "string",
+            "description": "Who created it: `user:<id>` or `service_account:<id>`."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "unregisteredAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Set once unregistered: it has no grants, and its keys no longer work."
+          }
+        }
+      },
+      "ServiceAccountPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ServiceAccount"
+            }
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateServiceAccountBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+            "description": "Lowercase letters, digits and hyphens, e.g. `acme-ci`."
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "grants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ServiceAccountGrant"
+            },
+            "description": "Written before the account is returned, so its first key works at once."
           }
         }
       },
@@ -11190,7 +11433,7 @@
         }
       },
       "WhoamiResult": {
-        "description": "Introspection of the caller's current authentication context. Always carries `tenantId` and `scopes` (empty for static bearer tokens), plus `userId` when the token carries one; session-token callers additionally see `sessionId`, `providerId`, and `expiresAt`. `user` is the caller's directory record, present when the deployment wires an identity directory and it knows the `userId`. `reviewerRole` is set when the caller is a reviewer — its token carries a reviewer role, or its user is a registered reviewer — so clients can gate reviewer-only UI (the approvals surface) without a second round trip.",
+        "description": "Introspection of the caller's current authentication context. Always carries `tenantId` and `scopes` (empty for static bearer tokens), plus `userId` when the token carries one; `principal` says whom the caller acts as, and an API key adds `tokenId`, its `role` and the `projectId` it is limited to; session-token callers additionally see `sessionId`, `providerId`, and `expiresAt`. `user` is the caller's directory record, present when the deployment wires an identity directory and it knows the `userId`. `reviewerRole` is set when the caller is a reviewer — its token carries a reviewer role, or its user is a registered reviewer — so clients can gate reviewer-only UI (the approvals surface) without a second round trip.",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -11232,6 +11475,25 @@
           },
           "user": {
             "$ref": "#/components/schemas/UserRecord"
+          },
+          "principal": {
+            "$ref": "#/components/schemas/ApiKeyPrincipal"
+          },
+          "tokenId": {
+            "type": "string",
+            "description": "The caller's API key, when it is one."
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "member"
+            ],
+            "description": "The caller's API key role, when the key has one."
+          },
+          "projectId": {
+            "type": "string",
+            "description": "The project the caller's API key is limited to, when it is."
           }
         }
       },
@@ -11269,6 +11531,24 @@
           "metadata": {
             "type": "object",
             "additionalProperties": true
+          }
+        }
+      },
+      "CreateUserBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "displayName"
+        ],
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "primaryEmail": {
+            "type": "string",
+            "description": "Unique among the tenant's people."
           }
         }
       },
@@ -16204,7 +16484,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin, or a capability the caller does not hold.",
+            "description": "Not a tenant admin where one is needed, or a capability the caller does not hold (`permission-denied`); an `admin` key for a principal that isn't a tenant admin (`role-exceeds-principal`); a key limited to a project minting for another (`key-project-mismatch`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -16214,7 +16494,7 @@
             }
           },
           "404": {
-            "description": "The body's `projectId` names no project of this tenant (`project-not-found`).",
+            "description": "The body's `projectId` names no project of this tenant (`project-not-found`), or `for` names no person or service account (`principal-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -16244,7 +16524,7 @@
             }
           }
         },
-        "description": "An API key is a service account in the tenant, with a `role` and explicit `capabilities`. Returns the plaintext token exactly once. Tenant admins only; a caller can only grant capabilities it holds. Only mounted when the deployment supplies a `TokenAdmin`.",
+        "description": "An API key acts for one principal (`for`: a person or a service account; default the caller), with that principal's grants. Its `role` is a ceiling under them and its `projectId` a limit. Returns the plaintext token exactly once. A person or a service account's key mints its own keys; only a tenant admin mints for someone else, or an `admin` key. A caller can only grant capabilities it holds, and a key limited to a project mints only keys limited to it. Only mounted when the deployment supplies a `TokenAdmin`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -16291,7 +16571,7 @@
             }
           },
           "400": {
-            "description": "Malformed cursor.",
+            "description": "Malformed cursor or `principal`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16311,7 +16591,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin.",
+            "description": "A caller with no keys of its own that is not a tenant admin.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16321,7 +16601,7 @@
             }
           }
         },
-        "description": "Newest first. Never returns secrets. Tenant admins only.",
+        "description": "Newest first. Never returns secrets. A tenant admin sees every key (`?principal=` for one principal's); anyone else sees their own.",
         "parameters": [
           {
             "name": "cursor",
@@ -16343,6 +16623,15 @@
             },
             "required": false,
             "description": "1..100. Default 25."
+          },
+          {
+            "name": "principal",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Tenant admins: only this principal's keys, `user:<id>` or `service-account:<id>`."
           }
         ],
         "security": [
@@ -16381,7 +16670,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin.",
+            "description": "A caller with no keys of its own that is not a tenant admin.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16391,7 +16680,7 @@
             }
           },
           "404": {
-            "description": "No token with that id under this tenant.",
+            "description": "No token with that id that the caller may see.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16401,7 +16690,7 @@
             }
           }
         },
-        "description": "Never returns the secret. Tenant admins only.",
+        "description": "Never returns the secret. A tenant admin reads any key; anyone else only their own (someone else's reads as missing).",
         "parameters": [
           {
             "name": "tokenId",
@@ -16460,7 +16749,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin.",
+            "description": "A caller with no keys of its own that is not a tenant admin.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16470,7 +16759,7 @@
             }
           },
           "404": {
-            "description": "No token with that id under this tenant.",
+            "description": "No token with that id that the caller may see.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16500,7 +16789,7 @@
             }
           }
         },
-        "description": "Takes effect on the next request. Tenant admins only.",
+        "description": "Takes effect on the next request. A tenant admin revokes any key; anyone else only their own.",
         "parameters": [
           {
             "name": "tokenId",
@@ -16511,6 +16800,608 @@
             },
             "required": true,
             "description": "ApiTokenId — opaque branded string (a UUID)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/service-accounts": {
+      "post": {
+        "operationId": "serviceAccounts.create",
+        "summary": "Create a service account",
+        "tags": [
+          "service-accounts"
+        ],
+        "responses": {
+          "201": {
+            "description": "Created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceAccount"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A grant names no project of this tenant (`project-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "An active service account has the name (`service-account-name-taken`), or an idempotency conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A named, non-human principal with its first grants, written before it is returned. Mint its keys at `POST /v1/tokens` with `for`. Tenant admins only. Mounted when the deployment supplies a `ServiceAccountBinding`.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateServiceAccountBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "serviceAccounts.list",
+        "summary": "List service accounts",
+        "tags": [
+          "service-accounts"
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of service accounts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceAccountPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Oldest first; active only unless `?includeUnregistered=true`. Tenant admins only.",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Opaque cursor from a prior response. Absent → first page."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "includeUnregistered",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            },
+            "required": false,
+            "description": "`true`: unregistered accounts too."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/service-accounts/{serviceAccountId}": {
+      "get": {
+        "operationId": "serviceAccounts.get",
+        "summary": "Read a service account",
+        "tags": [
+          "service-accounts"
+        ],
+        "responses": {
+          "200": {
+            "description": "The service account.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceAccount"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such service account (`service-account-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Unregistered ones too. Tenant admins only.",
+        "parameters": [
+          {
+            "name": "serviceAccountId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "The service account id."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/service-accounts/{serviceAccountId}/grant": {
+      "post": {
+        "operationId": "serviceAccounts.grant",
+        "summary": "Grant a service account",
+        "tags": [
+          "service-accounts"
+        ],
+        "responses": {
+          "200": {
+            "description": "The account, with its grants.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceAccount"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such service account (`service-account-not-found`), or no such project (`project-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The account is unregistered (`service-account-unregistered`), or an idempotency conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Tenant admin, or a role on a project (replacing the account's role there). Written before the call answers. Tenant admins only.",
+        "parameters": [
+          {
+            "name": "serviceAccountId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "The service account id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServiceAccountGrantBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/service-accounts/{serviceAccountId}/ungrant": {
+      "post": {
+        "operationId": "serviceAccounts.ungrant",
+        "summary": "Remove a grant from a service account",
+        "tags": [
+          "service-accounts"
+        ],
+        "responses": {
+          "200": {
+            "description": "The account, with its grants.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceAccount"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such service account (`service-account-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A no-op when the account does not hold it. Tenant admins only.",
+        "parameters": [
+          {
+            "name": "serviceAccountId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "The service account id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServiceAccountUngrantBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/service-accounts/{serviceAccountId}/unregister": {
+      "post": {
+        "operationId": "serviceAccounts.unregister",
+        "summary": "Unregister a service account",
+        "tags": [
+          "service-accounts"
+        ],
+        "responses": {
+          "200": {
+            "description": "The unregistered account.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceAccount"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such service account (`service-account-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A tombstone: its grants go and its keys stop working; it stays readable. Idempotent. Tenant admins only.",
+        "parameters": [
+          {
+            "name": "serviceAccountId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "The service account id."
           },
           {
             "name": "Idempotency-Key",
@@ -30303,6 +31194,103 @@
             "description": "Prefix match on `displayName`."
           }
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "identity.users.create",
+        "summary": "Add a person",
+        "tags": [
+          "identity"
+        ],
+        "responses": {
+          "201": {
+            "description": "The new person.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another person of the tenant has the email (`identity-user-email-taken`), or an idempotency conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Adds a person to the tenant, with no grants: give them a role (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. Tenant admins only. Mounted when the identity directory can add people.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserBody"
+              }
+            }
+          }
+        },
         "security": [
           {
             "bearerAuth": []

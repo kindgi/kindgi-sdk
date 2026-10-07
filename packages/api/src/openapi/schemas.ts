@@ -892,7 +892,18 @@ const ApiTokenRoleSchema: JsonSchema = {
   type: 'string',
   enum: ['admin', 'member'],
   description:
-    "The key's role in its tenant: `admin` administers the tenant (and manages keys); `member` belongs to it and administers nothing.",
+    "The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action, whoever it's for.",
+};
+
+export const ApiKeyPrincipalSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'id'],
+  description: 'Whom an API key acts for: a person, or a service account.',
+  properties: {
+    kind: { type: 'string', enum: ['user', 'service-account'] },
+    id: { type: 'string', minLength: 1, description: 'The user id, or the service account id.' },
+  },
 };
 
 const ApiTokenCapabilitiesSchema: JsonSchema = {
@@ -905,10 +916,13 @@ const ApiTokenCapabilitiesSchema: JsonSchema = {
 export const MintTokenBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
+  description:
+    'A new API key. `for` is whom it acts for: the caller by default; only a tenant admin mints for someone else.',
   properties: {
+    for: { $ref: '#/components/schemas/ApiKeyPrincipal' },
     role: {
       ...ApiTokenRoleSchema,
-      description: `${ApiTokenRoleSchema.description} Default \`member\`.`,
+      description: `${ApiTokenRoleSchema.description} Default \`member\`; \`admin\` needs a tenant admin minting it.`,
     },
     capabilities: {
       ...ApiTokenCapabilitiesSchema,
@@ -916,24 +930,35 @@ export const MintTokenBodySchema: JsonSchema = {
     },
     label: { type: 'string', description: 'Optional human-readable label.' },
     expiresAt: { type: 'string', format: 'date-time', description: 'ISO 8601 timestamp.' },
-    projectId: { type: 'string', format: 'uuid' },
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        'Limit the key to this project: a request naming another project is refused (`key-project-mismatch`). A key limited to a project mints only keys limited to it.',
+    },
   },
 };
 
 export const ApiTokenSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  description: 'An API key: a service account in its tenant. Never includes the secret.',
+  description:
+    'An API key. Never includes the secret. `principal` is whom it acts for; absent on a key that is a service account of its own (`service_account:<tokenId>`), as keys minted before principals are.',
   required: ['tokenId', 'role', 'capabilities', 'createdAt'],
   properties: {
     tokenId: { type: 'string', format: 'uuid' },
+    principal: { $ref: '#/components/schemas/ApiKeyPrincipal' },
     role: ApiTokenRoleSchema,
     capabilities: ApiTokenCapabilitiesSchema,
     label: { type: 'string' },
-    projectId: { type: 'string', format: 'uuid' },
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description: 'The project the key is limited to.',
+    },
     createdBy: {
       type: 'string',
-      description: 'Who minted it: `user:<id>` or `service_account:<tokenId>`.',
+      description: 'Who minted it: `user:<id>` or `service_account:<id>`.',
     },
     createdAt: { type: 'string', format: 'date-time' },
     expiresAt: { type: 'string', format: 'date-time' },
@@ -975,6 +1000,120 @@ export const ApiTokenPageSchema: JsonSchema = {
       description: 'Opaque cursor for the next page. Absent when `hasMore: false`.',
     },
     hasMore: { type: 'boolean' },
+  },
+};
+
+// ---------------- service accounts ----------------
+
+export const ServiceAccountGrantTenantAdminSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind'],
+  description: 'Tenant admin.',
+  properties: { kind: { type: 'string', enum: ['tenant-admin'] } },
+};
+
+export const ServiceAccountGrantProjectSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'projectId', 'role'],
+  description: "A role on one project; it replaces the account's role there.",
+  properties: {
+    kind: { type: 'string', enum: ['project'] },
+    projectId: { type: 'string', format: 'uuid' },
+    role: { $ref: '#/components/schemas/ProjectRole' },
+  },
+};
+
+export const ServiceAccountGrantSchema: JsonSchema = {
+  description: 'What a service account may do: tenant admin, or a role on one project.',
+  oneOf: [
+    { $ref: '#/components/schemas/ServiceAccountGrantTenantAdmin' },
+    { $ref: '#/components/schemas/ServiceAccountGrantProject' },
+  ],
+  discriminator: { propertyName: 'kind' },
+};
+
+export const ServiceAccountGrantBodySchema: JsonSchema = {
+  description: 'The grant to add: tenant admin, or a role on one project.',
+  oneOf: [
+    { $ref: '#/components/schemas/ServiceAccountGrantTenantAdmin' },
+    { $ref: '#/components/schemas/ServiceAccountGrantProject' },
+  ],
+  discriminator: { propertyName: 'kind' },
+};
+
+export const ServiceAccountUngrantProjectSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'projectId'],
+  description: 'Whatever role the account has on one project.',
+  properties: {
+    kind: { type: 'string', enum: ['project'] },
+    projectId: { type: 'string', format: 'uuid' },
+  },
+};
+
+export const ServiceAccountUngrantBodySchema: JsonSchema = {
+  description: 'The grant to remove: tenant admin, or the role on a project.',
+  oneOf: [
+    { $ref: '#/components/schemas/ServiceAccountGrantTenantAdmin' },
+    { $ref: '#/components/schemas/ServiceAccountUngrantProject' },
+  ],
+  discriminator: { propertyName: 'kind' },
+};
+
+export const ServiceAccountSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'A named, non-human principal (`service_account:<id>`) for an app, a pipeline or a schedule. It acts through API keys minted for it.',
+  required: ['serviceAccountId', 'name', 'grants', 'createdAt'],
+  properties: {
+    serviceAccountId: { type: 'string' },
+    name: { type: 'string', description: "Unique among the tenant's active accounts." },
+    description: { type: 'string' },
+    grants: { type: 'array', items: { $ref: '#/components/schemas/ServiceAccountGrant' } },
+    createdBy: {
+      type: 'string',
+      description: 'Who created it: `user:<id>` or `service_account:<id>`.',
+    },
+    createdAt: { type: 'string', format: 'date-time' },
+    unregisteredAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'Set once unregistered: it has no grants, and its keys no longer work.',
+    },
+  },
+};
+
+export const ServiceAccountPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/ServiceAccount' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+  },
+};
+
+export const CreateServiceAccountBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['name'],
+  properties: {
+    name: {
+      type: 'string',
+      pattern: '^[a-z0-9][a-z0-9-]{0,62}$',
+      description: 'Lowercase letters, digits and hyphens, e.g. `acme-ci`.',
+    },
+    description: { type: 'string', maxLength: 500 },
+    grants: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/ServiceAccountGrant' },
+      description: 'Written before the account is returned, so its first key works at once.',
+    },
   },
 };
 
@@ -6101,7 +6240,7 @@ export const LogoutResultSchema: JsonSchema = {
 
 export const WhoamiResultSchema: JsonSchema = {
   description:
-    "Introspection of the caller's current authentication context. Always carries `tenantId` and `scopes` (empty for static bearer tokens), plus `userId` when the token carries one; session-token callers additionally see `sessionId`, `providerId`, and `expiresAt`. `user` is the caller's directory record, present when the deployment wires an identity directory and it knows the `userId`. `reviewerRole` is set when the caller is a reviewer — its token carries a reviewer role, or its user is a registered reviewer — so clients can gate reviewer-only UI (the approvals surface) without a second round trip.",
+    "Introspection of the caller's current authentication context. Always carries `tenantId` and `scopes` (empty for static bearer tokens), plus `userId` when the token carries one; `principal` says whom the caller acts as, and an API key adds `tokenId`, its `role` and the `projectId` it is limited to; session-token callers additionally see `sessionId`, `providerId`, and `expiresAt`. `user` is the caller's directory record, present when the deployment wires an identity directory and it knows the `userId`. `reviewerRole` is set when the caller is a reviewer — its token carries a reviewer role, or its user is a registered reviewer — so clients can gate reviewer-only UI (the approvals surface) without a second round trip.",
   type: 'object',
   additionalProperties: false,
   required: ['tenantId', 'scopes'],
@@ -6114,6 +6253,16 @@ export const WhoamiResultSchema: JsonSchema = {
     expiresAt: { type: 'string', format: 'date-time' },
     reviewerRole: ReviewerRoleSchema,
     user: { $ref: '#/components/schemas/UserRecord' },
+    principal: { $ref: '#/components/schemas/ApiKeyPrincipal' },
+    tokenId: { type: 'string', description: "The caller's API key, when it is one." },
+    role: {
+      ...ApiTokenRoleSchema,
+      description: "The caller's API key role, when the key has one.",
+    },
+    projectId: {
+      type: 'string',
+      description: "The project the caller's API key is limited to, when it is.",
+    },
   },
 };
 
@@ -6131,6 +6280,16 @@ export const UserRecordSchema: JsonSchema = {
     createdAt: { type: 'string', format: 'date-time' },
     lastActiveAt: { type: 'string', format: 'date-time' },
     metadata: { type: 'object', additionalProperties: true },
+  },
+};
+
+export const CreateUserBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['displayName'],
+  properties: {
+    displayName: { type: 'string', minLength: 1, maxLength: 200 },
+    primaryEmail: { type: 'string', description: "Unique among the tenant's people." },
   },
 };
 
@@ -8253,6 +8412,16 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['MintTokenResult', MintTokenResultSchema],
   ['ApiToken', ApiTokenSchema],
   ['ApiTokenPage', ApiTokenPageSchema],
+  ['ApiKeyPrincipal', ApiKeyPrincipalSchema],
+  ['ServiceAccountGrantTenantAdmin', ServiceAccountGrantTenantAdminSchema],
+  ['ServiceAccountGrantProject', ServiceAccountGrantProjectSchema],
+  ['ServiceAccountGrant', ServiceAccountGrantSchema],
+  ['ServiceAccountGrantBody', ServiceAccountGrantBodySchema],
+  ['ServiceAccountUngrantProject', ServiceAccountUngrantProjectSchema],
+  ['ServiceAccountUngrantBody', ServiceAccountUngrantBodySchema],
+  ['ServiceAccount', ServiceAccountSchema],
+  ['ServiceAccountPage', ServiceAccountPageSchema],
+  ['CreateServiceAccountBody', CreateServiceAccountBodySchema],
   ['RevokeTokenResult', RevokeTokenResultSchema],
   ['TrustedSigningKey', TrustedSigningKeySchema],
   ['TrustSigningKeyBody', TrustSigningKeyBodySchema],
@@ -8513,6 +8682,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['LogoutResult', LogoutResultSchema],
   ['WhoamiResult', WhoamiResultSchema],
   ['UserRecord', UserRecordSchema],
+  ['CreateUserBody', CreateUserBodySchema],
   ['UserCollectionPage', UserCollectionPageSchema],
   ['IdentitySessionSummary', IdentitySessionSummarySchema],
   ['IdentitySessionCollectionPage', IdentitySessionCollectionPageSchema],

@@ -9,29 +9,46 @@ import type { ApiTokenId, ProjectId, TenantId } from '@kindgi/types';
  * Splitting keeps the auth hot path free of write concerns and lets
  * deployments plug in different implementations.
  *
- * An API key is a machine credential: a service account
- * (`service_account:<tokenId>`) with a role in its tenant and an explicit
- * list of framework capabilities. `POST /v1/tokens` mints;
- * `GET /v1/tokens` and `GET /v1/tokens/:tokenId` read (never the secret);
+ * An API key always acts for one principal (`TokenPrincipal`): a person
+ * (`user:<id>`) or a service account (`service_account:<id>`), with that
+ * principal's grants and nothing more. Its `role` is a ceiling under those
+ * grants, and its `projectId` narrows it to one project; neither ever
+ * widens it. `POST /v1/tokens` mints; `GET /v1/tokens` and
+ * `GET /v1/tokens/:tokenId` read (never the secret);
  * `POST /v1/tokens/:tokenId/revoke` revokes.
  */
 export interface TokenAdmin {
-  mint(input: TokenMintInput): Promise<TokenMintOutput>;
+  /** The new key and its secret, or why the store refused it. */
+  mint(input: TokenMintInput): Promise<TokenMintOutput | TokenMintRefusal>;
   list(input: TokenListInput): Promise<readonly ApiTokenRecord[]>;
   get(input: TokenGetInput): Promise<ApiTokenRecord | undefined>;
   revoke(input: TokenRevokeInput): Promise<TokenRevokeOutcome>;
 }
 
 /**
- * A key's role in its tenant. `admin` administers the tenant (and mints,
- * lists and revokes keys); `member` belongs to it and administers nothing.
+ * A key's role: the most it may do, under its principal's grants. An
+ * `admin` key may administer the tenant when its principal can; a `member`
+ * key administers nothing, even when its principal is an admin (a
+ * day-to-day key that can't change keys, grants or policies).
  */
 export type ApiTokenRole = 'admin' | 'member';
 
 export const API_TOKEN_ROLES: readonly ApiTokenRole[] = ['admin', 'member'];
 
+/** Whom a key acts for: a person, or a service account. */
+export type TokenPrincipal =
+  | { readonly kind: 'user'; readonly userId: string }
+  | { readonly kind: 'service-account'; readonly serviceAccountId: string };
+
 export interface TokenMintInput {
   readonly tenantId: TenantId;
+  /**
+   * Whom the key acts for: the caller, unless a tenant admin names
+   * someone else. Absent when a tenant admin whose token names no
+   * principal mints for themselves; the key is then a service account of
+   * its own, as every key was before principals.
+   */
+  readonly principal?: TokenPrincipal;
   readonly role: ApiTokenRole;
   /**
    * Framework capabilities the key carries (`env:write`, `secrets:write`,
@@ -42,7 +59,7 @@ export interface TokenMintInput {
   readonly label?: string;
   /** Optional expiration date. */
   readonly expiresAt?: Date;
-  /** Optional project scope; when set, tokens are only valid for that project. */
+  /** Optional project: the key is narrowed to it, refused on any other. */
   readonly projectId?: ProjectId;
   /**
    * Who minted it, as a principal reference: `user:<id>` or
@@ -50,6 +67,15 @@ export interface TokenMintInput {
    */
   readonly createdBy?: string;
 }
+
+/**
+ * A mint the store refused: the principal doesn't exist (or is
+ * unregistered), or an `admin` key for a principal that isn't a tenant
+ * admin.
+ */
+export type TokenMintRefusal =
+  | { readonly kind: 'principal-not-found'; readonly message: string }
+  | { readonly kind: 'role-exceeds-principal'; readonly message: string };
 
 export interface TokenMintOutput {
   /** The new key, as `list` and `get` will show it. */
@@ -65,6 +91,8 @@ export interface TokenMintOutput {
 /** What a key looks like after minting: everything but its secret. */
 export interface ApiTokenRecord {
   readonly tokenId: ApiTokenId;
+  /** Whom it acts for. Absent from stores built before principals. */
+  readonly principal?: TokenPrincipal;
   readonly role: ApiTokenRole;
   readonly capabilities: readonly string[];
   readonly label?: string;
@@ -87,6 +115,8 @@ export interface ApiTokenRecord {
 export interface TokenListInput {
   readonly tenantId: TenantId;
   readonly limit: number;
+  /** Only the keys that act for this principal (a person sees only their own). */
+  readonly principal?: TokenPrincipal;
   /** The last record of the previous page. */
   readonly after?: { readonly createdAt: Date; readonly tokenId: ApiTokenId };
 }

@@ -85,6 +85,9 @@ describe('fromWire — conflicts', () => {
     'promotion-superseded',
     'gate-policy-already-registered',
     'gate-policy-needs-pin',
+    'service-account-name-taken',
+    'service-account-unregistered',
+    'identity-user-email-taken',
   ])('a %s is a conflict, its code the reason', (code) => {
     expect(fromWire({ code, message: 'taken' })).toEqual({
       code: 'conflict',
@@ -99,10 +102,20 @@ describe('fromWire — live versions', () => {
   it.each([
     ['agent-version-not-found', 'agent-version'],
     ['promotion-not-found', 'promotion'],
+    ['principal-not-found', 'principal'],
+    ['service-account-not-found', 'service-account'],
   ])('a %s is a not-found of a %s', (code, kind) => {
     expect(fromWire({ code, message: 'gone' })).toMatchObject({
       code: 'not-found',
       resource: { kind },
+    });
+  });
+
+  it.each(['role-exceeds-principal', 'key-project-mismatch'])('a %s is forbidden', (code) => {
+    expect(fromWire({ code, message: 'no' })).toMatchObject({
+      code: 'auth',
+      reason: 'forbidden',
+      serverCode: code,
     });
   });
 

@@ -228,6 +228,10 @@ export type {
 } from './generated/api.js';
 export type { FollowRunOptions, RunProgressEvent, SubscribeToRunOptions } from './run-follow.js';
 export type { JudgeClassFilter, JudgeClassesClient } from './resources/judge-classes.js';
+export type {
+  ServiceAccountFilter,
+  ServiceAccountsClient,
+} from './resources/service-accounts.js';
 export type { JudgmentFilter, JudgmentsClient } from './resources/judgments.js';
 export type {
   McpClient,
@@ -401,6 +405,7 @@ export type {
   AdapterStatus,
   AdapterTestOutcome,
   AgentId,
+  ApiKeyPrincipal,
   ApiToken,
   ApiTokenCreated,
   ApiTokenId,
@@ -546,6 +551,7 @@ export type {
   RouteResult,
   CreateJudgeClassInput,
   CreateJudgmentInput,
+  CreateServiceAccountInput,
   RegisterMcpEndpointInput,
   Reviewer,
   ReviewerId,
@@ -559,6 +565,9 @@ export type {
   RunStartedEvent,
   ScheduleId,
   ScheduleSpec,
+  ServiceAccount,
+  ServiceAccountGrant,
+  ServiceAccountGrantTarget,
   SearchInput,
   Session,
   SessionId,

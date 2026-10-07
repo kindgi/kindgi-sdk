@@ -33,6 +33,12 @@ export interface AppEnv {
      * account.
      */
     tokenId?: ApiTokenId;
+    /** The service account an API key acts for. */
+    serviceAccountId?: string;
+    /** An API key's role ceiling (`member` keys can't administer the tenant). */
+    tokenRole?: 'admin' | 'member';
+    /** The project an API key is narrowed to. */
+    tokenProjectId?: string;
     /**
      * Set by `bearerAuthMiddleware` when the caller presented a
      * framework-issued OAuth session token (`kgi_sk_*`).

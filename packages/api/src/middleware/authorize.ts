@@ -79,6 +79,8 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
         },
       };
     }
+    const ceiling = keyCeilingDeny(c, action, resource);
+    if (ceiling !== undefined) return ceiling;
     const requestId = c.get('requestId');
     const ctx =
       typeof requestId === 'string' && requestId.length > 0
@@ -138,4 +140,40 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
       return out;
     },
   };
+}
+
+/**
+ * What an API key itself rules out, before the principal's grants are
+ * asked: a key can do less than its principal, never more.
+ *
+ * - A `member` key takes no `admin` action, even for a principal who is an
+ *   admin: a day-to-day key can't change keys, grants or policies.
+ * - A key limited to a project acts on no other project, and takes no
+ *   `admin` action on the tenant.
+ */
+function keyCeilingDeny(
+  c: Context<AppEnv>,
+  action: Action,
+  resource: ResourceRef,
+): Decision | undefined {
+  const resourceKey = `${resource.type}:${resource.id}`;
+  const deny = (reason: string): Decision => ({
+    allowed: false,
+    failing: 'scope',
+    reason,
+    evidence: { action, relation: '', resource: resourceKey, actorSubject: '' },
+  });
+  if (action === 'admin' && c.get('tokenRole') === 'member') {
+    return deny('a member API key takes no admin action');
+  }
+  const keyProject = c.get('tokenProjectId');
+  if (keyProject !== undefined) {
+    if (resource.type === 'project' && resource.id !== keyProject) {
+      return deny(`the API key is limited to project ${keyProject}`);
+    }
+    if (resource.type === 'tenant' && action === 'admin') {
+      return deny(`the API key is limited to project ${keyProject}`);
+    }
+  }
+  return undefined;
 }
