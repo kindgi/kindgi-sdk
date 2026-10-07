@@ -4981,8 +4981,13 @@ class RetentionPolicyConflict(BaseModel):
         "judgment",
         "judge_class",
         "provider",
+        "memory",
+        "conversation",
         "*",
     ]
+    """
+    The kind of record a retention policy covers. `*` covers every domain without a policy of its own, except `memory` and `conversation`: they hold people's words, so only a policy naming them purges them.
+    """
     policy_ids: Annotated[list[str], Field(alias="policyIds", min_length=2)]
     """
     Every policy id that covers the domain, sorted.
@@ -5013,8 +5018,13 @@ class RetentionScheduledItem(BaseModel):
         "judgment",
         "judge_class",
         "provider",
+        "memory",
+        "conversation",
         "*",
     ]
+    """
+    The kind of record a retention policy covers. `*` covers every domain without a policy of its own, except `memory` and `conversation`: they hold people's words, so only a policy naming them purges them.
+    """
     id: str
     """
     The tombstoned row's id in its domain.
@@ -5070,6 +5080,8 @@ class RetentionScheduledPage(BaseModel):
                 "judgment",
                 "judge_class",
                 "provider",
+                "memory",
+                "conversation",
                 "*",
             ]
         ],
@@ -5095,6 +5107,8 @@ class RetentionScheduledPage(BaseModel):
                 "judgment",
                 "judge_class",
                 "provider",
+                "memory",
+                "conversation",
                 "*",
             ]
         ],
@@ -5130,6 +5144,8 @@ class RetentionSweepBody(BaseModel):
             "judgment",
             "judge_class",
             "provider",
+            "memory",
+            "conversation",
             "*",
         ]
         | None
@@ -5174,8 +5190,13 @@ class PerDomainItem(BaseModel):
         "judgment",
         "judge_class",
         "provider",
+        "memory",
+        "conversation",
         "*",
     ]
+    """
+    The kind of record a retention policy covers. `*` covers every domain without a policy of its own, except `memory` and `conversation`: they hold people's words, so only a policy naming them purges them.
+    """
     purged: Annotated[int, Field(ge=0)]
     remaining: Annotated[int, Field(ge=0)]
     """

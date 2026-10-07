@@ -5228,6 +5228,8 @@ export const ReinstatePolicyVersionResultSchema: JsonSchema = {
 export const RetentionDomainSchema: JsonSchema = {
   type: 'string',
   enum: [...RETENTION_DOMAINS],
+  description:
+    "The kind of record a retention policy covers. `*` covers every domain without a policy of its own, except `memory` and `conversation`: they hold people's words, so only a policy naming them purges them.",
 };
 
 /**

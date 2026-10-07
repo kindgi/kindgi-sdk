@@ -1749,7 +1749,8 @@ export type PolicyStatus = 'draft' | 'active' | 'archived';
 
 /**
  * A tombstoning domain a `retention` policy can cover; `*` is the
- * tenant-wide default. Wire enum — matches
+ * tenant-wide default, except for `memory` and `conversation`, which
+ * only a policy naming them covers. Wire enum — matches
  * `@kindgi/api/openapi.json#RetentionDomain`.
  */
 export type RetentionDomain =
@@ -1767,6 +1768,8 @@ export type RetentionDomain =
   | 'judgment'
   | 'judge_class'
   | 'provider'
+  | 'memory'
+  | 'conversation'
   | '*';
 
 /**
