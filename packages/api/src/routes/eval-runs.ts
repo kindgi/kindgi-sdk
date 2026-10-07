@@ -2,8 +2,10 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 
 import type { AgentId } from '@kindgi/agents';
+import { type Action, ref } from '@kindgi/authz';
 import type { Cursor, FlowId, ProjectId, RunId, Semver, TenantId, Timestamp } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
@@ -18,7 +20,9 @@ import {
   type FlowRef,
 } from '../eval-run-binding.js';
 import { VERSIONS_NEED_A_FLOW } from '../judged-dispatcher.js';
+import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
+import { deniedBy } from './denied.js';
 import { parseComparison } from './eval-comparison.js';
 import { type FlowVersionsCheck, checkFlowVersions } from './eval-versions.js';
 import { clampLimit } from './pagination.js';
@@ -43,6 +47,13 @@ import { formatSseFrame } from './sse.js';
  * The binding chooses its underlying substrate (the in-process
  * reference keeps runs in memory; a durable binding can back them with
  * runs and their journal); this route only sees the surface.
+ *
+ * With an authorizer (T243 A): starting a run needs `write` on the
+ * project it lands in and `execute` on what it evaluates (the agent or
+ * flow), on top of the eval-suites router's own check on the suite. An
+ * eval run is read through its suite: `read` on the suite to list, get or
+ * follow it, `write` to cancel it. A run that isn't there is still the
+ * handler's 404.
  */
 export interface EvalRunsRouters {
   readonly start: Hono<AppEnv>;
@@ -57,10 +68,11 @@ export interface EvalRunsRouters {
 export function evalRunsRouters(
   binding: EvalRunBinding,
   versionsCheck?: FlowVersionsCheck,
+  authorizer?: Authorizer,
 ): EvalRunsRouters {
   return {
-    start: startRouter(binding, versionsCheck),
-    readback: readbackRouter(binding),
+    start: startRouter(binding, versionsCheck, authorizer),
+    readback: readbackRouter(binding, authorizer),
   };
 }
 
@@ -91,7 +103,11 @@ async function versionsRefusal(
   };
 }
 
-function startRouter(binding: EvalRunBinding, versionsCheck?: FlowVersionsCheck): Hono<AppEnv> {
+function startRouter(
+  binding: EvalRunBinding,
+  versionsCheck?: FlowVersionsCheck,
+  authorizer?: Authorizer,
+): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
   r.post('/:suiteId/runs', async (c) => {
@@ -119,6 +135,15 @@ function startRouter(binding: EvalRunBinding, versionsCheck?: FlowVersionsCheck)
       c.status(statusFor(parsed.error.code) as never);
       return c.json(toWireError(parsed.error, requestId));
     }
+    const { projectId, agentRef, flowRef } = parsed.value;
+    const target =
+      agentRef !== undefined
+        ? ref('agent', agentRef.agentId as unknown as string)
+        : ref('flow', flowRef?.flowId as unknown as string);
+    const refused =
+      (await deniedBy(authorizer, c, 'write', ref('project', projectId as unknown as string))) ??
+      (await deniedBy(authorizer, c, 'execute', target));
+    if (refused !== undefined) return refused;
     const refusal = await versionsRefusal(versionsCheck, tenantId, parsed.value);
     if (refusal !== undefined) {
       c.status(statusFor(refusal.code) as never);
@@ -206,8 +231,16 @@ function startRouter(binding: EvalRunBinding, versionsCheck?: FlowVersionsCheck)
 
 // ---------- /v1/eval-runs/* (readback + cancel + SSE) ----------
 
-function readbackRouter(binding: EvalRunBinding): Hono<AppEnv> {
+function readbackRouter(binding: EvalRunBinding, authorizer?: Authorizer): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  /** The refusal, if any, of `action` on the suite of the run named in the path. */
+  const onRunSuite = async (c: Context<AppEnv>, action: Action): Promise<Response | undefined> => {
+    if (authorizer === undefined) return undefined;
+    const tenantId = c.get('tenantId') as TenantId;
+    const run = await binding.get({ tenantId, runId: c.req.param('runId') as RunId });
+    if (run === null) return undefined;
+    return deniedBy(authorizer, c, action, ref('eval_suite', run.suiteId));
+  };
 
   // ---------- GET / (list) ----------
   r.get('/', async (c) => {
@@ -270,8 +303,14 @@ function readbackRouter(binding: EvalRunBinding): Hono<AppEnv> {
       ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
     });
+    const visible =
+      authorizer === undefined
+        ? page.data
+        : await authorizer.filterByCan(c, 'read', page.data, (run) =>
+            ref('eval_suite', run.suiteId),
+          );
     return c.json({
-      data: page.data.map(serializeEvalRun),
+      data: visible.map(serializeEvalRun),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -279,6 +318,8 @@ function readbackRouter(binding: EvalRunBinding): Hono<AppEnv> {
 
   // ---------- GET /:runId ----------
   r.get('/:runId', async (c) => {
+    const refused = await onRunSuite(c, 'read');
+    if (refused !== undefined) return refused;
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const runId = c.req.param('runId') as RunId;
@@ -298,6 +339,8 @@ function readbackRouter(binding: EvalRunBinding): Hono<AppEnv> {
 
   // ---------- POST /:runId/cancel ----------
   r.post('/:runId/cancel', async (c) => {
+    const refused = await onRunSuite(c, 'write');
+    if (refused !== undefined) return refused;
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const runId = c.req.param('runId') as RunId;
@@ -340,6 +383,8 @@ function readbackRouter(binding: EvalRunBinding): Hono<AppEnv> {
 
   // ---------- GET /:runId/events (SSE) ----------
   r.get('/:runId/events', async (c) => {
+    const refused = await onRunSuite(c, 'read');
+    if (refused !== undefined) return refused;
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const runId = c.req.param('runId') as RunId;

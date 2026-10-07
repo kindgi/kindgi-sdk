@@ -1374,6 +1374,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
             ...(input.toolRegistry !== undefined && { tools: input.toolRegistry }),
           }
         : undefined,
+      authorizer,
     );
     v1.route('/eval-suites', evalRuns.start);
     v1.route('/eval-runs', evalRuns.readback);
