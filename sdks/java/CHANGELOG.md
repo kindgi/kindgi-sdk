@@ -1,0 +1,26 @@
+# Kindgi JVM SDKs
+
+Every artifact under `sdks/java` has one version, the same as the npm
+packages' and PyPI's. Each user-visible change adds its line under
+**Unreleased** in the pull request that makes it. A release turns that
+heading into its version.
+
+## Unreleased
+
+- `kindgi-pack`: **your app's Jackson modules apply to tool inputs, tool
+  outputs, a check's attributes and the schemas derived from your types.**
+  They're found the way `ObjectMapper.findAndRegisterModules()` finds them,
+  through `META-INF/services`. A module that renames properties renames them
+  in the tool's schema too. A module your app registers only in code, on its
+  own `ObjectMapper`, isn't seen. The pack protocol and the pack index use a
+  separate mapper that your modules never change. (#329)
+- `kindgi-pack`: `Tool.Builder.asyncHandler` and `Guardrail.Builder.asyncCheck`
+  take a `CompletionStage`. `ctx.cancellation().onCancel(…)` stops work a
+  handler started elsewhere. (#329)
+- `kindgi-pack`: `com.kindgi.pack.spi.SchemaTypeAdapter` lets a JVM language
+  layer teach the schema deriver its own types. (#329)
+- `kindgi-pack`: first release. Tools, guardrail checks, agents and flows in
+  Java, plus the indexer and the pack service that runs them (preview). (#313)
+- `kindgi-client` and `kindgi-models`: first release. The Kindgi API client
+  for Java 17 or later, generated from the API's OpenAPI description, with
+  `runs().follow(runId)` for a run's events through to its end (preview). (#297)

@@ -97,7 +97,9 @@ PyPI); the script refuses any other.
    in its body: `Release-decision: <the version, who decided, and
    when>`, naming a role (the maintainers), never a person, since the
    body becomes the changelog entry (`pnpm run check:changeset-bumps`,
-   in CI).
+   in CI). Changesets don't reach the JVM SDKs (`sdks/java`): a
+   user-visible change there adds its line under **Unreleased** in
+   `sdks/java/CHANGELOG.md`, in the same pull request.
 2. Merging to `main` updates the "Version Packages" pull request
    (opened by the org's release GitHub App, so CI runs on it like any
    other pull request).
