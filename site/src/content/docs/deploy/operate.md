@@ -46,6 +46,11 @@ curl -s http://localhost:4000/health
 {"ok":true}
 ```
 
+Point a load balancer's health check at `/ready` (or `/health`), not `/`:
+`/` leads to the console (a `302`), and without the console it answers `200`
+even while the database is down, so a check on `/` would pass a broken
+runtime.
+
 `/health` says the process is up. `/ready` says its database answers too, within two seconds. Neither needs a token:
 
 ```sh
