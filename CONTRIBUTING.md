@@ -119,7 +119,44 @@ moves the versions and stamps nothing. CI fails when they differ
    against the release.
 4. Publishing is a manual, approved run of the **Release** workflow
    (npm trusted publishing with provenance, and PyPI trusted publishing
-   with attestations — no tokens).
+   with attestations — no tokens). The JVM SDKs go to Maven Central first,
+   and npm waits for them: the CLI scaffolds Java and Scala packs on
+   kindgi-pack at its own version.
+
+### Maven Central
+
+Central takes signed artifacts through the Central Portal, and a version
+it has is permanent: it can't be changed or deleted. The Release
+workflow's `publish-maven` job, in the `maven-publish` environment
+(required reviewer):
+
+1. Maven (`./mvnw -P release deploy`) and sbt (`sbt +publishSigned`) build,
+   test, sign and stage the artifacts on disk: every jar with its sources
+   and javadoc jars, every file with its `.asc`.
+2. `scripts/check-jars.mjs` checks those files: the artifacts we publish
+   and no others, their version, the pom metadata Central requires, each
+   pom's runtime dependencies against its list, classes only under
+   `com/kindgi/` and no test code, the LICENSE and NOTICE, and no forbidden
+   name in any class, source or page. The Java and Scala workflows run it on
+   every pull request, on an unsigned staging.
+3. `scripts/central-bundle.mjs` bundles the same files, verifying every
+   signature against the release key's fingerprint, and uploads them as one
+   deployment, so a version's Java and Scala artifacts publish together or
+   not at all. A dry run has the Portal validate the deployment and then
+   drops it; nothing is published. A version Central already has is
+   skipped.
+
+The environment holds the Portal user token (`MAVEN_CENTRAL_USERNAME`,
+`MAVEN_CENTRAL_PASSWORD`), the signing key (`MAVEN_GPG_PRIVATE_KEY`,
+`MAVEN_GPG_PASSPHRASE`) and the key's public fingerprint (the variable
+`MAVEN_GPG_FINGERPRINT`). The key is imported into a keyring of the job's
+own and deleted at its end. A new module is published only once it's listed
+in `check-jars.mjs`'s `ARTIFACTS`, with its runtime dependencies.
+
+To stage and check locally (a JDK 17 and sbt): `./mvnw -P release
+-Dgpg.skip=true deploy` in `sdks/java`, `sbt +publish` in `sdks/scala`, then
+`node scripts/check-jars.mjs sdks/java/target/central-staging
+sdks/scala/target/sona-staging`.
 
 ### Release candidates
 
@@ -131,6 +168,11 @@ one gets without asking for them by version:
   `latest` is still a release afterwards.
 - **PyPI:** they're `X.Y.ZrcN`, which pip and uv install only when asked
   for by version.
+- **Maven Central:** they're `X.Y.Z-rc.N`, published like a release
+  (Central has no tags). A build gets one only by naming it, or through a
+  version range: Maven doesn't keep pre-releases out of ranges. They stay
+  on Central: an rc CLI's `kindgi init --template=java` and `kindgi build`
+  need its kindgi-pack there.
 - **The public docs** come from releases only.
 - **An rc CLI keeps its set together:** `kindgi init` pins the rc
   packages, a Python pack gets `kindgi>=X.Y.ZrcN,<…`, and its hints name

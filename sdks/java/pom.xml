@@ -13,7 +13,7 @@
   <packaging>pom</packaging>
 
   <name>Kindgi Java SDK (parent)</name>
-  <description>Java SDK for Kindgi™: call the Kindgi API from a Java application.</description>
+  <description>Java SDK for Kindgi™: call the Kindgi API from a Java app, and write a pack's tools in Java or Scala. In preview: tested and supported, but the API may still change in 0.1.6 without the usual deprecation period.</description>
   <url>https://github.com/kindgi/kindgi-sdk/tree/main/sdks/java</url>
   <inceptionYear>2026</inceptionYear>
   <organization>
@@ -59,6 +59,74 @@
         <module>compat/spring-boot-3</module>
         <module>compat/spring-boot-4</module>
       </modules>
+    </profile>
+    <!--
+      Maven Central (.github/workflows/release.yml): every published jar with its sources and
+      javadoc jars, and every file signed. `deploy` writes them to target/central-staging, a Maven
+      repository on disk; scripts/check-jars.mjs checks that directory and
+      scripts/central-bundle.mjs uploads it to the Central Portal, with the Scala layer's, as one
+      deployment. With -Dgpg.skip=true nothing is signed (CI checks the jars on every pull request).
+      The signing key is the one in GNUPGHOME's keyring, its passphrase in MAVEN_GPG_PASSPHRASE: never
+      in a file or on a command line.
+    -->
+    <profile>
+      <id>release</id>
+      <properties>
+        <altDeploymentRepository>central-staging::file:${maven.multiModuleProjectDirectory}/target/central-staging</altDeploymentRepository>
+      </properties>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-source-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>attach-sources</id>
+                <goals>
+                  <goal>jar-no-fork</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-javadoc-plugin</artifactId>
+            <configuration>
+              <!-- Every check but a missing comment: the generated models document what the API does. -->
+              <doclint>all,-missing</doclint>
+            </configuration>
+            <executions>
+              <execution>
+                <id>attach-javadocs</id>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>sign-artifacts</id>
+                <phase>verify</phase>
+                <goals>
+                  <goal>sign</goal>
+                </goals>
+                <configuration>
+                  <!-- The passphrase only from MAVEN_GPG_PASSPHRASE or the agent, never settings.xml. -->
+                  <bestPractices>true</bestPractices>
+                  <gpgArguments>
+                    <arg>--pinentry-mode</arg>
+                    <arg>loopback</arg>
+                  </gpgArguments>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
     </profile>
   </profiles>
 
@@ -173,6 +241,11 @@
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-enforcer-plugin</artifactId>
           <version>3.6.3</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-gpg-plugin</artifactId>
+          <version>3.2.8</version>
         </plugin>
       </plugins>
     </pluginManagement>

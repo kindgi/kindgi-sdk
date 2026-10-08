@@ -14,7 +14,7 @@
 
   <artifactId>kindgi-models</artifactId>
   <name>Kindgi Java models</name>
-  <description>The Kindgi™ API's models for Java: records, unions and enums, with builders and the API's checks. kindgi-client brings them; an app's own Jackson reads and writes them.</description>
+  <description>The Kindgi™ API's models for Java: records, unions and enums, with builders and the API's checks. kindgi-client brings them; an app's own Jackson reads and writes them. In preview: tested and supported, but the API may still change in 0.1.6 without the usual deprecation period.</description>
 
   <properties>
     <kindgi.openapi>${project.basedir}/../../../packages/api/openapi.json</kindgi.openapi>

@@ -14,7 +14,7 @@
 
   <artifactId>kindgi-pack</artifactId>
   <name>Kindgi Java packs</name>
-  <description>Write a Kindgi™ pack's tools and guardrail checks in Java: define them, index the pack, and serve them to the Kindgi runtime over the pack protocol.</description>
+  <description>Write a Kindgi™ pack's tools and guardrail checks in Java: define them, index the pack, and serve them to the Kindgi runtime over the pack protocol. In preview: tested and supported, but the API may still change in 0.1.6 without the usual deprecation period.</description>
 
   <properties>
     <!--

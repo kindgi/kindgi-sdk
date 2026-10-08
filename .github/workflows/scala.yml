@@ -3,7 +3,8 @@ name: Scala SDK
 # The Scala layer (sdks/scala, kindgi-pack-scala) on Java 17, tested on Scala 2.13 and 3.3, then the
 # pack conformance suite on its fixture pack (packages/pack-conformance/fixtures/scala-pack), built
 # with each. It runs when the layer, kindgi-pack (which it builds on), the fixture or the suite
-# change. Not a required check yet.
+# change. Not a required check yet. What would go to Maven Central is staged unsigned and checked as
+# the release checks it (scripts/check-jars.mjs).
 on:
   push:
     branches: [main]
@@ -14,6 +15,12 @@ on:
       - "packages/pack-conformance/**"
       - "packages/specs/schemas/**"
       - ".github/workflows/scala.yml"
+      # What goes to Maven Central, checked here.
+      - "scripts/check-jars.mjs"
+      - "scripts/lib/zip.mjs"
+      - "scripts/lib/pom-xml.mjs"
+      - "scripts/text-scan.mjs"
+      - "scripts/forbidden-names.json"
   pull_request:
     # `ready_for_review` fires when a draft is marked ready; the job's `if:` skips drafts.
     types: [opened, synchronize, reopened, ready_for_review]
@@ -24,6 +31,12 @@ on:
       - "packages/pack-conformance/**"
       - "packages/specs/schemas/**"
       - ".github/workflows/scala.yml"
+      # What goes to Maven Central, checked here.
+      - "scripts/check-jars.mjs"
+      - "scripts/lib/zip.mjs"
+      - "scripts/lib/pom-xml.mjs"
+      - "scripts/text-scan.mjs"
+      - "scripts/forbidden-names.json"
   workflow_dispatch:
 
 concurrency:
@@ -55,14 +68,17 @@ jobs:
         working-directory: sdks/java
         run: ./mvnw -B -ntp -pl kindgi-pack -am install -DskipTests
       # publishLocal builds the Scaladoc too, so a doc comment Scaladoc can't read fails here.
+      # `publish` stages what would go to Maven Central, unsigned, in target/sona-staging.
       - name: Test and publish the layer locally (Scala 2.13 and 3.3)
         working-directory: sdks/scala
-        run: sbt -batch +test +publishLocal
+        run: sbt -batch +test +publishLocal +publish
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
           cache: pnpm
+      - name: What would go to Maven Central (check-jars)
+        run: node scripts/check-jars.mjs sdks/scala/target/sona-staging
       - run: pnpm install --frozen-lockfile
       - name: Build the suite's dependencies
         run: pnpm --filter "@kindgi/pack-conformance^..." run build

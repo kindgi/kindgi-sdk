@@ -39,10 +39,11 @@ import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { XmlError, pomLeaves } from './lib/pom-xml.mjs';
 import { StampError, stampUnreleased, unreleasedProblems } from './lib/stamp-unreleased.mjs';
 import { SyncError, fixedGroupVersion } from './sync-python-version.mjs';
 
-export { SyncError };
+export { SyncError, pomLeaves };
 
 /** The Maven build whose modules version with the npm packages. */
 export const ROOT_POM = 'sdks/java/pom.xml';
@@ -75,62 +76,7 @@ export function toMaven(version) {
 /** `version.sbt`'s one line for a version. */
 export const sbtLine = (version) => `ThisBuild / version := "${version}"`;
 
-// ---- poms, read as text ----------------------------------------------------
-
-const TOKEN =
-  /<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<\?[\s\S]*?\?>|<!DOCTYPE[^>]*>|<(\/?)([A-Za-z_][\w.:-]*)(?:\s+[^\s=/>]+\s*=\s*(?:"[^"]*"|'[^']*'))*\s*(\/?)>/g;
-
-/**
- * The text-only elements of a pom, by path (`project/parent/version`), with
- * where their text is: enough to read coordinates and edit one element in
- * place. Comments, CDATA and processing instructions are skipped, so a
- * `<version>` inside a comment is never one.
- *
- * @param {string} text the pom
- * @param {string} file its path, for the messages
- * @returns {{ path: string, value: string, start: number, end: number }[]}
- */
-export function pomLeaves(text, file) {
-  const leaves = [];
-  const stack = [];
-  let last = 0;
-  for (const match of text.matchAll(TOKEN)) {
-    if (text.slice(last, match.index).includes('<')) {
-      throw new SyncError(`${file}: not well-formed XML near offset ${last}`);
-    }
-    last = match.index + match[0].length;
-    const [, closing, name, selfClosing] = match;
-    if (name === undefined) continue;
-    if (closing === '/') {
-      const open = stack.pop();
-      if (open?.name !== name) {
-        throw new SyncError(
-          `${file}: </${name}> closes ${open === undefined ? 'nothing' : `<${open.name}>`}`,
-        );
-      }
-      if (!open.hasChildren) {
-        const path = [...stack.map((frame) => frame.name), name].join('/');
-        leaves.push({
-          path,
-          value: text.slice(open.start, match.index),
-          start: open.start,
-          end: match.index,
-        });
-      }
-    } else if (selfClosing !== '/') {
-      if (stack.length > 0) stack[stack.length - 1].hasChildren = true;
-      stack.push({ name, start: last, hasChildren: false });
-    } else if (stack.length > 0) {
-      stack[stack.length - 1].hasChildren = true;
-    }
-  }
-  if (text.slice(last).includes('<') || stack.length > 0) {
-    throw new SyncError(
-      `${file}: not well-formed XML (${stack.length > 0 ? `<${stack.at(-1).name}> is never closed` : 'trailing markup'})`,
-    );
-  }
-  return leaves;
-}
+// ---- poms, read as text (scripts/lib/pom-xml.mjs) -------------------------
 
 /** The one leaf at `path`, trimmed; undefined when there's none, refused when there are two. */
 function one(leaves, path, file) {
@@ -344,7 +290,8 @@ if (
   try {
     main(process.argv.slice(2));
   } catch (err) {
-    if (!(err instanceof SyncError) && !(err instanceof StampError)) throw err;
+    if (!(err instanceof SyncError || err instanceof StampError || err instanceof XmlError))
+      throw err;
     console.error(`${NAME}: ${err.message}`);
     process.exit(1);
   }
