@@ -3,6 +3,8 @@
 
 export { GUARDRAIL_SCHEMA_URI, defineGuardrail, validateGuardrailSpec } from './define.js';
 export { defineCheck } from './define-check.js';
+export { describeGuardrailConfigProblems, guardrailConfigProblems } from './config-problems.js';
+export type { GuardrailConfigProblem, GuardrailConfigProblemsInput } from './config-problems.js';
 export type { DefineCheckSpec, DefinedCheck, InferCheckConfig } from './define-check.js';
 export { BUILT_IN_CHECK_IDS, createCheckRegistry } from './checks.js';
 export {

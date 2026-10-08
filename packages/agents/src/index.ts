@@ -71,6 +71,7 @@ export type {
   OutputSchemaViolationError,
   ResumeAgentTurnInput,
   RunSnapshotError,
+  SemanticUnavailableError,
   ToolInvocationError,
   UnresolvedToolError,
 } from './invoke.js';
@@ -106,8 +107,16 @@ export type {
   TurnStartedEvent,
 } from './streaming.js';
 export { AUTO_INJECTED_VARS, renderInstructions } from './prompt.js';
-export { formatRetrievedForPrompt, runMemoryReaders, runRetrievals } from './retrieval.js';
-export type { RetrievalRun } from './retrieval.js';
+export {
+  MEMORY_DATA_RULE,
+  formatPoliciesForPrompt,
+  formatRetrievedForPrompt,
+  isPolicyFact,
+  retrieveForTurn,
+  runMemoryReaders,
+  runRetrievals,
+} from './retrieval.js';
+export type { DegradedIntent, RetrievalPass, RetrievalRun } from './retrieval.js';
 export type { RetrievalBindings } from './retrieval.js';
 export type {
   MissingParameterError,
@@ -141,6 +150,7 @@ export type {
   Agent,
   AgentBindings,
   AgentId,
+  AgentMemoryPolicy,
   AgentOutputSpec,
   BlockRef,
   Conversation,

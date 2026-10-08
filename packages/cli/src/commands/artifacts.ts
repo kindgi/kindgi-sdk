@@ -10,6 +10,7 @@ import { pipeline } from 'node:stream/promises';
 import type { BlobMeta, ListPage } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
+import { UsageError } from '../errors.js';
 import {
   type TableSpec,
   integerFlag,
@@ -99,7 +100,7 @@ function tagsFlag(ctx: CommandContext): Record<string, string> | undefined {
   const tags: Record<string, string> = {};
   for (const t of raw) {
     const eq = t.indexOf('=');
-    if (eq <= 0) throw new Error(`--tag must be key=value, got "${t}"`);
+    if (eq <= 0) throw new UsageError(`--tag must be key=value, got "${t}"`);
     tags[t.slice(0, eq)] = t.slice(eq + 1);
   }
   return tags;

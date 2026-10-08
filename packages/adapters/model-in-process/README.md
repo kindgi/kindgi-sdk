@@ -6,6 +6,10 @@ In-process `ModelProvider` for [`@kindgi/capabilities`](../../capabilities/). Ru
 
 Give the capability router a local provider it can match like any other. Every model reports `cost` of `0`, the provider's `region` is `'in-process'`, and `attributes` carry `in-process` plus each model's tier and `suitableFor` hints (`routing`, `classification`, `local`, `lower-cost`, …) for preference matching. `prepareInProcessModel` downloads weights ahead of the first call and streams progress in the `PrepareEvent` shape used by `AdapterFactoryEntry.prepare`.
 
+## Installing
+
+The ONNX runtime it runs on (`onnxruntime-node`, through `@huggingface/transformers`) ships its CPU binaries in the package. On Linux x64 its install script also downloads the CUDA and TensorRT providers from NuGet by default; this adapter runs on the CPU, so skip that download: with npm or yarn, `ONNXRUNTIME_NODE_INSTALL=skip npm install …` (the package's own variable). pnpm 10 and later don't run a dependency's install script unless you allow it, so leave `onnxruntime-node` off your allowed builds.
+
 ## Exports
 
 - **`inProcessAdapterEntry`** (`IN_PROCESS_ADAPTER_ID`) — the `AdapterFactoryEntry` a runtime registers: **`inProcessAdapterFactory`** (a registration lists models by their `MODEL_SPECS` key in `metadata.models[].name`), `prepare` (`prepareInProcessModel`), and **`inProcessCheckConfig(input)`**, which reports a model that isn't one of `MODEL_SPECS` (`metadata.models`) with the factory's own message.

@@ -58,6 +58,12 @@ export interface SignedExportVerification {
   /** The signed body, parsed: present when the signature checks out. */
   readonly body?: Readonly<Record<string, unknown>>;
   readonly signingKeyId: string;
+  /**
+   * What a valid export's reader should know, in words: for an audit
+   * bundle made by Kindgi 0.1.4 whose envelope `exportedAt` isn't the
+   * signed one, the signed time. Absent when there's nothing to say.
+   */
+  readonly notes?: readonly string[];
 }
 
 /** Verify a signed export's signature, and its key when `trustedKeys` is given. */
@@ -122,14 +128,46 @@ export async function verifySignedExport(
   }
 
   const body = JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>;
+  const notes: string[] = [];
   // The envelope's own exportedAt isn't signed; the body's is.
   if (body.exportedAt !== undefined && body.exportedAt !== envelope.exportedAt) {
-    issues.push(
-      `the envelope's exportedAt (${envelope.exportedAt}) isn't the signed one (${String(body.exportedAt)})`,
+    if (!madeByKindgi014(envelope, body)) {
+      issues.push(
+        `the envelope's exportedAt (${envelope.exportedAt}) isn't the signed one (${String(body.exportedAt)})`,
+      );
+      return fail();
+    }
+    notes.push(
+      `made by Kindgi 0.1.4, which stamped the envelope's exportedAt separately: the signed export time is ${String(body.exportedAt)} (the envelope says ${envelope.exportedAt})`,
     );
-    return fail();
   }
-  return { valid: true, checkedAgainst, body, signingKeyId: envelope.signingKeyId };
+  return {
+    valid: true,
+    checkedAgainst,
+    body,
+    signingKeyId: envelope.signingKeyId,
+    ...(notes.length > 0 && { notes }),
+  };
+}
+
+/**
+ * An audit bundle in Kindgi 0.1.4's format: the envelope's
+ * `bundleSchemaVersion` is the integer `1`, over a signed body with
+ * `bundleVersion: 1` (and no `bundleSchemaVersion`). 0.1.4 stamped the
+ * envelope's `exportedAt` separately from the signed one, so the two can
+ * be a millisecond apart; only this format is let off comparing them, and
+ * the signed time is the one reported. The body is signed, so an envelope
+ * can't claim the format for a later bundle.
+ */
+function madeByKindgi014(
+  envelope: SignedExportEnvelope,
+  body: Readonly<Record<string, unknown>>,
+): boolean {
+  return (
+    envelope.bundleSchemaVersion === 1 &&
+    body.bundleVersion === 1 &&
+    body.bundleSchemaVersion === undefined
+  );
 }
 
 function samePem(a: string, b: string): boolean {

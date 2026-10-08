@@ -18,6 +18,7 @@ import type {
 import type { Cursor, OrgId, ProjectId, TenantId, UserId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
+import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import {
@@ -44,7 +45,8 @@ import { clampLimit } from './pagination.js';
  *                                          `project-default-already-exists`
  *                                          for a second Default.
  *   - `GET    /default`                  — returns the tenant's Default
- *                                          project or 404 `project-not-found`.
+ *                                          project or 404 `project-not-found`;
+ *                                          read on it, as `GET /:projectId`.
  *                                          MUST be mounted BEFORE `/:projectId`.
  *   - `GET    /:projectId`               — get; 200 or 404 `project-not-found`.
  *   - `PATCH  /:projectId`               — partial update; 204, 404
@@ -53,8 +55,11 @@ import { clampLimit } from './pagination.js';
  *                                          move to an org that has it).
  *   - `DELETE /:projectId`               — 204 idempotent.
  *   - `GET    /:projectId/memberships`   — list; cursor-paginated.
- *   - `POST   /:projectId/memberships`   — add member; body `{ userId, role }`;
- *                                          201. Idempotent per binding contract.
+ *   - `POST   /:projectId/memberships`   — add member; body `{ userId, role }`
+ *                                          or `{ email, role }`; 201, or 404
+ *                                          `identity-user-not-found` for
+ *                                          someone not in the tenant.
+ *                                          Idempotent per binding contract.
  *   - `DELETE /:projectId/memberships/:userId`
  *                                        — 204 idempotent.
  *   - `PATCH  /:projectId/memberships/:userId`
@@ -77,6 +82,12 @@ export function projectsRouter(
    * projects the caller can read.
    */
   authorizer?: Authorizer,
+  /**
+   * Optional. The tenant's people: a member added to a project must be
+   * one of them, named by id or (when the directory looks people up by
+   * email) by email. Without it, an id is taken as given.
+   */
+  directory?: IdentityDirectoryBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -113,7 +124,68 @@ export function projectsRouter(
     return { kind: 'done', outcome: res.value };
   }
 
+  /**
+   * The person a new member names, among the tenant's people still here:
+   * by id, or by email when the directory looks people up by email.
+   * Without a directory, an id is taken as given.
+   */
+  async function resolveMember(
+    tenantId: TenantId,
+    named: MemberName,
+  ): Promise<
+    | { readonly kind: 'found'; readonly userId: UserId }
+    | { readonly kind: 'refused'; readonly error: Parameters<typeof toWireError>[0] }
+  > {
+    if ('userId' in named) {
+      if (directory === undefined) return { kind: 'found', userId: named.userId };
+      const user = await directory.getUser({ tenantId, userId: named.userId });
+      if (user !== null && user.unregisteredAt === undefined) {
+        return { kind: 'found', userId: user.userId };
+      }
+      return {
+        kind: 'refused',
+        error: {
+          code: 'identity-user-not-found',
+          message: `User "${named.userId as unknown as string}" is not a member of this tenant`,
+          userId: named.userId as unknown as string,
+        },
+      };
+    }
+    if (directory?.findUserByEmail === undefined) {
+      return {
+        kind: 'refused',
+        error: {
+          code: 'bad-input',
+          message: "This runtime doesn't look people up by email: name them by `userId`",
+        },
+      };
+    }
+    const user = await directory.findUserByEmail({ tenantId, email: named.email });
+    if (user !== null && user.unregisteredAt === undefined) {
+      return { kind: 'found', userId: user.userId };
+    }
+    return {
+      kind: 'refused',
+      error: {
+        code: 'identity-user-not-found',
+        message: `No one with email "${named.email}" is a member of this tenant`,
+      },
+    };
+  }
+
   // ---------- GET /default (literal segment; must precede /:projectId) ----------
+  // Read on the Default project, as `GET /:projectId` checks it: someone
+  // with a role on another project only gets 403, not its settings.
+  if (authorizer !== undefined) {
+    r.use('/default', async (c, next) => {
+      if (c.req.method !== 'GET') return next();
+      const proj = await binding.getDefault(c.get('tenantId') as TenantId);
+      // None: the handler answers 404.
+      if (proj === undefined) return next();
+      const mw = authorizer.authorize('read', () => ref('project', proj.id as unknown as string));
+      return mw(c, next);
+    });
+  }
   r.get('/default', async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
@@ -385,14 +457,10 @@ export function projectsRouter(
       );
     }
     const b = body as Record<string, unknown>;
-    if (typeof b.userId !== 'string' || b.userId.length === 0) {
+    const named = parseMemberName(b);
+    if (typeof named === 'string') {
       c.status(statusFor('bad-input') as never);
-      return c.json(
-        toWireError(
-          { code: 'bad-input', message: '`userId` is required and must be a non-empty string' },
-          requestId,
-        ),
-      );
+      return c.json(toWireError({ code: 'bad-input', message: named }, requestId));
     }
     if (!isProjectRole(b.role)) {
       c.status(statusFor('bad-input') as never);
@@ -406,6 +474,12 @@ export function projectsRouter(
         ),
       );
     }
+    const resolved = await resolveMember(tenantId, named);
+    if (resolved.kind === 'refused') {
+      c.status(statusFor(resolved.error.code) as never);
+      return c.json(toWireError(resolved.error, requestId));
+    }
+    const userId = resolved.userId;
     // Racy — the project can be deleted between the preliminary get and the add.
     const projectGone = () => {
       c.status(statusFor('project-not-found') as never);
@@ -427,7 +501,7 @@ export function projectsRouter(
       const res = await tenantHierarchy.addProjectMember({
         tenantId,
         projectId,
-        userId: b.userId as unknown as UserId,
+        userId,
         role: b.role as ProjectRole,
       });
       if (res.kind === 'err') {
@@ -437,7 +511,7 @@ export function projectsRouter(
     } else {
       const outcome = await membershipBinding.add(tenantId, {
         projectId,
-        userId: b.userId as unknown as UserId,
+        userId,
         role: b.role,
       });
       if (outcome.kind === 'project-not-found') return projectGone();
@@ -445,7 +519,7 @@ export function projectsRouter(
     c.status(201);
     return c.json({
       projectId: projectId as unknown as string,
-      userId: b.userId,
+      userId: userId as unknown as string,
       role: b.role,
     });
   });
@@ -678,6 +752,26 @@ export function projectsRouter(
   });
 
   return r;
+}
+
+/** Who a new member is: exactly one of `userId` and `email`. */
+type MemberName = { readonly userId: UserId } | { readonly email: string };
+
+/** A new member's `userId` or `email` (exactly one), or why not. */
+function parseMemberName(b: Record<string, unknown>): MemberName | string {
+  const hasId = b.userId !== undefined;
+  const hasEmail = b.email !== undefined;
+  if (hasId === hasEmail) return 'Give exactly one of `userId` and `email`';
+  if (hasId) {
+    if (typeof b.userId !== 'string' || b.userId.length === 0) {
+      return '`userId` must be a non-empty string';
+    }
+    return { userId: b.userId as UserId };
+  }
+  if (typeof b.email !== 'string' || b.email.trim().length === 0) {
+    return '`email` must be a non-empty string';
+  }
+  return { email: b.email.trim() };
 }
 
 function isProjectRole(x: unknown): x is 'viewer' | 'editor' | 'owner' | 'admin' | 'member' {

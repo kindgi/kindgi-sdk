@@ -3,6 +3,7 @@
 
 import type { ListPage, ProvenanceRecordMetadata } from '@kindgi/client';
 
+import { UsageError } from '../errors.js';
 import { type TableSpec, integerFlag, requiredPositional, runSdk, stringFlag } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
@@ -52,7 +53,7 @@ const list: LeafCommand = {
         const project = stringFlag(ctx, 'project');
         const org = stringFlag(ctx, 'org');
         if (project !== undefined && org !== undefined) {
-          throw new Error('--project and --org are mutually exclusive');
+          throw new UsageError('--project and --org are mutually exclusive');
         }
         const runId = stringFlag(ctx, 'run');
         const agentId = stringFlag(ctx, 'agent');
