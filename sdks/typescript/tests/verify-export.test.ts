@@ -117,6 +117,44 @@ describe('the shared test vectors (packages/specs/test-vectors/signed-export)', 
     },
   );
 
+  test('exports made by Kindgi 0.1.4 verify; an audit bundle whose envelope stamp is off reports the signed time', async () => {
+    const v = JSON.parse(
+      readFileSync(
+        fileURLToPath(
+          new URL(
+            '../../../packages/specs/test-vectors/signed-export/kindgi-0.1.4.json',
+            import.meta.url,
+          ),
+        ),
+        'utf8',
+      ),
+    ) as {
+      publicKeyPem: string;
+      auditBundle: SignedExportEnvelope;
+      auditBundleStampsDiffer: SignedExportEnvelope;
+      provenance: SignedExportEnvelope;
+      note: string;
+    };
+    const trusted = { trustedKeys: [v.publicKeyPem] };
+    const same = await verifySignedExport(v.auditBundle, trusted);
+    expect(same, JSON.stringify(same.issues)).toMatchObject({ valid: true });
+    expect(same.notes).toBeUndefined();
+    const differ = await verifySignedExport(v.auditBundleStampsDiffer, trusted);
+    expect(differ, JSON.stringify(differ.issues)).toMatchObject({ valid: true, notes: [v.note] });
+    const provenance = await verifySignedExport(v.provenance, trusted);
+    expect(provenance, JSON.stringify(provenance.issues)).toMatchObject({ valid: true });
+    expect(provenance.notes).toBeUndefined();
+  });
+
+  test("the 0.1.4 leniency is that format's alone: a 2.0.0 bundle's envelope stamp must match, even claiming version 1", async () => {
+    const v = vector('ed25519');
+    const moved = { ...v.valid, exportedAt: '2027-01-01T00:00:00.000Z' };
+    expect((await verifySignedExport(moved)).valid).toBe(false);
+    const claimed = await verifySignedExport({ ...moved, bundleSchemaVersion: 1 });
+    expect(claimed.valid).toBe(false);
+    expect(claimed.issues?.join(' ')).toContain("isn't the signed one");
+  });
+
   test('an algorithm this verifier does not know is refused, naming it', async () => {
     const result = await verifySignedExport(vector('unknown-algorithm').refused);
     expect(result.valid).toBe(false);

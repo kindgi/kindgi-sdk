@@ -259,6 +259,31 @@ async def test_check_config_is_validated(client: Any) -> None:
     answer = await call(http, check_call("g.bool", {}, "x"))
     assert answer["code"] == "input-validation-failed"
     assert answer["issues"][0]["params"] == {"missingProperty": "word"}
+    assert answer["message"] == (
+        "Check \"g.bool\" config failed validation: must have required property 'word'"
+    )
+
+
+@pytest.mark.anyio
+async def test_a_check_config_schema_that_does_not_compile_is_refused(
+    make_pack: Callable[..., Path],
+) -> None:
+    root = make_pack({"guardrails/checks.py": CHECKS})
+    outcome = run_indexer(root, artifact_version="1.1", published_at="2026-10-01T00:00:00.000Z")
+    assert outcome["kind"] == "ok", outcome
+    index = json.loads(Path(outcome["value"]["outputPath"]).read_text())
+    for entry in index["guardrails"]:
+        if entry["id"] == "g.bool":
+            entry["configSchema"] = {"type": "no-such-type"}
+    service = PackService(index, root, "tok", logger=lambda _: None)
+    assert service.prewarm() == []
+    transport = httpx.ASGITransport(app=service)
+    async with httpx.AsyncClient(transport=transport, base_url="http://pack") as http:
+        answer = await call(http, check_call("g.bool", {"word": "x"}, "x"))
+    service.close()
+    assert answer["code"] == "input-validation-failed"
+    assert answer["checkId"] == "g.bool"
+    assert answer["message"].startswith('Check "g.bool" config schema failed to compile: ')
 
 
 @pytest.mark.anyio

@@ -64,8 +64,21 @@ run:
 
 A `!` line is a warning: it doesn't fail, and things work now, but read it.
 
+The Provider check also asks the runtime about each registered provider
+(runtimes from 0.1.5). A registration the runtime can't build a provider from
+(one stored before the runtime checked registrations, say) is a warning, and a
+failure when no working provider is left. Each problem is on a line of its
+own:
+
+```text
+  ! Provider: 2 providers are registered: anthropic, openai. The runtime can't build openai from its registration, so agents only get the others.
+      ✗ openai: /adapter_config/api: adapter_config.api must be one of responses, chat-completions.
+      Fix: Unregister openai (pnpm exec kindgi providers unregister openai), then register it again: pnpm exec kindgi providers register --preset=openai.
+```
+
 `--json` gives the same checks as JSON, for a script or a coding agent
-([Set up with a coding agent](../agent/) has an agent read it).
+([Set up with a coding agent](../agent/) has an agent read it). A check's
+problems, such as each provider's above, are in its `details`.
 
 ## A TypeScript project
 

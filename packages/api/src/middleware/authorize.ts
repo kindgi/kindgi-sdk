@@ -23,6 +23,8 @@ import {
   type Action,
   type AuthzCheckBinding,
   type Decision,
+  OBJECT_ACTIONS,
+  type ObjectType,
   type Principal,
   type ResourceRef,
   denyPayload,
@@ -107,6 +109,8 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
         },
       };
     }
+    const undefinedPair = undefinedRelation(action, resource);
+    if (undefinedPair !== undefined) return undefinedPair;
     const ceiling = keyCeilingDeny(c, action, resource);
     if (ceiling !== undefined) return ceiling;
     if (!(await inKeyProject(c, principal, resource))) {
@@ -161,10 +165,12 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
       if (items.length === 0) return [];
       const principal = c.get('principal') as Principal | undefined;
       if (principal === undefined) return [];
-      // What the key itself rules out never reaches the store.
+      // What the model can't answer, or the key itself rules out, never
+      // reaches the store.
       const allowedByKey = await Promise.all(
         items.map(
           async (item) =>
+            undefinedRelation(action, refFn(item)) === undefined &&
             keyCeilingDeny(c, action, refFn(item)) === undefined &&
             (await inKeyProject(c, principal, refFn(item))),
         ),
@@ -198,6 +204,31 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
   };
 }
 
+/**
+ * A check must name a relation the authorization model defines for the
+ * resource's type (`OBJECT_ACTIONS`, kept equal to the runtime's model by
+ * its tests). Any other pair is a bug in the route: the PDP rejects it
+ * for everyone, the seed admin included, and only with authorization on,
+ * so it's refused here, naming the pair, and logged.
+ */
+function undefinedRelation(action: Action, resource: ResourceRef): Decision | undefined {
+  const defined = OBJECT_ACTIONS[resource.type as ObjectType] as readonly Action[] | undefined;
+  if (defined?.includes(action) === true) return undefined;
+  const reason = `the authorization model has no \`${action}\` on \`${resource.type}\` (a check that can never pass: a bug in the route)`;
+  console.error(`[authz] ${reason}`);
+  return {
+    allowed: false,
+    failing: 'invalid-action',
+    reason,
+    evidence: {
+      action,
+      relation: '',
+      resource: `${resource.type}:${resource.id}`,
+      actorSubject: '',
+    },
+  };
+}
+
 /** Types a key's project limit is checked on directly, not through `inProject`. */
 const STRUCTURAL: ReadonlySet<string> = new Set(['tenant', 'org', 'team', 'project']);
 
@@ -219,8 +250,10 @@ function keyDecision(action: Action, resource: ResourceRef, reason: string): Dec
  * What an API key itself rules out, before the principal's grants are
  * asked: a key can do less than its principal, never more.
  *
- * - A `member` key takes no `admin` action, even for a principal who is an
- *   admin: a day-to-day key can't change keys, grants or policies.
+ * - A `member` key takes no `admin` action on the tenant, even for a
+ *   principal who is a tenant admin: a day-to-day key can't change keys,
+ *   grants or policies. Below the tenant, its principal's roles hold: a
+ *   project admin's member key administers that project.
  * - A key limited to a project acts on no other project, and takes no
  *   `admin` action on the tenant, an org or a team. Other resources must
  *   be in its project (`inKeyProject`).
@@ -230,8 +263,8 @@ function keyCeilingDeny(
   action: Action,
   resource: ResourceRef,
 ): Decision | undefined {
-  if (action === 'admin' && c.get('tokenRole') === 'member') {
-    return keyDecision(action, resource, 'a member API key takes no admin action');
+  if (action === 'admin' && resource.type === 'tenant' && c.get('tokenRole') === 'member') {
+    return keyDecision(action, resource, 'a member API key takes no admin action on the tenant');
   }
   const keyProject = c.get('tokenProjectId');
   if (keyProject === undefined) return undefined;

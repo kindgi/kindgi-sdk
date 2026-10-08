@@ -65,7 +65,7 @@ The SDK's `AuthConfig` (`sdks/typescript/src/auth.ts`) already emits this header
 The only fully-public routes are:
 - `GET /health` — liveness. No auth. Returns `{ ok: true }`.
 - `GET /v1/openapi.json` — the OpenAPI document.
-- Webhook receivers (`POST /v1/webhooks/:webhookId/deliver`) — authenticated via HMAC signature header, not Bearer token.
+- Inbound webhook receivers, when a deployment turns them on — authenticated by an HMAC signature header, not a Bearer token. There's no receiver route yet: `/v1/webhooks` only manages the webhook triggers.
 
 ### 2.3 Tenant scoping
 
@@ -95,9 +95,10 @@ Idempotency-Key: <caller-supplied-uuid>
 ```
 
 Semantics:
-- Server stores `(tenantId, route, key) → response` for 24h.
-- Retries with the same key return the original response byte-identical (including status code).
+- Server stores `(tenantId, route, key) → response` for 24h, for a response that took effect (a status below 400). A refusal (4xx) or a failure (5xx) isn't stored, so a retry after fixing the cause runs again.
+- Retries with the same key return the stored response byte-identical (including status code), marked `X-Idempotent-Replay: true`.
 - Retries with the same key but a different body → `409 conflict` with error `code: 'idempotency-key-body-mismatch'`.
+- A retry sent while the first request still runs → `409 conflict` with error `code: 'idempotency-key-in-flight'` and `Retry-After`, when the store holds keys (`IdempotencyStore.holds`; the runtime's does from 0.1.5). It doesn't run the operation again; retry after it, and you get the first request's answer. The hold lasts 30 s and is renewed while the request runs, so a crashed request's key frees within 30 s.
 - Applies to `POST`, `PUT`, `PATCH`, `DELETE`.
 
 `@kindgi/client` sends the `Idempotency-Key` header on mutating calls when the caller passes `idempotencyKey`.
@@ -151,6 +152,7 @@ The SDK's `fromWire(json)` (`sdks/typescript/src/errors.ts`) matches on `code`.
 | `not-found`, `run-not-found`, `agent-not-found`  | 404         |
 | `already-terminal`, `run-already-terminal`       | 409         |
 | `idempotency-key-body-mismatch`                  | 409         |
+| `idempotency-key-in-flight`                      | 409         |
 | `duplicate-*`                                    | 409         |
 | `slug-conflict`, `project-default-already-exists`| 409         |
 | `validation-failed`, `unknown-field`, `bad-input`| 400         |
