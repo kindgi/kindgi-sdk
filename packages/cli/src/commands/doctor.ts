@@ -57,10 +57,10 @@ const DEV_ECHO_PROVIDER_ID = 'dev-echo';
 export const MIN_NODE = '22.12.0';
 /** The Python a Python project needs (`requires-python` in its pyproject.toml). */
 export const MIN_PYTHON = '3.11.0';
-/** The JDK a Java project needs (kindgi-pack's baseline). */
+/** The JDK a Java or Scala project needs (kindgi-pack's baseline). */
 export const MIN_JAVA = 17;
 
-type ProjectLanguage = 'node' | 'python' | 'java';
+type ProjectLanguage = 'node' | 'python' | 'java' | 'scala';
 
 export type DoctorCheckId =
   | 'node'
@@ -69,6 +69,7 @@ export type DoctorCheckId =
   | 'uv'
   | 'java'
   | 'maven'
+  | 'sbt'
   | 'docker'
   | 'registry'
   | 'project'
@@ -122,6 +123,7 @@ const TITLES: Readonly<Record<DoctorCheckId, string>> = {
   uv: 'uv',
   java: 'Java',
   maven: 'Maven',
+  sbt: 'sbt',
   docker: 'Docker',
   registry: 'Runtime image',
   project: 'Project',
@@ -168,14 +170,14 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
       : config.format === 'pyproject'
         ? 'python'
         : config.format === 'json'
-          ? 'java'
+          ? await jvmLanguageOf(config.path)
           : 'node';
   const pypi = cliInstall(ctx.env) === 'pypi';
   const kindgi = await kindgiCommand(dir, language, pypi, tool);
 
   checks.push(...(await nodeChecks(seam.nodeVersion ?? process.versions.node, tool, pypi)));
   checks.push(...(await pythonChecks(tool, language)));
-  checks.push(...(await javaChecks(tool, language, dir, ctx.env)));
+  checks.push(...(await jvmChecks(tool, language, dir, ctx.env)));
   const dockerCheck = await checkDockerRunning(run);
   checks.push(dockerCheck);
   checks.push(
@@ -351,66 +353,124 @@ function projectKind(language: ProjectLanguage | undefined): string {
       ? 'a Python project'
       : language === 'java'
         ? 'a Java project'
-        : 'no project yet';
+        : language === 'scala'
+          ? 'a Scala project'
+          : 'no project yet';
+}
+
+/** A `kindgi.config.json`'s language: `scala` when it says so, else `java`. */
+async function jvmLanguageOf(path: string): Promise<'java' | 'scala'> {
+  try {
+    return (JSON.parse(await readFile(path, 'utf8')) as { language?: unknown }).language === 'scala'
+      ? 'scala'
+      : 'java';
+  } catch {
+    return 'java';
+  }
 }
 
 /**
- * A JDK 17+ and Maven: needed by a Java project; elsewhere, what's
- * installed (for choosing a template). The JDK is `JAVA_HOME`'s, else the
- * `java` on PATH, as `kindgi dev` finds it; Maven is the project's wrapper
- * (`mvnw`), else `mvn`.
+ * A JDK 17+, and Maven or sbt: needed by a Java project (the JDK, Maven) or a
+ * Scala one (the JDK, sbt); elsewhere, what's installed (for choosing a
+ * template). The JDK is `JAVA_HOME`'s, else the `java` on PATH, as `kindgi
+ * dev` finds it; Maven is the project's wrapper (`mvnw`), else `mvn`; sbt is
+ * the `sbt` on PATH.
  */
-async function javaChecks(
+async function jvmChecks(
   tool: NonNullable<DoctorSeam['tool']>,
   language: ProjectLanguage | undefined,
   dir: string,
   env: Readonly<Record<string, string | undefined>>,
 ): Promise<DoctorCheck[]> {
+  return [
+    await jdkCheck(tool, language, env),
+    await mavenCheck(tool, language, dir),
+    await sbtCheck(tool, language),
+  ];
+}
+
+async function jdkCheck(
+  tool: NonNullable<DoctorSeam['tool']>,
+  language: ProjectLanguage | undefined,
+  env: Readonly<Record<string, string | undefined>>,
+): Promise<DoctorCheck> {
   const home = env.JAVA_HOME !== undefined && env.JAVA_HOME !== '' ? env.JAVA_HOME : undefined;
-  const javaCommand = home === undefined ? 'java' : join(home, 'bin', 'java');
-  const got = await tool(javaCommand, ['-version']);
-  const version = /version "([^"]+)"/.exec(`${got.stderr}\n${got.stdout}`)?.[1];
-  const major = version === undefined ? undefined : javaMajor(version);
+  const got = await tool(home === undefined ? 'java' : join(home, 'bin', 'java'), ['-version']);
+  const version =
+    got.code === null ? undefined : /version "([^"]+)"/.exec(`${got.stderr}\n${got.stdout}`)?.[1];
+  if (language !== 'java' && language !== 'scala') return jdkNotNeeded(language, version);
   const javaFix = `Install a JDK ${MIN_JAVA} or later (e.g. Eclipse Temurin, https://adoptium.net) and set JAVA_HOME to it.`;
+  const where = home === undefined ? 'the java on your PATH' : `JAVA_HOME, ${home}`;
+  if (version === undefined) return fail('java', `No JDK: ${where} doesn't run.`, javaFix);
+  const name = language === 'java' ? 'Java' : 'Scala';
+  return (javaMajor(version) ?? 0) >= MIN_JAVA
+    ? pass('java', `Java ${version} (${where}).`)
+    : fail(
+        'java',
+        `Java ${version} (${where}); a Kindgi ${name} project needs ${MIN_JAVA} or later.`,
+        javaFix,
+      );
+}
+
+/** The JDK outside a JVM project: what's installed, for choosing a template. */
+function jdkNotNeeded(
+  language: ProjectLanguage | undefined,
+  version: string | undefined,
+): DoctorCheck {
+  const installed = version !== undefined ? `Java ${version} is installed` : "Java isn't installed";
+  return skip(
+    'java',
+    `Not needed (${projectKind(language)}); ${installed}, for a Java or Scala project (kindgi init --template=java or scala).`,
+  );
+}
+
+async function mavenCheck(
+  tool: NonNullable<DoctorSeam['tool']>,
+  language: ProjectLanguage | undefined,
+  dir: string,
+): Promise<DoctorCheck> {
   const wrapper = await isFile(join(dir, 'mvnw'));
   const mvn = wrapper ? undefined : await tool('mvn', ['--version']);
   const mvnVersion = mvn?.code === 0 ? /Apache Maven (\S+)/.exec(mvn.stdout)?.[1] : undefined;
-  const mavenFix =
-    'Add the Maven wrapper to the project (mvn wrapper:wrapper), or install Maven 3.9 or later (https://maven.apache.org/install.html).';
   if (language !== 'java') {
-    const why = projectKind(language);
-    return [
-      skip(
-        'java',
-        `Not needed (${why}); ${version !== undefined && got.code === 0 ? `Java ${version} is installed` : "Java isn't installed"}, for a Java project (kindgi init --template=java).`,
-      ),
-      skip(
-        'maven',
-        `Not needed (${why}); ${mvnVersion !== undefined ? `Maven ${mvnVersion} is installed` : "Maven isn't installed"}, for a Java project.`,
-      ),
-    ];
+    return skip(
+      'maven',
+      `Not needed (${projectKind(language)}); ${mvnVersion !== undefined ? `Maven ${mvnVersion} is installed` : "Maven isn't installed"}, for a Java project.`,
+    );
   }
-  const where = home === undefined ? 'the java on your PATH' : `JAVA_HOME, ${home}`;
-  return [
-    got.code === null || version === undefined
-      ? fail('java', `No JDK: ${where} doesn't run.`, javaFix)
-      : major !== undefined && major >= MIN_JAVA
-        ? pass('java', `Java ${version} (${where}).`)
-        : fail(
-            'java',
-            `Java ${version} (${where}); a Kindgi Java project needs ${MIN_JAVA} or later.`,
-            javaFix,
-          ),
-    wrapper
-      ? pass('maven', 'The project has the Maven wrapper (mvnw).')
-      : mvnVersion !== undefined
-        ? pass('maven', `Maven ${mvnVersion}.`)
-        : fail(
-            'maven',
-            "Maven isn't installed, and the project has no Maven wrapper (mvnw).",
-            mavenFix,
-          ),
-  ];
+  if (wrapper) return pass('maven', 'The project has the Maven wrapper (mvnw).');
+  return mvnVersion !== undefined
+    ? pass('maven', `Maven ${mvnVersion}.`)
+    : fail(
+        'maven',
+        "Maven isn't installed, and the project has no Maven wrapper (mvnw).",
+        'Add the Maven wrapper to the project (mvn wrapper:wrapper), or install Maven 3.9 or later (https://maven.apache.org/install.html).',
+      );
+}
+
+async function sbtCheck(
+  tool: NonNullable<DoctorSeam['tool']>,
+  language: ProjectLanguage | undefined,
+): Promise<DoctorCheck> {
+  // `--script-version` answers from the launcher script, without starting a JVM.
+  const got = await tool('sbt', ['--script-version']);
+  const version = got.code === 0 ? /(\d+\.\d+\.\d+\S*)/.exec(got.stdout)?.[1] : undefined;
+  if (language !== 'scala') {
+    return skip(
+      'sbt',
+      `Not needed (${projectKind(language)}); ${version !== undefined ? `sbt ${version} is installed` : "sbt isn't installed"}, for a Scala project.`,
+    );
+  }
+  return version !== undefined
+    ? pass(
+        'sbt',
+        `sbt ${version} (the launcher; the project's own sbt is project/build.properties').`,
+      )
+    : fail(
+        'sbt',
+        "sbt isn't installed: a Kindgi Scala project builds with it.",
+        'Install sbt 1.10 or later (https://www.scala-sbt.org/download).',
+      );
 }
 
 async function isFile(path: string): Promise<boolean> {
@@ -519,7 +579,9 @@ function projectCheck(dir: string, language: ProjectLanguage, rc: Kindgirc): Doc
       ? 'A Python project (pyproject.toml)'
       : language === 'java'
         ? 'A Java project (kindgi.config.json)'
-        : 'A TypeScript project (kindgi.config.ts)';
+        : language === 'scala'
+          ? 'A Scala project (kindgi.config.json)'
+          : 'A TypeScript project (kindgi.config.ts)';
   if (rc.malformed !== undefined) {
     return fail(
       'project',
@@ -531,6 +593,39 @@ function projectCheck(dir: string, language: ProjectLanguage, rc: Kindgirc): Doc
     'project',
     `${kind} in ${dir}; ${rc.exists ? 'kindgi dev has run here (.kindgirc.json)' : "kindgi dev hasn't run here yet"}.`,
   );
+}
+
+/**
+ * A Scala project's build declares kindgi-pack-scala: in `build.sbt`, or a
+ * `project/*.scala` file it reads its dependencies from.
+ */
+async function scalaDependenciesCheck(dir: string): Promise<DoctorCheck> {
+  let build: string;
+  try {
+    build = await readFile(join(dir, 'build.sbt'), 'utf8');
+  } catch {
+    return fail(
+      'dependencies',
+      'No build.sbt: a Kindgi Scala project builds with sbt.',
+      'Create one with the kindgi-pack-scala dependency (kindgi init --template=scala writes one).',
+    );
+  }
+  const projectDir = join(dir, 'project');
+  const projectFiles = await readdir(projectDir).catch(() => [] as string[]);
+  const sources = [build];
+  for (const name of projectFiles.filter((f) => f.endsWith('.scala'))) {
+    sources.push(await readFile(join(projectDir, name), 'utf8').catch(() => ''));
+  }
+  return sources.some((text) => /"com\.kindgi"\s*%%\s*"kindgi-pack-scala"/.test(text))
+    ? pass(
+        'dependencies',
+        'The build has "com.kindgi" %% "kindgi-pack-scala" (sbt downloads it on the first build).',
+      )
+    : fail(
+        'dependencies',
+        'The build doesn\'t have "com.kindgi" %% "kindgi-pack-scala".',
+        'Add "com.kindgi" %% "kindgi-pack-scala" % "<version>" to libraryDependencies in build.sbt.',
+      );
 }
 
 async function dependenciesCheck(
@@ -562,6 +657,7 @@ async function dependenciesCheck(
           'Add the com.kindgi:kindgi-pack dependency to pom.xml.',
         );
   }
+  if (language === 'scala') return scalaDependenciesCheck(dir);
   if (language === 'python') {
     return (await pythonPackageInstalled(dir))
       ? pass('dependencies', 'The kindgi package is installed in .venv.')
@@ -752,8 +848,8 @@ async function kindgiCommand(
 ): Promise<Kindgi> {
   if (pypi) {
     // The PyPI build runs from the project's own environment; outside one (or in a
-    // Java project, which has none), uvx.
-    if (language === undefined || language === 'java') {
+    // Java or Scala project, which has none), uvx.
+    if (language === undefined || language === 'java' || language === 'scala') {
       return (...args) => ['uvx', '--from', 'kindgi-cli', 'kindgi', ...args].join(' ');
     }
     const runner = await pythonBinRunner(dir, { KINDGI_CLI_INSTALL: 'pypi' });

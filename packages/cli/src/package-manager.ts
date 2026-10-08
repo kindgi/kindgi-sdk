@@ -13,7 +13,7 @@ import { spawn } from 'node:child_process';
 import { readFile, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
-import type { PackLanguage } from '@kindgi/handler-runtime';
+import { type PackLanguage, isJvmLanguage } from '@kindgi/handler-runtime';
 
 import { CLI_VERSION } from './version-info.js';
 
@@ -236,8 +236,8 @@ export async function usablePackageManager(
 }
 
 /**
- * The pack's `BinRunner`: `pythonBinRunner`'s for a Python pack; for a Java
- * pack, which has no npm or Python environment, its `kindgiw` (the CLI
+ * The pack's `BinRunner`: `pythonBinRunner`'s for a Python pack; for a JVM
+ * pack (Java, Scala), which has no npm or Python environment, its `kindgiw` (the CLI
  * version it pins), else the published CLI through npx; else the manager
  * that runs here.
  */
@@ -248,8 +248,8 @@ export async function detectBinRunner(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): Promise<BinRunner> {
   if (language === 'python') return await pythonBinRunner(dir, env, io);
-  // A Java pack runs the CLI its kindgiw pins; without the wrapper, the published one.
-  if (language === 'java') return (await io.exists(join(dir, 'kindgiw'))) ? 'kindgiw' : 'path';
+  // A JVM pack (Java, Scala) runs the CLI its kindgiw pins; without the wrapper, the published one.
+  if (isJvmLanguage(language)) return (await io.exists(join(dir, 'kindgiw'))) ? 'kindgiw' : 'path';
   return (await usablePackageManager(dir, io)).pm;
 }
 

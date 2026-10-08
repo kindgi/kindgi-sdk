@@ -64,6 +64,7 @@ const TOOLS: Readonly<Record<string, string | null>> = {
   uv: 'uv 0.5.11 (Homebrew 2024-12-19)',
   java: 'openjdk version "21.0.6" 2025-01-21 LTS',
   mvn: 'Apache Maven 3.9.16 (abc)',
+  sbt: '1.12.15',
 };
 
 function seam(
@@ -158,6 +159,7 @@ describe('outside a project', () => {
       'uv',
       'java',
       'maven',
+      'sbt',
       'docker',
       'registry',
       'project',
@@ -514,6 +516,51 @@ describe('a Java project (kindgi.config.json)', () => {
       status: 'fail',
       fix: 'Add the com.kindgi:kindgi-pack dependency to pom.xml.',
     });
+  });
+});
+
+describe('a Scala project (kindgi.config.json, "language": "scala")', () => {
+  async function scalaProject(build?: string): Promise<void> {
+    await writeFile(
+      join(dir, 'kindgi.config.json'),
+      JSON.stringify({ language: 'scala', pack: { id: 'acme', version: '1.0.0' } }),
+    );
+    if (build !== undefined) await writeFile(join(dir, 'build.sbt'), build);
+  }
+
+  test('a JDK 17+, sbt and kindgi-pack-scala in the build pass; Maven is not needed', async () => {
+    await scalaProject('libraryDependencies ++= Dependencies.all\n');
+    // The dependency may live in project/*.scala.
+    await mkdir(join(dir, 'project'), { recursive: true });
+    await writeFile(
+      join(dir, 'project', 'Dependencies.scala'),
+      'object Dependencies { val all = Seq("com.kindgi" %% "kindgi-pack-scala" % "0.1.6") }\n',
+    );
+    const { report, check } = await doctor();
+    expect(report?.project).toEqual({ dir, language: 'scala' });
+    expect(check('project')?.message).toContain('A Scala project (kindgi.config.json)');
+    expect(check('java')).toMatchObject({ status: 'pass' });
+    expect(check('sbt')).toMatchObject({ status: 'pass' });
+    expect(check('sbt')?.message).toContain('sbt 1.12.15');
+    expect(check('maven')?.message).toContain('Not needed (a Scala project)');
+    expect(check('dependencies')).toMatchObject({ status: 'pass' });
+  });
+
+  test('no sbt and no kindgi-pack-scala: each fails with its fix', async () => {
+    await scalaProject('scalaVersion := "3.3.8"\n');
+    const { check } = await doctor({ seam: seam({ tools: { sbt: null } }) });
+    expect(check('sbt')).toMatchObject({ status: 'fail' });
+    expect(check('sbt')?.fix).toContain('scala-sbt.org');
+    expect(check('dependencies')).toMatchObject({
+      status: 'fail',
+      fix: 'Add "com.kindgi" %% "kindgi-pack-scala" % "<version>" to libraryDependencies in build.sbt.',
+    });
+  });
+
+  test('outside a Scala project, sbt is a skip that says whether it is installed', async () => {
+    const { check } = await doctor();
+    expect(check('sbt')).toMatchObject({ status: 'skip' });
+    expect(check('sbt')?.message).toContain('sbt 1.12.15 is installed, for a Scala project');
   });
 });
 

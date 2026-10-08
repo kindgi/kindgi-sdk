@@ -140,6 +140,8 @@ describe('detectBinRunner', () => {
     );
     // With its wrapper, the CLI version the pack pins.
     expect(await detectBinRunner('/app', 'java', io({ '/app/kindgiw': '' }))).toBe('kindgiw');
+    expect(await detectBinRunner('/app', 'scala', io({ '/app/kindgiw': '' }))).toBe('kindgiw');
+    expect(await detectBinRunner('/app', 'scala', io({}))).toBe('path');
     expect(binDisplay('kindgiw', 'kindgi', ['dev'])).toBe('./kindgiw dev');
   });
 
