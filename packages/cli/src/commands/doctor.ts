@@ -40,6 +40,7 @@ import {
 import { type DockerRunner, docker } from '../dev/runtime-container.js';
 import { DEFAULT_RUNTIME_IMAGE, registryOf } from '../dev/runtime-image.js';
 import { checkDocker, checkImageAccess, credentialHelperHint } from '../dev/runtime-registry.js';
+import { extractKindgiError } from '../errors.js';
 import { renderJson } from '../output.js';
 import {
   type PackageManager,
@@ -52,6 +53,7 @@ import {
 } from '../package-manager.js';
 import { type ProviderPreset, loadProviderPresets } from '../providers/preset-loader.js';
 import { CLI_VERSION } from '../version-info.js';
+import { probeConsole } from './console.js';
 import type { CommandResult, LeafCommand } from './types.js';
 
 /**
@@ -86,6 +88,12 @@ export interface DoctorCheck {
   readonly message: string;
   /** The exact command or step that fixes it: on every failure and warning, and on some skips. */
   readonly fix?: string;
+  /**
+   * One line per problem the message sums up (each registered provider's
+   * configuration problem: `<provider>: <path>: <message>`). The text output
+   * prints each under the check, marked ✗.
+   */
+  readonly details?: readonly string[];
 }
 
 /** What `kindgi doctor --json` prints. */
@@ -95,6 +103,8 @@ export interface DoctorReport {
   readonly cliVersion: string;
   /** The Kindgi project in the folder checked, or `null` outside one. */
   readonly project: { readonly dir: string; readonly language: 'node' | 'python' } | null;
+  /** The console of the runtime `kindgi dev` runs, when it answers and serves one. */
+  readonly consoleUrl?: string;
   readonly checks: readonly DoctorCheck[];
 }
 
@@ -201,7 +211,7 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
       ? await providerCheck(ctx, runtime.url, rc.token, kindgi, seam, dir)
       : skip('provider', `Not checked: it needs the runtime running (${kindgi('dev')}).`),
   );
-  return report(checks, { dir, language });
+  return report(checks, { dir, language }, runtime.consoleUrl);
 }
 
 /** The report as ✓/✗ lines, each failure with its fix. */
@@ -210,6 +220,7 @@ export function doctorText(report: DoctorReport): string {
   for (const check of report.checks) {
     const mark = MARKS[check.status];
     lines.push(`  ${mark} ${TITLES[check.id]}: ${check.message}`);
+    for (const detail of check.details ?? []) lines.push(`      ✗ ${detail}`);
     if (check.fix !== undefined && check.status !== 'pass') lines.push(`      Fix: ${check.fix}`);
   }
   const failed = report.checks.filter((c) => c.status === 'fail').length;
@@ -232,11 +243,16 @@ const MARKS: Readonly<Record<DoctorCheck['status'], string>> = {
   skip: '–',
 };
 
-function report(checks: readonly DoctorCheck[], project: DoctorReport['project']): DoctorReport {
+function report(
+  checks: readonly DoctorCheck[],
+  project: DoctorReport['project'],
+  consoleUrl?: string,
+): DoctorReport {
   return {
     ok: checks.every((c) => c.status !== 'fail'),
     cliVersion: CLI_VERSION,
     project,
+    ...(consoleUrl !== undefined && { consoleUrl }),
     checks,
   };
 }
@@ -566,7 +582,7 @@ async function runtimeCheck(
   ctx: CommandContext,
   rc: Kindgirc,
   kindgi: Kindgi,
-): Promise<{ readonly check: DoctorCheck; readonly url?: string }> {
+): Promise<{ readonly check: DoctorCheck; readonly url?: string; readonly consoleUrl?: string }> {
   const start = `Start it: ${kindgi('dev')} (it keeps running; stop it with Ctrl+C).`;
   const restart = `Restart kindgi dev (Ctrl+C, then ${kindgi('dev')})`;
   if (rc.apiUrl === undefined) {
@@ -577,8 +593,26 @@ async function runtimeCheck(
   const url = `${rc.apiUrl.replace(/\/+$/, '')}/health`;
   try {
     const res = await ctx.fetch(url, { method: 'GET', signal: AbortSignal.timeout(5000) });
-    if (res.ok)
-      return { check: pass('runtime', `The runtime answers at ${rc.apiUrl}.`), url: rc.apiUrl };
+    if (res.ok) {
+      // Where to open it: the console, when the runtime serves one (T374).
+      const consoleProbe = await probeConsole(ctx.fetch, rc.apiUrl);
+      return consoleProbe.kind === 'served'
+        ? {
+            check: pass(
+              'runtime',
+              `The runtime answers at ${rc.apiUrl}; its console is at ${consoleProbe.url}.`,
+            ),
+            url: rc.apiUrl,
+            consoleUrl: consoleProbe.url,
+          }
+        : {
+            check: pass(
+              'runtime',
+              `The runtime answers at ${rc.apiUrl}${consoleProbe.kind === 'not-served' ? ' (it serves no console)' : ''}.`,
+            ),
+            url: rc.apiUrl,
+          };
+    }
     return {
       check: fail(
         'runtime',
@@ -622,13 +656,41 @@ async function providerCheck(
         : `Register one: ${kindgi('providers', 'register', `--preset=${presets[0] ?? 'anthropic'}`)} (its key must be set first; see Model key).`;
     if (models.length > 0) {
       const registered = `${models.length === 1 ? 'A provider is' : `${models.length} providers are`} registered: ${models.join(', ')}.`;
-      const stale = staleDefaults(
-        listed,
-        await (seam.presets ?? (() => loadProviderPresets()))(),
-        kindgi,
-      );
+      const allPresets = await (seam.presets ?? (() => loadProviderPresets()))();
+      const stale = staleDefaults(listed, allPresets, kindgi);
       const google = await vertexCredentials(ids, dir, ctx.env);
       const notes = [...stale, ...(google === undefined ? [] : [google])];
+      const broken = await configIssues(ctx.clientFor(apiUrl, token), models);
+      if (broken !== undefined && broken.size > 0) {
+        const details = [...broken].flatMap(([id, issues]) =>
+          issues.map((i) => `${id}: ${i.path}: ${i.message}`),
+        );
+        const fix = [...broken.keys()]
+          .map((id) => reRegister(id, presetFor(id, allPresets), kindgi))
+          .join(' ');
+        const names = [...broken.keys()].join(', ');
+        if (broken.size === models.length) {
+          return {
+            ...fail(
+              'provider',
+              `No usable provider: the runtime can't build ${broken.size === 1 ? names : `any of ${names}`} from ${broken.size === 1 ? 'its' : 'their'} registration, so an agent has no model to call.`,
+              fix,
+            ),
+            details,
+          };
+        }
+        return {
+          ...warn(
+            'provider',
+            [
+              `${registered} The runtime can't build ${names} from ${broken.size === 1 ? 'its' : 'their'} registration, so agents only get the others.`,
+              ...notes.map((s) => s.message),
+            ].join(' '),
+            [fix, ...notes.map((s) => s.fix)].join(' '),
+          ),
+          details,
+        };
+      }
       return notes.length === 0
         ? pass('provider', registered)
         : warn(
@@ -715,7 +777,7 @@ function staleDefaults(
       return [
         {
           message: `On ${p.id}, an agent that names no model gets ${lands}, which the ${preset.name} preset no longer lists.`,
-          fix: `Re-register ${p.id} for the preset's current models: ${register}. Or name a model on your agents (preferredModel).`,
+          fix: `${reRegisterSteps(p.id as string, register, kindgi)} Or name a model on your agents (preferredModel).`,
         },
       ];
     }
@@ -729,12 +791,69 @@ function staleDefaults(
       return [
         {
           message: `On ${p.id}, an agent that names no model gets ${lands}, the first by name: ${p.id} has no default model, and the ${preset.name} preset's is ${wanted}.`,
-          fix: `Re-register ${p.id}: ${register}. A runtime older than 0.1.4 doesn't keep a default model: there, name a model on your agents (preferredModel).`,
+          fix: `${reRegisterSteps(p.id as string, register, kindgi)} A runtime older than 0.1.4 doesn't keep a default model: there, name a model on your agents (preferredModel).`,
         },
       ];
     }
     return [];
   });
+}
+
+/** A configuration problem `GET /v1/providers/{id}/check` reports. */
+interface ConfigIssue {
+  readonly path: string;
+  readonly message: string;
+}
+
+/**
+ * Each provider's configuration problems by its adapter's own static check
+ * (`GET /v1/providers/{id}/check`, T362): only the providers with any.
+ * `undefined` when the runtime has no such route (older than 0.1.5): the
+ * check is skipped. A provider the check can't read (gone meanwhile) is
+ * left out.
+ */
+async function configIssues(
+  client: ReturnType<CommandContext['clientFor']>,
+  ids: readonly string[],
+): Promise<ReadonlyMap<string, readonly ConfigIssue[]> | undefined> {
+  const out = new Map<string, readonly ConfigIssue[]>();
+  for (const id of ids) {
+    try {
+      const result = await client.providers.check(id);
+      if (result.issues.length > 0) out.set(id, result.issues);
+    } catch (err) {
+      const wire = extractKindgiError(err);
+      if (wire?.code === 'not-found' && wire.serverCode === 'route-not-found') return undefined;
+    }
+  }
+  return out;
+}
+
+/** The preset a provider id was registered from, if one has that id. */
+function presetFor(
+  id: string,
+  presets: Readonly<Record<string, ProviderPreset>>,
+): ProviderPreset | undefined {
+  return Object.values(presets).find((p) => p.metadata.id === id);
+}
+
+/** How to fix a registration: unregister it, then register it again with the setting fixed. */
+function reRegister(id: string, preset: ProviderPreset | undefined, kindgi: Kindgi): string {
+  const register =
+    preset !== undefined
+      ? kindgi(
+          'providers',
+          'register',
+          `--preset=${preset.name}`,
+          ...(preset.adapterConfig ?? []).map((s) => `--${s.key}=<${s.key}>`),
+        )
+      : kindgi('providers', 'register', '--spec=@<file>');
+  return `${reRegisterSteps(id, register, kindgi)}${preset === undefined ? ' (its spec with the setting fixed)' : ''}`;
+}
+
+/** A provider's id is taken while it's registered: unregister it first. */
+function reRegisterSteps(id: string, register: string, kindgi: Kindgi): string {
+  return `Unregister ${id} (${kindgi('providers', 'unregister', id)}), then register it again: ${register}.`;
 }
 
 // ---------- helpers ----------

@@ -120,16 +120,30 @@ A setting the schema requires, with no default, must be in `config`:
 guardrails/answer-length/index.ts: guardrail my-pack.answer-length's config doesn't fit its configSchema: must have required property 'maxChars'
 ```
 
-The pack service checks the config again on every call, as sent, against the
-indexed `configSchema`. Under `kindgi dev` the indexer has refused such a
-config already. In a deployment, a guardrail registered through the API
-(`kindgi guardrails register`) can name the pack's check with a config that
-doesn't fit. The check doesn't run, and every turn the guardrail checks
-fails, whatever its action. `kindgi runs start` exits 1 with:
+In a deployment, a guardrail registered through the API
+(`kindgi guardrails register`) names the pack's check with its own `config`.
+A config that doesn't fit the check's `configSchema` is refused
+(`422 guardrail-config-invalid`), and nothing is registered:
+
+```text
+Error [invalid-request]: Guardrail "acme.strict-length" doesn't fit check "my-pack.checks.answer-length": config.maxChars must be > 0.
+  ✗ /config/maxChars: config.maxChars must be > 0.
+```
+
+Under `kindgi dev` the indexer has refused such a config already.
+
+A guardrail registered before 0.1.5, or against a pack deployed before
+0.1.5, wasn't checked. The pack service checks the config on every call, as
+sent, against the indexed `configSchema`, so the check doesn't run, and every
+turn the guardrail checks fails, whatever its action. `kindgi runs start`
+exits 1 with:
 
 ```text
 Error [run-failed]: input-validation-failed: Check "my-pack.checks.answer-length" config failed validation at /maxChars: must be > 0
 ```
+
+To fix it, unregister it and register it again with a config that fits. A
+pack deployed before 0.1.5 needs one redeploy for registration to check it.
 
 </TabItem>
 <TabItem label="Python">

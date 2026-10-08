@@ -221,6 +221,22 @@ def test_an_agent_can_reference_data_blocks(make_pack: Callable[..., Path]) -> N
     assert entry["modelSettings"] == {"id": "acme.model", "version": "^1.0.0"}
 
 
+def test_an_agent_declares_how_it_uses_memory(make_pack: Callable[..., Path]) -> None:
+    memory_agent = (
+        "from kindgi import Agent\n"
+        'desk = Agent(id="acme.desk", version="1.0.0", name="Desk", instructions="Help.",'
+        ' capabilities=[{"needs": [{"feature": "tool-use"}]}],'
+        ' retrieval=[{"types": ["acme.note"], "scope": "same-user", "mode": "both"}],'
+        ' memory={"instructionTypes": ["acme.policy"]})\n'
+    )
+    root = full_pack(make_pack, **{"agents/desk.py": memory_agent})
+    report, index = index_of(root)
+    assert report["fileErrors"] == []
+    (entry,) = [a for a in index["agents"] if a["id"] == "acme.desk"]
+    assert entry["memory"] == {"instructionTypes": ["acme.policy"]}
+    assert entry["retrieval"] == [{"types": ["acme.note"], "scope": "same-user", "mode": "both"}]
+
+
 def test_an_invalid_flow_is_a_file_error(make_pack: Callable[..., Path]) -> None:
     root = full_pack(
         make_pack, **{"flows/flow.py": FLOW.replace('"to": "shout"', '"too": "shout"')}

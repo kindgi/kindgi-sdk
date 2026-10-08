@@ -945,7 +945,7 @@ const ApiTokenRoleSchema: JsonSchema = {
   type: 'string',
   enum: ['admin', 'member'],
   description:
-    "The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action, whoever it's for.",
+    "The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action on the tenant, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project).",
 };
 
 export const ApiKeyPrincipalSchema: JsonSchema = {
@@ -1589,9 +1589,33 @@ export const RetrievalIntentSchema: JsonSchema = {
   required: ['types', 'scope'],
   properties: {
     types: { type: 'array', items: { type: 'string' }, minItems: 1 },
-    scope: { type: 'string', enum: ['same-conversation', 'same-project', 'tenant'] },
+    scope: {
+      type: 'string',
+      enum: ['same-conversation', 'same-user', 'same-project', 'tenant'],
+      description:
+        "What the intent selects within what the run may see: this conversation's facts; this run's end user's and user's; the run's project's (none without a project); or every fact of the type it may see.",
+    },
     limit: { type: 'integer', minimum: 1 },
-    mode: { type: 'string', enum: ['keyword', 'semantic', 'both'] },
+    mode: {
+      type: 'string',
+      enum: ['keyword', 'semantic', 'both'],
+      description:
+        "With the user's message as the query: full-text, by meaning (fails the turn with `semantic-unavailable` on a runtime without embeddings), or both fused by rank (without embeddings, the keyword half). Absent: the newest facts.",
+    },
+  },
+};
+
+export const AgentMemoryPolicySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'How the agent uses what it retrieves.',
+  properties: {
+    instructionTypes: {
+      type: 'array',
+      items: { type: 'string', minLength: 1 },
+      description:
+        "Fact types that are instructions for this agent: a retrieved, verified fact of one of these types goes into the system message under 'Policies (verified)'. Default: none.",
+    },
   },
 };
 
@@ -1726,6 +1750,7 @@ export const AgentSchema: JsonSchema = {
     capabilities: { type: 'array', items: { $ref: '#/components/schemas/Capability' } },
     tools: { type: 'array', items: { $ref: '#/components/schemas/ToolRef' } },
     retrieval: { type: 'array', items: { $ref: '#/components/schemas/RetrievalIntent' } },
+    memory: { $ref: '#/components/schemas/AgentMemoryPolicy' },
     guardrails: { type: 'array', items: { type: 'string' } },
     preferredProvider: {
       type: 'string',
@@ -1891,6 +1916,7 @@ export const PublishAgentBodySchema: JsonSchema = {
     capabilities: { type: 'array', items: { $ref: '#/components/schemas/Capability' } },
     tools: { type: 'array', items: { $ref: '#/components/schemas/ToolRef' } },
     retrieval: { type: 'array', items: { $ref: '#/components/schemas/RetrievalIntent' } },
+    memory: { $ref: '#/components/schemas/AgentMemoryPolicy' },
     guardrails: { type: 'array', items: { type: 'string' } },
     preferredProvider: {
       type: 'string',
@@ -1919,6 +1945,17 @@ export const PublishAgentResultSchema: JsonSchema = {
   properties: {
     agentId: { type: 'string' },
     version: { type: 'string' },
+    warnings: {
+      type: 'array',
+      description:
+        'What the agent should know about this deployment before its first turn, e.g. `semantic-unavailable`: a retrieval intent searches by meaning and the deployment has no embeddings.',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['code', 'message'],
+        properties: { code: { type: 'string' }, message: { type: 'string' } },
+      },
+    },
   },
 };
 
@@ -3075,7 +3112,7 @@ export const JudgedRunContextSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'What a judged run needs besides its input to be replayed, captured when it was first judged. For an agent turn: the conversation before it, what its retrievals returned, and the decision at its session approval gate. For a flow run: its tool calls with their results.',
+    'What a judged run needs besides its input to be replayed, captured when it was first judged. For an agent turn: the conversation before it, what its retrievals returned, and the decision at its session approval gate. For a flow run: its tool calls with their results. For both: the env values its tools were sent.',
   properties: {
     history: {
       type: 'array',
@@ -3147,6 +3184,12 @@ export const JudgedRunContextSchema: JsonSchema = {
         },
         truncated: { type: 'boolean', description: 'More calls were made than were kept.' },
       },
+    },
+    toolEnv: {
+      type: 'object',
+      additionalProperties: { type: 'object', additionalProperties: { type: 'string' } },
+      description:
+        "The env values each tool's calls were sent (`needsSpec.env`), by tool id: its first call's, as the run recorded them. A replay sends them to a read-only tool it runs live, so the tool reads the config the run saw, not today's. Absent for a run from before env was recorded.",
     },
   },
 };
@@ -3615,7 +3658,7 @@ export const VerifyFactBodySchema: JsonSchema = {
 
 export const RetrieveIntentSchema: JsonSchema = {
   description:
-    'Retrieval intent — mirrors `RetrievalIntent` from `@kindgi/agents`, widened for direct-HTTP use. `mode: "list"` returns a plain scoped list (no query). `mode: "keyword"` runs full-text search. `mode: "semantic"` runs vector similarity search — requires an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`. `mode: "both"` unions keyword + semantic results, dedup by fact id.',
+    'Retrieval intent — mirrors `RetrievalIntent` from `@kindgi/agents`, widened for direct-HTTP use. `mode: "list"` returns a plain scoped list (no query), newest first. `mode: "keyword"` runs full-text search. `mode: "semantic"` searches by meaning — it needs embeddings on the deployment; without them the route answers `422 semantic-unavailable`. `mode: "both"` runs both and fuses them by rank (reciprocal rank fusion), as `semantic` needing embeddings.',
   type: 'object',
   additionalProperties: false,
   required: ['mode'],
@@ -3643,7 +3686,7 @@ export const RetrievalHitSchema: JsonSchema = {
     score: {
       type: 'number',
       description:
-        'Relevance score. Keyword mode returns an implementation-defined rank (higher = better). Semantic mode returns cosine similarity in [-1, 1] (higher = better). Absent for `list` mode.',
+        'Relevance score. Keyword mode returns an implementation-defined rank (higher = better). Semantic mode returns cosine similarity in [-1, 1] (higher = better). Both: the fused rank score, `Σ 1/(60 + rank)` (higher = better). Absent for `list` mode.',
     },
   },
 };
@@ -4613,6 +4656,11 @@ export const RegisterProviderBodySchema: JsonSchema = {
       description:
         "The adapter's connection settings: flat, non-secret values (a cloud project, a base URL). Each adapter documents its keys. Credentials go in `secret_ref`, never here.",
     },
+    send_traceparent: {
+      type: 'boolean',
+      description:
+        "Send each model call's W3C `traceparent` to this provider, as a request header, so its request logs can be matched to the run. Ids only, never content. Default `false`: nothing about a run's trace leaves the deployment unless a registration opts in. The runtime enforces it; an older runtime ignores the field and sends none.",
+    },
   },
 };
 
@@ -4786,6 +4834,11 @@ export const MCPEndpointSchema: JsonSchema = {
       type: 'object',
       additionalProperties: true,
       description: 'Optional caller-defined metadata bag.',
+    },
+    sendTraceparent: {
+      type: 'boolean',
+      description:
+        "Send the W3C `traceparent` of the run calling a tool to this endpoint, as a request header, so the server's logs can be matched to the run. Ids only, never content. Default `false`. HTTP transports only: `true` on a `stdio` endpoint is refused (`invalid-mcp-endpoint`, reason `invalid-send-traceparent`). An older runtime ignores it and sends none.",
     },
   },
 };
@@ -6410,7 +6463,9 @@ export const StartEvalRunResultSchema: JsonSchema = {
 
 export const IdentityProviderKindSchema: JsonSchema = {
   type: 'string',
-  enum: ['oauth2', 'oidc'],
+  enum: ['oauth2', 'oidc', 'saml'],
+  description:
+    "`oidc`: an OpenID Connect identity provider people sign in with (Okta, Entra ID, Google, Keycloak…); its endpoints come from its discovery document. `saml`: a SAML 2.0 identity provider people sign in with. `oauth2`: a plain OAuth 2.0 provider that isn't OpenID Connect (e.g. GitHub), with its endpoints given; pick `oidc` for any provider that speaks OpenID Connect.",
 };
 
 export const ClaimMappingScopesSpecSchema: JsonSchema = {
@@ -6439,9 +6494,144 @@ export const ClaimMappingSpecSchema: JsonSchema = {
   },
 };
 
-export const IdentityProviderConfigSchema: JsonSchema = {
+const IDENTITY_PROVIDER_BASE_PROPERTIES = {
+  providerId: { type: 'string', minLength: 1 },
+  displayName: {
+    type: 'string',
+    minLength: 1,
+    description: 'The name a sign-in page shows ("Sign in with …"). Default: `providerId`.',
+  },
+  domains: {
+    type: 'array',
+    items: { type: 'string', minLength: 1 },
+    description:
+      'The email domains whose people sign in with this provider (lowercase, e.g. `acme.com`): how an email-first sign-in page finds it.',
+  },
+  join: {
+    type: 'string',
+    enum: ['invite', 'domain'],
+    description:
+      'Who may sign in the first time: `invite` (default) only people a tenant admin added; `domain` also anyone from one of `domains`, once the deployment has verified them.',
+  },
+  signIn: { $ref: '#/components/schemas/IdentityProviderSignIn' },
+  metadata: { type: 'object', additionalProperties: true },
+} as const;
+
+const CLIENT_SECRET_REF = {
+  type: 'string',
+  minLength: 1,
+  description: 'Opaque reference resolved server-side. Never a plaintext secret.',
+} as const;
+
+const ALLOWED_REDIRECT_URIS = {
+  type: 'array',
+  items: { type: 'string', minLength: 1 },
   description:
-    'OAuth 2.0 / OIDC provider configuration registered on a tenant. `clientSecretRef` is a REFERENCE resolved server-side (env-var key, secrets-manager path, KMS handle) — the plaintext client secret never crosses the wire.',
+    'OAuth 2.1 BCP redirect-URI allowlist. Exact-string match required at /v1/auth/login. Absent/empty means no redirect-URI allowlist check (pass-through).',
+} as const;
+
+export const IdentityProviderSignInSchema: JsonSchema = {
+  description:
+    'What to give the identity provider so it can send people back: set by the deployment on what it returns, ignored on registration. OIDC / OAuth 2.0: `redirectUri`. SAML: `spEntityId`, `acsUrl`, `spMetadataUrl`.',
+  oneOf: [
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['redirectUri'],
+      properties: { redirectUri: { type: 'string', format: 'uri' } },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['spEntityId', 'acsUrl', 'spMetadataUrl'],
+      properties: {
+        spEntityId: { type: 'string', minLength: 1 },
+        acsUrl: { type: 'string', format: 'uri' },
+        spMetadataUrl: { type: 'string', format: 'uri' },
+      },
+    },
+  ],
+};
+
+export const OidcIdentityProviderConfigSchema: JsonSchema = {
+  description:
+    "An OpenID Connect identity provider people sign in with. The endpoints come from the issuer's discovery document when absent, and are returned once the deployment has them.",
+  type: 'object',
+  additionalProperties: false,
+  required: ['providerId', 'kind', 'issuer', 'clientId', 'clientSecretRef'],
+  properties: {
+    ...IDENTITY_PROVIDER_BASE_PROPERTIES,
+    kind: { type: 'string', const: 'oidc' },
+    issuer: { type: 'string', format: 'uri' },
+    clientId: { type: 'string', minLength: 1 },
+    clientSecretRef: CLIENT_SECRET_REF,
+    scopes: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Default `openid email profile`.',
+    },
+    authorizationEndpoint: { type: 'string', format: 'uri' },
+    tokenEndpoint: { type: 'string', format: 'uri' },
+    userinfoEndpoint: { type: 'string', format: 'uri' },
+    jwksEndpoint: { type: 'string', format: 'uri' },
+    allowedRedirectUris: ALLOWED_REDIRECT_URIS,
+    claimMapping: { $ref: '#/components/schemas/ClaimMappingSpec' },
+  },
+};
+
+export const SamlIdentityProviderConfigSchema: JsonSchema = {
+  description:
+    'A SAML 2.0 identity provider people sign in with: its metadata XML, or its entity ID, single sign-on URL and signing certificates. Keys are given as references, never as keys.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['providerId', 'kind'],
+  properties: {
+    ...IDENTITY_PROVIDER_BASE_PROPERTIES,
+    kind: { type: 'string', const: 'saml' },
+    idpMetadataXml: { type: 'string', minLength: 1 },
+    idpEntityId: { type: 'string', minLength: 1 },
+    idpSsoUrl: {
+      type: 'string',
+      format: 'uri',
+      description: "The IdP's single sign-on URL (HTTP-Redirect binding).",
+    },
+    idpCertificates: {
+      type: 'array',
+      items: { type: 'string', minLength: 1 },
+      description: "The IdP's signing certificates (PEM); several during a rollover.",
+    },
+    spSigningKeyRef: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "Opaque reference to the service provider's signing key, for IdPs that require signed AuthnRequests. Never a plaintext key.",
+    },
+    spDecryptionKeyRef: {
+      type: 'string',
+      minLength: 1,
+      description:
+        'Opaque reference to the key that decrypts encrypted assertions. Never a plaintext key.',
+    },
+    wantAssertionsSigned: {
+      type: 'boolean',
+      description: 'Require signed assertions. Default `true`.',
+    },
+    attributeMapping: {
+      type: 'object',
+      additionalProperties: false,
+      description: 'Assertion attribute names. Defaults: `userId` = the NameID, `email` = `email`.',
+      properties: {
+        userId: { type: 'string', minLength: 1 },
+        email: { type: 'string', minLength: 1 },
+        displayName: { type: 'string', minLength: 1 },
+      },
+    },
+  },
+};
+
+export const OAuth2IdentityProviderConfigSchema: JsonSchema = {
+  description:
+    "A plain OAuth 2.0 provider that isn't OpenID Connect (e.g. GitHub), run by this API's own OAuth flow (`/v1/auth/login` + callback). For a provider that speaks OpenID Connect, use `oidc`.",
   type: 'object',
   additionalProperties: false,
   required: [
@@ -6454,26 +6644,56 @@ export const IdentityProviderConfigSchema: JsonSchema = {
     'scopes',
   ],
   properties: {
-    providerId: { type: 'string', minLength: 1 },
-    kind: IdentityProviderKindSchema,
+    ...IDENTITY_PROVIDER_BASE_PROPERTIES,
+    kind: { type: 'string', const: 'oauth2' },
     clientId: { type: 'string', minLength: 1 },
-    clientSecretRef: {
-      type: 'string',
-      minLength: 1,
-      description: 'Opaque reference resolved server-side. Never a plaintext secret.',
-    },
+    clientSecretRef: CLIENT_SECRET_REF,
     authorizationEndpoint: { type: 'string', format: 'uri' },
     tokenEndpoint: { type: 'string', format: 'uri' },
     userinfoEndpoint: { type: 'string', format: 'uri' },
     scopes: { type: 'array', items: { type: 'string' } },
-    allowedRedirectUris: {
-      type: 'array',
-      items: { type: 'string', minLength: 1 },
-      description:
-        'OAuth 2.1 BCP redirect-URI allowlist. Exact-string match required at /v1/auth/login. Absent/empty means no redirect-URI allowlist check (pass-through).',
-    },
+    allowedRedirectUris: ALLOWED_REDIRECT_URIS,
     claimMapping: { $ref: '#/components/schemas/ClaimMappingSpec' },
-    metadata: { type: 'object', additionalProperties: true },
+  },
+};
+
+export const IdentityProviderConfigSchema: JsonSchema = {
+  description:
+    'An identity provider registered on a tenant, one shape per `kind` (narrow on `kind` before reading kind-specific fields). Secrets are always REFERENCES resolved server-side (`clientSecretRef`, `spSigningKeyRef`, `spDecryptionKeyRef`); a plaintext secret never crosses the wire, and a `clientSecret` field is refused.',
+  oneOf: [
+    { $ref: '#/components/schemas/OidcIdentityProviderConfig' },
+    { $ref: '#/components/schemas/SamlIdentityProviderConfig' },
+    { $ref: '#/components/schemas/OAuth2IdentityProviderConfig' },
+  ],
+  discriminator: {
+    propertyName: 'kind',
+    mapping: {
+      oidc: '#/components/schemas/OidcIdentityProviderConfig',
+      saml: '#/components/schemas/SamlIdentityProviderConfig',
+      oauth2: '#/components/schemas/OAuth2IdentityProviderConfig',
+    },
+  },
+};
+
+// Its own schema, used only as the request body: a union that other
+// schemas also name gets inlined away by the Python generator, so a body
+// naming `IdentityProviderConfig` would fail at call time (the same as
+// `ServiceAccountGrantBody`).
+export const RegisterIdentityProviderBodySchema: JsonSchema = {
+  description:
+    'The identity provider to register, one shape per `kind`: `oidc`, `saml` or `oauth2`. Secrets by reference only (`clientSecretRef`, `spSigningKeyRef`, `spDecryptionKeyRef`); a `clientSecret` field is refused.',
+  oneOf: [
+    { $ref: '#/components/schemas/OidcIdentityProviderConfig' },
+    { $ref: '#/components/schemas/SamlIdentityProviderConfig' },
+    { $ref: '#/components/schemas/OAuth2IdentityProviderConfig' },
+  ],
+  discriminator: {
+    propertyName: 'kind',
+    mapping: {
+      oidc: '#/components/schemas/OidcIdentityProviderConfig',
+      saml: '#/components/schemas/SamlIdentityProviderConfig',
+      oauth2: '#/components/schemas/OAuth2IdentityProviderConfig',
+    },
   },
 };
 
@@ -6490,12 +6710,41 @@ export const IdentityProviderCollectionPageSchema: JsonSchema = {
   },
 };
 
+export const SignInOptionSchema: JsonSchema = {
+  description: 'One way to sign in, as a sign-in page shows it.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['providerId', 'displayName', 'signInUrl'],
+  properties: {
+    providerId: { type: 'string', minLength: 1 },
+    displayName: { type: 'string', minLength: 1, description: '"Sign in with …".' },
+    signInUrl: {
+      type: 'string',
+      description: 'Where the browser goes to start signing in with this provider.',
+    },
+  },
+};
+
+export const SignInOptionsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/SignInOption' } },
+  },
+};
+
 export const RegisterIdentityProviderResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['providerId'],
   properties: {
     providerId: { type: 'string', minLength: 1 },
+    provider: {
+      $ref: '#/components/schemas/IdentityProviderConfig',
+      description:
+        'The provider as stored: discovered endpoints, and `signIn` (what to give the identity provider). Absent from older servers.',
+    },
   },
 };
 
@@ -6554,7 +6803,7 @@ export const CallbackResultSchema: JsonSchema = {
     sessionToken: {
       type: 'string',
       description:
-        'Opaque framework-issued session token (`kgi_sk_<sessionId>`). Send as `Authorization: Bearer <sessionToken>` on subsequent requests. The underlying provider access-token never leaves the server.',
+        'Opaque session token (`kgi_sk_…`), shown once: the server keeps only a hash of it. Never parse it. Send as `Authorization: Bearer <sessionToken>` on subsequent requests. The underlying provider access-token never leaves the server.',
     },
     sessionId: { type: 'string' },
     expiresAt: { type: 'string', format: 'date-time' },
@@ -7505,11 +7754,17 @@ export const ProjectMembershipCollectionPageSchema: JsonSchema = {
 };
 
 export const AddProjectMembershipBodySchema: JsonSchema = {
+  description: 'Exactly one of `userId` and `email` names the person.',
   type: 'object',
   additionalProperties: false,
-  required: ['userId', 'role'],
+  required: ['role'],
   properties: {
     userId: { type: 'string', minLength: 1 },
+    email: {
+      type: 'string',
+      minLength: 1,
+      description: "The person's email, as the tenant has it.",
+    },
     role: { $ref: '#/components/schemas/ProjectRole' },
   },
 };
@@ -9009,6 +9264,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['BuildJudgedSuiteResult', BuildJudgedSuiteResultSchema],
   ['PromptParameter', PromptParameterSchema],
   ['RetrievalIntent', RetrievalIntentSchema],
+  ['AgentMemoryPolicy', AgentMemoryPolicySchema],
   ['ConversationPolicy', ConversationPolicySchema],
   ['TurnBudget', TurnBudgetSchema],
   ['Capability', CapabilitySchema],
@@ -9216,8 +9472,15 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['IdentityProviderKind', IdentityProviderKindSchema],
   ['ClaimMappingScopesSpec', ClaimMappingScopesSpecSchema],
   ['ClaimMappingSpec', ClaimMappingSpecSchema],
+  ['IdentityProviderSignIn', IdentityProviderSignInSchema],
+  ['OidcIdentityProviderConfig', OidcIdentityProviderConfigSchema],
+  ['SamlIdentityProviderConfig', SamlIdentityProviderConfigSchema],
+  ['OAuth2IdentityProviderConfig', OAuth2IdentityProviderConfigSchema],
   ['IdentityProviderConfig', IdentityProviderConfigSchema],
+  ['RegisterIdentityProviderBody', RegisterIdentityProviderBodySchema],
   ['IdentityProviderCollectionPage', IdentityProviderCollectionPageSchema],
+  ['SignInOption', SignInOptionSchema],
+  ['SignInOptions', SignInOptionsSchema],
   ['RegisterIdentityProviderResult', RegisterIdentityProviderResultSchema],
   ['UnregisterIdentityProviderResult', UnregisterIdentityProviderResultSchema],
   ['LoginBody', LoginBodySchema],

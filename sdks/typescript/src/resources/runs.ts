@@ -60,7 +60,10 @@ export interface RunsClient {
   dryRun(input: StartRunInput): Promise<DryRunResult>;
 
   /**
-   * Subscribe to the run's event stream as an async iterable.
+   * The run's events, once each, through to its terminal event
+   * (`run.completed`, `run.failed` or `run.cancelled`), as an async
+   * iterable. Python's `runs.follow` and the Java client's
+   * `runs().follow` do the same.
    *
    * @wire `GET /v1/runs/{runId}/stream` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1runs~1{runId}~1stream/get`.
@@ -72,14 +75,32 @@ export interface RunsClient {
    * backoff (500 ms → 30 s cap; up to 10 attempts by default) with
    * `Last-Event-Id` set to the last-observed frame so the server
    * resumes from the next sequence. When the server ends the stream
-   * before the run finished (its time limit), the iterable reconnects
-   * the same way; it completes after the run's terminal event
-   * (`run.completed`, `run.failed`, `run.cancelled`). Consumers pass
-   * `AbortSignal` for caller-side cancellation; the iterable completes
-   * cleanly on abort.
+   * before the run finished (its 5-minute limit), the iterable
+   * reconnects the same way; it completes after the run's terminal
+   * event. Consumers pass `AbortSignal` for caller-side cancellation;
+   * the iterable completes cleanly on abort.
    *
-   * @param runId — the run to subscribe to.
+   * @param runId — the run to follow.
    * @param options — optional `signal` for cancellation + backoff overrides.
+   */
+  follow(
+    runId: RunId,
+    options?: {
+      readonly signal?: AbortSignal;
+      readonly initialBackoffMs?: number;
+      readonly maxBackoffMs?: number;
+    },
+  ): AsyncIterable<RunEvent>;
+
+  /**
+   * The run's events, following it to its end, as `follow` does today.
+   *
+   * @deprecated Use `runs.follow`, which does the same. In a later minor
+   *   release, announced in advance, `runs.stream` becomes the plain
+   *   call, as in Python and Java: it ends when the server closes the
+   *   stream (after the run's terminal event, or after 5 minutes).
+   *
+   * @wire `GET /v1/runs/{runId}/stream`
    */
   stream(
     runId: RunId,
@@ -100,8 +121,28 @@ export interface RunsClient {
 
   /**
    * The run's events without their payloads, through to the terminal one
-   * (reconnecting like `stream`). For browsers, see `subscribeToRun`,
-   * which takes a public run token.
+   * (reconnecting like `follow`). Python's `runs.follow_progress` and the
+   * Java client's `runs().followProgress` do the same. For browsers, see
+   * `subscribeToRun`, which takes a public run token.
+   *
+   * @wire `GET /v1/runs/{runId}/progress/stream`
+   */
+  followProgress(
+    runId: RunId,
+    options?: {
+      readonly signal?: AbortSignal;
+      readonly initialBackoffMs?: number;
+      readonly maxBackoffMs?: number;
+    },
+  ): AsyncIterable<RunProgressEvent>;
+
+  /**
+   * The run's progress events, following it to its end, as
+   * `followProgress` does today.
+   *
+   * @deprecated Use `runs.followProgress`, which does the same. In a
+   *   later minor release, announced in advance, `runs.streamProgress`
+   *   becomes the plain call, as in Python and Java.
    *
    * @wire `GET /v1/runs/{runId}/progress/stream`
    */
@@ -391,6 +432,35 @@ function waitedStartTimeout(e: unknown): unknown {
 }
 
 export function makeRunsClient(transport: Transport): RunsClient {
+  // `follow` / `followProgress`, and the deprecated `stream` /
+  // `streamProgress`, which do the same (a method may be called unbound).
+  const followEvents: RunsClient['follow'] = (runId, options) =>
+    followRun<RunEvent>({
+      url: `${transport.apiUrl}/v1/runs/${encodeURIComponent(runId as unknown as string)}/stream`,
+      headers: () => transport.authHeaders(),
+      fetchImpl: transport.fetchImpl,
+      ...(options?.signal !== undefined && { signal: options.signal }),
+      ...(options?.initialBackoffMs !== undefined && {
+        initialBackoffMs: options.initialBackoffMs,
+      }),
+      ...(options?.maxBackoffMs !== undefined && {
+        maxBackoffMs: options.maxBackoffMs,
+      }),
+    });
+  const followProgressEvents: RunsClient['followProgress'] = (runId, options) =>
+    followRun<RunProgressEvent>({
+      url: `${transport.apiUrl}/v1/runs/${encodeURIComponent(runId as unknown as string)}/progress/stream`,
+      headers: () => transport.authHeaders(),
+      fetchImpl: transport.fetchImpl,
+      ...(options?.signal !== undefined && { signal: options.signal }),
+      ...(options?.initialBackoffMs !== undefined && {
+        initialBackoffMs: options.initialBackoffMs,
+      }),
+      ...(options?.maxBackoffMs !== undefined && {
+        maxBackoffMs: options.maxBackoffMs,
+      }),
+    });
+
   return {
     async start(input) {
       const body: Record<string, unknown> =
@@ -442,35 +512,13 @@ export function makeRunsClient(transport: Transport): RunsClient {
       });
     },
 
-    streamProgress(runId, options) {
-      return followRun<RunProgressEvent>({
-        url: `${transport.apiUrl}/v1/runs/${encodeURIComponent(runId as unknown as string)}/progress/stream`,
-        headers: () => transport.authHeaders(),
-        fetchImpl: transport.fetchImpl,
-        ...(options?.signal !== undefined && { signal: options.signal }),
-        ...(options?.initialBackoffMs !== undefined && {
-          initialBackoffMs: options.initialBackoffMs,
-        }),
-        ...(options?.maxBackoffMs !== undefined && {
-          maxBackoffMs: options.maxBackoffMs,
-        }),
-      });
-    },
+    followProgress: followProgressEvents,
 
-    stream(runId, options) {
-      return followRun<RunEvent>({
-        url: `${transport.apiUrl}/v1/runs/${encodeURIComponent(runId as unknown as string)}/stream`,
-        headers: () => transport.authHeaders(),
-        fetchImpl: transport.fetchImpl,
-        ...(options?.signal !== undefined && { signal: options.signal }),
-        ...(options?.initialBackoffMs !== undefined && {
-          initialBackoffMs: options.initialBackoffMs,
-        }),
-        ...(options?.maxBackoffMs !== undefined && {
-          maxBackoffMs: options.maxBackoffMs,
-        }),
-      });
-    },
+    follow: followEvents,
+
+    streamProgress: followProgressEvents,
+
+    stream: followEvents,
 
     async get(runId) {
       return transport.request<Run>({

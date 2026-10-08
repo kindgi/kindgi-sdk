@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { Context, MiddlewareHandler, Next } from 'hono';
+import { getCookie } from 'hono/cookie';
 
 import type { ReviewerRole } from '@kindgi/authz';
 import type { ApiTokenId, SessionId, TenantId, UserId } from '@kindgi/types';
@@ -131,10 +132,37 @@ export interface TokenResolution {
 export const SESSION_TOKEN_PREFIX = 'kgi_sk_' as const;
 
 /**
- * Compose the on-wire session token from a `SessionId`. Session tokens
- * are opaque to clients — the shape below is a framework convention,
- * not part of the wire contract. Do NOT parse it in downstream code
- * outside the middleware.
+ * The cookie a browser carries its session token in, when the deployment
+ * turns cookie sessions on (`SessionConfig.cookie`). `__Host-`: Secure,
+ * Path=/, no Domain, so it's sent only to the origin that set it.
+ */
+export const SESSION_COOKIE_NAME = '__Host-kindgi_session' as const;
+
+/**
+ * Cookie sessions: where the middleware reads a browser's session token
+ * when the request has no `Authorization` header.
+ */
+export interface SessionCookieOptions {
+  /** The cookie's name. Default `SESSION_COOKIE_NAME`. */
+  readonly name?: string;
+  /**
+   * The origins a cookie-authenticated request may come from (the
+   * console's origin, e.g. `https://kindgi.example.com`). An unsafe method
+   * (anything but GET, HEAD and OPTIONS) authenticated by the cookie must
+   * carry one of them in `Origin`, else 403 `csrf-origin-mismatch`; so
+   * must a request with no `Origin` at all. Bearer requests are unaffected.
+   */
+  readonly allowedOrigins: readonly string[];
+}
+
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+/**
+ * The older session token, `kgi_sk_<sessionId>`, for a session store
+ * without `resolveToken`. A store with it mints its own token
+ * (`SessionCreateOutput.token`), and the routes hand that out instead.
+ * Session tokens are opaque to clients: never parse one outside the
+ * middleware or the store that minted it.
  */
 export function encodeSessionToken(sessionId: SessionId): string {
   return `${SESSION_TOKEN_PREFIX}${sessionId as unknown as string}`;
@@ -167,6 +195,12 @@ export interface BearerAuthMiddlewareOptions {
    */
   readonly touchThrottleMs?: number;
   /**
+   * Read a session token from a cookie when the request carries no
+   * `Authorization` header (browser sessions). Only `kgi_sk_` tokens are
+   * taken from it, and only with a `sessionStore`.
+   */
+  readonly sessionCookie?: SessionCookieOptions;
+  /**
    * Accept public run tokens (`kgi_pt_…`), verified against
    * `signingKey`, on the routes `isAllowed` admits (every other route
    * answers 403). Absent → such tokens are not recognized (401).
@@ -185,9 +219,9 @@ const DEFAULT_TOUCH_THROTTLE_MS = 60_000;
  * handlers.
  *
  * Two token flavors are accepted:
- * - `kgi_sk_<sessionId>` — framework-issued OAuth session tokens.
- *   Verified via `sessionStore.get`; expiration + revocation are pulled
- *   from the session row.
+ * - `kgi_sk_…` — session tokens. Verified by the session store
+ *   (`resolveToken`, or `get` for an older store); expiration +
+ *   revocation are pulled from the session row.
  * - anything else — caller-plugged static bearer tokens. Verified via
  *   `resolveToken`. Byte-shape-identical with the session-less contract.
  */
@@ -202,36 +236,13 @@ export function bearerAuthMiddleware(
   // bucket is bounded by the number of active sessions the process
   // has recently observed.
   const touchBucket = new Map<string, number>();
-  return async (c, next) => {
-    const requestId = c.get('requestId') as string;
-    const header = c.req.header('authorization');
-    if (header === undefined || header.length === 0) {
-      const body = toWireError(
-        { code: 'auth-missing', message: 'Authorization header is required' },
-        requestId,
-      );
-      return c.json(body, statusFor('auth-missing') as never);
-    }
-    const match = /^Bearer\s+(.+)$/i.exec(header);
-    if (match === null) {
-      const body = toWireError(
-        {
-          code: 'auth-missing',
-          message: 'Authorization header must be "Bearer <token>"',
-        },
-        requestId,
-      );
-      return c.json(body, statusFor('auth-missing') as never);
-    }
-    const token = match[1]?.trim() ?? '';
-    if (token.length === 0) {
-      const body = toWireError(
-        { code: 'auth-missing', message: 'Bearer token is empty' },
-        requestId,
-      );
-      return c.json(body, statusFor('auth-missing') as never);
-    }
-
+  // Everything after the token is found: the header's or the cookie's.
+  const authenticate = async (
+    c: Context,
+    next: Next,
+    token: string,
+    requestId: string,
+  ): Promise<Response | undefined> => {
     if (token.startsWith(PUBLIC_RUN_TOKEN_PREFIX)) {
       return authenticatePublicRunToken(c, next, token, requestId, options.publicRunTokens);
     }
@@ -362,6 +373,45 @@ export function bearerAuthMiddleware(
     await next();
     return;
   };
+  return async (c, next) => {
+    const requestId = c.get('requestId') as string;
+    const header = c.req.header('authorization');
+    if (header === undefined || header.length === 0) {
+      const fromCookie = sessionCookieToken(c, sessionStore, options.sessionCookie);
+      if (fromCookie !== undefined) {
+        const refusal = csrfRefusal(c, options.sessionCookie as SessionCookieOptions, requestId);
+        if (refusal !== undefined) return refusal;
+        c.set('sessionCookieName', options.sessionCookie?.name ?? SESSION_COOKIE_NAME);
+        return authenticate(c, next, fromCookie, requestId);
+      }
+      const body = toWireError(
+        { code: 'auth-missing', message: 'Authorization header is required' },
+        requestId,
+      );
+      return c.json(body, statusFor('auth-missing') as never);
+    }
+    const match = /^Bearer\s+(.+)$/i.exec(header);
+    if (match === null) {
+      const body = toWireError(
+        {
+          code: 'auth-missing',
+          message: 'Authorization header must be "Bearer <token>"',
+        },
+        requestId,
+      );
+      return c.json(body, statusFor('auth-missing') as never);
+    }
+    const token = match[1]?.trim() ?? '';
+    if (token.length === 0) {
+      const body = toWireError(
+        { code: 'auth-missing', message: 'Bearer token is empty' },
+        requestId,
+      );
+      return c.json(body, statusFor('auth-missing') as never);
+    }
+
+    return authenticate(c, next, token, requestId);
+  };
 }
 
 /**
@@ -370,31 +420,20 @@ export function bearerAuthMiddleware(
  * scopes + expiration + revocation) that the store returns natively —
  * we don't want to squeeze that shape through the resolver contract.
  *
- * Session-token tenant scoping: the stored session is the source of
- * truth for `tenantId`. We look up ACROSS tenants here — the resolved
- * `tenantId` is whatever the session was written under, so everything
- * downstream is scoped to that tenant only. A stolen session token still
- * can't cross tenants because the session it points to belongs to
- * exactly one tenant.
+ * A store with `resolveToken` gets the whole token: it reads the tenant
+ * from it, looks only in that tenant and compares a hash, so nothing is
+ * read across tenants before the token is authenticated. The session it
+ * returns is authoritative for `tenantId`.
  *
- * Since `SessionStoreBinding.get` requires `tenantId`, the lookup is:
- * extract `sessionId` from the token, then call
- * `sessionStore.get({ tenantId: MULTI_TENANT_LOOKUP, sessionId })`.
- * Session-store implementations MUST recognize the `MULTI_TENANT_LOOKUP`
- * sentinel and skip the tenant filter; the `tenantId` on the stored
- * session is authoritative.
+ * A store without it gets the older lookup: the token's remainder is the
+ * session id, read with `get({ tenantId: MULTI_TENANT_LOOKUP, sessionId })`,
+ * which such stores must honor by skipping the tenant filter.
  */
 async function resolveSessionToken(
   sessionStore: SessionStoreBinding,
   token: string,
 ): Promise<TokenResolution | null> {
-  const sessionIdStr = token.slice(SESSION_TOKEN_PREFIX.length);
-  if (sessionIdStr.length === 0) return null;
-  const sessionId = sessionIdStr as unknown as SessionId;
-  const session = await sessionStore.get({
-    tenantId: MULTI_TENANT_LOOKUP,
-    sessionId,
-  });
+  const session = await findSession(sessionStore, token);
   if (session === null) return null;
   return {
     tenantId: session.tenantId,
@@ -412,11 +451,65 @@ async function resolveSessionToken(
 }
 
 /**
+ * The session token in the request's cookie, when cookie sessions are on
+ * and the cookie holds a session token; `undefined` otherwise (an API
+ * key or any other token is never taken from a cookie).
+ */
+function sessionCookieToken(
+  c: Context,
+  sessionStore: SessionStoreBinding | undefined,
+  cookie: SessionCookieOptions | undefined,
+): string | undefined {
+  if (cookie === undefined || sessionStore === undefined) return undefined;
+  const value = getCookie(c, cookie.name ?? SESSION_COOKIE_NAME)?.trim();
+  if (value === undefined || !value.startsWith(SESSION_TOKEN_PREFIX)) return undefined;
+  return value;
+}
+
+/**
+ * A cookie-authenticated unsafe request must come from an allowed origin:
+ * a browser always sends `Origin` on such requests, and a cross-site page
+ * can't forge it. A missing `Origin` is refused too.
+ */
+function csrfRefusal(
+  c: Context,
+  cookie: SessionCookieOptions,
+  requestId: string,
+): Response | undefined {
+  if (SAFE_METHODS.has(c.req.method)) return undefined;
+  const origin = c.req.header('origin');
+  if (origin !== undefined && cookie.allowedOrigins.includes(origin)) return undefined;
+  const body = toWireError(
+    {
+      code: 'csrf-origin-mismatch',
+      message:
+        origin === undefined
+          ? 'A request signed in by the session cookie must say where it comes from (Origin)'
+          : `A request signed in by the session cookie can't come from ${origin}`,
+    },
+    requestId,
+  );
+  return c.json(body, statusFor('csrf-origin-mismatch') as never);
+}
+
+async function findSession(sessionStore: SessionStoreBinding, token: string) {
+  if (sessionStore.resolveToken !== undefined) {
+    return sessionStore.resolveToken({ token });
+  }
+  const sessionIdStr = token.slice(SESSION_TOKEN_PREFIX.length);
+  if (sessionIdStr.length === 0) return null;
+  return sessionStore.get({
+    tenantId: MULTI_TENANT_LOOKUP,
+    sessionId: sessionIdStr as unknown as SessionId,
+  });
+}
+
+/**
  * Sentinel `tenantId` value the middleware passes to
  * `SessionStoreBinding.get` when it needs to look up a session by its
- * id without knowing the tenant in advance. Session-store adapters
- * MUST honor this by skipping the tenant filter — the tenant is not
- * known until the session row has been read.
+ * id without knowing the tenant in advance: only for a store without
+ * `resolveToken`. Such stores MUST honor it by skipping the tenant
+ * filter (the tenant is not known until the session row has been read).
  */
 export const MULTI_TENANT_LOOKUP = '__kindgi_session_multi_tenant_lookup__' as unknown as TenantId;
 
