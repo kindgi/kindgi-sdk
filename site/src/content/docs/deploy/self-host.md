@@ -203,6 +203,8 @@ curl -s http://localhost:4000/ready
 
 `/ready` answers once the runtime is up and its database answers (`/health` checks only the process; see [Operate](../operate/#check-health-and-logs)).
 
+Open `http://localhost:4000/` in a browser: it leads to the console, at `/console/`. A runtime started without the console answers there with a short page naming what it serves (`/health`, `/ready`, the API reference at `/docs`).
+
 Its log names what it's running with:
 
 ```sh

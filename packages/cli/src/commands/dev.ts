@@ -96,10 +96,12 @@ import { RuntimeStartStopped } from '../dev/runtime-container.js';
 import { DEFAULT_RUNTIME_IMAGE } from '../dev/runtime-image.js';
 import { describeEnvDiagnostics, loadLocalEnvSettings } from '../env/project-env.js';
 import { PYPI_NO_BUNDLER } from '../esbuild-loader.js';
+import { openUrlInBrowser } from '../open-url.js';
 import { renderJson } from '../output.js';
 import { binDisplay, cliInstall, detectBinRunner } from '../package-manager.js';
 import { loadProviderPresets } from '../providers/preset-loader.js';
 import { CLI_VERSION } from '../version-info.js';
+import { consoleUrlOf, couldNotOpen } from './console.js';
 import { defaultSdkSkillsRoot } from './init.js';
 import { detectSkillDrift } from './skills.js';
 import type { CommandResult, LeafCommand } from './types.js';
@@ -109,7 +111,7 @@ export const devCommand: LeafCommand = {
   name: 'dev',
   description: 'Run the Kindgi runtime as a container + hot-reload the pack under cwd.',
   usage:
-    'kindgi dev [--port <n>] [--database-url <url>] [--tenant <id>] [--dev-token <token>] [--no-watch] [--path <dir>] [--reset [--yes]] [--recreate-services] [--runtime-image <ref> | --runtime-url <url>]',
+    'kindgi dev [--port <n>] [--database-url <url>] [--tenant <id>] [--dev-token <token>] [--no-watch] [--open] [--path <dir>] [--reset [--yes]] [--recreate-services] [--runtime-image <ref> | --runtime-url <url>]',
   optionSpec: {
     port: {
       type: 'string',
@@ -154,6 +156,10 @@ export const devCommand: LeafCommand = {
     'no-watch': {
       type: 'boolean',
       description: 'Start, index and register once, then exit. For smoke tests and CI.',
+    },
+    open: {
+      type: 'boolean',
+      description: 'Open the console in your browser once Kindgi is up.',
     },
     path: {
       type: 'string',
@@ -269,6 +275,8 @@ interface ResolvedDevArgs {
   readonly tenantId: string | undefined;
   readonly token: string | undefined;
   readonly watch: boolean;
+  /** `--open`: open the console in the browser once Kindgi is up. */
+  readonly open: boolean;
   readonly packDir: string;
   /** `--reset`: drop the project's bundled database (asking first) and make a new token. */
   readonly reset: boolean;
@@ -673,6 +681,7 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
 
   const bannerLines = renderDevBanner({
     baseUrl: server.baseUrl,
+    consoleMounted: server.consoleMounted === true,
     tenantId: server.tenantId,
     token: server.token,
     providers,
@@ -736,12 +745,12 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   emitProgress('════════════════════════════════════════');
   emitProgress('  ✓ Kindgi is up');
   emitProgress('════════════════════════════════════════');
+  if (server.consoleMounted === true) {
+    for (const line of renderConsoleLines(server.baseUrl)) emitProgress(line);
+  }
   emitProgress(`  API        ${server.baseUrl}`);
   if (project !== undefined) {
     emitProgress(`  Project    ${project.name} · database ${project.database}`);
-  }
-  if (server.consoleMounted === true) {
-    emitProgress(`  Console    ${server.baseUrl}/console/`);
   }
   emitProgress(`  Tenant     ${server.tenantId}`);
   emitProgress(`  Token      ${server.token}`);
@@ -781,6 +790,17 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   if (args.watch) {
     emitProgress(`  Watching ${args.packDir}`);
     emitProgress('  Ctrl+C to stop.');
+    emitProgress('');
+  }
+  if (args.open) {
+    if (server.consoleMounted === true) {
+      const opened = await (ctx.openUrl ?? openUrlInBrowser)(consoleUrlOf(server.baseUrl));
+      emitProgress(
+        opened.ok ? '  Opened the console in your browser.' : `  ${couldNotOpen(opened.reason)}`,
+      );
+    } else {
+      emitProgress('  --open: this runtime serves no console, so there is nothing to open.');
+    }
     emitProgress('');
   }
 
@@ -896,6 +916,7 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   // stood when kindgi dev stopped.
   const summary = {
     apiUrl: server.baseUrl,
+    ...(server.consoleMounted === true && { consoleUrl: consoleUrlOf(server.baseUrl) }),
     tenantId: server.tenantId,
     token: server.token,
     port: server.port,
@@ -1128,6 +1149,18 @@ function resolveDevArgs(ctx: CommandContext): DevArgsOutcome {
   }
   const watch = !watchOff;
 
+  // --open — the console in the browser; with --no-watch the runtime
+  // stops as kindgi dev exits, so there'd be nothing to open.
+  const open = ctx.options.open === true;
+  if (open && !watch) {
+    return {
+      kind: 'error',
+      stderr:
+        "Contradictory flags: --open and --no-watch. With --no-watch the runtime stops when kindgi dev exits, so there's no console to open.\n",
+      exitCode: 1,
+    };
+  }
+
   // --path — pack root. Default is cwd.
   const pathFlag = ctx.options.path;
   const rawPath = typeof pathFlag === 'string' && pathFlag !== '' ? pathFlag : ctx.cwd;
@@ -1169,6 +1202,7 @@ function resolveDevArgs(ctx: CommandContext): DevArgsOutcome {
       tenantId,
       token,
       watch,
+      open,
       packDir,
       reset,
       yes,
@@ -1625,6 +1659,8 @@ async function applyDeclaredProviders(inputs: {
 
 interface DevBannerInputs {
   readonly baseUrl: string;
+  /** The runtime serves the console (`/console/`). */
+  readonly consoleMounted?: boolean;
   readonly tenantId: string;
   readonly token: string;
   /** The tenant's model providers; `undefined` leaves the line out. */
@@ -1689,6 +1725,18 @@ function describeProviders(
   return `${named} — canned replies; for a real model: ${registerProviderCommand}`;
 }
 
+/**
+ * The ready block's first lines: the console, and how to sign in to it
+ * (T374). First, so the URL a person opens is the console's: the API's
+ * own address used to be the first one printed, and answered 404.
+ */
+export function renderConsoleLines(baseUrl: string): readonly string[] {
+  return [
+    `  Console    ${consoleUrlOf(baseUrl)}   (open in your browser)`,
+    '             Sign in: "Sign in as seeded user" on the sign-in page (the dev token, below)',
+  ];
+}
+
 /** The banner `kindgi dev --no-watch` prints to stderr when it exits. */
 export function renderDevBanner(inputs: DevBannerInputs): readonly string[] {
   const lines: string[] = [];
@@ -1696,6 +1744,9 @@ export function renderDevBanner(inputs: DevBannerInputs): readonly string[] {
   lines.push(
     '  Starting Kindgi locally (dev: the runtime in a container, your code on this machine)',
   );
+  if (inputs.consoleMounted === true) {
+    lines.push(`    Console            ${consoleUrlOf(inputs.baseUrl)}`);
+  }
   lines.push(`    API server         ${inputs.baseUrl}`);
   lines.push(`    Tenant             ${inputs.tenantId}`);
   lines.push(`    Bearer token       ${inputs.token}`);
