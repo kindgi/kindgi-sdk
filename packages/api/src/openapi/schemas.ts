@@ -1175,19 +1175,138 @@ export const UnregisterReviewerResultSchema: JsonSchema = {
   },
 };
 
-export const ExportAuditBundleBodySchema: JsonSchema = {
+// ---------------- signed exports: one envelope ----------------
+
+const SIGNING_KEY_ID_PROPERTY: JsonSchema = {
+  type: 'string',
+  minLength: 1,
   description:
-    "Body for `POST /v1/approvals/{approvalId}/audit-bundle`. `signingKeyId` selects the Ed25519 key from the deployment's `signingKey` binding. `includeMessages` optionally hydrates conversation messages tied to the approval's run.",
+    "Optional: sign with this key, one of `GET /v1/export-signing-keys`. Leave it out to sign with the deployment's active key. A key the deployment doesn't sign with is `404 signing-key-not-found`.",
+};
+
+/**
+ * The envelope every signed export answers (an audit bundle, a run's
+ * provenance, compliance evidence): the same fields, so one verifier
+ * reads all three. Only the subject field differs.
+ */
+function signedExportEnvelope(input: {
+  readonly description: string;
+  readonly kind: 'audit-bundle' | 'provenance' | 'compliance';
+  readonly subject: readonly [string, JsonSchema];
+  readonly versionDescription: string;
+}): JsonSchema {
+  const [subjectKey, subjectSchema] = input.subject;
+  return {
+    description: input.description,
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      subjectKey,
+      'bundle',
+      'bundleSchemaVersion',
+      'algorithm',
+      'signingKeyId',
+      'signature',
+      'publicKey',
+      'canonicalization',
+      'exportedAt',
+    ],
+    properties: {
+      [subjectKey]: subjectSchema,
+      kind: {
+        type: 'string',
+        const: input.kind,
+        description:
+          'Which export this is: `audit-bundle`, `provenance` or `compliance`. Absent from older servers.',
+      },
+      bundle: {
+        type: 'string',
+        description:
+          'Base64 of the exact bytes that were signed: the body, as sorted-key JSON with no whitespace. Verify these bytes; nothing needs re-serializing.',
+      },
+      bundleSchemaVersion: { type: 'string', description: input.versionDescription },
+      algorithm: {
+        type: 'string',
+        enum: ['ed25519', 'ecdsa-p256-sha256'],
+        description:
+          "The signing key's algorithm. `ecdsa-p256-sha256` signatures are IEEE P1363 `r‖s`. A verifier refuses an algorithm it doesn't know.",
+      },
+      signingKeyId: {
+        type: 'string',
+        description: 'The key that signed it: one of `GET /v1/export-signing-keys`.',
+      },
+      signature: {
+        type: 'string',
+        description:
+          "Base64 of the 64-byte signature over the `bundle` bytes: Ed25519's, or ECDSA P-256's as IEEE P1363 `r‖s`.",
+      },
+      publicKey: {
+        type: 'string',
+        description:
+          "The signing key's public half, PEM SPKI. On its own it only proves the bytes weren't changed; check it against `GET /v1/export-signing-keys` (or a key you pinned) to know who signed them.",
+      },
+      canonicalization: {
+        type: 'string',
+        const: 'sorted-key-json',
+        description: 'Sorted-key JSON, no whitespace (`canonicalize` in `@kindgi/schema`).',
+      },
+      exportedAt: {
+        type: 'string',
+        format: 'date-time',
+        description: "When it was signed: the same instant as the signed body's `exportedAt`.",
+      },
+    },
+  };
+}
+
+export const ExportSigningKeySchema: JsonSchema = {
+  description: 'A public key this deployment signs exports with.',
   type: 'object',
   additionalProperties: false,
-  required: ['signingKeyId'],
+  required: ['keyId', 'algorithm', 'publicKeyPem', 'fingerprint', 'active'],
   properties: {
-    signingKeyId: {
+    keyId: {
       type: 'string',
-      minLength: 1,
       description:
-        'The `SigningKeyId` the deployment plugs into its `signingKey` binding. Server looks up the private key via `signingKey.getPrivateKey(signingKeyId)` — 404 if unknown.',
+        'Derived from the public key (`ex_` and 16 base64url characters), so the same key keeps its id.',
     },
+    algorithm: {
+      type: 'string',
+      enum: ['ed25519', 'ecdsa-p256-sha256'],
+      description:
+        'An Ed25519 key signs `ed25519`; an EC P-256 key (a KMS without Ed25519) signs `ecdsa-p256-sha256`.',
+    },
+    publicKeyPem: { type: 'string', description: 'PEM SPKI.' },
+    fingerprint: {
+      type: 'string',
+      pattern: '^sha256:[0-9a-f]{64}$',
+      description:
+        '`sha256:` and the hex SHA-256 of the raw public key: to pin it, or compare by eye.',
+    },
+    active: { type: 'boolean', description: 'Whether new exports are signed with it.' },
+  },
+};
+
+export const ExportSigningKeyListSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: {
+    data: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/ExportSigningKey' },
+      description: "Active first. Empty when the deployment doesn't sign exports.",
+    },
+  },
+};
+
+export const ExportAuditBundleBodySchema: JsonSchema = {
+  description:
+    "Body for `POST /v1/approvals/{approvalId}/audit-bundle`, optional: no body signs with the active key. `includeMessages` adds the conversation messages of the approval's run.",
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    signingKeyId: SIGNING_KEY_ID_PROPERTY,
     includeMessages: {
       type: 'boolean',
       description:
@@ -1197,52 +1316,14 @@ export const ExportAuditBundleBodySchema: JsonSchema = {
   },
 };
 
-export const ExportAuditBundleResultSchema: JsonSchema = {
+export const ExportAuditBundleResultSchema: JsonSchema = signedExportEnvelope({
   description:
-    'Signed exportable audit bundle. Same envelope shape as `ExportProvenanceResult` — clients can reuse the same `verifyEd25519` wrapper for both. `bundle` is base64 of the exact bytes that were signed (sorted-key canonical JSON, no whitespace). Bundle body: `{ bundleVersion, approvalId, tenantId, subjectKind, subjectRef, requiredRole, status, decision, decidedAt?, evidence: { guardrailResults?, messages? }, createdAt, exportedAt }`.',
-  type: 'object',
-  additionalProperties: false,
-  required: [
-    'approvalId',
-    'bundle',
-    'bundleSchemaVersion',
-    'algorithm',
-    'signingKeyId',
-    'signature',
-    'publicKey',
-    'canonicalization',
-    'exportedAt',
-  ],
-  properties: {
-    approvalId: { type: 'string', format: 'uuid' },
-    bundle: {
-      type: 'string',
-      description: 'Base64-encoded canonical JSON of the bundle body.',
-    },
-    bundleSchemaVersion: {
-      type: 'integer',
-      description: 'Integer schema version for the bundle body shape. Currently `1`.',
-    },
-    algorithm: { type: 'string', const: 'ed25519' },
-    signingKeyId: { type: 'string' },
-    signature: {
-      type: 'string',
-      description: 'Base64-encoded Ed25519 signature over `bundle` (after base64-decode).',
-    },
-    publicKey: {
-      type: 'string',
-      description:
-        'PEM-encoded Ed25519 public key (DER SPKI envelope). Pass into `parsePublicKeyPem` for verification.',
-    },
-    canonicalization: {
-      type: 'string',
-      const: 'sorted-key-json',
-      description:
-        'Canonicalization algorithm — sorted-key JSON, no whitespace. Same algorithm as `canonicalize`.',
-    },
-    exportedAt: { type: 'string', format: 'date-time' },
-  },
-};
+    "A decided approval's signed audit bundle. Body: `{ bundleSchemaVersion, approvalId, tenantId, subjectKind, subjectRef, requiredRole, status, createdAt, decidedAt?, decision, evidence: { guardrailResults?, messages? }, exportedAt }`.",
+  kind: 'audit-bundle',
+  subject: ['approvalId', { type: 'string', format: 'uuid' }],
+  versionDescription:
+    "The body's version, semver. `2.0.0`: a string like the other exports' (it was the integer `1`), named `bundleSchemaVersion` in the body too, with `exportedAt` signed once.",
+});
 
 export const CompleteApprovalResultSchema: JsonSchema = {
   type: 'object',
@@ -3783,16 +3864,11 @@ export const ProvenanceCollectionPageSchema: JsonSchema = {
 };
 
 export const ExportProvenanceBodySchema: JsonSchema = {
+  description: 'Optional: no body signs with the active key.',
   type: 'object',
   additionalProperties: false,
-  required: ['signingKeyId'],
   properties: {
-    signingKeyId: {
-      type: 'string',
-      minLength: 1,
-      description:
-        'The `SigningKeyId` the deployment plugs into its `signingKey` binding. Server looks up the private key via `signingKey.getPrivateKey(signingKeyId)` — 404 if unknown.',
-    },
+    signingKeyId: SIGNING_KEY_ID_PROPERTY,
     includeMessages: {
       type: 'boolean',
       description:
@@ -3802,53 +3878,14 @@ export const ExportProvenanceBodySchema: JsonSchema = {
   },
 };
 
-export const ExportProvenanceResultSchema: JsonSchema = {
+export const ExportProvenanceResultSchema: JsonSchema = signedExportEnvelope({
   description:
-    'Signed exportable bundle. `bundle` is base64 of the exact bytes that were signed (sorted-key canonical JSON, no whitespace); verifiers can pass those bytes directly to `verifyEd25519`. The bundle body itself includes `bundleSchemaVersion`, `runId`, `tenantId`, `dag: { nodes, edges }`, `messages?` (if requested), `callUsage?` (the usage of the model calls, from the cost ledger), etc. See `canonicalization` for the deterministic serialization algorithm.',
-  type: 'object',
-  additionalProperties: false,
-  required: [
-    'runId',
-    'bundle',
-    'bundleSchemaVersion',
-    'algorithm',
-    'signingKeyId',
-    'signature',
-    'publicKey',
-    'canonicalization',
-    'exportedAt',
-  ],
-  properties: {
-    runId: { type: 'string', format: 'uuid' },
-    bundle: {
-      type: 'string',
-      description: 'Base64-encoded canonical JSON of the bundle body.',
-    },
-    bundleSchemaVersion: {
-      type: 'string',
-      description:
-        "Semver for the shape of the bundle body. Currently `1.1.0`, which adds `callUsage`: each model call's usage from the cost ledger, by call id, as it stood when signed.",
-    },
-    algorithm: { type: 'string', const: 'ed25519' },
-    signingKeyId: { type: 'string' },
-    signature: {
-      type: 'string',
-      description: 'Base64-encoded Ed25519 signature bytes over `bundle` (after base64-decode).',
-    },
-    publicKey: {
-      type: 'string',
-      description:
-        'PEM-encoded Ed25519 public key (DER SPKI envelope). Callers can pass this straight into `parsePublicKeyPem` for verification.',
-    },
-    canonicalization: {
-      type: 'string',
-      const: 'sorted-key-json',
-      description:
-        'Canonicalization algorithm — sorted-key JSON, no whitespace. Same algorithm as `canonicalize`.',
-    },
-    exportedAt: { type: 'string', format: 'date-time' },
-  },
-};
+    "A run's signed provenance. Body: `{ bundleSchemaVersion, provenanceId, runId, tenantId, version, createdAt, flowRef?, dag: { nodes, edges }, messages?, callUsage?, exportedAt }`; `callUsage` is each model call's usage from the cost ledger, as it stood when signed.",
+  kind: 'provenance',
+  subject: ['runId', { type: 'string', format: 'uuid' }],
+  versionDescription:
+    "The body's version, semver. `1.2.0` adds `exportedAt` to the signed body; `1.1.0` added `callUsage`.",
+});
 
 // ---------------- registry (exported to the generator) ----------------
 
@@ -6719,63 +6756,22 @@ export const ExportComplianceEvidenceFilterSchema: JsonSchema = {
 };
 
 export const ExportComplianceEvidenceBodySchema: JsonSchema = {
+  description: 'Optional: no body exports every exportable kind, signed with the active key.',
   type: 'object',
   additionalProperties: false,
-  required: ['signingKeyId'],
   properties: {
-    signingKeyId: {
-      type: 'string',
-      minLength: 1,
-      description:
-        'The `SigningKeyId` the deployment plugs into its `signingKey` binding. Server looks up the private key via `signingKey.getPrivateKey(signingKeyId)` — 404 `signing-key-not-found` if unknown.',
-    },
+    signingKeyId: SIGNING_KEY_ID_PROPERTY,
     filter: ExportComplianceEvidenceFilterSchema,
   },
 };
 
-export const SignedComplianceEvidenceBundleSchema: JsonSchema = {
+export const SignedComplianceEvidenceBundleSchema: JsonSchema = signedExportEnvelope({
   description:
-    'Signed exportable bundle. `bundle` is base64 of the exact bytes that were signed (sorted-key canonical JSON, no whitespace); verifiers can pass those bytes directly to `verifyEd25519`. Bundle body: `{ bundleSchemaVersion, tenantId, filter, records, recordCount, exportedAt }`. Envelope shape identical to `ExportProvenanceResult` + audit-bundle — verifiers reuse one `verifyEd25519` wrapper across all three surfaces.',
-  type: 'object',
-  additionalProperties: false,
-  required: [
-    'bundleSchemaVersion',
-    'tenantId',
-    'bundle',
-    'algorithm',
-    'signingKeyId',
-    'signature',
-    'publicKey',
-    'canonicalization',
-    'exportedAt',
-  ],
-  properties: {
-    bundleSchemaVersion: { type: 'string', const: '1.0.0' },
-    tenantId: { type: 'string', format: 'uuid' },
-    bundle: {
-      type: 'string',
-      description: 'Base64-encoded canonical JSON of the bundle body.',
-    },
-    algorithm: { type: 'string', const: 'ed25519' },
-    signingKeyId: { type: 'string' },
-    signature: {
-      type: 'string',
-      description: 'Base64-encoded Ed25519 signature bytes over `bundle` (after base64-decode).',
-    },
-    publicKey: {
-      type: 'string',
-      description:
-        'PEM-encoded Ed25519 public key (DER SPKI envelope). Callers can pass this straight into `parsePublicKeyPem` for verification.',
-    },
-    canonicalization: {
-      type: 'string',
-      const: 'sorted-key-json',
-      description:
-        'Canonicalization algorithm — sorted-key JSON, no whitespace. Same algorithm as `canonicalize`.',
-    },
-    exportedAt: { type: 'string', format: 'date-time' },
-  },
-};
+    'Signed compliance evidence. Body: `{ bundleSchemaVersion, tenantId, filter, records, recordCount, exportedAt }`.',
+  kind: 'compliance',
+  subject: ['tenantId', { type: 'string', format: 'uuid' }],
+  versionDescription: "The body's version, semver: `1.0.0`.",
+});
 
 // ---------------- platform hierarchy ----------------
 
@@ -8355,6 +8351,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ReviewerCollectionPage', ReviewerCollectionPageSchema],
   ['RegisterReviewerBody', RegisterReviewerBodySchema],
   ['UnregisterReviewerResult', UnregisterReviewerResultSchema],
+  ['ExportSigningKey', ExportSigningKeySchema],
+  ['ExportSigningKeyList', ExportSigningKeyListSchema],
   ['ExportAuditBundleBody', ExportAuditBundleBodySchema],
   ['ExportAuditBundleResult', ExportAuditBundleResultSchema],
   ['ObservationStatus', ObservationStatusSchema],

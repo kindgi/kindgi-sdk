@@ -251,6 +251,9 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "provenance.list": Operation("provenance.list", "GET", "/v1/provenance", "json", False),
     "provenance.get": Operation("provenance.get", "GET", "/v1/provenance/{runId}", "json", False),
+    "exportSigningKeys.list": Operation(
+        "exportSigningKeys.list", "GET", "/v1/export-signing-keys", "json", False
+    ),
     "provenance.export": Operation(
         "provenance.export", "POST", "/v1/provenance/{runId}/export", "json", True
     ),
@@ -1355,7 +1358,7 @@ class ApprovalsResource:
     ) -> _models.ExportAuditBundleResult:
         """Export a signed audit bundle for a decided approval. `POST /v1/approvals/{approvalId}/audit-bundle`
 
-        Canonicalizes the approval + decision + evidence as sorted-key JSON and signs with the deployment's Ed25519 key looked up by `signingKeyId`. Envelope shape mirrors `provenance.export` byte-for-byte so SDK clients can reuse a single `verifyEd25519` wrapper for both. Only meaningful post-decision — pending approvals return `409 approval-not-decided`.
+        Signs the approval, its decision and its evidence with the deployment's export key, and records the export (an `export-signed` audit event). The same envelope as the other signed exports, so one verifier reads all three; check `publicKey` against `GET /v1/export-signing-keys`. For a decided approval only (approved, rejected, escalated, expired, withdrawn): a pending one is `409 approval-not-decided`. A deployment with no export key answers `404 signing-not-configured`.
         """
         return self._client._request(
             _OPERATIONS["approvals.auditBundle"],
@@ -2828,7 +2831,7 @@ class ProvenanceResource:
     ) -> _models.ExportProvenanceResult:
         """Export a signed provenance bundle for a run. `POST /v1/provenance/{runId}/export`
 
-        Canonicalizes the record + optional messages as sorted-key JSON and signs with the deployment's Ed25519 key looked up by `signingKeyId`. Verification is a pure client-side operation: `verifyEd25519(publicKey, bundleBytes, signature)`. Deployments without a `signingKey` binding mounted return `404 signing-not-configured`.
+        Signs the run's provenance (and, when asked, its messages) with the deployment's export key, and records the export (an `export-signed` audit event). The same envelope as the other signed exports; check `publicKey` against `GET /v1/export-signing-keys`. A deployment with no export key answers `404 signing-not-configured`.
         """
         return self._client._request(
             _OPERATIONS["provenance.export"],
@@ -2837,6 +2840,27 @@ class ProvenanceResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.ExportProvenanceBody, body, fields),
             response=_models.ExportProvenanceResult,
+            timeout=timeout,
+        )
+
+
+class ExportSigningKeysResource:
+    """`client.export_signing_keys` — the `exportSigningKeys` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(self, /, *, timeout: float | None = None) -> _models.ExportSigningKeyList:
+        """List the keys this deployment signs exports with. `GET /v1/export-signing-keys`
+
+        The public keys of the deployment's export signing key, active first: what a verifier pins. An export's embedded `publicKey` only proves its bytes weren't changed; this list says who signed them. Empty when the deployment doesn't sign exports. Any authenticated caller may read it.
+        """
+        return self._client._request(
+            _OPERATIONS["exportSigningKeys.list"],
+            path={},
+            query={},
+            headers={},
+            response=_models.ExportSigningKeyList,
             timeout=timeout,
         )
 
@@ -4997,7 +5021,7 @@ class ComplianceEvidenceResource:
     ) -> _models.SignedComplianceEvidenceBundle:
         """Export a signed compliance-evidence bundle. `POST /v1/compliance/evidence/export`
 
-        Canonicalizes the filtered records as sorted-key JSON and signs with the deployment's Ed25519 key looked up by `signingKeyId`. Verification is a pure client-side operation: `verifyEd25519(publicKey, bundleBytes, signature)`. Envelope shape matches `ExportProvenanceResult` + audit-bundle — verifiers reuse one wrapper across all three surfaces. Deployments without a `signingKey` binding mounted return `404 signing-not-configured`.
+        Signs the evidence the filter matches (exportable kinds only) with the deployment's export key, and records the export (an `export-signed` audit event). The same envelope as the other signed exports; check `publicKey` against `GET /v1/export-signing-keys`. A deployment with no export key answers `404 signing-not-configured`.
         """
         return self._client._request(
             _OPERATIONS["compliance.evidence.export"],
@@ -7272,7 +7296,7 @@ class AsyncApprovalsResource:
     ) -> _models.ExportAuditBundleResult:
         """Export a signed audit bundle for a decided approval. `POST /v1/approvals/{approvalId}/audit-bundle`
 
-        Canonicalizes the approval + decision + evidence as sorted-key JSON and signs with the deployment's Ed25519 key looked up by `signingKeyId`. Envelope shape mirrors `provenance.export` byte-for-byte so SDK clients can reuse a single `verifyEd25519` wrapper for both. Only meaningful post-decision — pending approvals return `409 approval-not-decided`.
+        Signs the approval, its decision and its evidence with the deployment's export key, and records the export (an `export-signed` audit event). The same envelope as the other signed exports, so one verifier reads all three; check `publicKey` against `GET /v1/export-signing-keys`. For a decided approval only (approved, rejected, escalated, expired, withdrawn): a pending one is `409 approval-not-decided`. A deployment with no export key answers `404 signing-not-configured`.
         """
         return await self._client._request(
             _OPERATIONS["approvals.auditBundle"],
@@ -8751,7 +8775,7 @@ class AsyncProvenanceResource:
     ) -> _models.ExportProvenanceResult:
         """Export a signed provenance bundle for a run. `POST /v1/provenance/{runId}/export`
 
-        Canonicalizes the record + optional messages as sorted-key JSON and signs with the deployment's Ed25519 key looked up by `signingKeyId`. Verification is a pure client-side operation: `verifyEd25519(publicKey, bundleBytes, signature)`. Deployments without a `signingKey` binding mounted return `404 signing-not-configured`.
+        Signs the run's provenance (and, when asked, its messages) with the deployment's export key, and records the export (an `export-signed` audit event). The same envelope as the other signed exports; check `publicKey` against `GET /v1/export-signing-keys`. A deployment with no export key answers `404 signing-not-configured`.
         """
         return await self._client._request(
             _OPERATIONS["provenance.export"],
@@ -8760,6 +8784,27 @@ class AsyncProvenanceResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.ExportProvenanceBody, body, fields),
             response=_models.ExportProvenanceResult,
+            timeout=timeout,
+        )
+
+
+class AsyncExportSigningKeysResource:
+    """`client.export_signing_keys` — the `exportSigningKeys` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(self, /, *, timeout: float | None = None) -> _models.ExportSigningKeyList:
+        """List the keys this deployment signs exports with. `GET /v1/export-signing-keys`
+
+        The public keys of the deployment's export signing key, active first: what a verifier pins. An export's embedded `publicKey` only proves its bytes weren't changed; this list says who signed them. Empty when the deployment doesn't sign exports. Any authenticated caller may read it.
+        """
+        return await self._client._request(
+            _OPERATIONS["exportSigningKeys.list"],
+            path={},
+            query={},
+            headers={},
+            response=_models.ExportSigningKeyList,
             timeout=timeout,
         )
 
@@ -10932,7 +10977,7 @@ class AsyncComplianceEvidenceResource:
     ) -> _models.SignedComplianceEvidenceBundle:
         """Export a signed compliance-evidence bundle. `POST /v1/compliance/evidence/export`
 
-        Canonicalizes the filtered records as sorted-key JSON and signs with the deployment's Ed25519 key looked up by `signingKeyId`. Verification is a pure client-side operation: `verifyEd25519(publicKey, bundleBytes, signature)`. Envelope shape matches `ExportProvenanceResult` + audit-bundle — verifiers reuse one wrapper across all three surfaces. Deployments without a `signingKey` binding mounted return `404 signing-not-configured`.
+        Signs the evidence the filter matches (exportable kinds only) with the deployment's export key, and records the export (an `export-signed` audit event). The same envelope as the other signed exports; check `publicKey` against `GET /v1/export-signing-keys`. A deployment with no export key answers `404 signing-not-configured`.
         """
         return await self._client._request(
             _OPERATIONS["compliance.evidence.export"],
@@ -12594,6 +12639,7 @@ class Resources:
     memory: MemoryResource
     proposals: ProposalsResource
     provenance: ProvenanceResource
+    export_signing_keys: ExportSigningKeysResource
     artifacts: ArtifactsResource
     observations: ObservationsResource
     capabilities: CapabilitiesResource
@@ -12640,6 +12686,7 @@ class Resources:
         self.memory = MemoryResource(client)
         self.proposals = ProposalsResource(client)
         self.provenance = ProvenanceResource(client)
+        self.export_signing_keys = ExportSigningKeysResource(client)
         self.artifacts = ArtifactsResource(client)
         self.observations = ObservationsResource(client)
         self.capabilities = CapabilitiesResource(client)
@@ -12688,6 +12735,7 @@ class AsyncResources:
     memory: AsyncMemoryResource
     proposals: AsyncProposalsResource
     provenance: AsyncProvenanceResource
+    export_signing_keys: AsyncExportSigningKeysResource
     artifacts: AsyncArtifactsResource
     observations: AsyncObservationsResource
     capabilities: AsyncCapabilitiesResource
@@ -12734,6 +12782,7 @@ class AsyncResources:
         self.memory = AsyncMemoryResource(client)
         self.proposals = AsyncProposalsResource(client)
         self.provenance = AsyncProvenanceResource(client)
+        self.export_signing_keys = AsyncExportSigningKeysResource(client)
         self.artifacts = AsyncArtifactsResource(client)
         self.observations = AsyncObservationsResource(client)
         self.capabilities = AsyncCapabilitiesResource(client)

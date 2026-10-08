@@ -67,9 +67,11 @@ describe('buildRuntimeEnv', () => {
       localEnvFiles: ['.env', '.env.dev'],
       corsOrigins: ['http://localhost:3000', 'http://localhost:5173'],
       publicTokenKeyPath: '/run/kindgi/public-token-signing.pem',
+      exportSigningKeyPath: '/run/kindgi/export-signing.pem',
       googleCredentialsPath: '/run/kindgi/google-credentials.json',
     });
     expect(env).toMatchObject({
+      KINDGI_EXPORT_SIGNING_KEY_PATH: '/run/kindgi/export-signing.pem',
       KINDGI_SECRETS_DOTENV_FILES: '.env,.env.dev',
       KINDGI_CORS_ORIGINS: 'http://localhost:3000,http://localhost:5173',
       KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH: '/run/kindgi/public-token-signing.pem',
@@ -98,6 +100,7 @@ describe('buildRuntimeEnv', () => {
       localEnvFiles: ['.env'],
       corsOrigins: ['http://localhost:3000'],
       publicTokenKeyPath: '/k.pem',
+      exportSigningKeyPath: '/e.pem',
       googleCredentialsPath: '/g.json',
     });
     const hostNetwork = buildRuntimeEnv({ ...BASE, apiHost: '127.0.0.1' });

@@ -1172,18 +1172,60 @@ class UnregisterReviewerResult(BaseModel):
     unregistered: Literal[True]
 
 
-class ExportAuditBundleBody(BaseModel):
+class ExportSigningKey(BaseModel):
     """
-    Body for `POST /v1/approvals/{approvalId}/audit-bundle`. `signingKeyId` selects the Ed25519 key from the deployment's `signingKey` binding. `includeMessages` optionally hydrates conversation messages tied to the approval's run.
+    A public key this deployment signs exports with.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    signing_key_id: Annotated[str, Field(alias="signingKeyId", min_length=1)]
+    key_id: Annotated[str, Field(alias="keyId")]
     """
-    The `SigningKeyId` the deployment plugs into its `signingKey` binding. Server looks up the private key via `signingKey.getPrivateKey(signingKeyId)` — 404 if unknown.
+    Derived from the public key (`ex_` and 16 base64url characters), so the same key keeps its id.
+    """
+    algorithm: Literal["ed25519", "ecdsa-p256-sha256"]
+    """
+    An Ed25519 key signs `ed25519`; an EC P-256 key (a KMS without Ed25519) signs `ecdsa-p256-sha256`.
+    """
+    public_key_pem: Annotated[str, Field(alias="publicKeyPem")]
+    """
+    PEM SPKI.
+    """
+    fingerprint: Annotated[str, Field(pattern="^sha256:[0-9a-f]{64}$")]
+    """
+    `sha256:` and the hex SHA-256 of the raw public key: to pin it, or compare by eye.
+    """
+    active: bool
+    """
+    Whether new exports are signed with it.
+    """
+
+
+class ExportSigningKeyList(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[ExportSigningKey]
+    """
+    Active first. Empty when the deployment doesn't sign exports.
+    """
+
+
+class ExportAuditBundleBody(BaseModel):
+    """
+    Body for `POST /v1/approvals/{approvalId}/audit-bundle`, optional: no body signs with the active key. `includeMessages` adds the conversation messages of the approval's run.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    signing_key_id: Annotated[str | None, Field(alias="signingKeyId", min_length=1)] = None
+    """
+    Optional: sign with this key, one of `GET /v1/export-signing-keys`. Leave it out to sign with the deployment's active key. A key the deployment doesn't sign with is `404 signing-key-not-found`.
     """
     include_messages: Annotated[bool | None, Field(alias="includeMessages")] = False
     """
@@ -1193,7 +1235,7 @@ class ExportAuditBundleBody(BaseModel):
 
 class ExportAuditBundleResult(BaseModel):
     """
-    Signed exportable audit bundle. Same envelope shape as `ExportProvenanceResult` — clients can reuse the same `verifyEd25519` wrapper for both. `bundle` is base64 of the exact bytes that were signed (sorted-key canonical JSON, no whitespace). Bundle body: `{ bundleVersion, approvalId, tenantId, subjectKind, subjectRef, requiredRole, status, decision, decidedAt?, evidence: { guardrailResults?, messages? }, createdAt, exportedAt }`.
+    A decided approval's signed audit bundle. Body: `{ bundleSchemaVersion, approvalId, tenantId, subjectKind, subjectRef, requiredRole, status, createdAt, decidedAt?, decision, evidence: { guardrailResults?, messages? }, exportedAt }`.
     """
 
     model_config = ConfigDict(
@@ -1201,29 +1243,42 @@ class ExportAuditBundleResult(BaseModel):
         populate_by_name=True,
     )
     approval_id: Annotated[UUID, Field(alias="approvalId")]
+    kind: Literal["audit-bundle"] | None = None
+    """
+    Which export this is: `audit-bundle`, `provenance` or `compliance`. Absent from older servers.
+    """
     bundle: str
     """
-    Base64-encoded canonical JSON of the bundle body.
+    Base64 of the exact bytes that were signed: the body, as sorted-key JSON with no whitespace. Verify these bytes; nothing needs re-serializing.
     """
-    bundle_schema_version: Annotated[int, Field(alias="bundleSchemaVersion")]
+    bundle_schema_version: Annotated[str, Field(alias="bundleSchemaVersion")]
     """
-    Integer schema version for the bundle body shape. Currently `1`.
+    The body's version, semver. `2.0.0`: a string like the other exports' (it was the integer `1`), named `bundleSchemaVersion` in the body too, with `exportedAt` signed once.
     """
-    algorithm: Literal["ed25519"]
+    algorithm: Literal["ed25519", "ecdsa-p256-sha256"]
+    """
+    The signing key's algorithm. `ecdsa-p256-sha256` signatures are IEEE P1363 `r‖s`. A verifier refuses an algorithm it doesn't know.
+    """
     signing_key_id: Annotated[str, Field(alias="signingKeyId")]
+    """
+    The key that signed it: one of `GET /v1/export-signing-keys`.
+    """
     signature: str
     """
-    Base64-encoded Ed25519 signature over `bundle` (after base64-decode).
+    Base64 of the 64-byte signature over the `bundle` bytes: Ed25519's, or ECDSA P-256's as IEEE P1363 `r‖s`.
     """
     public_key: Annotated[str, Field(alias="publicKey")]
     """
-    PEM-encoded Ed25519 public key (DER SPKI envelope). Pass into `parsePublicKeyPem` for verification.
+    The signing key's public half, PEM SPKI. On its own it only proves the bytes weren't changed; check it against `GET /v1/export-signing-keys` (or a key you pinned) to know who signed them.
     """
     canonicalization: Literal["sorted-key-json"]
     """
-    Canonicalization algorithm — sorted-key JSON, no whitespace. Same algorithm as `canonicalize`.
+    Sorted-key JSON, no whitespace (`canonicalize` in `@kindgi/schema`).
     """
     exported_at: Annotated[AwareDatetime, Field(alias="exportedAt")]
+    """
+    When it was signed: the same instant as the signed body's `exportedAt`.
+    """
 
 
 class ObservationStatus(
@@ -3796,13 +3851,17 @@ class ProvenanceCollectionPage(BaseModel):
 
 
 class ExportProvenanceBody(BaseModel):
+    """
+    Optional: no body signs with the active key.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    signing_key_id: Annotated[str, Field(alias="signingKeyId", min_length=1)]
+    signing_key_id: Annotated[str | None, Field(alias="signingKeyId", min_length=1)] = None
     """
-    The `SigningKeyId` the deployment plugs into its `signingKey` binding. Server looks up the private key via `signingKey.getPrivateKey(signingKeyId)` — 404 if unknown.
+    Optional: sign with this key, one of `GET /v1/export-signing-keys`. Leave it out to sign with the deployment's active key. A key the deployment doesn't sign with is `404 signing-key-not-found`.
     """
     include_messages: Annotated[bool | None, Field(alias="includeMessages")] = False
     """
@@ -3812,7 +3871,7 @@ class ExportProvenanceBody(BaseModel):
 
 class ExportProvenanceResult(BaseModel):
     """
-    Signed exportable bundle. `bundle` is base64 of the exact bytes that were signed (sorted-key canonical JSON, no whitespace); verifiers can pass those bytes directly to `verifyEd25519`. The bundle body itself includes `bundleSchemaVersion`, `runId`, `tenantId`, `dag: { nodes, edges }`, `messages?` (if requested), `callUsage?` (the usage of the model calls, from the cost ledger), etc. See `canonicalization` for the deterministic serialization algorithm.
+    A run's signed provenance. Body: `{ bundleSchemaVersion, provenanceId, runId, tenantId, version, createdAt, flowRef?, dag: { nodes, edges }, messages?, callUsage?, exportedAt }`; `callUsage` is each model call's usage from the cost ledger, as it stood when signed.
     """
 
     model_config = ConfigDict(
@@ -3820,29 +3879,42 @@ class ExportProvenanceResult(BaseModel):
         populate_by_name=True,
     )
     run_id: Annotated[UUID, Field(alias="runId")]
+    kind: Literal["provenance"] | None = None
+    """
+    Which export this is: `audit-bundle`, `provenance` or `compliance`. Absent from older servers.
+    """
     bundle: str
     """
-    Base64-encoded canonical JSON of the bundle body.
+    Base64 of the exact bytes that were signed: the body, as sorted-key JSON with no whitespace. Verify these bytes; nothing needs re-serializing.
     """
     bundle_schema_version: Annotated[str, Field(alias="bundleSchemaVersion")]
     """
-    Semver for the shape of the bundle body. Currently `1.1.0`, which adds `callUsage`: each model call's usage from the cost ledger, by call id, as it stood when signed.
+    The body's version, semver. `1.2.0` adds `exportedAt` to the signed body; `1.1.0` added `callUsage`.
     """
-    algorithm: Literal["ed25519"]
+    algorithm: Literal["ed25519", "ecdsa-p256-sha256"]
+    """
+    The signing key's algorithm. `ecdsa-p256-sha256` signatures are IEEE P1363 `r‖s`. A verifier refuses an algorithm it doesn't know.
+    """
     signing_key_id: Annotated[str, Field(alias="signingKeyId")]
+    """
+    The key that signed it: one of `GET /v1/export-signing-keys`.
+    """
     signature: str
     """
-    Base64-encoded Ed25519 signature bytes over `bundle` (after base64-decode).
+    Base64 of the 64-byte signature over the `bundle` bytes: Ed25519's, or ECDSA P-256's as IEEE P1363 `r‖s`.
     """
     public_key: Annotated[str, Field(alias="publicKey")]
     """
-    PEM-encoded Ed25519 public key (DER SPKI envelope). Callers can pass this straight into `parsePublicKeyPem` for verification.
+    The signing key's public half, PEM SPKI. On its own it only proves the bytes weren't changed; check it against `GET /v1/export-signing-keys` (or a key you pinned) to know who signed them.
     """
     canonicalization: Literal["sorted-key-json"]
     """
-    Canonicalization algorithm — sorted-key JSON, no whitespace. Same algorithm as `canonicalize`.
+    Sorted-key JSON, no whitespace (`canonicalize` in `@kindgi/schema`).
     """
     exported_at: Annotated[AwareDatetime, Field(alias="exportedAt")]
+    """
+    When it was signed: the same instant as the signed body's `exportedAt`.
+    """
 
 
 class BlobMeta(BaseModel):
@@ -6596,13 +6668,17 @@ class Filter(BaseModel):
 
 
 class ExportComplianceEvidenceBody(BaseModel):
+    """
+    Optional: no body exports every exportable kind, signed with the active key.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    signing_key_id: Annotated[str, Field(alias="signingKeyId", min_length=1)]
+    signing_key_id: Annotated[str | None, Field(alias="signingKeyId", min_length=1)] = None
     """
-    The `SigningKeyId` the deployment plugs into its `signingKey` binding. Server looks up the private key via `signingKey.getPrivateKey(signingKeyId)` — 404 `signing-key-not-found` if unknown.
+    Optional: sign with this key, one of `GET /v1/export-signing-keys`. Leave it out to sign with the deployment's active key. A key the deployment doesn't sign with is `404 signing-key-not-found`.
     """
     filter: Filter | None = None
     """
@@ -6612,34 +6688,50 @@ class ExportComplianceEvidenceBody(BaseModel):
 
 class SignedComplianceEvidenceBundle(BaseModel):
     """
-    Signed exportable bundle. `bundle` is base64 of the exact bytes that were signed (sorted-key canonical JSON, no whitespace); verifiers can pass those bytes directly to `verifyEd25519`. Bundle body: `{ bundleSchemaVersion, tenantId, filter, records, recordCount, exportedAt }`. Envelope shape identical to `ExportProvenanceResult` + audit-bundle — verifiers reuse one `verifyEd25519` wrapper across all three surfaces.
+    Signed compliance evidence. Body: `{ bundleSchemaVersion, tenantId, filter, records, recordCount, exportedAt }`.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    bundle_schema_version: Annotated[Literal["1.0.0"], Field(alias="bundleSchemaVersion")]
     tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    kind: Literal["compliance"] | None = None
+    """
+    Which export this is: `audit-bundle`, `provenance` or `compliance`. Absent from older servers.
+    """
     bundle: str
     """
-    Base64-encoded canonical JSON of the bundle body.
+    Base64 of the exact bytes that were signed: the body, as sorted-key JSON with no whitespace. Verify these bytes; nothing needs re-serializing.
     """
-    algorithm: Literal["ed25519"]
+    bundle_schema_version: Annotated[str, Field(alias="bundleSchemaVersion")]
+    """
+    The body's version, semver: `1.0.0`.
+    """
+    algorithm: Literal["ed25519", "ecdsa-p256-sha256"]
+    """
+    The signing key's algorithm. `ecdsa-p256-sha256` signatures are IEEE P1363 `r‖s`. A verifier refuses an algorithm it doesn't know.
+    """
     signing_key_id: Annotated[str, Field(alias="signingKeyId")]
+    """
+    The key that signed it: one of `GET /v1/export-signing-keys`.
+    """
     signature: str
     """
-    Base64-encoded Ed25519 signature bytes over `bundle` (after base64-decode).
+    Base64 of the 64-byte signature over the `bundle` bytes: Ed25519's, or ECDSA P-256's as IEEE P1363 `r‖s`.
     """
     public_key: Annotated[str, Field(alias="publicKey")]
     """
-    PEM-encoded Ed25519 public key (DER SPKI envelope). Callers can pass this straight into `parsePublicKeyPem` for verification.
+    The signing key's public half, PEM SPKI. On its own it only proves the bytes weren't changed; check it against `GET /v1/export-signing-keys` (or a key you pinned) to know who signed them.
     """
     canonicalization: Literal["sorted-key-json"]
     """
-    Canonicalization algorithm — sorted-key JSON, no whitespace. Same algorithm as `canonicalize`.
+    Sorted-key JSON, no whitespace (`canonicalize` in `@kindgi/schema`).
     """
     exported_at: Annotated[AwareDatetime, Field(alias="exportedAt")]
+    """
+    When it was signed: the same instant as the signed body's `exportedAt`.
+    """
 
 
 class Org(BaseModel):
