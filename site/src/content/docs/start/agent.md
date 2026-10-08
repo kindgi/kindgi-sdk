@@ -178,7 +178,7 @@ it's running, and how to stop it: `kill <the process id>`.
    | OpenAI | `OPENAI_API_KEY` | `openai` |
    | Gemini (a Google AI Studio key) | `GEMINI_API_KEY` | `gemini-api` |
    | Groq | `GROQ_API_KEY` | `groq` |
-   | OpenRouter (many vendors, one key) | `OPENROUTER_API_KEY` | `openrouter` |
+   | OpenRouter (a hosted gateway) | `OPENROUTER_API_KEY` | `openrouter` |
 
    **If they have no key, or don't want to add one now,** stop here,
    honestly: Kindgi is running with its stand-in model, `dev-echo`, which
