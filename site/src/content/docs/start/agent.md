@@ -69,7 +69,7 @@ running and no model key yet:
 ```json
 {
   "ok": false,
-  "cliVersion": "0.1.4-rc.4",
+  "cliVersion": "0.1.4",
   "project": { "dir": "/Users/you/my-agents", "language": "node" },
   "checks": [
     {"id": "node", "status": "pass", "message": "Node 22.21.1."},
