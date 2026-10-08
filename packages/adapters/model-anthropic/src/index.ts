@@ -10,6 +10,8 @@ export {
   toFrameworkUsage,
 } from './cost.js';
 export type { CostRates } from './cost.js';
+export { PROMPT_CACHE, withPromptCache } from './cache.js';
+export type { CacheableRequest, CachedRequest } from './cache.js';
 export {
   fromAnthropicResponse,
   mapStopReason,
