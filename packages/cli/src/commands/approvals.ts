@@ -100,9 +100,39 @@ const complete: LeafCommand = {
     }),
 };
 
+const exportCmd: LeafCommand = {
+  kind: 'leaf',
+  name: 'export',
+  description:
+    "Export a decided approval's audit bundle, signed with the deployment's export key: who decided, when, why, and its evidence. Check it with kindgi exports verify.",
+  usage:
+    'kindgi approvals export <approval-id> [--signing-key=<key-id>] [--include-messages] > bundle.json',
+  optionSpec: {
+    'signing-key': {
+      type: 'string',
+      description:
+        "Sign with this key (one the runtime lists). Default: the deployment's active key.",
+    },
+    'include-messages': {
+      type: 'boolean',
+      description: "Add the conversation messages of the approval's run.",
+    },
+  },
+  run: (ctx) =>
+    runSdk(ctx, 'approvals export', async () => {
+      const id = requiredPositional(ctx, 0, 'approval-id') as ApprovalId;
+      const signingKeyId = stringFlag(ctx, 'signing-key');
+      return await ctx.client().approvals.audit.export({
+        approvalId: id,
+        ...(signingKeyId !== undefined && { signingKeyId }),
+        ...(ctx.options['include-messages'] === true && { includeMessages: true }),
+      });
+    }),
+};
+
 export const approvalsCommand: Command = {
   kind: 'group',
   name: 'approvals',
-  description: 'Review HITL approvals.',
-  subcommands: [list, get, complete],
+  description: 'Review HITL approvals, and export their signed audit bundles.',
+  subcommands: [list, get, complete, exportCmd],
 };

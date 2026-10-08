@@ -6,9 +6,14 @@
 - `Authorization: Bearer <token>` on every call.
 - An operation that takes an `Idempotency-Key` gets one generated when the
   caller passes none, so a retry can never run it twice.
-- Retries — a connection error or timeout, or 429 / 502 / 503 / 504 — only
-  for a call that is safe to repeat (a GET, or one with an idempotency key),
-  with exponential backoff that honours `Retry-After`.
+- Retries, with exponential backoff that honours `Retry-After`, only for a
+  call that is safe to repeat (a GET, or one with an idempotency key):
+  - a GET after a connection error or timeout, or a 429 / 502 / 503 / 504;
+  - any other call only when nothing can have run: a failure to connect
+    (or a connect or pool timeout), or a 429 / 503. Once a call was sent, a
+    read timeout, a dropped connection or a proxy's 502 / 504 may mean it
+    is still running on the server, and the idempotency key doesn't hold
+    while it runs, so a repeat could run it again (a run started twice).
 - A 2xx answer is validated into the operation's model; anything else
   raises a typed `KindgiApiError`.
 - A stream (`text/event-stream`) reconnects with `Last-Event-Id` after a
@@ -25,7 +30,7 @@ import uuid
 from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from functools import cache
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from urllib.parse import quote
 
 import httpx
@@ -41,6 +46,10 @@ __all__ = ["AsyncClientBase", "Operation", "SyncClientBase", "_body", "_segments
 DEFAULT_TIMEOUT = 60.0
 DEFAULT_MAX_RETRIES = 2
 RETRY_STATUSES = frozenset({429, 502, 503, 504})
+# A call other than a GET: only the answers that say nothing ran.
+RETRY_STATUSES_UNSENT = frozenset({429, 503})
+# Failures before the request reached the server.
+_NOT_SENT = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
 STREAM_ATTEMPTS = 10
 
 
@@ -95,6 +104,46 @@ def _backoff(attempt: int, retry_after: str | None) -> float:
         except ValueError:
             pass
     return min(0.5 * 2 ** (attempt - 1), 8.0) * (0.75 + random.random() / 2)
+
+
+def _may_retry(op: Operation, cause: httpx.TransportError) -> bool:
+    """Whether a call that failed with `cause` may be sent again (see the module doc)."""
+    return op.method == "GET" or isinstance(cause, _NOT_SENT)
+
+
+def _retry_statuses(op: Operation) -> frozenset[int]:
+    return RETRY_STATUSES if op.method == "GET" else RETRY_STATUSES_UNSENT
+
+
+def _waits(body: Any) -> bool:
+    """A run start that waits for its run: `options.wait` isn't `False`."""
+    if not isinstance(body, Mapping):
+        return True
+    options = cast(Mapping[str, Any], body).get("options")
+    if not isinstance(options, Mapping):
+        return True
+    return cast(Mapping[str, Any], options).get("wait") is not False
+
+
+def _network_error(
+    op: Operation, cause: httpx.TransportError, body: Any, timeout: float
+) -> NetworkError:
+    """The `NetworkError` for a call that failed with `cause`."""
+    if not isinstance(cause, httpx.TimeoutException) or isinstance(cause, _NOT_SENT):
+        return NetworkError(f"{op.id}: {type(cause).__name__}: {cause}")
+    if op.id == "runs.start" and _waits(body):
+        return NetworkError(
+            f"The run didn't end within {timeout:g} s, the client's timeout (timeout). "
+            "A waited start answers only when the run ends, so the run may still be going, "
+            "and its id didn't arrive. Start a run that can take longer with "
+            '`options={"wait": False}`: the answer carries its id at once. Then follow it '
+            "with `runs.stream(run_id)` or `runs.get(run_id)`. Or raise `timeout`.",
+            timeout=timeout,
+        )
+    return NetworkError(
+        f"{op.id}: no answer within {timeout:g} s, the client's timeout (timeout).",
+        timeout=timeout,
+    )
 
 
 class _Common:
@@ -214,6 +263,7 @@ class SyncClientBase(_Common):
         timeout: float | None = None,
     ) -> Any:
         url, params, sent, safe = self._prepare(op, path, query, headers)
+        limit = timeout if timeout is not None else self.timeout
         attempt = 0
         while True:
             attempt += 1
@@ -226,14 +276,14 @@ class SyncClientBase(_Common):
                     json=body,
                     files=files,
                     data=data,
-                    timeout=timeout if timeout is not None else self.timeout,
+                    timeout=limit,
                 )
             except httpx.TransportError as cause:
-                if safe and attempt <= self.max_retries:
+                if safe and attempt <= self.max_retries and _may_retry(op, cause):
                     time.sleep(_backoff(attempt, None))
                     continue
-                raise NetworkError(f"{op.id}: {type(cause).__name__}: {cause}") from cause
-            if answer.status_code in RETRY_STATUSES and safe and attempt <= self.max_retries:
+                raise _network_error(op, cause, body, limit) from cause
+            if answer.status_code in _retry_statuses(op) and safe and attempt <= self.max_retries:
                 time.sleep(_backoff(attempt, answer.headers.get("retry-after")))
                 continue
             return self._answer(op, answer, response)
@@ -321,6 +371,7 @@ class AsyncClientBase(_Common):
         timeout: float | None = None,
     ) -> Any:
         url, params, sent, safe = self._prepare(op, path, query, headers)
+        limit = timeout if timeout is not None else self.timeout
         attempt = 0
         while True:
             attempt += 1
@@ -333,14 +384,14 @@ class AsyncClientBase(_Common):
                     json=body,
                     files=files,
                     data=data,
-                    timeout=timeout if timeout is not None else self.timeout,
+                    timeout=limit,
                 )
             except httpx.TransportError as cause:
-                if safe and attempt <= self.max_retries:
+                if safe and attempt <= self.max_retries and _may_retry(op, cause):
                     await asyncio.sleep(_backoff(attempt, None))
                     continue
-                raise NetworkError(f"{op.id}: {type(cause).__name__}: {cause}") from cause
-            if answer.status_code in RETRY_STATUSES and safe and attempt <= self.max_retries:
+                raise _network_error(op, cause, body, limit) from cause
+            if answer.status_code in _retry_statuses(op) and safe and attempt <= self.max_retries:
                 await asyncio.sleep(_backoff(attempt, answer.headers.get("retry-after")))
                 continue
             return self._answer(op, answer, response)

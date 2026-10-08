@@ -44,6 +44,36 @@ OPERATIONS: dict[str, Operation] = {
     "tokens.revoke": Operation(
         "tokens.revoke", "POST", "/v1/tokens/{tokenId}/revoke", "json", True
     ),
+    "serviceAccounts.list": Operation(
+        "serviceAccounts.list", "GET", "/v1/service-accounts", "json", False
+    ),
+    "serviceAccounts.create": Operation(
+        "serviceAccounts.create", "POST", "/v1/service-accounts", "json", True
+    ),
+    "serviceAccounts.get": Operation(
+        "serviceAccounts.get", "GET", "/v1/service-accounts/{serviceAccountId}", "json", False
+    ),
+    "serviceAccounts.grant": Operation(
+        "serviceAccounts.grant",
+        "POST",
+        "/v1/service-accounts/{serviceAccountId}/grant",
+        "json",
+        True,
+    ),
+    "serviceAccounts.ungrant": Operation(
+        "serviceAccounts.ungrant",
+        "POST",
+        "/v1/service-accounts/{serviceAccountId}/ungrant",
+        "json",
+        True,
+    ),
+    "serviceAccounts.unregister": Operation(
+        "serviceAccounts.unregister",
+        "POST",
+        "/v1/service-accounts/{serviceAccountId}/unregister",
+        "json",
+        True,
+    ),
     "tokens.mintPublic": Operation("tokens.mintPublic", "POST", "/v1/tokens/public", "json", True),
     "approvals.list": Operation("approvals.list", "GET", "/v1/approvals", "json", False),
     "approvals.get": Operation("approvals.get", "GET", "/v1/approvals/{approvalId}", "json", False),
@@ -227,8 +257,17 @@ OPERATIONS: dict[str, Operation] = {
     "memory.getFact": Operation(
         "memory.getFact", "GET", "/v1/memory/facts/{factId}", "json", False
     ),
+    "memory.deleteFact": Operation(
+        "memory.deleteFact", "DELETE", "/v1/memory/facts/{factId}", "json", False
+    ),
+    "memory.listFactRevisions": Operation(
+        "memory.listFactRevisions", "GET", "/v1/memory/facts/{factId}/revisions", "json", False
+    ),
     "memory.supersedeFact": Operation(
         "memory.supersedeFact", "POST", "/v1/memory/facts/{factId}/supersede", "json", True
+    ),
+    "memory.verifyFact": Operation(
+        "memory.verifyFact", "POST", "/v1/memory/facts/{factId}/verify", "json", True
     ),
     "memory.retrieve": Operation("memory.retrieve", "POST", "/v1/memory/retrieve", "json", True),
     "proposals.list": Operation("proposals.list", "GET", "/v1/proposals", "json", False),
@@ -251,6 +290,9 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "provenance.list": Operation("provenance.list", "GET", "/v1/provenance", "json", False),
     "provenance.get": Operation("provenance.get", "GET", "/v1/provenance/{runId}", "json", False),
+    "exportSigningKeys.list": Operation(
+        "exportSigningKeys.list", "GET", "/v1/export-signing-keys", "json", False
+    ),
     "provenance.export": Operation(
         "provenance.export", "POST", "/v1/provenance/{runId}/export", "json", True
     ),
@@ -272,6 +314,9 @@ OPERATIONS: dict[str, Operation] = {
     "providers.get": Operation("providers.get", "GET", "/v1/providers/{providerId}", "json", False),
     "providers.capabilities": Operation(
         "providers.capabilities", "GET", "/v1/providers/{providerId}/capabilities", "json", False
+    ),
+    "providers.check": Operation(
+        "providers.check", "GET", "/v1/providers/{providerId}/check", "json", False
     ),
     "providers.unregister": Operation(
         "providers.unregister", "POST", "/v1/providers/{providerId}/unregister", "json", True
@@ -480,6 +525,9 @@ OPERATIONS: dict[str, Operation] = {
     "auth.logout": Operation("auth.logout", "POST", "/v1/auth/logout", "json", True),
     "identity.users.list": Operation(
         "identity.users.list", "GET", "/v1/identity/users", "json", False
+    ),
+    "identity.users.create": Operation(
+        "identity.users.create", "POST", "/v1/identity/users", "json", True
     ),
     "identity.users.get": Operation(
         "identity.users.get", "GET", "/v1/identity/users/{userId}", "json", False
@@ -1068,16 +1116,17 @@ class TokensResource:
         *,
         cursor: str | None = None,
         limit: int | None = None,
+        principal: str | None = None,
         timeout: float | None = None,
     ) -> _models.ApiTokenPage:
         """List API keys. `GET /v1/tokens`
 
-        Newest first. Never returns secrets. Tenant admins only.
+        Newest first. Never returns secrets. A tenant admin sees every key (`?principal=` for one principal's); anyone else sees their own.
         """
         return self._client._request(
             _OPERATIONS["tokens.list"],
             path={},
-            query={"cursor": cursor, "limit": limit},
+            query={"cursor": cursor, "limit": limit, "principal": principal},
             headers={},
             response=_models.ApiTokenPage,
             timeout=timeout,
@@ -1094,7 +1143,7 @@ class TokensResource:
     ) -> _models.MintTokenResult:
         """Mint an API key. `POST /v1/tokens`
 
-        An API key is a service account in the tenant, with a `role` and explicit `capabilities`. Returns the plaintext token exactly once. Tenant admins only; a caller can only grant capabilities it holds. Only mounted when the deployment supplies a `TokenAdmin`.
+        An API key acts for one principal (`for`: a person or a service account; default the caller), with that principal's grants. Its `role` is a ceiling under them and its `projectId` a limit. Returns the plaintext token exactly once. A person or a service account's key mints its own keys; only a tenant admin mints for someone else, or an `admin` key. A caller can only grant capabilities it holds, and a key limited to a project mints only keys limited to it. Only mounted when the deployment supplies a `TokenAdmin`.
         """
         return self._client._request(
             _OPERATIONS["tokens.mint"],
@@ -1109,7 +1158,7 @@ class TokensResource:
     def get(self, token_id: str | UUID, /, *, timeout: float | None = None) -> _models.ApiToken:
         """Read an API key. `GET /v1/tokens/{tokenId}`
 
-        Never returns the secret. Tenant admins only.
+        Never returns the secret. A tenant admin reads any key; anyone else only their own (someone else's reads as missing).
         """
         return self._client._request(
             _OPERATIONS["tokens.get"],
@@ -1130,7 +1179,7 @@ class TokensResource:
     ) -> _models.RevokeTokenResult:
         """Revoke an API key. `POST /v1/tokens/{tokenId}/revoke`
 
-        Takes effect on the next request. Tenant admins only.
+        Takes effect on the next request. A tenant admin revokes any key; anyone else only their own.
         """
         return self._client._request(
             _OPERATIONS["tokens.revoke"],
@@ -1161,6 +1210,143 @@ class TokensResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.MintPublicRunTokenBody, body, fields),
             response=_models.MintPublicRunTokenResult,
+            timeout=timeout,
+        )
+
+
+class ServiceAccountsResource:
+    """`client.service_accounts` — the `serviceAccounts` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        /,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        include_unregistered: Literal["true", "false"] | None = None,
+        timeout: float | None = None,
+    ) -> _models.ServiceAccountPage:
+        """List service accounts. `GET /v1/service-accounts`
+
+        Oldest first; active only unless `?includeUnregistered=true`. Tenant admins only.
+        """
+        return self._client._request(
+            _OPERATIONS["serviceAccounts.list"],
+            path={},
+            query={"cursor": cursor, "limit": limit, "includeUnregistered": include_unregistered},
+            headers={},
+            response=_models.ServiceAccountPage,
+            timeout=timeout,
+        )
+
+    def create(
+        self,
+        body: _models.CreateServiceAccountBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ServiceAccount:
+        """Create a service account. `POST /v1/service-accounts`
+
+        A named, non-human principal with its first grants, written before it is returned. It isn't a tenant member unless a grant makes it one (`{kind: 'tenant-member'}`: read the tenant's settings); give it only what its job needs. Mint its keys at `POST /v1/tokens` with `for`. Tenant admins only. Mounted when the deployment supplies a `ServiceAccountBinding`.
+        """
+        return self._client._request(
+            _OPERATIONS["serviceAccounts.create"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.CreateServiceAccountBody, body, fields),
+            response=_models.ServiceAccount,
+            timeout=timeout,
+        )
+
+    def get(
+        self, service_account_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.ServiceAccount:
+        """Read a service account. `GET /v1/service-accounts/{serviceAccountId}`
+
+        Unregistered ones too. Tenant admins only.
+        """
+        return self._client._request(
+            _OPERATIONS["serviceAccounts.get"],
+            path={"serviceAccountId": service_account_id},
+            query={},
+            headers={},
+            response=_models.ServiceAccount,
+            timeout=timeout,
+        )
+
+    def grant(
+        self,
+        service_account_id: str | UUID,
+        body: _models.ServiceAccountGrantBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ServiceAccount:
+        """Grant a service account. `POST /v1/service-accounts/{serviceAccountId}/grant`
+
+        Tenant admin, or a role on a project (replacing the account's role there). Written before the call answers. Tenant admins only.
+        """
+        return self._client._request(
+            _OPERATIONS["serviceAccounts.grant"],
+            path={"serviceAccountId": service_account_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ServiceAccountGrantBody, body, fields),
+            response=_models.ServiceAccount,
+            timeout=timeout,
+        )
+
+    def ungrant(
+        self,
+        service_account_id: str | UUID,
+        body: _models.ServiceAccountUngrantBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ServiceAccount:
+        """Remove a grant from a service account. `POST /v1/service-accounts/{serviceAccountId}/ungrant`
+
+        A no-op when the account does not hold it. Tenant admins only.
+        """
+        return self._client._request(
+            _OPERATIONS["serviceAccounts.ungrant"],
+            path={"serviceAccountId": service_account_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ServiceAccountUngrantBody, body, fields),
+            response=_models.ServiceAccount,
+            timeout=timeout,
+        )
+
+    def unregister(
+        self,
+        service_account_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ServiceAccount:
+        """Unregister a service account. `POST /v1/service-accounts/{serviceAccountId}/unregister`
+
+        A tombstone: its grants go and its keys stop working; it stays readable. Idempotent. Tenant admins only.
+        """
+        return self._client._request(
+            _OPERATIONS["serviceAccounts.unregister"],
+            path={"serviceAccountId": service_account_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ServiceAccount,
             timeout=timeout,
         )
 
@@ -1352,7 +1538,7 @@ class ApprovalsResource:
     ) -> _models.ExportAuditBundleResult:
         """Export a signed audit bundle for a decided approval. `POST /v1/approvals/{approvalId}/audit-bundle`
 
-        Canonicalizes the approval + decision + evidence as sorted-key JSON and signs with the deployment's Ed25519 key looked up by `signingKeyId`. Envelope shape mirrors `provenance.export` byte-for-byte so SDK clients can reuse a single `verifyEd25519` wrapper for both. Only meaningful post-decision — pending approvals return `409 approval-not-decided`.
+        Signs the approval, its decision and its evidence with the deployment's export key, and records the export (an `export-signed` audit event). The same envelope as the other signed exports, so one verifier reads all three; check `publicKey` against `GET /v1/export-signing-keys`. For a decided approval only (approved, rejected, escalated, expired, withdrawn): a pending one is `409 approval-not-decided`. A deployment with no export key answers `404 signing-not-configured`.
         """
         return self._client._request(
             _OPERATIONS["approvals.auditBundle"],
@@ -2437,11 +2623,12 @@ class MemoryResource:
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
         inherit: bool | None = None,
+        as_of: str | None = None,
         timeout: float | None = None,
     ) -> _models.FactCollectionPage:
         """List facts. `GET /v1/memory/facts`
 
-        Cursor-paginated. Filters: `?type=` (exact match on `Fact.type`), `?scope=` (URL-encoded JSON partial memory `Scope`), `?scopeKind + ?scopeId + ?inherit` (discriminated `PlatformScope` triplet — threaded into the binding as `platformScope`; both fields coexist). Sort order is binding-defined.
+        Cursor-paginated: the current revision of each fact the caller may see. That is tenant-wide facts, the projects they may read (with those projects' orgs), their own user facts, and every end user's and conversation's facts in the projects they may write; a tenant admin sees every fact. Filters: `?type=` (exact match on `Fact.type`), `?scope=` (URL-encoded JSON partial memory `Scope`), `?scopeKind + ?scopeId + ?inherit` (discriminated `PlatformScope` triplet — threaded into the binding as `platformScope`; both fields coexist), `?asOf=` (memory as it stood then). Sort order is binding-defined.
         """
         return self._client._request(
             _OPERATIONS["memory.listFacts"],
@@ -2454,6 +2641,7 @@ class MemoryResource:
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "inherit": inherit,
+                "asOf": as_of,
             },
             headers={},
             response=_models.FactCollectionPage,
@@ -2471,7 +2659,7 @@ class MemoryResource:
     ) -> _models.Fact:
         """Write a fact. `POST /v1/memory/facts`
 
-        Persists a new fact. `type` selects the retrieval policy (which indexes populate). Semantic-indexed types require an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`.
+        Persists a new fact. `type` selects the retrieval policy (which indexes populate). Semantic-indexed types require an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`. The caller needs write where the scope says: `write` on its project (an end user's or a conversation's fact included), `write` on its conversation outside a project, `admin` on its org for an org-wide fact, being that user for a user's fact, and tenant `admin` for a tenant-wide fact. The fact records who wrote it (`attributedTo`).
         """
         return self._client._request(
             _OPERATIONS["memory.writeFact"],
@@ -2483,35 +2671,110 @@ class MemoryResource:
             timeout=timeout,
         )
 
-    def get_fact(self, fact_id: str | UUID, /, *, timeout: float | None = None) -> _models.Fact:
-        """Fetch a fact. `GET /v1/memory/facts/{factId}`"""
+    def get_fact(
+        self,
+        fact_id: str | UUID,
+        /,
+        *,
+        version: int | None = None,
+        as_of: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.Fact:
+        """Fetch a fact. `GET /v1/memory/facts/{factId}`
+
+        Its current revision; `?version=` reads one revision, `?asOf=` the revision current at that time. A fact the caller may not see is not found.
+        """
         return self._client._request(
             _OPERATIONS["memory.getFact"],
             path={"factId": fact_id},
-            query={},
+            query={"version": version, "asOf": as_of},
             headers={},
             response=_models.Fact,
+            timeout=timeout,
+        )
+
+    def delete_fact(
+        self,
+        fact_id: str | UUID,
+        /,
+        *,
+        expect_version: int | None = None,
+        timeout: float | None = None,
+    ) -> _models.Fact:
+        """Delete a fact. `DELETE /v1/memory/facts/{factId}`
+
+        Closes the current revision (`invalidationReason: deleted`): the fact is no longer listed, fetched or retrieved, and its history stays readable until the retention sweep removes it.
+        """
+        return self._client._request(
+            _OPERATIONS["memory.deleteFact"],
+            path={"factId": fact_id},
+            query={"expectVersion": expect_version},
+            headers={},
+            response=_models.Fact,
+            timeout=timeout,
+        )
+
+    def list_fact_revisions(
+        self, fact_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.FactRevisionList:
+        """List a fact's revisions. `GET /v1/memory/facts/{factId}/revisions`
+
+        Every revision of the fact, newest first, superseded and deleted ones included: who changed it, when and why (`invalidatedBy`, `invalidatedAt`, `invalidationReason`).
+        """
+        return self._client._request(
+            _OPERATIONS["memory.listFactRevisions"],
+            path={"factId": fact_id},
+            query={},
+            headers={},
+            response=_models.FactRevisionList,
             timeout=timeout,
         )
 
     def supersede_fact(
         self,
         fact_id: str | UUID,
+        body: _models.SupersedeFactBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.SupersedeFactResult:
-        """Mark a fact as superseded. `POST /v1/memory/facts/{factId}/supersede`
+        **fields: Any,
+    ) -> _models.Fact:
+        """Change a fact's content. `POST /v1/memory/facts/{factId}/supersede`
 
-        Soft-delete via supersession — the historical row is retained until retention sweeps remove it. Idempotent: superseding an already-superseded fact returns `200 { superseded: true }`.
+        Writes the next revision (same fact id, `version` one more) and closes the current one; the old revision stays readable with `?version=`, `?asOf=` and in the history until the retention sweep removes it. `expectVersion` refuses if someone changed it first.
         """
         return self._client._request(
             _OPERATIONS["memory.supersedeFact"],
             path={"factId": fact_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.SupersedeFactResult,
+            body=_body(_models.SupersedeFactBody, body, fields),
+            response=_models.Fact,
+            timeout=timeout,
+        )
+
+    def verify_fact(
+        self,
+        fact_id: str | UUID,
+        body: _models.VerifyFactBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Fact:
+        """Mark a fact verified. `POST /v1/memory/facts/{factId}/verify`
+
+        A person who may write in its scope checked it: the next revision has `trust: verified`, `verifiedBy` and `verifiedAt`, and the same content.
+        """
+        return self._client._request(
+            _OPERATIONS["memory.verifyFact"],
+            path={"factId": fact_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.VerifyFactBody, body, fields),
+            response=_models.Fact,
             timeout=timeout,
         )
 
@@ -2526,7 +2789,7 @@ class MemoryResource:
     ) -> _models.RetrieveMemoryResult:
         """Retrieve facts by intent. `POST /v1/memory/retrieve`
 
-        Cross-history retrieval. Body is a `RetrieveIntent` shape mirroring the agent-side declarative retrieval. Semantic modes require an embedding provider bound on the deployment.
+        Cross-history retrieval over the facts the caller may see (as for listing). Body is a `RetrieveIntent` shape mirroring the agent-side declarative retrieval. Semantic modes require an embedding provider bound on the deployment.
         """
         return self._client._request(
             _OPERATIONS["memory.retrieve"],
@@ -2825,7 +3088,7 @@ class ProvenanceResource:
     ) -> _models.ExportProvenanceResult:
         """Export a signed provenance bundle for a run. `POST /v1/provenance/{runId}/export`
 
-        Canonicalizes the record + optional messages as sorted-key JSON and signs with the deployment's Ed25519 key looked up by `signingKeyId`. Verification is a pure client-side operation: `verifyEd25519(publicKey, bundleBytes, signature)`. Deployments without a `signingKey` binding mounted return `404 signing-not-configured`.
+        Signs the run's provenance (and, when asked, its messages) with the deployment's export key, and records the export (an `export-signed` audit event). The same envelope as the other signed exports; check `publicKey` against `GET /v1/export-signing-keys`. A deployment with no export key answers `404 signing-not-configured`.
         """
         return self._client._request(
             _OPERATIONS["provenance.export"],
@@ -2834,6 +3097,27 @@ class ProvenanceResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.ExportProvenanceBody, body, fields),
             response=_models.ExportProvenanceResult,
+            timeout=timeout,
+        )
+
+
+class ExportSigningKeysResource:
+    """`client.export_signing_keys` — the `exportSigningKeys` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(self, /, *, timeout: float | None = None) -> _models.ExportSigningKeyList:
+        """List the keys this deployment signs exports with. `GET /v1/export-signing-keys`
+
+        The public keys of the deployment's export signing key, active first: what a verifier pins. An export's embedded `publicKey` only proves its bytes weren't changed; this list says who signed them. Empty when the deployment doesn't sign exports. Any authenticated caller may read it.
+        """
+        return self._client._request(
+            _OPERATIONS["exportSigningKeys.list"],
+            path={},
+            query={},
+            headers={},
+            response=_models.ExportSigningKeyList,
             timeout=timeout,
         )
 
@@ -2852,11 +3136,12 @@ class ArtifactsResource:
         cursor: str | None = None,
         owner_run_id: str | UUID | None = None,
         content_type: str | None = None,
+        project_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.ArtifactCollectionPage:
         """List artifact metadata. `GET /v1/artifacts`
 
-        Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`).
+        Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?projectId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`). With authorization on, only artifacts in projects the caller can read are listed.
         """
         return self._client._request(
             _OPERATIONS["artifacts.list"],
@@ -2866,6 +3151,7 @@ class ArtifactsResource:
                 "cursor": cursor,
                 "ownerRunId": owner_run_id,
                 "contentType": content_type,
+                "projectId": project_id,
             },
             headers={},
             response=_models.ArtifactCollectionPage,
@@ -2883,7 +3169,7 @@ class ArtifactsResource:
     ) -> _models.BlobMeta:
         """Upload an artifact. `POST /v1/artifacts`
 
-        Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller.
+        Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the tenant's default project; uploading needs `write` there. An upload over the runtime's cap (default 100 MB) is `413 artifact-too-large`.
         """
         return self._client._request(
             _OPERATIONS["artifacts.upload"],
@@ -3067,7 +3353,7 @@ class ProvidersResource:
     ) -> _models.RegisterProviderResult:
         """Register a model provider. `POST /v1/providers`
 
-        Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped; optional `labels` within their limits — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding.
+        Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped; optional `labels` within their limits — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding. When the runtime has the adapter the body names, that adapter checks the registration first (its `adapter_config`, the metadata and the presence of `secret_ref`; static: no network, no secret read): a problem refuses it with `422 provider-config-invalid`.
         """
         return self._client._request(
             _OPERATIONS["providers.register"],
@@ -3108,6 +3394,22 @@ class ProvidersResource:
             query={},
             headers={},
             response=_models.ProviderCapabilitiesResult,
+            timeout=timeout,
+        )
+
+    def check(
+        self, provider_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.ProviderCheckResult:
+        """Check a provider's registration. `GET /v1/providers/{providerId}/check`
+
+        Runs the provider's adapter check over its stored registration (its `adapter_config`, its metadata, whether it names a `secret_ref`): the check `POST /v1/providers` runs before it stores one. Static: no network call, no secret read. `issues` lists what would keep the runtime from building the provider, each with a JSON-pointer `path`; an adapter this runtime doesn't have is one (`/adapter_id`). `checked` is false when this runtime has no check for the provider's adapter.
+        """
+        return self._client._request(
+            _OPERATIONS["providers.check"],
+            path={"providerId": provider_id},
+            query={},
+            headers={},
+            response=_models.ProviderCheckResult,
             timeout=timeout,
         )
 
@@ -3964,10 +4266,13 @@ class RetentionResource:
             "env",
             "secret",
             "run",
+            "artifact",
             "policy",
             "judgment",
             "judge_class",
             "provider",
+            "api_key",
+            "service_account",
             "*",
         ]
         | None = None,
@@ -4029,10 +4334,13 @@ class RetentionResource:
             "env",
             "secret",
             "run",
+            "artifact",
             "policy",
             "judgment",
             "judge_class",
             "provider",
+            "api_key",
+            "service_account",
             "*",
         ],
         body: _models.RetentionSweepDomainBody | Mapping[str, Any] | None = None,
@@ -4743,6 +5051,29 @@ class IdentityUsersResource:
             timeout=timeout,
         )
 
+    def create(
+        self,
+        body: _models.CreateUserBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.UserRecord:
+        """Add a person. `POST /v1/identity/users`
+
+        Adds a person to the tenant as a tenant member, written before it answers: they can read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. Give them a role to work (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. Tenant admins only. Mounted when the identity directory can add people.
+        """
+        return self._client._request(
+            _OPERATIONS["identity.users.create"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.CreateUserBody, body, fields),
+            response=_models.UserRecord,
+            timeout=timeout,
+        )
+
     def get(self, user_id: str | UUID, /, *, timeout: float | None = None) -> _models.UserRecord:
         """Get a user by id. `GET /v1/identity/users/{userId}`"""
         return self._client._request(
@@ -4780,7 +5111,7 @@ class IdentityUsersResource:
     ) -> _models.RevokeSessionsResult:
         """Revoke every active session for a user. `POST /v1/identity/users/{userId}/revoke-sessions`
 
-        Admin op — idempotent. Under the hood, deployments typically delegate to `SessionStoreBinding.revokeAllForUser`. Returns `{ revokedCount: 0 }` when the user was already fully signed out.
+        A tenant admin revokes anyone's sessions; anyone else only their own. Idempotent. Under the hood, deployments typically delegate to `SessionStoreBinding.revokeAllForUser`. Returns `{ revokedCount: 0 }` when the user was already fully signed out.
         """
         return self._client._request(
             _OPERATIONS["identity.users.revokeSessions"],
@@ -4978,7 +5309,7 @@ class ComplianceEvidenceResource:
     ) -> _models.SignedComplianceEvidenceBundle:
         """Export a signed compliance-evidence bundle. `POST /v1/compliance/evidence/export`
 
-        Canonicalizes the filtered records as sorted-key JSON and signs with the deployment's Ed25519 key looked up by `signingKeyId`. Verification is a pure client-side operation: `verifyEd25519(publicKey, bundleBytes, signature)`. Envelope shape matches `ExportProvenanceResult` + audit-bundle — verifiers reuse one wrapper across all three surfaces. Deployments without a `signingKey` binding mounted return `404 signing-not-configured`.
+        Signs the evidence the filter matches (exportable kinds only) with the deployment's export key, and records the export (an `export-signed` audit event). The same envelope as the other signed exports; check `publicKey` against `GET /v1/export-signing-keys`. A deployment with no export key answers `404 signing-not-configured`.
         """
         return self._client._request(
             _OPERATIONS["compliance.evidence.export"],
@@ -6963,16 +7294,17 @@ class AsyncTokensResource:
         *,
         cursor: str | None = None,
         limit: int | None = None,
+        principal: str | None = None,
         timeout: float | None = None,
     ) -> _models.ApiTokenPage:
         """List API keys. `GET /v1/tokens`
 
-        Newest first. Never returns secrets. Tenant admins only.
+        Newest first. Never returns secrets. A tenant admin sees every key (`?principal=` for one principal's); anyone else sees their own.
         """
         return await self._client._request(
             _OPERATIONS["tokens.list"],
             path={},
-            query={"cursor": cursor, "limit": limit},
+            query={"cursor": cursor, "limit": limit, "principal": principal},
             headers={},
             response=_models.ApiTokenPage,
             timeout=timeout,
@@ -6989,7 +7321,7 @@ class AsyncTokensResource:
     ) -> _models.MintTokenResult:
         """Mint an API key. `POST /v1/tokens`
 
-        An API key is a service account in the tenant, with a `role` and explicit `capabilities`. Returns the plaintext token exactly once. Tenant admins only; a caller can only grant capabilities it holds. Only mounted when the deployment supplies a `TokenAdmin`.
+        An API key acts for one principal (`for`: a person or a service account; default the caller), with that principal's grants. Its `role` is a ceiling under them and its `projectId` a limit. Returns the plaintext token exactly once. A person or a service account's key mints its own keys; only a tenant admin mints for someone else, or an `admin` key. A caller can only grant capabilities it holds, and a key limited to a project mints only keys limited to it. Only mounted when the deployment supplies a `TokenAdmin`.
         """
         return await self._client._request(
             _OPERATIONS["tokens.mint"],
@@ -7006,7 +7338,7 @@ class AsyncTokensResource:
     ) -> _models.ApiToken:
         """Read an API key. `GET /v1/tokens/{tokenId}`
 
-        Never returns the secret. Tenant admins only.
+        Never returns the secret. A tenant admin reads any key; anyone else only their own (someone else's reads as missing).
         """
         return await self._client._request(
             _OPERATIONS["tokens.get"],
@@ -7027,7 +7359,7 @@ class AsyncTokensResource:
     ) -> _models.RevokeTokenResult:
         """Revoke an API key. `POST /v1/tokens/{tokenId}/revoke`
 
-        Takes effect on the next request. Tenant admins only.
+        Takes effect on the next request. A tenant admin revokes any key; anyone else only their own.
         """
         return await self._client._request(
             _OPERATIONS["tokens.revoke"],
@@ -7058,6 +7390,143 @@ class AsyncTokensResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.MintPublicRunTokenBody, body, fields),
             response=_models.MintPublicRunTokenResult,
+            timeout=timeout,
+        )
+
+
+class AsyncServiceAccountsResource:
+    """`client.service_accounts` — the `serviceAccounts` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        /,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        include_unregistered: Literal["true", "false"] | None = None,
+        timeout: float | None = None,
+    ) -> _models.ServiceAccountPage:
+        """List service accounts. `GET /v1/service-accounts`
+
+        Oldest first; active only unless `?includeUnregistered=true`. Tenant admins only.
+        """
+        return await self._client._request(
+            _OPERATIONS["serviceAccounts.list"],
+            path={},
+            query={"cursor": cursor, "limit": limit, "includeUnregistered": include_unregistered},
+            headers={},
+            response=_models.ServiceAccountPage,
+            timeout=timeout,
+        )
+
+    async def create(
+        self,
+        body: _models.CreateServiceAccountBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ServiceAccount:
+        """Create a service account. `POST /v1/service-accounts`
+
+        A named, non-human principal with its first grants, written before it is returned. It isn't a tenant member unless a grant makes it one (`{kind: 'tenant-member'}`: read the tenant's settings); give it only what its job needs. Mint its keys at `POST /v1/tokens` with `for`. Tenant admins only. Mounted when the deployment supplies a `ServiceAccountBinding`.
+        """
+        return await self._client._request(
+            _OPERATIONS["serviceAccounts.create"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.CreateServiceAccountBody, body, fields),
+            response=_models.ServiceAccount,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, service_account_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.ServiceAccount:
+        """Read a service account. `GET /v1/service-accounts/{serviceAccountId}`
+
+        Unregistered ones too. Tenant admins only.
+        """
+        return await self._client._request(
+            _OPERATIONS["serviceAccounts.get"],
+            path={"serviceAccountId": service_account_id},
+            query={},
+            headers={},
+            response=_models.ServiceAccount,
+            timeout=timeout,
+        )
+
+    async def grant(
+        self,
+        service_account_id: str | UUID,
+        body: _models.ServiceAccountGrantBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ServiceAccount:
+        """Grant a service account. `POST /v1/service-accounts/{serviceAccountId}/grant`
+
+        Tenant admin, or a role on a project (replacing the account's role there). Written before the call answers. Tenant admins only.
+        """
+        return await self._client._request(
+            _OPERATIONS["serviceAccounts.grant"],
+            path={"serviceAccountId": service_account_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ServiceAccountGrantBody, body, fields),
+            response=_models.ServiceAccount,
+            timeout=timeout,
+        )
+
+    async def ungrant(
+        self,
+        service_account_id: str | UUID,
+        body: _models.ServiceAccountUngrantBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ServiceAccount:
+        """Remove a grant from a service account. `POST /v1/service-accounts/{serviceAccountId}/ungrant`
+
+        A no-op when the account does not hold it. Tenant admins only.
+        """
+        return await self._client._request(
+            _OPERATIONS["serviceAccounts.ungrant"],
+            path={"serviceAccountId": service_account_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ServiceAccountUngrantBody, body, fields),
+            response=_models.ServiceAccount,
+            timeout=timeout,
+        )
+
+    async def unregister(
+        self,
+        service_account_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ServiceAccount:
+        """Unregister a service account. `POST /v1/service-accounts/{serviceAccountId}/unregister`
+
+        A tombstone: its grants go and its keys stop working; it stays readable. Idempotent. Tenant admins only.
+        """
+        return await self._client._request(
+            _OPERATIONS["serviceAccounts.unregister"],
+            path={"serviceAccountId": service_account_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ServiceAccount,
             timeout=timeout,
         )
 
@@ -7253,7 +7722,7 @@ class AsyncApprovalsResource:
     ) -> _models.ExportAuditBundleResult:
         """Export a signed audit bundle for a decided approval. `POST /v1/approvals/{approvalId}/audit-bundle`
 
-        Canonicalizes the approval + decision + evidence as sorted-key JSON and signs with the deployment's Ed25519 key looked up by `signingKeyId`. Envelope shape mirrors `provenance.export` byte-for-byte so SDK clients can reuse a single `verifyEd25519` wrapper for both. Only meaningful post-decision — pending approvals return `409 approval-not-decided`.
+        Signs the approval, its decision and its evidence with the deployment's export key, and records the export (an `export-signed` audit event). The same envelope as the other signed exports, so one verifier reads all three; check `publicKey` against `GET /v1/export-signing-keys`. For a decided approval only (approved, rejected, escalated, expired, withdrawn): a pending one is `409 approval-not-decided`. A deployment with no export key answers `404 signing-not-configured`.
         """
         return await self._client._request(
             _OPERATIONS["approvals.auditBundle"],
@@ -8342,11 +8811,12 @@ class AsyncMemoryResource:
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
         inherit: bool | None = None,
+        as_of: str | None = None,
         timeout: float | None = None,
     ) -> _models.FactCollectionPage:
         """List facts. `GET /v1/memory/facts`
 
-        Cursor-paginated. Filters: `?type=` (exact match on `Fact.type`), `?scope=` (URL-encoded JSON partial memory `Scope`), `?scopeKind + ?scopeId + ?inherit` (discriminated `PlatformScope` triplet — threaded into the binding as `platformScope`; both fields coexist). Sort order is binding-defined.
+        Cursor-paginated: the current revision of each fact the caller may see. That is tenant-wide facts, the projects they may read (with those projects' orgs), their own user facts, and every end user's and conversation's facts in the projects they may write; a tenant admin sees every fact. Filters: `?type=` (exact match on `Fact.type`), `?scope=` (URL-encoded JSON partial memory `Scope`), `?scopeKind + ?scopeId + ?inherit` (discriminated `PlatformScope` triplet — threaded into the binding as `platformScope`; both fields coexist), `?asOf=` (memory as it stood then). Sort order is binding-defined.
         """
         return await self._client._request(
             _OPERATIONS["memory.listFacts"],
@@ -8359,6 +8829,7 @@ class AsyncMemoryResource:
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "inherit": inherit,
+                "asOf": as_of,
             },
             headers={},
             response=_models.FactCollectionPage,
@@ -8376,7 +8847,7 @@ class AsyncMemoryResource:
     ) -> _models.Fact:
         """Write a fact. `POST /v1/memory/facts`
 
-        Persists a new fact. `type` selects the retrieval policy (which indexes populate). Semantic-indexed types require an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`.
+        Persists a new fact. `type` selects the retrieval policy (which indexes populate). Semantic-indexed types require an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`. The caller needs write where the scope says: `write` on its project (an end user's or a conversation's fact included), `write` on its conversation outside a project, `admin` on its org for an org-wide fact, being that user for a user's fact, and tenant `admin` for a tenant-wide fact. The fact records who wrote it (`attributedTo`).
         """
         return await self._client._request(
             _OPERATIONS["memory.writeFact"],
@@ -8389,36 +8860,109 @@ class AsyncMemoryResource:
         )
 
     async def get_fact(
-        self, fact_id: str | UUID, /, *, timeout: float | None = None
+        self,
+        fact_id: str | UUID,
+        /,
+        *,
+        version: int | None = None,
+        as_of: str | None = None,
+        timeout: float | None = None,
     ) -> _models.Fact:
-        """Fetch a fact. `GET /v1/memory/facts/{factId}`"""
+        """Fetch a fact. `GET /v1/memory/facts/{factId}`
+
+        Its current revision; `?version=` reads one revision, `?asOf=` the revision current at that time. A fact the caller may not see is not found.
+        """
         return await self._client._request(
             _OPERATIONS["memory.getFact"],
             path={"factId": fact_id},
-            query={},
+            query={"version": version, "asOf": as_of},
             headers={},
             response=_models.Fact,
+            timeout=timeout,
+        )
+
+    async def delete_fact(
+        self,
+        fact_id: str | UUID,
+        /,
+        *,
+        expect_version: int | None = None,
+        timeout: float | None = None,
+    ) -> _models.Fact:
+        """Delete a fact. `DELETE /v1/memory/facts/{factId}`
+
+        Closes the current revision (`invalidationReason: deleted`): the fact is no longer listed, fetched or retrieved, and its history stays readable until the retention sweep removes it.
+        """
+        return await self._client._request(
+            _OPERATIONS["memory.deleteFact"],
+            path={"factId": fact_id},
+            query={"expectVersion": expect_version},
+            headers={},
+            response=_models.Fact,
+            timeout=timeout,
+        )
+
+    async def list_fact_revisions(
+        self, fact_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.FactRevisionList:
+        """List a fact's revisions. `GET /v1/memory/facts/{factId}/revisions`
+
+        Every revision of the fact, newest first, superseded and deleted ones included: who changed it, when and why (`invalidatedBy`, `invalidatedAt`, `invalidationReason`).
+        """
+        return await self._client._request(
+            _OPERATIONS["memory.listFactRevisions"],
+            path={"factId": fact_id},
+            query={},
+            headers={},
+            response=_models.FactRevisionList,
             timeout=timeout,
         )
 
     async def supersede_fact(
         self,
         fact_id: str | UUID,
+        body: _models.SupersedeFactBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.SupersedeFactResult:
-        """Mark a fact as superseded. `POST /v1/memory/facts/{factId}/supersede`
+        **fields: Any,
+    ) -> _models.Fact:
+        """Change a fact's content. `POST /v1/memory/facts/{factId}/supersede`
 
-        Soft-delete via supersession — the historical row is retained until retention sweeps remove it. Idempotent: superseding an already-superseded fact returns `200 { superseded: true }`.
+        Writes the next revision (same fact id, `version` one more) and closes the current one; the old revision stays readable with `?version=`, `?asOf=` and in the history until the retention sweep removes it. `expectVersion` refuses if someone changed it first.
         """
         return await self._client._request(
             _OPERATIONS["memory.supersedeFact"],
             path={"factId": fact_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.SupersedeFactResult,
+            body=_body(_models.SupersedeFactBody, body, fields),
+            response=_models.Fact,
+            timeout=timeout,
+        )
+
+    async def verify_fact(
+        self,
+        fact_id: str | UUID,
+        body: _models.VerifyFactBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Fact:
+        """Mark a fact verified. `POST /v1/memory/facts/{factId}/verify`
+
+        A person who may write in its scope checked it: the next revision has `trust: verified`, `verifiedBy` and `verifiedAt`, and the same content.
+        """
+        return await self._client._request(
+            _OPERATIONS["memory.verifyFact"],
+            path={"factId": fact_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.VerifyFactBody, body, fields),
+            response=_models.Fact,
             timeout=timeout,
         )
 
@@ -8433,7 +8977,7 @@ class AsyncMemoryResource:
     ) -> _models.RetrieveMemoryResult:
         """Retrieve facts by intent. `POST /v1/memory/retrieve`
 
-        Cross-history retrieval. Body is a `RetrieveIntent` shape mirroring the agent-side declarative retrieval. Semantic modes require an embedding provider bound on the deployment.
+        Cross-history retrieval over the facts the caller may see (as for listing). Body is a `RetrieveIntent` shape mirroring the agent-side declarative retrieval. Semantic modes require an embedding provider bound on the deployment.
         """
         return await self._client._request(
             _OPERATIONS["memory.retrieve"],
@@ -8732,7 +9276,7 @@ class AsyncProvenanceResource:
     ) -> _models.ExportProvenanceResult:
         """Export a signed provenance bundle for a run. `POST /v1/provenance/{runId}/export`
 
-        Canonicalizes the record + optional messages as sorted-key JSON and signs with the deployment's Ed25519 key looked up by `signingKeyId`. Verification is a pure client-side operation: `verifyEd25519(publicKey, bundleBytes, signature)`. Deployments without a `signingKey` binding mounted return `404 signing-not-configured`.
+        Signs the run's provenance (and, when asked, its messages) with the deployment's export key, and records the export (an `export-signed` audit event). The same envelope as the other signed exports; check `publicKey` against `GET /v1/export-signing-keys`. A deployment with no export key answers `404 signing-not-configured`.
         """
         return await self._client._request(
             _OPERATIONS["provenance.export"],
@@ -8741,6 +9285,27 @@ class AsyncProvenanceResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.ExportProvenanceBody, body, fields),
             response=_models.ExportProvenanceResult,
+            timeout=timeout,
+        )
+
+
+class AsyncExportSigningKeysResource:
+    """`client.export_signing_keys` — the `exportSigningKeys` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(self, /, *, timeout: float | None = None) -> _models.ExportSigningKeyList:
+        """List the keys this deployment signs exports with. `GET /v1/export-signing-keys`
+
+        The public keys of the deployment's export signing key, active first: what a verifier pins. An export's embedded `publicKey` only proves its bytes weren't changed; this list says who signed them. Empty when the deployment doesn't sign exports. Any authenticated caller may read it.
+        """
+        return await self._client._request(
+            _OPERATIONS["exportSigningKeys.list"],
+            path={},
+            query={},
+            headers={},
+            response=_models.ExportSigningKeyList,
             timeout=timeout,
         )
 
@@ -8759,11 +9324,12 @@ class AsyncArtifactsResource:
         cursor: str | None = None,
         owner_run_id: str | UUID | None = None,
         content_type: str | None = None,
+        project_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.ArtifactCollectionPage:
         """List artifact metadata. `GET /v1/artifacts`
 
-        Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`).
+        Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?projectId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`). With authorization on, only artifacts in projects the caller can read are listed.
         """
         return await self._client._request(
             _OPERATIONS["artifacts.list"],
@@ -8773,6 +9339,7 @@ class AsyncArtifactsResource:
                 "cursor": cursor,
                 "ownerRunId": owner_run_id,
                 "contentType": content_type,
+                "projectId": project_id,
             },
             headers={},
             response=_models.ArtifactCollectionPage,
@@ -8790,7 +9357,7 @@ class AsyncArtifactsResource:
     ) -> _models.BlobMeta:
         """Upload an artifact. `POST /v1/artifacts`
 
-        Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller.
+        Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the tenant's default project; uploading needs `write` there. An upload over the runtime's cap (default 100 MB) is `413 artifact-too-large`.
         """
         return await self._client._request(
             _OPERATIONS["artifacts.upload"],
@@ -8974,7 +9541,7 @@ class AsyncProvidersResource:
     ) -> _models.RegisterProviderResult:
         """Register a model provider. `POST /v1/providers`
 
-        Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped; optional `labels` within their limits — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding.
+        Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped; optional `labels` within their limits — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding. When the runtime has the adapter the body names, that adapter checks the registration first (its `adapter_config`, the metadata and the presence of `secret_ref`; static: no network, no secret read): a problem refuses it with `422 provider-config-invalid`.
         """
         return await self._client._request(
             _OPERATIONS["providers.register"],
@@ -9015,6 +9582,22 @@ class AsyncProvidersResource:
             query={},
             headers={},
             response=_models.ProviderCapabilitiesResult,
+            timeout=timeout,
+        )
+
+    async def check(
+        self, provider_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.ProviderCheckResult:
+        """Check a provider's registration. `GET /v1/providers/{providerId}/check`
+
+        Runs the provider's adapter check over its stored registration (its `adapter_config`, its metadata, whether it names a `secret_ref`): the check `POST /v1/providers` runs before it stores one. Static: no network call, no secret read. `issues` lists what would keep the runtime from building the provider, each with a JSON-pointer `path`; an adapter this runtime doesn't have is one (`/adapter_id`). `checked` is false when this runtime has no check for the provider's adapter.
+        """
+        return await self._client._request(
+            _OPERATIONS["providers.check"],
+            path={"providerId": provider_id},
+            query={},
+            headers={},
+            response=_models.ProviderCheckResult,
             timeout=timeout,
         )
 
@@ -9875,10 +10458,13 @@ class AsyncRetentionResource:
             "env",
             "secret",
             "run",
+            "artifact",
             "policy",
             "judgment",
             "judge_class",
             "provider",
+            "api_key",
+            "service_account",
             "*",
         ]
         | None = None,
@@ -9940,10 +10526,13 @@ class AsyncRetentionResource:
             "env",
             "secret",
             "run",
+            "artifact",
             "policy",
             "judgment",
             "judge_class",
             "provider",
+            "api_key",
+            "service_account",
             "*",
         ],
         body: _models.RetentionSweepDomainBody | Mapping[str, Any] | None = None,
@@ -10660,6 +11249,29 @@ class AsyncIdentityUsersResource:
             timeout=timeout,
         )
 
+    async def create(
+        self,
+        body: _models.CreateUserBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.UserRecord:
+        """Add a person. `POST /v1/identity/users`
+
+        Adds a person to the tenant as a tenant member, written before it answers: they can read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. Give them a role to work (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. Tenant admins only. Mounted when the identity directory can add people.
+        """
+        return await self._client._request(
+            _OPERATIONS["identity.users.create"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.CreateUserBody, body, fields),
+            response=_models.UserRecord,
+            timeout=timeout,
+        )
+
     async def get(
         self, user_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.UserRecord:
@@ -10699,7 +11311,7 @@ class AsyncIdentityUsersResource:
     ) -> _models.RevokeSessionsResult:
         """Revoke every active session for a user. `POST /v1/identity/users/{userId}/revoke-sessions`
 
-        Admin op — idempotent. Under the hood, deployments typically delegate to `SessionStoreBinding.revokeAllForUser`. Returns `{ revokedCount: 0 }` when the user was already fully signed out.
+        A tenant admin revokes anyone's sessions; anyone else only their own. Idempotent. Under the hood, deployments typically delegate to `SessionStoreBinding.revokeAllForUser`. Returns `{ revokedCount: 0 }` when the user was already fully signed out.
         """
         return await self._client._request(
             _OPERATIONS["identity.users.revokeSessions"],
@@ -10897,7 +11509,7 @@ class AsyncComplianceEvidenceResource:
     ) -> _models.SignedComplianceEvidenceBundle:
         """Export a signed compliance-evidence bundle. `POST /v1/compliance/evidence/export`
 
-        Canonicalizes the filtered records as sorted-key JSON and signs with the deployment's Ed25519 key looked up by `signingKeyId`. Verification is a pure client-side operation: `verifyEd25519(publicKey, bundleBytes, signature)`. Envelope shape matches `ExportProvenanceResult` + audit-bundle — verifiers reuse one wrapper across all three surfaces. Deployments without a `signingKey` binding mounted return `404 signing-not-configured`.
+        Signs the evidence the filter matches (exportable kinds only) with the deployment's export key, and records the export (an `export-signed` audit event). The same envelope as the other signed exports; check `publicKey` against `GET /v1/export-signing-keys`. A deployment with no export key answers `404 signing-not-configured`.
         """
         return await self._client._request(
             _OPERATIONS["compliance.evidence.export"],
@@ -12549,6 +13161,7 @@ class Resources:
     runs: RunsResource
     signing_keys: SigningKeysResource
     tokens: TokensResource
+    service_accounts: ServiceAccountsResource
     approvals: ApprovalsResource
     agents: AgentsResource
     gate_policies: GatePoliciesResource
@@ -12559,6 +13172,7 @@ class Resources:
     memory: MemoryResource
     proposals: ProposalsResource
     provenance: ProvenanceResource
+    export_signing_keys: ExportSigningKeysResource
     artifacts: ArtifactsResource
     observations: ObservationsResource
     capabilities: CapabilitiesResource
@@ -12595,6 +13209,7 @@ class Resources:
         self.runs = RunsResource(client)
         self.signing_keys = SigningKeysResource(client)
         self.tokens = TokensResource(client)
+        self.service_accounts = ServiceAccountsResource(client)
         self.approvals = ApprovalsResource(client)
         self.agents = AgentsResource(client)
         self.gate_policies = GatePoliciesResource(client)
@@ -12605,6 +13220,7 @@ class Resources:
         self.memory = MemoryResource(client)
         self.proposals = ProposalsResource(client)
         self.provenance = ProvenanceResource(client)
+        self.export_signing_keys = ExportSigningKeysResource(client)
         self.artifacts = ArtifactsResource(client)
         self.observations = ObservationsResource(client)
         self.capabilities = CapabilitiesResource(client)
@@ -12643,6 +13259,7 @@ class AsyncResources:
     runs: AsyncRunsResource
     signing_keys: AsyncSigningKeysResource
     tokens: AsyncTokensResource
+    service_accounts: AsyncServiceAccountsResource
     approvals: AsyncApprovalsResource
     agents: AsyncAgentsResource
     gate_policies: AsyncGatePoliciesResource
@@ -12653,6 +13270,7 @@ class AsyncResources:
     memory: AsyncMemoryResource
     proposals: AsyncProposalsResource
     provenance: AsyncProvenanceResource
+    export_signing_keys: AsyncExportSigningKeysResource
     artifacts: AsyncArtifactsResource
     observations: AsyncObservationsResource
     capabilities: AsyncCapabilitiesResource
@@ -12689,6 +13307,7 @@ class AsyncResources:
         self.runs = AsyncRunsResource(client)
         self.signing_keys = AsyncSigningKeysResource(client)
         self.tokens = AsyncTokensResource(client)
+        self.service_accounts = AsyncServiceAccountsResource(client)
         self.approvals = AsyncApprovalsResource(client)
         self.agents = AsyncAgentsResource(client)
         self.gate_policies = AsyncGatePoliciesResource(client)
@@ -12699,6 +13318,7 @@ class AsyncResources:
         self.memory = AsyncMemoryResource(client)
         self.proposals = AsyncProposalsResource(client)
         self.provenance = AsyncProvenanceResource(client)
+        self.export_signing_keys = AsyncExportSigningKeysResource(client)
         self.artifacts = AsyncArtifactsResource(client)
         self.observations = AsyncObservationsResource(client)
         self.capabilities = AsyncCapabilitiesResource(client)

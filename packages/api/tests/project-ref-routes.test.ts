@@ -102,7 +102,10 @@ async function harness() {
 
 /** A guarded route's path, its parameters filled in. */
 const concrete = (route: string): string =>
-  route.replace(':agentId', 'acme.agent').replace(':suiteId', 'acme.suite');
+  route
+    .replace(':agentId', 'acme.agent')
+    .replace(':suiteId', 'acme.suite')
+    .replace(':serviceAccountId', 'acme-ci');
 
 describe('a projectId the route cannot use (T247)', () => {
   test.each(PROJECT_REF_ROUTES.map(concrete))(

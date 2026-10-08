@@ -77,6 +77,48 @@ describe('tokens.create', () => {
   });
 });
 
+describe('tokens for a principal', () => {
+  it('create sends `for`, and the key says whom it acts for', async () => {
+    const stub = jsonFetch(
+      {
+        tokenId: 't',
+        token: 's',
+        principal: { kind: 'service-account', id: 'sa-acme-ci' },
+        role: 'member',
+        capabilities: [],
+        projectId: '00000000-0000-4000-8000-0000000000b1',
+        createdAt: '2026-10-03T00:00:00Z',
+      },
+      { status: 201 },
+    );
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    const created = await client.tokens.create({
+      for: { kind: 'service-account', id: 'sa-acme-ci' },
+      projectId: '00000000-0000-4000-8000-0000000000b1' as never,
+    });
+    expect(JSON.parse(stub.calls[0]?.body ?? 'null')).toEqual({
+      for: { kind: 'service-account', id: 'sa-acme-ci' },
+      projectId: '00000000-0000-4000-8000-0000000000b1',
+    });
+    expect(created.meta.principal).toEqual({ kind: 'service-account', id: 'sa-acme-ci' });
+  });
+
+  it('list filters by principal as `kind:id`', async () => {
+    const stub = jsonFetch({ data: [], hasMore: false });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    await client.tokens.list({ principal: { kind: 'user', id: 'bob' } });
+    expect(stub.calls[0]?.url).toBe('https://api.example.com/v1/tokens?principal=user%3Abob');
+  });
+});
+
 describe('tokens.list / tokens.get', () => {
   it('GETs /v1/tokens with paging and maps the page', async () => {
     const stub = jsonFetch({
