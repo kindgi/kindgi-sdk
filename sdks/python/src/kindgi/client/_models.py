@@ -6115,7 +6115,7 @@ class CallbackResult(BaseModel):
     )
     session_token: Annotated[str, Field(alias="sessionToken")]
     """
-    Opaque framework-issued session token (`kgi_sk_<sessionId>`). Send as `Authorization: Bearer <sessionToken>` on subsequent requests. The underlying provider access-token never leaves the server.
+    Opaque session token (`kgi_sk_…`), shown once: the server keeps only a hash of it. Never parse it. Send as `Authorization: Bearer <sessionToken>` on subsequent requests. The underlying provider access-token never leaves the server.
     """
     session_id: Annotated[str, Field(alias="sessionId")]
     expires_at: Annotated[AwareDatetime, Field(alias="expiresAt")]
@@ -6128,7 +6128,7 @@ class RefreshResult(BaseModel):
     )
     session_token: Annotated[str, Field(alias="sessionToken")]
     """
-    Opaque framework-issued session token (`kgi_sk_<sessionId>`). Send as `Authorization: Bearer <sessionToken>` on subsequent requests. The underlying provider access-token never leaves the server.
+    Opaque session token (`kgi_sk_…`), shown once: the server keeps only a hash of it. Never parse it. Send as `Authorization: Bearer <sessionToken>` on subsequent requests. The underlying provider access-token never leaves the server.
     """
     session_id: Annotated[str, Field(alias="sessionId")]
     expires_at: Annotated[AwareDatetime, Field(alias="expiresAt")]
