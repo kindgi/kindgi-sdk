@@ -50,7 +50,6 @@ Then register it:
   kindgi sso providers finish acme-kc --kind=oidc --issuer=<issuer> --client-id=<client-id> --client-secret-ref=<NAME> --domains=<your-domain>
 
 These URLs stay the same after registering and after any `update`.
-redirect URI: http://localhost:18096/auth/sso/callback/idp-oeqqqegzfbnrlm3ewbcj33sxhu
 ```
 
 `acme-kc` is the provider's id in your workspace: pick one per identity

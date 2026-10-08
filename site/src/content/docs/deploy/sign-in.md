@@ -181,7 +181,8 @@ No provider token is kept, and the session is stored by its hash.
 
 ### When a sign-in doesn't complete
 
-The person sees "Sign-in didn't complete". The runtime's log says why, and at
+The person sees "Sign-in didn't complete" (or, when the email can't be
+proved, the message for that). The runtime's log says why, and at
 which step, without logging a token or a code:
 
 ```text

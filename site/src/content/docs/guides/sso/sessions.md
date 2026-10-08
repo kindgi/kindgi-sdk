@@ -28,10 +28,11 @@ and they can't sign in again.
 
 ## Requests from other sites
 
-A request signed in by the session cookie must say where it comes from, in its
-`Origin` header, and come from the console's own address. Anything else is
-refused with `403 csrf-origin-mismatch`, so another site can't act through
-your session.
+A request signed in by the session cookie that changes something (any
+method but `GET`, `HEAD` and `OPTIONS`) must say where it comes from, in its
+`Origin` header, and come from the console's own address. One without an
+`Origin`, or from anywhere else, is refused with `403 csrf-origin-mismatch`,
+so another site can't act through your session.
 
 ## Sessions and API tokens
 

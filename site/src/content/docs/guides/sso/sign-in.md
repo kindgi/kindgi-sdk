@@ -58,6 +58,7 @@ once, for ten minutes. After that:
 | This is a different account | You used another account than the one you signed in with before, with the same email. Use your usual account. |
 | That sign-in option is gone | It may have been removed. Enter your email again. |
 | Sign-in was cancelled | Your identity provider didn't let the sign-in through. |
+| That sign-in has finished | The choice of workspace lasts five minutes and works once. Sign in again. |
 | Too many tries | Wait a minute, then try again. |
 | Sign-in didn't complete | Something went wrong between your identity provider and Kindgi. The **Detail** line under it is what your admin needs. |
 

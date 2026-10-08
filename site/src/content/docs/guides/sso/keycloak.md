@@ -18,19 +18,18 @@ kindgi sso providers start acme-kc --idp=keycloak
 In the Keycloak admin console, in your realm, **Clients → Create client**,
 client type **OpenID Connect**:
 
-1. **Client authentication:** On (a confidential client). **Authentication
-   flow:** Standard flow.
-2. **Valid redirect URIs:** the redirect URI `start` printed, exactly, with no
-   wildcard.
-3. **Proof Key for Code Exchange Code Challenge Method:** S256.
-4. On the client's **Credentials** tab, copy the **Client secret**, and store
+1. **On the second step:** **Client authentication** On (a confidential
+   client), **Authentication flow** Standard flow, and **PKCE Method** S256.
+2. **On the third step, Valid redirect URIs:** the redirect URI `start`
+   printed, exactly, with no wildcard.
+3. On the client's **Credentials** tab, copy the **Client secret**, and store
    it in Kindgi by name:
 
    ```sh
    kindgi secrets set ACME_KC_SECRET --env=production --scope=tenant --from-stdin
    ```
 
-5. **Each person needs an email with "Email verified" on** (Users → the
+4. **Each person needs an email with "Email verified" on** (Users → the
    person → Details). Without it, sign-in is refused: "Your email isn't
    verified".
 
@@ -67,10 +66,12 @@ kindgi sso providers start acme-saml --kind=saml
    client's **Settings** tab:
    - **Client ID:** the entity ID `start` printed. Keycloak uses the client ID
      as the service provider's entity ID.
-   - **Valid redirect URIs** and **Assertion Consumer Service POST Binding
-     URL:** the ACS URL `start` printed.
+   - **Valid redirect URIs:** the ACS URL `start` printed.
    - **Name ID format:** email, with **Force name ID format** On.
    - **Sign assertions:** On.
+
+   On the **Advanced** tab, **Assertion Consumer Service POST Binding URL:**
+   the ACS URL again.
 3. On the **Keys** tab ("Signing keys config"): **Client signature
    required** On, and import Kindgi's certificate, `acme-sp-cert.pem`.
    (Keycloak can also read keys from a service provider's metadata URL, but
@@ -79,7 +80,8 @@ kindgi sso providers start acme-saml --kind=saml
    (`<client id>-dedicated`), then **Add mapper → By configuration → User
    Property**: **Property** `email`, **SAML Attribute Name** `email`.
 
-The realm's metadata is at
+The realm's metadata is under **Realm settings → General → Endpoints → SAML
+2.0 Identity Provider Metadata**, at
 `https://<keycloak-host>/realms/<realm>/protocol/saml/descriptor`. Save it,
 and finish with the signing key's name:
 

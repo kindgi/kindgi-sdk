@@ -40,9 +40,9 @@ These URLs stay the same after registering and after any `update`.
 - **The scopes `openid email profile`.**
 - **A discovery document** at `<issuer>/.well-known/openid-configuration`.
   Kindgi reads the provider's endpoints from it when you register.
-- **The person's email, marked verified.** A sign-in without an email is
-  refused ("No email came back"), and so is one whose email the provider
-  doesn't mark verified ("Your email isn't verified").
+- **The person's email.** A sign-in without an email is refused ("No email
+  came back"), and so is one whose email the provider marks unverified
+  ("Your email isn't verified").
 - **An issuer on a public HTTPS address,** unless the runtime's operator
   allows its origin with `KINDGI_AUTH_PRIVATE_IDP_ORIGINS`.
 

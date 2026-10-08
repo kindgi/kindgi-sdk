@@ -61,7 +61,7 @@ offers the ways in the deployment has ([Turn on sign-in](../../deploy/sign-in/))
   that moves to someone new can't take the person over.
 - **Sessions are cookies the page's scripts can't read,** stored only as a
   hash, and no provider token is kept. A request signed in by the cookie
-  must come from the console's own origin.
+  that changes something must come from the console's own origin.
 - **Signing in with an API token is off by default** outside `kindgi dev`.
 
 ## Following a run from a browser
