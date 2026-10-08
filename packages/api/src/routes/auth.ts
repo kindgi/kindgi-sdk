@@ -6,7 +6,6 @@ import { createHash, randomBytes } from 'node:crypto';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 
-import { ref } from '@kindgi/authz';
 import type { SessionId, TenantId, UserId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
@@ -23,6 +22,7 @@ import type { Authorizer } from '../middleware/authorize.js';
 import type { Session, SessionStoreBinding } from '../session-store-binding.js';
 import type { OauthStateStore } from '../state-store-binding.js';
 import type { AppEnv } from '../types.js';
+import { tenantResourceAccess } from './tenant-access.js';
 
 /**
  * Auth routes. Layer OAuth 2.0 / OIDC on top of the static
@@ -51,10 +51,10 @@ export interface AuthRouterOptions {
    */
   readonly stateTtlMs?: number;
   /**
-   * With one (T243 A): the provider catalog is tenant-wide, so listing it
-   * needs `read` on the tenant, and registering or unregistering a
-   * provider `admin`. Logging in, refreshing and logging out are the
-   * caller's own, and stay unchecked.
+   * With one (T243 A): the provider catalog is tenant-wide, so reading it
+   * needs `read` on the tenant and changing it `admin`, as for every
+   * tenant-wide resource (`tenantResourceAccess`). Logging in, refreshing
+   * and logging out are the caller's own, and stay unchecked.
    */
   readonly authorizer?: Authorizer;
 }
@@ -81,16 +81,11 @@ export function authRouters(options: AuthRouterOptions): {
 
   const authed = new Hono<AppEnv>();
 
-  const { authorizer } = options;
-  if (authorizer !== undefined) {
-    const tenant = (c: Context<AppEnv>) => ref('tenant', c.get('tenantId') as unknown as string);
-    const read = authorizer.authorize('read', tenant);
-    const admin = authorizer.authorize('admin', tenant);
-    authed.use('/providers', (c, next) =>
-      c.req.method === 'GET' ? read(c, next) : admin(c, next),
-    );
-    authed.use('/providers/*', admin);
-  }
+  // The provider catalog is tenant-wide: any GET (the list, one provider,
+  // its sign-in URLs) needs `read` on the tenant, any change `admin`.
+  const providerAccess = tenantResourceAccess(options.authorizer);
+  authed.use('/providers', providerAccess);
+  authed.use('/providers/*', providerAccess);
 
   // ---------- GET /providers ----------
   authed.get('/providers', async (c) => {

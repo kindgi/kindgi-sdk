@@ -135,6 +135,9 @@ const ROUTES: readonly (readonly [string, string, string])[] = [
   ['POST', '/v1/webhook-endpoints/e/test', ADMIN],
   ['GET', '/v1/auth/providers', READ],
   ['POST', '/v1/auth/providers', ADMIN],
+  ['GET', '/v1/auth/providers/p', READ],
+  ['GET', '/v1/auth/providers/p/sign-in', READ],
+  ['PATCH', '/v1/auth/providers/p', ADMIN],
   ['POST', '/v1/auth/providers/p/unregister', ADMIN],
   ['GET', '/v1/compliance/evidence', ADMIN],
   ['GET', '/v1/compliance/evidence/x', ADMIN],
@@ -158,6 +161,35 @@ describe('tenant-wide routes ask for the tenant', () => {
       const [action, type] = needs.split(' ') as [Action, ObjectType];
       expect(OBJECT_ACTIONS[type], needs).toContain(action);
     }
+  });
+});
+
+describe('the sign-in provider catalog: any GET needs `read`, any change `admin`', () => {
+  // `tenantResourceAccess`, as for every tenant-wide resource: the list
+  // already shows each provider in full, so one provider (and its
+  // sign-in URLs) is a reader's too.
+  const call = (app: ReturnType<typeof harness>['app'], method: string, path: string) =>
+    app.request(path, {
+      method,
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      ...(method !== 'GET' && { body: '{}' }),
+    });
+
+  test('a reader gets past the check on GET /v1/auth/providers/p', async () => {
+    const { app, asked } = harness([READ]);
+    const res = await call(app, 'GET', '/v1/auth/providers/p');
+    expect(res.status).not.toBe(403);
+    expect(asked).toEqual([READ]);
+  });
+
+  test.each([
+    ['PATCH', '/v1/auth/providers/p'],
+    ['POST', '/v1/auth/providers/p/unregister'],
+  ])('a reader is refused %s %s (403), having asked for `admin`', async (method, path) => {
+    const { app, asked } = harness([READ]);
+    const res = await call(app, method, path);
+    expect(res.status).toBe(403);
+    expect(asked).toEqual([ADMIN]);
   });
 });
 
