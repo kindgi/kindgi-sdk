@@ -342,6 +342,11 @@
           "service-account-name-taken": 409,
           "service-account-unregistered": 409,
           "identity-user-email-taken": 409,
+          "last-tenant-admin": 409,
+          "seed-user-admin": 409,
+          "identity-user-unregister-refused": 409,
+          "identity-user-unregistered": 409,
+          "person-grants-unsupported": 501,
           "agent-version-live": 409,
           "artifact-too-large": 413,
           "run-not-finished": 409,
@@ -12660,9 +12665,42 @@
             "type": "string",
             "format": "date-time"
           },
+          "unregisteredAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When they were removed from the tenant (`POST /v1/identity/users/{userId}/unregister`); absent while they are here."
+          },
           "metadata": {
             "type": "object",
             "additionalProperties": true
+          }
+        }
+      },
+      "UnregisterUserResult": {
+        "description": "A removed person, and what removing them took away (each 0 when they were already removed).",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "user",
+          "keysRevoked",
+          "sessionsRevoked",
+          "grantsRemoved"
+        ],
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/UserRecord"
+          },
+          "keysRevoked": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sessionsRevoked": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "grantsRemoved": {
+            "type": "integer",
+            "minimum": 0
           }
         }
       },
@@ -12681,6 +12719,109 @@
           "primaryEmail": {
             "type": "string",
             "description": "Unique among the tenant's people."
+          }
+        }
+      },
+      "PersonGrants": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "What a person may do, as granted directly: tenant admin, a role on a project (its memberships), a role in a team, and the reviewer roster. What a team's or an org's grants imply is not expanded.",
+        "required": [
+          "userId",
+          "projects",
+          "teams"
+        ],
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "tenantAdmin": {
+            "type": "boolean",
+            "description": "Whether the person is a tenant admin. Absent when the runtime has no authorization store: nothing grants it then."
+          },
+          "tenantMember": {
+            "type": "boolean",
+            "description": "Whether the person is a tenant member: they read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. A person is one from being added. Absent when the runtime has no authorization store, or doesn't report it."
+          },
+          "projects": {
+            "type": "array",
+            "description": "Direct project memberships.",
+            "items": {
+              "$ref": "#/components/schemas/PersonProjectRole"
+            }
+          },
+          "teams": {
+            "type": "array",
+            "description": "Team memberships.",
+            "items": {
+              "$ref": "#/components/schemas/PersonTeamRole"
+            }
+          },
+          "reviewer": {
+            "$ref": "#/components/schemas/PersonReviewerRole"
+          }
+        }
+      },
+      "PersonProjectRole": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "projectId",
+          "role"
+        ],
+        "description": "A person's direct role on a project.",
+        "properties": {
+          "projectId": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/ProjectRole"
+          }
+        }
+      },
+      "PersonTeamRole": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "teamId",
+          "role"
+        ],
+        "description": "A person's role in a team.",
+        "properties": {
+          "teamId": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/TeamRole"
+          }
+        }
+      },
+      "PersonReviewerRole": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "role"
+        ],
+        "description": "A person's active entry on the reviewer roster.",
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/ReviewerRole"
+          }
+        }
+      },
+      "PersonGrantBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind"
+        ],
+        "description": "The grant to give or take: tenant admin. A person's project and team roles have their own membership routes.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tenant-admin"
+            ]
           }
         }
       },
@@ -13278,7 +13419,9 @@
           "service-account-granted",
           "service-account-ungranted",
           "service-account-unregistered",
-          "person-added"
+          "person-added",
+          "person-granted",
+          "person-ungranted"
         ]
       },
       "EvidenceActor": {
@@ -13437,7 +13580,9 @@
               "service-account-granted",
               "service-account-ungranted",
               "service-account-unregistered",
-              "person-added"
+              "person-added",
+              "person-granted",
+              "person-ungranted"
             ]
           },
           "timestamp": {
@@ -13619,7 +13764,9 @@
               "service-account-granted",
               "service-account-ungranted",
               "service-account-unregistered",
-              "person-added"
+              "person-added",
+              "person-granted",
+              "person-ungranted"
             ]
           },
           "from": {
@@ -13699,7 +13846,9 @@
                   "service-account-granted",
                   "service-account-ungranted",
                   "service-account-unregistered",
-                  "person-added"
+                  "person-added",
+                  "person-granted",
+                  "person-ungranted"
                 ]
               },
               "from": {
@@ -33214,6 +33363,15 @@
             },
             "required": false,
             "description": "Prefix match on `displayName`."
+          },
+          {
+            "name": "includeUnregistered",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            },
+            "required": false,
+            "description": "With `true`, people who were removed (`unregisteredAt`) too."
           }
         ],
         "security": [
@@ -33425,6 +33583,114 @@
         ]
       }
     },
+    "/v1/identity/users/{userId}/unregister": {
+      "post": {
+        "operationId": "identity.users.unregister",
+        "summary": "Remove a person",
+        "tags": [
+          "identity"
+        ],
+        "responses": {
+          "200": {
+            "description": "The removed person, and what removing them took away.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnregisterUserResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No user with that id under this tenant (`identity-user-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Yourself or the seed user (`identity-user-unregister-refused`, `details.reason`), the only tenant admin (`last-tenant-admin`), or an idempotency conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Removes a person from the tenant, in one step: they're marked removed (`unregisteredAt`; their record stays, so their history still says who they were), every API key and session of theirs is revoked, and every grant and membership they hold is taken away, all before it answers. Their keys get `401` at once. Their email is free again: adding it makes a new person. Removing someone already removed changes nothing. Refused for yourself and the deployment's seed user (`identity-user-unregister-refused`), and for the only tenant admin (`last-tenant-admin`). Tenant admins only. Mounted when the identity directory can remove people.",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/v1/identity/users/{userId}/revoke-sessions": {
       "post": {
         "operationId": "identity.users.revokeSessions",
@@ -33516,6 +33782,340 @@
             "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
           }
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/identity/users/{userId}/grants": {
+      "get": {
+        "operationId": "identity.users.grants",
+        "summary": "Read a person's grants",
+        "tags": [
+          "identity"
+        ],
+        "responses": {
+          "200": {
+            "description": "The person's grants.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonGrants"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Another person's grants, and not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No user with that id under this tenant (`identity-user-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "The runtime has no authorization store (`person-grants-unsupported`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "What the person may do, as granted directly: tenant admin, project and team roles, the reviewer roster. A tenant admin reads anyone's; anyone else only their own.",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/identity/users/{userId}/grant": {
+      "post": {
+        "operationId": "identity.users.grant",
+        "summary": "Make a person a tenant admin",
+        "tags": [
+          "identity"
+        ],
+        "responses": {
+          "200": {
+            "description": "The person's grants, after.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonGrants"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No user with that id under this tenant (`identity-user-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The person was removed from the tenant (`identity-user-unregistered`), or an idempotency conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "The runtime has no authorization store (`person-grants-unsupported`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Written before the call answers, so the person's next request holds it. A no-op when held. Tenant admins only.",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersonGrantBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/identity/users/{userId}/ungrant": {
+      "post": {
+        "operationId": "identity.users.ungrant",
+        "summary": "Remove tenant admin from a person",
+        "tags": [
+          "identity"
+        ],
+        "responses": {
+          "200": {
+            "description": "The person's grants, after.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonGrants"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No user with that id under this tenant (`identity-user-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The only person who is a tenant admin (`last-tenant-admin`), the seed user (`seed-user-admin`), or an idempotency conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "The runtime has no authorization store (`person-grants-unsupported`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A no-op when not held. Refused for the only person who is a tenant admin (`last-tenant-admin`: make someone else one first), and for the seed user, whom the runtime makes tenant admin at every boot (`seed-user-admin`: unset `KINDGI_SEED_USER_ID` and restart it first). Tenant admins only.",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersonGrantBody"
+              }
+            }
+          }
+        },
         "security": [
           {
             "bearerAuth": []

@@ -429,6 +429,7 @@ const noopIdentityDirectory: IdentityDirectoryBinding = {
   listSessions: async () => ({ data: [] }),
   revokeAllSessions: async ({ userId }) => ({ userId, revokedCount: 0 }),
   createUser: async () => ({ kind: 'email-taken', userId: 'noop-user' as never }),
+  unregisterUser: async () => ({ kind: 'not-found' }),
 };
 
 const serviceAccountNotFound = {

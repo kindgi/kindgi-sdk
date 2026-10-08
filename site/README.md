@@ -75,3 +75,15 @@ checking before a release. Every page says it's a preview, search engines
 don't index it, and it's deployed only behind a login
 (`wrangler.preview.jsonc`), never to the public site. `KINDGI_DOCS_BASE` sets the base a single build is served under, and
 `KINDGI_DOCS_REF` the git ref its links into the repository point at.
+
+**Links and versions in hand-written pages.** Link into the repository as
+`https://github.com/kindgi/kindgi-sdk/tree/main/…` (or `blob/main/…`): a
+build for a release points those links at its tag, as the generated pages
+do, and fails if a page still reads `main` another way (`raw/main`,
+`raw.githubusercontent.com`). Edit links stay on `main`. `{{kindgi.version}}`
+in a page becomes the version the build is for: the CLI's at that ref, which
+the JVM SDKs share. It's filled in code blocks (before highlighting, so the
+copy button gets it too) and in text; in MDX prose, put it in inline code,
+since `{` starts an expression there. Runtime image tags aren't this version
+(the runtime can ship a patch of its own), so write those out. check-samples
+and run-tutorials fill it the same way (`scripts/versioned-pages.mjs`).
