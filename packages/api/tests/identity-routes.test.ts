@@ -31,6 +31,8 @@ import type {
 const tenantA = randomUUID() as TenantId;
 const tenantB = randomUUID() as TenantId;
 const BEARER_TOKEN = 'identity-bearer-abc';
+/** A tenant admin: revoking someone else's sessions needs one. */
+const ADMIN_TOKEN = 'identity-bearer-admin';
 const SESSION_ID = 'ses-abc-123' as SessionId;
 const SESSION_USER = 'user-alice' as UserId;
 
@@ -186,6 +188,7 @@ function baseUser(
 
 const bearerResolver: TokenResolver = async (token) => {
   if (token === BEARER_TOKEN) return { tenantId: tenantA };
+  if (token === ADMIN_TOKEN) return { tenantId: tenantA, scopes: ['tenant-admin'] };
   return null;
 };
 
@@ -358,7 +361,7 @@ describe('API — identity revoke sessions', () => {
         createdAt: '2026-01-02T00:00:00.000Z' as Timestamp,
       },
     ]);
-    const res = await jsonPost(app, '/v1/identity/users/u-a/revoke-sessions');
+    const res = await jsonPost(app, '/v1/identity/users/u-a/revoke-sessions', ADMIN_TOKEN);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { userId: string; revokedCount: number };
     expect(body).toEqual({ userId: 'u-a', revokedCount: 2 });
@@ -379,12 +382,12 @@ describe('API — identity revoke sessions', () => {
         createdAt: '2026-01-01T00:00:00.000Z' as Timestamp,
       },
     ]);
-    const first = await jsonPost(app, '/v1/identity/users/u-a/revoke-sessions');
+    const first = await jsonPost(app, '/v1/identity/users/u-a/revoke-sessions', ADMIN_TOKEN);
     expect(first.status).toBe(200);
     const firstBody = (await first.json()) as { revokedCount: number };
     expect(firstBody.revokedCount).toBe(1);
 
-    const second = await jsonPost(app, '/v1/identity/users/u-a/revoke-sessions');
+    const second = await jsonPost(app, '/v1/identity/users/u-a/revoke-sessions', ADMIN_TOKEN);
     expect(second.status).toBe(200);
     const secondBody = (await second.json()) as { revokedCount: number };
     expect(secondBody.revokedCount).toBe(0);
@@ -492,7 +495,7 @@ describe('API — identity revoke error surface', () => {
     const res = await app.request('/v1/identity/users/u-broken/revoke-sessions', {
       method: 'POST',
       headers: {
-        authorization: `Bearer ${BEARER_TOKEN}`,
+        authorization: `Bearer ${ADMIN_TOKEN}`,
         'content-type': 'application/json',
       },
       body: '{}',

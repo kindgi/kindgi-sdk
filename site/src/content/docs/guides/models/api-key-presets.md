@@ -13,10 +13,14 @@ Four presets connect a provider with one API key, the way
 | `openai` | GPT on the OpenAI API | `OPENAI_API_KEY` |
 | `gemini-api` | Gemini on the Gemini Developer API, with an API key from Google AI Studio | `GEMINI_API_KEY` |
 | `groq` | Open-weight models on Groq's fast inference | `GROQ_API_KEY` |
-| `openrouter` | Many vendors' models through OpenRouter, with one key | `OPENROUTER_API_KEY` |
+| `openrouter` | A hosted service in front of several vendors: your prompts pass through OpenRouter | `OPENROUTER_API_KEY` |
 
 For Gemini with your Google Cloud credentials instead of a key, use
 [Gemini on Vertex AI](../gemini-on-vertex-ai/) (the `gemini` preset).
+
+OpenRouter is an option if you choose it. It's one more hosted service your
+prompts pass through: for data that must stay in your environment, use a
+direct vendor's preset, or [a model you serve yourself](../serve-your-own-model/).
 
 ## 1. Store the key
 
@@ -41,15 +45,15 @@ kindgi providers register --preset=openai
 {
   "providerId": "openai"
 }
-✓ Registered openai: gpt-6.1-sol, gpt-6-astra, gpt-6-luna — key OPENAI_API_KEY (env local)
+✓ Registered openai: gpt-6.1-sol (default), gpt-6-astra, gpt-6-luna — key OPENAI_API_KEY (env local)
 ```
 
 The others answer the same way:
 
 ```text
-✓ Registered gemini-api: gemini-3.8-flash, gemini-3.1-pro-preview, gemini-3.5-flash-lite — key GEMINI_API_KEY (env local)
-✓ Registered groq: openai/gpt-oss-120b, openai/gpt-oss-20b — key GROQ_API_KEY (env local)
-✓ Registered openrouter: anthropic/claude-sonnet-5.5, openai/gpt-6.1-sol, google/gemini-3.8-flash, openai/gpt-6-luna — key OPENROUTER_API_KEY (env local)
+✓ Registered gemini-api: gemini-3.8-flash (default), gemini-3.1-pro-preview, gemini-3.5-flash-lite — key GEMINI_API_KEY (env local)
+✓ Registered groq: openai/gpt-oss-120b (default), openai/gpt-oss-20b — key GROQ_API_KEY (env local)
+✓ Registered openrouter: anthropic/claude-sonnet-5.5 (default), openai/gpt-6.1-sol, google/gemini-3.8-flash, openai/gpt-6-luna — key OPENROUTER_API_KEY (env local)
 ```
 
 As with Anthropic, the preset checks that its key is there first, `--models`
@@ -62,29 +66,62 @@ The provider answers from the next turn on; nothing restarts.
 ## Their models
 
 Among the models that meet an agent's needs, Kindgi takes the agent's
-preferred one, else the first alphabetically: for `openai`, that's
-`gpt-6-astra`, its dearest. Register only the model you want
-(`--models=gpt-6-luna`) or set the agent's `preferredModel`: see
+preferred one, else the preset's default, marked below: a mid-priced model, not
+the dearest. Register only the model you want (`--models=gpt-6-luna`) or set
+the agent's `preferredModel`: see
 [Choose the model an agent uses](../../agents/choose-a-model/).
 
 | Preset | Model | Features | Context window | Per 1K input / output tokens |
 | --- | --- | --- | --- | --- |
-| `openai` | `gpt-6.1-sol` | `tool-use`, `parallel-tool-use`, `structured-output`, `long-context` | 1,050,000 | $0.002 / $0.01 |
+| `openai` | `gpt-6.1-sol` (default) | `tool-use`, `parallel-tool-use`, `structured-output`, `long-context` | 1,050,000 | $0.002 / $0.01 |
 | | `gpt-6-astra` | `tool-use`, `parallel-tool-use`, `structured-output`, `long-context` | 1,050,000 | $0.01 / $0.05 |
 | | `gpt-6-luna` | `tool-use`, `parallel-tool-use`, `structured-output`, `long-context` | 1,050,000 | $0.0001 / $0.0005 |
-| `gemini-api` | `gemini-3.8-flash` | `tool-use`, `long-context` | 1,048,576 | $0.00075 / $0.00375 |
-| | `gemini-3.1-pro-preview` | `tool-use`, `long-context` | 1,048,576 | $0.002 / $0.012 |
-| | `gemini-3.5-flash-lite` | `tool-use`, `long-context` | 1,048,576 | $0.0003 / $0.0025 |
-| `groq` | `openai/gpt-oss-120b` | `tool-use` | 131,072 | $0.00015 / $0.0006 |
+| `gemini-api` | `gemini-3.8-flash` (default) | `tool-use`, `structured-output`, `long-context` | 1,048,576 | $0.00075 / $0.00375 |
+| | `gemini-3.1-pro-preview` | `tool-use`, `long-context` | 1,048,576 | $0.002 / $0.012; a prompt over 200,000 tokens: $0.004 / $0.018 |
+| | `gemini-3.5-flash-lite` | `tool-use`, `structured-output`, `long-context` | 1,048,576 | $0.0003 / $0.0025 |
+| `groq` | `openai/gpt-oss-120b` (default) | `tool-use` | 131,072 | $0.00015 / $0.0006 |
 | | `openai/gpt-oss-20b` | `tool-use` | 131,072 | $0.000075 / $0.0003 |
-| `openrouter` | `anthropic/claude-sonnet-5.5` | `tool-use`, `parallel-tool-use`, `structured-output`, `long-context` | 1,000,000 | $0.002 / $0.01 |
+| `openrouter` | `anthropic/claude-sonnet-5.5` (default) | `tool-use`, `parallel-tool-use`, `structured-output`, `long-context` | 1,000,000 | $0.002 / $0.01 |
 | | `openai/gpt-6.1-sol` | `tool-use`, `parallel-tool-use`, `structured-output`, `long-context` | 1,050,000 | $0.002 / $0.01 |
 | | `google/gemini-3.8-flash` | `tool-use`, `parallel-tool-use`, `structured-output`, `long-context` | 1,048,576 | $0.00075 / $0.00375 |
 | | `openai/gpt-6-luna` | `tool-use`, `parallel-tool-use`, `structured-output`, `long-context` | 1,050,000 | $0.0001 / $0.0005 |
 
 The prices are the presets' own, checked against the providers on 2026-10-07
 (`pricesCheckedAt` in `kindgi providers presets`); a turn's `totalCostUsd` uses
-them.
+them. A prompt over a model's long-context threshold prices the whole call at
+the higher rates. Which of these models take a temperature, and which think:
+see [Temperature and thinking](../#temperature-and-thinking).
+
+A provider registered from a preset before 0.1.4 has no default, so an agent
+that names no model gets the first by name, and it keeps only the two base
+rates. Register it again: unregister it, then register the preset (or restart
+`kindgi dev` for one the pack's config declares).
+
+## OpenAI
+
+The `openai` preset calls OpenAI through its Responses API, which GPT-6
+models need to call tools. An agent with tools works on any of them, and so
+do typed answers. Every call sends `store: false`, so OpenAI keeps no
+conversation state for Kindgi's calls. A GPT-6 model takes no `temperature`:
+the call goes without it, with a `sampling-unsupported` warning (see
+[Temperature and thinking](../#temperature-and-thinking)).
+
+OpenAI bills cached prompt tokens at a fraction of the input price, writes
+to its prompt cache at more, and a prompt over 272,000 input tokens at higher
+rates for the whole call. The preset's prices follow, per 1K tokens:
+
+| Model | Input | Cached input | Cache write | Output | Past 272,000 input tokens (input / output) |
+| --- | --- | --- | --- | --- | --- |
+| `gpt-6.1-sol` | $0.002 | $0.0001 | $0.0025 | $0.01 | $0.004 / $0.015 |
+| `gpt-6-astra` | $0.01 | $0.001 | $0.0125 | $0.05 | $0.02 / $0.075 |
+| `gpt-6-luna` | $0.0001 | $0.00001 | $0.000125 | $0.0005 | $0.0002 / $0.00075 |
+
+Past 272,000 tokens, cached input and cache writes keep their share of the
+higher input rate. Kindgi counts every input token of a call toward the
+272,000, cached ones included: that's its reading of OpenAI's pricing page,
+which doesn't spell it out. On a data-residency host (`eu.api.openai.com`),
+every rate is 10% higher. The OpenAI registration's settings are on
+[Connect an OpenAI-compatible endpoint](../openai-compatible/#openais-own-api).
 
 ## If it doesn't answer
 

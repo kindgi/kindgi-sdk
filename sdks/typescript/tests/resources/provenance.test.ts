@@ -120,8 +120,8 @@ describe('provenance.export', () => {
   });
 });
 
-describe('provenance.verify (not yet wired)', () => {
-  it('throws not-yet-wired without hitting the network', async () => {
+describe('provenance.verify', () => {
+  it('checks the export where it is read, without hitting the network', async () => {
     const stub = recordingFetch([]);
     const client = createClient({
       apiUrl: 'https://api.example.com',
@@ -132,17 +132,16 @@ describe('provenance.verify (not yet wired)', () => {
     const bogusBundle = {
       runId: 'r' as never,
       bundle: '',
-      bundleSchemaVersion: '1.0.0',
+      bundleSchemaVersion: '1.2.0',
       algorithm: 'ed25519' as const,
       signingKeyId: 'k',
       signature: '',
-      publicKey: '',
+      publicKey: 'pk',
       canonicalization: 'sorted-key-json' as const,
       exportedAt: '2026-09-19T00:00:00.000Z' as never,
     };
-    await expect(client.provenance.verify(bogusBundle, 'pk')).rejects.toMatchObject({
-      error: { code: 'not-yet-wired', method: 'provenance.verify' },
-    });
-    expect(stub.calls.length).toBe(0);
+    const checked = await client.provenance.verify(bogusBundle, 'pk');
+    expect(checked.valid).toBe(false);
+    expect(stub.calls).toHaveLength(0);
   });
 });

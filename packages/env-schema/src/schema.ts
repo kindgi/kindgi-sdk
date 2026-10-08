@@ -265,7 +265,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_ENV',
     description:
-      'The env this runtime serves. Secrets a tool declares by name (`needsSpec.secrets`) resolve under this env name. Unset: `local` in development mode (the `.env` and `.env.local` files); otherwise a tool that declares secrets fails its calls, naming this variable.',
+      'The env this runtime serves. The secrets and env values a tool declares by name (`needsSpec.secrets`, `needsSpec.env`) resolve under this env name. Unset: `local` in development mode (secrets from the `.env` and `.env.local` files, env values from `/v1/env`); otherwise a tool that declares either fails its calls, naming this variable.',
     example: 'production',
     required: false,
     appliesTo: appliesToServer,
@@ -335,6 +335,34 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_EXPORT_SIGNING_KEY_PATH',
+    description:
+      'Absolute path to the private key (PKCS#8 PEM, mode 0600) that signs exports: approval audit bundles, run provenance and compliance evidence. An Ed25519 key signs `ed25519` (`openssl genpkey -algorithm ed25519`); an EC P-256 key signs `ecdsa-p256-sha256`. Use a key for this alone; `GET /v1/export-signing-keys` publishes its public half. Set one of this, `KINDGI_EXPORT_SIGNING_KEY` or `KINDGI_EXPORT_SIGNING_KMS_KEY`. None: in development mode the server signs with a key generated at startup; otherwise exports answer `404 signing-not-configured`.',
+    example: '/etc/kindgi/export-signing.pem',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_EXPORT_SIGNING_KEY',
+    description:
+      "The same key's PEM file, base64 (`base64 < key.pem`): for platforms that give secrets as environment variables, such as Cloud Run with Secret Manager. A production path in its own right.",
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_EXPORT_SIGNING_KMS_KEY',
+    description:
+      "Optional: a Cloud KMS key version that signs exports, so the private key never leaves KMS: `projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>/cryptoKeyVersions/<n>`. It must be an `EC_SIGN_ED25519` key (it signs `ed25519`) or an `EC_SIGN_P256_SHA256` key (`ecdsa-p256-sha256`), and the server's service account needs `roles/cloudkms.signerVerifier` on it (and `roles/cloudkms.publicKeyViewer`, to read its public key at boot).",
+    example:
+      'projects/acme/locations/global/keyRings/kindgi/cryptoKeys/exports/cryptoKeyVersions/1',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_CORS_ORIGINS',
     description:
       'Comma-separated browser origins allowed to call, cross-origin, the routes a public run token can use (`GET /v1/runs/{runId}/progress` and its stream). Exact origins, no wildcards. Unset: no CORS headers on any route.',
@@ -379,8 +407,24 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     appliesTo: appliesToServer,
     group: 'core',
   },
-
-  // ---- logging ----------------------------------------------------
+  {
+    name: 'KINDGI_ARTIFACTS',
+    description:
+      "Where artifacts' files go, which turns on `/v1/artifacts`: `local:<absolute dir>` (a directory on this machine) or `gcs:<bucket>[/<prefix>]` (a Google Cloud Storage bucket, through Application Default Credentials: workload identity on GCP, no keys to store). Metadata is in Postgres; a deleted artifact is purged under the `artifact` retention policy. Unset (the default): no `/v1/artifacts`. `kindgi dev` sets it to the pack's `.kindgi/dev/artifacts`.",
+    example: 'gcs:acme-artifacts/prod',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_ARTIFACT_MAX_BYTES',
+    description:
+      'The most bytes one artifact upload may carry, the whole request body; more is `413 artifact-too-large`. Default 104857600 (100 MB).',
+    example: '104857600',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
   {
     name: 'KINDGI_LOG_LEVEL',
     description:
@@ -413,8 +457,6 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'logging',
     allowedValues: ['auto', 'json', 'pretty'],
   },
-
-  // ---- secrets backend --------------------------------------------
   {
     name: 'KINDGI_SECRETS_BACKEND',
     description:
@@ -471,8 +513,6 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     appliesTo: appliesToPostgresBackend,
     group: 'secrets',
   },
-
-  // ---- GCP vendor -------------------------------------------------
   {
     name: 'KINDGI_SECRETS_GCP_PROJECT_ID',
     description: 'GCP project id owning the KMS keyring + key.',
@@ -505,8 +545,6 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     appliesTo: appliesToPostgresGcp,
     group: 'gcp',
   },
-
-  // ---- local key (libsodium) --------------------------------------
   {
     name: 'KINDGI_SECRETS_LOCAL_KEY_PATH',
     description:
@@ -535,10 +573,6 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'local-key',
     allowedValues: ['single-node'],
   },
-
-  // ---- pack service -----------------------------------------------
-  // The server's side: where the pack service is, and how long a call
-  // may take.
   {
     name: 'KINDGI_PACK_SERVICE_URL',
     description:
@@ -567,7 +601,6 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'pack-service',
     allowedValues: ['token', 'google-id-token'],
   },
-  // Both sides: the shared token.
   {
     name: 'KINDGI_PACK_SERVICE_TOKEN',
     description:
@@ -577,8 +610,6 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     appliesTo: (t) => appliesToPackService(t) || appliesToServerHttpPackTransport(t),
     group: 'pack-service',
   },
-  // The pack service's side. It also listens on `PORT` (default 8080),
-  // the platform convention, which is not a Kindgi variable.
   {
     name: 'KINDGI_PACK_INDEX',
     description:
@@ -607,10 +638,6 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'pack-service',
     allowedValues: ['strict', 'warn'],
   },
-
-  // ---- image registry ---------------------------------------------
-  // How the server reads a deployment's image to verify it (`POST
-  // /v1/deployments`): anonymous unless credentials are set.
   {
     name: 'KINDGI_IMAGE_REGISTRY_HOST',
     description:
@@ -657,8 +684,6 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'image-registry',
     allowedValues: ['static', 'google'],
   },
-
-  // ---- development (`kindgi dev`) ---------------------------------
   {
     name: 'KINDGI_PACK_DIR',
     description:
