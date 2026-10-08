@@ -151,9 +151,9 @@ const defined = defineTool({
 
 - **Which value a call gets:** its project's, else its org's, else the tenant's, in the runtime's env; a schema `default` makes a name optional. The values a call used are recorded with it, so a retry or a resume sees the same ones.
 - **Setting them:** `kindgi env set ORDERS_REGION us --scope=project:<project-id> --env=local` (or `--scope=tenant`, for every project). Changing a value that's already set takes `--force`.
-- **A declared value nobody set** stops the call before the tool runs:
+- **A declared value nobody set** stops the call before the tool runs. For a tool `acme-orders.needs-account` that declares `ACME_ACCOUNT_ID`, the message reads:
   ```text
-  precondition-failed: Tool "acme-orders.find-order" was not run: env-value-missing: tool "acme-orders.find-order" needs env value "ORDERS_BASE_URL" in env "local", and none is set for project <project-id>, its org, or the tenant. Set it: kindgi env set ORDERS_BASE_URL <value> --scope=project:<project-id> --env=local (or --scope=tenant, for every project)
+  precondition-failed: Tool "acme-orders.needs-account" was not run: env-value-missing: tool "acme-orders.needs-account" needs env value "ACME_ACCOUNT_ID" in env "local", and none is set for project e889c1f5-eae7-45dc-8669-5bd029a5d85c, its org, or the tenant. Set it: kindgi env set ACME_ACCOUNT_ID <value> --scope=project:e889c1f5-eae7-45dc-8669-5bd029a5d85c --env=local (or --scope=tenant, for every project)
   ```
 - **Not secret:** env values are recorded with each run that uses them and shown in its journal. A credential is a secret (`needsSpec.secrets`), never an env value.
 - **In a unit test:** pass `env: { … }` in the context `invokeTool` gets.

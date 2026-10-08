@@ -153,10 +153,11 @@ uv run kindgi env set ORDERS_REGION us --scope=project:<project-id> --env=local
 
 A call that needs a declared value no scope sets, and that has no `default`,
 fails before the tool runs. The message names the value and the command that
-sets it:
+sets it. For a tool `acme-orders.needs-account` that declares
+`ACME_ACCOUNT_ID`, which nobody set, it reads:
 
 ```text
-precondition-failed: Tool "my-pack.find-order" was not run: env-value-missing: tool "my-pack.find-order" needs env value "ORDERS_BASE_URL" in env "local", and none is set for project <project-id>, its org, or the tenant. Set it: kindgi env set ORDERS_BASE_URL <value> --scope=project:<project-id> --env=local (or --scope=tenant, for every project)
+precondition-failed: Tool "acme-orders.needs-account" was not run: env-value-missing: tool "acme-orders.needs-account" needs env value "ACME_ACCOUNT_ID" in env "local", and none is set for project e889c1f5-eae7-45dc-8669-5bd029a5d85c, its org, or the tenant. Set it: kindgi env set ACME_ACCOUNT_ID <value> --scope=project:e889c1f5-eae7-45dc-8669-5bd029a5d85c --env=local (or --scope=tenant, for every project)
 ```
 
 :::note
