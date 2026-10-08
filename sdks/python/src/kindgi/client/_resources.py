@@ -535,12 +535,24 @@ OPERATIONS: dict[str, Operation] = {
     "identity.users.listSessions": Operation(
         "identity.users.listSessions", "GET", "/v1/identity/users/{userId}/sessions", "json", False
     ),
+    "identity.users.unregister": Operation(
+        "identity.users.unregister", "POST", "/v1/identity/users/{userId}/unregister", "json", True
+    ),
     "identity.users.revokeSessions": Operation(
         "identity.users.revokeSessions",
         "POST",
         "/v1/identity/users/{userId}/revoke-sessions",
         "json",
         True,
+    ),
+    "identity.users.grants": Operation(
+        "identity.users.grants", "GET", "/v1/identity/users/{userId}/grants", "json", False
+    ),
+    "identity.users.grant": Operation(
+        "identity.users.grant", "POST", "/v1/identity/users/{userId}/grant", "json", True
+    ),
+    "identity.users.ungrant": Operation(
+        "identity.users.ungrant", "POST", "/v1/identity/users/{userId}/ungrant", "json", True
     ),
     "identity.whoami": Operation("identity.whoami", "GET", "/v1/identity/whoami", "json", False),
     "deployments.list": Operation("deployments.list", "GET", "/v1/deployments", "json", False),
@@ -768,6 +780,10 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         True,
     ),
+    "runs.follow": Operation("runs.follow", "GET", "/v1/runs/{runId}/stream", "sse", False),
+    "runs.followProgress": Operation(
+        "runs.followProgress", "GET", "/v1/runs/{runId}/progress/stream", "sse", False
+    ),
 }
 _OPERATIONS = OPERATIONS
 
@@ -826,6 +842,7 @@ class RunsResource:
         agent_id: str | UUID | None = None,
         replays: Literal["exclude", "include", "only"] | None = None,
         eval_run_id: str | UUID | None = None,
+        trigger_id: str | UUID | None = None,
         include: Literal["output"] | None = None,
         timeout: float | None = None,
     ) -> _models.RunCollectionPage:
@@ -846,6 +863,7 @@ class RunsResource:
                 "agentId": agent_id,
                 "replays": replays,
                 "evalRunId": eval_run_id,
+                "triggerId": trigger_id,
                 "include": include,
             },
             headers={},
@@ -998,6 +1016,48 @@ class RunsResource:
         """
         return self._client._stream(
             _OPERATIONS["runs.progressStream"],
+            path={"runId": run_id},
+            query={},
+            headers={"Last-Event-Id": last_event_id},
+            response=_models.RunProgressEvent,
+            timeout=timeout,
+        )
+
+    def follow(
+        self,
+        run_id: str | UUID,
+        /,
+        *,
+        last_event_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> Iterator[_models.RunEvent]:
+        """Follow a run's events to its end. `GET /v1/runs/{runId}/stream`
+
+        `runs.stream`, through to the run's terminal event (`run.completed`, `run.failed` or `run.cancelled`), each event once. The server ends a run's stream after 5 minutes while the run goes on; this reconnects with `Last-Event-Id` and goes on. A dropped connection, a 429 or a 502-504 is retried with backoff; any other error is raised. Ends after the terminal event.
+        """
+        return self._client._follow(
+            _OPERATIONS["runs.follow"],
+            path={"runId": run_id},
+            query={},
+            headers={"Last-Event-Id": last_event_id},
+            response=_models.RunEvent,
+            timeout=timeout,
+        )
+
+    def follow_progress(
+        self,
+        run_id: str | UUID,
+        /,
+        *,
+        last_event_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> Iterator[_models.RunProgressEvent]:
+        """Follow a run's progress to its end. `GET /v1/runs/{runId}/progress/stream`
+
+        `runs.progress_stream`, through to the run's terminal event (`run.completed`, `run.failed` or `run.cancelled`), each event once. The server ends a run's stream after 5 minutes while the run goes on; this reconnects with `Last-Event-Id` and goes on. A dropped connection, a 429 or a 502-504 is retried with backoff; any other error is raised. Ends after the terminal event.
+        """
+        return self._client._follow(
+            _OPERATIONS["runs.followProgress"],
             path={"runId": run_id},
             query={},
             headers={"Last-Event-Id": last_event_id},
@@ -5036,6 +5096,7 @@ class IdentityUsersResource:
         limit: int | None = None,
         cursor: str | None = None,
         query: str | None = None,
+        include_unregistered: bool | None = None,
         timeout: float | None = None,
     ) -> _models.UserCollectionPage:
         """List users in the tenant. `GET /v1/identity/users`
@@ -5045,7 +5106,12 @@ class IdentityUsersResource:
         return self._client._request(
             _OPERATIONS["identity.users.list"],
             path={},
-            query={"limit": limit, "cursor": cursor, "query": query},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "query": query,
+                "includeUnregistered": include_unregistered,
+            },
             headers={},
             response=_models.UserCollectionPage,
             timeout=timeout,
@@ -5101,6 +5167,27 @@ class IdentityUsersResource:
             timeout=timeout,
         )
 
+    def unregister(
+        self,
+        user_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.UnregisterUserResult:
+        """Remove a person. `POST /v1/identity/users/{userId}/unregister`
+
+        Removes a person from the tenant, in one step: they're marked removed (`unregisteredAt`; their record stays, so their history still says who they were), every API key and session of theirs is revoked, and every grant and membership they hold is taken away, all before it answers. Their keys get `401` at once. Their email is free again: adding it makes a new person. Removing someone already removed changes nothing. Refused for yourself and the deployment's seed user (`identity-user-unregister-refused`), and for the only tenant admin (`last-tenant-admin`). Tenant admins only. Mounted when the identity directory can remove people.
+        """
+        return self._client._request(
+            _OPERATIONS["identity.users.unregister"],
+            path={"userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterUserResult,
+            timeout=timeout,
+        )
+
     def revoke_sessions(
         self,
         user_id: str | UUID,
@@ -5119,6 +5206,70 @@ class IdentityUsersResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.RevokeSessionsResult,
+            timeout=timeout,
+        )
+
+    def grants(
+        self, user_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.PersonGrants:
+        """Read a person's grants. `GET /v1/identity/users/{userId}/grants`
+
+        What the person may do, as granted directly: tenant admin, project and team roles, the reviewer roster. A tenant admin reads anyone's; anyone else only their own.
+        """
+        return self._client._request(
+            _OPERATIONS["identity.users.grants"],
+            path={"userId": user_id},
+            query={},
+            headers={},
+            response=_models.PersonGrants,
+            timeout=timeout,
+        )
+
+    def grant(
+        self,
+        user_id: str | UUID,
+        body: _models.PersonGrantBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PersonGrants:
+        """Make a person a tenant admin. `POST /v1/identity/users/{userId}/grant`
+
+        Written before the call answers, so the person's next request holds it. A no-op when held. Tenant admins only.
+        """
+        return self._client._request(
+            _OPERATIONS["identity.users.grant"],
+            path={"userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PersonGrantBody, body, fields),
+            response=_models.PersonGrants,
+            timeout=timeout,
+        )
+
+    def ungrant(
+        self,
+        user_id: str | UUID,
+        body: _models.PersonGrantBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PersonGrants:
+        """Remove tenant admin from a person. `POST /v1/identity/users/{userId}/ungrant`
+
+        A no-op when not held. Refused for the only person who is a tenant admin (`last-tenant-admin`: make someone else one first), and for the seed user, whom the runtime makes tenant admin at every boot (`seed-user-admin`: unset `KINDGI_SEED_USER_ID` and restart it first). Tenant admins only.
+        """
+        return self._client._request(
+            _OPERATIONS["identity.users.ungrant"],
+            path={"userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PersonGrantBody, body, fields),
+            response=_models.PersonGrants,
             timeout=timeout,
         )
 
@@ -7004,6 +7155,7 @@ class AsyncRunsResource:
         agent_id: str | UUID | None = None,
         replays: Literal["exclude", "include", "only"] | None = None,
         eval_run_id: str | UUID | None = None,
+        trigger_id: str | UUID | None = None,
         include: Literal["output"] | None = None,
         timeout: float | None = None,
     ) -> _models.RunCollectionPage:
@@ -7024,6 +7176,7 @@ class AsyncRunsResource:
                 "agentId": agent_id,
                 "replays": replays,
                 "evalRunId": eval_run_id,
+                "triggerId": trigger_id,
                 "include": include,
             },
             headers={},
@@ -7176,6 +7329,48 @@ class AsyncRunsResource:
         """
         return self._client._stream(
             _OPERATIONS["runs.progressStream"],
+            path={"runId": run_id},
+            query={},
+            headers={"Last-Event-Id": last_event_id},
+            response=_models.RunProgressEvent,
+            timeout=timeout,
+        )
+
+    def follow(
+        self,
+        run_id: str | UUID,
+        /,
+        *,
+        last_event_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> AsyncIterator[_models.RunEvent]:
+        """Follow a run's events to its end. `GET /v1/runs/{runId}/stream`
+
+        `runs.stream`, through to the run's terminal event (`run.completed`, `run.failed` or `run.cancelled`), each event once. The server ends a run's stream after 5 minutes while the run goes on; this reconnects with `Last-Event-Id` and goes on. A dropped connection, a 429 or a 502-504 is retried with backoff; any other error is raised. Ends after the terminal event.
+        """
+        return self._client._follow(
+            _OPERATIONS["runs.follow"],
+            path={"runId": run_id},
+            query={},
+            headers={"Last-Event-Id": last_event_id},
+            response=_models.RunEvent,
+            timeout=timeout,
+        )
+
+    def follow_progress(
+        self,
+        run_id: str | UUID,
+        /,
+        *,
+        last_event_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> AsyncIterator[_models.RunProgressEvent]:
+        """Follow a run's progress to its end. `GET /v1/runs/{runId}/progress/stream`
+
+        `runs.progress_stream`, through to the run's terminal event (`run.completed`, `run.failed` or `run.cancelled`), each event once. The server ends a run's stream after 5 minutes while the run goes on; this reconnects with `Last-Event-Id` and goes on. A dropped connection, a 429 or a 502-504 is retried with backoff; any other error is raised. Ends after the terminal event.
+        """
+        return self._client._follow(
+            _OPERATIONS["runs.followProgress"],
             path={"runId": run_id},
             query={},
             headers={"Last-Event-Id": last_event_id},
@@ -11234,6 +11429,7 @@ class AsyncIdentityUsersResource:
         limit: int | None = None,
         cursor: str | None = None,
         query: str | None = None,
+        include_unregistered: bool | None = None,
         timeout: float | None = None,
     ) -> _models.UserCollectionPage:
         """List users in the tenant. `GET /v1/identity/users`
@@ -11243,7 +11439,12 @@ class AsyncIdentityUsersResource:
         return await self._client._request(
             _OPERATIONS["identity.users.list"],
             path={},
-            query={"limit": limit, "cursor": cursor, "query": query},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "query": query,
+                "includeUnregistered": include_unregistered,
+            },
             headers={},
             response=_models.UserCollectionPage,
             timeout=timeout,
@@ -11301,6 +11502,27 @@ class AsyncIdentityUsersResource:
             timeout=timeout,
         )
 
+    async def unregister(
+        self,
+        user_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.UnregisterUserResult:
+        """Remove a person. `POST /v1/identity/users/{userId}/unregister`
+
+        Removes a person from the tenant, in one step: they're marked removed (`unregisteredAt`; their record stays, so their history still says who they were), every API key and session of theirs is revoked, and every grant and membership they hold is taken away, all before it answers. Their keys get `401` at once. Their email is free again: adding it makes a new person. Removing someone already removed changes nothing. Refused for yourself and the deployment's seed user (`identity-user-unregister-refused`), and for the only tenant admin (`last-tenant-admin`). Tenant admins only. Mounted when the identity directory can remove people.
+        """
+        return await self._client._request(
+            _OPERATIONS["identity.users.unregister"],
+            path={"userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.UnregisterUserResult,
+            timeout=timeout,
+        )
+
     async def revoke_sessions(
         self,
         user_id: str | UUID,
@@ -11319,6 +11541,70 @@ class AsyncIdentityUsersResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.RevokeSessionsResult,
+            timeout=timeout,
+        )
+
+    async def grants(
+        self, user_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.PersonGrants:
+        """Read a person's grants. `GET /v1/identity/users/{userId}/grants`
+
+        What the person may do, as granted directly: tenant admin, project and team roles, the reviewer roster. A tenant admin reads anyone's; anyone else only their own.
+        """
+        return await self._client._request(
+            _OPERATIONS["identity.users.grants"],
+            path={"userId": user_id},
+            query={},
+            headers={},
+            response=_models.PersonGrants,
+            timeout=timeout,
+        )
+
+    async def grant(
+        self,
+        user_id: str | UUID,
+        body: _models.PersonGrantBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PersonGrants:
+        """Make a person a tenant admin. `POST /v1/identity/users/{userId}/grant`
+
+        Written before the call answers, so the person's next request holds it. A no-op when held. Tenant admins only.
+        """
+        return await self._client._request(
+            _OPERATIONS["identity.users.grant"],
+            path={"userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PersonGrantBody, body, fields),
+            response=_models.PersonGrants,
+            timeout=timeout,
+        )
+
+    async def ungrant(
+        self,
+        user_id: str | UUID,
+        body: _models.PersonGrantBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PersonGrants:
+        """Remove tenant admin from a person. `POST /v1/identity/users/{userId}/ungrant`
+
+        A no-op when not held. Refused for the only person who is a tenant admin (`last-tenant-admin`: make someone else one first), and for the seed user, whom the runtime makes tenant admin at every boot (`seed-user-admin`: unset `KINDGI_SEED_USER_ID` and restart it first). Tenant admins only.
+        """
+        return await self._client._request(
+            _OPERATIONS["identity.users.ungrant"],
+            path={"userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PersonGrantBody, body, fields),
+            response=_models.PersonGrants,
             timeout=timeout,
         )
 
