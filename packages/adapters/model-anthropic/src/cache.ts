@@ -25,9 +25,9 @@ import type Anthropic from '@anthropic-ai/sdk';
  * Each breakpoint uses the 5-minute cache (the default `ephemeral` TTL);
  * the steps of an agent turn are seconds apart. A prefix shorter than the
  * model's minimum (512 to 4,096 tokens) isn't cached and costs nothing
- * extra. Anthropic keeps no prompt in the cache, only its KV
- * representation, in memory, for the TTL (prompt caching is eligible for
- * zero data retention).
+ * extra. How Anthropic keeps cached prompts, and their eligibility for
+ * zero data retention: https://platform.claude.com/docs/en/build-with-claude/prompt-caching
+ * and https://platform.claude.com/docs/en/manage-claude/api-and-data-retention.
  */
 export const PROMPT_CACHE: Anthropic.CacheControlEphemeral = { type: 'ephemeral' };
 

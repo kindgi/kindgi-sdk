@@ -18,7 +18,7 @@ Translate between the framework's `ModelCallInput` / `ModelCallResult` and a non
   - the first system block (the agent's prompt; later system blocks, such as retrieved context, change from turn to turn);
   - the last block of the last message, when another call will send this prefix again: the call has tools (the next step of a tool loop) or the conversation has an earlier answer (its next turn). A one-off call (no tools, no earlier answer, e.g. a judge) leaves its message unmarked: writing a tail that's never read again would only cost more.
 
-  The next call in a turn then reads the prefix at the read rate and writes only what's new. A prefix shorter than the model's minimum (from 512 tokens on the Claude 5.5 models) isn't cached and costs nothing extra. Prompt caching is eligible for zero data retention: Anthropic keeps no prompt text, only its KV representation, in memory, for the cache's lifetime.
+  The next call in a turn then reads the prefix at the read rate and writes only what's new. A prefix shorter than the model's minimum (from 512 tokens on the Claude 5.5 models) isn't cached and costs nothing extra. How Anthropic keeps cached prompts, and their eligibility for zero data retention: Anthropic's [prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching) and [API and data retention](https://platform.claude.com/docs/en/manage-claude/api-and-data-retention) pages.
 
 ## Exports
 
