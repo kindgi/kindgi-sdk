@@ -10,6 +10,7 @@
   "metadata": {
     "id": "groq",
     "region": "unspecified",
+    "defaultModel": "openai/gpt-oss-120b",
     "description": "Open-weight models on Groq",
     "models": [
       {
