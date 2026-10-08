@@ -13,6 +13,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.introspect.AnnotatedMember;
 import com.fasterxml.jackson.databind.introspect.BeanPropertyDefinition;
+import com.fasterxml.jackson.databind.type.TypeFactory;
+import com.kindgi.pack.spi.SchemaProperty;
+import com.kindgi.pack.spi.SchemaType;
 import com.kindgi.pack.spi.SchemaTypeAdapter;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
@@ -35,6 +38,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.ServiceLoader;
 import java.util.UUID;
@@ -85,15 +89,52 @@ public final class SchemaDeriver {
     return found;
   }
 
+  /** A property as the SPI shows it, built from Jackson's view of it. */
+  private static SchemaProperty schemaProperty(Class<?> owner, BeanPropertyDefinition p) {
+    return new SchemaProperty(
+        p.getName(),
+        p.getConstructorParameter() == null ? OptionalInt.empty() : OptionalInt.of(p.getConstructorParameter().getIndex()),
+        owner,
+        p.getPrimaryType().getRawClass());
+  }
+
+  /** How deep the SPI's view of a type follows its arguments: far past any real one, short of a self-reference. */
+  private static final int MAX_TYPE_DEPTH = 32;
+
+  /** A Jackson type as the SPI shows it: its class and its resolved type arguments. */
+  static SchemaType schemaType(JavaType t) {
+    return schemaType(t, 0);
+  }
+
+  private static SchemaType schemaType(JavaType t, int depth) {
+    List<SchemaType> arguments = new ArrayList<>();
+    if (depth < MAX_TYPE_DEPTH) {
+      for (int i = 0; i < t.containedTypeCount(); i++) {
+        arguments.add(schemaType(t.containedType(i), depth + 1));
+      }
+    }
+    return new SchemaType(t.getRawClass(), arguments);
+  }
+
+  /** The SPI's type as Jackson's, for the deriver's own rules. */
+  static JavaType javaType(SchemaType t) {
+    TypeFactory types = Json.binding().getTypeFactory();
+    if (t.typeArguments().isEmpty() || t.rawClass().getTypeParameters().length != t.typeArguments().size()) {
+      return types.constructType(t.rawClass());
+    }
+    JavaType[] arguments = t.typeArguments().stream().map(SchemaDeriver::javaType).toArray(JavaType[]::new);
+    return types.constructParametricType(t.rawClass(), arguments);
+  }
+
   /** The type an optional wrapper (a Java {@code Optional}, or an adapter's) wraps; {@code null} when it isn't one. */
   private static @Nullable JavaType optionalContent(JavaType t) {
     if (Optional.class.isAssignableFrom(t.getRawClass())) {
       return t.containedTypeOrUnknown(0);
     }
     for (SchemaTypeAdapter adapter : adapters()) {
-      JavaType inner = adapter.optionalOf(t);
+      SchemaType inner = adapter.optionalOf(schemaType(t));
       if (inner != null) {
-        return inner;
+        return javaType(inner);
       }
     }
     return null;
@@ -128,7 +169,7 @@ public final class SchemaDeriver {
     for (SchemaTypeAdapter adapter : adapters()) {
       Map<String, Object> adapted;
       try {
-        adapted = adapter.schema(t, inner -> of(inner, List.of(), where + "[]"));
+        adapted = adapter.schema(schemaType(t), inner -> of(javaType(inner), List.of(), where + "[]"));
       } catch (IllegalArgumentException e) {
         throw new DerivationException(where + ": " + e.getMessage());
       }
@@ -230,7 +271,7 @@ public final class SchemaDeriver {
           for (SchemaTypeAdapter adapter : adapters()) {
             Optional<Object> adapted;
             try {
-              adapted = adapter.defaultValue(raw, p);
+              adapted = adapter.defaultValue(schemaProperty(raw, p));
             } catch (IllegalArgumentException e) {
               throw new DerivationException(where + "." + p.getName() + ": " + e.getMessage());
             }

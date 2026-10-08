@@ -3,8 +3,6 @@
 
 package com.kindgi.pack.spi;
 
-import com.fasterxml.jackson.databind.JavaType;
-import com.fasterxml.jackson.databind.introspect.BeanPropertyDefinition;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
@@ -29,7 +27,7 @@ public interface SchemaTypeAdapter {
    * @return the schema; {@code null} when this adapter doesn't know the type
    * @throws IllegalArgumentException when the adapter knows the type but it can't be a schema
    */
-  default @Nullable Map<String, Object> schema(JavaType type, Function<JavaType, Map<String, Object>> derive) {
+  default @Nullable Map<String, Object> schema(SchemaType type, Function<SchemaType, Map<String, Object>> derive) {
     return null;
   }
 
@@ -40,7 +38,7 @@ public interface SchemaTypeAdapter {
    * @param type the type
    * @return the wrapped type; {@code null} when the type isn't an optional wrapper
    */
-  default @Nullable JavaType optionalOf(JavaType type) {
+  default @Nullable SchemaType optionalOf(SchemaType type) {
     return null;
   }
 
@@ -48,12 +46,10 @@ public interface SchemaTypeAdapter {
    * A property's default value when the input leaves it out (a Scala case class's default), as a
    * typed or plain value: the property isn't required, and the schema says the default.
    *
-   * @param owner the class that has the property
-   * @param property the property as Jackson sees it: its name (after any renaming), and its creator
-   *     parameter ({@code getConstructorParameter()}, with its index) when it has one
+   * @param property the property: its name in JSON, its constructor position, its type's class
    * @return the default; empty when the property has none
    */
-  default Optional<Object> defaultValue(Class<?> owner, BeanPropertyDefinition property) {
+  default Optional<Object> defaultValue(SchemaProperty property) {
     return Optional.empty();
   }
 }

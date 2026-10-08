@@ -3,9 +3,7 @@
 
 package com.kindgi.pack.scaladsl
 
-import com.fasterxml.jackson.databind.JavaType
-import com.fasterxml.jackson.databind.introspect.BeanPropertyDefinition
-import com.kindgi.pack.spi.SchemaTypeAdapter
+import com.kindgi.pack.spi.{SchemaProperty, SchemaType, SchemaTypeAdapter}
 import java.{util => ju}
 import java.util.Optional
 import java.util.function.{Function => JFunction}
@@ -26,18 +24,18 @@ import scala.util.Try
  * {@code Object} on the JVM, so their schema there is any JSON value.
  */
 final class ScalaTypeAdapter extends SchemaTypeAdapter {
-  override def schema(t: JavaType, derive: JFunction[JavaType, ju.Map[String, AnyRef]]): ju.Map[String, AnyRef] = {
-    val raw = t.getRawClass
+  override def schema(t: SchemaType, derive: JFunction[SchemaType, ju.Map[String, AnyRef]]): ju.Map[String, AnyRef] = {
+    val raw = t.rawClass
     if (classOf[scala.collection.Map[_, _]].isAssignableFrom(raw)) {
-      val key = t.containedTypeOrUnknown(0).getRawClass
+      val key = t.typeArgument(0).rawClass
       if (key != classOf[String] && key != classOf[AnyRef]) {
         throw new IllegalArgumentException(s"a map's keys must be strings, not ${key.getName}")
       }
-      schemaOf("type" -> "object", "additionalProperties" -> derive.apply(t.containedTypeOrUnknown(1)))
+      schemaOf("type" -> "object", "additionalProperties" -> derive.apply(t.typeArgument(1)))
     } else if (classOf[scala.collection.Set[_]].isAssignableFrom(raw)) {
-      schemaOf("type" -> "array", "items" -> derive.apply(t.containedTypeOrUnknown(0)), "uniqueItems" -> java.lang.Boolean.TRUE)
+      schemaOf("type" -> "array", "items" -> derive.apply(t.typeArgument(0)), "uniqueItems" -> java.lang.Boolean.TRUE)
     } else if (classOf[scala.collection.Iterable[_]].isAssignableFrom(raw)) {
-      schemaOf("type" -> "array", "items" -> derive.apply(t.containedTypeOrUnknown(0)))
+      schemaOf("type" -> "array", "items" -> derive.apply(t.typeArgument(0)))
     } else if (raw == classOf[BigDecimal]) {
       schemaOf("type" -> "number")
     } else if (raw == classOf[BigInt]) {
@@ -49,19 +47,19 @@ final class ScalaTypeAdapter extends SchemaTypeAdapter {
     }
   }
 
-  override def optionalOf(t: JavaType): JavaType =
-    if (classOf[Option[_]].isAssignableFrom(t.getRawClass)) t.containedTypeOrUnknown(0) else null
+  override def optionalOf(t: SchemaType): SchemaType =
+    if (classOf[Option[_]].isAssignableFrom(t.rawClass)) t.typeArgument(0) else null
 
   /** A case class parameter's default: its companion's {@code $lessinit$greater$default$N}, by position. */
-  override def defaultValue(owner: Class[_], property: BeanPropertyDefinition): Optional[AnyRef] = {
-    val param = property.getConstructorParameter
-    if (param == null || !classOf[Product].isAssignableFrom(owner)) {
+  override def defaultValue(property: SchemaProperty): Optional[AnyRef] = {
+    val owner = property.declaringType
+    if (property.constructorIndex.isEmpty || !classOf[Product].isAssignableFrom(owner)) {
       Optional.empty()
     } else {
       val found = for {
         companion <- Try(Class.forName(owner.getName + "$", true, owner.getClassLoader)).toOption
         module <- Try(companion.getField("MODULE$").get(null)).toOption
-        method <- Try(companion.getMethod("$lessinit$greater$default$" + (param.getIndex + 1))).toOption
+        method <- Try(companion.getMethod("$lessinit$greater$default$" + (property.constructorIndex.getAsInt + 1))).toOption
       } yield method.invoke(module)
       Optional.ofNullable(found.orNull)
     }
