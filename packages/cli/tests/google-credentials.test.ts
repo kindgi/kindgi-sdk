@@ -159,12 +159,20 @@ test('a Vertex registration: the Gemini adapter, not on the Developer API', () =
   expect(isVertexRegistration({ adapter_id: '@kindgi/adapter-model-anthropic' })).toBe(false);
 });
 
-test('the hint names the providers, and offers a GOOGLE_APPLICATION_CREDENTIALS the shell sets', () => {
+test('the hint names the providers, and offers a GOOGLE_APPLICATION_CREDENTIALS the shell sets to a file', async () => {
+  const shellFile = join(home, 'shell.json');
+  await writeFile(shellFile, '{"type":"service_account"}');
   expect(vertexCredentialsHint(['gemini'], {})).toBe(
     "Provider gemini (Vertex AI) has no Google credentials: set KINDGI_DEV_GOOGLE_CREDENTIALS=adc (or a credentials file), in the pack's .env or the shell, and restart kindgi dev.",
   );
+  // /dev/null (which only turns it off) or a missing file: not offered.
+  for (const off of ['/dev/null', join(home, 'gone.json')]) {
+    expect(vertexCredentialsHint(['gemini'], { GOOGLE_APPLICATION_CREDENTIALS: off })).toContain(
+      '(or a credentials file)',
+    );
+  }
   expect(
-    vertexCredentialsHint(['gemini', 'vertex-eu'], { GOOGLE_APPLICATION_CREDENTIALS: '/x.json' }),
+    vertexCredentialsHint(['gemini', 'vertex-eu'], { GOOGLE_APPLICATION_CREDENTIALS: shellFile }),
   ).toBe(
     "Providers gemini, vertex-eu (Vertex AI) have no Google credentials: set KINDGI_DEV_GOOGLE_CREDENTIALS=adc, or KINDGI_DEV_GOOGLE_CREDENTIALS=$GOOGLE_APPLICATION_CREDENTIALS, in the pack's .env or the shell, and restart kindgi dev.",
   );

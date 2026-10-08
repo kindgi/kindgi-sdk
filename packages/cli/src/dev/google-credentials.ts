@@ -164,7 +164,7 @@ export function isVertexRegistration(input: {
 /**
  * The line that says how to give Vertex providers credentials. `ids`
  * names them; `GOOGLE_APPLICATION_CREDENTIALS` in the shell is offered
- * when set.
+ * when it names a file (not `/dev/null`, say, which only turns it off).
  */
 export function vertexCredentialsHint(
   ids: readonly string[],
@@ -173,7 +173,7 @@ export function vertexCredentialsHint(
   const named = ids.length === 1 ? `Provider ${ids[0]}` : `Providers ${ids.join(', ')}`;
   const shell = hostEnv.GOOGLE_APPLICATION_CREDENTIALS;
   const fromShell =
-    shell !== undefined && shell !== ''
+    shell !== undefined && isAbsolute(shell) && existsSync(shell) && statSync(shell).isFile()
       ? `, or ${DEV_GOOGLE_CREDENTIALS_VAR}=$GOOGLE_APPLICATION_CREDENTIALS`
       : ' (or a credentials file)';
   return `${named} (Vertex AI) ${ids.length === 1 ? 'has' : 'have'} no Google credentials: set ${DEV_GOOGLE_CREDENTIALS_VAR}=adc${fromShell}, in the pack's .env or the shell, and restart kindgi dev.`;
