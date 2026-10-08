@@ -6,12 +6,16 @@ sidebar:
   label: Overview
 ---
 
-A pack's code needs two kinds of values, and Kindgi keeps them apart:
+A pack's code needs three kinds of values, and Kindgi keeps them apart:
 
 - **Secrets a tool uses for a tenant**: an API key, a signing key. A tool
   declares them by name, and Kindgi resolves them for each call from the
   tenant's secrets (`ctx.secrets`). Model providers, HTTP tools, MCP
   endpoints and webhooks name theirs the same way.
+- **Env values a tool uses per project**: a base URL, a region, an account
+  id, which aren't secret but differ per tenant, org or project. A tool
+  declares them by name, and Kindgi resolves them for each call, the
+  project's value before its org's and the tenant's (`ctx.env`).
 - **Your code's own environment**: a service URL, a database your app owns,
   a feature flag. Your code reads them from `process.env` or `os.environ`,
   and the pack declares which ones it needs.
@@ -29,4 +33,6 @@ service gets the environment the pack declares.
 - [Set values per environment](per-environment-values/): the pack service's
   environment in staging or production, and `kindgi env plan`.
 
-[Give a tool a secret](../tools/give-a-tool-a-secret/) shows the tool's side.
+[Give a tool a secret](../tools/give-a-tool-a-secret/) and
+[Give a tool per-project values](../tools/give-a-tool-env-values/) show the
+tool's side.
