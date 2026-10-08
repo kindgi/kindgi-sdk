@@ -11,11 +11,14 @@ export {
   openAICompatAdapterEntry,
   openAICompatCheckConfig,
   defaultOpenAICompatApi,
+  isDataResidencyHost,
   openAICompatAdapterFactory,
   openAICompatApi,
   openAICompatBaseUrl,
   openAICompatExtraBody,
 } from './provider.js';
 export { EXTRA_BODY_RESERVED_RESPONSES } from './responses.js';
+export { computeCost } from './wire.js';
+export type { OpenAICompatCostRates, OpenAICompatModelInfo } from './wire.js';
 export type { OpenAICompatApi, OpenAICompatProviderOptions } from './provider.js';
 export type { ModelProvider } from '@kindgi/capabilities';

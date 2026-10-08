@@ -2407,6 +2407,12 @@ export interface ClientOptions {
   readonly auth: AuthConfig;
   /** Overridable fetch impl for testing. Defaults to global `fetch`. */
   readonly fetch?: typeof fetch;
+  /**
+   * How long one request may take, in milliseconds, before it fails with
+   * a `network` error. Default 30 000. Streams (`runs.stream` and the
+   * like) aren't bound by it. `runs.start` also takes its own.
+   */
+  readonly timeoutMs?: number;
 }
 
 // ---------------------------------------------------------------------------
