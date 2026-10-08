@@ -370,6 +370,24 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_ERASURE_LEDGER_KEY_PATH',
+    description:
+      "Absolute path to the erasure ledger's 32-byte key file (mode 0600), the same on every replica, whatever the secrets backend. The ledger keeps a keyed hash of whom each erasure erased, so after a backup restore `kindgi memory erasures replay` finds them again. Unset (and no `KINDGI_ERASURE_LEDGER_KEY`): erasures still run, but can't be replayed after a restore. Losing the key means losing replay. This or `KINDGI_ERASURE_LEDGER_KEY`, not both.",
+    example: '/etc/kindgi/erasure-ledger.key',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_ERASURE_LEDGER_KEY',
+    description:
+      "The erasure ledger's 32-byte key itself, base64: for platforms that give secrets as environment variables (Cloud Run with Secret Manager), where a key file's mode can't be 0600. See `KINDGI_ERASURE_LEDGER_KEY_PATH`; this or that, not both.",
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_COMPLIANCE_CLASSIFIER',
     description:
       "Turns on the audit trail's compliance features: `shipped` uses the classifier the runtime ships; or give the absolute path of your own classifier JSON. When set, the server serves `/v1/compliance/*` (audit events as compliance evidence, and their signed export) and **purges audit events by kind, as the classifier says**. With `shipped`: authorization decisions after 90 days (denials after 365), run outcomes and guardrail violations after 730 days; secret changes and approval decisions are kept (legal hold), and so are kinds the classifier doesn't list. Unset (the default): no `/v1/compliance/*`, and no audit event is ever purged.",

@@ -146,7 +146,7 @@ _CONFLICT = {
     "version-already-exists", "eval-run-already-terminal", "approval-already-decided",
     "judge-class-name-taken", "promotion-superseded", "gate-policy-already-registered",
     "gate-policy-scope-taken", "gate-policy-scope-changed", "gate-policy-scope-unpinned",
-    "gate-policy-needs-pin", "fact-changed", "legal-hold",
+    "gate-policy-needs-pin", "fact-changed", "legal-hold", "erasure-in-progress",
 }  # fmt: skip
 _INVALID = {
     "invalid-request", "validation-failed", "unknown-field", "bad-input", "unresolved-tool",

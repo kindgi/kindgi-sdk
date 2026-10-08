@@ -305,6 +305,7 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'gate-policy-needs-pin':
     case 'fact-changed':
     case 'legal-hold':
+    case 'erasure-in-progress':
       return { code: 'conflict', message, reason: code };
     case 'invalid-request':
     case 'validation-failed':

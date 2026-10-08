@@ -3563,7 +3563,7 @@ class Warning1(BaseModel):
     )
     code: Literal["erasure-unmatchable"]
     """
-    `erasure-unmatchable`: this deployment has no secrets AAD key, so a replay after a restore can't find this person.
+    `erasure-unmatchable`: this deployment has no erasure ledger key (`KINDGI_ERASURE_LEDGER_KEY`), so a replay after a restore can't find this person.
     """
     message: str
 

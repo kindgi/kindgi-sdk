@@ -308,7 +308,7 @@ describe('a TypeScript project', () => {
       providers: [{ id: 'anthropic' }],
     });
     expect(unreplayable.check('erasures')).toMatchObject({ status: 'skip' });
-    expect(unreplayable.check('erasures')?.message).toContain('no KINDGI_SECRETS_AAD_KEY');
+    expect(unreplayable.check('erasures')?.message).toContain('no KINDGI_ERASURE_LEDGER_KEY');
     expect(unreplayable.out.exitCode).toBe(0);
     const older = await doctor({ fetchImpl: ready(), providers: [{ id: 'anthropic' }] });
     expect(older.check('erasures')?.message).toContain("this runtime doesn't say");

@@ -2973,7 +2973,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'memory.createErasure',
     summary: "Erase a person's words",
     description:
-      "Starts erasing, in the background, one fact (`factId`), a person (`subject`: an app's end user `participant`, a Kindgi `user`, or an `external` subject facts name) or one conversation (`conversationId`): their facts, conversations (messages, recall rows), the runs that served them (input, output, journal, snapshots) and the free text they left in provenance; facts written from them go to review. Answers `202` with the erasure; follow it with `GET /v1/memory/erasures/{erasureId}`. A completed erasure keeps no identifier, only a keyed hash for a replay after a backup restore; `warnings` says when this deployment can't keep one (`erasure-unmatchable`: no secrets AAD key). Requires `admin` on the tenant.",
+      "Starts erasing, in the background, one fact (`factId`), a person (`subject`: an app's end user `participant`, a Kindgi `user`, or an `external` subject facts name) or one conversation (`conversationId`): their facts, conversations (messages, recall rows), the runs that served them (input, output, journal, snapshots) and the free text they left in provenance; facts written from them go to review. Answers `202` with the erasure; follow it with `GET /v1/memory/erasures/{erasureId}`. A completed erasure keeps no identifier, only a keyed hash for a replay after a backup restore; `warnings` says when this deployment can't keep one (`erasure-unmatchable`: no erasure ledger key, `KINDGI_ERASURE_LEDGER_KEY`). Requires `admin` on the tenant.",
     tags: ['memory'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],

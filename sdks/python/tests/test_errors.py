@@ -72,6 +72,8 @@ def test_an_unlisted_403_is_forbidden_and_401_unauthenticated() -> None:
         "gate-policy-already-registered",
         "gate-policy-needs-pin",
         "promotion-superseded",
+        "legal-hold",
+        "erasure-in-progress",
     ],
 )
 def test_an_already_registered_code_is_a_conflict(code: str) -> None:

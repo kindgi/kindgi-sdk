@@ -530,7 +530,7 @@ async function modelKeyCheck(
 
 /**
  * Whether the runtime can replay erasures after a backup restore: it
- * needs the secrets AAD key, which `kindgi dev` doesn't set (fine for
+ * needs the erasure ledger key, which `kindgi dev` doesn't set (fine for
  * development), so this check never fails: it passes, or says why not.
  */
 async function erasuresCheck(ctx: CommandContext, url: string): Promise<DoctorCheck> {
@@ -547,13 +547,13 @@ async function erasuresCheck(ctx: CommandContext, url: string): Promise<DoctorCh
   if (said === 'replayable') {
     return pass(
       'erasures',
-      'Erasures can be replayed after a backup restore: the runtime has the secrets AAD key.',
+      'Erasures can be replayed after a backup restore: the runtime has the erasure ledger key.',
     );
   }
   if (said === 'unreplayable') {
     return skip(
       'erasures',
-      "Erasures run, but a replay after a backup restore can't find whom they erased: the runtime has no KINDGI_SECRETS_AAD_KEY (the postgres secrets backend's). Fine for development; set it where you run in production.",
+      "Erasures run, but a replay after a backup restore can't find whom they erased: the runtime has no KINDGI_ERASURE_LEDGER_KEY. Fine for development; set it where you run in production.",
     );
   }
   return skip('erasures', "Not checked: this runtime doesn't say (it's from before 0.1.5).");

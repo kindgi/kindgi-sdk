@@ -1288,7 +1288,7 @@ export interface MemoryErasure {
 
 /** `POST /v1/memory/erasures`'s answer: the erasure, and what to know about it. */
 export interface MemoryErasureCreated extends MemoryErasure {
-  /** `erasure-unmatchable`: no secrets AAD key, so a replay after a restore can't find this person. */
+  /** `erasure-unmatchable`: no erasure ledger key (`KINDGI_ERASURE_LEDGER_KEY`), so a replay after a restore can't find this person. */
   readonly warnings?: readonly { readonly code: 'erasure-unmatchable'; readonly message: string }[];
 }
 
