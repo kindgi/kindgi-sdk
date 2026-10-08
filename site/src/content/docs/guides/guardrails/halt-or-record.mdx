@@ -48,7 +48,7 @@ kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
 ```
 
 ```text
-Error [guardrail-violation]: Turn blocked by guardrail 'my-pack.answer-length': The answer is 86 characters; the limit is 60.
+Error [guardrail-violation]: Turn blocked by guardrail 'my-pack.answer-length': The answer is 243 characters; the limit is 60.
 ```
 
 The run is `failed`, and its `failureMessage` carries the violation:
@@ -64,7 +64,7 @@ kindgi runs get <run-id>
   "flowId": "agent.turn",
   "status": "failed",
   …
-  "failureMessage": "{\"__agent_turn_failure__\":true,\"error\":{\"code\":\"guardrail-violation\",\"message\":\"Turn blocked by guardrail 'my-pack.answer-length': The answer is 86 characters; the limit is 60.\",\"violations\":[{\"guardrailId\":\"my-pack.answer-length\",\"result\":{\"passed\":false,\"reason\":\"The answer is 86 characters; the limit is 60.\"},\"action\":\"halt\",\"severity\":\"error\",\"at\":\"2026-10-03T20:10:37.910Z\"}],\"evaluationErrors\":[]}}"
+  "failureMessage": "{\"__agent_turn_failure__\":true,\"error\":{\"code\":\"guardrail-violation\",\"message\":\"Turn blocked by guardrail 'my-pack.answer-length': The answer is 243 characters; the limit is 60.\",\"violations\":[{\"guardrailId\":\"my-pack.answer-length\",\"result\":{\"passed\":false,\"reason\":\"The answer is 243 characters; the limit is 60.\"},\"action\":\"halt\",\"severity\":\"error\",\"at\":\"2026-10-03T20:10:37.910Z\"}],\"evaluationErrors\":[]}}"
 }
 ```
 
@@ -83,7 +83,7 @@ With `log-only`, the turn completes, and its output lists the violation:
     "response": {
       "role": "agent",
       "actor": "my-pack.echo-agent",
-      "content": "Tool responded: {\"echo\":\"hi\",\"echoedAt\":\"2026-10-03T20:10:57.767Z\",\"characterCount\":2}",
+      "content": "⚠ dev-echo isn't a real model: it only repeats what it's given. Add an LLM provider key (Anthropic, OpenAI, Gemini, Groq, OpenRouter…) to get real answers.\n\nTool responded: {\"echo\":\"hi\",\"echoedAt\":\"2026-10-07T13:20:06.619Z\",\"characterCount\":2}",
       …
     },
     …
@@ -93,7 +93,7 @@ With `log-only`, the turn completes, and its output lists the violation:
         "action": "log-only",
         "result": {
           "passed": false,
-          "reason": "The answer is 86 characters; the limit is 60."
+          "reason": "The answer is 243 characters; the limit is 60."
         },
         "severity": "error",
         "guardrailId": "my-pack.answer-length"

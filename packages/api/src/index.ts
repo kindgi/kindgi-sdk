@@ -189,6 +189,8 @@ export type {
   VerifyPublicRunTokenFailure,
   VerifyPublicRunTokenResult,
 } from './public-run-token.js';
+export { runFailure } from './run-failure.js';
+export type { RunFailure } from './run-failure.js';
 export {
   WEBHOOK_DELIVERY_STATUSES,
   WEBHOOK_EVENT_TYPES,
@@ -274,6 +276,7 @@ export type {
 } from './flow-binding.js';
 export type {
   CapabilityDescriptor,
+  CapabilityProvider,
   CapabilityGetInput,
   CapabilityListInput,
   CapabilityPage,
@@ -564,6 +567,8 @@ export type {
 } from './guardrail-binding.js';
 export type {
   MemoryBinding,
+  MemoryDeleteFactInput,
+  MemoryFactChangeOutcome,
   MemoryFactPage,
   MemoryGetFactInput,
   MemoryListFactsInput,
@@ -573,6 +578,7 @@ export type {
   MemoryRetrieveOutcome,
   MemorySupersedeFactInput,
   MemorySupersedeFactOutcome,
+  MemoryVerifyFactInput,
   MemoryWriteFactInput,
   MemoryWriteFactOutcome,
 } from './memory-binding.js';

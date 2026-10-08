@@ -57,6 +57,16 @@ export interface Authorizer {
     items: readonly T[],
     refFn: (item: T) => ResourceRef,
   ) => Promise<T[]>;
+  /**
+   * The ids of every object of `type` the caller may `action`
+   * (`AuthzCheckBinding.listObjects`); `undefined` when the binding
+   * can't list, so the caller falls back to `filterByCan`.
+   */
+  readonly listObjects?: (
+    c: Context<AppEnv>,
+    action: Action,
+    type: ResourceRef['type'],
+  ) => Promise<readonly string[] | undefined>;
 }
 
 export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
@@ -173,6 +183,17 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
         if (decisions[i]?.allowed) out.push(open[i] as (typeof items)[number]);
       }
       return out;
+    },
+    async listObjects(c, action, type) {
+      if (binding.listObjects === undefined) return undefined;
+      const principal = c.get('principal') as Principal | undefined;
+      if (principal === undefined) return [];
+      const requestId = c.get('requestId');
+      const ctx =
+        typeof requestId === 'string' && requestId.length > 0
+          ? { correlationId: requestId }
+          : undefined;
+      return binding.listObjects(principal, action, type, ctx);
     },
   };
 }

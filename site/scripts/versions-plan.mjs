@@ -91,3 +91,35 @@ export function redirects({ lines }) {
     )
     .join('');
 }
+
+/**
+ * Which git ref a release's docs build from. A release's docs are fixed after
+ * it ships on its `release-docs/<version>` branch (reviewed through a PR, as
+ * every docs change is): the branch starts at the release's tag and changes
+ * only `site/`, so the release's pages are fixed while its code and its
+ * generated reference stay the tag's. Without the branch, the tag. A branch
+ * that doesn't start at the tag, or that changes anything outside `site/`,
+ * fails the build: it would put under the release's docs code the release
+ * doesn't have.
+ *
+ * @param {{ tag: string, branch?: string, startsAtTag?: boolean, changed?: readonly string[] }} source
+ *   `branch`: the release's docs branch, if there is one; `startsAtTag`: the
+ *   tag is an ancestor of the branch; `changed`: the files the branch changes
+ *   since the tag.
+ * @returns {{ ref: string } | { error: string }}
+ */
+export function docsSource({ tag, branch, startsAtTag = false, changed = [] }) {
+  if (branch === undefined) return { ref: tag };
+  if (!startsAtTag) {
+    return {
+      error: `${branch} doesn't start at ${tag}: a release's docs branch starts at its tag.`,
+    };
+  }
+  const outside = changed.filter((file) => !file.startsWith('site/'));
+  if (outside.length > 0) {
+    return {
+      error: `${branch} changes files outside site/ since ${tag} (${outside.join(', ')}): a release's docs branch may change only its docs.`,
+    };
+  }
+  return { ref: branch };
+}

@@ -33,8 +33,9 @@ import type { Result } from '@kindgi/types';
 
 /**
  * What a handler gets beside its input: the tenant and run it serves,
- * and its resolved "typed needs" (env, secrets, config), composed by
- * the server and sent with the call.
+ * and the "typed needs" it declares (`needsSpec.env`, `needsSpec.secrets`),
+ * resolved by the runtime for this call and sent with it. `config` is
+ * reserved: no runtime sends it yet.
  */
 export interface HandlerContext {
   readonly tenantId: string;
@@ -44,6 +45,7 @@ export interface HandlerContext {
   /** The project's org, when it has one (2.3.0). */
   readonly orgId?: string;
   readonly requestId?: string;
+  /** The declared env values: project, else org, else tenant (protocol 2.5.0). */
   readonly env?: Readonly<Record<string, unknown>>;
   readonly secrets?: Readonly<Record<string, unknown>>;
   readonly config?: Readonly<Record<string, unknown>>;

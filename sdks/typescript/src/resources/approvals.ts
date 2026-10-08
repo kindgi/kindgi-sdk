@@ -29,6 +29,7 @@ import type {
   ReviewerSpec,
   UnregisterReviewerResult,
 } from '../types.js';
+import { verifySignedExport } from '../verify-export.js';
 
 /**
  * Approvals resource — human-in-the-loop approval queue.
@@ -192,10 +193,11 @@ export interface AuditClient {
   list(filter?: Filter): Promise<ListPage<AuditBundleMeta>>;
 
   /**
-   * Verify a bundle's Ed25519 signature client-side.
-   *
-   * @unwired The SDK does not ship an Ed25519 verifier; the method
-   *   throws `not-yet-wired` (as does `provenance.verify`).
+   * Verify a bundle where it's read (Web Crypto's Ed25519; no request):
+   * its signature over the bytes shipped, and that it was signed with
+   * `publicKey`, a key you trust (a `publicKeyPem` from
+   * `exportSigningKeys.list()`, or one you pinned). `verifySignedExport`
+   * does the same with several keys, and returns the signed body.
    */
   verify(bundle: AuditBundle, publicKey: string): Promise<AuditVerifyResult>;
 }
@@ -250,8 +252,8 @@ export interface CompleteTokenInput {
 export interface AuditExportInput {
   /** Approval to export a bundle for. */
   readonly approvalId: ApprovalId;
-  /** Signing key id from the deployment's `signingKey` binding. */
-  readonly signingKeyId: string;
+  /** Sign with this key (one of `exportSigningKeys.list()`). Absent: the deployment's active key. */
+  readonly signingKeyId?: string;
   /** Hydrate conversation messages tied to the approval's run. Default `false`. */
   readonly includeMessages?: boolean;
   readonly idempotencyKey?: string;
@@ -389,7 +391,7 @@ export function makeApprovalsClient(transport: Transport): ApprovalsClient {
           method: 'POST',
           path: `/v1/approvals/${encodeURIComponent(input.approvalId as unknown as string)}/audit-bundle`,
           body: {
-            signingKeyId: input.signingKeyId,
+            ...(input.signingKeyId !== undefined && { signingKeyId: input.signingKeyId }),
             ...(input.includeMessages !== undefined && {
               includeMessages: input.includeMessages,
             }),
@@ -416,13 +418,9 @@ export function makeApprovalsClient(transport: Transport): ApprovalsClient {
         );
       },
 
-      async verify(_bundle, _publicKey) {
-        throw new KindgiApiError(
-          notYetWired(
-            'approvals.audit.verify',
-            'client-side verifier requires the crypto module reachability from the SDK bundle — not yet vendored (same constraint as provenance.verify + webhooks.verify)',
-          ),
-        );
+      async verify(bundle, publicKey) {
+        const checked = await verifySignedExport(bundle, { trustedKeys: [publicKey] });
+        return checked.valid ? { valid: true } : { valid: false, issues: checked.issues ?? [] };
       },
     },
   };
