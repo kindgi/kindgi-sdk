@@ -91,7 +91,9 @@ The checks come in this order: `node`, `npm`, `python`, `uv`, `docker`,
   `message` and `fix`, and go on. `ok` stays `true` and the exit code `0`.
   In this release only `provider` warns: when an agent that names no model
   would get a model the preset no longer lists, or one other than the
-  preset's default.
+  preset's default; or when the runtime can't build a registered provider
+  (each problem is in the check's `details`). When it can build none,
+  `provider` fails instead.
 - **`skip`:** not applicable yet. Outside a project, `project` and every
   check after it skip; `runtime` skips while `kindgi dev` isn't running.
 
@@ -163,7 +165,11 @@ real one.
 
 Run doctor every few seconds until `runtime` passes. `model-key` and
 `provider` still fail: that's expected until step 4. Then tell the person
-it's running, and how to stop it: `kill <the process id>`.
+it's running, and how to stop it: `kill <the process id>`. Also tell them
+where the console is: the `Console` line of `.kindgi/dev.log`, its first
+address (`kindgi doctor --json` has it as `consoleUrl`, and `kindgi console`
+opens it in their browser). They sign in there with **Sign in as seeded
+user**, which needs no token: don't print the token in the chat.
 
 ## Step 4: the model key
 

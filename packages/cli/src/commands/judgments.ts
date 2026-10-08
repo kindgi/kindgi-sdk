@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { CommandContext } from '../context.js';
+import { UsageError } from '../errors.js';
 import { integerFlag, requiredPositional, runSdk, stringFlag } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
@@ -55,14 +56,14 @@ const add: LeafCommand = {
   run: (ctx) =>
     runSdk(ctx, 'judgments add', async () => {
       const runId = stringFlag(ctx, 'run');
-      if (runId === undefined) throw new Error('--run=<run-id> is required');
+      if (runId === undefined) throw new UsageError('--run=<run-id> is required');
       const key = stringFlag(ctx, 'item');
-      if (key === undefined) throw new Error('--item=<key> is required');
+      if (key === undefined) throw new UsageError('--item=<key> is required');
       const yes = ctx.options.yes === true;
       const no = ctx.options.no === true;
-      if (yes === no) throw new Error('Give exactly one of --yes or --no');
+      if (yes === no) throw new UsageError('Give exactly one of --yes or --no');
       const rank = integerFlag(ctx, 'rank');
-      if (rank !== undefined && rank < 0) throw new Error('--rank must be 0 or more');
+      if (rank !== undefined && rank < 0) throw new UsageError('--rank must be 0 or more');
       const pointer = ctx.options.pointer;
       return await ctx.client().judgments.create({
         runId,
@@ -118,11 +119,11 @@ const list: LeafCommand = {
         stringFlag(ctx, 'agent-version') !== undefined &&
         stringFlag(ctx, 'agent') === undefined
       ) {
-        throw new Error('--agent-version needs --agent');
+        throw new UsageError('--agent-version needs --agent');
       }
       const verdict = stringFlag(ctx, 'verdict');
       if (verdict !== undefined && !(VERDICTS as readonly string[]).includes(verdict)) {
-        throw new Error(`--verdict must be one of ${VERDICTS.join(', ')}, got "${verdict}"`);
+        throw new UsageError(`--verdict must be one of ${VERDICTS.join(', ')}, got "${verdict}"`);
       }
       const projectId = stringFlag(ctx, 'project');
       const limit = integerFlag(ctx, 'limit');

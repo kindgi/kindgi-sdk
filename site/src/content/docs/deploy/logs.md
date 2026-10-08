@@ -120,3 +120,9 @@ kindgi runs get <run-id>   # "traceId": "4bf92f3577b34da6a3ce929d0e0e4736"
 
 The runtime's calls to your pack's service don't carry the run's trace yet;
 that comes in 0.1.5.
+
+Model providers and MCP servers are outside your deployment, so they get the
+run's trace only when their registration opts in: `send_traceparent: true` on
+a [provider](../../guides/models/#a-provider-spec), `sendTraceparent: true` on
+an [MCP endpoint](../../guides/tools/mcp-servers/#send-the-runs-trace). Then
+each call to them carries a `traceparent` header: ids only, never content.

@@ -96,3 +96,59 @@ describe('schedules — wire round-trips', () => {
     ]);
   });
 });
+
+describe('schedules — agents, history, run-now, ownership', () => {
+  const ID = SAMPLE_SCHEDULE.triggerId;
+
+  it('register an agent schedule with its policies', async () => {
+    const stub = jsonFetch(
+      { ...SAMPLE_SCHEDULE, flowId: undefined, flowVersion: undefined, agentId: 'acme.digest' },
+      { status: 201 },
+    );
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    await client.schedules.register({
+      agentId: 'acme.digest',
+      config: { cronExpression: '0 7 * * 1-5', timezone: 'America/Toronto' },
+      catchUp: 'skip',
+      overlap: 'skip',
+    });
+    expect(JSON.parse(stub.calls[0]?.body ?? '{}')).toMatchObject({
+      agentId: 'acme.digest',
+      catchUp: 'skip',
+      overlap: 'skip',
+    });
+  });
+
+  it('get with upcoming; fires; run-now; take ownership', async () => {
+    const fire = {
+      fireId: 'f-1',
+      scheduleId: ID,
+      triggerId: ID,
+      firedAt: '2026-10-07T07:00:01Z',
+      outcome: 'pending',
+      manual: true,
+    };
+    const stub = recordingFetch([
+      {
+        status: 200,
+        body: JSON.stringify({ ...SAMPLE_SCHEDULE, upcoming: ['2026-10-08T07:00:00Z'] }),
+      },
+      { status: 200, body: JSON.stringify({ data: [fire], hasMore: false }) },
+      { status: 202, body: JSON.stringify(fire) },
+      { status: 200, body: JSON.stringify(SAMPLE_SCHEDULE) },
+    ]);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    expect((await client.schedules.get(ID, { upcoming: 1 })).upcoming).toHaveLength(1);
+    expect((await client.schedules.fires(ID, { limit: 5 })).data[0]?.manual).toBe(true);
+    expect((await client.schedules.runNow(ID)).outcome).toBe('pending');
+    await client.schedules.takeOwnership(ID);
+    expect(
+      stub.calls.map((c) => `${c.method} ${new URL(c.url).pathname}${new URL(c.url).search}`),
+    ).toEqual([
+      `GET /v1/schedules/${ID}?upcoming=1`,
+      `GET /v1/schedules/${ID}/fires?limit=5`,
+      `POST /v1/schedules/${ID}/run-now`,
+      `POST /v1/schedules/${ID}/owner`,
+    ]);
+  });
+});

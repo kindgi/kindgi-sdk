@@ -22,6 +22,9 @@ version of Kindgi these docs describe.
 - [Runs](runs/): start runs from the CLI or your app, retry safely, follow
   them live (from the browser too), read their journal, cancel and list
   them.
+- [Orgs and projects](projects/organize-by-org-and-project/): give each
+  customer an org with its projects, and run and read their work by project
+  or org.
 - [Webhooks](webhooks/): get a signed `run.finished` request when a run
   ends, verify it in your app, and test and replay deliveries.
 - [Guardrails](guardrails/): check an agent's answers, give a check its
@@ -34,3 +37,6 @@ version of Kindgi these docs describe.
   you.
 - [Cost and provenance](observability/trace-an-answer/): trace an answer to
   the model and tool calls behind it, and what each call cost.
+- [Evals](evals/judge-a-runs-output/): judge runs' answers, build a test set
+  from them, change a prompt or a setting without a deploy, compare the new
+  version on the test set, and release it.
