@@ -157,9 +157,15 @@ export interface RunFlowInput {
    */
   readonly eventBus?: KernelEventBusBinding;
   /**
-   * Authorization — the Principal on whose authority this run
-   * executes. When set together with `authz`, every `ctx.authorize` /
-   * `can` / `check` inside handlers is decided against this principal.
+   * The Principal on whose authority this run executes: who started it
+   * (a caller, a schedule's creator, a service identity). Stored with
+   * the run, so every resume (an approval, a timeout, a child waking its
+   * flow, a run recovered after a crash) acts for the same principal.
+   * Only the start stores it: a pending run (`StartRunParams`) keeps the
+   * one it was started with, none included, whoever adopts it.
+   * When set together with `authz`, every `ctx.authorize` / `can` /
+   * `check` inside handlers is decided against it; on its own it only
+   * informs (e.g. whose own memory an agent turn may read).
    */
   readonly principal?: Principal;
   /**
@@ -189,11 +195,8 @@ export interface ResumeRunInput {
   readonly handlerResolver?: HandlerResolver;
   /** Same shape + semantics as `RunFlowInput.eventBus`. */
   readonly eventBus?: KernelEventBusBinding;
-  /**
-   * Authorization — carried through on resume so the resumed run
-   * keeps enforcing per-tool + per-subgraph checks.
-   */
-  readonly principal?: Principal;
+  // No principal: a resumed run acts for the one stored when it started
+  // (`RunFlowInput.principal`); a resume can't drop or change it.
   readonly authz?: {
     readonly fgaApiUrl: string;
   };
@@ -218,6 +221,8 @@ export interface StartRunParams {
   readonly versions?: FlowVersionOverrides;
   /** The run's segment path; see `RunFlowInput.segments`. */
   readonly segments?: readonly ScopeSegment[];
+  /** Who starts the run; stored with it, see `RunFlowInput.principal`. */
+  readonly principal?: Principal;
 }
 
 export type StartRunError = { readonly code: 'insert-failed'; readonly message: string };

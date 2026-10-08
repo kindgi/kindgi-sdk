@@ -11,8 +11,9 @@ Python: two tools, an agent that calls them, a guardrail and a flow.
 
 **Before you start**, set up what the [Install page](../install/) describes:
 Docker, Python 3.11 and uv, and access to the runtime image. No Node: the CLI
-comes from PyPI. The image is in private preview: request access at contact@kindgi.com,
-then log in once with `kindgi auth registry`.
+comes from PyPI. For the runtime image, sign in at
+[access.kindgi.com](https://access.kindgi.com) with GitHub, copy your pull
+token, then log in once with `kindgi auth registry`.
 
 ## 1. Create the pack
 
@@ -65,6 +66,17 @@ pack's own Python (`.venv/bin/python`), runs its tools and checks in a pack
 service, and reloads on every save. It writes the API's URL and a token to
 `.kindgirc.json`, so the commands below find the runtime by themselves.
 Leave it running.
+
+Its banner also gives the console's address, where you can see each run:
+what it was asked, the steps it took and what it answered:
+
+```text
+    Console    http://127.0.0.1:4000/console/
+```
+
+Open that address in your browser (note the `/console/` at the end; the port
+is `4000`, or the next free one), and sign in with the token on the banner's
+`Token` line.
 
 ## 3. Run the agent and the flow
 
