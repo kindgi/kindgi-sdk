@@ -9,7 +9,7 @@
   <parent>
     <groupId>com.kindgi</groupId>
     <artifactId>kindgi-java-parent</artifactId>
-    <version>0.1.4-rc.4</version>
+    <version>0.1.4</version>
   </parent>
 
   <artifactId>kindgi-client</artifactId>

@@ -65,10 +65,13 @@ import {
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { docsVersion, fillVersion } from './versioned-pages.mjs';
 
 const site = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repo = resolve(site, '..');
 const docs = join(site, 'src', 'content', 'docs');
+/** `{{kindgi.version}}` in a page, as the build fills it. */
+const version = docsVersion();
 const cli = join(repo, 'packages', 'cli', 'dist', 'cli.js');
 const skills = join(repo, 'packages', 'sdk', 'skills');
 const pyright = join(site, 'node_modules', '.bin', 'pyright');
@@ -415,7 +418,7 @@ const failures = [];
 let checked = 0;
 try {
   for (const page of selected.length > 0 ? selected : [...pages(), ...skillFiles()]) {
-    const markdown = readFileSync(page, 'utf8');
+    const markdown = fillVersion(readFileSync(page, 'utf8'), version);
     for (const [language, files] of Object.entries(fileSamples(markdown))) {
       if (files.length === 0) continue;
       let error;
