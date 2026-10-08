@@ -59,6 +59,7 @@ describe('runtimeRunArgs', () => {
       network: 'host-network',
       googleCredentials: '/home/dev/.config/gcloud/application_default_credentials.json',
       publicTokenKey: '/home/dev/keys/public-token.pem',
+      exportSigningKey: '/home/dev/keys/export-signing.pem',
     });
     expect(args).toContain('--network');
     expect(args[args.indexOf('--network') + 1]).toBe('host');
@@ -72,6 +73,7 @@ describe('runtimeRunArgs', () => {
     expect(args).toContain(
       '/home/dev/keys/public-token.pem:/run/kindgi/public-token-signing.pem:ro',
     );
+    expect(args).toContain('/home/dev/keys/export-signing.pem:/run/kindgi/export-signing.pem:ro');
   });
 
   test('one container per pack directory', () => {

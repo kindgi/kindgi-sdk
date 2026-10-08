@@ -10,9 +10,9 @@ In ten minutes: a pack with two tools, an agent that calls them, a guardrail
 on its answers and a flow, running on your machine.
 
 **Before you start**, set up what the [Install page](../install/) describes:
-Node 22.12, Docker, and access to the runtime image. The image is in private
-preview: request access at contact@kindgi.com, then log in once with
-`kindgi auth registry`.
+Node 22.12, Docker, and access to the runtime image: sign in at
+[access.kindgi.com](https://access.kindgi.com) with GitHub, copy your pull
+token, then log in once with `kindgi auth registry`.
 
 ## 1. Create the pack
 
@@ -68,6 +68,17 @@ registers every tool, agent, guardrail and flow, and does it again on every
 save. It prints the API's URL and a token, and writes them to
 `.kindgirc.json` in the pack, so the commands below find the runtime by
 themselves. Leave it running.
+
+Its banner also gives the console's address, where you can see each run:
+what it was asked, the steps it took and what it answered:
+
+```text
+    Console    http://127.0.0.1:4000/console/
+```
+
+Open that address in your browser (note the `/console/` at the end; the port
+is `4000`, or the next free one), and sign in with the token on the banner's
+`Token` line.
 
 ## 3. Run the agent
 

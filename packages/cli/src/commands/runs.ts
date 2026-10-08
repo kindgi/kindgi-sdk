@@ -302,12 +302,14 @@ const start: LeafCommand = {
 };
 
 /**
- * The stderr line for a run that ended `failed`. An agent turn's failure
- * reads back as its typed error, as the SDK's `invokeAgent` reads it
- * (`parseFailureMessage`); any other shows the run's failure message.
+ * The stderr line for a run that ended `failed`: the run's `failure`. A
+ * runtime from before it has only `failureMessage`, decoded the same way
+ * the API decodes it: an agent turn's failure as its typed error
+ * (`parseFailureMessage`), any other in the run's own words.
  */
 async function runFailedLine(run: Run): Promise<string> {
-  // Loaded only for a failed run: it brings in the whole agent loop.
+  if (run.failure !== undefined) return `Error [${run.failure.code}]: ${run.failure.message}\n`;
+  // Loaded only for an older runtime's failed run: it brings in the whole agent loop.
   const { parseFailureMessage } = await import('@kindgi/agents');
   const error = parseFailureMessage(run.failureMessage);
   if (error !== undefined) return `Error [${error.code}]: ${error.message}\n`;

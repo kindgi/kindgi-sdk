@@ -1,6 +1,6 @@
 {
   "name": "openrouter",
-  "description": "Many vendors' models through OpenRouter, with one key (key: OPENROUTER_API_KEY).",
+  "description": "A hosted service in front of several vendors: your prompts pass through OpenRouter (key: OPENROUTER_API_KEY).",
   "adapterId": "@kindgi/adapter-model-openai-compat",
   "adapterConfigValues": {
     "baseURL": "https://openrouter.ai/api/v1"
@@ -11,7 +11,7 @@
     "id": "openrouter",
     "region": "unspecified",
     "defaultModel": "anthropic/claude-sonnet-5.5",
-    "description": "Models from several vendors through OpenRouter",
+    "description": "OpenRouter, a hosted gateway",
     "models": [
       {
         "name": "anthropic/claude-sonnet-5.5",
