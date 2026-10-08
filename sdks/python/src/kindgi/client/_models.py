@@ -7201,11 +7201,19 @@ class ProjectMembershipCollectionPage(BaseModel):
 
 
 class AddProjectMembershipBody(BaseModel):
+    """
+    Exactly one of `userId` and `email` names the person.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    user_id: Annotated[str, Field(alias="userId", min_length=1)]
+    user_id: Annotated[str | None, Field(alias="userId", min_length=1)] = None
+    email: Annotated[str | None, Field(min_length=1)] = None
+    """
+    The person's email, as the tenant has it.
+    """
     role: Literal["viewer", "editor", "owner", "admin", "member"]
     """
     Role on a project membership.
@@ -8559,7 +8567,7 @@ class MintTokenBody(BaseModel):
     for_: Annotated[ApiKeyPrincipal | None, Field(alias="for")] = None
     role: Literal["admin", "member"] | None = None
     """
-    The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action, whoever it's for. Default `member`; `admin` needs a tenant admin minting it.
+    The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action on the tenant, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project). Default `member`; `admin` needs a tenant admin minting it.
     """
     capabilities: list[Capability] | None = None
     """
@@ -8592,7 +8600,7 @@ class MintTokenResult(BaseModel):
     principal: ApiKeyPrincipal | None = None
     role: Literal["admin", "member"]
     """
-    The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action, whoever it's for.
+    The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action on the tenant, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project).
     """
     capabilities: list[Capability]
     """
@@ -8636,7 +8644,7 @@ class ApiToken(BaseModel):
     principal: ApiKeyPrincipal | None = None
     role: Literal["admin", "member"]
     """
-    The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action, whoever it's for.
+    The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action on the tenant, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project).
     """
     capabilities: list[Capability]
     """
@@ -8676,7 +8684,7 @@ class Datum2(BaseModel):
     principal: ApiKeyPrincipal | None = None
     role: Literal["admin", "member"]
     """
-    The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action, whoever it's for.
+    The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action on the tenant, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project).
     """
     capabilities: list[Capability]
     """

@@ -41,11 +41,11 @@ export interface IdentityClient {
 }
 
 export interface IdentityUsersClient {
-  /** @wire GET /v1/identity/users — requires directory binding */
+  /** @wire GET /v1/identity/users — requires directory binding; tenant admins only */
   list(filter?: ListIdentityUsersFilter): Promise<IdentityUserPage>;
-  /** @wire GET /v1/identity/users/:userId */
+  /** @wire GET /v1/identity/users/:userId — a tenant admin, or the person */
   get(userId: string): Promise<IdentityUser>;
-  /** @wire GET /v1/identity/users/:userId/sessions */
+  /** @wire GET /v1/identity/users/:userId/sessions — a tenant admin, or the person */
   listSessions(userId: string): Promise<IdentitySessionPage>;
   /** @wire POST /v1/identity/users/:userId/revoke-sessions — admin op */
   revokeSessions(
