@@ -30,8 +30,12 @@
  * broken build never becomes ready. SIGTERM drains in-flight calls
  * (readyz answers 503 meanwhile) and exits 0.
  *
- * Logs are JSON lines on stderr. The `listening` line carries the bound
- * port, for callers that start it with `PORT=0`.
+ * Logs are `@kindgi/log` records on stderr (subsystem `pack`), at
+ * `KINDGI_LOG_LEVEL` / `KINDGI_LOG_LEVELS`, in `KINDGI_LOG_FORMAT` (`auto`:
+ * JSON unless stderr is a terminal): a record per call, and the
+ * lifecycle (`listening`, `boot-failed`, `draining`, …) whatever the
+ * levels (`./records.ts`). The `listening` record carries the bound port,
+ * for callers that start it with `PORT=0`.
  */
 
 import { access, readFile } from 'node:fs/promises';
@@ -44,6 +48,7 @@ import { isProcessEntrypoint } from '../entrypoint.js';
 import type { Index } from '../kindgi-index.js';
 import { INDEX_ENVELOPE_VERSION, readBundleMap } from '../kindgi-index.js';
 import { PACK_ENV_CHECK_VAR, type PackEnvCheck, parsePackEnvCheck } from '../pack-env.js';
+import { type PackServiceLogs, defaultPackServiceLogs, packServiceLogs } from './records.js';
 import { type PackService, type PackServiceLogEvent, createPackService } from './service.js';
 
 export interface PackServiceConfig {
@@ -132,11 +137,20 @@ type StartOutcome =
   | { readonly kind: 'ok'; readonly value: RunningPackService }
   | { readonly kind: 'err'; readonly problems: readonly string[] };
 
-/** Load the index, check and prewarm every module, then listen. */
+/**
+ * Load the index, check and prewarm every module, then listen. `logs`:
+ * where its records go (default: stderr, at the default levels). A
+ * function instead gets the service's events as before records, and no
+ * records are written.
+ */
 export async function startPackService(
   config: PackServiceConfig,
-  logger: (event: PackServiceLogEvent | Record<string, unknown>) => void = logJson,
+  logs:
+    | PackServiceLogs
+    | ((event: PackServiceLogEvent | Record<string, unknown>) => void) = defaultPackServiceLogs(),
 ): Promise<StartOutcome> {
+  const legacy = typeof logs === 'function' ? logs : undefined;
+  const records = typeof logs === 'function' ? undefined : logs;
   let index: Index;
   try {
     index = JSON.parse(await readFile(config.indexPath, 'utf8')) as Index;
@@ -177,7 +191,10 @@ export async function startPackService(
     token: config.token,
     ...(config.maxConcurrency !== undefined && { maxConcurrency: config.maxConcurrency }),
     ...(config.envCheck !== undefined && { envCheck: config.envCheck }),
-    logger,
+    ...(legacy !== undefined && { logger: legacy }),
+    ...(records !== undefined && {
+      log: records.log.child({ packId: index.packId, artifactVersion: index.artifactVersion }),
+    }),
   });
   const failures = await service.prewarm();
   if (failures.length > 0) return { kind: 'err', problems: failures.map((f) => f.message) };
@@ -189,12 +206,9 @@ export async function startPackService(
       : server.listen(config.port, config.host, ready),
   );
   const port = (server.address() as AddressInfo).port;
-  logger({
-    kind: 'listening',
-    port,
-    packId: index.packId,
-    artifactVersion: index.artifactVersion,
-  });
+  const listening = { port, packId: index.packId, artifactVersion: index.artifactVersion };
+  legacy?.({ kind: 'listening', ...listening });
+  records?.event('listening', `Listening on port ${port}`, listening);
   return {
     kind: 'ok',
     value: {
@@ -219,32 +233,37 @@ export async function main(
   argv: readonly string[] = process.argv.slice(2),
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): Promise<number> {
+  const built = packServiceLogs({ env, isTTY: process.stderr.isTTY === true });
+  if (built.kind === 'err') {
+    defaultPackServiceLogs().event('config-invalid', built.message, { problems: [built.message] });
+    return 1;
+  }
+  const logs = built.logs;
+  for (const problem of built.problems) logs.log.warn(problem);
   const config = readPackServiceConfig(argv, env);
   if (config.kind === 'err') {
-    logJson({ kind: 'config-invalid', problems: config.problems });
+    logs.event('config-invalid', 'The pack service configuration is invalid', {
+      problems: config.problems,
+    });
     return 1;
   }
   // The token is for the service's callers. The pack's code, loaded
   // next, runs in this process and has no use for it — and a dependency
   // that read it could call the pack's tools around the runtime.
   Reflect.deleteProperty(process.env, 'KINDGI_PACK_SERVICE_TOKEN');
-  const started = await startPackService(config.value);
+  const started = await startPackService(config.value, logs);
   if (started.kind === 'err') {
-    logJson({ kind: 'boot-failed', problems: started.problems });
+    logs.event('boot-failed', 'The pack service failed to boot', { problems: started.problems });
     return 1;
   }
   await new Promise<void>((stopped) => {
     process.once('SIGTERM', () => {
-      logJson({ kind: 'draining' });
+      logs.event('draining', 'Draining: finishing the calls in flight');
       void started.value.stop().then(stopped);
     });
   });
-  logJson({ kind: 'stopped' });
+  logs.event('stopped', 'Stopped');
   return 0;
-}
-
-function logJson(event: PackServiceLogEvent | Record<string, unknown>): void {
-  process.stderr.write(`${JSON.stringify(event)}\n`);
 }
 
 function describe(cause: unknown): string {

@@ -404,6 +404,13 @@ export interface CreateAppInput {
    */
   readonly onGuardrailWrite?: import('./routes/guardrails.js').GuardrailWriteHook;
   /**
+   * Checks a guardrail being registered (`POST /v1/guardrails`) against
+   * the `configSchema` of the check it names; a problem refuses it with
+   * `422 guardrail-config-invalid`. A runtime passes it with the pack
+   * checks' schemas from their deployments. Absent: no check.
+   */
+  readonly checkGuardrailConfig?: import('./routes/guardrails.js').GuardrailConfigCheck;
+  /**
    * Optional. When present, mounts the retention surface
    * (`/v1/retention/scheduled`, `/v1/retention/sweep`,
    * `/v1/retention/sweep/:domain`). Caller-plugged; the Kindgi runtime
@@ -1150,6 +1157,11 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(input.evalRunBinding !== undefined && { evalRuns: input.evalRunBinding }),
           ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
         },
+        {
+          ...(input.memory?.semanticSearch !== undefined && {
+            semanticSearch: input.memory.semanticSearch,
+          }),
+        },
       ),
     );
   }
@@ -1178,7 +1190,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   if (input.guardrailRegistry !== undefined) {
     v1.route(
       '/guardrails',
-      guardrailsRouter(input.guardrailRegistry, authorizer, input.onGuardrailWrite),
+      guardrailsRouter(
+        input.guardrailRegistry,
+        authorizer,
+        input.onGuardrailWrite,
+        input.checkGuardrailConfig,
+      ),
     );
   }
   if (input.retention !== undefined) {
@@ -1358,6 +1375,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.projectMembershipBinding,
         tenantHierarchyBinding,
         authorizer,
+        input.identityDirectory,
       ),
     );
   }

@@ -132,6 +132,32 @@ const defined = defineTool({
 
 The runtime resolves every declared secret on every call, for the call's tenant, in its env (`KINDGI_ENV`; in `kindgi dev`, `local`: the pack's `.env` and `.env.local`). It checks each value against its schema, and fails the call, naming the secret, when one is missing or doesn't match. Every declared secret is required, so in a runtime call `ctx.secrets` holds them all; it's optional in the type because a unit test builds its own context and passes `secrets: { CITATOR_KEY: '…' }`.
 
+A value that differs per tenant, org or project but isn't secret (a base URL, a region, an account id) is an **env value**: declared in `needsSpec.env`, read from `ctx.env`:
+
+```ts
+const defined = defineTool({
+  // …id, description, version, input, output, effects…
+  needsSpec: {
+    env: {
+      ORDERS_BASE_URL: { type: 'string', pattern: '^https://' },
+      ORDERS_REGION: { type: 'string', enum: ['eu', 'us'], default: 'eu' },
+    },
+  },
+  handler: async ({ orderId }, ctx) => ({
+    url: `${ctx.env?.ORDERS_BASE_URL}/${ctx.env?.ORDERS_REGION}/orders/${orderId}`,
+  }),
+});
+```
+
+- **Which value a call gets:** its project's, else its org's, else the tenant's, in the runtime's env; a schema `default` makes a name optional. The values a call used are recorded with it, so a retry or a resume sees the same ones.
+- **Setting them:** `kindgi env set ORDERS_REGION us --scope=project:<project-id> --env=local` (or `--scope=tenant`, for every project). Changing a value that's already set takes `--force`.
+- **A declared value nobody set** stops the call before the tool runs. For a tool `acme-orders.needs-account` that declares `ACME_ACCOUNT_ID`, the message reads:
+  ```text
+  precondition-failed: Tool "acme-orders.needs-account" was not run: env-value-missing: tool "acme-orders.needs-account" needs env value "ACME_ACCOUNT_ID" in env "local", and none is set for project e889c1f5-eae7-45dc-8669-5bd029a5d85c, its org, or the tenant. Set it: kindgi env set ACME_ACCOUNT_ID <value> --scope=project:e889c1f5-eae7-45dc-8669-5bd029a5d85c --env=local (or --scope=tenant, for every project)
+  ```
+- **Not secret:** env values are recorded with each run that uses them and shown in its journal. A credential is a secret (`needsSpec.secrets`), never an env value.
+- **In a unit test:** pass `env: { … }` in the context `invokeTool` gets.
+
 Everything else comes from the process environment: `process.env.CITATOR_URL`. The pack service runs with the pack's env files in `kindgi dev`, and with the container's environment in an image. Declare the names your code reads in `kindgi.config.ts`, `env: { required: ['CITATOR_URL'], optional: [...] }`: a deployment injects exactly those, a pack service missing a required one isn't ready and says which, and `kindgi dev` warns about it. Values per environment go in `environments.<name>.env`, secrets only as references.
 
 ## Declarative HTTP spec

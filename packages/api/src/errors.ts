@@ -68,6 +68,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'run-already-terminal': 409,
   'run-lease-lost': 409,
   'idempotency-key-body-mismatch': 409,
+  'idempotency-key-in-flight': 409,
   'hitl-required': 409,
   'duplicate-node-id': 409,
   'duplicate-edge-id': 409,
@@ -81,6 +82,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'tool-gone': 410,
   'tool-already-registered': 409,
   'guardrail-already-registered': 409,
+  'guardrail-config-invalid': 422,
   'flow-already-registered': 409,
   'conversation-closed': 409,
   'invalid-agent': 400,
@@ -111,6 +113,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // belongs to an approval (decided through the approvals routes, which
   // check the reviewer and record the decision) or to the runtime itself.
   'run-resume-not-supported': 422,
+  /** Memory was asked to search by meaning, and no embedding model is configured. */
+  'semantic-unavailable': 422,
   // 429 — rate limit. No route in this package emits it; a rate limiter
   // in front of the routes can.
   'rate-limit-exceeded': 429,

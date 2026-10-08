@@ -67,6 +67,7 @@ export type {
   IdentityCreateUserInput,
   IdentityCreateUserResult,
   IdentityDirectoryBinding,
+  IdentityFindUserByEmailInput,
   IdentityGetUserInput,
   IdentityListSessionsInput,
   IdentityListUsersInput,
@@ -90,7 +91,13 @@ export {
   createInMemoryIdempotencyStore,
   idempotencyMiddleware,
 } from './middleware/idempotency.js';
-export type { IdempotencyStore, StoredIdempotencyEntry } from './middleware/idempotency.js';
+export type {
+  IdempotencyHold,
+  IdempotencyHoldOutcome,
+  IdempotencyHolds,
+  IdempotencyStore,
+  StoredIdempotencyEntry,
+} from './middleware/idempotency.js';
 export { CURRENT_EVENT_BUS_ENVELOPE_VERSION } from './event-bus-binding.js';
 export type {
   EventBusBinding,
@@ -475,6 +482,7 @@ export { GATE_METRICS } from './gate-policy-binding.js';
 export type { GateApproval, GateCheck, GateInput, GateResult } from './gate.js';
 export { evaluateGate, gateApproval } from './gate.js';
 export type { AgentReleaseGateDeps } from './routes/agent-releases.js';
+export type { GuardrailConfigCheck } from './routes/guardrails.js';
 export { EVAL_KINDS } from './eval-suite-binding.js';
 export type {
   EvalKind,

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { UsageError } from '../errors.js';
 import { integerFlag, requiredPositional, runSdk, stringFlag } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
@@ -15,7 +16,7 @@ function oneOf<T extends string>(
 ): T | undefined {
   if (value === undefined) return undefined;
   if (!(allowed as readonly string[]).includes(value)) {
-    throw new Error(`--${flag} must be one of ${allowed.join(', ')}, got "${value}"`);
+    throw new UsageError(`--${flag} must be one of ${allowed.join(', ')}, got "${value}"`);
   }
   return value as T;
 }

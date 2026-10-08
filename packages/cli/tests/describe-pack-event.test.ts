@@ -32,4 +32,17 @@ describe('describePackEvent', () => {
     ).toBeUndefined();
     expect(describePackEvent(log({ kind: 'listening', port: 1 }))).toBeUndefined();
   });
+
+  test("what the pack's code logs (ctx.log): a [pack] line, its level shown unless info", () => {
+    expect(
+      describePackEvent(
+        log({ kind: 'record', level: 'info', subsystem: 'pack.tool', message: 'looked up order' }),
+      ),
+    ).toBe('  [pack] looked up order');
+    expect(
+      describePackEvent(
+        log({ kind: 'record', level: 'warn', subsystem: 'pack.tool', message: 'slow lookup' }),
+      ),
+    ).toBe('  [pack] WARN slow lookup');
+  });
 });

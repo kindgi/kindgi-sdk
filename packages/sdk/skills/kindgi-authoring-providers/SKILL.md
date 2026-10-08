@@ -23,7 +23,7 @@ description: >
   kindgi-getting-started.
 type: core
 library: "@kindgi/sdk"
-version: "0.9.8"
+version: "0.9.9"
 sdk_version: "0.0.0"
 pack_languages: [node, python]
 sources:
@@ -649,7 +649,8 @@ defineAgent({
    be the FULL npm package name of the adapter — `"@kindgi/adapter-model-anthropic"`,
    NOT `"anthropic"`. Adapters are registered with the runtime under
    their full package names, and a short name matches none of them, so
-   the registration fails. The model adapters are
+   registering is refused: the runtime has no adapter by that name
+   (`✗ /adapter_id: …`). The model adapters are
    `@kindgi/adapter-model-anthropic`, `@kindgi/adapter-model-gemini`,
    `@kindgi/adapter-model-openai-compat` and
    `@kindgi/adapter-model-in-process`; `kindgi providers presets` shows
@@ -715,6 +716,21 @@ defineAgent({
    `capabilities.needs` (mistake 2), a `models` / `providers` allow-list
    that names nothing registered, and the tenant's policy. `kindgi
    providers list` shows what is registered.
+
+10. **A setting the adapter can't use.** Registering checks the spec
+    against its adapter (no network call, no key read) and refuses what
+    it can't use: `422 provider-config-invalid`, nothing stored, one line
+    per problem with its JSON-pointer path:
+    ```text
+    Error [invalid-request]: Provider "ollama" doesn't fit adapter @kindgi/adapter-model-openai-compat: adapter_config.api must be one of responses, chat-completions.
+      ✗ /adapter_config/api: adapter_config.api must be one of responses, chat-completions.
+    ```
+    Fix each `✗` line's setting and register again. A key the adapter
+    needs is checked too (`✗ /secret_ref: …`); whether the key works, or
+    the endpoint answers, isn't (the first turn finds out). A
+    registration stored before 0.1.5 wasn't checked: `kindgi doctor`
+    names its problems (`GET /v1/providers/<id>/check`); unregister it
+    and register it again.
 
 ## Verifying end-to-end
 
