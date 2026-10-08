@@ -159,7 +159,7 @@ _INVALID = {
     "invalid-request", "validation-failed", "unknown-field", "bad-input", "unresolved-tool",
     "unresolved-guardrail", "schema-validation-failed", "invalid-agent", "invalid-tool-definition",
     "invalid-schema", "unknown-effect", "invalid-guardrail", "invalid-provider",
-    "provider-config-invalid", "supervisor-header-missing", "scope-invalid",
+    "provider-config-invalid", "supervisor-header-missing", "scope-invalid", "artifact-too-large",
 }  # fmt: skip
 _AUTH: Mapping[str, Literal["unauthenticated", "forbidden", "token-expired"]] = {
     "auth-missing": "unauthenticated",
@@ -240,6 +240,7 @@ _BY_STATUS: Mapping[int, str] = {
     404: "not-found",
     410: "not-found",
     400: "invalid",
+    413: "invalid",
     401: "auth",
     403: "auth",
     429: "rate-limited",

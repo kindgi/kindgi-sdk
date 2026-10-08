@@ -274,6 +274,7 @@ export type {
 } from './flow-binding.js';
 export type {
   CapabilityDescriptor,
+  CapabilityProvider,
   CapabilityGetInput,
   CapabilityListInput,
   CapabilityPage,
