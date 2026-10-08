@@ -112,7 +112,7 @@ interface Fixtures {
   readonly stopOrder: string[];
   /** Interpreters `checkPackPython` was asked about. */
   readonly pythonChecks: (readonly string[])[];
-  /** The Java pack code `checkPackJava` was asked about. */
+  /** The JVM pack code `checkPackJvm` was asked about. */
   readonly javaChecks: unknown[];
   /** The `PackCode` each of the pack service, the builder and the indexer got. */
   readonly serviceCodes: unknown[];
@@ -199,7 +199,7 @@ function makeFixtures(
         ? { kind: 'err', message: opts.pythonProblem }
         : { kind: 'ok', value: 'Python 3.13 · kindgi test' };
     },
-    checkPackJava: async (code) => {
+    checkPackJvm: async (code) => {
       javaChecks.push(code);
       return opts.javaProblem !== undefined
         ? { kind: 'err', message: opts.javaProblem }

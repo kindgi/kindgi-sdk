@@ -19,13 +19,13 @@
  * drop events.
  */
 
-import { spawn } from 'node:child_process';
 import { type FSWatcher, watch } from 'node:fs';
-import { mkdir, readFile, realpath, rename, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, stat } from 'node:fs/promises';
 import { watch as watchEventsReal } from 'node:fs/promises';
 import { delimiter, isAbsolute, join, relative } from 'node:path';
 
-import { type JavaPackCode, javaArgsFile, javaEnv, javaLauncher } from './pack-code.js';
+import { runProcess, writeJvmRunFiles } from './jvm-run-files.js';
+import { type JavaPackCode, javaEnv } from './pack-code.js';
 import type { PackBuild, PackBuilder } from './runners.js';
 import {
   DEFAULT_SCAN_INTERVAL_MS,
@@ -121,12 +121,6 @@ export function mavenErrors(
   return [`the pack's Maven build failed (exit ${exitCode}):`, ...tail.map((l) => `    ${l}`)];
 }
 
-/** A classpath as a `java` `@argfile` line: quoted, with `\` and `"` escaped. */
-export function argsFileText(classpath: readonly string[]): string {
-  const quoted = classpath.join(delimiter).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-  return `-cp "${quoted}"\n`;
-}
-
 export function createJavaPackBuilder(options: JavaPackBuilderOptions): PackBuilder {
   const { packDir, code } = options;
   const watchFs = options.watchFs ?? watch;
@@ -180,33 +174,15 @@ export function createJavaPackBuilder(options: JavaPackBuilderOptions): PackBuil
         errors: [`Maven wrote no classpath (${classpathFile}): ${(cause as Error).message}`],
       };
     }
-    const argsText = argsFileText([join(packDir, 'target', 'classes'), ...dependencies]);
-    const argsPath = javaArgsFile(code);
-    const changed = (await readFile(argsPath, 'utf8').catch(() => '')) !== argsText;
-    if (changed) await writeAtomically(argsPath, argsText);
-    const launcherPath = javaLauncher(code);
-    if (changed || !(await exists(launcherPath))) {
-      const launcher = await runProcess(
-        code.java,
-        [`@${argsPath}`, 'com.kindgi.pack.Main', 'launcher'],
-        env,
-        packDir,
-      );
-      if (launcher.code !== 0 || !launcher.stdout.startsWith('#!')) {
-        const missing = /ClassNotFoundException|Could not find or load main class/.test(
-          launcher.stderr,
-        );
-        return {
-          kind: 'err',
-          errors: missing
-            ? [
-                "com.kindgi.pack isn't on the pack's classpath: add the com.kindgi:kindgi-pack dependency to pom.xml.",
-              ]
-            : [`kindgi-pack's launcher could not be written: ${launcher.stderr.trim()}`],
-        };
-      }
-      await writeAtomically(launcherPath, launcher.stdout);
-    }
+    const errors = await writeJvmRunFiles({
+      code,
+      packDir,
+      env,
+      classpath: [join(packDir, 'target', 'classes'), ...dependencies],
+      missingKindgiPack:
+        "com.kindgi.pack isn't on the pack's classpath: add the com.kindgi:kindgi-pack dependency to pom.xml.",
+    });
+    if (errors.length > 0) return { kind: 'err', errors };
     return { kind: 'ok', bundleMap: {} };
   }
 
@@ -262,40 +238,4 @@ async function signatureOf(file: string): Promise<string> {
   } catch {
     return 'missing';
   }
-}
-
-async function exists(file: string): Promise<boolean> {
-  try {
-    await stat(file);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function writeAtomically(file: string, text: string): Promise<void> {
-  const tmp = `${file}.tmp-${process.pid}`;
-  await writeFile(tmp, text, 'utf8');
-  await rename(tmp, file);
-}
-
-function runProcess(
-  program: string,
-  args: readonly string[],
-  env: Readonly<Record<string, string>>,
-  cwd: string,
-): Promise<{ code: number | null; stdout: string; stderr: string }> {
-  return new Promise((resolvePromise) => {
-    const child = spawn(program, [...args], { env, cwd, stdio: ['ignore', 'pipe', 'pipe'] });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (chunk: Buffer) => {
-      stdout += chunk.toString('utf8');
-    });
-    child.stderr.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString('utf8');
-    });
-    child.once('error', (cause) => resolvePromise({ code: null, stdout, stderr: cause.message }));
-    child.once('close', (code) => resolvePromise({ code, stdout, stderr }));
-  });
 }

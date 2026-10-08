@@ -61,7 +61,7 @@ import { CORS_ORIGINS_VAR, PUBLIC_TOKEN_KEY_PATH_VAR, parseCorsOrigins } from '@
 
 import type { CommandContext } from '../context.js';
 import { createDevOnlyImportsCheck } from '../dev/dev-only-imports.js';
-import { type PackCode, resolvePackCode } from '../dev/pack-code.js';
+import { type PackCode, isJvmPackCode, resolvePackCode } from '../dev/pack-code.js';
 import { devPackEnv, devPackEnvFiles } from '../dev/pack-env.js';
 import { createPackRefresher, describePackEvent } from '../dev/pack-service.js';
 import { PORT_SEARCH_SPAN, firstFreePort } from '../dev/port.js';
@@ -1487,8 +1487,8 @@ async function emitSkillDriftHint(
 
 /**
  * How this pack's code runs (`dev/pack-code.ts`). For a Python pack, the
- * interpreter, and for a Java pack, the JDK and Maven, are resolved and
- * checked — with the pack's own environment — before anything boots.
+ * interpreter, and for a JVM pack, the JDK and Maven or sbt, are resolved
+ * and checked — with the pack's own environment — before anything boots.
  */
 async function resolveDevPackCode(
   dev: DevRunners,
@@ -1511,8 +1511,8 @@ async function resolveDevPackCode(
     }
     emitProgress(`✓ pack code: ${checked.value}`);
   }
-  if (resolved.value.language === 'java') {
-    const checked = await dev.checkPackJava(resolved.value, await packEnv(), packDir);
+  if (isJvmPackCode(resolved.value)) {
+    const checked = await dev.checkPackJvm(resolved.value, await packEnv(), packDir);
     if (checked.kind === 'err') {
       return { kind: 'error', stderr: `kindgi dev: ${checked.message}\n`, exitCode: 1 };
     }

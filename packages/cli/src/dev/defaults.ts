@@ -35,10 +35,11 @@ import { createPackServiceSupervisor } from '@kindgi/handler-runtime/pack-servic
 import { createDevPackBuilder } from './bundler.js';
 import { createJavaPackBuilder } from './java-builder.js';
 import {
-  type JavaPackCode,
+  type JvmPackCode,
   type PackCode,
-  checkPackJava,
+  checkPackJvm,
   checkPackPython,
+  isJvmPackCode,
   javaArgsFile,
   javaEnv,
   javaLauncher,
@@ -87,6 +88,7 @@ import {
   shellReferencesOf,
   writeRuntimeEnv,
 } from './runtime-env.js';
+import { createScalaPackBuilder } from './scala-builder.js';
 import {
   DEFAULT_SCAN_INTERVAL_MS,
   type ScanBackstop,
@@ -110,13 +112,14 @@ function resolvePackServiceEntrypoint(): string {
 /**
  * The pack-service process for the pack's code: the Node pack service
  * (loading the bundles in `.kindgi/dev/dist`, stack traces mapped back to
- * the sources), `python -m kindgi.pack serve` with the pack's Python, or
- * `com.kindgi.pack.Main serve` through the launcher with the pack's
- * classpath (its `@argfile`, which the build rewrites).
+ * the sources), `python -m kindgi.pack serve` with the pack's Python, or,
+ * for a JVM pack (Java or Scala), `com.kindgi.pack.Main serve` through the
+ * launcher with the pack's classpath (its `@argfile`, which the build
+ * rewrites).
  */
 export function packServiceCommand(code: PackCode): readonly [string, ...string[]] {
   if (code.language === 'python') return [...code.python, '-m', 'kindgi.pack', 'serve'];
-  if (code.language === 'java') {
+  if (isJvmPackCode(code)) {
     return ['sh', javaLauncher(code), `@${javaArgsFile(code)}`, 'com.kindgi.pack.Main', 'serve'];
   }
   return [process.execPath, '--enable-source-maps', resolvePackServiceEntrypoint()];
@@ -135,7 +138,7 @@ export function createPackServiceReal(opts: DevPackServiceOptions): DevPackServi
     // service still serves), not a refusal as in a deployment.
     env: async () => {
       const env = { ...(await opts.env()), [PACK_ENV_CHECK_VAR]: 'warn' };
-      return opts.code.language === 'java' ? javaEnv(opts.code, env) : env;
+      return isJvmPackCode(opts.code) ? javaEnv(opts.code, env) : env;
     },
     onLog: opts.onLog,
     onEvent: opts.onEvent,
@@ -144,7 +147,7 @@ export function createPackServiceReal(opts: DevPackServiceOptions): DevPackServi
   });
 }
 
-/** The builder for the pack's code: esbuild bundles (Node), the sources (Python), Maven (Java). */
+/** The builder for the pack's code: esbuild bundles (Node), the sources (Python), Maven (Java), sbt (Scala). */
 export function createPackBuilderReal(opts: {
   readonly packDir: string;
   readonly patterns: readonly string[];
@@ -154,6 +157,9 @@ export function createPackBuilderReal(opts: {
 }): PackBuilder {
   if (opts.code.language === 'java') {
     return createJavaPackBuilder({ packDir: opts.packDir, code: opts.code, env: opts.env });
+  }
+  if (opts.code.language === 'scala') {
+    return createScalaPackBuilder({ packDir: opts.packDir, code: opts.code, env: opts.env });
   }
   return opts.code.language === 'python'
     ? createPythonPackBuilder({ packDir: opts.packDir, python: opts.code.python, env: opts.env })
@@ -202,7 +208,7 @@ export interface JavaIndexerOptions {
   readonly packDir: string;
   readonly outputPath: string;
   /** The pack's JDK and build (its classpath `@argfile`, written by a build). */
-  readonly code: JavaPackCode;
+  readonly code: JvmPackCode;
   readonly env: Readonly<Record<string, string>>;
   /** Pins for a reproducible index (`kindgi build`). */
   readonly artifactVersion?: string;
@@ -545,7 +551,7 @@ export async function runIndexerReadReal(
       env: options.env !== undefined ? await options.env() : {},
     });
   }
-  if (code?.language === 'java') {
+  if (isJvmPackCode(code)) {
     return runJavaIndexer({
       packDir,
       outputPath,
@@ -1125,7 +1131,7 @@ export const REAL_DEV_RUNNERS: DevRunners = {
   createPackBuilder: createPackBuilderReal,
   createPackService: createPackServiceReal,
   checkPackPython,
-  checkPackJava,
+  checkPackJvm,
   publishIndex: publishIndexReal,
   watchPack: watchPackReal,
   startServices: startServicesReal,

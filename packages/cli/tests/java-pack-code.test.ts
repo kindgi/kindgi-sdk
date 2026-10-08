@@ -18,15 +18,11 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { packServiceCommand, runJavaIndexer } from '../src/dev/defaults.js';
-import {
-  argsFileText,
-  createJavaPackBuilder,
-  isJavaSourceChange,
-  mavenErrors,
-} from '../src/dev/java-builder.js';
+import { createJavaPackBuilder, isJavaSourceChange, mavenErrors } from '../src/dev/java-builder.js';
+import { argsFileText } from '../src/dev/jvm-run-files.js';
 import {
   type JavaPackCode,
-  checkPackJava,
+  checkPackJvm,
   javaMajor,
   resolvePackCode,
   resolvePackJava,
@@ -136,19 +132,19 @@ describe("the pack's JDK and Maven", () => {
         1,
       );
 
-      expect(await checkPackJava(code(java17, mvn), env)).toEqual({
+      expect(await checkPackJvm(code(java17, mvn), env)).toEqual({
         kind: 'ok',
         value: `Java 17.0.6 · Maven 3.9.16 (${java17}; ${mvn})`,
       });
-      expect(await checkPackJava(code(java11, mvn), env)).toMatchObject({
+      expect(await checkPackJvm(code(java11, mvn), env)).toMatchObject({
         kind: 'err',
         message: expect.stringContaining('is 11.0.22; a Java pack needs 17 or later'),
       });
-      expect(await checkPackJava(code(java17, brokenMvn), env)).toMatchObject({
+      expect(await checkPackJvm(code(java17, brokenMvn), env)).toMatchObject({
         kind: 'err',
         message: expect.stringContaining('JAVA_HOME is not defined correctly'),
       });
-      expect(await checkPackJava(code(join(packDir, 'nope'), mvn), env)).toMatchObject({
+      expect(await checkPackJvm(code(join(packDir, 'nope'), mvn), env)).toMatchObject({
         kind: 'err',
         message: expect.stringContaining('did not start'),
       });

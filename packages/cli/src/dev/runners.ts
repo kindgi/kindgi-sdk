@@ -17,7 +17,7 @@ import type {
 import type { ProjectDatabases } from './project-database.js';
 import type { ProjectOutcome } from './project.js';
 
-import type { JavaPackCode, PackCode } from './pack-code.js';
+import type { JvmPackCode, PackCode } from './pack-code.js';
 
 /** The running Kindgi runtime `kindgi dev` talks to. */
 export interface RunningApiServer {
@@ -307,11 +307,11 @@ export interface DevRunners {
     | { readonly kind: 'err'; readonly message: string }
   >;
   /**
-   * Check a Java pack's JDK (17 or later) and Maven run, with the pack's
-   * environment: a one-line description, or why not.
+   * Check a JVM pack's JDK (17 or later) and build tool (Maven or sbt) run,
+   * with the pack's environment: a one-line description, or why not.
    */
-  readonly checkPackJava: (
-    code: JavaPackCode,
+  readonly checkPackJvm: (
+    code: JvmPackCode,
     env: Readonly<Record<string, string>>,
     packDir?: string,
   ) => Promise<

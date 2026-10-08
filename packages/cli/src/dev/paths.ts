@@ -40,10 +40,10 @@ export function devBundleMapPath(packDir: string): string {
 }
 
 /**
- * Where `kindgi dev` keeps a Java pack's build files: the classpath Maven
+ * Where `kindgi dev` keeps a JVM pack's build files: the classpath its build
  * resolved, the `@argfile` that passes it to \`java`, and the launcher
  * (`kindgi-pack-java`) extracted from the pack's own kindgi-pack jar.
  */
-export function devJavaDir(packDir: string): string {
-  return join(packDir, '.kindgi', 'dev', 'java');
+export function devJvmDir(packDir: string, language: 'java' | 'scala'): string {
+  return join(packDir, '.kindgi', 'dev', language);
 }

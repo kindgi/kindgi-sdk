@@ -12,6 +12,8 @@
  *   - java:   Maven compiles the pack (`java-builder.ts`), then
  *             `com.kindgi.pack.Main index` and `… serve` (through the
  *             launcher, `kindgi-pack-java`) with the pack's JDK.
+ *   - scala:  sbt compiles the pack through its server (`scala-builder.ts`),
+ *             then the same as Java: kindgi-pack indexes and serves it.
  *
  * All run under the pack's environment (`devPackEnv`) and behind the same
  * supervisor and front, so the api-server never knows which it is.
@@ -23,7 +25,7 @@ import { join } from 'node:path';
 
 import type { PackLanguage } from '@kindgi/handler-runtime';
 
-import { devJavaDir } from './paths.js';
+import { devJvmDir } from './paths.js';
 
 /**
  * The pack's code: its language, and how to run it — for Python the
@@ -32,19 +34,40 @@ import { devJavaDir } from './paths.js';
 export type PackCode =
   | { readonly language: 'node' }
   | { readonly language: 'python'; readonly python: readonly [string, ...string[]] }
-  | JavaPackCode;
+  | JvmPackCode;
 
-/** A Java pack's code: the JDK that runs it, the Maven that builds it, where the build's files go. */
-export interface JavaPackCode {
-  readonly language: 'java';
+/** A JVM pack's code: Java's (built by Maven) or Scala's (built by sbt). */
+export type JvmPackCode = JavaPackCode | ScalaPackCode;
+
+/** Whether the pack's code runs on the JVM: kindgi-pack indexes and serves it. */
+export function isJvmPackCode(code: PackCode | undefined): code is JvmPackCode {
+  return code?.language === 'java' || code?.language === 'scala';
+}
+
+/** What every JVM pack's code has: the JDK that runs it, and where its build's files go. */
+interface JvmRuntime {
   /** The JDK's `java`: `<javaHome>/bin/java`, or `java` on `PATH`. */
   readonly java: string;
-  /** The JDK's home, passed on as `JAVA_HOME` (Maven's and the launcher's JDK); absent: `java` on `PATH`. */
+  /** The JDK's home, passed on as `JAVA_HOME` (the build tool's and the launcher's JDK); absent: `java` on `PATH`. */
   readonly javaHome?: string;
+  /** Where the build's files go (`devJvmDir`): the classpath `@argfile`, the launcher. */
+  readonly workDir: string;
+}
+
+/** A Scala pack's code: the JDK that runs it, the sbt that builds it, where the build's files go. */
+export interface ScalaPackCode extends JvmRuntime {
+  readonly language: 'scala';
+  /** sbt, as an argv prefix: `dev.sbt`, else `sbt` on `PATH`. Builds go through its server (`--client`). */
+  readonly sbt: readonly [string, ...string[]];
+  /** `SBT_OPTS` from the host, for sbt only (a machine's own proxy or memory settings). */
+  readonly sbtEnv?: Readonly<Record<string, string>>;
+}
+
+/** A Java pack's code: the JDK that runs it, the Maven that builds it, where the build's files go. */
+export interface JavaPackCode extends JvmRuntime {
+  readonly language: 'java';
   /** Maven, as an argv prefix: `dev.maven`, else the pack's wrapper (`sh mvnw`), else `mvn`. */
   readonly maven: readonly [string, ...string[]];
-  /** Where the build's files go (`devJavaDir`): the classpath `@argfile`, the launcher. */
-  readonly workDir: string;
   /**
    * `MAVEN_ARGS` and `MAVEN_OPTS` from the host, for Maven only (a machine's
    * own `-s settings.xml`, a proxy): never in the pack's environment.
@@ -52,19 +75,19 @@ export interface JavaPackCode {
   readonly mavenEnv?: Readonly<Record<string, string>>;
 }
 
-/** The `@argfile` passing a Java pack's classpath to `java` (written by its builder). */
-export function javaArgsFile(code: JavaPackCode): string {
+/** The `@argfile` passing a JVM pack's classpath to `java` (written by its builder). */
+export function javaArgsFile(code: JvmPackCode): string {
   return join(code.workDir, 'java.args');
 }
 
 /** The launcher (`kindgi-pack-java`) extracted from the pack's kindgi-pack jar. */
-export function javaLauncher(code: JavaPackCode): string {
+export function javaLauncher(code: JvmPackCode): string {
   return join(code.workDir, 'kindgi-pack-java');
 }
 
-/** The environment a Java pack's children run with: the pack's, plus its JDK as `JAVA_HOME`. */
+/** The environment a JVM pack's children run with: the pack's, plus its JDK as `JAVA_HOME`. */
 export function javaEnv(
-  code: JavaPackCode,
+  code: JvmPackCode,
   env: Readonly<Record<string, string>>,
 ): Readonly<Record<string, string>> {
   return code.javaHome === undefined ? env : { ...env, JAVA_HOME: code.javaHome };
@@ -138,41 +161,20 @@ export async function resolvePackJava(
   hostEnv: Readonly<Record<string, string | undefined>>,
   platform: NodeJS.Platform = process.platform,
 ): Promise<Outcome<JavaPackCode>> {
-  if (platform === 'win32') {
-    return {
-      kind: 'err',
-      message:
-        "a Java pack's service starts through a POSIX shell script (kindgi-pack-java), so on Windows run kindgi dev under WSL.",
-    };
-  }
-  const dev = config?.dev;
-  const settings = dev !== null && typeof dev === 'object' ? (dev as Record<string, unknown>) : {};
-  const configuredHome = settings.javaHome;
-  if (
-    configuredHome !== undefined &&
-    (typeof configuredHome !== 'string' || configuredHome === '')
-  ) {
-    return { kind: 'err', message: '`dev.javaHome` must be the path of a JDK (17 or later).' };
-  }
-  const javaHome =
-    (configuredHome as string | undefined) ??
-    (hostEnv.JAVA_HOME !== undefined && hostEnv.JAVA_HOME !== '' ? hostEnv.JAVA_HOME : undefined);
-  const configuredMaven = settings.maven;
+  const runtime = resolveJvmRuntime('java', packDir, config, hostEnv, platform);
+  if (runtime.kind === 'err') return runtime;
+  const configuredMaven = devSettings(config).maven;
   let maven: readonly [string, ...string[]];
   if (configuredMaven !== undefined) {
-    const argv = typeof configuredMaven === 'string' ? [configuredMaven] : configuredMaven;
-    if (
-      !Array.isArray(argv) ||
-      argv.length === 0 ||
-      !argv.every((part): part is string => typeof part === 'string' && part !== '')
-    ) {
+    const argv = commandArgv(configuredMaven);
+    if (argv === undefined) {
       return {
         kind: 'err',
         message:
           '`dev.maven` must be a command or a non-empty command list (e.g. ["mvn", "-s", "settings.xml"]).',
       };
     }
-    maven = argv as unknown as readonly [string, ...string[]];
+    maven = argv;
   } else if (await isFile(join(packDir, 'mvnw'))) {
     maven = ['sh', join(packDir, 'mvnw')];
   } else {
@@ -187,11 +189,109 @@ export async function resolvePackJava(
     kind: 'ok',
     value: {
       language: 'java',
+      ...runtime.value,
+      maven,
+      ...(Object.keys(mavenEnv).length > 0 && { mavenEnv }),
+    },
+  };
+}
+
+/**
+ * The JDK and the sbt that run and build a Scala pack:
+ *
+ *   - the JDK, as for a Java pack: `dev.javaHome`, else `JAVA_HOME`, else
+ *     `java` on `PATH`;
+ *   - sbt: `dev.sbt` (an argv, such as `["sbt", "-Dsbt.override.build.repos=true"]`),
+ *     else `sbt` on `PATH`. Builds go through its server (`sbt --client`),
+ *     so a save compiles without starting a JVM.
+ */
+export async function resolvePackScala(
+  packDir: string,
+  config: Readonly<Record<string, unknown>> | undefined,
+  hostEnv: Readonly<Record<string, string | undefined>>,
+  platform: NodeJS.Platform = process.platform,
+): Promise<Outcome<ScalaPackCode>> {
+  const runtime = resolveJvmRuntime('scala', packDir, config, hostEnv, platform);
+  if (runtime.kind === 'err') return runtime;
+  const configuredSbt = devSettings(config).sbt;
+  let sbt: readonly [string, ...string[]] = ['sbt'];
+  if (configuredSbt !== undefined) {
+    const argv = commandArgv(configuredSbt);
+    if (argv === undefined) {
+      return {
+        kind: 'err',
+        message:
+          '`dev.sbt` must be a command or a non-empty command list (e.g. ["sbt", "-mem", "2048"]).',
+      };
+    }
+    sbt = argv;
+  }
+  const sbtOpts = hostEnv.SBT_OPTS;
+  return {
+    kind: 'ok',
+    value: {
+      language: 'scala',
+      ...runtime.value,
+      sbt,
+      ...(sbtOpts !== undefined && sbtOpts !== '' && { sbtEnv: { SBT_OPTS: sbtOpts } }),
+    },
+  };
+}
+
+/** A config's `dev` table, or an empty one. */
+function devSettings(
+  config: Readonly<Record<string, unknown>> | undefined,
+): Record<string, unknown> {
+  const dev = config?.dev;
+  return dev !== null && typeof dev === 'object' ? (dev as Record<string, unknown>) : {};
+}
+
+/** A configured command (a string, or a non-empty list of non-empty strings) as an argv; undefined when it's neither. */
+function commandArgv(configured: unknown): readonly [string, ...string[]] | undefined {
+  const argv = typeof configured === 'string' ? [configured] : configured;
+  return Array.isArray(argv) &&
+    argv.length > 0 &&
+    argv.every((part): part is string => typeof part === 'string' && part !== '')
+    ? (argv as unknown as readonly [string, ...string[]])
+    : undefined;
+}
+
+/**
+ * The JDK every JVM pack runs on: `dev.javaHome`, else `JAVA_HOME`, else
+ * `java` on `PATH`. A JVM pack's service starts through a POSIX shell script
+ * (the launcher keeps its token out of the JVM's environment): on Windows,
+ * `kindgi dev` runs it under WSL.
+ */
+function resolveJvmRuntime(
+  language: 'java' | 'scala',
+  packDir: string,
+  config: Readonly<Record<string, unknown>> | undefined,
+  hostEnv: Readonly<Record<string, string | undefined>>,
+  platform: NodeJS.Platform,
+): Outcome<JvmRuntime> {
+  const name = language === 'java' ? 'Java' : 'Scala';
+  if (platform === 'win32') {
+    return {
+      kind: 'err',
+      message: `a ${name} pack's service starts through a POSIX shell script (kindgi-pack-java), so on Windows run kindgi dev under WSL.`,
+    };
+  }
+  const configuredHome = devSettings(config).javaHome;
+  if (
+    configuredHome !== undefined &&
+    (typeof configuredHome !== 'string' || configuredHome === '')
+  ) {
+    return { kind: 'err', message: '`dev.javaHome` must be the path of a JDK (17 or later).' };
+  }
+  const javaHome =
+    (configuredHome as string | undefined) ??
+    (hostEnv.JAVA_HOME !== undefined && hostEnv.JAVA_HOME !== '' ? hostEnv.JAVA_HOME : undefined);
+  return {
+    kind: 'ok',
+    value: {
       java: javaHome === undefined ? 'java' : join(javaHome, 'bin', 'java'),
       ...(javaHome !== undefined && { javaHome }),
-      maven,
-      workDir: devJavaDir(packDir),
-      ...(Object.keys(mavenEnv).length > 0 && { mavenEnv }),
+      workDir: devJvmDir(packDir, language),
     },
   };
 }
@@ -205,6 +305,7 @@ export async function resolvePackCode(
 ): Promise<Outcome<PackCode>> {
   if (language === 'node') return { kind: 'ok', value: NODE_PACK_CODE };
   if (language === 'java') return resolvePackJava(packDir, config, hostEnv);
+  if (language === 'scala') return resolvePackScala(packDir, config, hostEnv);
   const python = await resolvePackPython(packDir, config);
   if (python.kind === 'err') return python;
   return { kind: 'ok', value: { language: 'python', python: python.value } };
@@ -279,22 +380,52 @@ export async function checkPackPython(
   };
 }
 
-/** The oldest JDK a Java pack runs on (kindgi-pack's baseline). */
+/** The oldest JDK a JVM pack runs on (kindgi-pack's baseline). */
 export const MIN_JAVA_MAJOR = 17;
 
 /**
- * Check a Java pack's JDK (17 or later) and its Maven start, with the pack's
- * environment — so a missing JDK or Maven is one clear line at boot instead
- * of a build failure. Whether the pack has kindgi-pack shows at its first
- * build.
+ * Check a JVM pack's JDK (17 or later) and its build tool (Maven or sbt)
+ * start, with the pack's environment — so a missing JDK or build tool is one
+ * clear line at boot instead of a build failure. Whether the pack has
+ * kindgi-pack shows at its first build.
  */
-export async function checkPackJava(
-  code: JavaPackCode,
+export async function checkPackJvm(
+  code: JvmPackCode,
   env: Readonly<Record<string, string>>,
   packDir?: string,
 ): Promise<Outcome<string>> {
   const childEnv = javaEnv(code, env);
-  const java = await run(code.java, ['-version'], childEnv, packDir);
+  const jdk = await checkJdk(code, childEnv, packDir);
+  if (jdk.kind === 'err') return jdk;
+  const tool =
+    code.language === 'scala'
+      ? await checkTool(code.sbt, ['--script-version'], { ...childEnv, ...code.sbtEnv }, packDir, {
+          name: 'sbt',
+          version: /(\d+\.\d+\.\d+\S*)/,
+          setting: 'dev.sbt',
+          install: 'Install sbt 1.10 or later (https://www.scala-sbt.org/download),',
+        })
+      : await checkTool(code.maven, ['--version'], { ...childEnv, ...code.mavenEnv }, packDir, {
+          name: 'Maven',
+          version: /Apache Maven (\S+)/,
+          setting: 'dev.maven',
+          install:
+            'Add the Maven wrapper to the pack (mvn wrapper:wrapper), install Maven 3.9 or later,',
+        });
+  if (tool.kind === 'err') return tool;
+  return {
+    kind: 'ok',
+    value: `Java ${jdk.value} · ${tool.value} (${code.javaHome ?? code.java}; ${(code.language === 'scala' ? code.sbt : code.maven).join(' ')})`,
+  };
+}
+
+/** The pack's JDK starts and is 17 or later: its version. */
+async function checkJdk(
+  code: JvmPackCode,
+  env: Readonly<Record<string, string>>,
+  packDir: string | undefined,
+): Promise<Outcome<string>> {
+  const java = await run(code.java, ['-version'], env, packDir);
   if (java.spawnError !== undefined) {
     return {
       kind: 'err',
@@ -307,40 +438,46 @@ export async function checkPackJava(
   }
   const version = /version "([^"]+)"/.exec(`${java.stderr}\n${java.stdout}`)?.[1];
   const major = version === undefined ? undefined : javaMajor(version);
-  if (major === undefined || major < MIN_JAVA_MAJOR) {
+  if (version === undefined || major === undefined || major < MIN_JAVA_MAJOR) {
     return {
       kind: 'err',
       message: [
-        `the pack's JDK (${code.java}) is ${version ?? 'of an unknown version'}; a Java pack needs ${MIN_JAVA_MAJOR} or later.`,
+        `the pack's JDK (${code.java}) is ${version ?? 'of an unknown version'}; a ${code.language === 'java' ? 'Java' : 'Scala'} pack needs ${MIN_JAVA_MAJOR} or later.`,
         '    Set JAVA_HOME to a newer JDK, or point `dev.javaHome` in kindgi.config.json at one.',
       ].join('\n'),
     };
   }
-  const [program, ...prefix] = code.maven;
-  const maven = await run(
-    program,
-    [...prefix, '--version'],
-    { ...childEnv, ...code.mavenEnv },
-    packDir,
-  );
-  const shownMaven = code.maven.join(' ');
-  if (maven.spawnError !== undefined || maven.code !== 0) {
+  return { kind: 'ok', value: version };
+}
+
+/** The pack's build tool runs: its name and version (`Maven 3.9.9`, `sbt 1.12.15`). */
+async function checkTool(
+  argv: readonly [string, ...string[]],
+  versionArgs: readonly string[],
+  env: Readonly<Record<string, string>>,
+  packDir: string | undefined,
+  about: {
+    readonly name: string;
+    readonly version: RegExp;
+    readonly setting: string;
+    readonly install: string;
+  },
+): Promise<Outcome<string>> {
+  const [program, ...prefix] = argv;
+  const result = await run(program, [...prefix, ...versionArgs], env, packDir);
+  if (result.spawnError !== undefined || result.code !== 0) {
     const detail =
-      maven.spawnError ?? (maven.stderr.trim() || maven.stdout.trim()).split('\n').pop();
+      result.spawnError ?? (result.stderr.trim() || result.stdout.trim()).split('\n').pop();
     return {
       kind: 'err',
       message: [
-        `the pack's Maven (${shownMaven}) did not run: ${detail ?? ''}`,
-        '    Add the Maven wrapper to the pack (mvn wrapper:wrapper), install Maven 3.9 or later,',
-        '    or point `dev.maven` in kindgi.config.json at one.',
+        `the pack's ${about.name} (${argv.join(' ')}) did not run: ${detail ?? ''}`,
+        `    ${about.install}`,
+        `    or point \`${about.setting}\` in kindgi.config.json at one.`,
       ].join('\n'),
     };
   }
-  const mavenVersion = /Apache Maven (\S+)/.exec(maven.stdout)?.[1] ?? '?';
-  return {
-    kind: 'ok',
-    value: `Java ${version} · Maven ${mavenVersion} (${code.javaHome ?? code.java}; ${shownMaven})`,
-  };
+  return { kind: 'ok', value: `${about.name} ${about.version.exec(result.stdout)?.[1] ?? '?'}` };
 }
 
 /** `17.0.6` → 17; `1.8.0_392` → 8. */
