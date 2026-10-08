@@ -408,6 +408,60 @@ describe('kindgi init — java template', () => {
   });
 });
 
+describe('kindgi init — scala template', () => {
+  test('scaffolds an sbt pack: kindgi.config.json, build.sbt, the wrappers, sources under the pack id', async () => {
+    const out = await runCli(baseInputs({ argv: ['init', 'acme.type', '--template=scala'] }));
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(await listRecursive(join(cwd, 'type'))).toEqual([
+      '.gitignore',
+      'AGENTS.md',
+      'README.md',
+      'build.sbt',
+      'kindgi.config.json',
+      'kindgiw',
+      'kindgiw.cmd',
+      'project/build.properties',
+      // `type` is a Scala keyword: the package is `acme.type_`.
+      'src/main/scala/acme/type_/agents/EchoAgent.scala',
+      'src/main/scala/acme/type_/flows/EchoFlow.scala',
+      'src/main/scala/acme/type_/guardrails/ResponseNotEmpty.scala',
+      'src/main/scala/acme/type_/tools/Echo.scala',
+      'src/main/scala/acme/type_/tools/Greet.scala',
+      'src/test/scala/acme/type_/ToolsSuite.scala',
+    ]);
+    expect(JSON.parse(await readFile(join(cwd, 'type', 'kindgi.config.json'), 'utf8'))).toEqual({
+      language: 'scala',
+      cli: CLI_VERSION,
+      pack: { id: 'acme.type', version: '0.1.0' },
+    });
+    const build = await readFile(join(cwd, 'type', 'build.sbt'), 'utf8');
+    expect(build).toContain(`"com.kindgi" %% "kindgi-pack-scala" % "${CLI_VERSION}"`);
+    expect(build).toContain('scalaVersion := "3.3.8"');
+    const greet = await readFile(
+      join(cwd, 'type', 'src/main/scala/acme/type_/tools/Greet.scala'),
+      'utf8',
+    );
+    expect(greet).toContain('package acme.type_.tools');
+    expect(greet).toContain('Tool[Input, Output]("acme.type.greet")');
+    expect(greet).not.toMatch(/\{\{[A-Z_]+\}\}/);
+    expect((await stat(join(cwd, 'type', 'kindgiw'))).mode & 0o111).not.toBe(0);
+    // From a checkout, the next steps build kindgi-pack and kindgi-pack-scala from its sdks/.
+    expect(out.stderr).toMatch(
+      /\(cd .*sdks\/java && \.\/mvnw -q -pl kindgi-pack -am install -DskipTests\)/,
+    );
+    expect(out.stderr).toMatch(/\(cd .*sdks\/scala && sbt \+publishLocal\)/);
+    expect(out.stderr).toContain('sbt test');
+    expect(out.stderr).toContain('./kindgiw dev');
+  });
+
+  test('--template=scala in a Node app is refused, pointing at --new-repo', async () => {
+    await writeFile(join(cwd, 'package.json'), '{"name":"app"}');
+    const out = await runCli(baseInputs({ argv: ['init', '--template=scala'] }));
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('--template=scala --new-repo');
+  });
+});
+
 describe('kindgi init — sample template', () => {
   test('scaffolds the larger file set including guardrails + flows', async () => {
     const out = await runCli(baseInputs({ argv: ['init', 'my-pack', '--template=sample'] }));

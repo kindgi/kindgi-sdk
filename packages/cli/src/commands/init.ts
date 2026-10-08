@@ -27,6 +27,7 @@ import {
   type Substitutions,
   collectTemplateFiles,
   javaPackageOf,
+  scalaPackageOf,
   substitute,
   templateTarget,
 } from '../init/template-files.js';
@@ -114,7 +115,7 @@ export const initCommand: LeafCommand = {
 /** Pack ids: lowercase dot-separated segments, e.g. `acme.billing`. */
 export const PACK_ID_REGEX = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)*$/;
 
-export const AVAILABLE_TEMPLATES = ['minimal', 'sample', 'python', 'java'] as const;
+export const AVAILABLE_TEMPLATES = ['minimal', 'sample', 'python', 'java', 'scala'] as const;
 export type TemplateName = (typeof AVAILABLE_TEMPLATES)[number];
 
 const DEFAULT_TEMPLATE: TemplateName = 'minimal';
@@ -238,11 +239,11 @@ function augmentTemplate(
         'The python template makes a Python pack: there is no pyproject.toml here, and in a Node app init adds a TypeScript pack.\nFor a standalone Python pack here: kindgi init <pack-name> --template=python --new-repo\n',
     };
   }
-  if (name === 'java') {
+  if (name === 'java' || name === 'scala') {
+    const language = name === 'java' ? 'Java' : 'Scala';
     return {
       kind: 'err',
-      stderr:
-        'The java template makes a Java pack of its own; in a Node app init adds a TypeScript pack.\nFor a standalone Java pack here: kindgi init <pack-name> --template=java --new-repo\n',
+      stderr: `The ${name} template makes a ${language} pack of its own; in a Node app init adds a TypeScript pack.\nFor a standalone ${language} pack here: kindgi init <pack-name> --template=${name} --new-repo\n`,
     };
   }
   return {
@@ -286,8 +287,8 @@ async function runInitFresh(
     };
   }
 
-  if (args.template === 'python') return runInitPython(ctx, args, templateDir, skillsRoot);
-  if (args.template === 'java') return runInitJava(ctx, args, templateDir, skillsRoot);
+  const languagePack = runInitLanguageTemplate(ctx, args, templatesRoot, templateDir, skillsRoot);
+  if (languagePack !== undefined) return languagePack;
 
   const substitutions: Substitutions = {
     PACK_NAME: args.packName,
@@ -581,6 +582,105 @@ async function runInitJava(
   return { kind: 'ok', rendered: { stdout: rendered.stdout, stderr } };
 }
 
+/** A pack of another language than TypeScript (Python, Java, Scala); undefined for a TypeScript template. */
+function runInitLanguageTemplate(
+  ctx: CommandContext,
+  args: ResolvedArgs,
+  templatesRoot: string,
+  templateDir: string,
+  skillsRoot: string | undefined,
+): Promise<CommandResult> | undefined {
+  switch (args.template) {
+    case 'python':
+      return runInitPython(ctx, args, templateDir, skillsRoot);
+    case 'java':
+      return runInitJava(ctx, args, templateDir, skillsRoot);
+    case 'scala':
+      return runInitScala(ctx, args, templatesRoot, templateDir);
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * A Scala pack (`--template=scala`): sbt, kindgi-pack-scala, the `kindgiw`
+ * wrappers (the java template's) that run the CLI the pack pins. Until
+ * kindgi-pack-scala is on Maven Central, the next steps say how to build it
+ * (and kindgi-pack, which it builds on) from the Kindgi SDK repository.
+ */
+async function runInitScala(
+  ctx: CommandContext,
+  args: ResolvedArgs,
+  templatesRoot: string,
+  templateDir: string,
+): Promise<CommandResult> {
+  const source = await resolveKindgiJavaSource();
+  if (source.kind === 'error') return { kind: 'error', stderr: `${source.message}\n`, exitCode: 1 };
+  const scalaPackage = scalaPackageOf(args.packName);
+  const filesWritten = await scaffoldTemplate({
+    templateDir,
+    targetDir: args.targetDir,
+    substitutions: {
+      PACK_NAME: args.packName,
+      PACK_ID: args.packName,
+      PACK_VERSION: DEFAULT_PACK_VERSION,
+      SCALA_PACKAGE: scalaPackage,
+      SCALA_PACKAGE_PATH: scalaPackage.split('.').join('/'),
+      KINDGI_SCALA_VERSION: source.version,
+      KINDGI_CLI_VERSION: CLI_VERSION,
+    },
+  });
+  for (const wrapper of ['kindgiw', 'kindgiw.cmd']) {
+    const dest = join(args.targetDir, wrapper);
+    await writeFile(dest, await readFile(join(templatesRoot, 'java', wrapper)));
+    if (wrapper === 'kindgiw') await chmod(dest, 0o755);
+    filesWritten.push(dest);
+  }
+  filesWritten.sort();
+  const displayPath = relative(ctx.cwd, args.targetDir) || '.';
+  const install =
+    source.kind === 'local-checkout'
+      ? [
+          `(cd ${source.path} && ./mvnw -q -pl kindgi-pack -am install -DskipTests)  # kindgi-pack ${source.version} into your local Maven repository`,
+          `(cd ${join(source.path, '..', 'scala')} && sbt +publishLocal)  # kindgi-pack-scala ${source.version} into your local Ivy repository`,
+        ]
+      : KINDGI_PACK_ON_MAVEN_CENTRAL
+        ? []
+        : [
+            `# kindgi-pack-scala ${source.version} isn't on Maven Central yet: build it from the Kindgi SDK repository (README.md, "Get kindgi-pack-scala")`,
+          ];
+  const nextSteps = [
+    ...install,
+    `cd ${displayPath}`,
+    'sbt test',
+    `${binDisplay('kindgiw', 'kindgi', ['dev'])}  # the CLI the pack pins (kindgi.config.json "cli"): boots Kindgi locally + compiles and runs this pack, recompiling on save`,
+  ];
+  const stderr = [
+    `✓ Scala pack scaffolded at ${args.targetDir}/`,
+    '',
+    'Next steps (a JDK 17 or later, JAVA_HOME set, and sbt):',
+    ...nextSteps.map((s) => `  ${s}`),
+    '',
+    "Read the pack's README.md for details.",
+    '',
+  ].join('\n');
+  const rendered = renderJson(
+    {
+      template: args.template,
+      packId: args.packName,
+      packVersion: DEFAULT_PACK_VERSION,
+      scalaPackage,
+      kindgiPack: source,
+      path: args.targetDir,
+      filesWritten: filesWritten.length,
+      files: filesWritten.map((p) => relative(args.targetDir, p)),
+      nextSteps,
+    },
+    ctx.globals.format,
+  );
+  return { kind: 'ok', rendered: { stdout: rendered.stdout, stderr } };
+}
+
 type ArgsOutcome =
   | { readonly kind: 'ok'; readonly args: ResolvedArgs }
   | (CommandResult & { readonly kind: 'error' });
@@ -628,7 +728,10 @@ async function scaffoldTemplate(inputs: {
     const src = join(inputs.templateDir, rel);
     const dest = join(
       inputs.targetDir,
-      templateTarget(rel, inputs.substitutions.JAVA_PACKAGE_PATH),
+      templateTarget(
+        rel,
+        inputs.substitutions.JAVA_PACKAGE_PATH ?? inputs.substitutions.SCALA_PACKAGE_PATH,
+      ),
     );
     await mkdir(dirname(dest), { recursive: true });
     if (rel.endsWith('.tmpl')) {

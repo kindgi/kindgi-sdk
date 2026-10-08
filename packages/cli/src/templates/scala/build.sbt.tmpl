@@ -1,0 +1,19 @@
+// {{PACK_ID}}: a Kindgi pack in Scala (kindgi.config.json, "language": "scala").
+
+ThisBuild / scalaVersion := "3.3.8"
+
+lazy val root = (project in file("."))
+  .settings(
+    name := "{{PACK_NAME}}",
+    version := "{{PACK_VERSION}}",
+    // kindgi-pack (Java) comes from the local Maven repository until it's on Maven Central;
+    // kindgi-pack-scala from the local Ivy one (README.md, "Get kindgi-pack-scala").
+    resolvers += Resolver.mavenLocal,
+    libraryDependencies ++= Seq(
+      "com.kindgi" %% "kindgi-pack-scala" % "{{KINDGI_SCALA_VERSION}}",
+      "jakarta.validation" % "jakarta.validation-api" % "3.0.2",
+      "org.scalameta" %% "munit" % "1.3.6" % Test
+    ),
+    javacOptions ++= Seq("--release", "17"),
+    scalacOptions ++= Seq("-release", "17", "-deprecation", "-feature")
+  )

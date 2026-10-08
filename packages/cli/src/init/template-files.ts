@@ -30,8 +30,14 @@ export interface Substitutions {
   readonly JAVA_PACKAGE_PATH?: string;
   /** The java template's `com.kindgi:kindgi-pack` version. */
   readonly KINDGI_JAVA_VERSION?: string;
-  /** The java template's pinned CLI (`"cli"` in kindgi.config.json, which kindgiw runs). */
+  /** The java and scala templates' pinned CLI (`"cli"` in kindgi.config.json, which kindgiw runs). */
   readonly KINDGI_CLI_VERSION?: string;
+  /** The scala template's package (`acme.billing`), from the pack id. */
+  readonly SCALA_PACKAGE?: string;
+  /** The scala template's package as a path: also what `__PACKAGE__` in a file's path becomes. */
+  readonly SCALA_PACKAGE_PATH?: string;
+  /** The scala template's `com.kindgi %% kindgi-pack-scala` version. */
+  readonly KINDGI_SCALA_VERSION?: string;
 }
 
 /** Java's reserved words, which a package segment can't be. */
@@ -41,15 +47,31 @@ const JAVA_KEYWORDS = new Set(
   ),
 );
 
+/** Scala's reserved words (2 and 3), which a Scala package segment can't be either. */
+const SCALA_KEYWORDS = new Set(
+  'abstract case catch class def do else enum export extends false final finally for forSome given if implicit import lazy macro match new null object override package private protected return sealed super then this throw trait true try type val var while with yield'.split(
+    ' ',
+  ),
+);
+
 /** A pack id as a Java package: `acme.billing` → `acme.billing`, `my-pack` → `mypack`. */
 export function javaPackageOf(packId: string): string {
+  return packageOf(packId, JAVA_KEYWORDS);
+}
+
+/** A pack id as a Scala package: Java's rules, and no Scala keyword (`type` → `type_`) either. */
+export function scalaPackageOf(packId: string): string {
+  return packageOf(packId, new Set([...JAVA_KEYWORDS, ...SCALA_KEYWORDS]));
+}
+
+function packageOf(packId: string, keywords: ReadonlySet<string>): string {
   return packId
     .split('.')
     .map((segment) => {
       let s = segment.toLowerCase().replace(/[^a-z0-9_]/g, '');
       if (s === '') s = 'pack';
       if (/^[0-9]/.test(s)) s = `_${s}`;
-      return JAVA_KEYWORDS.has(s) ? `${s}_` : s;
+      return keywords.has(s) ? `${s}_` : s;
     })
     .join('.');
 }
@@ -109,5 +131,8 @@ export function substitute(raw: string, subs: Substitutions): string {
     .replaceAll('{{JAVA_PACKAGE_PATH}}', subs.JAVA_PACKAGE_PATH ?? '')
     .replaceAll('{{JAVA_PACKAGE}}', subs.JAVA_PACKAGE ?? '')
     .replaceAll('{{KINDGI_JAVA_VERSION}}', subs.KINDGI_JAVA_VERSION ?? '')
+    .replaceAll('{{SCALA_PACKAGE_PATH}}', subs.SCALA_PACKAGE_PATH ?? '')
+    .replaceAll('{{SCALA_PACKAGE}}', subs.SCALA_PACKAGE ?? '')
+    .replaceAll('{{KINDGI_SCALA_VERSION}}', subs.KINDGI_SCALA_VERSION ?? '')
     .replaceAll('{{KINDGI_CLI_VERSION}}', subs.KINDGI_CLI_VERSION ?? '');
 }
