@@ -402,7 +402,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_SECRETS_MANAGER',
     description:
-      "Which secret manager the `secret-manager` backend keeps secrets in: `azure` (Azure Key Vault, see `KINDGI_SECRETS_AZURE_VAULT_URL`), `gcp` (Google Secret Manager, in `KINDGI_SECRETS_GCP_PROJECT_ID`). Kindgi reads and writes them with the server's own platform identity and keeps only their names and version numbers in its database. Reserved: `aws`, `vault`.",
+      "Which secret manager the `secret-manager` backend keeps secrets in: `azure` (Azure Key Vault, see `KINDGI_SECRETS_AZURE_VAULT_URL`). Kindgi reads and writes them with the server's own platform identity and keeps only their names and version numbers in its database. Reserved: `gcp` (Google Secret Manager, in `KINDGI_SECRETS_GCP_PROJECT_ID`), `aws`, `vault`.",
     example: 'azure',
     required: true,
     appliesTo: appliesToSecretManagerBackend,
