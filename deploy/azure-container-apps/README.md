@@ -1,6 +1,6 @@
 # Kindgi on Azure Container Apps (Terraform)
 
-> **Draft (runtime 0.1.6).** `terraform validate`, `terraform test` (against mocked providers) and a `plan` against a real subscription pass. The first live deploy hasn't run yet: until it has, treat the steps below as the intended procedure, not a proven one.
+> **Draft (runtime 0.1.6).** These steps ran end to end on a live subscription (2026-10-08), with a runtime built from source: a pack deployed and run, a key rotation, and the teardown. Until runtime 0.1.6 is released, step 2's image isn't on Quay yet.
 
 A Terraform root module that runs Kindgi in one Azure resource group you already have:
 - the runtime (the API, agent and flow execution) as a container app;
@@ -18,7 +18,7 @@ A Terraform root module that runs Kindgi in one Azure resource group you already
 
 In both shapes the pack service's ingress is **environment-internal**: only apps in the same Container Apps environment reach it, and the environment holds only Kindgi's two apps. The runtime sends the pack token on every call (`KINDGI_PACK_SERVICE_AUTH=token`).
 
-**One platform limit to know:** Container Apps cuts every HTTP request at **240 seconds**, and it can't be raised. Start runs that can take longer with `wait: false` and follow them (events or polling); a stream cut at the limit resumes with `Last-Event-ID`. For the same reason the runtime's wait for one tool call (`pack_call_timeout_ms`) must stay under 240 000.
+**One platform limit to know:** Container Apps cuts every HTTP request at **240 seconds**, and it can't be raised. A request still open then gets `504` with the body `stream timeout`; the run itself carries on. Start runs that can take longer with `wait: false` and follow them (events or polling), as `kindgi runs start` does; a stream cut at the limit resumes with `Last-Event-ID`. For the same reason the runtime's wait for one tool call (`pack_call_timeout_ms`) must stay under 240 000.
 
 ## Before you start
 
@@ -147,9 +147,19 @@ az containerapp logs show -n <name_prefix>-server -g <rg> --type console --tail 
 
 ```
 KMS probe OK (azure-key-vault): azure-key-vault 7.5 (wrap/unwrap round trip, RSA-OAEP-256, key <name> version <v>)
-Background work: tenant <seed tenant id>
-Pack service: https://<pack>.internal.<environment domain> — <pack id> (artifact …), protocol 2, 3 tools
+{"subsystem":"boot","message":"Kindgi runtime ready", "lines":[… "  License: <holder> · non-production · until <date>", …
+  "  Pack service: https://<name_prefix>-pack.internal.<environment domain> — <pack id> (artifact …), protocol 2, 4 tools, 1 check"]}
 ```
+
+`logs show` streams the running replica. For a replica that stopped (a boot that failed), query Log Analytics:
+
+```sh
+WS=$(az monitor log-analytics workspace list -g <rg> --query "[0].customerId" -o tsv)
+az monitor log-analytics query -w "$WS" --analytics-query \
+  "ContainerAppConsoleLogs_CL | where ContainerAppName_s == '<name_prefix>-server' | order by TimeGenerated desc | take 50"
+```
+
+A boot that can't use the key exits 2 and says why (`KMS probe failed at boot: kms-unauthorized: …`, then what to check). In the live check, a restart that couldn't boot left the replica before it serving.
 
 ## 6. Register the pack
 

@@ -23,8 +23,10 @@ terraform {
 
   required_providers {
     azurerm = {
-      source  = "hashicorp/azurerm"
-      version = ">= 5.8, < 6.0"
+      source = "hashicorp/azurerm"
+      # 5.9: destroying a container app or the environment no longer fails
+      # while polling Azure's empty 204 after the delete succeeded.
+      version = ">= 5.9, < 6.0"
     }
     random = {
       source  = "hashicorp/random"

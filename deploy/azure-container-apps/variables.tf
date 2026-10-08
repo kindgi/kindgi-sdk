@@ -31,7 +31,7 @@ variable "name_prefix" {
 }
 
 variable "tags" {
-  description = "Tags on every resource the module creates (e.g. an owner and a purpose)."
+  description = "Tags on every resource the module creates (e.g. an owner and a purpose), plus kindgi-deployment = name_prefix. The private DNS zone and its link drop tag names with a colon (Azure ignores them there)."
   type        = map(string)
   default     = {}
 }

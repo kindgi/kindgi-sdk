@@ -101,6 +101,10 @@ variables {
 run "new_vnet_shape_meets_the_contract" {
   command = plan
 
+  variables {
+    tags = { "team:owner" = "platform", purpose = "kindgi-dev" }
+  }
+
   # C-PK-7, C-DB-5: a VNet, the two delegated subnets, a private DNS zone.
   assert {
     condition     = length(azurerm_virtual_network.kindgi) == 1 && length(azurerm_subnet.environment) == 1 && length(azurerm_subnet.database) == 1
@@ -171,6 +175,22 @@ run "new_vnet_shape_meets_the_contract" {
   assert {
     condition     = azurerm_container_app_environment.kindgi.infrastructure_resource_group_name == "acme-kindgi-dev-kindgi-infra"
     error_message = "The infrastructure resource group is named <rg>-<prefix>-infra."
+  }
+  # Private DNS zones drop tag names with a colon (live, 2026-10-08): the
+  # zone and its link get only the others, so a plan shows no change.
+  assert {
+    condition     = azurerm_private_dns_zone.database[0].tags == tomap({ purpose = "kindgi-dev", kindgi-deployment = "kindgi" }) && azurerm_private_dns_zone_virtual_network_link.database[0].tags == azurerm_private_dns_zone.database[0].tags
+    error_message = "The DNS zone and its link carry only the tags without a colon."
+  }
+  assert {
+    condition     = azurerm_virtual_network.kindgi[0].tags["team:owner"] == "platform"
+    error_message = "Other resources keep every tag."
+  }
+  # PostgreSQL adds this endpoint to its subnet; declared, so a plan
+  # doesn't try to remove it.
+  assert {
+    condition     = contains([for e in azurerm_subnet.database[0].service_endpoint : e.service], "Microsoft.Storage")
+    error_message = "The database subnet declares the Microsoft.Storage endpoint PostgreSQL adds."
   }
 }
 

@@ -20,7 +20,10 @@ resource "random_string" "suffix" {
 
 locals {
   location = coalesce(var.location, data.azurerm_resource_group.kindgi.location)
-  tags     = merge(var.tags, { "kindgi:deployment" = var.name_prefix })
+  tags     = merge(var.tags, { "kindgi-deployment" = var.name_prefix })
+  # Private DNS zones (and their links) silently drop tag names with a
+  # colon: left on, they'd show as a change on every plan.
+  dns_tags = { for k, v in local.tags : k => v if !strcontains(k, ":") }
   suffix   = random_string.suffix.result
 
   # The new-VNet shape unless an existing environment subnet is given.
@@ -66,6 +69,11 @@ resource "azurerm_subnet" "database" {
   resource_group_name  = data.azurerm_resource_group.kindgi.name
   virtual_network_name = azurerm_virtual_network.kindgi[0].name
   address_prefixes     = [var.database_subnet_cidr]
+  # PostgreSQL Flexible Server adds this endpoint to its subnet when it's
+  # created; declared here, so a plan doesn't try to take it away.
+  service_endpoint {
+    service = "Microsoft.Storage"
+  }
 
   delegation {
     name = "postgresql"
@@ -80,7 +88,7 @@ resource "azurerm_private_dns_zone" "database" {
   count               = local.new_vnet ? 1 : 0
   name                = "${var.name_prefix}.private.postgres.database.azure.com"
   resource_group_name = data.azurerm_resource_group.kindgi.name
-  tags                = local.tags
+  tags                = local.dns_tags
 }
 
 resource "azurerm_private_dns_zone_virtual_network_link" "database" {
@@ -89,7 +97,7 @@ resource "azurerm_private_dns_zone_virtual_network_link" "database" {
   private_dns_zone_id  = azurerm_private_dns_zone.database[0].id
   virtual_network_id   = azurerm_virtual_network.kindgi[0].id
   registration_enabled = false
-  tags                 = local.tags
+  tags                 = local.dns_tags
 }
 
 # ---- identities ---------------------------------------------------------------
