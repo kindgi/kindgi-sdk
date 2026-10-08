@@ -8,6 +8,7 @@ Give the capability router a local provider it can match like any other. Every m
 
 ## Exports
 
+- **`inProcessAdapterEntry`** (`IN_PROCESS_ADAPTER_ID`) — the `AdapterFactoryEntry` a runtime registers: **`inProcessAdapterFactory`** (a registration lists models by their `MODEL_SPECS` key in `metadata.models[].name`), `prepare` (`prepareInProcessModel`), and **`inProcessCheckConfig(input)`**, which reports a model that isn't one of `MODEL_SPECS` (`metadata.models`) with the factory's own message.
 - **`createInProcessModelProvider(options?)`** — returns a `ModelProvider`. Construction is cheap: each model's pipeline loads on the first `invoke()` that names it (concurrent first calls share one load), downloading weights if they are not cached yet. With `@huggingface/transformers` 4.x the default cache is a `.cache` directory inside that package's install location; `cacheDir` redirects the model files (transformers.js 4.3 can still write a model's `config.json` to its default cache). Throws when `models` is empty; `invoke()` throws for a model the provider does not expose.
   - `invoke()` passes each message to the model's chat template as `{ role, content }`, uses `maxOutputTokens` as `max_new_tokens` (default `512`), samples only when `temperature > 0` (greedy otherwise), and returns `finishReason: 'stop'` and `costUsd: 0`. Token counts come from the model's tokenizer, falling back to about four characters per token. `abortSignal` is not observed.
 - **`InProcessProviderOptions`**:
