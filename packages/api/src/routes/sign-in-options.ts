@@ -25,6 +25,12 @@ export interface SignInOptionsRouteOptions {
   readonly identityProvider?: IdentityProviderBinding;
   /** Whether a person may sign in to the console with an API token here. */
   readonly tokenSignIn: boolean;
+  /**
+   * The emailed sign-in link, when the deployment offers it: a sign-in page
+   * shows "Email me a sign-in link", with the Turnstile widget when there's
+   * a site key.
+   */
+  readonly emailLink?: { readonly captchaSiteKey?: string };
   readonly rateLimit?: SignInOptionsRateLimit;
 }
 
@@ -108,10 +114,18 @@ export function signInOptionsRouter(options: SignInOptionsRouteOptions): Hono<Ap
         providerId: o.providerId,
         displayName: o.displayName,
         signInUrl: o.signInUrl,
+        ...(o.owner !== undefined && { owner: o.owner }),
       })),
       methods: {
         identityProviders: identityProvider !== undefined,
         apiToken: options.tokenSignIn,
+        ...(options.emailLink !== undefined && {
+          emailLink: {
+            ...(options.emailLink.captchaSiteKey !== undefined && {
+              captchaSiteKey: options.emailLink.captchaSiteKey,
+            }),
+          },
+        }),
       },
     });
   });
