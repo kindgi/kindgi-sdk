@@ -17,7 +17,6 @@ export const UNWIRED_COMMANDS: ReadonlySet<string> = new Set([
   'observations',
   'proposals',
   'tokens',
-  'memory facts supersede',
   'memory facts retrieve',
 ]);
 
@@ -32,10 +31,6 @@ const TOKENS_NOT_SERVED =
 export const UNWIRED_REASONS: ReadonlyMap<string, string> = new Map([
   ['tokens create', TOKENS_NOT_SERVED],
   ['tokens revoke', TOKENS_NOT_SERVED],
-  [
-    'memory facts supersede',
-    "the Kindgi runtime doesn't supersede memory facts yet: it would answer that no such fact exists, even for one that does.",
-  ],
   [
     'memory facts retrieve',
     "the Kindgi runtime doesn't search memory yet (keyword or semantic): a retrieval would find nothing. To list facts by type or scope: `kindgi memory facts list --type=<type> --scope=<json>`.",

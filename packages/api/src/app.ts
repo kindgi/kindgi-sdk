@@ -1142,7 +1142,13 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     v1.route('/retention', retentionRouter(input.retention, authorizer));
   }
   if (input.memory !== undefined) {
-    v1.route('/memory', memoryRouter(input.memory));
+    v1.route(
+      '/memory',
+      memoryRouter(input.memory, {
+        ...(authorizer !== undefined && { authorizer }),
+        ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+      }),
+    );
   }
   if (input.supervisor !== undefined) {
     v1.route('/proposals', proposalsRouter(input.supervisor));
