@@ -132,10 +132,11 @@ Error [invalid-request]: Guardrail "acme.strict-length" doesn't fit check "my-pa
 
 Under `kindgi dev` the indexer has refused such a config already.
 
-A guardrail registered before 0.1.5 wasn't checked. The pack service checks
-the config on every call, as sent, against the indexed `configSchema`, so
-the check doesn't run, and every turn the guardrail checks fails, whatever
-its action. `kindgi runs start` exits 1 with:
+A guardrail registered before 0.1.5, or against a pack deployed before
+0.1.5, wasn't checked. The pack service checks the config on every call, as
+sent, against the indexed `configSchema`, so the check doesn't run, and every
+turn the guardrail checks fails, whatever its action. `kindgi runs start`
+exits 1 with:
 
 ```text
 Error [run-failed]: input-validation-failed: Check "my-pack.checks.answer-length" config failed validation at /maxChars: must be > 0
