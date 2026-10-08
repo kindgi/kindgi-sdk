@@ -11342,6 +11342,28 @@
           }
         }
       },
+      "GetIdentityProviderResult": {
+        "description": "An identity provider as stored, one shape per `kind`, with `signIn` when the deployment sets it. Secrets appear only as references.",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/OidcIdentityProviderConfig"
+          },
+          {
+            "$ref": "#/components/schemas/SamlIdentityProviderConfig"
+          },
+          {
+            "$ref": "#/components/schemas/OAuth2IdentityProviderConfig"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind",
+          "mapping": {
+            "oidc": "#/components/schemas/OidcIdentityProviderConfig",
+            "saml": "#/components/schemas/SamlIdentityProviderConfig",
+            "oauth2": "#/components/schemas/OAuth2IdentityProviderConfig"
+          }
+        }
+      },
       "IdentityProviderCollectionPage": {
         "type": "object",
         "additionalProperties": false,
@@ -30504,7 +30526,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/IdentityProviderConfig"
+                  "$ref": "#/components/schemas/GetIdentityProviderResult"
                 }
               }
             }

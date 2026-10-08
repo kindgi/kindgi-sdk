@@ -4623,7 +4623,7 @@ class AuthProvidersResource:
 
     def get(
         self, provider_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.IdentityProviderConfig:
+    ) -> _models.GetIdentityProviderResult:
         """Get one identity provider. `GET /v1/auth/providers/{providerId}`
 
         The provider as stored, with `signIn` when the deployment sets it. Secrets appear only as references.
@@ -4633,7 +4633,7 @@ class AuthProvidersResource:
             path={"providerId": provider_id},
             query={},
             headers={},
-            response=_models.IdentityProviderConfig,
+            response=_models.GetIdentityProviderResult,
             timeout=timeout,
         )
 
@@ -10617,7 +10617,7 @@ class AsyncAuthProvidersResource:
 
     async def get(
         self, provider_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.IdentityProviderConfig:
+    ) -> _models.GetIdentityProviderResult:
         """Get one identity provider. `GET /v1/auth/providers/{providerId}`
 
         The provider as stored, with `signIn` when the deployment sets it. Secrets appear only as references.
@@ -10627,7 +10627,7 @@ class AsyncAuthProvidersResource:
             path={"providerId": provider_id},
             query={},
             headers={},
-            response=_models.IdentityProviderConfig,
+            response=_models.GetIdentityProviderResult,
             timeout=timeout,
         )
 

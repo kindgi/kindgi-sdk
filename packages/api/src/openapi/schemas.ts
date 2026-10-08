@@ -6176,6 +6176,25 @@ export const RegisterIdentityProviderBodySchema: JsonSchema = {
   },
 };
 
+// Its own schema too, used only as the answer (see `RegisterIdentityProviderBody`).
+export const GetIdentityProviderResultSchema: JsonSchema = {
+  description:
+    'An identity provider as stored, one shape per `kind`, with `signIn` when the deployment sets it. Secrets appear only as references.',
+  oneOf: [
+    { $ref: '#/components/schemas/OidcIdentityProviderConfig' },
+    { $ref: '#/components/schemas/SamlIdentityProviderConfig' },
+    { $ref: '#/components/schemas/OAuth2IdentityProviderConfig' },
+  ],
+  discriminator: {
+    propertyName: 'kind',
+    mapping: {
+      oidc: '#/components/schemas/OidcIdentityProviderConfig',
+      saml: '#/components/schemas/SamlIdentityProviderConfig',
+      oauth2: '#/components/schemas/OAuth2IdentityProviderConfig',
+    },
+  },
+};
+
 export const IdentityProviderCollectionPageSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -8794,6 +8813,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['OAuth2IdentityProviderConfig', OAuth2IdentityProviderConfigSchema],
   ['IdentityProviderConfig', IdentityProviderConfigSchema],
   ['RegisterIdentityProviderBody', RegisterIdentityProviderBodySchema],
+  ['GetIdentityProviderResult', GetIdentityProviderResultSchema],
   ['IdentityProviderCollectionPage', IdentityProviderCollectionPageSchema],
   ['SignInOption', SignInOptionSchema],
   ['SignInOptions', SignInOptionsSchema],
