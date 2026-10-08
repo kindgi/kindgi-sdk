@@ -79,22 +79,107 @@ describe('memory.facts.write / read / list / delete', () => {
     expect(JSON.parse(url.searchParams.get('scope')!).projectId).toBe('proj-1');
   });
 
-  it('POSTs /v1/memory/facts/{factId}/supersede on delete', async () => {
-    const stub = jsonFetch({ factId: 'fact-1', superseded: true });
+  it('reads one revision (`version`) or memory as it stood (`asOf`)', async () => {
+    const stub = recordingFetch([
+      { status: 200, body: JSON.stringify(WIRE_FACT) },
+      { status: 200, body: JSON.stringify({ data: [WIRE_FACT], hasMore: false }) },
+    ]);
     const client = createClient({
       apiUrl: 'https://api.example.com',
       auth: AUTH,
       fetch: stub.fetch,
     });
 
-    const result = await client.memory.facts.delete('fact-1' as never, {
-      idempotencyKey: 'idem-del',
+    await client.memory.facts.read('fact-1' as never, { version: 2 });
+    await client.memory.facts.list({ asOf: '2026-09-21T00:00:00.000Z' });
+    expect(new URL(stub.calls[0]?.url).searchParams.get('version')).toBe('2');
+    expect(new URL(stub.calls[1]?.url).searchParams.get('asOf')).toBe('2026-09-21T00:00:00.000Z');
+  });
+
+  it('POSTs /v1/memory/facts/{factId}/supersede with the next revision', async () => {
+    const stub = jsonFetch({ ...WIRE_FACT, version: 2, revisionId: 'rev-2', supersedes: 'fact-1' });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
     });
-    expect(result.superseded).toBe(true);
+
+    const next = await client.memory.facts.supersede(
+      'fact-1' as never,
+      { content: { clause: 'Capped at 3%.' }, expectVersion: 1 },
+      { idempotencyKey: 'idem-sup' },
+    );
+    expect(next.id).toBe('fact-1');
+    expect(next.version).toBe(2);
     const req = stub.calls[0]!;
     expect(req.method).toBe('POST');
     expect(req.url).toBe('https://api.example.com/v1/memory/facts/fact-1/supersede');
-    expect(req.headers['idempotency-key']).toBe('idem-del');
+    expect(req.headers['idempotency-key']).toBe('idem-sup');
+    expect(JSON.parse(req.body ?? '{}')).toEqual({
+      content: { clause: 'Capped at 3%.' },
+      expectVersion: 1,
+    });
+  });
+
+  it('DELETEs /v1/memory/facts/{factId} and returns the closed revision', async () => {
+    const stub = jsonFetch({
+      ...WIRE_FACT,
+      invalidatedAt: '2026-09-21T00:00:00.000Z',
+      invalidationReason: 'deleted',
+    });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+
+    const closed = await client.memory.facts.delete('fact-1' as never, { expectVersion: 1 });
+    expect(closed.invalidationReason).toBe('deleted');
+    const req = stub.calls[0]!;
+    expect(req.method).toBe('DELETE');
+    expect(req.url).toBe('https://api.example.com/v1/memory/facts/fact-1?expectVersion=1');
+  });
+
+  it('POSTs /v1/memory/facts/{factId}/verify', async () => {
+    const stub = jsonFetch({ ...WIRE_FACT, version: 2, trust: 'verified', verifiedBy: 'user:u1' });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+
+    const verified = await client.memory.facts.verify('fact-1' as never);
+    expect(verified.trust).toBe('verified');
+    const req = stub.calls[0]!;
+    expect(req.method).toBe('POST');
+    expect(req.url).toBe('https://api.example.com/v1/memory/facts/fact-1/verify');
+    expect(JSON.parse(req.body ?? '{}')).toEqual({});
+  });
+
+  it('GETs /v1/memory/facts/{factId}/revisions and unwraps the list', async () => {
+    const stub = jsonFetch({ data: [{ ...WIRE_FACT, version: 2 }, WIRE_FACT] });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+
+    const revisions = await client.memory.facts.revisions('fact-1' as never);
+    expect(revisions.map((r) => r.version)).toEqual([2, 1]);
+    expect(stub.calls[0]?.url).toBe('https://api.example.com/v1/memory/facts/fact-1/revisions');
+  });
+
+  it('maps 409 fact-changed to a conflict', async () => {
+    const stub = errorFetch(409, { code: 'fact-changed', message: 'changed' });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+
+    await expect(
+      client.memory.facts.supersede('fact-1' as never, { content: 'x', expectVersion: 1 }),
+    ).rejects.toMatchObject({ error: { code: 'conflict', reason: 'fact-changed' } });
   });
 
   it('maps 404 fact-not-found on read', async () => {

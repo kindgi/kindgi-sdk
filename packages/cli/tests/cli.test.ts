@@ -341,10 +341,6 @@ describe('not-implemented-in-preview SDK errors', () => {
     [['observations', 'list'], "doesn't record supervisor observations yet"],
     [['proposals', 'list'], "doesn't draft or apply supervisor fix proposals yet"],
     [['proposals', 'get', 'p-1'], "doesn't draft or apply supervisor fix proposals yet"],
-    [['artifacts', 'list'], "doesn't serve `/v1/artifacts` yet"],
-    [['artifacts', 'download', 'blob-1'], 'no artifacts to list, upload, download or delete'],
-    [['capabilities', 'list'], "doesn't serve `/v1/capabilities` yet"],
-    [['capabilities', 'get', 'tool-use'], 'kindgi providers list --feature=<feature>'],
   ])("%j says why: the group's reason covers each of its commands", async (argv, reason) => {
     const out = await runCli(
       baseInputs({
@@ -528,6 +524,21 @@ describe('kindgi runs start', () => {
     expect(JSON.parse(out.stdout)).toEqual({ id: 'run-5', ...failed });
     expect(out.stderr).toBe(
       'Error [capability-routing-failed]: No registered provider satisfies the capability declaration\n',
+    );
+  });
+
+  test("a run that carries `failure` (0.1.5 runtimes): its code and message, not the raw message's", async () => {
+    const out = await startThenRead(['--agent=pack.agent'], {
+      status: 'failed',
+      failureMessage: routing,
+      failure: {
+        code: 'budget-exceeded',
+        message: 'Agent turn steps budget exceeded (limit 1, observed 1)',
+      },
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      'Error [budget-exceeded]: Agent turn steps budget exceeded (limit 1, observed 1)\n',
     );
   });
 
