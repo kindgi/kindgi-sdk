@@ -4,12 +4,21 @@
 // ============ Wire types ============
 export type {
   Fact,
+  FactAttribution,
+  FactGeneratedBy,
+  FactInvalidationReason,
+  FactSubject,
+  FactTrust,
+  MemoryReaders,
   MemoryScope,
   Retention,
   Source,
   SourceFreshness,
   SourceRefresh,
 } from './types.js';
+
+// ============ The scope guard ============
+export { isReadableBy } from './readers.js';
 
 // ============ Log types ============
 export { LOG_KINDS } from './log.js';

@@ -67,18 +67,16 @@ kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my o
   …
   "output": {
     …
-    "usage": { "steps": 2, "durationMs": 2291, "promptTokens": 1449, "totalCostUsd": 0.001889, "completionTokens": 88 },
+    "usage": { "steps": 2, "durationMs": 3701, "promptTokens": 1119, "totalCostUsd": 0.004328, "completionTokens": 209 },
     …
-    "provider": { "id": "anthropic", "model": "claude-haiku-4-5" },
-    "response": { "role": "agent", "content": "Your order A-1001 has been shipped and is expected to arrive on October 6, 2026.", … },
+    "provider": { "id": "anthropic", "model": "claude-sonnet-5-5" },
+    "response": { "role": "agent", "content": "Order A-1001 shows as shipped, and its expected delivery date was October 6, 2026. That date has passed and I can't see any newer tracking details, so the order is running late.", … },
     …
   }
 }
 ```
 
-`totalCostUsd` is the turn's cost at the preset's prices. This answer was
-captured on `claude-haiku-4-5` (retiring on or after 2026-10-15); outputs on
-newer models differ in wording, not shape.
+`totalCostUsd` is the turn's cost at the preset's prices.
 
 ## Which Claude model answers
 

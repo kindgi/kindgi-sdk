@@ -56,42 +56,38 @@ For an agent turn that called a tool once, both print two model calls, the
 newest first:
 
 ```text
-2 claude-haiku-4-5 ok 885 39 0.00108
-1 claude-haiku-4-5 ok 786 57 0.0010710000000000001
+2 claude-sonnet-5-5 ok 606 152 0.002732
+1 claude-sonnet-5-5 ok 513 57 0.0015960000000000002
 ```
-
-The records on this page were captured on `claude-haiku-4-5` (retiring on or
-after 2026-10-15); a newer model's records differ in tokens and cost, not
-shape.
 
 Each record is one model call:
 
 ```json
 {
-  "id": "080ccfc0-cdf1-4c1e-87cf-4dfbee234fe1",
-  "tenantId": "9126df1e-094b-496d-9ea8-7daab93c3f4f",
+  "id": "bfe7ccd4-ca6c-411c-918f-e605b4943bdd",
+  "tenantId": "c963c8d8-5afc-403f-8c4b-8617327c424e",
   "category": "llm.inference",
   "providerId": "anthropic",
-  "runId": "c53a4eaa-2aee-44de-9546-64c7e710bc21",
-  "agentId": "acme-ops.echo-agent",
-  "conversationId": "dd9c2a5d-fca1-4ce8-9810-b97dd73a70d5",
-  "quantity": 843,
+  "runId": "f3835200-e4c6-4579-a3fc-4b70f7444333",
+  "agentId": "acme.order-desk",
+  "conversationId": "936af311-f1c8-4260-a1ed-973876b4ac71",
+  "quantity": 570,
   "unit": "tokens",
-  "costUsd": 0.0010710000000000001,
-  "occurredAt": "2026-10-05T07:32:07.079Z",
-  "callId": "1d1a29bb-fc04-4e77-a4c9-3dfcb78b8ee9",
-  "projectId": "13b7cfca-8b77-4983-858f-149c16afe56d",
-  "rootRunId": "c53a4eaa-2aee-44de-9546-64c7e710bc21",
+  "costUsd": 0.0015960000000000002,
+  "occurredAt": "2026-10-08T15:13:23.128Z",
+  "callId": "00a26a40-58c5-41ce-af41-a5c583a577a6",
+  "projectId": "18af3731-67e6-4720-aa50-0972ff4b5eca",
+  "rootRunId": "f3835200-e4c6-4579-a3fc-4b70f7444333",
   "agentVersion": "0.1.0",
   "nodeId": "model-call",
   "step": 1,
-  "model": "claude-haiku-4-5",
-  "servedModel": "claude-haiku-4-5-20251001",
+  "model": "claude-sonnet-5-5",
+  "servedModel": "claude-sonnet-5-5",
   "status": "ok",
-  "usage": { "promptTokens": 786, "completionTokens": 57, "cacheReadTokens": 0, "cacheWriteTokens": 0 },
-  "durationMs": 1043,
+  "usage": { "promptTokens": 513, "completionTokens": 57, "cacheReadTokens": 0, "cacheWriteTokens": 0 },
+  "durationMs": 1438,
   "finishReason": "tool-use",
-  "providerRequestId": "req_011CfihbPhdHEhT7hauiXwZt",
+  "providerRequestId": "req_011CfpzCE92VRAVmBURYMRFu",
   "attempts": 1
 }
 ```
@@ -115,8 +111,8 @@ To see the usage exactly as the provider sent it, add `includeRawUsage: true`
 ```json
 "rawUsage": {
   "provider": "anthropic",
-  "model": "claude-haiku-4-5",
-  "usage": { "input_tokens": 786, "output_tokens": 57, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0, … }
+  "model": "claude-sonnet-5-5",
+  "usage": { "input_tokens": 513, "output_tokens": 57, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0, … }
 }
 ```
 
@@ -229,18 +225,18 @@ The sum covers only that customer's runs:
 {
   "groups": [
     {
-      "key": {"month": "2026-10", "model": "claude-haiku-4-5"},
+      "key": {"month": "2026-10", "model": "claude-sonnet-5-5"},
       "count": 2,
-      "totalUsd": 0.0021260000000000003,
-      "tokens": {"prompt": 1671, "completion": 91, "cacheRead": 0, "cacheWrite": 0, "reasoning": 0}
+      "totalUsd": 0.00449,
+      "tokens": {"prompt": 1385, "completion": 172, "cacheRead": 0, "cacheWrite": 0, "reasoning": 0}
     }
   ],
   "totalGroups": 1,
   "truncated": false,
-  "totalUsd": 0.0021260000000000003,
+  "totalUsd": 0.00449,
   "totalRecords": 2,
-  "tokens": {"prompt": 1671, "completion": 91, "cacheRead": 0, "cacheWrite": 0, "reasoning": 0},
-  "timeRange": {"from": "2026-10-01T00:00:00.000Z", "to": "2026-10-06T03:45:51.334Z"},
+  "tokens": {"prompt": 1385, "completion": 172, "cacheRead": 0, "cacheWrite": 0, "reasoning": 0},
+  "timeRange": {"from": "2026-10-01T00:00:00.000Z", "to": "2026-10-08T15:13:28.571Z"},
   "groupBy": ["month", "model"]
 }
 ```
@@ -303,13 +299,13 @@ was wrong:
 
 ```json
 {
-  "runId": "97a6a04b-b6e2-4b14-a682-4dc5f653e075",
-  "model": "claude-haiku-4-5",
+  "runId": "28a40635-eb0b-44db-9b8f-3748c2f8165e",
+  "model": "claude-sonnet-5-5",
   "status": "failed",
   "costUsd": 0,
-  "durationMs": 381,
+  "durationMs": 252,
   "attempts": 1,
-  "error": { "message": "401 {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"API key is invalid.\"},\"request_id\":null}" },
+  "error": { "message": "401 {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"},\"request_id\":null}" },
   …
 }
 ```

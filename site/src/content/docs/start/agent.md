@@ -69,7 +69,7 @@ running and no model key yet:
 ```json
 {
   "ok": false,
-  "cliVersion": "0.1.4-rc.4",
+  "cliVersion": "0.1.4",
   "project": { "dir": "/Users/you/my-agents", "language": "node" },
   "checks": [
     {"id": "node", "status": "pass", "message": "Node 22.21.1."},
@@ -163,7 +163,10 @@ real one.
 
 Run doctor every few seconds until `runtime` passes. `model-key` and
 `provider` still fail: that's expected until step 4. Then tell the person
-it's running, and how to stop it: `kill <the process id>`.
+it's running, and how to stop it: `kill <the process id>`. Also tell them
+where the console is: the `Console` line of `.kindgi/dev.log`, an address
+ending in `/console/`. They sign in there with the token on its `Token` line,
+which they read themselves: don't print the token in the chat.
 
 ## Step 4: the model key
 
@@ -178,7 +181,7 @@ it's running, and how to stop it: `kill <the process id>`.
    | OpenAI | `OPENAI_API_KEY` | `openai` |
    | Gemini (a Google AI Studio key) | `GEMINI_API_KEY` | `gemini-api` |
    | Groq | `GROQ_API_KEY` | `groq` |
-   | OpenRouter (many vendors, one key) | `OPENROUTER_API_KEY` | `openrouter` |
+   | OpenRouter (a hosted gateway) | `OPENROUTER_API_KEY` | `openrouter` |
 
    **If they have no key, or don't want to add one now,** stop here,
    honestly: Kindgi is running with its stand-in model, `dev-echo`, which

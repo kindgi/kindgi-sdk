@@ -639,6 +639,95 @@ def test_every_operation_is_a_method() -> None:
     assert len(OPERATIONS) > 150
 
 
+def test_an_artifact_belongs_to_a_project_and_a_feature_names_its_providers() -> None:
+    meta = {
+        "blobId": "b-1",
+        "tenantId": RUN["tenantId"],
+        "name": "note.txt",
+        "contentType": "text/plain",
+        "size": 5,
+        "hash": "0" * 64,
+        "tags": {},
+        "projectId": "p-1",
+        "createdBy": "user:u-1",
+        "createdAt": "2026-10-07T00:00:00.000Z",
+    }
+    capability = {
+        "id": "feature:vision",
+        "feature": "vision",
+        "description": "Reads images in its input.",
+        "providers": [{"providerId": "acme-openai", "models": ["gpt-acme"]}],
+    }
+    api, seen = client(
+        lambda r: (
+            httpx.Response(201, json=meta)
+            if r.url.path == "/v1/artifacts"
+            else httpx.Response(200, json=capability)
+        )
+    )
+    up = api.artifacts.upload(
+        {"file": ("note.txt", b"hello", "text/plain")}, data={"projectId": "p-1"}
+    )
+    assert (
+        isinstance(up, models.BlobMeta) and up.project_id == "p-1" and up.created_by == "user:u-1"
+    )
+    assert b'name="projectId"' in seen[0].content and b"hello" in seen[0].content
+    vision = api.capabilities.get("feature:vision")
+    assert vision.providers is not None
+    assert isinstance(vision.providers[0], models.CapabilityProvider)
+    assert vision.providers[0].models == ["gpt-acme"]
+
+
+def test_every_model_a_method_names_exists() -> None:
+    # The generator inlines a union used only inside other models; a body
+    # naming it would then fail at call time.
+    import re
+
+    from kindgi.client import _models
+
+    source = (Path(__file__).resolve().parents[1] / "src/kindgi/client/_resources.py").read_text()
+    named = set(re.findall(r"_models\.([A-Za-z0-9_]+)", source))
+    assert sorted(n for n in named if not hasattr(_models, n)) == []
+
+
+def test_api_keys_for_a_principal_and_service_accounts() -> None:
+    minted = {
+        "tokenId": "6ccd0eca-40b4-4b86-b8f5-24b0900ddd01",
+        "token": "kgi_ak_secret",
+        "principal": {"kind": "service-account", "id": "sa-1"},
+        "role": "member",
+        "capabilities": [],
+        "createdAt": "2026-10-07T00:00:00.000Z",
+    }
+    account = {
+        "serviceAccountId": "sa-1",
+        "name": "acme-ci",
+        "grants": [{"kind": "tenant-admin"}],
+        "createdAt": "2026-10-07T00:00:00.000Z",
+    }
+    api, seen = client(
+        lambda r: (
+            httpx.Response(201, json=minted)
+            if r.url.path == "/v1/tokens"
+            else httpx.Response(200, json=account)
+        )
+    )
+    key = api.tokens.mint(for_={"kind": "service-account", "id": "sa-1"})
+    assert key.principal is not None and key.principal.id == "sa-1"
+    granted = api.service_accounts.grant("sa-1", {"kind": "tenant-admin"})
+    assert isinstance(granted, models.ServiceAccount) and granted.name == "acme-ci"
+    api.service_accounts.ungrant("sa-1", kind="project", project_id=RUN["tenantId"])
+    assert [(r.method, r.url.path, json.loads(r.content)) for r in seen] == [
+        ("POST", "/v1/tokens", {"for": {"kind": "service-account", "id": "sa-1"}}),
+        ("POST", "/v1/service-accounts/sa-1/grant", {"kind": "tenant-admin"}),
+        (
+            "POST",
+            "/v1/service-accounts/sa-1/ungrant",
+            {"kind": "project", "projectId": RUN["tenantId"]},
+        ),
+    ]
+
+
 OPENAPI = Path(__file__).resolve().parents[3] / "packages" / "api" / "openapi.json"
 
 
