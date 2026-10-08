@@ -303,12 +303,31 @@ describe('a TypeScript project', () => {
     expect(check('project')?.message).toContain('kindgi dev has run here (.kindgirc.json)');
     expect(check('runtime')).toMatchObject({
       status: 'pass',
-      message: 'The runtime answers at http://127.0.0.1:4999.',
+      message:
+        'The runtime answers at http://127.0.0.1:4999; its console is at http://127.0.0.1:4999/console/.',
     });
+    expect(report?.consoleUrl).toBe('http://127.0.0.1:4999/console/');
     expect(check('provider')).toMatchObject({
       status: 'pass',
       message: 'A provider is registered: anthropic.',
     });
+  });
+
+  test('a runtime that serves no console: said so, and no console URL', async () => {
+    await tsProject({ installed: true, rc: RC, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+    const headless: typeof fetch = async (input) =>
+      String(input).endsWith('/console/')
+        ? new Response('{"error":{"code":"route-not-found"}}', { status: 404 })
+        : new Response('{"status":"ok"}', { status: 200 });
+    const { report, check } = await doctor({
+      fetchImpl: headless,
+      providers: [{ id: 'anthropic' }],
+    });
+    expect(check('runtime')).toMatchObject({
+      status: 'pass',
+      message: 'The runtime answers at http://127.0.0.1:4999 (it serves no console).',
+    });
+    expect(report?.consoleUrl).toBeUndefined();
   });
 
   test("only kindgi dev's dev-echo: a failure, since it isn't a model", async () => {
