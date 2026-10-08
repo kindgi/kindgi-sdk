@@ -91,7 +91,9 @@ The checks come in this order: `node`, `npm`, `python`, `uv`, `docker`,
   `message` and `fix`, and go on. `ok` stays `true` and the exit code `0`.
   In this release only `provider` warns: when an agent that names no model
   would get a model the preset no longer lists, or one other than the
-  preset's default.
+  preset's default; or when the runtime can't build a registered provider
+  (each problem is in the check's `details`). When it can build none,
+  `provider` fails instead.
 - **`skip`:** not applicable yet. Outside a project, `project` and every
   check after it skip; `runtime` skips while `kindgi dev` isn't running.
 
