@@ -7,8 +7,9 @@
  * A preset is a vendor's registration body with the models, context
  * windows and prices filled in (`src/providers/presets/<name>.json`,
  * copied to `dist/providers/presets/` at build): its adapter, the secret
- * its credential lives in (if any), the adapter settings it needs from
- * the caller (e.g. Gemini's `--project`), and `metadata`. Prices change
+ * its credential lives in (if any), the adapter settings it fixes itself
+ * (e.g. an OpenAI-compatible endpoint's `baseURL`) or needs from the
+ * caller (e.g. Gemini's `--project`), and `metadata`. Prices change
  * with the vendors' — `pricesCheckedAt` says when they were last read.
  */
 
@@ -28,6 +29,8 @@ export interface ProviderPreset {
   readonly secret?: string;
   /** Adapter settings the caller supplies, each as `--<key>=<value>`. */
   readonly adapterConfig?: readonly PresetSetting[];
+  /** Adapter settings the preset fixes, e.g. `{ "baseURL": "https://api.openai.com/v1" }`. */
+  readonly adapterConfigValues?: Readonly<Record<string, string | number | boolean>>;
   /** When the models' prices were last checked against the vendor's. */
   readonly pricesCheckedAt: string;
   readonly metadata: PresetMetadata;
@@ -92,6 +95,30 @@ function checkPreset(input: unknown): ProviderPreset | string {
   if (p.secret !== undefined && (typeof p.secret !== 'string' || p.secret === '')) {
     return '"secret" must be a non-empty string';
   }
+  const configProblem = adapterConfigProblem(p);
+  if (configProblem !== undefined) return configProblem;
+  const metadata = p.metadata as { readonly id?: unknown; readonly models?: unknown } | undefined;
+  if (
+    metadata === undefined ||
+    typeof metadata.id !== 'string' ||
+    !Array.isArray(metadata.models) ||
+    metadata.models.length === 0 ||
+    !metadata.models.every((m) => typeof (m as { name?: unknown }).name === 'string')
+  ) {
+    return '"metadata" must have an id and at least one named model';
+  }
+  const defaultModel = (metadata as { readonly defaultModel?: unknown }).defaultModel;
+  if (
+    defaultModel !== undefined &&
+    !metadata.models.some((m) => (m as { name: string }).name === defaultModel)
+  ) {
+    return '"metadata.defaultModel" must name one of its models';
+  }
+  return input as ProviderPreset;
+}
+
+/** What's wrong with a preset's `adapterConfig` / `adapterConfigValues`, if anything. */
+function adapterConfigProblem(p: Readonly<Record<string, unknown>>): string | undefined {
   if (
     p.adapterConfig !== undefined &&
     (!Array.isArray(p.adapterConfig) ||
@@ -105,17 +132,17 @@ function checkPreset(input: unknown): ProviderPreset | string {
   ) {
     return '"adapterConfig" must be a list of { key, description }';
   }
-  const metadata = p.metadata as { readonly id?: unknown; readonly models?: unknown } | undefined;
+  const values = p.adapterConfigValues;
   if (
-    metadata === undefined ||
-    typeof metadata.id !== 'string' ||
-    !Array.isArray(metadata.models) ||
-    metadata.models.length === 0 ||
-    !metadata.models.every((m) => typeof (m as { name?: unknown }).name === 'string')
+    values !== undefined &&
+    (values === null ||
+      typeof values !== 'object' ||
+      Array.isArray(values) ||
+      !Object.values(values).every((v) => ['string', 'number', 'boolean'].includes(typeof v)))
   ) {
-    return '"metadata" must have an id and at least one named model';
+    return '"adapterConfigValues" must be an object of string, number or boolean values';
   }
-  return input as ProviderPreset;
+  return undefined;
 }
 
 export interface PresetChoices {
@@ -170,13 +197,19 @@ export function presetRegistration(
     };
   }
   const secret = choices.secret ?? preset.secret;
-  const adapterConfig = Object.fromEntries(
-    (preset.adapterConfig ?? []).map((s) => [s.key, choices.settings[s.key] as string]),
-  );
+  const adapterConfig = {
+    ...preset.adapterConfigValues,
+    ...Object.fromEntries(
+      (preset.adapterConfig ?? []).map((s) => [s.key, choices.settings[s.key] as string]),
+    ),
+  };
+  // The preset's default, when it's among the models registered.
+  const { defaultModel, ...rest } = preset.metadata;
+  const keepDefault = defaultModel !== undefined && models.some((m) => m.name === defaultModel);
   return {
     kind: 'ok',
     input: {
-      metadata: { ...preset.metadata, models },
+      metadata: { ...rest, models, ...(keepDefault && { defaultModel }) },
       adapter_id: preset.adapterId,
       ...(secret !== undefined && { secret_ref: { envName: choices.envName, name: secret } }),
       ...(Object.keys(adapterConfig).length > 0 && { adapter_config: adapterConfig }),

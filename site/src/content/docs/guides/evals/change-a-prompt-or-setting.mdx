@@ -7,10 +7,6 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-:::note[Preview (0.1.4-rc)]
-Data blocks are new in Kindgi 0.1.4, available now in its release candidates:
-`npx @kindgi/cli@next`, and `uv add --prerelease allow kindgi`.
-:::
 
 A **data block** is a prompt, or a set of settings, kept in the runtime
 instead of in your code. Each change is a new version of the block, and an
@@ -246,7 +242,11 @@ with values a model can't take, refuses the publish, naming each:
 `{ "temperature": 0.2, "maxOutputTokens": 400 }` (a temperature from 0 to 2).
 Its model calls use them, and the version pins the block with its other
 settings. A reply that reaches `maxOutputTokens` stops there, mid-sentence if
-need be, and the run still completes.
+need be, and the run still completes. Some models take no temperature (the
+Claude 5.5 and GPT-6 models): their calls go without it, and the turn carries a
+`sampling-unsupported` warning (see
+[Temperature and thinking](../../models/#temperature-and-thinking)). A model
+that thinks spends part of `maxOutputTokens` on thinking.
 
 ## Change a block
 
@@ -404,7 +404,11 @@ print(derived.version, derived.pins.settings if derived.pins else None, derived.
   `Agent "acme-ops.reply-drafter" version "1.0.1" is already registered, and versions never change; publish it as 1.0.2, the next free version`.
 
 Before anyone uses the new version,
-[compare it on a test set](../compare-an-agent-version/).
+[compare it on a test set](../compare-an-agent-version/). Because 1.0.1 pins
+another settings block version than 1.0.0, the comparison runs read-only
+tools such as `acme-ops.refund-check` live rather than reusing the recorded
+results, so the new refund limit shows in the answers. Those cases count as
+`diverged`, which a gate with `replay` and `maxDiverged: 0` refuses.
 
 ## In the console
 

@@ -23,6 +23,31 @@ export function isRegistryAuthFailure(output: string): boolean {
   return AUTH_FAILURE.test(output);
 }
 
+/**
+ * Docker couldn't run the credential helper its config names (`credsStore`
+ * or `credHelpers` in `~/.docker/config.json`): `docker login`, `pull` and
+ * the access check all fail on it, whatever the registry would say.
+ */
+const CREDENTIAL_HELPER_FAILURE =
+  /error (?:getting|storing|saving) credentials|docker-credential-[A-Za-z0-9._-]+[^\n]*(?:executable file not found|not found in \$PATH)/i;
+
+/**
+ * The credential helper `docker` output says it couldn't run: `{ helper }`
+ * (`desktop` for `docker-credential-desktop`, when named), or `undefined`
+ * when the output isn't about one.
+ */
+export function credentialHelperFailure(output: string): { readonly helper?: string } | undefined {
+  if (!CREDENTIAL_HELPER_FAILURE.test(output)) return undefined;
+  const helper = /docker-credential-([A-Za-z0-9._-]+)/.exec(output)?.[1];
+  return helper !== undefined ? { helper } : {};
+}
+
+/** What to do about a credential helper Docker couldn't run. */
+export function credentialHelperHint(helper: string | undefined): string {
+  const name = helper !== undefined ? `docker-credential-${helper}` : 'a credential helper';
+  return `Docker's config (~/.docker/config.json, or the one in $DOCKER_CONFIG: "credsStore" or "credHelpers") names ${name}, and Docker couldn't run it. Put it on your PATH (Docker Desktop on macOS keeps it in /Applications/Docker.app/Contents/Resources/bin), or remove that entry from the config, then run this again.`;
+}
+
 /** The command that logs Docker in to `image`'s registry, as a message shows it. */
 export function registryLoginCommand(image: string): string {
   const registry = registryOf(image);
@@ -87,9 +112,13 @@ export async function dockerLogin(
     const notes = detail(login, token);
     return { kind: 'ok', notes: notes === '' ? [] : notes.split('\n') };
   }
-  const refused = isRegistryAuthFailure(login.stderr)
-    ? `\n  Check the username and the token.${registry === RUNTIME_IMAGE_REGISTRY ? ' For new pull credentials, write to contact@kindgi.com.' : ''}`
-    : '';
+  const helper = credentialHelperFailure(login.stderr);
+  const refused =
+    helper !== undefined
+      ? `\n  ${credentialHelperHint(helper.helper)}`
+      : isRegistryAuthFailure(login.stderr)
+        ? `\n  Check the username and the token.${registry === RUNTIME_IMAGE_REGISTRY ? ' For new pull credentials, write to contact@kindgi.com.' : ''}`
+        : '';
   return {
     kind: 'error',
     message: `docker login ${registry} failed: ${detail(login, token)}${refused}`,
@@ -103,8 +132,24 @@ export type ImageAccess =
   | { readonly kind: 'ok'; readonly method: AccessMethod }
   /** The registry refused: no credentials, or credentials without access. */
   | { readonly kind: 'no-access'; readonly detail: string; readonly method: AccessMethod }
-  /** The image isn't there, or the registry can't be reached. */
-  | { readonly kind: 'not-found'; readonly detail: string; readonly method: AccessMethod }
+  /**
+   * The image isn't there, or the registry can't be reached. With
+   * `docker manifest inspect`, "no such manifest" is also what a registry
+   * that refuses an anonymous caller looks like: `maybeNoAccess`.
+   */
+  | {
+      readonly kind: 'not-found';
+      readonly detail: string;
+      readonly method: AccessMethod;
+      readonly maybeNoAccess?: true;
+    }
+  /** Docker couldn't run the credential helper its config names (`helper`, when named). */
+  | {
+      readonly kind: 'credential-helper';
+      readonly helper?: string;
+      readonly detail: string;
+      readonly method: AccessMethod;
+    }
   /** Neither `docker buildx` nor `docker manifest` is available. */
   | { readonly kind: 'no-tool'; readonly detail: string };
 
@@ -139,8 +184,16 @@ export async function checkImageAccess(run: DockerRunner, image: string): Promis
 function accessFrom(outcome: DockerOutcome, method: AccessMethod): ImageAccess {
   if (outcome.code === 0) return { kind: 'ok', method };
   const shown = detail(outcome);
+  const helper = credentialHelperFailure(outcome.stderr);
+  if (helper !== undefined) return { kind: 'credential-helper', ...helper, detail: shown, method };
   if (isRegistryAuthFailure(outcome.stderr)) return { kind: 'no-access', detail: shown, method };
-  return { kind: 'not-found', detail: shown, method };
+  return {
+    kind: 'not-found',
+    detail: shown,
+    method,
+    ...(method === 'docker manifest inspect' &&
+      /no such manifest/i.test(outcome.stderr) && { maybeNoAccess: true as const }),
+  };
 }
 
 /** `repo:tag@sha256:…` → `repo@sha256:…`; a reference without a digest is unchanged. */

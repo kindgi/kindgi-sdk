@@ -186,7 +186,7 @@ kindgi.agents.promotions.create(
 
 # Which version would a run there use, and why?
 live = kindgi.agents.live.resolve("acme.order-desk", project_id=project_id, segments=acme)
-print(live.version, live.via, live.live_scope.kind)
+print(live.version, live.via, live.live_scope.kind if live.live_scope else None)
 
 # A run that names no version gets it.
 run = kindgi.runs.start(
@@ -195,7 +195,8 @@ run = kindgi.runs.start(
     segments=acme,
     input={"userMessage": "Where is order A-1002?"},
 )
-print(run.agent.version, run.agent.via)
+if run.agent is not None:  # set on an agent's runs
+    print(run.agent.version, run.agent.via)
 ```
 
 </TabItem>
@@ -323,10 +324,18 @@ most specific one covering its scope, at its latest version.
 
 ### Set a gate
 
-The scope must have a live version first. A gate on a scope with nothing live
-would let the next published version go live there ungated, so it's refused:
-`Nothing covering this scope pins a version of acme.order-desk, so publishing a version would make it live here ungated: pin a version for this scope, or one above it, first`.
-Promote a version, then publish the policy:
+A gated scope needs a live version of its own: otherwise the next published
+version, or a promotion above it, would reach its runs without its gate. The
+tenant has none here (it was unpinned above), so a policy for it is refused:
+`The tenant has no live version of acme.order-desk of its own, so publishing a version would make it live here ungated: pin a version for this scope first (1.2.0 serves it now)`.
+
+Promote a version for it first:
+
+```sh
+kindgi agents promote acme.order-desk 1.0.0 --tenant --reason="1.0.0 is the version we checked"
+```
+
+Then publish the policy:
 
 ```json
 {
@@ -347,7 +356,7 @@ kindgi gate-policies publish acme.order-desk-release --policy-version=1.0.0 --ag
 | `comparison.maxAgeHours` | a comparison of the version, finished at most this many hours ago |
 | `evidence.minCases` | each figure resting on at least this many judged cases, for the version and for the live one |
 | `metrics` | each named figure (`weightedYesShare`, `judgedCoverage`, or `weightedPrecisionAtK` with its `k`) at least `minCandidate`, and at most `maxDrop` below the live version |
-| `replay` | at most this many diverged cases, errors, refused writes and stopped cases (`maxDiverged`, `maxErrors`, `maxRefusedWrites`, `maxStopped`); those left out are 0 |
+| `replay` | at most this many diverged cases, errors, refused writes and stopped cases (`maxDiverged`, `maxErrors`, `maxRefusedWrites`, `maxStopped`); those left out are 0. A version with other settings runs read-only tools live, which [counts as diverged](../compare-an-agent-version/#what-a-replay-does), so `maxDiverged: 0` refuses it |
 | `approvals` | then a reviewer with this role (`senior` if left out) approves it, someone other than whoever asked (`separateApprover: false` lets the one who asked approve it) |
 | `onlyRestrictedClasses: true` | a comparison that [counted only restricted judges](../compare-an-agent-version/#count-only-restricted-judges) |
 
@@ -365,6 +374,31 @@ With `onlyRestrictedClasses`, a comparison that counted every class is
 refused with
 `` The policy counts only restricted judge classes; the comparison counted every class. Re-run it with `classWeights: 'restricted-only'`. ``,
 so only the judges you restricted can release a version.
+
+#### A scope that runs a version from above
+
+A scope whose runs get their version from a pin above it, such as a segment
+that runs its project's version, is refused the same way, naming that pin:
+`Segment company:globex has no live version of acme.order-desk of its own, so a promotion for project <project-id> would change it without this gate: pin a version for this scope first (1.0.0 serves it now)`.
+
+**Pin it in place:** promote the version it serves now. That changes nothing
+for its runs, so it needs no comparison and no approval, even when a gate
+already applies:
+
+```sh
+kindgi agents promote acme.order-desk 1.0.0 --project=<project-id> --segment=company:globex --reason="Pin globex before its gate"
+```
+
+Under a gate, the promotion's one check says why it went through, and its
+reason starts with `pin-in-place`:
+`acme.order-desk 1.0.0 already serves this scope (from a pin above it), so pinning it here changes nothing for runs: the gate's checks and approval don't apply.`
+`--check` answers `would-promote` with that same check.
+
+A gate set during the 0.1.4 release candidates may still follow a pin above
+it. Then a promotion, rollback or unpin above it is refused with
+`409 gate-policy-descendant-unpinned`, naming the scope and its version:
+`Promoting acme.order-desk for project <project-id> would also change segment company:acme, which a gate policy applies to and which has no live version of its own, without its gate. Pin it at its current version first: segment company:acme at 1.0.0`.
+Pin that scope in place, as above, and promote again.
 
 ### Check before you promote
 
@@ -432,8 +466,8 @@ If another promotion of the same scope goes live first, a waiting request is
 ### A gated scope stays pinned
 
 Rolling back is immediate and isn't gated. Unpinning a gated scope is refused,
-since its runs would then take whatever version is published next:
-`Unpinning would leave tenant with a gate policy on the latest version of acme.order-desk, where publishing goes live ungated: pin a version above it first, or unregister the gate policy`.
+since a gated scope keeps its own live version:
+`segment company:acme in project <project-id> has a gate policy for acme.order-desk, and a gated scope keeps its own live version: unregister the gate policy first, or roll back instead`.
 
 ### Promote from your app
 

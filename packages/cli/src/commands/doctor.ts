@@ -13,7 +13,14 @@
  * runtime `kindgi dev` runs, and a provider registered there. Outside a
  * project the project's checks are skipped, saying why; a check that
  * needs another (the registry needs Docker) is skipped when that one
- * fails. `skip` is never a failure.
+ * fails. `skip` is never a failure, and neither is `warn`: it works now,
+ * but the person should know (a provider whose agents land on a model its
+ * preset no longer lists, or not on the preset's default).
+ *
+ * Under `kindgi-cli` (the PyPI build, `KINDGI_CLI_INSTALL=pypi`), Node is
+ * the one the wheel brings and npm isn't needed, so neither is a failure,
+ * and the fixes say `uv run kindgi …` (or `uvx --from kindgi-cli kindgi …`
+ * outside a project), not npx.
  */
 
 import { spawn } from 'node:child_process';
@@ -26,13 +33,16 @@ import { LOCAL_ENV_NAME, displayEnvPath, readPackEnv } from '@kindgi/secrets-dot
 import type { CommandContext } from '../context.js';
 import { type DockerRunner, docker } from '../dev/runtime-container.js';
 import { DEFAULT_RUNTIME_IMAGE, registryOf } from '../dev/runtime-image.js';
-import { checkDocker, checkImageAccess } from '../dev/runtime-registry.js';
+import { checkDocker, checkImageAccess, credentialHelperHint } from '../dev/runtime-registry.js';
 import { renderJson } from '../output.js';
 import {
+  type PackageManager,
   binCommand,
-  detectBinRunner,
-  detectPackageManager,
+  cliInstall,
+  defaultDetectIo,
   publishedCliSpec,
+  pythonBinRunner,
+  usablePackageManager,
 } from '../package-manager.js';
 import { type ProviderPreset, loadProviderPresets } from '../providers/preset-loader.js';
 import { CLI_VERSION } from '../version-info.js';
@@ -64,16 +74,17 @@ export type DoctorCheckId =
 
 export interface DoctorCheck {
   readonly id: DoctorCheckId;
-  readonly status: 'pass' | 'fail' | 'skip';
+  /** `warn` works now but needs the person's attention: never a failure (`ok` stays true). */
+  readonly status: 'pass' | 'warn' | 'fail' | 'skip';
   /** What was found, in a sentence. */
   readonly message: string;
-  /** The exact command or step that fixes it: on every failure, and on some skips. */
+  /** The exact command or step that fixes it: on every failure and warning, and on some skips. */
   readonly fix?: string;
 }
 
 /** What `kindgi doctor --json` prints. */
 export interface DoctorReport {
-  /** No check failed (skips don't count). */
+  /** No check failed (skips and warnings don't count). */
   readonly ok: boolean;
   readonly cliVersion: string;
   /** The Kindgi project in the folder checked, or `null` outside one. */
@@ -147,10 +158,10 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
   const config = await findKindgiConfig(dir);
   const language =
     config === undefined ? undefined : config.format === 'pyproject' ? 'python' : 'node';
-  const kindgi = await kindgiCommand(dir, language);
+  const pypi = cliInstall(ctx.env) === 'pypi';
+  const kindgi = await kindgiCommand(dir, language, pypi, tool);
 
-  checks.push(nodeCheck(seam.nodeVersion ?? process.versions.node));
-  checks.push(await npmCheck(tool));
+  checks.push(...(await nodeChecks(seam.nodeVersion ?? process.versions.node, tool, pypi)));
   checks.push(...(await pythonChecks(tool, language)));
   const dockerCheck = await checkDockerRunning(run);
   checks.push(dockerCheck);
@@ -165,7 +176,7 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
       id: 'project',
       status: 'skip',
       message: `No Kindgi project in ${dir}: no kindgi.config.ts, and no pyproject.toml with [tool.kindgi].`,
-      fix: `Create one: ${kindgi('init', '<name>')} (TypeScript; add --template=python for Python), then run doctor in its folder.`,
+      fix: createProjectFix(kindgi, pypi),
     });
     for (const id of ['dependencies', 'model-key', 'runtime', 'provider'] as const) {
       checks.push(skip(id, 'Not checked: it needs a project.'));
@@ -175,13 +186,13 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
 
   const rc = await readKindgirc(dir);
   checks.push(projectCheck(dir, language, rc));
-  checks.push(await dependenciesCheck(dir, language));
+  checks.push(await dependenciesCheck(dir, language, tool));
   checks.push(await modelKeyCheck(dir, seam, ctx.env, kindgi));
   const runtime = await runtimeCheck(ctx, rc, kindgi);
   checks.push(runtime.check);
   checks.push(
     runtime.check.status === 'pass' && runtime.url !== undefined && rc.token !== undefined
-      ? await providerCheck(ctx, runtime.url, rc.token, kindgi)
+      ? await providerCheck(ctx, runtime.url, rc.token, kindgi, seam)
       : skip('provider', `Not checked: it needs the runtime running (${kindgi('dev')}).`),
   );
   return report(checks, { dir, language });
@@ -191,18 +202,29 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
 export function doctorText(report: DoctorReport): string {
   const lines = [`kindgi doctor (CLI ${report.cliVersion})`];
   for (const check of report.checks) {
-    const mark = check.status === 'pass' ? '✓' : check.status === 'fail' ? '✗' : '–';
+    const mark = MARKS[check.status];
     lines.push(`  ${mark} ${TITLES[check.id]}: ${check.message}`);
     if (check.fix !== undefined && check.status !== 'pass') lines.push(`      Fix: ${check.fix}`);
   }
   const failed = report.checks.filter((c) => c.status === 'fail').length;
+  const warned = report.checks.filter((c) => c.status === 'warn').length;
+  const warnings = `${warned} ${warned === 1 ? 'warning' : 'warnings'}`;
   lines.push(
-    failed === 0
-      ? 'Everything checked is ready.'
-      : `${failed} ${failed === 1 ? 'problem' : 'problems'} to fix.`,
+    failed > 0
+      ? `${failed} ${failed === 1 ? 'problem' : 'problems'} to fix${warned > 0 ? `, and ${warnings}` : ''}.`
+      : warned > 0
+        ? `Everything checked is ready, with ${warnings}.`
+        : 'Everything checked is ready.',
   );
   return `${lines.join('\n')}\n`;
 }
+
+const MARKS: Readonly<Record<DoctorCheck['status'], string>> = {
+  pass: '✓',
+  warn: '!',
+  fail: '✗',
+  skip: '–',
+};
 
 function report(checks: readonly DoctorCheck[], project: DoctorReport['project']): DoctorReport {
   return {
@@ -214,6 +236,12 @@ function report(checks: readonly DoctorCheck[], project: DoctorReport['project']
 }
 
 const pass = (id: DoctorCheckId, message: string): DoctorCheck => ({ id, status: 'pass', message });
+const warn = (id: DoctorCheckId, message: string, fix: string): DoctorCheck => ({
+  id,
+  status: 'warn',
+  message,
+  fix,
+});
 const fail = (id: DoctorCheckId, message: string, fix: string): DoctorCheck => ({
   id,
   status: 'fail',
@@ -229,9 +257,32 @@ const skip = (id: DoctorCheckId, message: string, fix?: string): DoctorCheck => 
 
 // ---------- tools ----------
 
-function nodeCheck(version: string): DoctorCheck {
+/** Node and npm. Under kindgi-cli, Node is the one the wheel brings and npm isn't needed. */
+async function nodeChecks(
+  version: string,
+  tool: NonNullable<DoctorSeam['tool']>,
+  pypi: boolean,
+): Promise<DoctorCheck[]> {
+  if (!pypi) return [nodeCheck(version, false), await npmCheck(tool)];
+  return [
+    nodeCheck(version, true),
+    skip(
+      'npm',
+      'Not needed: this kindgi is kindgi-cli (from PyPI), for Python projects, and it brings its own Node.',
+    ),
+  ];
+}
+
+/** How to start a project here: kindgi-cli makes Python packs only. */
+function createProjectFix(kindgi: Kindgi, pypi: boolean): string {
+  return pypi
+    ? `Create one: ${kindgi('init', '<name>', '--template=python')}, then run doctor in its folder.`
+    : `Create one: ${kindgi('init', '<name>')} (TypeScript; add --template=python for Python), then run doctor in its folder.`;
+}
+
+function nodeCheck(version: string, pypi: boolean): DoctorCheck {
   return atLeast(version, MIN_NODE)
-    ? pass('node', `Node ${version}.`)
+    ? pass('node', pypi ? `Node ${version}, bundled with kindgi-cli.` : `Node ${version}.`)
     : fail(
         'node',
         `Node ${version}; Kindgi needs ${MIN_NODE} or later.`,
@@ -321,6 +372,7 @@ async function registryCheck(
 ): Promise<DoctorCheck> {
   const access = await checkImageAccess(run, image);
   const host = registryOf(image);
+  const login = `${kindgi('auth', 'registry', '--username', '<robot name>', '--password-stdin')} (the robot name and token come from access.kindgi.com; pipe the token in, never paste it into a chat)`;
   switch (access.kind) {
     case 'ok':
       return pass('registry', `Docker can pull the runtime image (${image}).`);
@@ -328,13 +380,25 @@ async function registryCheck(
       return fail(
         'registry',
         `Docker can't pull the runtime image from ${host}: ${firstLine(access.detail)}`,
-        `Log Docker in with your pull token: ${kindgi('auth', 'registry', '--username', '<robot name>', '--password-stdin')} (the robot name and token come from access.kindgi.com; pipe the token in, never paste it into a chat). Then run doctor again.`,
+        `Log Docker in with your pull token: ${login}. Then run doctor again.`,
       );
     case 'not-found':
+      return access.maybeNoAccess === true
+        ? fail(
+            'registry',
+            `Docker has no access to the runtime image on ${host}, or it isn't there: docker manifest inspect can't tell them apart (${firstLine(access.detail)}).`,
+            `If you haven't logged Docker in yet: ${login}. Otherwise check this machine can reach ${host}, then run doctor again.`,
+          )
+        : fail(
+            'registry',
+            `Couldn't find the runtime image on ${host}: ${firstLine(access.detail)}`,
+            `Check this machine can reach ${host} (the network, a proxy or a firewall), then run doctor again.`,
+          );
+    case 'credential-helper':
       return fail(
         'registry',
-        `Couldn't find the runtime image on ${host}: ${firstLine(access.detail)}`,
-        `Check this machine can reach ${host} (the network, a proxy or a firewall), then run doctor again.`,
+        `Docker couldn't run its credential helper${access.helper !== undefined ? ` (docker-credential-${access.helper})` : ''}: ${firstLine(access.detail)}`,
+        credentialHelperHint(access.helper),
       );
     case 'no-tool':
       return fail(
@@ -393,7 +457,11 @@ function projectCheck(dir: string, language: 'node' | 'python', rc: Kindgirc): D
   );
 }
 
-async function dependenciesCheck(dir: string, language: 'node' | 'python'): Promise<DoctorCheck> {
+async function dependenciesCheck(
+  dir: string,
+  language: 'node' | 'python',
+  tool: NonNullable<DoctorSeam['tool']>,
+): Promise<DoctorCheck> {
   if (language === 'python') {
     return (await pythonPackageInstalled(dir))
       ? pass('dependencies', 'The kindgi package is installed in .venv.')
@@ -406,11 +474,11 @@ async function dependenciesCheck(dir: string, language: 'node' | 'python'): Prom
   if (await nodePackageInstalled(dir, '@kindgi/sdk')) {
     return pass('dependencies', '@kindgi/sdk is installed.');
   }
-  const pm = await detectPackageManager(dir);
+  const { pm, declared } = await installedPackageManager(dir, tool);
   return fail(
     'dependencies',
     "@kindgi/sdk isn't installed: the project's dependencies aren't.",
-    `Install them: ${pm} install`,
+    `Install them: ${pm} install${declared !== undefined ? ` (the project names ${declared}, which isn't installed here)` : ''}`,
   );
 }
 
@@ -441,6 +509,23 @@ async function pythonPackageInstalled(dir: string): Promise<boolean> {
   return false;
 }
 
+/** `a`, `a or b`, `a, b or c`. */
+function orList(items: readonly string[]): string {
+  return items.length <= 1
+    ? (items[0] ?? '')
+    : `${items.slice(0, -1).join(', ')} or ${items[items.length - 1]}`;
+}
+
+/** The presets that take an LLM provider key, with the key's name, in preset order. */
+async function keyedPresets(
+  seam: DoctorSeam,
+): Promise<readonly { readonly name: string; readonly secret: string }[]> {
+  const presets = await (seam.presets ?? (() => loadProviderPresets()))();
+  return Object.values(presets).flatMap((p) =>
+    p.secret !== undefined ? [{ name: p.name, secret: p.secret }] : [],
+  );
+}
+
 /** A model key the presets name, set in the project's env files. Its value is never read out. */
 async function modelKeyCheck(
   dir: string,
@@ -448,10 +533,7 @@ async function modelKeyCheck(
   hostEnv: Readonly<Record<string, string | undefined>>,
   kindgi: Kindgi,
 ): Promise<DoctorCheck> {
-  const presets = await (seam.presets ?? (() => loadProviderPresets()))();
-  const names = [
-    ...new Set(Object.values(presets).flatMap((p) => (p.secret !== undefined ? [p.secret] : []))),
-  ];
+  const names = [...new Set((await keyedPresets(seam)).map((p) => p.secret))];
   const env = await readPackEnv({ packDir: dir, envName: LOCAL_ENV_NAME });
   const files = env.files.read.map((f) => displayEnvPath(dir, f)).join(' or ');
   const found = names.find((name) => (env.values[name] ?? '').trim() !== '');
@@ -464,10 +546,11 @@ async function modelKeyCheck(
   }
   const inShell = names.find((name) => (hostEnv[name] ?? '').trim() !== '');
   const want = names[0] ?? 'ANTHROPIC_API_KEY';
+  const others = names.slice(1);
   return fail(
     'model-key',
     `No model key in ${files} (looked for ${names.join(', ')})${inShell !== undefined ? `; ${inShell} is set in your shell, but kindgi dev reads keys from the project's env files` : ''}.`,
-    `With kindgi dev running: ${kindgi('secrets', 'set', want, '--env=local', '--scope=tenant')} (it prompts without echoing; or pipe it in with --from-stdin). Never paste a key into a chat.`,
+    `With kindgi dev running, set one LLM provider's key: ${kindgi('secrets', 'set', want, '--env=local', '--scope=tenant')}${others.length > 0 ? `, or the same with ${orList(others)}` : ''} (it prompts without echoing; or pipe it in with --from-stdin). Never paste a key into a chat.`,
   );
 }
 
@@ -518,17 +601,32 @@ async function providerCheck(
   apiUrl: string,
   token: string,
   kindgi: Kindgi,
+  seam: DoctorSeam,
 ): Promise<DoctorCheck> {
   try {
     const page = await ctx.clientFor(apiUrl, token).providers.list();
-    const ids = page.data.map((p) => (p as { id?: string }).id ?? '?');
+    const listed = page.data as readonly ListedProvider[];
+    const ids = listed.map((p) => p.id ?? '?');
     const models = ids.filter((id) => id !== DEV_ECHO_PROVIDER_ID);
-    const register = `Register one: ${kindgi('providers', 'register', '--preset=anthropic')} (its key must be set first; see Model key).`;
+    const presets = (await keyedPresets(seam)).map((p) => p.name);
+    const register =
+      presets.length > 1
+        ? `Register the provider whose key you set: ${kindgi('providers', 'register', '--preset=<preset>')}, where <preset> is ${orList(presets)} (see Model key).`
+        : `Register one: ${kindgi('providers', 'register', `--preset=${presets[0] ?? 'anthropic'}`)} (its key must be set first; see Model key).`;
     if (models.length > 0) {
-      return pass(
-        'provider',
-        `${models.length === 1 ? 'A provider is' : `${models.length} providers are`} registered: ${models.join(', ')}.`,
+      const registered = `${models.length === 1 ? 'A provider is' : `${models.length} providers are`} registered: ${models.join(', ')}.`;
+      const stale = staleDefaults(
+        listed,
+        await (seam.presets ?? (() => loadProviderPresets()))(),
+        kindgi,
       );
+      return stale.length === 0
+        ? pass('provider', registered)
+        : warn(
+            'provider',
+            [registered, ...stale.map((s) => s.message)].join(' '),
+            stale.map((s) => s.fix).join(' '),
+          );
     }
     return ids.length > 0
       ? fail(
@@ -546,6 +644,66 @@ async function providerCheck(
   }
 }
 
+/** A registered provider as `providers.list` answers it; a runtime before 0.1.4 sends no `defaultModel`. */
+interface ListedProvider {
+  readonly id?: string;
+  readonly models?: readonly { readonly name: string }[];
+  readonly defaultModel?: string;
+}
+
+/**
+ * Registrations made from a preset (the preset's provider id) whose
+ * agents that name no model land where the preset no longer would send
+ * them: on a model the preset dropped, or, for a registration with no
+ * default model, not on the preset's default.
+ */
+function staleDefaults(
+  listed: readonly ListedProvider[],
+  presets: Readonly<Record<string, ProviderPreset>>,
+  kindgi: Kindgi,
+): readonly { readonly message: string; readonly fix: string }[] {
+  const byId = new Map(Object.values(presets).map((p) => [p.metadata.id, p]));
+  return listed.flatMap((p) => {
+    const preset = p.id === undefined ? undefined : byId.get(p.id);
+    const names = (p.models ?? []).map((m) => m.name);
+    if (preset === undefined || names.length === 0) return [];
+    // As the router breaks a tie: the provider's default model, else the first by name.
+    const lands =
+      p.defaultModel !== undefined && names.includes(p.defaultModel)
+        ? p.defaultModel
+        : [...names].sort((a, b) => a.localeCompare(b))[0];
+    const register = kindgi(
+      'providers',
+      'register',
+      `--preset=${preset.name}`,
+      ...(preset.adapterConfig ?? []).map((s) => `--${s.key}=<${s.key}>`),
+    );
+    if (!preset.metadata.models.some((m) => m.name === lands)) {
+      return [
+        {
+          message: `On ${p.id}, an agent that names no model gets ${lands}, which the ${preset.name} preset no longer lists.`,
+          fix: `Re-register ${p.id} for the preset's current models: ${register}. Or name a model on your agents (preferredModel).`,
+        },
+      ];
+    }
+    const wanted = preset.metadata.defaultModel;
+    if (
+      p.defaultModel === undefined &&
+      wanted !== undefined &&
+      wanted !== lands &&
+      names.includes(wanted)
+    ) {
+      return [
+        {
+          message: `On ${p.id}, an agent that names no model gets ${lands}, the first by name: ${p.id} has no default model, and the ${preset.name} preset's is ${wanted}.`,
+          fix: `Re-register ${p.id}: ${register}. A runtime older than 0.1.4 doesn't keep a default model: there, name a model on your agents (preferredModel).`,
+        },
+      ];
+    }
+    return [];
+  });
+}
+
 // ---------- helpers ----------
 
 /** A `kindgi` command as this folder runs it, for a fix to copy. */
@@ -559,9 +717,22 @@ type Kindgi = (...args: string[]) => string;
 async function kindgiCommand(
   dir: string,
   language: 'node' | 'python' | undefined,
+  pypi: boolean,
+  tool: NonNullable<DoctorSeam['tool']>,
 ): Promise<Kindgi> {
+  if (pypi) {
+    // The PyPI build runs from the project's own environment; outside one, uvx.
+    if (language === undefined) {
+      return (...args) => ['uvx', '--from', 'kindgi-cli', 'kindgi', ...args].join(' ');
+    }
+    const runner = await pythonBinRunner(dir, { KINDGI_CLI_INSTALL: 'pypi' });
+    return (...args) => {
+      const c = binCommand(runner, 'kindgi', args);
+      return [c.command, ...c.args].join(' ');
+    };
+  }
   if (language === 'node') {
-    const runner = await detectBinRunner(dir, 'node');
+    const runner = (await installedPackageManager(dir, tool)).pm;
     return (...args) => {
       const c = binCommand(runner, 'kindgi', args);
       return [c.command, ...c.args].join(' ');
@@ -569,6 +740,20 @@ async function kindgiCommand(
   }
   const spec = publishedCliSpec(CLI_VERSION);
   return (...args) => ['npx', spec, ...args].join(' ');
+}
+
+/**
+ * The package manager that runs here (`usablePackageManager`), asking
+ * through doctor's tool seam whether a declared one is installed.
+ */
+function installedPackageManager(
+  dir: string,
+  tool: NonNullable<DoctorSeam['tool']>,
+): Promise<{ readonly pm: PackageManager; readonly declared?: PackageManager }> {
+  return usablePackageManager(dir, {
+    ...defaultDetectIo,
+    runs: async (pm) => (await tool(pm, ['--version'])).code === 0,
+  });
 }
 
 /** Run a tool to completion; `code: null` when it isn't installed. Gives up after 15 s. */

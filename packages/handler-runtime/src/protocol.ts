@@ -32,8 +32,13 @@ export interface PackCallContext {
   readonly orgId?: string;
   /** The individual call — e.g. the model's tool-call id. */
   readonly requestId?: string;
+  /**
+   * The env values the tool declares (`needsSpec.env`), resolved for this
+   * call: project, else org, else tenant (protocol 2.5.0). Strings.
+   */
   readonly env?: Readonly<Record<string, unknown>>;
   readonly secrets?: Readonly<Record<string, unknown>>;
+  /** Reserved: no runtime sends it yet. */
   readonly config?: Readonly<Record<string, unknown>>;
   /** The calling agent version's settings blocks' values, by block id (protocol 2.4.0). */
   readonly settings?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
@@ -217,4 +222,10 @@ export const PACK_HEADERS = {
   requestId: 'kindgi-request-id',
   artifactVersion: 'kindgi-artifact-version',
   durationMs: 'kindgi-duration-ms',
+  /**
+   * W3C Trace Context: the run's trace, so a pack service's records carry
+   * the same `traceId` as the runtime's. Optional: runtimes from 0.1.5 send
+   * it on every call; a pack service that doesn't read it ignores it.
+   */
+  traceparent: 'traceparent',
 } as const;

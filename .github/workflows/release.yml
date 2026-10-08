@@ -31,6 +31,14 @@ name: Release
 # it builds). A version PyPI already has is skipped.
 # PyPI trusted publisher: project `kindgi`, owner `kindgi`, repository
 # `kindgi-sdk`, workflow `release.yml`, environment `pypi-publish`.
+#
+# It also publishes `kindgi-cli` (sdks/python-cli): the CLI for Python
+# developers, the npm package @kindgi/cli with Node from a wheel. Its wheel is
+# built from the @kindgi/cli this dispatch just published to npm
+# (scripts/build-cli-wheel.mjs --from-npm), so PyPI carries exactly npm's
+# CLI; a dry run builds it from this commit's packed packages instead.
+# PyPI trusted publisher: project `kindgi-cli`, owner `kindgi`, repository
+# `kindgi-sdk`, workflow `release.yml`, environment `pypi-publish`.
 
 on:
   push:
@@ -194,4 +202,56 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: sdks/python/dist
+          skip-existing: true
+
+  publish-pypi-cli:
+    name: Publish kindgi-cli to PyPI
+    if: github.event_name == 'workflow_dispatch'
+    # The wheel carries the @kindgi/cli the npm job publishes.
+    needs: publish
+    runs-on: ubuntu-latest
+    environment: pypi-publish
+    permissions:
+      contents: read
+      id-token: write # PyPI trusted publishing (OIDC) + attestations
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # PyPI gets exactly the npm packages' version.
+      - name: The version is the npm packages'
+        run: node scripts/sync-python-version.mjs --check
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version-file: sdks/python-cli/pyproject.toml
+          python-version: "3.13"
+          # Without it, setup-uv hashes its default glob (**/pyproject.toml,
+          # **/uv.lock, **/*requirements*.txt, …) across the whole checkout,
+          # node_modules included, for its cache key: about 23 minutes a run.
+          cache-dependency-glob: sdks/python-cli/uv.lock
+      # A dry run published nothing to npm: the wheel comes from this commit.
+      - name: Build the wheel (dry run, from this checkout)
+        if: ${{ inputs.dry-run }}
+        run: |
+          pnpm run build
+          node scripts/build-cli-wheel.mjs --from-workspace --smoke
+      - name: Build the wheel (from the @kindgi/cli just published)
+        if: ${{ !inputs.dry-run }}
+        run: node scripts/build-cli-wheel.mjs --from-npm "$(node -p "require('./packages/cli/package.json').version")" --smoke
+      # Installers older than the metadata refuse the package (Poetry 1.8
+      # reads up to 2.3); the same check as the Python SDK's.
+      - name: The wheel's core metadata is 2.3
+        run: |
+          unzip -p sdks/python-cli/dist/*.whl '*.dist-info/METADATA' | grep -qx 'Metadata-Version: 2.3'
+      - name: The distribution's metadata renders on PyPI
+        run: uvx twine check --strict sdks/python-cli/dist/*
+      - name: Publish
+        if: ${{ !inputs.dry-run }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: sdks/python-cli/dist
           skip-existing: true

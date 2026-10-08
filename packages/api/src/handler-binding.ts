@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { AgentId } from '@kindgi/agents';
+import type { Principal } from '@kindgi/authz';
 import type { FlowVersionOverrides } from '@kindgi/flow';
 import type { FlowId, ProjectId, RunId, ScopeSegment, Semver, TenantId } from '@kindgi/types';
 
@@ -58,6 +59,12 @@ export interface RunHandlerBinding {
   resumeRun(input: ResumeRunBindingInput): Promise<RunHandlerOutcome>;
 }
 
+/** The request's W3C trace context, for the run it starts (`traceId` is kept on the run). */
+export interface RunTrace {
+  readonly traceId: string;
+  readonly spanId: string;
+}
+
 export interface ResumeRunBindingInput {
   readonly tenantId: TenantId;
   readonly runId: RunId;
@@ -101,6 +108,14 @@ export interface InvokeAgentBindingInput {
    * can't run in the background may treat `false` like `true`.
    */
   readonly wait?: boolean;
+  /**
+   * Who started the run (the authenticated caller), when known: whom the
+   * turn acts for, e.g. whose own memory its retrievals may read. Set by
+   * the route, never from the body. On its own it enforces nothing.
+   */
+  readonly principal?: Principal;
+  /** The trace context of the request starting the run: the binding records its `traceId` on the run. */
+  readonly trace?: RunTrace;
 }
 
 export interface InvokeFlowBindingInput {
@@ -122,6 +137,10 @@ export interface InvokeFlowBindingInput {
   readonly wait?: boolean;
   /** Agents and tools to run at other exact versions than the flow version's pins (`RunFlowInput.versions`). */
   readonly versions?: FlowVersionOverrides;
+  /** Who started the run, as for `InvokeAgentBindingInput.principal`: its agent steps act for them. */
+  readonly principal?: Principal;
+  /** The trace context of the request starting the run, as for an agent run. */
+  readonly trace?: RunTrace;
 }
 
 export type RunHandlerOutcome =

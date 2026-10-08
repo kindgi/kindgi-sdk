@@ -240,7 +240,7 @@ export function createDotenvSecretBinding(
     return {
       kind: 'err',
       error: {
-        code: 'secret-store-error',
+        code: 'secret-operation-unsupported',
         message: `Dev secrets live in your env files (${filesLabel(env)}) and have no versions to rotate. Edit the value there, or run \`kindgi secrets set ${input.name} --write-mode=add-version\`.`,
       },
     };
@@ -253,7 +253,7 @@ export function createDotenvSecretBinding(
     return {
       kind: 'err',
       error: {
-        code: 'secret-store-error',
+        code: 'secret-operation-unsupported',
         message: `Dev secrets live in your env files (${filesLabel(env)}) and have no revocation. Remove ${input.name} from those files.`,
       },
     };

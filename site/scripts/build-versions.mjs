@@ -5,19 +5,23 @@
  * Builds the public docs site, every released version of it, ready to
  * deploy:
  *
- *   /            the latest release line (indexed by search engines)
- *   /vX.Y/       every release line, from its newest `@kindgi/sdk@X.Y.*` tag
+ *   /            the newest release (indexed by search engines)
+ *   /vX.Y.Z/     every release, from its `@kindgi/sdk@X.Y.Z` tag (not indexed;
+ *                any but the newest shows a banner pointing at the newest)
+ *   /vX.Y/       redirects to its line's newest release, page for page
+ *                (`/_redirects`)
  *   /next/       the newest pre-release (`@kindgi/sdk@0.1.4-rc.0`) while it's
  *                newer than every release: marked as a release candidate,
  *                never indexed, and gone once its release ships
- *   /versions.json   the list the version menu reads
+ *   /versions.json   the list the version menu and the banner read: each build
+ *                    with the exact release it's from (`0.1.3`, `0.1.4-rc.3`)
  *
  * Only releases are public: readers install a release, so the site
  * describes what they have. What's merged but not released is checked in a
  * private preview instead (`build-preview.mjs`).
  *
- * A release line is built from its own tag, in a temporary worktree, so its
- * docs, its generated reference and its code are the same commit. Only tags
+ * A release is built from its own tag, in a temporary worktree, so its docs,
+ * its generated reference and its code are the same commit. Only tags
  * that contain the site count (releases before it have no docs to build).
  *
  * Usage: node site/scripts/build-versions.mjs [--out <dir>]
@@ -29,7 +33,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { plan } from './versions-plan.mjs';
+import { docsSource, menu, plan, redirects } from './versions-plan.mjs';
 
 const args = process.argv.slice(2);
 const option = (name) => {
@@ -68,16 +72,37 @@ function buildDocs(dir, base, ref, dest) {
 }
 
 rmSync(out, { recursive: true, force: true });
-const { lines, next } = plan(siteTags());
-const versions = [];
+const planned = plan(siteTags());
+const { releases, next } = planned;
 
-if (lines.length === 0) {
+if (releases.length === 0) {
   console.error(
     'build-versions: no release contains the site yet. To look at this checkout, use `pnpm run docs:preview`.',
   );
   process.exit(1);
 }
-const latest = lines[0].parsed.line;
+/**
+ * The ref a release's docs build from: its `release-docs/<version>` branch on
+ * origin when there is one (fetch first), else its tag. See `docsSource`.
+ */
+function releaseDocsRef(tag, version) {
+  const branch = `origin/release-docs/${version}`;
+  const exists = spawnSync('git', ['rev-parse', '--verify', '--quiet', `${branch}^{commit}`], {
+    cwd: repo,
+  });
+  if (exists.status !== 0) return tag;
+  const startsAtTag =
+    spawnSync('git', ['merge-base', '--is-ancestor', tag, branch], { cwd: repo }).status === 0;
+  const changed = startsAtTag
+    ? execFileSync('git', ['diff', '--name-only', tag, branch], { cwd: repo, encoding: 'utf8' })
+        .split('\n')
+        .filter(Boolean)
+    : [];
+  const source = docsSource({ tag, branch, startsAtTag, changed });
+  if ('error' in source) throw new Error(`build-versions: ${source.error}`);
+  return source.ref;
+}
+
 /** Checks out `tag` in a temporary worktree, builds its workspace, and runs `build` in it. */
 function atTag(tag, name, build) {
   const worktree = mkdtempSync(join(tmpdir(), `kindgi-docs-${name}-`));
@@ -90,19 +115,20 @@ function atTag(tag, name, build) {
     run('git', ['worktree', 'remove', '--force', worktree], repo);
   }
 }
-for (const [i, { tag, parsed }] of lines.entries()) {
-  console.log(`build-versions: v${parsed.line} from ${tag}`);
-  atTag(tag, parsed.line, (worktree) => {
-    buildDocs(worktree, `/v${parsed.line}/`, tag, join(out, `v${parsed.line}`));
+for (const [i, { tag, parsed }] of releases.entries()) {
+  const ref = releaseDocsRef(tag, parsed.version);
+  console.log(
+    `build-versions: v${parsed.version} from ${ref === tag ? tag : `${ref} (its docs fixed since ${tag})`}`,
+  );
+  atTag(ref, parsed.version, (worktree) => {
     if (i === 0) buildDocs(worktree, '/', tag, out);
+    buildDocs(worktree, `/v${parsed.version}/`, tag, join(out, `v${parsed.version}`));
   });
-  versions.push({ version: parsed.line, path: i === 0 ? '/' : `/v${parsed.line}/` });
-  if (i === 0) versions.push({ version: parsed.line, path: `/v${parsed.line}/` });
 }
 if (next) {
   console.log(`build-versions: next (v${next.parsed.version}) from ${next.tag}`);
   atTag(next.tag, 'next', (worktree) => buildDocs(worktree, '/next/', next.tag, join(out, 'next')));
-  versions.push({ version: next.parsed.version, path: '/next/', next: true });
 }
-writeFileSync(join(out, 'versions.json'), `${JSON.stringify({ latest, versions }, null, 2)}\n`);
+writeFileSync(join(out, 'versions.json'), `${JSON.stringify(menu(planned), null, 2)}\n`);
+writeFileSync(join(out, '_redirects'), redirects(planned));
 console.log(`build-versions: ${out}`);

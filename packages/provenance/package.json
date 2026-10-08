@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/provenance",
-  "version": "0.1.4-rc.2",
+  "version": "0.1.4",
   "description": "Kindgi™ provenance type surface + pure DAG primitives. Public type contract for the provenance subsystem: Provenance (signed run DAG), ProvenanceBuilder (incremental DAG assembly interface), ProvenanceNode + ProvenanceEdge + NODE_KINDS + EDGE_KINDS, Signature, KeyProvider + KeyMaterial (caller-plugged key store interface), ProvenanceError variants (InvalidProvenanceError, UnknownKeyError, SigningNotSupportedError, SignatureVerificationError, MissingSignatureError, PersistenceError, ProvenanceNotFoundError). Pure functions: newBuilder (DAG builder factory), signProvenance + verifyProvenance + verifyExported (Ed25519 primitives against canonical bytes), exportProvenance + importProvenance (round-trippable JSON), signingBytes (canonical projection), wrap + unwrap + unwrapOrThrow (versioned envelope). Also ProvenanceEmitBinding — caller-plugged emit method that hides the concrete store behind an interface. Storage, queries, and key management are provided by binding and KeyProvider implementations, such as those in the Kindgi runtime.",
   "license": "Apache-2.0",
   "repository": {

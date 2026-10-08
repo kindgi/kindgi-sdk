@@ -1,0 +1,82 @@
+{
+  "name": "openai",
+  "description": "GPT on the OpenAI API (key: OPENAI_API_KEY).",
+  "adapterId": "@kindgi/adapter-model-openai-compat",
+  "adapterConfigValues": {
+    "baseURL": "https://api.openai.com/v1",
+    "api": "responses"
+  },
+  "secret": "OPENAI_API_KEY",
+  "pricesCheckedAt": "2026-10-07",
+  "metadata": {
+    "id": "openai",
+    "region": "unspecified",
+    "defaultModel": "gpt-6.1-sol",
+    "description": "GPT on the OpenAI API",
+    "models": [
+      {
+        "name": "gpt-6.1-sol",
+        "contextWindow": 1050000,
+        "maxOutputTokens": 128000,
+        "thinking": { "mode": "adaptive", "lowest": "low" },
+        "sampling": false,
+        "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
+        "cost": {
+          "promptUsdPer1kTokens": 0.002,
+          "completionUsdPer1kTokens": 0.01,
+          "cachedPromptMultiplier": 0.05,
+          "promptCacheCreationMultiplier": 1.25,
+          "longContext": {
+            "thresholdTokens": 272000,
+            "promptUsdPer1kTokens": 0.004,
+            "completionUsdPer1kTokens": 0.015
+          },
+          "dataResidencyMultiplier": 1.1
+        },
+        "description": "Balanced performance and cost."
+      },
+      {
+        "name": "gpt-6-astra",
+        "contextWindow": 1050000,
+        "maxOutputTokens": 128000,
+        "thinking": { "mode": "adaptive", "lowest": "low" },
+        "sampling": false,
+        "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
+        "cost": {
+          "promptUsdPer1kTokens": 0.01,
+          "completionUsdPer1kTokens": 0.05,
+          "cachedPromptMultiplier": 0.1,
+          "promptCacheCreationMultiplier": 1.25,
+          "longContext": {
+            "thresholdTokens": 272000,
+            "promptUsdPer1kTokens": 0.02,
+            "completionUsdPer1kTokens": 0.075
+          },
+          "dataResidencyMultiplier": 1.1
+        },
+        "description": "Most capable — hard reasoning and long agentic work."
+      },
+      {
+        "name": "gpt-6-luna",
+        "contextWindow": 1050000,
+        "maxOutputTokens": 128000,
+        "thinking": { "mode": "adaptive", "lowest": "none" },
+        "sampling": false,
+        "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
+        "cost": {
+          "promptUsdPer1kTokens": 0.0001,
+          "completionUsdPer1kTokens": 0.0005,
+          "cachedPromptMultiplier": 0.1,
+          "promptCacheCreationMultiplier": 1.25,
+          "longContext": {
+            "thresholdTokens": 272000,
+            "promptUsdPer1kTokens": 0.0002,
+            "completionUsdPer1kTokens": 0.00075
+          },
+          "dataResidencyMultiplier": 1.1
+        },
+        "description": "Fastest and cheapest — routing, classification, simple calls."
+      }
+    ]
+  }
+}

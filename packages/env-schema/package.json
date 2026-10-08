@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/env-schema",
-  "version": "0.1.4-rc.2",
+  "version": "0.1.4",
   "description": "Machine-readable registry of the Kindgi runtime's operator-facing env vars. Single source of truth for boot-time validation (validateEnvForTarget), .env.example scaffolding (renderEnvExample), and tools or coding agents introspecting deployment config. Adding a new env var means adding one entry here — no drift between validation, docs, and .env.example generation.",
   "license": "Apache-2.0",
   "repository": {

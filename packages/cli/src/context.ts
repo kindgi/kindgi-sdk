@@ -13,6 +13,7 @@ import type { DeployRunners } from './deploy/runners.js';
 import type { DevRunners } from './dev/runners.js';
 import type { EnvRunners } from './env/runners.js';
 import type { KeyRunners } from './key/runners.js';
+import type { PackageManager } from './package-manager.js';
 import type { GlobalFlags, OptionValue } from './parse.js';
 import type { TestRunners } from './test/runners.js';
 
@@ -154,6 +155,8 @@ export interface CommandContext {
 
 export interface InitSeam {
   readonly pnpmVersion?: (dir: string) => Promise<string>;
+  /** Whether a package manager runs here (`<pm> --version`). Default: the real probe. */
+  readonly packageManagerRuns?: (pm: PackageManager) => Promise<boolean>;
 }
 
 export interface BuildContextInputs {
