@@ -4920,7 +4920,7 @@ class IdentityUsersResource:
     ) -> _models.UserCollectionPage:
         """List users in the tenant. `GET /v1/identity/users`
 
-        Cursor-paginated list of tenant users (sort order is binding-defined). Optional `?query=` is a prefix match on `displayName` — the natural filter shape for a "search users" surface. `primaryEmail` may be redacted per tenant policy.
+        Cursor-paginated list of tenant users (sort order is binding-defined), for tenant admins only. Optional `?query=` is a prefix match on `displayName` — the natural filter shape for a "search users" surface. `primaryEmail` may be redacted per tenant policy. Anyone else adds a person to a project by their email or id (`POST /v1/projects/{projectId}/memberships`).
         """
         return self._client._request(
             _OPERATIONS["identity.users.list"],
@@ -4960,7 +4960,10 @@ class IdentityUsersResource:
         )
 
     def get(self, user_id: str | UUID, /, *, timeout: float | None = None) -> _models.UserRecord:
-        """Get a user by id. `GET /v1/identity/users/{userId}`"""
+        """Get a user by id. `GET /v1/identity/users/{userId}`
+
+        A tenant admin, or the person themselves.
+        """
         return self._client._request(
             _OPERATIONS["identity.users.get"],
             path={"userId": user_id},
@@ -4975,7 +4978,7 @@ class IdentityUsersResource:
     ) -> _models.IdentitySessionCollectionPage:
         """List active sessions for a user. `GET /v1/identity/users/{userId}/sessions`
 
-        Returns the wire-safe `IdentitySessionSummary` shape — provider access-token + refresh-token never cross the wire, even to admins. Unknown user id returns an empty list (call `GET /v1/identity/users/:userId` first to distinguish "no sessions" from "no user").
+        A tenant admin, or the person themselves. Returns the wire-safe `IdentitySessionSummary` shape — provider access-token + refresh-token never cross the wire, even to admins. Unknown user id returns an empty list (call `GET /v1/identity/users/:userId` first to distinguish "no sessions" from "no user").
         """
         return self._client._request(
             _OPERATIONS["identity.users.listSessions"],
@@ -5693,7 +5696,7 @@ class ProjectsMembershipsResource:
     ) -> _models.AddProjectMembershipResult:
         """Add a user directly to a project. `POST /v1/projects/{projectId}/memberships`
 
-        Idempotent on `(projectId, userId)` — re-adding an existing member with a different role does NOT overwrite; use PATCH for role changes.
+        Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Idempotent on `(projectId, userId)` — re-adding an existing member with a different role does NOT overwrite; use PATCH for role changes.
         """
         return self._client._request(
             _OPERATIONS["projects.memberships.add"],
@@ -5755,7 +5758,7 @@ class ProjectsResource:
     def get_default(self, /, *, timeout: float | None = None) -> _models.Project:
         """Fetch the tenant's Default project. `GET /v1/projects/default`
 
-        Returns the row where `Project.isDefault = true` (exactly one per tenant). Returns 404 `project-not-found` when no Default has been provisioned.
+        Returns the row where `Project.isDefault = true` (exactly one per tenant), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when no Default has been provisioned.
         """
         return self._client._request(
             _OPERATIONS["projects.getDefault"],
@@ -11093,7 +11096,7 @@ class AsyncIdentityUsersResource:
     ) -> _models.UserCollectionPage:
         """List users in the tenant. `GET /v1/identity/users`
 
-        Cursor-paginated list of tenant users (sort order is binding-defined). Optional `?query=` is a prefix match on `displayName` — the natural filter shape for a "search users" surface. `primaryEmail` may be redacted per tenant policy.
+        Cursor-paginated list of tenant users (sort order is binding-defined), for tenant admins only. Optional `?query=` is a prefix match on `displayName` — the natural filter shape for a "search users" surface. `primaryEmail` may be redacted per tenant policy. Anyone else adds a person to a project by their email or id (`POST /v1/projects/{projectId}/memberships`).
         """
         return await self._client._request(
             _OPERATIONS["identity.users.list"],
@@ -11135,7 +11138,10 @@ class AsyncIdentityUsersResource:
     async def get(
         self, user_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.UserRecord:
-        """Get a user by id. `GET /v1/identity/users/{userId}`"""
+        """Get a user by id. `GET /v1/identity/users/{userId}`
+
+        A tenant admin, or the person themselves.
+        """
         return await self._client._request(
             _OPERATIONS["identity.users.get"],
             path={"userId": user_id},
@@ -11150,7 +11156,7 @@ class AsyncIdentityUsersResource:
     ) -> _models.IdentitySessionCollectionPage:
         """List active sessions for a user. `GET /v1/identity/users/{userId}/sessions`
 
-        Returns the wire-safe `IdentitySessionSummary` shape — provider access-token + refresh-token never cross the wire, even to admins. Unknown user id returns an empty list (call `GET /v1/identity/users/:userId` first to distinguish "no sessions" from "no user").
+        A tenant admin, or the person themselves. Returns the wire-safe `IdentitySessionSummary` shape — provider access-token + refresh-token never cross the wire, even to admins. Unknown user id returns an empty list (call `GET /v1/identity/users/:userId` first to distinguish "no sessions" from "no user").
         """
         return await self._client._request(
             _OPERATIONS["identity.users.listSessions"],
@@ -11868,7 +11874,7 @@ class AsyncProjectsMembershipsResource:
     ) -> _models.AddProjectMembershipResult:
         """Add a user directly to a project. `POST /v1/projects/{projectId}/memberships`
 
-        Idempotent on `(projectId, userId)` — re-adding an existing member with a different role does NOT overwrite; use PATCH for role changes.
+        Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Idempotent on `(projectId, userId)` — re-adding an existing member with a different role does NOT overwrite; use PATCH for role changes.
         """
         return await self._client._request(
             _OPERATIONS["projects.memberships.add"],
@@ -11930,7 +11936,7 @@ class AsyncProjectsResource:
     async def get_default(self, /, *, timeout: float | None = None) -> _models.Project:
         """Fetch the tenant's Default project. `GET /v1/projects/default`
 
-        Returns the row where `Project.isDefault = true` (exactly one per tenant). Returns 404 `project-not-found` when no Default has been provisioned.
+        Returns the row where `Project.isDefault = true` (exactly one per tenant), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when no Default has been provisioned.
         """
         return await self._client._request(
             _OPERATIONS["projects.getDefault"],

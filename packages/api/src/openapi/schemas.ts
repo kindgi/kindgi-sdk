@@ -898,7 +898,7 @@ const ApiTokenRoleSchema: JsonSchema = {
   type: 'string',
   enum: ['admin', 'member'],
   description:
-    "The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action, whoever it's for.",
+    "The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action on the tenant, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project).",
 };
 
 export const ApiKeyPrincipalSchema: JsonSchema = {
@@ -7230,11 +7230,17 @@ export const ProjectMembershipCollectionPageSchema: JsonSchema = {
 };
 
 export const AddProjectMembershipBodySchema: JsonSchema = {
+  description: 'Exactly one of `userId` and `email` names the person.',
   type: 'object',
   additionalProperties: false,
-  required: ['userId', 'role'],
+  required: ['role'],
   properties: {
     userId: { type: 'string', minLength: 1 },
+    email: {
+      type: 'string',
+      minLength: 1,
+      description: "The person's email, as the tenant has it.",
+    },
     role: { $ref: '#/components/schemas/ProjectRole' },
   },
 };

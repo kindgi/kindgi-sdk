@@ -31,8 +31,10 @@ import type {
 const tenantA = randomUUID() as TenantId;
 const tenantB = randomUUID() as TenantId;
 const BEARER_TOKEN = 'identity-bearer-abc';
-/** A tenant admin: revoking someone else's sessions needs one. */
+/** A tenant admin: listing people, and reading or revoking someone else's sessions, needs one. */
 const ADMIN_TOKEN = 'identity-bearer-admin';
+/** A member who is `u-a`: not a tenant admin. */
+const MEMBER_TOKEN = 'identity-bearer-member';
 const SESSION_ID = 'ses-abc-123' as SessionId;
 const SESSION_USER = 'user-alice' as UserId;
 
@@ -189,6 +191,7 @@ function baseUser(
 const bearerResolver: TokenResolver = async (token) => {
   if (token === BEARER_TOKEN) return { tenantId: tenantA };
   if (token === ADMIN_TOKEN) return { tenantId: tenantA, scopes: ['tenant-admin'] };
+  if (token === MEMBER_TOKEN) return { tenantId: tenantA, userId: 'u-a' as UserId };
   return null;
 };
 
@@ -231,7 +234,7 @@ async function jsonPost(
 describe('API — identity list users', () => {
   test('empty directory → empty list', async () => {
     const { app } = makeApp();
-    const res = await jsonGet(app, '/v1/identity/users');
+    const res = await jsonGet(app, '/v1/identity/users', ADMIN_TOKEN);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: readonly unknown[]; hasMore: boolean };
     expect(body.data).toEqual([]);
@@ -244,7 +247,7 @@ describe('API — identity list users', () => {
     directory?.setUser(baseUser({ userId: 'u-b' as UserId, tenantId: tenantA }));
     // Cross-tenant row must not leak.
     directory?.setUser(baseUser({ userId: 'u-c' as UserId, tenantId: tenantB }));
-    const res = await jsonGet(app, '/v1/identity/users');
+    const res = await jsonGet(app, '/v1/identity/users', ADMIN_TOKEN);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: { userId: string }[]; hasMore: boolean };
     expect(body.data.map((u) => u.userId).sort()).toEqual(['u-a', 'u-b']);
@@ -258,10 +261,23 @@ describe('API — identity list users', () => {
     directory?.setUser(
       baseUser({ userId: 'u-b' as UserId, tenantId: tenantA, displayName: 'Bob Beta' }),
     );
-    const res = await jsonGet(app, '/v1/identity/users?query=Alice');
+    const res = await jsonGet(app, '/v1/identity/users?query=Alice', ADMIN_TOKEN);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: { userId: string }[] };
     expect(body.data.map((u) => u.userId)).toEqual(['u-a']);
+  });
+
+  test('anyone but a tenant admin: 403, the directory not asked', async () => {
+    const { app, directory } = makeApp();
+    directory?.setUser(baseUser({ userId: 'u-a' as UserId, tenantId: tenantA }));
+    directory?.setUser(baseUser({ userId: 'u-b' as UserId, tenantId: tenantA }));
+    for (const token of [BEARER_TOKEN, MEMBER_TOKEN]) {
+      const res = await jsonGet(app, '/v1/identity/users', token);
+      expect(res.status).toBe(403);
+      const text = await res.text();
+      expect(JSON.parse(text).error.code).toBe('permission-denied');
+      expect(text).not.toContain('u-b@example.com');
+    }
   });
 });
 
@@ -269,7 +285,7 @@ describe('API — identity get user', () => {
   test('happy path returns the user record', async () => {
     const { app, directory } = makeApp();
     directory?.setUser(baseUser({ userId: 'u-a' as UserId, tenantId: tenantA }));
-    const res = await jsonGet(app, '/v1/identity/users/u-a');
+    const res = await jsonGet(app, '/v1/identity/users/u-a', ADMIN_TOKEN);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { userId: string; primaryEmail: string };
     expect(body.userId).toBe('u-a');
@@ -278,7 +294,7 @@ describe('API — identity get user', () => {
 
   test('unknown user id → 404 identity-user-not-found', async () => {
     const { app } = makeApp();
-    const res = await jsonGet(app, '/v1/identity/users/nope');
+    const res = await jsonGet(app, '/v1/identity/users/nope', ADMIN_TOKEN);
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe('identity-user-not-found');
@@ -287,8 +303,20 @@ describe('API — identity get user', () => {
   test('cross-tenant lookup returns 404 (tenant isolation)', async () => {
     const { app, directory } = makeApp();
     directory?.setUser(baseUser({ userId: 'u-c' as UserId, tenantId: tenantB }));
-    const res = await jsonGet(app, '/v1/identity/users/u-c');
+    const res = await jsonGet(app, '/v1/identity/users/u-c', ADMIN_TOKEN);
     expect(res.status).toBe(404);
+  });
+
+  test("a member reads their own record; someone else's is 403", async () => {
+    const { app, directory } = makeApp();
+    directory?.setUser(baseUser({ userId: 'u-a' as UserId, tenantId: tenantA }));
+    directory?.setUser(baseUser({ userId: 'u-b' as UserId, tenantId: tenantA }));
+    const own = await jsonGet(app, '/v1/identity/users/u-a', MEMBER_TOKEN);
+    expect(own.status).toBe(200);
+    expect(((await own.json()) as { userId: string }).userId).toBe('u-a');
+    const other = await jsonGet(app, '/v1/identity/users/u-b', MEMBER_TOKEN);
+    expect(other.status).toBe(403);
+    expect(await other.text()).not.toContain('u-b@example.com');
   });
 });
 
@@ -319,7 +347,7 @@ describe('API — identity list sessions', () => {
         revokedAt: '2026-01-03T00:00:00.000Z' as Timestamp,
       },
     ]);
-    const res = await jsonGet(app, '/v1/identity/users/u-a/sessions');
+    const res = await jsonGet(app, '/v1/identity/users/u-a/sessions', ADMIN_TOKEN);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: { sessionId: string; providerId: string }[] };
     expect(body.data.map((s) => s.sessionId)).toEqual(['s-1']);
@@ -328,10 +356,20 @@ describe('API — identity list sessions', () => {
 
   test('unknown user id returns an empty list (no 404)', async () => {
     const { app } = makeApp();
-    const res = await jsonGet(app, '/v1/identity/users/never-seen/sessions');
+    const res = await jsonGet(app, '/v1/identity/users/never-seen/sessions', ADMIN_TOKEN);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: readonly unknown[] };
     expect(body.data).toEqual([]);
+  });
+
+  test("a member reads their own sessions; someone else's are 403", async () => {
+    const { app } = makeApp();
+    expect((await jsonGet(app, '/v1/identity/users/u-a/sessions', MEMBER_TOKEN)).status).toBe(200);
+    const other = await jsonGet(app, '/v1/identity/users/u-b/sessions', MEMBER_TOKEN);
+    expect(other.status).toBe(403);
+    expect(((await other.json()) as { error: { code: string } }).error.code).toBe(
+      'permission-denied',
+    );
   });
 });
 
@@ -459,7 +497,7 @@ describe('API — identity get user returns lastActiveAt + metadata', () => {
       lastActiveAt: '2026-09-15T10:00:00.000Z' as Timestamp,
       metadata: { provisioningSource: 'scim', role: 'reviewer' },
     });
-    const res = await jsonGet(app, '/v1/identity/users/u-full');
+    const res = await jsonGet(app, '/v1/identity/users/u-full', ADMIN_TOKEN);
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       lastActiveAt?: string;
@@ -625,8 +663,8 @@ describe('API — removing a person (POST /users/:userId/unregister)', () => {
 
   test('the list leaves removed people out unless includeUnregistered=true', async () => {
     const { app, listCalls } = makeUnregisterApp(removed);
-    await jsonGet(app, '/v1/identity/users');
-    await jsonGet(app, '/v1/identity/users?includeUnregistered=true');
+    await jsonGet(app, '/v1/identity/users', ADMIN_TOKEN);
+    await jsonGet(app, '/v1/identity/users?includeUnregistered=true', ADMIN_TOKEN);
     expect(listCalls).toEqual([undefined, true]);
   });
 

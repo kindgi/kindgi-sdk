@@ -82,7 +82,7 @@ const create: LeafCommand = {
   kind: 'leaf',
   name: 'create',
   description:
-    'Create an API key, for you or (a tenant admin) for someone else. Its secret is printed once, here: store it now, nothing shows it again. A `member` key takes no admin action; a key limited to a project acts only there.',
+    'Create an API key, for you or (a tenant admin) for someone else. Its secret is printed once, here: store it now, nothing shows it again. A `member` key takes no admin action on the tenant; a key limited to a project acts only there.',
   usage:
     'kindgi tokens create [--for=user:<id>|sa:<id>] [--role=member|admin] [--project=<project-id>] [--expires=30d|<iso-date>] [--label=<text>] [--capability=<cap>]…',
   optionSpec: {
