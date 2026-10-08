@@ -44,7 +44,7 @@ your code when they need it, and records every step.
 - **Model providers** are registered per tenant: a vendor's API, or a model
   you serve inside your own network. An agent states what it needs; Kindgi
   picks a model that fits.
-- **The console**, at `/console` on any runtime, shows each run on one page
+- **The console**, at `/console/` on any runtime, shows each run on one page
   (what it did and cost, its journal, and where an agent's answer came from),
   the agents, tools and conversations, project by project; reviewers approve
   or reject there.

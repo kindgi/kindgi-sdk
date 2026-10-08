@@ -14,6 +14,7 @@ import { samplingFor } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
 import { nameToolsAsSent } from '@kindgi/capabilities/tool-names';
 
+import { withPromptCache } from './cache.js';
 import { type CostRates, computeCostUsd, toFrameworkUsage } from './cost.js';
 import {
   encodeToolName,
@@ -160,22 +161,26 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
       const translated = toAnthropicMessages(input.messages);
       // The system prompt names the call's tools as they're sent (`acme__lookup_order`):
       // a model told to call `acme.lookup_order` calls a name it wasn't given (T311).
-      const system =
-        translated.system === undefined
-          ? undefined
-          : nameToolsAsSent(
-              translated.system,
-              input.tools?.map((t) => t.name) ?? [],
-              encodeToolName,
-            );
-      const { messages } = translated;
-      const tools =
-        input.tools !== undefined && input.tools.length > 0
-          ? toAnthropicTools(input.tools)
-          : undefined;
+      const toolNames = input.tools?.map((t) => t.name) ?? [];
+      // Cache breakpoints on the tools, the agent's prompt and, when the call
+      // can continue, the conversation so far (`withPromptCache`).
+      const { system, tools, messages } = withPromptCache({
+        systemParts: translated.systemParts.map((part) =>
+          nameToolsAsSent(part, toolNames, encodeToolName),
+        ),
+        tools:
+          input.tools !== undefined && input.tools.length > 0
+            ? toAnthropicTools(input.tools)
+            : undefined,
+        messages: translated.messages,
+      });
 
-      const requestOptions: Record<string, unknown> =
-        input.abortSignal !== undefined ? { signal: input.abortSignal } : {};
+      // `traceparent` is a header on this request only, when the caller
+      // sets it (the provider's registration opted in); never logged.
+      const requestOptions: Record<string, unknown> = {
+        ...(input.abortSignal !== undefined && { signal: input.abortSignal }),
+        ...(input.traceparent !== undefined && { headers: { traceparent: input.traceparent } }),
+      };
       const maxTokens = input.maxOutputTokens ?? modelInfo.maxOutputTokens ?? DEFAULT_MAX_TOKENS;
       const sampling = samplingFor(modelInfo, input);
       const thinking = input.thinking === 'lowest' ? lowestThinking(modelInfo) : {};
@@ -186,8 +191,8 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
             model: input.model,
             max_tokens: maxTokens,
             ...(system !== undefined && { system }),
-            messages: [...messages],
-            ...(tools !== undefined && { tools: [...tools] }),
+            messages,
+            ...(tools !== undefined && { tools }),
             ...(sampling.temperature !== undefined && { temperature: sampling.temperature }),
             ...thinking,
           },

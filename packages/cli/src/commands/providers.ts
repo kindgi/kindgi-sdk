@@ -7,6 +7,7 @@ import { LOCAL_ENV_NAME, displayEnvPath, packValues, readPackEnv } from '@kindgi
 
 import type { CommandContext } from '../context.js';
 import { loadLocalEnvSettings } from '../env/project-env.js';
+import { UsageError } from '../errors.js';
 import { renderJson } from '../output.js';
 import { binDisplay, detectBinRunner } from '../package-manager.js';
 import {
@@ -64,7 +65,7 @@ const list: LeafCommand = {
         const limitStr = stringFlag(ctx, 'limit');
         const limit = limitStr !== undefined ? Number.parseInt(limitStr, 10) : undefined;
         if (limit !== undefined && Number.isNaN(limit)) {
-          throw new Error(`--limit must be an integer, got "${limitStr}"`);
+          throw new UsageError(`--limit must be an integer, got "${limitStr}"`);
         }
         return await ctx.client().providers.list({
           ...(feature !== undefined && { feature }),
@@ -135,7 +136,7 @@ const register: LeafCommand = {
       const specText = stringFlag(ctx, 'spec');
       const presetName = stringFlag(ctx, 'preset');
       if ((specText === undefined) === (presetName === undefined)) {
-        throw new Error('one of --spec=<json-or-@file> or --preset=<name> is required');
+        throw new UsageError('one of --spec=<json-or-@file> or --preset=<name> is required');
       }
       if (specText !== undefined) {
         const spec = (await readJsonInput(specText)) as RegisterProviderInput;
@@ -214,7 +215,9 @@ async function presetInput(ctx: CommandContext, name: string): Promise<RegisterP
   const presets = await loadProviderPresets();
   const preset = presets[name];
   if (preset === undefined) {
-    throw new Error(`no provider preset "${name}" — available: ${Object.keys(presets).join(', ')}`);
+    throw new UsageError(
+      `no provider preset "${name}" — available: ${Object.keys(presets).join(', ')}`,
+    );
   }
   const modelsFlag = stringFlag(ctx, 'models');
   const project = stringFlag(ctx, 'project');
@@ -222,7 +225,9 @@ async function presetInput(ctx: CommandContext, name: string): Promise<RegisterP
   const envName = stringFlag(ctx, 'env') ?? LOCAL_ENV_NAME;
   const maxOutput = stringFlag(ctx, 'max-output-tokens');
   if (maxOutput !== undefined && !/^[1-9]\d*$/.test(maxOutput)) {
-    throw new Error(`--max-output-tokens must be a whole number of at least 1, got "${maxOutput}"`);
+    throw new UsageError(
+      `--max-output-tokens must be a whole number of at least 1, got "${maxOutput}"`,
+    );
   }
   const built = presetRegistration(preset, {
     ...(modelsFlag !== undefined && {
@@ -236,7 +241,7 @@ async function presetInput(ctx: CommandContext, name: string): Promise<RegisterP
     settings: { project },
     ...(maxOutput !== undefined && { maxOutputTokens: Number(maxOutput) }),
   });
-  if (built.kind === 'err') throw new Error(built.message);
+  if (built.kind === 'err') throw new UsageError(built.message);
   const ref = built.input.secret_ref;
   if (ref !== undefined && ref.envName === LOCAL_ENV_NAME) {
     const missing = await missingPackSecret(ctx, ref.name, preset);

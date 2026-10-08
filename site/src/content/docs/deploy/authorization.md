@@ -69,6 +69,10 @@ Then point the runtime at it, in `kindgi.env`, and
 KINDGI_OPENFGA_API_URL=http://kindgi-openfga:8080
 ```
 
+Run runtime 0.1.4.1 or later with authorization on: 0.1.4 can leave
+permission changes unapplied after a redeploy
+([Runtime 0.1.4.1](../operate/#runtime-0141)).
+
 At its first start with it, the runtime creates an OpenFGA store for the
 tenant (`tenant-<tenant id>`) and makes the seed user its admin. The startup
 log says so:

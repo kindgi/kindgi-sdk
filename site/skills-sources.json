@@ -54,6 +54,7 @@
     "kindgi-authoring-tools": {
       "pages": [
         "guides/tools/give-a-tool-a-secret",
+        "guides/tools/give-a-tool-env-values",
         "guides/tools/http-tools",
         "guides/tools/index",
         "guides/tools/mcp-servers",
@@ -165,6 +166,7 @@
     "kindgi-python-authoring-tools": {
       "pages": [
         "guides/tools/give-a-tool-a-secret",
+        "guides/tools/give-a-tool-env-values",
         "guides/tools/http-tools",
         "guides/tools/index",
         "guides/tools/mcp-servers",

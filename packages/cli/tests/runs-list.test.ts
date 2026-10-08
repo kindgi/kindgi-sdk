@@ -57,6 +57,11 @@ describe('kindgi runs list', () => {
     expect(seen).toEqual([{ replays: 'only' }, { evalRunId: 'eval-1' }]);
   });
 
+  test('--trigger reaches the client as triggerId', async () => {
+    expect((await run('runs', 'list', '--trigger=sched-1')).exitCode).toBe(0);
+    expect(seen).toEqual([{ triggerId: 'sched-1' }]);
+  });
+
   test('--agent reaches the client, with the other filters', async () => {
     expect((await run('runs', 'list', '--agent=acme.drafter')).exitCode).toBe(0);
     expect(
