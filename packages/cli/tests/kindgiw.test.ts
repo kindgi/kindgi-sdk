@@ -174,6 +174,35 @@ describe('kindgi upgrade', () => {
     );
   });
 
+  test("a Scala pack: moves the pin and build.sbt's kindgi-pack-scala version", async () => {
+    await writeFile(
+      join(pack, 'kindgi.config.json'),
+      JSON.stringify({ language: 'scala', cli: '0.1.6', pack: { id: 'acme', version: '1.0.0' } }),
+    );
+    await writeFile(
+      join(pack, 'build.sbt'),
+      'libraryDependencies += "com.kindgi" %% "kindgi-pack-scala" % "0.1.6"\n',
+    );
+    const out = await runCli({ argv: ['upgrade', '--to=0.1.7'], env: {}, cwd: pack, home: pack });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(await readCliPin(pack)).toBe('0.1.7');
+    expect(await readFile(join(pack, 'build.sbt'), 'utf8')).toBe(
+      'libraryDependencies += "com.kindgi" %% "kindgi-pack-scala" % "0.1.7"\n',
+    );
+    expect(out.stderr).toContain('build.sbt kindgi-pack-scala: 0.1.6 → 0.1.7');
+    // A build that declares it elsewhere (project/*.scala) is told what to set.
+    await writeFile(join(pack, 'build.sbt'), 'libraryDependencies ++= Dependencies.all\n');
+    const elsewhere = await runCli({
+      argv: ['upgrade', '--to=0.1.8'],
+      env: {},
+      cwd: pack,
+      home: pack,
+    });
+    expect(elsewhere.stderr).toContain(
+      'Set the "com.kindgi" %% "kindgi-pack-scala" version where your build declares it (build.sbt, project/*.scala) to 0.1.8.',
+    );
+  });
+
   test('a TypeScript pack is told to use its package manager; a bad version is refused', async () => {
     await writeFile(
       join(pack, 'kindgi.config.mjs'),
