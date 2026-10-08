@@ -32,11 +32,13 @@ export type {
   KindgiProviderDeclaration,
   KindgiConfigFile,
   LoadKindgiConfigOptions,
+  JvmLanguage,
   PackLanguage,
 } from './kindgi-index.js';
 export {
   DEFAULT_DISCOVERY,
   DEFAULT_JAVA_DISCOVERY,
+  DEFAULT_SCALA_DISCOVERY,
   DEFAULT_PYTHON_DISCOVERY,
   HELP_TEXT as KINDGI_INDEX_HELP_TEXT,
   INDEX_ENVELOPE_VERSION,
@@ -45,6 +47,7 @@ export {
   KINDGI_JSON_CONFIG_FILENAME,
   PYPROJECT_FILENAME,
   findKindgiConfig,
+  isJvmLanguage,
   loadKindgiConfig,
   packLanguage,
   resolveDiscovery,

@@ -15,8 +15,10 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import {
   DEFAULT_JAVA_DISCOVERY,
   DEFAULT_PYTHON_DISCOVERY,
+  DEFAULT_SCALA_DISCOVERY,
   KINDGI_CONFIG_FILENAMES,
   findKindgiConfig,
+  isJvmLanguage,
   loadKindgiConfig,
   packLanguage,
   resolveDiscovery,
@@ -253,7 +255,7 @@ describe('a Java pack: kindgi.config.json', () => {
     expect(r.kind === 'err' && r.error.code).toBe('config-invalid');
     expect(r.kind === 'err' && r.error.message).toBe(
       `${dir} has two pack configs, kindgi.config.json and ${other}; a pack has one. ` +
-        `Keep kindgi.config.json for a Java pack, or ${other} for a ${kind} one, and remove the other.`,
+        `Keep kindgi.config.json for a Java or Scala pack, or ${other} for a ${kind} one, and remove the other.`,
     );
   });
 
@@ -267,9 +269,12 @@ describe('a Java pack: kindgi.config.json', () => {
   test.each([
     [
       '{"pack": {"id": "a", "version": "1"}}',
-      /is a Java pack's config; it says "language": "java"/,
+      /is a JVM pack's config; it says "language": "java" or "scala"/,
     ],
-    ['{"language": "node", "pack": {"id": "a", "version": "1"}}', /it says "language": "java"/],
+    [
+      '{"language": "node", "pack": {"id": "a", "version": "1"}}',
+      /it says "language": "java" or "scala"/,
+    ],
     ['{"language": "java", "pack": {"id": "a"}}', /'pack.version' is missing/],
     ['[1, 2]', /the file must hold a JSON object/],
     ['{"language": "java",', /Failed to read/],
@@ -302,5 +307,49 @@ describe('a Java pack: kindgi.config.json', () => {
     const r = await runIndexer({ packDir: dir });
     expect(r.kind === 'err' && r.error.code).toBe('language-mismatch');
     expect(r.kind === 'err' && r.error.message).toContain('com.kindgi.pack.Main index');
+  });
+});
+
+describe('a Scala pack: kindgi.config.json', () => {
+  const CONFIG = JSON.stringify({
+    language: 'scala',
+    pack: { id: 'acme.ledger', version: '1.0.0' },
+  });
+
+  test('loads as a Scala pack, a JVM language', async () => {
+    await write('kindgi.config.json', CONFIG);
+    const r = await loadKindgiConfig(dir);
+    expect(r.kind === 'ok' && packLanguage(r.value)).toBe('scala');
+    expect(isJvmLanguage('scala')).toBe(true);
+    expect(isJvmLanguage('java')).toBe(true);
+    expect(isJvmLanguage('python')).toBe(false);
+  });
+
+  test('Scala discovery defaults', () => {
+    expect(resolveDiscovery(undefined, 'scala')).toEqual(DEFAULT_SCALA_DISCOVERY);
+    expect(DEFAULT_SCALA_DISCOVERY).toEqual({
+      tools: 'src/main/scala/**/tools/**/*.scala',
+      guardrails: 'src/main/scala/**/guardrails/**/*.scala',
+      agents: 'src/main/scala/**/agents/**/*.scala',
+      flows: 'src/main/scala/**/flows/**/*.scala',
+    });
+  });
+
+  test('"scala" belongs to kindgi.config.json, not a module', async () => {
+    await write(
+      'kindgi.config.mjs',
+      "export default { pack: { id: 'a', version: '1.0.0' }, language: 'scala' };",
+    );
+    const r = await loadKindgiConfig(dir);
+    expect(r.kind === 'err' && r.error.message).toMatch(/'language' must be "node" or "python"/);
+  });
+
+  test("the TypeScript indexer refuses a Scala pack, naming kindgi-pack's indexer", async () => {
+    await write('kindgi.config.json', CONFIG);
+    const r = await runIndexer({ packDir: dir });
+    expect(r.kind === 'err' && r.error.code).toBe('language-mismatch');
+    expect(r.kind === 'err' && r.error.message).toContain(
+      'is a scala pack; index it with its own indexer (java -cp <classpath> com.kindgi.pack.Main index)',
+    );
   });
 });

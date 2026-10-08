@@ -6,7 +6,7 @@
  * libraries they import take from `process.env` (a database URL a client
  * reads at import, a bucket name). Declared once per pack, in
  * `kindgi.config` (`env: { required, optional }`; Python:
- * `[tool.kindgi.env]`; Java: `env` in `kindgi.config.json`), and carried in `index.json`, so the pack service
+ * `[tool.kindgi.env]`; Java and Scala: `env` in `kindgi.config.json`), and carried in `index.json`, so the pack service
  * in an image knows what it needs.
  *
  * A deployment injects exactly these names: `required` must be there for

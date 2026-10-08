@@ -91,7 +91,15 @@ export interface DiscoveryConfig {
  * in — which indexer reads it and which pack service runs it. Agents and
  * flows are data in any of them.
  */
-export type PackLanguage = 'node' | 'python' | 'java';
+export type PackLanguage = 'node' | 'python' | 'java' | 'scala';
+
+/** The languages that run on the JVM: built by Maven (Java) or sbt (Scala), indexed and served by kindgi-pack. */
+export type JvmLanguage = Extract<PackLanguage, 'java' | 'scala'>;
+
+/** Whether a pack's code runs on the JVM (kindgi-pack's indexer and pack service). */
+export function isJvmLanguage(language: PackLanguage): language is JvmLanguage {
+  return language === 'java' || language === 'scala';
+}
 
 /**
  * The subset of `kindgi.config.ts` this indexer consumes. Other
@@ -108,7 +116,7 @@ export interface KindgiConfig {
   /**
    * The pack's code language. Absent in `kindgi.config.*`: `node`. A
    * `[tool.kindgi]` table in `pyproject.toml` is a Python pack unless it
-   * says otherwise. A `kindgi.config.json` says `"java"`.
+   * says otherwise. A `kindgi.config.json` says `"java"` or `"scala"`.
    */
   readonly language?: PackLanguage;
   /**
@@ -197,6 +205,18 @@ export const DEFAULT_JAVA_DISCOVERY: Required<DiscoveryConfig> = {
   flows: 'src/main/java/**/flows/**/*.java',
 };
 
+/**
+ * Default discovery patterns of a Scala pack (kindgi-pack's indexer reads
+ * the same keys): the source files under any `tools`, `guardrails`, `agents`
+ * or `flows` package.
+ */
+export const DEFAULT_SCALA_DISCOVERY: Required<DiscoveryConfig> = {
+  tools: 'src/main/scala/**/tools/**/*.scala',
+  guardrails: 'src/main/scala/**/guardrails/**/*.scala',
+  agents: 'src/main/scala/**/agents/**/*.scala',
+  flows: 'src/main/scala/**/flows/**/*.scala',
+};
+
 /** A config's discovery patterns with the language's defaults filled in. */
 export function resolveDiscovery(
   discovery: DiscoveryConfig | undefined,
@@ -207,7 +227,9 @@ export function resolveDiscovery(
       ? DEFAULT_PYTHON_DISCOVERY
       : language === 'java'
         ? DEFAULT_JAVA_DISCOVERY
-        : DEFAULT_DISCOVERY;
+        : language === 'scala'
+          ? DEFAULT_SCALA_DISCOVERY
+          : DEFAULT_DISCOVERY;
   return { ...defaults, ...(discovery ?? {}) };
 }
 
@@ -215,6 +237,7 @@ export function resolveDiscovery(
 const OWN_INDEXER: Readonly<Record<Exclude<PackLanguage, 'node'>, string>> = {
   python: 'python -m kindgi.pack index',
   java: 'java -cp <classpath> com.kindgi.pack.Main index',
+  scala: 'java -cp <classpath> com.kindgi.pack.Main index',
 };
 
 // -----------------------------------------------------------------------
@@ -1070,7 +1093,7 @@ async function loadConfig(
         code: 'config-invalid',
         message:
           `${packDir} has two pack configs, ${KINDGI_JSON_CONFIG_FILENAME} and ${other}; a pack has one. ` +
-          `Keep ${KINDGI_JSON_CONFIG_FILENAME} for a Java pack, or ${other} for a ` +
+          `Keep ${KINDGI_JSON_CONFIG_FILENAME} for a Java or Scala pack, or ${other} for a ` +
           `${file.conflictsWith.endsWith(PYPROJECT_FILENAME) ? 'Python' : 'TypeScript'} one, and remove the other.`,
         filePath: file.path,
       },
@@ -1198,10 +1221,10 @@ function checkConfig(
   }
   if (format === 'json') {
     // kindgi.config.json is the JVM's config: it names its language.
-    if (record.language !== 'java') {
+    if (record.language !== 'java' && record.language !== 'scala') {
       return parseFailed(
         filePath,
-        `Config file ${filePath}: ${KINDGI_JSON_CONFIG_FILENAME} is a Java pack's config; it says "language": "java"`,
+        `Config file ${filePath}: ${KINDGI_JSON_CONFIG_FILENAME} is a JVM pack's config; it says "language": "java" or "scala"`,
       );
     }
   } else if (
