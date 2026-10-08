@@ -15,7 +15,7 @@ description: >
   model by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.2"
+version: "0.1.4"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -132,9 +132,9 @@ brief_writer = Agent(
   instructions.
 - **`preferred_provider`** / **`preferred_model`** — soft hints: the
   router prefers that provider id (e.g. `"anthropic"`) and/or model name
-  (e.g. `"claude-haiku-4-5"`) when they satisfy the capabilities. To
+  (e.g. `"claude-sonnet-5-5"`) when they satisfy the capabilities. To
   *require* a model, put it in the capability:
-  `{"needs": [{"feature": "tool-use"}, {"models": {"allow": ["claude-haiku-4-5"]}}]}`.
+  `{"needs": [{"feature": "tool-use"}, {"models": {"allow": ["claude-sonnet-5-5"]}}]}`.
 - **`conversation_policy`** — `{"historyLimit": n}` caps the prior
   messages loaded; `hitl` configures approval gates. Absent = the full
   history, no gates. A tenant's `hitl` policy can tighten the gates
@@ -165,8 +165,9 @@ brief_writer = Agent(
 Agents run on a registered model provider; the router picks one whose
 models satisfy `capabilities`. `kindgi dev` gives a new pack `dev-echo`,
 a **fallback** that answers only while no other provider fits — it
-calls the first tool and replies "Tool responded: …", and the turn
-carries a `fallback-provider` warning. Register a real model and it
+calls the first tool and replies "⚠ dev-echo isn't a real model: …"
+then "Tool responded: …", and the turn carries the `fallback-provider` and
+`dev-echo-not-a-model` warnings. Register a real model and it
 takes over: see `kindgi-authoring-providers`
 (`kindgi providers register --preset=anthropic`).
 

@@ -13,7 +13,9 @@
  */
 
 import type {
+  AdapterConfigProblem,
   ProviderCapabilitiesResult,
+  ProviderCheckResult,
   ProviderCollectionPage,
   ProviderMetadata,
   RegisterProviderBody,
@@ -25,6 +27,8 @@ import type { Transport } from '../transport.js';
 export type Provider = ProviderMetadata;
 export type ProviderPage = ProviderCollectionPage;
 export type ProviderCapabilities = ProviderCapabilitiesResult;
+export type ProviderCheck = ProviderCheckResult;
+export type ProviderConfigProblem = AdapterConfigProblem;
 export type RegisterProviderInput = RegisterProviderBody;
 export type RegisterProviderOutcome = RegisterProviderResult;
 export type UnregisterProviderOutcome = UnregisterProviderResult;
@@ -47,6 +51,13 @@ export interface ProvidersClient {
   get(providerId: string): Promise<Provider>;
   /** @wire GET /v1/providers/:providerId/capabilities */
   capabilities(providerId: string): Promise<ProviderCapabilities>;
+  /**
+   * What would keep the runtime from building a registered provider, by its
+   * adapter's own check of its stored registration (static: no network, no
+   * secret read). `checked: false` when the runtime has no check for its
+   * adapter. A runtime older than this route answers 404.
+   */
+  check(providerId: string): Promise<ProviderCheck>;
   /** @wire POST /v1/providers/:providerId/unregister */
   unregister(
     providerId: string,
@@ -86,6 +97,12 @@ export function makeProvidersClient(transport: Transport): ProvidersClient {
       return transport.request<ProviderCapabilities>({
         method: 'GET',
         path: `/v1/providers/${seg(providerId)}/capabilities`,
+      });
+    },
+    async check(providerId) {
+      return transport.request<ProviderCheck>({
+        method: 'GET',
+        path: `/v1/providers/${seg(providerId)}/check`,
       });
     },
     async unregister(providerId, options) {
