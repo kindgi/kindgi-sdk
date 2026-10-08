@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
+import com.fasterxml.jackson.databind.util.TokenBuffer;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.io.IOException;
 import java.lang.reflect.Type;
@@ -118,14 +119,24 @@ public final class Json {
   }
 
   /**
-   * A tool's typed value (its output, a check's attributes, a default) as a plain value, through
-   * the binding mapper: the inverse of {@link #bind}.
+   * A tool's typed value (its output, a check's attributes, a default) as a plain value: the inverse
+   * of {@link #bind}. Written by the binding mapper, so the app's serializers apply, and read back by
+   * the wire's, so the result is plain whatever the app's modules do to untyped values (Scala's
+   * module reads them as Scala collections).
    *
    * @param value the typed value
    * @return the plain value
+   * @throws IllegalArgumentException when the value can't be written as JSON
    */
-  public static Object unbind(Object value) {
-    return BINDING.convertValue(value, Object.class);
+  public static @Nullable Object unbind(@Nullable Object value) {
+    try (TokenBuffer buffer = new TokenBuffer(BINDING, false)) {
+      BINDING.writeValue(buffer, value);
+      try (JsonParser parser = buffer.asParser(MAPPER)) {
+        return MAPPER.readValue(parser, Object.class);
+      }
+    } catch (IOException e) {
+      throw new IllegalArgumentException(e.getMessage(), e);
+    }
   }
 
   /**

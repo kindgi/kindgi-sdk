@@ -42,6 +42,15 @@ class BindingModulesTest {
   }
 
   @Test
+  void plainValuesStayPlainWhateverTheAppsModulesReadUntypedValuesAs() {
+    // UntypedModule reads an untyped object or array as something else, as Scala's module does.
+    Object out = Json.unbind(Map.of("items", List.of(Map.of("n", 1)), "tag", "a"));
+    assertThat(out).isInstanceOf(java.util.LinkedHashMap.class).isEqualTo(Map.of("items", List.of(Map.of("n", 1)), "tag", "a"));
+    assertThat(((Map<?, ?>) out).get("items")).isInstanceOf(java.util.ArrayList.class);
+    assertThat(Json.unbind(new Person("Ada", "Lovelace"))).isInstanceOf(java.util.LinkedHashMap.class);
+  }
+
+  @Test
   void theWireIgnoresTheAppsModules() {
     assertThat(Json.plain(new Person("Ada", "Lovelace"))).isEqualTo(Map.of("firstName", "Ada", "lastName", "Lovelace"));
     assertThat(Json.mapper().getRegisteredModuleIds()).doesNotContain(SnakeNamesModule.class.getName());

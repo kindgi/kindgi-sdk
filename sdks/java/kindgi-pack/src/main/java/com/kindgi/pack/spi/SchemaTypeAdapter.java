@@ -4,6 +4,7 @@
 package com.kindgi.pack.spi;
 
 import com.fasterxml.jackson.databind.JavaType;
+import com.fasterxml.jackson.databind.introspect.BeanPropertyDefinition;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
@@ -45,13 +46,14 @@ public interface SchemaTypeAdapter {
 
   /**
    * A property's default value when the input leaves it out (a Scala case class's default), as a
-   * plain JSON value: the property isn't required, and the schema says the default.
+   * typed or plain value: the property isn't required, and the schema says the default.
    *
    * @param owner the class that has the property
-   * @param property the property's name, as Jackson names it
+   * @param property the property as Jackson sees it: its name (after any renaming), and its creator
+   *     parameter ({@code getConstructorParameter()}, with its index) when it has one
    * @return the default; empty when the property has none
    */
-  default Optional<Object> defaultValue(Class<?> owner, String property) {
+  default Optional<Object> defaultValue(Class<?> owner, BeanPropertyDefinition property) {
     return Optional.empty();
   }
 }

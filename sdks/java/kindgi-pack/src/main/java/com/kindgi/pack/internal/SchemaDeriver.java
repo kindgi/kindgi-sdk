@@ -152,7 +152,7 @@ public final class SchemaDeriver {
       s.put("type", "string");
       List<Object> values = new ArrayList<>();
       for (Object constant : raw.getEnumConstants()) {
-        values.add(mapper.convertValue(constant, Object.class));
+        values.add(Json.unbind(constant));
       }
       s.put("enum", values);
     } else if (raw == UUID.class) {
@@ -230,7 +230,7 @@ public final class SchemaDeriver {
           for (SchemaTypeAdapter adapter : adapters()) {
             Optional<Object> adapted;
             try {
-              adapted = adapter.defaultValue(raw, p.getName());
+              adapted = adapter.defaultValue(raw, p);
             } catch (IllegalArgumentException e) {
               throw new DerivationException(where + "." + p.getName() + ": " + e.getMessage());
             }

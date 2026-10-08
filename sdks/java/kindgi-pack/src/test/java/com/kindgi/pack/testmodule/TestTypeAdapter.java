@@ -4,6 +4,7 @@
 package com.kindgi.pack.testmodule;
 
 import com.fasterxml.jackson.databind.JavaType;
+import com.fasterxml.jackson.databind.introspect.BeanPropertyDefinition;
 import com.kindgi.pack.spi.SchemaTypeAdapter;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -45,11 +46,13 @@ public final class TestTypeAdapter implements SchemaTypeAdapter {
   }
 
   @Override
-  public Optional<Object> defaultValue(Class<?> owner, String property) {
-    if (owner == Priced.class && property.equals("currency")) {
+  public Optional<Object> defaultValue(Class<?> owner, BeanPropertyDefinition property) {
+    // By creator position, as Scala's defaults are found: currency is the record's second component.
+    int index = property.getConstructorParameter() == null ? -1 : property.getConstructorParameter().getIndex();
+    if (owner == Priced.class && index == 1) {
       return Optional.of("EUR");
     }
-    if (owner == Priced.class && property.equals("tag")) {
+    if (owner == Priced.class && property.getName().equals("tag")) {
       return Optional.of(new Tag("none"));
     }
     return Optional.empty();
