@@ -193,6 +193,8 @@ describe('kindgi memory facts (T238)', () => {
     expect(missing.out.stderr).toContain('--input=<json-or-@file> is required');
     const noContent = await memory(['supersede', 'fact-1', '--input={"subjects":[]}']);
     expect(noContent.out.stderr).toContain('--input needs `content`');
+    // Usage errors.
+    expect([missing.out.exitCode, noContent.out.exitCode]).toEqual([2, 2]);
     expect([...missing.calls, ...noContent.calls]).toEqual([]);
   });
 
@@ -244,6 +246,8 @@ describe('kindgi memory facts (T238)', () => {
     expect(missing.out.stderr).toContain('--query=<json-or-@file> is required');
     const bad = await memory(['retrieve', '--query=[1]']);
     expect(bad.out.stderr).toContain('--query must be a JSON object');
+    // Usage errors.
+    expect([missing.out.exitCode, bad.out.exitCode]).toEqual([2, 2]);
     expect([...missing.calls, ...bad.calls]).toEqual([]);
   });
 });

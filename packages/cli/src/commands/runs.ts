@@ -5,6 +5,7 @@ import type { Run, RunPage } from '@kindgi/client';
 import type { AgentId, FlowId, RunId } from '@kindgi/types';
 
 import type { CommandContext } from '../context.js';
+import { UsageError } from '../errors.js';
 import { renderJson } from '../output.js';
 import { followRun, runsGetHint } from '../runs/follow.js';
 import {
@@ -81,7 +82,7 @@ const list: LeafCommand = {
         const cursor = stringFlag(ctx, 'cursor');
         const replays = stringFlag(ctx, 'replays');
         if (replays !== undefined && !REPLAYS.includes(replays as (typeof REPLAYS)[number])) {
-          throw new Error(`--replays must be one of ${REPLAYS.join(', ')}, got "${replays}"`);
+          throw new UsageError(`--replays must be one of ${REPLAYS.join(', ')}, got "${replays}"`);
         }
         const evalRunId = stringFlag(ctx, 'eval-run');
         const agentId = stringFlag(ctx, 'agent');
@@ -89,7 +90,7 @@ const list: LeafCommand = {
         const limitStr = stringFlag(ctx, 'limit');
         const limit = limitStr !== undefined ? Number.parseInt(limitStr, 10) : undefined;
         if (limit !== undefined && Number.isNaN(limit)) {
-          throw new Error(`--limit must be an integer, got "${limitStr}"`);
+          throw new UsageError(`--limit must be an integer, got "${limitStr}"`);
         }
         return await ctx.client().runs.list({
           ...(cursor !== undefined && { cursor: cursor as never }),
@@ -157,7 +158,7 @@ const journal: LeafCommand = {
       const limitStr = stringFlag(ctx, 'limit');
       const limit = limitStr !== undefined ? Number.parseInt(limitStr, 10) : undefined;
       if (limit !== undefined && Number.isNaN(limit)) {
-        throw new Error(`--limit must be an integer, got "${limitStr}"`);
+        throw new UsageError(`--limit must be an integer, got "${limitStr}"`);
       }
       return await ctx.client().runs.journal(runId, {
         ...(since !== undefined && { since: since as never }),
@@ -245,22 +246,22 @@ const start: LeafCommand = {
       const flow = stringFlag(ctx, 'flow');
       const inputSpec = stringFlag(ctx, 'input');
       if (agent === undefined && flow === undefined) {
-        throw new Error('--agent=<id> or --flow=<id> is required');
+        throw new UsageError('--agent=<id> or --flow=<id> is required');
       }
       if (agent !== undefined && flow !== undefined) {
-        throw new Error('--agent and --flow are mutually exclusive');
+        throw new UsageError('--agent and --flow are mutually exclusive');
       }
       const projectId = stringFlag(ctx, 'project');
       const agentVersion = stringFlag(ctx, 'agent-version');
       const flowVersion = stringFlag(ctx, 'flow-version');
       if (agentVersion !== undefined && agent === undefined) {
-        throw new Error('--agent-version goes with --agent=<agent-id>');
+        throw new UsageError('--agent-version goes with --agent=<agent-id>');
       }
       if (flowVersion !== undefined && flow === undefined) {
-        throw new Error('--flow-version goes with --flow=<flow-id>');
+        throw new UsageError('--flow-version goes with --flow=<flow-id>');
       }
       if (inputSpec === undefined) {
-        throw new Error('--input=<json-or-@file> is required');
+        throw new UsageError('--input=<json-or-@file> is required');
       }
       const input = await readJsonInput(inputSpec);
       const idem = stringFlag(ctx, 'idempotency-key');

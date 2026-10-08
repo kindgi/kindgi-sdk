@@ -635,7 +635,7 @@ describe('kindgi runs start', () => {
 describe('missing required arguments', () => {
   test('kindgi runs get without run-id fails', async () => {
     const out = await runCli(baseInputs({ argv: ['runs', 'get', '--url=https://x', '--token=t'] }));
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('Missing required argument: run-id');
   });
 
@@ -645,7 +645,7 @@ describe('missing required arguments', () => {
         argv: ['runs', 'start', '--input={"x":1}', '--url=https://x', '--token=t'],
       }),
     );
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr.toLowerCase()).toContain('--agent');
   });
 
@@ -663,7 +663,7 @@ describe('missing required arguments', () => {
         ],
       }),
     );
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('mutually exclusive');
   });
 });
@@ -831,13 +831,13 @@ describe('auth login', () => {
 
   test('rejects login without --url', async () => {
     const out = await runCli(baseInputs({ argv: ['auth', 'login', '--token=abc'] }));
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('Missing --url');
   });
 
   test('rejects login without --token', async () => {
     const out = await runCli(baseInputs({ argv: ['auth', 'login', '--url=https://x'] }));
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('Missing --token');
   });
 });

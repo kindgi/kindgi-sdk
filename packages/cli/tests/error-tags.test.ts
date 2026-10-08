@@ -7,7 +7,7 @@ import { describe, expect, test } from 'vitest';
 
 import { KindgiApiError, fromWire } from '@kindgi/client';
 
-import { formatThrown } from '../src/errors.js';
+import { UsageError, formatThrown } from '../src/errors.js';
 
 const line = (body: Record<string, unknown>, status: number) =>
   formatThrown(new KindgiApiError(fromWire(body, status)), {
@@ -44,5 +44,23 @@ describe('error tags', () => {
       expect(line({ code, message: 'refused' }, 409)).toBe(`Error [${code}]: refused`);
     }
     expect(line({ code: 'agent-not-found', message: 'none' }, 404)).toBe('Error [not-found]: none');
+  });
+});
+
+describe('formatThrown: a usage error (T348)', () => {
+  test('exits 2, with its message and where the usage is', () => {
+    expect(
+      formatThrown(new UsageError('Missing required argument: run-id'), {
+        commandLabel: 'runs get',
+      }),
+    ).toEqual({
+      kind: 'error',
+      exitCode: 2,
+      stderr: 'Error: Missing required argument: run-id\nUsage: kindgi runs get --help\n',
+    });
+  });
+
+  test('any other thrown error still exits 1', () => {
+    expect(formatThrown(new Error('ECONNREFUSED'), { commandLabel: 'runs get' }).exitCode).toBe(1);
   });
 });

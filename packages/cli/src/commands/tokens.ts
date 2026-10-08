@@ -4,6 +4,7 @@
 import type { ApiKeyPrincipal, ApiToken, ListPage } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
+import { UsageError } from '../errors.js';
 import { renderJson } from '../output.js';
 import {
   type TableSpec,
@@ -33,7 +34,7 @@ export function principalFlag(ctx: CommandContext, name = 'for'): ApiKeyPrincipa
     if (kind === 'user') return { kind: 'user', id };
     if (kind === 'sa' || kind === 'service-account') return { kind: 'service-account', id };
   }
-  throw new Error(`--${name} must be user:<id> or sa:<id>, got "${raw}"`);
+  throw new UsageError(`--${name} must be user:<id> or sa:<id>, got "${raw}"`);
 }
 
 const DURATION_RE = /^(\d+)([dhm])$/;
@@ -46,12 +47,12 @@ export function expiresFlag(ctx: CommandContext, now = () => Date.now()): string
   const span = DURATION_RE.exec(raw);
   if (span !== null) {
     const ms = Number(span[1]) * (UNIT_MS[span[2] as string] as number);
-    if (ms <= 0) throw new Error('--expires must be in the future');
+    if (ms <= 0) throw new UsageError('--expires must be in the future');
     return new Date(now() + ms).toISOString();
   }
   const at = new Date(raw);
   if (Number.isNaN(at.getTime())) {
-    throw new Error(`--expires must be like 30d, 12h or 90m, or an ISO date; got "${raw}"`);
+    throw new UsageError(`--expires must be like 30d, 12h or 90m, or an ISO date; got "${raw}"`);
   }
   return at.toISOString();
 }
@@ -111,7 +112,7 @@ const create: LeafCommand = {
       const principal = principalFlag(ctx);
       const role = stringFlag(ctx, 'role');
       if (role !== undefined && !(ROLES as readonly string[]).includes(role)) {
-        throw new Error(`--role must be member or admin, got "${role}"`);
+        throw new UsageError(`--role must be member or admin, got "${role}"`);
       }
       const projectId = stringFlag(ctx, 'project');
       const expiresAt = expiresFlag(ctx);

@@ -109,7 +109,7 @@ const createCmd: LeafCommand = {
   run: async (ctx): Promise<CommandResult> => {
     const idCheck = validateKeyId(ctx.positionals[0]);
     if (!idCheck.ok) {
-      return { kind: 'error', stderr: `${idCheck.error}\n`, exitCode: 1 };
+      return { kind: 'error', stderr: `${idCheck.error}\n`, exitCode: 2 };
     }
     const keyId = idCheck.id;
 
@@ -221,7 +221,7 @@ const exportCmd: LeafCommand = {
   run: async (ctx): Promise<CommandResult> => {
     const idCheck = validateKeyId(ctx.positionals[0]);
     if (!idCheck.ok) {
-      return { kind: 'error', stderr: `${idCheck.error}\n`, exitCode: 1 };
+      return { kind: 'error', stderr: `${idCheck.error}\n`, exitCode: 2 };
     }
     const keyId = idCheck.id;
 
@@ -231,7 +231,7 @@ const exportCmd: LeafCommand = {
       return {
         kind: 'error',
         stderr: `Unknown --format: ${formatInput}. Available: ${AVAILABLE_FORMATS.join(', ')}.\n`,
-        exitCode: 1,
+        exitCode: 2,
       };
     }
     const format = formatInput as PublicKeyFormat;
@@ -406,7 +406,7 @@ const trustCmd: LeafCommand = {
   run: async (ctx): Promise<CommandResult> => {
     const idCheck = validateKeyId(ctx.positionals[0]);
     if (!idCheck.ok) {
-      return { kind: 'error', stderr: `${idCheck.error}\n`, exitCode: 1 };
+      return { kind: 'error', stderr: `${idCheck.error}\n`, exitCode: 2 };
     }
     const keyId = idCheck.id;
 
