@@ -801,6 +801,9 @@ importers:
       '@kindgi/flow':
         specifier: workspace:*
         version: link:../flow
+      '@kindgi/log':
+        specifier: workspace:*
+        version: link:../log
       '@kindgi/sandbox':
         specifier: workspace:*
         version: link:../sandbox
@@ -1140,6 +1143,9 @@ importers:
 
   packages/tools:
     dependencies:
+      '@kindgi/log':
+        specifier: workspace:*
+        version: link:../log
       '@kindgi/schema':
         specifier: workspace:*
         version: link:../schema
