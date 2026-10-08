@@ -213,6 +213,8 @@
           "permission-denied": 403,
           "host-access-denied": 403,
           "csrf-origin-mismatch": 403,
+          "token-sign-in-off": 403,
+          "token-sign-in-not-allowed": 403,
           "not-found": 404,
           "run-not-found": 404,
           "agent-not-found": 404,
@@ -382,6 +384,7 @@
           "invalid-provider-config": 400,
           "auth-not-session-token": 400,
           "cookie-session-not-refreshable": 400,
+          "token-sign-in-needs-an-api-token": 400,
           "redirect-uri-not-allowed": 400,
           "redirect-uri-mismatch": 400,
           "refresh-token-invalid": 401,
@@ -12256,6 +12259,45 @@
             "items": {
               "$ref": "#/components/schemas/SignInOption"
             }
+          },
+          "methods": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "identityProviders",
+              "apiToken"
+            ],
+            "description": "The ways in this deployment allows, for a sign-in page to show. Absent from older servers.",
+            "properties": {
+              "identityProviders": {
+                "type": "boolean",
+                "description": "Sign-in with an organization's identity provider (email first)."
+              },
+              "apiToken": {
+                "type": "boolean",
+                "description": "Sign-in to the console with an API token (`POST /v1/auth/token-sign-in`)."
+              }
+            }
+          }
+        }
+      },
+      "TokenSignInResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "userId",
+          "expiresAt"
+        ],
+        "properties": {
+          "userId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The person now signed in."
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the session ends at the latest: its lifetime, or the key's expiry if sooner."
           }
         }
       },
@@ -32977,7 +33019,7 @@
             }
           }
         },
-        "description": "Public: nobody is signed in yet. With `email`, the identity providers for that email's domain (from the one tenant that claims it); without, an empty list: sign-in is email first, so nothing is offered before an email (the empty answer still says sign-in is on; off is a 404). The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`).",
+        "description": "Public: nobody is signed in yet. With `email`, the identity providers for that email's domain (from the one tenant that claims it); without, an empty list: sign-in is email first, so nothing is offered before an email. `methods` says which ways in the deployment allows: identity providers, and/or an API token (`POST /v1/auth/token-sign-in`); both `false` when nobody can sign in to the console. Always mounted. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`).",
         "parameters": [
           {
             "name": "email",
@@ -32991,6 +33033,63 @@
           }
         ],
         "security": []
+      }
+    },
+    "/v1/auth/token-sign-in": {
+      "post": {
+        "operationId": "auth.tokenSignIn",
+        "summary": "Sign in to the console with an API token",
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "Signed in: the session cookie is set.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenSignInResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Signed in by a session, not an API token (`token-sign-in-needs-an-api-token`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed here (`token-sign-in-off`), or not this key (`token-sign-in-not-allowed`): a service account's, or a narrowed one.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "The API token in `Authorization` is exchanged once for a browser session in the session cookie (HttpOnly; the same as a sign-in with an identity provider), so the browser never keeps the token. Only a person's full key opens a session: a service account's key, or a narrowed one (a `member` role, or one project), is refused `403 token-sign-in-not-allowed`. The session ends after its lifetime, or when the key expires if sooner. `403 token-sign-in-off` when the deployment doesn't allow it (always mounted, so a console gets that answer); `400 token-sign-in-needs-an-api-token` when the request is already signed in by a session.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
       }
     },
     "/v1/auth/providers/{providerId}": {

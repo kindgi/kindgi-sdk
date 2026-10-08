@@ -602,6 +602,7 @@ function collectMountedRoutes(): HonoRouteRecord[] {
     judgmentRegistry: noopJudgmentRegistry,
     evalCaseStore: noopEvalCaseStore,
     sessionStore: noopSessionStore,
+    session: { cookie: { allowedOrigins: ['https://console.example.com'] }, tokenSignIn: true },
     identityProvider: noopIdentityProvider,
     exchangeCode: noopExchangeCode,
     identityDirectory: noopIdentityDirectory,

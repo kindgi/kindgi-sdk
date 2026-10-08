@@ -48,6 +48,8 @@ export interface AppEnv {
     tokenRole?: 'admin' | 'member';
     /** The project an API key is narrowed to. */
     tokenProjectId?: string;
+    /** When the API token the request came with expires, if it does. */
+    tokenExpiresAt?: Date;
     /**
      * Set by `bearerAuthMiddleware` when the caller presented a
      * framework-issued OAuth session token (`kgi_sk_*`).

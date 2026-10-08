@@ -4826,7 +4826,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.signInOptions',
     summary: 'How a person can sign in',
     description:
-      "Public: nobody is signed in yet. With `email`, the identity providers for that email's domain (from the one tenant that claims it); without, an empty list: sign-in is email first, so nothing is offered before an email (the empty answer still says sign-in is on; off is a 404). The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`).",
+      "Public: nobody is signed in yet. With `email`, the identity providers for that email's domain (from the one tenant that claims it); without, an empty list: sign-in is email first, so nothing is offered before an email. `methods` says which ways in the deployment allows: identity providers, and/or an API token (`POST /v1/auth/token-sign-in`); both `false` when nobody can sign in to the console. Always mounted. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`).",
     tags: ['auth'],
     security: 'public',
     parameters: [
@@ -4842,6 +4842,30 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The ways to sign in (possibly none).', schema: ref('SignInOptions') },
       '400': ErrorResponse('`email` is not an email address.'),
       '429': ErrorResponse('Too many lookups from this client.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/auth/token-sign-in',
+    openapiPath: '/v1/auth/token-sign-in',
+    operationId: 'auth.tokenSignIn',
+    summary: 'Sign in to the console with an API token',
+    description:
+      "The API token in `Authorization` is exchanged once for a browser session in the session cookie (HttpOnly; the same as a sign-in with an identity provider), so the browser never keeps the token. Only a person's full key opens a session: a service account's key, or a narrowed one (a `member` role, or one project), is refused `403 token-sign-in-not-allowed`. The session ends after its lifetime, or when the key expires if sooner. `403 token-sign-in-off` when the deployment doesn't allow it (always mounted, so a console gets that answer); `400 token-sign-in-needs-an-api-token` when the request is already signed in by a session.",
+    tags: ['auth'],
+    security: 'bearer',
+    responses: {
+      '200': {
+        description: 'Signed in: the session cookie is set.',
+        schema: ref('TokenSignInResult'),
+      },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        'Signed in by a session, not an API token (`token-sign-in-needs-an-api-token`).',
+      ),
+      '403': ErrorResponse(
+        "Not allowed here (`token-sign-in-off`), or not this key (`token-sign-in-not-allowed`): a service account's, or a narrowed one.",
+      ),
     },
   },
   {

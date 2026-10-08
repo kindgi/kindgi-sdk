@@ -17,11 +17,14 @@ import type { AppEnv } from '../types.js';
  * are rate-limited per client, as a speed bump against scraping.
  *
  * Email first: without an email, nothing is offered (an empty list), and
- * the binding isn't asked. The empty answer still tells a sign-in page
- * that sign-in with identity providers is on (off is a 404).
+ * the binding isn't asked. `methods` tells a sign-in page which ways in
+ * there are; always mounted, so with none it says so (both `false`).
  */
 export interface SignInOptionsRouteOptions {
-  readonly identityProvider: IdentityProviderBinding;
+  /** Absent: no sign-in with identity providers here (only an API token, if allowed). */
+  readonly identityProvider?: IdentityProviderBinding;
+  /** Whether a person may sign in to the console with an API token here. */
+  readonly tokenSignIn: boolean;
   readonly rateLimit?: SignInOptionsRateLimit;
 }
 
@@ -93,17 +96,21 @@ export function signInOptionsRouter(options: SignInOptionsRouteOptions): Hono<Ap
       emailDomain = (match[1] as string).toLowerCase();
     }
 
-    const options: readonly SignInOption[] =
-      identityProvider.signInOptions === undefined || emailDomain === undefined
+    const offered: readonly SignInOption[] =
+      identityProvider?.signInOptions === undefined || emailDomain === undefined
         ? []
         : await identityProvider.signInOptions({ emailDomain });
     c.header('Cache-Control', 'no-store');
     return c.json({
-      data: options.map((o) => ({
+      data: offered.map((o) => ({
         providerId: o.providerId,
         displayName: o.displayName,
         signInUrl: o.signInUrl,
       })),
+      methods: {
+        identityProviders: identityProvider !== undefined,
+        apiToken: options.tokenSignIn,
+      },
     });
   });
   return router;

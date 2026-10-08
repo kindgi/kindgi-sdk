@@ -6288,12 +6288,50 @@ class SignInOption(BaseModel):
     """
 
 
+class Methods(BaseModel):
+    """
+    The ways in this deployment allows, for a sign-in page to show. Absent from older servers.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    identity_providers: Annotated[bool, Field(alias="identityProviders")]
+    """
+    Sign-in with an organization's identity provider (email first).
+    """
+    api_token: Annotated[bool, Field(alias="apiToken")]
+    """
+    Sign-in to the console with an API token (`POST /v1/auth/token-sign-in`).
+    """
+
+
 class SignInOptions(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
     data: list[SignInOption]
+    methods: Methods | None = None
+    """
+    The ways in this deployment allows, for a sign-in page to show. Absent from older servers.
+    """
+
+
+class TokenSignInResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    user_id: Annotated[str, Field(alias="userId", min_length=1)]
+    """
+    The person now signed in.
+    """
+    expires_at: Annotated[AwareDatetime, Field(alias="expiresAt")]
+    """
+    When the session ends at the latest: its lifetime, or the key's expiry if sooner.
+    """
 
 
 class RegisterIdentityProviderResult(BaseModel):

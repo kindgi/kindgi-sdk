@@ -87,6 +87,23 @@ describe('auth — wire round-trips', () => {
     });
   });
 
+  it('tokenSignIn: POST with the client token, the result as sent', async () => {
+    const stub = recordingFetch([
+      {
+        status: 200,
+        body: JSON.stringify({ userId: 'user-alice', expiresAt: '2026-10-08T20:00:00.000Z' }),
+      },
+    ]);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    expect(await client.auth.tokenSignIn()).toEqual({
+      userId: 'user-alice',
+      expiresAt: '2026-10-08T20:00:00.000Z',
+    });
+    expect(stub.calls[0]?.method).toBe('POST');
+    expect(new URL(stub.calls[0]?.url ?? '').pathname).toBe('/v1/auth/token-sign-in');
+    expect(stub.calls[0]?.headers.authorization).toBe('Bearer t');
+  });
+
   it('signInOptions: the email goes in the query; no email, no query', async () => {
     const option = { providerId: 'acme-okta', displayName: 'Acme Okta', signInUrl: '/auth/x' };
     const stub = recordingFetch([
