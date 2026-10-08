@@ -25,6 +25,9 @@ runtime image's pull credentials, and log in once with `kindgi auth registry`
   are kept, and the retention policies and sweeps that purge them.
 - **[Run with authorization](authorization/):** what it gives today and
   what it doesn't yet, and running OpenFGA next to the runtime.
+- **[Turn on sign-in](sign-in/):** people sign in to the console with their
+  organization's identity provider, Google, Microsoft or GitHub, or a link
+  by email.
 - **[Google Cloud Run](cloud-run/):** the runtime and your pack's service as
   two Cloud Run services, with Cloud SQL, from Kindgi's Terraform module.
 - **Kindgi Cloud:** we run it for you. In private preview.

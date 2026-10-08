@@ -213,6 +213,16 @@ When it starts, the runtime brings the database up to date: it applies the migra
 
 Migrations only go forward, and an older runtime isn't guaranteed to work on a database a newer one migrated. To go back, [restore the backup](#restore-into-a-fresh-database) you took before the upgrade, and run the older version on it.
 
+### From 0.1.4 to 0.1.5
+
+- **Signing in to the console with an API token is now off by default,
+  except in `kindgi dev`.** If people sign in to your console by pasting an
+  API token, set `KINDGI_CONSOLE_TOKEN_SIGN_IN=on` on the runtime when you
+  upgrade, or set up sign-in with your organization's identity provider
+  ([Turn on sign-in](../sign-in/)). Otherwise the console's sign-in page
+  offers no way in, and the runtime's startup output says so too. API tokens
+  keep working for the API, the CLI and the SDKs either way.
+
 ### Runtime 0.1.4.1
 
 Runtime 0.1.4.1 fixes one bug in 0.1.4, for deployments with authorization on

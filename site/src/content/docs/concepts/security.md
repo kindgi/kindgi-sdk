@@ -42,6 +42,28 @@ Tokens are compared in constant time. A wrong or missing token gets `401`:
 
 To rotate the token, restart the runtime with a new value.
 
+## Signing in to the console
+
+People sign in to the console with their email first; the sign-in page then
+offers the ways in the deployment has ([Turn on sign-in](../../deploy/sign-in/)):
+
+- **Only people already added to a workspace get in,** by an email their
+  provider has proved. Nobody is created by signing in, and roles stay
+  Kindgi's: an identity provider says who someone is, not what they may do.
+- **The buttons a person sees grant nothing.** Which "Continue with" buttons
+  appear depends on the email's domain alone; access is decided after the
+  provider signs them in.
+- **A workspace's own identity provider is offered only for a domain
+  verified for that workspace,** so one workspace can't claim another
+  company's domain and catch its people.
+- **The first sign-in links the provider account to the person.** A
+  different account with the same email is refused afterwards, so an address
+  that moves to someone new can't take the person over.
+- **Sessions are cookies the page's scripts can't read,** stored only as a
+  hash, and no provider token is kept. A request signed in by the cookie
+  must come from the console's own origin.
+- **Signing in with an API token is off by default** outside `kindgi dev`.
+
 ## Following a run from a browser
 
 Your backend keeps the API token. A browser that shows a run's progress
