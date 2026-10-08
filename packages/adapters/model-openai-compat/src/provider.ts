@@ -4,7 +4,10 @@
 import OpenAI from 'openai';
 
 import type {
+  AdapterConfigCheckInput,
+  AdapterConfigProblem,
   AdapterFactory,
+  AdapterFactoryEntry,
   AdapterFactoryInput,
   Feature,
   ModelCallInput,
@@ -17,7 +20,7 @@ import type {
   ProviderMetadata,
   UsageCounters,
 } from '@kindgi/capabilities';
-import { samplingFor } from '@kindgi/capabilities';
+import { adapterConfigError, samplingFor } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
 import { nameToolsAsSent } from '@kindgi/capabilities/tool-names';
 
@@ -408,15 +411,50 @@ export const openAICompatAdapterFactory: AdapterFactory = (input) => {
   });
 };
 
+/**
+ * What's wrong with a registration for this adapter, read without building
+ * it (`AdapterFactoryEntry.checkConfig`): its base URL, its API and its
+ * extra request fields. Each problem's message is the error the factory
+ * throws for it: both read the registration through the same functions.
+ */
+export function openAICompatCheckConfig(
+  input: AdapterConfigCheckInput,
+): readonly AdapterConfigProblem[] {
+  return [baseUrlProblem(input), apiProblem(input), ...readExtraBody(input).problems].filter(
+    (problem): problem is AdapterConfigProblem => problem !== undefined,
+  );
+}
+
+/** The entry a runtime registers: the factory, and its static check. */
+export const openAICompatAdapterEntry: AdapterFactoryEntry = {
+  adapterId: OPENAI_COMPAT_ADAPTER_ID,
+  capabilityKind: 'llm-inference',
+  factory: openAICompatAdapterFactory,
+  checkConfig: openAICompatCheckConfig,
+};
+
+/** What the checks read of a registration. */
+type Registration = Pick<AdapterFactoryInput, 'metadata' | 'config'>;
+
+function throwIf(input: Registration, problem: AdapterConfigProblem | undefined): void {
+  if (problem !== undefined) {
+    throw adapterConfigError(OPENAI_COMPAT_ADAPTER_ID, input.metadata.id, problem);
+  }
+}
+
 /** The endpoint a registration names (see `openAICompatAdapterFactory`). */
 export function openAICompatBaseUrl(input: AdapterFactoryInput): string {
+  throwIf(input, baseUrlProblem(input));
+  return input.config?.baseURL as string;
+}
+
+function baseUrlProblem(input: Registration): AdapterConfigProblem | undefined {
   const value = input.config?.baseURL;
-  if (typeof value !== 'string' || !/^https?:\/\/[^\s/]+/.test(value)) {
-    throw new Error(
-      `${OPENAI_COMPAT_ADAPTER_ID}: provider "${input.metadata.id}" needs adapter_config.baseURL, an http(s) URL (e.g. ${BASE_URLS.OPENAI}).`,
-    );
-  }
-  return value;
+  if (typeof value === 'string' && /^https?:\/\/[^\s/]+/.test(value)) return undefined;
+  return {
+    path: '/adapter_config/baseURL',
+    message: `needs adapter_config.baseURL, an http(s) URL (e.g. ${BASE_URLS.OPENAI}).`,
+  };
 }
 
 /**
@@ -425,18 +463,25 @@ export function openAICompatBaseUrl(input: AdapterFactoryInput): string {
  * Throws, naming the key, on an API the adapter doesn't speak.
  */
 export function openAICompatApi(input: AdapterFactoryInput): OpenAICompatApi {
+  throwIf(input, apiProblem(input));
+  return apiOf(input);
+}
+
+function apiProblem(input: Registration): AdapterConfigProblem | undefined {
   const value = input.config?.api;
-  if (value === undefined) {
-    const baseURL = input.config?.baseURL;
-    return defaultOpenAICompatApi(typeof baseURL === 'string' ? baseURL : '');
-  }
-  const api = OPENAI_COMPAT_APIS.find((known) => known === value);
-  if (api === undefined) {
-    throw new Error(
-      `${OPENAI_COMPAT_ADAPTER_ID}: provider "${input.metadata.id}": adapter_config.api must be one of ${OPENAI_COMPAT_APIS.join(', ')}.`,
-    );
-  }
-  return api;
+  if (value === undefined || OPENAI_COMPAT_APIS.some((known) => known === value)) return undefined;
+  return {
+    path: '/adapter_config/api',
+    message: `adapter_config.api must be one of ${OPENAI_COMPAT_APIS.join(', ')}.`,
+  };
+}
+
+/** The registration's API; its base URL's default when `api` is absent or not one the adapter speaks. */
+function apiOf(input: Registration): OpenAICompatApi {
+  const api = OPENAI_COMPAT_APIS.find((known) => known === input.config?.api);
+  if (api !== undefined) return api;
+  const baseURL = input.config?.baseURL;
+  return defaultOpenAICompatApi(typeof baseURL === 'string' ? baseURL : '');
 }
 
 /**
@@ -459,12 +504,22 @@ const UNSAFE_FIELDS = new Set(['__proto__', 'constructor', 'prototype']);
 export function openAICompatExtraBody(
   input: AdapterFactoryInput,
 ): Readonly<Record<string, unknown>> | undefined {
-  const fail = (problem: string): never => {
-    throw new Error(`${OPENAI_COMPAT_ADAPTER_ID}: provider "${input.metadata.id}": ${problem}`);
-  };
+  const { body, problems } = readExtraBody(input);
+  throwIf(input, problems[0]);
+  return body;
+}
+
+/** A registration's extra request fields, and what's wrong with them (`openAICompatExtraBody`). */
+function readExtraBody(input: Registration): {
+  readonly body?: Record<string, unknown>;
+  readonly problems: readonly AdapterConfigProblem[];
+} {
+  const problems: AdapterConfigProblem[] = [];
+  const at = (path: string, problem: string) => problems.push({ path, message: problem });
   const config = input.config ?? {};
   if (Object.hasOwn(config, 'extraBody')) {
-    fail(
+    at(
+      '/adapter_config/extraBody',
       `adapter_config takes extra request fields one per key, "${EXTRA_BODY_PREFIX}<field>" (dots nest), e.g. "${EXTRA_BODY_PREFIX}chat_template_kwargs.enable_thinking": false`,
     );
   }
@@ -473,11 +528,21 @@ export function openAICompatExtraBody(
     if (!key.startsWith(EXTRA_BODY_PREFIX)) continue;
     body ??= {};
     const problem = setField(body, key.slice(EXTRA_BODY_PREFIX.length).split('.'), value);
-    if (problem !== undefined) fail(`adapter_config "${key}" ${problem}`);
+    if (problem !== undefined) at(pointerTo(key), `adapter_config "${key}" ${problem}`);
   }
-  const problem = extraBodyProblem(body, openAICompatApi(input));
-  if (problem !== undefined) fail(`adapter_config ${problem}`);
-  return body;
+  const reserved = reservedIn(body, apiOf(input));
+  if (reserved.length > 0) {
+    at(
+      pointerTo(`${EXTRA_BODY_PREFIX}${reserved[0]}`),
+      `adapter_config ${reservedProblem(reserved)}`,
+    );
+  }
+  return { ...(body !== undefined && { body }), problems };
+}
+
+/** The JSON pointer to a flat `adapter_config` key (its dots stay in one token). */
+function pointerTo(key: string): string {
+  return `/adapter_config/${key.replace(/~/g, '~0').replace(/\//g, '~1')}`;
 }
 
 /** Set `path` in `body` to `value`; what's wrong, if anything. */
@@ -509,11 +574,19 @@ function extraBodyProblem(value: unknown, api: OpenAICompatApi): string | undefi
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     return 'extraBody must be an object of request fields, e.g. { chat_template_kwargs: { enable_thinking: false } }';
   }
+  const reserved = reservedIn(value, api);
+  return reserved.length > 0 ? reservedProblem(reserved) : undefined;
+}
+
+/** The fields of `body` the adapter sets itself on `api`. */
+function reservedIn(body: object | undefined, api: OpenAICompatApi): readonly string[] {
+  if (body === undefined) return [];
   const fields = api === 'responses' ? EXTRA_BODY_RESERVED_RESPONSES : EXTRA_BODY_RESERVED;
-  const reserved = fields.filter((key) => Object.hasOwn(value, key));
-  return reserved.length > 0
-    ? `extraBody can't set ${reserved.join(', ')}: the adapter sets ${reserved.length === 1 ? 'it' : 'them'}`
-    : undefined;
+  return fields.filter((key) => Object.hasOwn(body, key));
+}
+
+function reservedProblem(reserved: readonly string[]): string {
+  return `extraBody can't set ${reserved.join(', ')}: the adapter sets ${reserved.length === 1 ? 'it' : 'them'}`;
 }
 
 /**

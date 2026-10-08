@@ -279,9 +279,12 @@ resource "google_cloud_run_v2_service" "server" {
       env {
         name = "KINDGI_SECRETS_AAD_KEY"
         value_source {
+          # Pinned (var.secrets_aad_key_version): every secret stored in
+          # Postgres is bound to this key, so a version added by mistake
+          # must never reach the server.
           secret_key_ref {
             secret  = google_secret_manager_secret.server["secrets_aad_key"].secret_id
-            version = "latest"
+            version = var.secrets_aad_key_version
           }
         }
       }
@@ -354,6 +357,25 @@ resource "google_cloud_run_v2_service" "server" {
         }
       }
       dynamic "env" {
+        for_each = google_secret_manager_secret.export_signing_key[*].secret_id
+        content {
+          name = "KINDGI_EXPORT_SIGNING_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = env.value
+              version = "latest"
+            }
+          }
+        }
+      }
+      dynamic "env" {
+        for_each = var.export_signing == "kms" ? [var.export_signing_kms_key] : []
+        content {
+          name  = "KINDGI_EXPORT_SIGNING_KMS_KEY"
+          value = env.value
+        }
+      }
+      dynamic "env" {
         for_each = length(var.cors_origins) > 0 ? [join(",", var.cors_origins)] : []
         content {
           name  = "KINDGI_CORS_ORIGINS"
@@ -397,6 +419,10 @@ resource "google_cloud_run_v2_service" "server" {
       error_message = "network_mode = \"connector\" needs pack_ingress = \"INGRESS_TRAFFIC_ALL\": a private-ranges-only server can't reach an internal-only pack service (IAM still guards it)."
     }
     precondition {
+      condition     = var.export_signing != "kms" || var.export_signing_kms_key != ""
+      error_message = "export_signing = \"kms\" needs export_signing_kms_key: the key version that signs."
+    }
+    precondition {
       condition     = !(var.server_public && var.server_invoker_iam_disabled)
       error_message = "server_public (an allUsers invoker binding) and server_invoker_iam_disabled are two ways to the same thing: pick one."
     }
@@ -406,6 +432,8 @@ resource "google_cloud_run_v2_service" "server" {
     google_secret_manager_secret_iam_member.server_reads,
     google_kms_crypto_key_iam_member.server_wraps,
     google_kms_crypto_key_iam_member.server_reads_key,
+    google_secret_manager_secret_iam_member.server_reads_export_key,
+    google_kms_crypto_key_iam_member.server_signs_exports,
     google_project_iam_member.server_sql_client,
     google_compute_router_nat.nat,
   ]

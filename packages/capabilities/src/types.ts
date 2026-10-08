@@ -32,6 +32,29 @@ export const FEATURES = [
 
 export type Feature = (typeof FEATURES)[number];
 
+/**
+ * What each feature means, in a line: the capability catalog's
+ * descriptions (`GET /v1/capabilities`), and what a model declaring the
+ * feature promises.
+ */
+export const FEATURE_DESCRIPTIONS: Readonly<Record<Feature, string>> = {
+  'structured-output':
+    'Answers in JSON that matches a schema the caller gives (a response format), not only free text.',
+  vision: 'Reads images in its input.',
+  'audio-input': 'Reads audio in its input.',
+  'audio-output': 'Produces audio as its answer.',
+  'tool-use':
+    'Calls tools: answers with a tool call and its arguments, then continues with the result.',
+  'parallel-tool-use': 'Calls several tools in one turn.',
+  thinking: 'Reasons in a separate step before it answers (extended or hidden thinking).',
+  'long-context': 'Takes a long input: a large context window.',
+  'code-execution': 'Runs code in a sandbox its provider hosts.',
+  'web-search': 'Searches the web through its provider.',
+  'file-search': "Searches files through its provider's own retrieval.",
+  streaming: 'Streams its answer as it is produced.',
+  batch: 'Takes requests in a batch, answered later at a lower price.',
+};
+
 /** Comparison operator used by numeric requirements (context, cost, latency). */
 export type ComparisonOp = '>=' | '>' | '=' | '<=' | '<';
 

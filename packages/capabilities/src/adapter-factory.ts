@@ -45,6 +45,63 @@ export interface AdapterFactoryEntry {
    * in-process).
    */
   readonly prepare?: (params?: Readonly<Record<string, unknown>>) => AsyncIterable<PrepareEvent>;
+  /**
+   * What's wrong with a provider registration for this adapter, read
+   * statically: its `adapter_config`, its metadata, and whether it names a
+   * secret. No network, no secret resolution (a registration's secret may
+   * be set after it registers), no client built. An empty list means the
+   * factory will take it.
+   *
+   * The runtime runs it when a provider registers (a problem refuses the
+   * registration, naming the field) and when someone checks a registered
+   * provider. It must agree with `factory`: build both from the same
+   * functions, so a registration the check passes is one the factory
+   * accepts, and each problem's message is the error the factory throws.
+   * Absent: the adapter has no check, and registration takes any flat
+   * `adapter_config`.
+   */
+  readonly checkConfig?: (input: AdapterConfigCheckInput) => readonly AdapterConfigProblem[];
+}
+
+/** What `AdapterFactoryEntry.checkConfig` reads: a registration, without its secret. */
+export interface AdapterConfigCheckInput {
+  readonly metadata: ProviderMetadata;
+  readonly config?: AdapterConfig;
+  /** Whether the registration names a secret (`secret_ref`). Its value is never read here. */
+  readonly hasSecretRef: boolean;
+}
+
+/**
+ * One thing wrong with a registration (`AdapterFactoryEntry.checkConfig`),
+ * in the shape of the API's validation issues (`{ path, message }`).
+ */
+export interface AdapterConfigProblem {
+  /**
+   * The setting at fault, as a JSON pointer into the registration:
+   * `/adapter_config/<key>`, `/secret_ref`, `/metadata/region`,
+   * `/metadata/models/<i>/name`.
+   */
+  readonly path: string;
+  /**
+   * What's wrong with that setting and what it takes, without the adapter
+   * or provider (e.g. `adapter_config.api must be one of responses,
+   * chat-completions.`): the API lists it under its own sentence. The
+   * factory throws it as `adapterConfigError` words it.
+   */
+  readonly message: string;
+}
+
+/**
+ * The error an adapter's factory throws for a problem its `checkConfig`
+ * reports: `<adapterId>: provider "<providerId>": <message>`. Both read the
+ * registration through the same functions, so they say the same thing.
+ */
+export function adapterConfigError(
+  adapterId: string,
+  providerId: string,
+  problem: AdapterConfigProblem,
+): Error {
+  return new Error(`${adapterId}: provider "${providerId}": ${problem.message}`);
 }
 
 /**

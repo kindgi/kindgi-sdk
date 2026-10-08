@@ -98,7 +98,7 @@ describe('openAICompatAdapterFactory', () => {
       { baseURL: 42 },
     ]) {
       expect(() => openAICompatAdapterFactory({ metadata, ...(config && { config }) })).toThrow(
-        `${OPENAI_COMPAT_ADAPTER_ID}: provider "openai" needs adapter_config.baseURL, an http(s) URL`,
+        `${OPENAI_COMPAT_ADAPTER_ID}: provider "openai": needs adapter_config.baseURL, an http(s) URL`,
       );
     }
   });
