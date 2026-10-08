@@ -100,6 +100,7 @@ openssl rand -hex 32 | tr -d '\n' | gcloud secrets versions add $N-pack-service-
 printf 'kgi_bt_%s' "$(openssl rand -hex 32)" | gcloud secrets versions add $N-api-token --data-file=-
 
 # The key for secrets stored in Postgres: 32 bytes, base64, the same on every replica.
+# Its first version is the one `secrets_aad_key_version` pins ("1").
 openssl rand 32 | base64 | gcloud secrets versions add $N-secrets-aad-key --data-file=-
 
 # The key that signs public run tokens: Ed25519, PKCS#8 PEM, base64.
@@ -157,7 +158,9 @@ Then `kindgi health`, `kindgi tools list` and a run, with `--url "$URL" --token 
 
 - **One server instance** (`server_max_instances = 1`) until several replicas are verified. Migrations run at boot and need a direct database connection (the socket or a private IP, not a transaction pooler).
 - **Upgrades roll forward:** migrations only go forward, so an older runtime can break on a database a newer one migrated. Deploy a new runtime revision at 100% traffic, keep a database backup from before, and roll back by restoring it.
-- **Rotating a secret:** add a version, then roll a new revision of each service that reads it (`gcloud run services update <service> --update-labels=rotated=$(date +%s)`). Never rotate the AAD key this way: every secret stored in Postgres is bound to it.
+- **Rotating a secret:** add a version, then roll a new revision of each service that reads it (`gcloud run services update <service> --update-labels=rotated=$(date +%s)`).
+- **The AAD key is pinned, never rotated this way.** The server reads the version `secrets_aad_key_version` names, not `latest`. Every secret stored in Postgres is bound to it: a new version is a key change that needs every stored secret re-encrypted, and a version added by mistake must not reach the server.
+  - **Upgrading from a module copy before this variable:** set it to the version your server reads now. `gcloud secrets versions list $N-secrets-aad-key` shows it; normally `1`.
 - **Slow tools:** the runtime waits `KINDGI_PACK_CALL_TIMEOUT_MS` (default 120 s, `pack_call_timeout_ms`) for a tool call. Keep the pack service's `pack_timeout` above it.
 
 ## Taking it down

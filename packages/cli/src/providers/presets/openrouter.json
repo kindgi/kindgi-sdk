@@ -1,0 +1,65 @@
+{
+  "name": "openrouter",
+  "description": "A hosted service in front of several vendors: your prompts pass through OpenRouter (key: OPENROUTER_API_KEY).",
+  "adapterId": "@kindgi/adapter-model-openai-compat",
+  "adapterConfigValues": {
+    "baseURL": "https://openrouter.ai/api/v1"
+  },
+  "secret": "OPENROUTER_API_KEY",
+  "pricesCheckedAt": "2026-10-07",
+  "metadata": {
+    "id": "openrouter",
+    "region": "unspecified",
+    "defaultModel": "anthropic/claude-sonnet-5.5",
+    "description": "OpenRouter, a hosted gateway",
+    "models": [
+      {
+        "name": "anthropic/claude-sonnet-5.5",
+        "contextWindow": 1000000,
+        "maxOutputTokens": 128000,
+        "sampling": false,
+        "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
+        "cost": {
+          "promptUsdPer1kTokens": 0.002,
+          "completionUsdPer1kTokens": 0.01
+        },
+        "description": "Claude Sonnet 5.5: balanced performance and cost."
+      },
+      {
+        "name": "openai/gpt-6.1-sol",
+        "contextWindow": 1050000,
+        "maxOutputTokens": 128000,
+        "sampling": false,
+        "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
+        "cost": {
+          "promptUsdPer1kTokens": 0.002,
+          "completionUsdPer1kTokens": 0.01
+        },
+        "description": "GPT-6.1 Sol: balanced performance and cost."
+      },
+      {
+        "name": "google/gemini-3.8-flash",
+        "contextWindow": 1048576,
+        "maxOutputTokens": 65536,
+        "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
+        "cost": {
+          "promptUsdPer1kTokens": 0.00075,
+          "completionUsdPer1kTokens": 0.00375
+        },
+        "description": "Gemini 3.8 Flash: fast and inexpensive."
+      },
+      {
+        "name": "openai/gpt-6-luna",
+        "contextWindow": 1050000,
+        "maxOutputTokens": 128000,
+        "sampling": false,
+        "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
+        "cost": {
+          "promptUsdPer1kTokens": 0.0001,
+          "completionUsdPer1kTokens": 0.0005
+        },
+        "description": "GPT-6 Luna: fastest and cheapest — routing, classification, simple calls."
+      }
+    ]
+  }
+}

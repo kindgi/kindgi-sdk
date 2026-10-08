@@ -1,0 +1,3 @@
+# The CLI the wheel carries: written by scripts/build-cli-wheel.mjs.
+src/kindgi_cli/_cli/
+dist/

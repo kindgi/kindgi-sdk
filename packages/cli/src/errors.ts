@@ -65,13 +65,18 @@ export function formatThrown(
 /**
  * The code an error line shows: a conflict's own reason when it has one
  * (`registry-read-only`, `agent-already-registered`), which says more
- * than `conflict`; otherwise the error's code.
+ * than `conflict`; the server's own code for a server-class error that
+ * carries one (`gate-failed`, `budget-exceeded`, `secret-store-error`),
+ * which says more than `server`; otherwise the error's code.
  */
 function errorTag(wire: KindgiError): string {
   const reason = (wire as { readonly reason?: unknown }).reason;
-  return wire.code === 'conflict' && typeof reason === 'string' && reason !== ''
-    ? reason
-    : wire.code;
+  if (wire.code === 'conflict' && typeof reason === 'string' && reason !== '') return reason;
+  // `unknown` is the client's own stand-in for a body without a code.
+  if (wire.code === 'server' && wire.serverCode !== '' && wire.serverCode !== 'unknown') {
+    return wire.serverCode;
+  }
+  return wire.code;
 }
 
 /**

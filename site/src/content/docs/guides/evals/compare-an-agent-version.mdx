@@ -7,10 +7,6 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-:::note[Preview (0.1.4-rc)]
-Comparisons are new in Kindgi 0.1.4, available now in its release candidates:
-`npx @kindgi/cli@next`, and `uv add --prerelease allow kindgi`.
-:::
 
 A **comparison** runs an agent version on each case of a
 [test set](../build-a-test-set/), as a replay of the past run, and rates its
@@ -62,6 +58,9 @@ kindgi eval-runs start acme.article-picks --project=<project-id> --agent=acme-op
   …
 }
 ```
+
+This comparison was captured on `claude-haiku-4-5` (retiring on or after
+2026-10-15); on a newer model the scores differ, not the shape.
 
 Without `--wait`, the command returns the run's id at once, and
 `kindgi eval-runs show <run-id>` reads it later. From your code:
@@ -226,7 +225,11 @@ the same tool with the same arguments.
 - **A read-only tool** (`mutating: false`, no effect that changes things, and
   no approval to ask for) gets the past run's result for the same call, and
   runs live when the past run didn't make it (the case is then `diverged`).
-  With `--reads=live` (`reads: 'live'` in the clients), it always runs live.
+  It also runs live when the version you compare pins other settings blocks
+  than the past run's version, so a tool that reads its
+  [settings](../change-a-prompt-or-setting/) shows the change; that counts
+  as `diverged` too. With `--reads=live` (`reads: 'live'` in the clients), it
+  always runs live.
 - **A read that reaches outside** (a `network` or `sensitive-data-egress`
   effect) only ever gets the past run's result for the same call.
 - **Any other tool** gets the past run's result for the same call, or doesn't

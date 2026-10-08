@@ -4014,6 +4014,25 @@ class CapabilityCollectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
+class ModelThinking(BaseModel):
+    """
+    How the model thinks before it answers, so a call that wants as little as it allows (a judge's) gets it. Absent: it doesn't think, or nothing is known.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    mode: Literal["adaptive", "always"]
+    """
+    `adaptive`: on unless turned down. `always`: on, and it can only be lowered.
+    """
+    lowest: Annotated[str, Field(min_length=1)]
+    """
+    The vendor's own setting for the least thinking: for Anthropic `disabled`, `between_tools` or an effort (`low`); for Gemini a thinking level (`low`, `minimal`); for OpenAI a reasoning effort (`low`, `none`).
+    """
+
+
 class ProviderCost(BaseModel):
     """
     USD per 1K tokens. An adapter may take more rate fields (see the adapter's README).
@@ -4069,6 +4088,11 @@ class ModelInfo(BaseModel):
     """
     Fallback cap on output tokens. Adapters that require `max_tokens` on every request (e.g. Anthropic) use this when `ModelCallInput.maxOutputTokens` is unset.
     """
+    sampling: bool | None = None
+    """
+    Whether the model takes sampling settings (`temperature`). `false`: its API rejects a non-default value, so the call goes without one and the answer's `warnings` say so (`sampling-unsupported`). Absent: it takes them.
+    """
+    thinking: ModelThinking | None = None
     description: str | None = None
     """
     Short per-model description surfaced in logs.
@@ -4093,6 +4117,10 @@ class ProviderMetadata(BaseModel):
     models: Annotated[list[ModelInfo], Field(min_length=1)]
     """
     Models this connection exposes. Non-empty. `models[i].name` must be unique within the list.
+    """
+    default_model: Annotated[str | None, Field(alias="defaultModel", min_length=1)] = None
+    """
+    The model to use when an agent doesn't choose: one of `models[].name`. When candidates rank equally, it comes before the provider's other models; without it, ties break by model name. A preset sets it. A runtime before 0.1.4 ignores it.
     """
     attributes: list[str] | None = None
     """
@@ -8077,6 +8105,10 @@ class Run(BaseModel):
     """
     The segment path the run was started with (coarse to fine), which picks live agent versions. A child run has its parent's. Absent when there was none.
     """
+    trace_id: Annotated[str | None, Field(alias="traceId", pattern="^[0-9a-f]{32}$")] = None
+    """
+    The W3C trace id of the request that started the run: the caller's (from its `traceparent`) or one the API minted. The runtime's records about the run carry it; `GET` responses answer `traceresponse` with each request's own. Absent for a run no request started, and on runs from before runs recorded it.
+    """
     public_access_token: Annotated[str | None, Field(alias="publicAccessToken")] = None
     """
     Only in the response to `POST /v1/runs`, when the deployment issues public run tokens: a read-only token for this run (and its descendants) to hand to a browser, for `GET /v1/runs/{runId}/progress` and its stream.
@@ -8136,6 +8168,10 @@ class Datum(BaseModel):
     segments: list[ScopeSegment] | None = None
     """
     The segment path the run was started with (coarse to fine), which picks live agent versions. A child run has its parent's. Absent when there was none.
+    """
+    trace_id: Annotated[str | None, Field(alias="traceId", pattern="^[0-9a-f]{32}$")] = None
+    """
+    The W3C trace id of the request that started the run: the caller's (from its `traceparent`) or one the API minted. The runtime's records about the run carry it; `GET` responses answer `traceresponse` with each request's own. Absent for a run no request started, and on runs from before runs recorded it.
     """
     public_access_token: Annotated[str | None, Field(alias="publicAccessToken")] = None
     """

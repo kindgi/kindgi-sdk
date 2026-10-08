@@ -103,6 +103,7 @@ export interface EnvVarSpec {
 
 export const ENV_GROUPS = {
   core: 'Core server config',
+  logging: 'Logging',
   secrets: 'Secrets backend selection',
   gcp: 'GCP vendor config (postgres + gcp KMS)',
   'local-key': 'Local key (postgres + libsodium: a key this runtime holds, single-node)',
@@ -332,6 +333,40 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     required: false,
     appliesTo: appliesToServer,
     group: 'core',
+  },
+
+  // ---- logging ----------------------------------------------------
+  {
+    name: 'KINDGI_LOG_LEVEL',
+    description:
+      'The lowest level written: `error`, `warn`, `info` (default), `debug` or `trace`. At `info` an idle runtime writes nothing after its boot record but background work that did something. An unknown level stops the server at boot, naming this variable (exit code 2).',
+    example: 'info',
+    required: false,
+    // The runtime server's; the pack service doesn't read it yet.
+    appliesTo: appliesToServer,
+    group: 'logging',
+    allowedValues: ['error', 'warn', 'info', 'debug', 'trace'],
+  },
+  {
+    name: 'KINDGI_LOG_LEVELS',
+    description:
+      "Levels per subsystem, over `KINDGI_LOG_LEVEL`: a comma list of `subsystem=level`, such as `kernel=debug,http=warn`. A dotted subsystem takes its parent's level (`kernel=debug` covers `kernel.sweeper`). A malformed entry stops the server at boot (exit code 2); a subsystem nothing logs under is a warning at boot.",
+    example: 'kernel=debug',
+    required: false,
+    // The runtime server's; the pack service doesn't read it yet.
+    appliesTo: appliesToServer,
+    group: 'logging',
+  },
+  {
+    name: 'KINDGI_LOG_FORMAT',
+    description:
+      '`json`: one record per line (`time`, `level`, `severity`, `subsystem`, `message`, then the ids), for a log collector. `pretty`: for a person at a terminal. `auto` (default): pretty when stdout is a terminal or `KINDGI_DEV=true`, JSON otherwise. `kindgi dev` sets `pretty`.',
+    example: 'json',
+    required: false,
+    // The runtime server's; the pack service doesn't read it yet.
+    appliesTo: appliesToServer,
+    group: 'logging',
+    allowedValues: ['auto', 'json', 'pretty'],
   },
 
   // ---- secrets backend --------------------------------------------

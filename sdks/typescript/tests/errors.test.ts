@@ -85,6 +85,7 @@ describe('fromWire — conflicts', () => {
     'promotion-superseded',
     'gate-policy-already-registered',
     'gate-policy-needs-pin',
+    'gate-policy-descendant-unpinned',
   ])('a %s is a conflict, its code the reason', (code) => {
     expect(fromWire({ code, message: 'taken' })).toEqual({
       code: 'conflict',

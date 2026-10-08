@@ -101,6 +101,7 @@ export function buildModelCallHandler(ctx: TurnContext): NodeHandler {
     ctx.usage.completionTokens += callResult.usage.completionTokens;
     ctx.usage.totalCostUsd += callResult.costUsd;
     ctx.lastProvider = callResult.provider;
+    addModelWarnings(ctx, callResult.warnings);
 
     await emitTurnEvent(ctx.bindings.onEvent, {
       kind: 'model.call.completed',
@@ -142,10 +143,23 @@ export function buildModelCallHandler(ctx: TurnContext): NodeHandler {
         costUsd: callResult.costUsd,
       },
       provider: callResult.provider,
+      ...(callResult.warnings !== undefined &&
+        callResult.warnings.length > 0 && { warnings: callResult.warnings }),
       nextMessages,
     };
     return partial;
   };
+}
+
+/** Keep a call's warnings for the turn's result: one per code, its first message. */
+export function addModelWarnings(
+  ctx: TurnContext,
+  warnings: readonly { readonly code: string; readonly message: string }[] | undefined,
+): void {
+  if (warnings === undefined || warnings.length === 0) return;
+  const kept = ctx.modelWarnings ?? new Map<string, string>();
+  ctx.modelWarnings = kept;
+  for (const w of warnings) if (!kept.has(w.code)) kept.set(w.code, w.message);
 }
 
 /**
