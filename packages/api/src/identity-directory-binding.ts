@@ -13,16 +13,16 @@ import type { Cursor, TenantId, Timestamp, UserId } from '@kindgi/types';
  * tenant" / "show me a user's profile" / "revoke all a user's active
  * sessions" question this binding covers.
  *
- * Registry-only over HTTP — the framework does NOT own user
- * persistence. Deployments plug in an LDAP / SCIM / IdP-mirror /
- * bespoke store behind this binding.
+ * The framework does NOT own user persistence. Deployments plug in an
+ * LDAP / SCIM / IdP-mirror / bespoke store behind this binding.
  *
  * Same caller-plugged pattern as every other admin-plane binding
  * (`PolicyRegistryBinding`, `ProviderRegistryBinding`, ...).
  *
  * The directory is flat. Groups / roles / RBAC / invitations /
  * audit history / LDAP+SCIM sync / impersonation are not part of this
- * binding.
+ * binding. Adding a person (`createUser`) is optional: a directory that
+ * mirrors an identity provider leaves it out.
  */
 export interface IdentityDirectoryBinding {
   /**
@@ -55,7 +55,28 @@ export interface IdentityDirectoryBinding {
    * delegate to `SessionStoreBinding.revokeAllForUser`.
    */
   revokeAllSessions(input: IdentityRevokeSessionsInput): Promise<RevokeSessionsResult>;
+  /**
+   * Optional. Add a person to the tenant as a tenant member, written to
+   * the authorization store before it returns: they can read the
+   * tenant's settings, not its projects. A tenant admin then gives them a
+   * role and mints their first API key. When present,
+   * `POST /v1/identity/users` mounts (tenant admins only). An email
+   * another person of the tenant has is refused.
+   */
+  createUser?(input: IdentityCreateUserInput): Promise<IdentityCreateUserResult>;
 }
+
+export interface IdentityCreateUserInput {
+  readonly tenantId: TenantId;
+  readonly displayName: string;
+  readonly primaryEmail?: string;
+  /** Who added them: `user:<id>` or `service_account:<id>`. */
+  readonly createdBy?: string;
+}
+
+export type IdentityCreateUserResult =
+  | { readonly kind: 'created'; readonly user: UserRecord }
+  | { readonly kind: 'email-taken'; readonly userId: UserId };
 
 export interface IdentityGetUserInput {
   readonly tenantId: TenantId;

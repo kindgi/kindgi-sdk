@@ -28,7 +28,12 @@ export type { Sampling } from './sampling.js';
 export { recordModelUsage } from './usage.js';
 export { nameToolsAsSent } from './tool-names.js';
 export type { RecordModelUsageOptions } from './usage.js';
-export { BUILT_IN_CAPABILITY_KINDS, DEFAULT_CAPABILITY_KIND, FEATURES } from './types.js';
+export {
+  BUILT_IN_CAPABILITY_KINDS,
+  DEFAULT_CAPABILITY_KIND,
+  FEATURE_DESCRIPTIONS,
+  FEATURES,
+} from './types.js';
 export type {
   Budget,
   BuiltInCapabilityKind,

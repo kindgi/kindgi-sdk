@@ -29,6 +29,9 @@
       "description": "API token administration (mint + revoke), and public run tokens: short-lived, read-only tokens a browser uses to follow specific runs."
     },
     {
+      "name": "service-accounts"
+    },
+    {
       "name": "approvals",
       "description": "Human-in-the-loop review queue (role-scoped)."
     },
@@ -217,6 +220,8 @@
           "fact-not-found": 404,
           "flow-not-found": 404,
           "already-terminal": 409,
+          "fact-changed": 409,
+          "legal-hold": 409,
           "run-already-terminal": 409,
           "run-lease-lost": 409,
           "idempotency-key-body-mismatch": 409,
@@ -329,10 +334,19 @@
           "gate-policy-scope-unpinned": 409,
           "gate-policy-needs-pin": 409,
           "gate-policy-descendant-unpinned": 409,
+          "principal-not-found": 404,
+          "role-exceeds-principal": 403,
+          "key-project-mismatch": 403,
+          "service-account-not-found": 404,
+          "service-account-name-taken": 409,
+          "service-account-unregistered": 409,
+          "identity-user-email-taken": 409,
           "agent-version-live": 409,
+          "artifact-too-large": 413,
           "run-not-finished": 409,
           "item-not-found": 400,
           "test-sets-not-supported": 501,
+          "memory-operation-unsupported": 501,
           "authz-membership-unsupported": 501,
           "eval-run-already-terminal": 409,
           "dispatcher-not-registered": 422,
@@ -1344,7 +1358,11 @@
             "format": "date-time"
           },
           "failureMessage": {
-            "type": "string"
+            "type": "string",
+            "description": "The failure as the runtime recorded it. Read `failure` instead: an agent turn records its typed error here in an internal form."
+          },
+          "failure": {
+            "$ref": "#/components/schemas/RunFailure"
           },
           "output": {
             "description": "The run's output once it completed. Present on single-run responses; on lists only with `?include=output`."
@@ -1393,6 +1411,26 @@
             "type": "string",
             "format": "date-time",
             "description": "When `publicAccessToken` stops working."
+          }
+        }
+      },
+      "RunFailure": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message"
+        ],
+        "description": "Why a failed run failed; present only on a `failed` run. An agent turn's failure carries its own code (`budget-exceeded`, `capability-routing-failed`, `model-invocation-failed`, …); any other failure is `run-failed`, with the run's failure message.",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "cause": {
+            "description": "What the error came from, when it says: e.g. for `capability-routing-failed`, the router's `capability-unsatisfiable` with its reasons, by provider."
           }
         }
       },
@@ -1599,7 +1637,11 @@
                   "format": "date-time"
                 },
                 "failureMessage": {
-                  "type": "string"
+                  "type": "string",
+                  "description": "The failure as the runtime recorded it. Read `failure` instead: an agent turn records its typed error here in an internal form."
+                },
+                "failure": {
+                  "$ref": "#/components/schemas/RunFailure"
                 },
                 "output": {
                   "description": "The run's output once it completed. Present on single-run responses; on lists only with `?include=output`."
@@ -1907,14 +1949,18 @@
       "MintTokenBody": {
         "type": "object",
         "additionalProperties": false,
+        "description": "A new API key. `for` is whom it acts for: the caller by default; only a tenant admin mints for someone else.",
         "properties": {
+          "for": {
+            "$ref": "#/components/schemas/ApiKeyPrincipal"
+          },
           "role": {
             "type": "string",
             "enum": [
               "admin",
               "member"
             ],
-            "description": "The key's role in its tenant: `admin` administers the tenant (and manages keys); `member` belongs to it and administers nothing. Default `member`."
+            "description": "The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action, whoever it's for. Default `member`; `admin` needs a tenant admin minting it."
           },
           "capabilities": {
             "type": "array",
@@ -1936,7 +1982,8 @@
           },
           "projectId": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "Limit the key to this project: a request naming another project is refused (`key-project-mismatch`). A key limited to a project mints only keys limited to it."
           }
         }
       },
@@ -1956,13 +2003,16 @@
             "type": "string",
             "format": "uuid"
           },
+          "principal": {
+            "$ref": "#/components/schemas/ApiKeyPrincipal"
+          },
           "role": {
             "type": "string",
             "enum": [
               "admin",
               "member"
             ],
-            "description": "The key's role in its tenant: `admin` administers the tenant (and manages keys); `member` belongs to it and administers nothing."
+            "description": "The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action, whoever it's for."
           },
           "capabilities": {
             "type": "array",
@@ -1978,11 +2028,12 @@
           },
           "projectId": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "The project the key is limited to."
           },
           "createdBy": {
             "type": "string",
-            "description": "Who minted it: `user:<id>` or `service_account:<tokenId>`."
+            "description": "Who minted it: `user:<id>` or `service_account:<id>`."
           },
           "createdAt": {
             "type": "string",
@@ -2011,7 +2062,7 @@
       "ApiToken": {
         "type": "object",
         "additionalProperties": false,
-        "description": "An API key: a service account in its tenant. Never includes the secret.",
+        "description": "An API key. Never includes the secret. `principal` is whom it acts for; absent on a key that is a service account of its own (`service_account:<tokenId>`), as keys minted before principals are.",
         "required": [
           "tokenId",
           "role",
@@ -2023,13 +2074,16 @@
             "type": "string",
             "format": "uuid"
           },
+          "principal": {
+            "$ref": "#/components/schemas/ApiKeyPrincipal"
+          },
           "role": {
             "type": "string",
             "enum": [
               "admin",
               "member"
             ],
-            "description": "The key's role in its tenant: `admin` administers the tenant (and manages keys); `member` belongs to it and administers nothing."
+            "description": "The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action, whoever it's for."
           },
           "capabilities": {
             "type": "array",
@@ -2045,11 +2099,12 @@
           },
           "projectId": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "The project the key is limited to."
           },
           "createdBy": {
             "type": "string",
-            "description": "Who minted it: `user:<id>` or `service_account:<tokenId>`."
+            "description": "Who minted it: `user:<id>` or `service_account:<id>`."
           },
           "createdAt": {
             "type": "string",
@@ -2084,7 +2139,7 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "description": "An API key: a service account in its tenant. Never includes the secret.",
+              "description": "An API key. Never includes the secret. `principal` is whom it acts for; absent on a key that is a service account of its own (`service_account:<tokenId>`), as keys minted before principals are.",
               "required": [
                 "tokenId",
                 "role",
@@ -2096,13 +2151,16 @@
                   "type": "string",
                   "format": "uuid"
                 },
+                "principal": {
+                  "$ref": "#/components/schemas/ApiKeyPrincipal"
+                },
                 "role": {
                   "type": "string",
                   "enum": [
                     "admin",
                     "member"
                   ],
-                  "description": "The key's role in its tenant: `admin` administers the tenant (and manages keys); `member` belongs to it and administers nothing."
+                  "description": "The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action, whoever it's for."
                 },
                 "capabilities": {
                   "type": "array",
@@ -2118,11 +2176,12 @@
                 },
                 "projectId": {
                   "type": "string",
-                  "format": "uuid"
+                  "format": "uuid",
+                  "description": "The project the key is limited to."
                 },
                 "createdBy": {
                   "type": "string",
-                  "description": "Who minted it: `user:<id>` or `service_account:<tokenId>`."
+                  "description": "Who minted it: `user:<id>` or `service_account:<id>`."
                 },
                 "createdAt": {
                   "type": "string",
@@ -2151,6 +2210,247 @@
           },
           "hasMore": {
             "type": "boolean"
+          }
+        }
+      },
+      "ApiKeyPrincipal": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "id"
+        ],
+        "description": "Whom an API key acts for: a person, or a service account.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "user",
+              "service-account"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The user id, or the service account id."
+          }
+        }
+      },
+      "ServiceAccountGrantTenantAdmin": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind"
+        ],
+        "description": "Tenant admin.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tenant-admin"
+            ]
+          }
+        }
+      },
+      "ServiceAccountGrantTenantMember": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind"
+        ],
+        "description": "Tenant member: read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. A service account has it only when granted; a person has it from being added.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tenant-member"
+            ]
+          }
+        }
+      },
+      "ServiceAccountGrantProject": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "projectId",
+          "role"
+        ],
+        "description": "A role on one project; it replaces the account's role there.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "project"
+            ]
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "$ref": "#/components/schemas/ProjectRole"
+          }
+        }
+      },
+      "ServiceAccountGrant": {
+        "description": "What a service account may do: tenant admin, tenant member (read the tenant's settings), or a role on one project.",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ServiceAccountGrantTenantAdmin"
+          },
+          {
+            "$ref": "#/components/schemas/ServiceAccountGrantTenantMember"
+          },
+          {
+            "$ref": "#/components/schemas/ServiceAccountGrantProject"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind"
+        }
+      },
+      "ServiceAccountGrantBody": {
+        "description": "The grant to add: tenant admin, tenant member, or a role on one project.",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ServiceAccountGrantTenantAdmin"
+          },
+          {
+            "$ref": "#/components/schemas/ServiceAccountGrantTenantMember"
+          },
+          {
+            "$ref": "#/components/schemas/ServiceAccountGrantProject"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind"
+        }
+      },
+      "ServiceAccountUngrantProject": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "projectId"
+        ],
+        "description": "Whatever role the account has on one project.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "project"
+            ]
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "ServiceAccountUngrantBody": {
+        "description": "The grant to remove: tenant admin, tenant member, or the role on a project.",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ServiceAccountGrantTenantAdmin"
+          },
+          {
+            "$ref": "#/components/schemas/ServiceAccountGrantTenantMember"
+          },
+          {
+            "$ref": "#/components/schemas/ServiceAccountUngrantProject"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind"
+        }
+      },
+      "ServiceAccount": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "A named, non-human principal (`service_account:<id>`) for an app, a pipeline or a schedule. It acts through API keys minted for it.",
+        "required": [
+          "serviceAccountId",
+          "name",
+          "grants",
+          "createdAt"
+        ],
+        "properties": {
+          "serviceAccountId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "description": "Unique among the tenant's active accounts."
+          },
+          "description": {
+            "type": "string"
+          },
+          "grants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ServiceAccountGrant"
+            }
+          },
+          "createdBy": {
+            "type": "string",
+            "description": "Who created it: `user:<id>` or `service_account:<id>`."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "unregisteredAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Set once unregistered: it has no grants, and its keys no longer work."
+          }
+        }
+      },
+      "ServiceAccountPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ServiceAccount"
+            }
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateServiceAccountBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+            "description": "Lowercase letters, digits and hyphens, e.g. `acme-ci`."
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "grants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ServiceAccountGrant"
+            },
+            "description": "Written before the account is returned, so its first key works at once."
           }
         }
       },
@@ -6237,7 +6537,7 @@
         "required": [
           "tenantId"
         ],
-        "description": "Fact scope object. `tenantId` is required; every optional key narrows the fact (`userId`, `orgId`, `projectId`, `threadId`, `sessionId`). Additional keys accepted for forward compatibility.",
+        "description": "Fact scope object. `tenantId` is required; every optional key narrows the fact (`userId`, `orgId`, `projectId`, `threadId`, `sessionId`, `participantId`). A fact is readable by whoever has every container it names. Additional keys accepted for forward compatibility.",
         "properties": {
           "tenantId": {
             "type": "string"
@@ -6256,6 +6556,11 @@
           },
           "sessionId": {
             "type": "string"
+          },
+          "participantId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "An app's end user, by the app's own id: a fact private to that participant's runs. Needs `projectId`."
           }
         }
       },
@@ -6349,6 +6654,73 @@
           }
         }
       },
+      "FactSubject": {
+        "description": "Whom a fact is about: what access and erasure requests by person find.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "id"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "participant",
+              "user",
+              "external"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "FactAttribution": {
+        "description": "Who asserted a fact, set by the server from the writer.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "id"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "user",
+              "service",
+              "agent"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "agentVersion": {
+            "type": "string"
+          }
+        }
+      },
+      "FactGeneratedBy": {
+        "description": "The run step that wrote a fact, for one an agent wrote.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "runId"
+        ],
+        "properties": {
+          "runId": {
+            "type": "string"
+          },
+          "stepId": {
+            "type": "string"
+          },
+          "toolCallId": {
+            "type": "string"
+          }
+        }
+      },
       "Fact": {
         "type": "object",
         "additionalProperties": false,
@@ -6362,7 +6734,11 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "FactId."
+            "description": "The fact id, kept across revisions (for a fact never superseded, also its one revision id)."
+          },
+          "revisionId": {
+            "type": "string",
+            "description": "This revision's own id; absent where it equals `id`."
           },
           "type": {
             "type": "string",
@@ -6374,7 +6750,7 @@
           "version": {
             "type": "integer",
             "minimum": 1,
-            "description": "Monotonic version within (scope, id). Supersession increments."
+            "description": "The revision number within the fact: 1, then one more per supersede or verify."
           },
           "createdAt": {
             "type": "string",
@@ -6415,7 +6791,75 @@
           },
           "supersedes": {
             "type": "string",
-            "description": "FactId of the predecessor when this row supersedes another."
+            "description": "The revision this one replaced."
+          },
+          "trust": {
+            "type": "string",
+            "enum": [
+              "verified",
+              "asserted",
+              "unverified"
+            ],
+            "description": "`verified`: a person with the right checked it. `asserted`: an app or a person wrote it. `unverified`: an agent remembered it during a conversation. Absent on facts from before trust was recorded: `asserted`."
+          },
+          "verifiedBy": {
+            "type": "string"
+          },
+          "verifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "attributedTo": {
+            "$ref": "#/components/schemas/FactAttribution"
+          },
+          "generatedBy": {
+            "$ref": "#/components/schemas/FactGeneratedBy"
+          },
+          "subjects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FactSubject"
+            }
+          },
+          "validFrom": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the fact starts being true in the world; absent: always."
+          },
+          "validUntil": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the fact stops being true in the world; absent: still true."
+          },
+          "observedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it was said or seen."
+          },
+          "invalidatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When this revision stopped being current; absent: it is current."
+          },
+          "invalidatedBy": {
+            "type": "string",
+            "description": "`user:<id>` or `service:<id>`."
+          },
+          "invalidationReason": {
+            "type": "string",
+            "enum": [
+              "superseded",
+              "deleted",
+              "erased",
+              "expired"
+            ]
+          },
+          "review": {
+            "type": "string",
+            "enum": [
+              "pending"
+            ],
+            "description": "`pending` while a person must approve it: a pending fact is never retrieved."
           }
         }
       },
@@ -6443,7 +6887,7 @@
         }
       },
       "WriteFactBody": {
-        "description": "Write a fact. `type` selects the retrieval-policy (which indexes populate); `scope.tenantId` MUST match the caller's tenant. Optional `retention` overrides tenant defaults; optional `contentHash` is a caller-supplied idempotence hint (runtime computes its own hash regardless).",
+        "description": "Write a fact. `type` selects the retrieval-policy (which indexes populate); `scope.tenantId` MUST match the caller's tenant. Optional `retention` overrides tenant defaults; optional `contentHash` is a caller-supplied idempotence hint (runtime computes its own hash regardless). `subjects` names whom it is about; `validFrom`/`validUntil` when it is true in the world; `observedAt` when it was said or seen.",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -6467,23 +6911,90 @@
           },
           "contentHash": {
             "type": "string"
+          },
+          "subjects": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "$ref": "#/components/schemas/FactSubject"
+            }
+          },
+          "validFrom": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "validUntil": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "observedAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
-      "SupersedeFactResult": {
+      "SupersedeFactBody": {
+        "description": "The fact's next revision: new `content`, and optionally new `retention`, `subjects` and times (absent ones keep their current values). Its scope and type stay. `expectVersion`: only if the current revision is still this one.",
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "factId",
-          "superseded"
+          "content"
         ],
         "properties": {
-          "factId": {
-            "type": "string"
+          "content": {
+            "description": "Free-form structured payload."
           },
-          "superseded": {
-            "type": "boolean",
-            "const": true
+          "expectVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "retention": {
+            "$ref": "#/components/schemas/Retention"
+          },
+          "subjects": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "$ref": "#/components/schemas/FactSubject"
+            }
+          },
+          "validFrom": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "validUntil": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "observedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "VerifyFactBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectVersion": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "FactRevisionList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Fact"
+            },
+            "description": "Every revision, newest first."
           }
         }
       },
@@ -7686,6 +8197,14 @@
             "format": "uuid",
             "description": "Optional back-ref to the RunId that produced this blob."
           },
+          "projectId": {
+            "type": "string",
+            "description": "The project the artifact belongs to: its owner run's, else the upload's `projectId`, else the tenant's default project. Reading it needs `read` there; deleting it, `write`. Absent on blobs stored before projects were recorded."
+          },
+          "createdBy": {
+            "type": "string",
+            "description": "Who uploaded it: `user:<id>` or `service_account:<id>`."
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -7754,6 +8273,14 @@
                   "format": "uuid",
                   "description": "Optional back-ref to the RunId that produced this blob."
                 },
+                "projectId": {
+                  "type": "string",
+                  "description": "The project the artifact belongs to: its owner run's, else the upload's `projectId`, else the tenant's default project. Reading it needs `read` there; deleting it, `write`. Absent on blobs stored before projects were recorded."
+                },
+                "createdBy": {
+                  "type": "string",
+                  "description": "Who uploaded it: `user:<id>` or `service_account:<id>`."
+                },
                 "createdAt": {
                   "type": "string",
                   "format": "date-time"
@@ -7793,6 +8320,10 @@
           "ownerRunId": {
             "type": "string",
             "format": "uuid"
+          },
+          "projectId": {
+            "type": "string",
+            "description": "The project it belongs to, when there's no `ownerRunId` (with one, the run's project, and this must agree). Default: the tenant's default project."
           },
           "expectedHash": {
             "type": "string",
@@ -7871,6 +8402,34 @@
             "type": "object",
             "additionalProperties": true,
             "description": "Optional JSON Schema fragment describing the parameters an agent may attach to `{ feature, params }` in a `Requirement`."
+          },
+          "providers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CapabilityProvider"
+            },
+            "description": "The tenant's registered providers with a model that has the feature, and those models. Absent from servers that don't read the provider registry; `[]` when no provider of the tenant has one."
+          }
+        }
+      },
+      "CapabilityProvider": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "providerId",
+          "models"
+        ],
+        "description": "A provider of the tenant with a model that has the feature.",
+        "properties": {
+          "providerId": {
+            "type": "string"
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Its models that have it."
           }
         }
       },
@@ -9497,10 +10056,13 @@
           "env",
           "secret",
           "run",
+          "artifact",
           "policy",
           "judgment",
           "judge_class",
           "provider",
+          "api_key",
+          "service_account",
           "*"
         ]
       },
@@ -11363,7 +11925,7 @@
         }
       },
       "WhoamiResult": {
-        "description": "Introspection of the caller's current authentication context. Always carries `tenantId` and `scopes` (empty for static bearer tokens), plus `userId` when the token carries one; session-token callers additionally see `sessionId`, `providerId`, and `expiresAt`. `user` is the caller's directory record, present when the deployment wires an identity directory and it knows the `userId`. `reviewerRole` is set when the caller is a reviewer — its token carries a reviewer role, or its user is a registered reviewer — so clients can gate reviewer-only UI (the approvals surface) without a second round trip.",
+        "description": "Introspection of the caller's current authentication context. Always carries `tenantId` and `scopes` (empty for static bearer tokens), plus `userId` when the token carries one; `principal` says whom the caller acts as, and an API key adds `tokenId`, its `role` and the `projectId` it is limited to; session-token callers additionally see `sessionId`, `providerId`, and `expiresAt`. `user` is the caller's directory record, present when the deployment wires an identity directory and it knows the `userId`. `reviewerRole` is set when the caller is a reviewer — its token carries a reviewer role, or its user is a registered reviewer — so clients can gate reviewer-only UI (the approvals surface) without a second round trip.",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -11405,6 +11967,25 @@
           },
           "user": {
             "$ref": "#/components/schemas/UserRecord"
+          },
+          "principal": {
+            "$ref": "#/components/schemas/ApiKeyPrincipal"
+          },
+          "tokenId": {
+            "type": "string",
+            "description": "The caller's API key, when it is one."
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "member"
+            ],
+            "description": "The caller's API key role, when the key has one."
+          },
+          "projectId": {
+            "type": "string",
+            "description": "The project the caller's API key is limited to, when it is."
           }
         }
       },
@@ -11442,6 +12023,24 @@
           "metadata": {
             "type": "object",
             "additionalProperties": true
+          }
+        }
+      },
+      "CreateUserBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "displayName"
+        ],
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "primaryEmail": {
+            "type": "string",
+            "description": "Unique among the tenant's people."
           }
         }
       },
@@ -12032,7 +12631,14 @@
           "agent-promotion-refused",
           "agent-rollback",
           "agent-live-unpinned",
-          "agent-live-pin-inactive"
+          "agent-live-pin-inactive",
+          "api-key-minted",
+          "api-key-revoked",
+          "service-account-created",
+          "service-account-granted",
+          "service-account-ungranted",
+          "service-account-unregistered",
+          "person-added"
         ]
       },
       "EvidenceActor": {
@@ -12184,7 +12790,14 @@
               "agent-promotion-refused",
               "agent-rollback",
               "agent-live-unpinned",
-              "agent-live-pin-inactive"
+              "agent-live-pin-inactive",
+              "api-key-minted",
+              "api-key-revoked",
+              "service-account-created",
+              "service-account-granted",
+              "service-account-ungranted",
+              "service-account-unregistered",
+              "person-added"
             ]
           },
           "timestamp": {
@@ -12359,7 +12972,14 @@
               "agent-promotion-refused",
               "agent-rollback",
               "agent-live-unpinned",
-              "agent-live-pin-inactive"
+              "agent-live-pin-inactive",
+              "api-key-minted",
+              "api-key-revoked",
+              "service-account-created",
+              "service-account-granted",
+              "service-account-ungranted",
+              "service-account-unregistered",
+              "person-added"
             ]
           },
           "from": {
@@ -12432,7 +13052,14 @@
                   "agent-promotion-refused",
                   "agent-rollback",
                   "agent-live-unpinned",
-                  "agent-live-pin-inactive"
+                  "agent-live-pin-inactive",
+                  "api-key-minted",
+                  "api-key-revoked",
+                  "service-account-created",
+                  "service-account-granted",
+                  "service-account-ungranted",
+                  "service-account-unregistered",
+                  "person-added"
                 ]
               },
               "from": {
@@ -16386,7 +17013,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin, or a capability the caller does not hold.",
+            "description": "Not a tenant admin where one is needed, or a capability the caller does not hold (`permission-denied`); an `admin` key for a principal that isn't a tenant admin (`role-exceeds-principal`); a key limited to a project minting for another (`key-project-mismatch`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -16396,7 +17023,7 @@
             }
           },
           "404": {
-            "description": "The body's `projectId` names no project of this tenant (`project-not-found`).",
+            "description": "The body's `projectId` names no project of this tenant (`project-not-found`), or `for` names no person or service account (`principal-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -16426,7 +17053,7 @@
             }
           }
         },
-        "description": "An API key is a service account in the tenant, with a `role` and explicit `capabilities`. Returns the plaintext token exactly once. Tenant admins only; a caller can only grant capabilities it holds. Only mounted when the deployment supplies a `TokenAdmin`.",
+        "description": "An API key acts for one principal (`for`: a person or a service account; default the caller), with that principal's grants. Its `role` is a ceiling under them and its `projectId` a limit. Returns the plaintext token exactly once. A person or a service account's key mints its own keys; only a tenant admin mints for someone else, or an `admin` key. A caller can only grant capabilities it holds, and a key limited to a project mints only keys limited to it. Only mounted when the deployment supplies a `TokenAdmin`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -16473,7 +17100,7 @@
             }
           },
           "400": {
-            "description": "Malformed cursor.",
+            "description": "Malformed cursor or `principal`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16493,7 +17120,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin.",
+            "description": "A caller with no keys of its own that is not a tenant admin.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16503,7 +17130,7 @@
             }
           }
         },
-        "description": "Newest first. Never returns secrets. Tenant admins only.",
+        "description": "Newest first. Never returns secrets. A tenant admin sees every key (`?principal=` for one principal's); anyone else sees their own.",
         "parameters": [
           {
             "name": "cursor",
@@ -16525,6 +17152,15 @@
             },
             "required": false,
             "description": "1..100. Default 25."
+          },
+          {
+            "name": "principal",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Tenant admins: only this principal's keys, `user:<id>` or `service-account:<id>`."
           }
         ],
         "security": [
@@ -16563,7 +17199,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin.",
+            "description": "A caller with no keys of its own that is not a tenant admin.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16573,7 +17209,7 @@
             }
           },
           "404": {
-            "description": "No token with that id under this tenant.",
+            "description": "No token with that id that the caller may see.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16583,7 +17219,7 @@
             }
           }
         },
-        "description": "Never returns the secret. Tenant admins only.",
+        "description": "Never returns the secret. A tenant admin reads any key; anyone else only their own (someone else's reads as missing).",
         "parameters": [
           {
             "name": "tokenId",
@@ -16642,7 +17278,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin.",
+            "description": "A caller with no keys of its own that is not a tenant admin.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16652,7 +17288,7 @@
             }
           },
           "404": {
-            "description": "No token with that id under this tenant.",
+            "description": "No token with that id that the caller may see.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16682,7 +17318,7 @@
             }
           }
         },
-        "description": "Takes effect on the next request. Tenant admins only.",
+        "description": "Takes effect on the next request. A tenant admin revokes any key; anyone else only their own.",
         "parameters": [
           {
             "name": "tokenId",
@@ -16693,6 +17329,608 @@
             },
             "required": true,
             "description": "ApiTokenId — opaque branded string (a UUID)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/service-accounts": {
+      "post": {
+        "operationId": "serviceAccounts.create",
+        "summary": "Create a service account",
+        "tags": [
+          "service-accounts"
+        ],
+        "responses": {
+          "201": {
+            "description": "Created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceAccount"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A grant names no project of this tenant (`project-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "An active service account has the name (`service-account-name-taken`), or an idempotency conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A named, non-human principal with its first grants, written before it is returned. It isn't a tenant member unless a grant makes it one (`{kind: 'tenant-member'}`: read the tenant's settings); give it only what its job needs. Mint its keys at `POST /v1/tokens` with `for`. Tenant admins only. Mounted when the deployment supplies a `ServiceAccountBinding`.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateServiceAccountBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "serviceAccounts.list",
+        "summary": "List service accounts",
+        "tags": [
+          "service-accounts"
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of service accounts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceAccountPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Oldest first; active only unless `?includeUnregistered=true`. Tenant admins only.",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Opaque cursor from a prior response. Absent → first page."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "includeUnregistered",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            },
+            "required": false,
+            "description": "`true`: unregistered accounts too."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/service-accounts/{serviceAccountId}": {
+      "get": {
+        "operationId": "serviceAccounts.get",
+        "summary": "Read a service account",
+        "tags": [
+          "service-accounts"
+        ],
+        "responses": {
+          "200": {
+            "description": "The service account.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceAccount"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such service account (`service-account-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Unregistered ones too. Tenant admins only.",
+        "parameters": [
+          {
+            "name": "serviceAccountId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "The service account id."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/service-accounts/{serviceAccountId}/grant": {
+      "post": {
+        "operationId": "serviceAccounts.grant",
+        "summary": "Grant a service account",
+        "tags": [
+          "service-accounts"
+        ],
+        "responses": {
+          "200": {
+            "description": "The account, with its grants.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceAccount"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such service account (`service-account-not-found`), or no such project (`project-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The account is unregistered (`service-account-unregistered`), or an idempotency conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Tenant admin, or a role on a project (replacing the account's role there). Written before the call answers. Tenant admins only.",
+        "parameters": [
+          {
+            "name": "serviceAccountId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "The service account id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServiceAccountGrantBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/service-accounts/{serviceAccountId}/ungrant": {
+      "post": {
+        "operationId": "serviceAccounts.ungrant",
+        "summary": "Remove a grant from a service account",
+        "tags": [
+          "service-accounts"
+        ],
+        "responses": {
+          "200": {
+            "description": "The account, with its grants.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceAccount"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such service account (`service-account-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A no-op when the account does not hold it. Tenant admins only.",
+        "parameters": [
+          {
+            "name": "serviceAccountId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "The service account id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServiceAccountUngrantBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/service-accounts/{serviceAccountId}/unregister": {
+      "post": {
+        "operationId": "serviceAccounts.unregister",
+        "summary": "Unregister a service account",
+        "tags": [
+          "service-accounts"
+        ],
+        "responses": {
+          "200": {
+            "description": "The unregistered account.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceAccount"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such service account (`service-account-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A tombstone: its grants go and its keys stop working; it stays readable. Idempotent. Tenant admins only.",
+        "parameters": [
+          {
+            "name": "serviceAccountId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "The service account id."
           },
           {
             "name": "Idempotency-Key",
@@ -21870,7 +23108,7 @@
             }
           },
           "400": {
-            "description": "Malformed query parameter (e.g. `scope` not valid JSON).",
+            "description": "Malformed query parameter (e.g. `scope` not valid JSON, `asOf` not a time).",
             "content": {
               "application/json": {
                 "schema": {
@@ -21890,7 +23128,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Filters: `?type=` (exact match on `Fact.type`), `?scope=` (URL-encoded JSON partial memory `Scope`), `?scopeKind + ?scopeId + ?inherit` (discriminated `PlatformScope` triplet — threaded into the binding as `platformScope`; both fields coexist). Sort order is binding-defined.",
+        "description": "Cursor-paginated: the current revision of each fact the caller may see. That is tenant-wide facts, the projects they may read (with those projects' orgs), their own user facts, and every end user's and conversation's facts in the projects they may write; a tenant admin sees every fact. Filters: `?type=` (exact match on `Fact.type`), `?scope=` (URL-encoded JSON partial memory `Scope`), `?scopeKind + ?scopeId + ?inherit` (discriminated `PlatformScope` triplet — threaded into the binding as `platformScope`; both fields coexist), `?asOf=` (memory as it stood then). Sort order is binding-defined.",
         "parameters": [
           {
             "name": "limit",
@@ -21959,6 +23197,16 @@
             },
             "required": false,
             "description": "Default `true`. `false` = literal-at-this-scope only (admin/audit view). Load-bearing for policy/config-scoped resources (mcp-endpoints); documented no-op for content-scoped resources (agents/flows/tools/...)."
+          },
+          {
+            "name": "asOf",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "description": "Read memory as it stood at this time (ISO 8601): the revision that was current then, including one since superseded or deleted."
           }
         ],
         "security": [
@@ -22004,6 +23252,16 @@
               }
             }
           },
+          "403": {
+            "description": "`permission-denied`: the caller may not write in the fact's scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "409": {
             "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
             "content": {
@@ -22025,7 +23283,7 @@
             }
           }
         },
-        "description": "Persists a new fact. `type` selects the retrieval policy (which indexes populate). Semantic-indexed types require an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`.",
+        "description": "Persists a new fact. `type` selects the retrieval policy (which indexes populate). Semantic-indexed types require an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`. The caller needs write where the scope says: `write` on its project (an end user's or a conversation's fact included), `write` on its conversation outside a project, `admin` on its org for an org-wide fact, being that user for a user's fact, and tenant `admin` for a tenant-wide fact. The fact records who wrote it (`attributedTo`).",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -22073,6 +23331,16 @@
               }
             }
           },
+          "400": {
+            "description": "`version` is not a revision number, or `asOf` not a time.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
             "content": {
@@ -22084,7 +23352,7 @@
             }
           },
           "404": {
-            "description": "No fact with that id under this tenant.",
+            "description": "No fact with that id the caller may see (or no such revision).",
             "content": {
               "application/json": {
                 "schema": {
@@ -22094,6 +23362,7 @@
             }
           }
         },
+        "description": "Its current revision; `?version=` reads one revision, `?asOf=` the revision current at that time. A fact the caller may not see is not found.",
         "parameters": [
           {
             "name": "factId",
@@ -22102,7 +23371,201 @@
               "type": "string"
             },
             "required": true,
-            "description": "FactId — opaque branded string."
+            "description": "The fact id (kept across revisions)."
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "required": false,
+            "description": "A revision number: that revision, current or not."
+          },
+          {
+            "name": "asOf",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "description": "Read memory as it stood at this time (ISO 8601): the revision that was current then, including one since superseded or deleted."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "memory.deleteFact",
+        "summary": "Delete a fact",
+        "tags": [
+          "memory"
+        ],
+        "responses": {
+          "200": {
+            "description": "The closed revision.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Fact"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`expectVersion` is not a revision number.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: the caller may not write in the fact's scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No fact with that id the caller may see, or it was deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`fact-changed`: the current revision is not `expectVersion`; `legal-hold`: the fact is under legal hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`memory-operation-unsupported`: this runtime's memory can't delete facts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Closes the current revision (`invalidationReason: deleted`): the fact is no longer listed, fetched or retrieved, and its history stays readable until the retention sweep removes it.",
+        "parameters": [
+          {
+            "name": "factId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "The fact id (kept across revisions)."
+          },
+          {
+            "name": "expectVersion",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "required": false,
+            "description": "Only if the current revision is still this one; otherwise `409 fact-changed` with `currentVersion`."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/memory/facts/{factId}/revisions": {
+      "get": {
+        "operationId": "memory.listFactRevisions",
+        "summary": "List a fact's revisions",
+        "tags": [
+          "memory"
+        ],
+        "responses": {
+          "200": {
+            "description": "The revisions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FactRevisionList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No fact with that id the caller may see.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`memory-operation-unsupported`: this runtime's memory doesn't keep fact history.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Every revision of the fact, newest first, superseded and deleted ones included: who changed it, when and why (`invalidatedBy`, `invalidatedAt`, `invalidationReason`).",
+        "parameters": [
+          {
+            "name": "factId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "The fact id (kept across revisions)."
           }
         ],
         "security": [
@@ -22115,17 +23578,17 @@
     "/v1/memory/facts/{factId}/supersede": {
       "post": {
         "operationId": "memory.supersedeFact",
-        "summary": "Mark a fact as superseded",
+        "summary": "Change a fact's content",
         "tags": [
           "memory"
         ],
         "responses": {
           "200": {
-            "description": "Superseded (or already superseded).",
+            "description": "The new revision.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SupersedeFactResult"
+                  "$ref": "#/components/schemas/Fact"
                 }
               }
             }
@@ -22150,8 +23613,18 @@
               }
             }
           },
+          "403": {
+            "description": "`permission-denied`: the caller may not write in the fact's scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
-            "description": "No fact with that id under this tenant.",
+            "description": "No fact with that id the caller may see, or it was deleted.",
             "content": {
               "application/json": {
                 "schema": {
@@ -22161,7 +23634,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "`fact-changed`: the current revision is not `expectVersion` (`details.currentVersion`); `legal-hold`: the fact is under legal hold.",
             "content": {
               "application/json": {
                 "schema": {
@@ -22181,7 +23654,7 @@
             }
           }
         },
-        "description": "Soft-delete via supersession — the historical row is retained until retention sweeps remove it. Idempotent: superseding an already-superseded fact returns `200 { superseded: true }`.",
+        "description": "Writes the next revision (same fact id, `version` one more) and closes the current one; the old revision stays readable with `?version=`, `?asOf=` and in the history until the retention sweep removes it. `expectVersion` refuses if someone changed it first.",
         "parameters": [
           {
             "name": "factId",
@@ -22190,7 +23663,7 @@
               "type": "string"
             },
             "required": true,
-            "description": "FactId — opaque branded string."
+            "description": "The fact id (kept across revisions)."
           },
           {
             "name": "Idempotency-Key",
@@ -22203,6 +23676,144 @@
             "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupersedeFactBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/memory/facts/{factId}/verify": {
+      "post": {
+        "operationId": "memory.verifyFact",
+        "summary": "Mark a fact verified",
+        "tags": [
+          "memory"
+        ],
+        "responses": {
+          "200": {
+            "description": "The verified revision.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Fact"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: the caller may not write in the fact's scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No fact with that id the caller may see, or it was deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`fact-changed`: the current revision is not `expectVersion`; `legal-hold`: the fact is under legal hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`memory-operation-unsupported`: this runtime's memory can't verify facts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A person who may write in its scope checked it: the next revision has `trust: verified`, `verifiedBy` and `verifiedAt`, and the same content.",
+        "parameters": [
+          {
+            "name": "factId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "The fact id (kept across revisions)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyFactBody"
+              }
+            }
+          }
+        },
         "security": [
           {
             "bearerAuth": []
@@ -22267,9 +23878,19 @@
                 }
               }
             }
+          },
+          "501": {
+            "description": "`memory-operation-unsupported`: this runtime's memory can't retrieve by intent yet.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
           }
         },
-        "description": "Cross-history retrieval. Body is a `RetrieveIntent` shape mirroring the agent-side declarative retrieval. Semantic modes require an embedding provider bound on the deployment.",
+        "description": "Cross-history retrieval over the facts the caller may see (as for listing). Body is a `RetrieveIntent` shape mirroring the agent-side declarative retrieval. Semantic modes require an embedding provider bound on the deployment.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -23596,7 +25217,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`).",
+        "description": "Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?projectId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`). With authorization on, only artifacts in projects the caller can read are listed.",
         "parameters": [
           {
             "name": "limit",
@@ -23637,6 +25258,15 @@
             },
             "required": false,
             "description": "Filter by exact content-type match."
+          },
+          {
+            "name": "projectId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Filter to the artifacts of one project."
           }
         ],
         "security": [
@@ -23663,7 +25293,7 @@
             }
           },
           "400": {
-            "description": "Malformed multipart body, bad tag JSON, hash mismatch, or declared size mismatch.",
+            "description": "Malformed multipart body, bad tag JSON, hash mismatch, declared size mismatch, or a `projectId` that isn't the owner run's.",
             "content": {
               "application/json": {
                 "schema": {
@@ -23682,8 +25312,38 @@
               }
             }
           },
+          "403": {
+            "description": "No `write` on the project (`permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such owner run (`run-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "409": {
             "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Over the upload cap (`artifact-too-large`; `details.maxBytes` says how much).",
             "content": {
               "application/json": {
                 "schema": {
@@ -23703,7 +25363,7 @@
             }
           }
         },
-        "description": "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller.",
+        "description": "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the tenant's default project; uploading needs `write` there. An upload over the runtime's cap (default 100 MB) is `413 artifact-too-large`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -23771,7 +25431,7 @@
             }
           },
           "404": {
-            "description": "No blob with that id under this tenant.",
+            "description": "No blob with that id under this tenant, or one in a project the caller can't read.",
             "content": {
               "application/json": {
                 "schema": {
@@ -23871,6 +25531,26 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No `write` on its project (`permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "An artifact in a project the caller can't read (`blob-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -30595,6 +32275,103 @@
             "bearerAuth": []
           }
         ]
+      },
+      "post": {
+        "operationId": "identity.users.create",
+        "summary": "Add a person",
+        "tags": [
+          "identity"
+        ],
+        "responses": {
+          "201": {
+            "description": "The new person.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another person of the tenant has the email (`identity-user-email-taken`), or an idempotency conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Adds a person to the tenant as a tenant member, written before it answers: they can read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. Give them a role to work (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. Tenant admins only. Mounted when the identity directory can add people.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
       }
     },
     "/v1/identity/users/{userId}": {
@@ -30740,6 +32517,16 @@
               }
             }
           },
+          "403": {
+            "description": "Another person's sessions, and not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "409": {
             "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
             "content": {
@@ -30761,7 +32548,7 @@
             }
           }
         },
-        "description": "Admin op — idempotent. Under the hood, deployments typically delegate to `SessionStoreBinding.revokeAllForUser`. Returns `{ revokedCount: 0 }` when the user was already fully signed out.",
+        "description": "A tenant admin revokes anyone's sessions; anyone else only their own. Idempotent. Under the hood, deployments typically delegate to `SessionStoreBinding.revokeAllForUser`. Returns `{ revokedCount: 0 }` when the user was already fully signed out.",
         "parameters": [
           {
             "name": "userId",

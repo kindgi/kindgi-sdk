@@ -92,10 +92,14 @@ export interface PromptParameter {
  * Distinct from tool invocation — retrieval is background reading the
  * agent does silently to ground its response.
  *
- * Scope options:
- *   - `same-conversation`: prior messages in this conversation only.
- *   - `same-project`:      facts under the project (from Scope.projectId).
- *   - `tenant`:            any tenant-scoped fact of the declared type.
+ * Scope options, each within what the run may see (its project and org,
+ * the user it acts for, its conversation and that conversation's end
+ * user, and tenant-wide facts; never another conversation's or another
+ * end user's):
+ *   - `same-conversation`: this conversation's facts.
+ *   - `same-project`:      the run's project's facts; none in a run
+ *                          without a project.
+ *   - `tenant`:            any fact of the declared type the run may see.
  */
 export interface RetrievalIntent {
   readonly types: readonly string[];
