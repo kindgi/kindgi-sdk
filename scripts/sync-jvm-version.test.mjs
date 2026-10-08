@@ -224,20 +224,24 @@ describe('sync-jvm-version --check', () => {
     assert.match(result.stderr, /Run `node scripts\/sync-jvm-version\.mjs`/);
   });
 
-  test("checks version.sbt's line exactly, when it exists", () => {
+  test("checks version.sbt's one version line, when it exists", () => {
     const sbt = { 'sdks/scala/version.sbt': `${sbtLine('1.2.0')}\n` };
     const ok = run(workspace({ sdk: '1.2.0', files: sbt }), ['--check']);
     assert.equal(ok.status, 0, ok.stderr);
     assert.match(ok.stdout, /3 Maven module\(s\) and version\.sbt at 1\.2\.0/);
-    const loose = run(
-      workspace({ sdk: '1.2.0', files: { 'sdks/scala/version.sbt': 'version := "1.2.0"\n' } }),
-      ['--check'],
-    );
-    assert.equal(loose.status, 1);
-    assert.match(
-      loose.stderr,
-      /version\.sbt: "version := \\"1\.2\.0\\"", expected "ThisBuild \/ version := \\"1\.2\.0\\""/,
-    );
+    const behind = run(workspace({ sdk: '1.3.0', files: sbt }), ['--check']);
+    assert.equal(behind.status, 1);
+    assert.match(behind.stderr, /version\.sbt: ThisBuild \/ version 1\.2\.0, expected 1\.3\.0/);
+    for (const text of ['version := "1.2.0"\n', `${sbtLine('1.2.0')}\n${sbtLine('1.2.0')}\n`]) {
+      const result = run(workspace({ sdk: '1.2.0', files: { 'sdks/scala/version.sbt': text } }), [
+        '--check',
+      ]);
+      assert.equal(result.status, 1, text);
+      assert.match(
+        result.stderr,
+        /version\.sbt needs one line `ThisBuild \/ version := "…"`; it has [02]/,
+      );
+    }
   });
 
   test("fails on a changelog that can't be stamped", () => {
@@ -268,6 +272,59 @@ describe('sync-jvm-version --check', () => {
     ]);
     assert.equal(versioned.status, 1);
     assert.match(versioned.stderr, /a\/pom\.xml declares its own <project><version>: drop it/);
+  });
+
+  test('reads a module its parent lists twice (in <modules> and a profile) once', () => {
+    const twice = ROOT.replace(
+      '<module>compat/b</module>',
+      '<module>compat/b</module>\n        <module>a</module>',
+    );
+    const root = workspace({ sdk: '1.3.0-rc.10', files: { 'sdks/java/pom.xml': twice } });
+    // A longer version: offsets applied twice would corrupt the file.
+    const result = run(root, []);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(read(root, 'sdks/java/a/pom.xml'), moved(module('a'), PARENT_ANCHOR, '1.3.0-rc.10'));
+    assert.equal(result.stdout.match(/a\/pom\.xml <parent><version>/g)?.length, 1);
+  });
+
+  test('refuses a module two poms list, and the root listed as a module', () => {
+    const lister = module('a').replace(
+      '<dependencies>',
+      '<modules>\n    <module>../compat/b</module>\n  </modules>\n  <dependencies>',
+    );
+    const shared = run(workspace({ sdk: '1.2.0', files: { 'sdks/java/a/pom.xml': lister } }), [
+      '--check',
+    ]);
+    assert.equal(shared.status, 1);
+    assert.match(
+      shared.stderr,
+      /sdks\/java\/compat\/b\/pom\.xml is listed as a module by both sdks\/java\/pom\.xml and sdks\/java\/a\/pom\.xml/,
+    );
+    const loop = module('a').replace(
+      '<dependencies>',
+      '<modules>\n    <module>..</module>\n  </modules>\n  <dependencies>',
+    );
+    const cycle = run(workspace({ sdk: '1.2.0', files: { 'sdks/java/a/pom.xml': loop } }), [
+      '--check',
+    ]);
+    assert.equal(cycle.status, 1);
+    assert.match(cycle.stderr, /sdks\/java\/a\/pom\.xml lists sdks\/java\/pom\.xml, the root pom/);
+  });
+
+  test('a <module> may name a pom file', () => {
+    const bom = ROOT.replace(
+      '<module>a</module>',
+      '<module>a</module>\n    <module>bom/pom-bom.xml</module>',
+    );
+    const root = workspace({
+      sdk: '1.3.0',
+      files: { 'sdks/java/pom.xml': bom, 'sdks/java/bom/pom-bom.xml': module('bom') },
+    });
+    assert.equal(run(root, []).status, 0);
+    assert.equal(
+      read(root, 'sdks/java/bom/pom-bom.xml'),
+      moved(module('bom'), PARENT_ANCHOR, '1.3.0'),
+    );
   });
 
   test('refuses a listed module that is missing', () => {
@@ -312,13 +369,14 @@ describe('sync-jvm-version (writing)', () => {
     assert.equal(run(root, ['--check']).status, 0);
   });
 
-  test('moves version.sbt when it exists, and creates none', () => {
+  test("moves version.sbt's version line when it exists, keeps its other lines, and creates none", () => {
+    const comment = '// The version follows the npm packages (scripts/sync-jvm-version.mjs).\n';
     const root = workspace({
       sdk: '1.3.0',
-      files: { 'sdks/scala/version.sbt': `${sbtLine('1.2.0')}\n` },
+      files: { 'sdks/scala/version.sbt': `${comment}${sbtLine('1.2.0')}\n` },
     });
     assert.equal(run(root, []).status, 0);
-    assert.equal(read(root, 'sdks/scala/version.sbt'), `${sbtLine('1.3.0')}\n`);
+    assert.equal(read(root, 'sdks/scala/version.sbt'), `${comment}${sbtLine('1.3.0')}\n`);
     const without = workspace({ sdk: '1.3.0' });
     assert.equal(run(without, []).status, 0);
     assert.throws(() => read(without, 'sdks/scala/version.sbt'), /ENOENT/);

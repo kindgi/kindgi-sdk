@@ -18,7 +18,8 @@
  *     (in `<modules>` or a profile's). No other `<version>` changes:
  *     dependencies, plugins and properties keep theirs, whatever they hold.
  *     A module declares no `<version>` of its own; it takes its parent's.
- *   - `sdks/scala/version.sbt`, when it exists: `ThisBuild / version := "<v>"`.
+ *   - `sdks/scala/version.sbt`, when it exists: its one `ThisBuild /
+ *     version := "<v>"` line (any other line stays).
  *
  * `--release` also stamps `sdks/java/CHANGELOG.md`: its `## Unreleased`
  * section becomes `## <v>` (scripts/lib/stamp-unreleased.mjs).
@@ -145,6 +146,9 @@ const text = (leaf) => leaf?.value.trim();
  * The version elements this script owns, in the root pom and every module
  * under it: the root's `<project><version>`, each module's
  * `<parent><version>`. Each module's parent must be the pom that lists it.
+ * A `<module>` names a directory (its `pom.xml`) or a pom file (`….xml`).
+ * A pom is read once, though its parent may list it twice (in `<modules>`
+ * and a profile's); a pom two parents list is refused.
  *
  * @param {(file: string) => string | undefined} read a repository file's text, or undefined
  * @returns {{ file: string, element: string, leaf: { value: string, start: number, end: number } }[]}
@@ -152,6 +156,8 @@ const text = (leaf) => leaf?.value.trim();
 export function versionElements(read) {
   const elements = [];
   const queue = [{ file: ROOT_POM, parent: undefined }];
+  // Each pom queued so far, and the pom that listed it (none for the root).
+  const listedBy = new Map([[ROOT_POM, undefined]]);
   while (queue.length > 0) {
     const { file, parent } = queue.shift();
     const pom = read(file);
@@ -190,13 +196,46 @@ export function versionElements(read) {
         leaf.path === 'project/profiles/profile/modules/module',
     );
     for (const module of modules) {
-      queue.push({
-        file: posix.join(posix.dirname(file), text(module), 'pom.xml'),
-        parent: { file, coordinates },
-      });
+      const name = text(module);
+      const target = posix.normalize(
+        posix.join(posix.dirname(file), name.endsWith('.xml') ? name : posix.join(name, 'pom.xml')),
+      );
+      if (listedBy.has(target)) {
+        const by = listedBy.get(target);
+        if (by === file) continue;
+        throw new SyncError(
+          by === undefined
+            ? `${file} lists ${target}, the root pom, as a module`
+            : `${target} is listed as a module by both ${by} and ${file}; a module has one parent`,
+        );
+      }
+      listedBy.set(target, file);
+      queue.push({ file: target, parent: { file, coordinates } });
     }
   }
   return elements;
+}
+
+// ---- version.sbt ---------------------------------------------------------------
+
+const SBT_VERSION = /^ThisBuild\s*\/\s*version\s*:=\s*"([^"]*)"\s*$/;
+
+/**
+ * The one `ThisBuild / version := "…"` line of a version.sbt: its index and
+ * version. Other lines (a comment) are the file's own and stay.
+ */
+export function sbtVersion(text, file) {
+  const lines = text.split('\n');
+  const found = lines.flatMap((line, index) => {
+    const match = SBT_VERSION.exec(line.replace(/\r$/, ''));
+    return match === null ? [] : [{ index, version: match[1] }];
+  });
+  if (found.length !== 1) {
+    throw new SyncError(
+      `${file} needs one line \`ThisBuild / version := "…"\`; it has ${found.length}`,
+    );
+  }
+  return { lines, ...found[0] };
 }
 
 // ---- the command -------------------------------------------------------------
@@ -207,15 +246,16 @@ function differences(read, version) {
     .filter(({ leaf }) => text(leaf) !== version)
     .map(({ file, element, leaf }) => `${file}: ${element} ${text(leaf)}, expected ${version}`);
   const sbt = read(VERSION_SBT);
-  if (sbt !== undefined && sbt.replace(/\r?\n$/, '') !== sbtLine(version)) {
-    found.push(
-      `${VERSION_SBT}: ${JSON.stringify(sbt.trim())}, expected ${JSON.stringify(sbtLine(version))}`,
-    );
+  if (sbt !== undefined) {
+    const own = sbtVersion(sbt, VERSION_SBT);
+    if (own.version !== version) {
+      found.push(`${VERSION_SBT}: ThisBuild / version ${own.version}, expected ${version}`);
+    }
   }
   return found;
 }
 
-/** Moves every version element and version.sbt to `version`; the files it changed. */
+/** Moves every version element, and version.sbt's version line, to `version`. */
 function writeVersions(root, read, version) {
   const byFile = new Map();
   for (const element of versionElements(read)) {
@@ -234,9 +274,14 @@ function writeVersions(root, read, version) {
     writeFileSync(join(root, file), pom);
   }
   const sbt = read(VERSION_SBT);
-  if (sbt !== undefined && sbt.replace(/\r?\n$/, '') !== sbtLine(version)) {
-    writeFileSync(join(root, VERSION_SBT), `${sbtLine(version)}\n`);
-    console.log(`${NAME}: ${VERSION_SBT} → ${version}`);
+  if (sbt !== undefined) {
+    const own = sbtVersion(sbt, VERSION_SBT);
+    if (own.version !== version) {
+      const lines = [...own.lines];
+      lines[own.index] = sbtLine(version) + (lines[own.index].endsWith('\r') ? '\r' : '');
+      writeFileSync(join(root, VERSION_SBT), lines.join('\n'));
+      console.log(`${NAME}: ${VERSION_SBT} ThisBuild / version ${own.version} → ${version}`);
+    }
   }
 }
 
