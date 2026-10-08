@@ -631,6 +631,7 @@ function serializeEndpoint(e: MCPEndpoint): Record<string, unknown> {
     ...(e.secretRef !== undefined && { secretRef: e.secretRef }),
     ...(e.instructions !== undefined && { instructions: e.instructions }),
     ...(e.metadata !== undefined && { metadata: e.metadata }),
+    ...(e.sendTraceparent !== undefined && { sendTraceparent: e.sendTraceparent }),
   };
 }
 
@@ -643,6 +644,7 @@ const REGISTER_BODY_FIELDS = new Set([
   'secretRef',
   'instructions',
   'metadata',
+  'sendTraceparent',
   'scopeKind',
   'scopeId',
 ]);
@@ -743,6 +745,24 @@ function validateMCPEndpoint(
       },
     };
   }
+  if (b.sendTraceparent !== undefined && typeof b.sendTraceparent !== 'boolean') {
+    return {
+      kind: 'err',
+      error: {
+        message: `endpoint "${b.endpointId}" sendTraceparent must be true or false`,
+        reason: 'invalid-send-traceparent',
+      },
+    };
+  }
+  if (b.sendTraceparent === true && b.transport === 'stdio') {
+    return {
+      kind: 'err',
+      error: {
+        message: `endpoint "${b.endpointId}" sendTraceparent needs an HTTP transport: a stdio server gets no headers`,
+        reason: 'invalid-send-traceparent',
+      },
+    };
+  }
 
   const value: MCPEndpoint = {
     endpointId: b.endpointId,
@@ -754,6 +774,7 @@ function validateMCPEndpoint(
     ...(b.metadata !== undefined && {
       metadata: b.metadata as Readonly<Record<string, unknown>>,
     }),
+    ...(b.sendTraceparent !== undefined && { sendTraceparent: b.sendTraceparent }),
   };
   return { kind: 'ok', value };
 }

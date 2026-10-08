@@ -4656,6 +4656,11 @@ export const RegisterProviderBodySchema: JsonSchema = {
       description:
         "The adapter's connection settings: flat, non-secret values (a cloud project, a base URL). Each adapter documents its keys. Credentials go in `secret_ref`, never here.",
     },
+    send_traceparent: {
+      type: 'boolean',
+      description:
+        "Send each model call's W3C `traceparent` to this provider, as a request header, so its request logs can be matched to the run. Ids only, never content. Default `false`: nothing about a run's trace leaves the deployment unless a registration opts in. The runtime enforces it; an older runtime ignores the field and sends none.",
+    },
   },
 };
 
@@ -4829,6 +4834,11 @@ export const MCPEndpointSchema: JsonSchema = {
       type: 'object',
       additionalProperties: true,
       description: 'Optional caller-defined metadata bag.',
+    },
+    sendTraceparent: {
+      type: 'boolean',
+      description:
+        "Send the W3C `traceparent` of the run calling a tool to this endpoint, as a request header, so the server's logs can be matched to the run. Ids only, never content. Default `false`. HTTP transports only: `true` on a `stdio` endpoint is refused (`invalid-mcp-endpoint`, reason `invalid-send-traceparent`). An older runtime ignores it and sends none.",
     },
   },
 };

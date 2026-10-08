@@ -3652,7 +3652,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse('Validation failed (see `details.reason`).'),
       '409': ErrorResponse('Provider already registered at that id.'),
       '422': ErrorResponse(
-        "`provider-config-invalid`: the provider's adapter refuses the registration (its `adapter_config`, its metadata, or a missing `secret_ref`); `details.issues` lists each (`path`, a JSON pointer, and `message`), as other validation errors do. Nothing is stored.",
+        "`provider-config-invalid`: a `send_traceparent` that isn't a boolean, or the provider's adapter refuses the registration (its `adapter_config`, its metadata, or a missing `secret_ref`); `details.issues` lists each (`path`, a JSON pointer, and `message`), the registration's own fields first, as other validation errors do. Nothing is stored.",
       ),
     },
   },

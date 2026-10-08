@@ -2325,6 +2325,8 @@ export interface McpEndpoint {
   readonly transport: McpTransport;
   readonly config: McpEndpointConfig;
   readonly secretRef?: McpEndpointSecretRef;
+  /** Whether the run's `traceparent` is sent to the endpoint (see `RegisterMcpEndpointInput`). */
+  readonly sendTraceparent?: boolean;
 }
 
 /**
@@ -2342,6 +2344,12 @@ export interface RegisterMcpEndpointInput {
    * (`403 host-access-denied`) unless it runs with `KINDGI_TENANT_HOST_ACCESS=local`.
    */
   readonly secretRef?: McpEndpointSecretRef;
+  /**
+   * Send the W3C `traceparent` of the run calling a tool to the endpoint,
+   * as a request header (ids only, never content). Default `false`. HTTP
+   * transports only: `true` on `stdio` is refused.
+   */
+  readonly sendTraceparent?: boolean;
   /** The scope the endpoint is registered in; authorization checks it. */
   readonly scope: import('./scope-wire.js').ScopeRef;
 }
