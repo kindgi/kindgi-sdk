@@ -14,12 +14,9 @@ import type { Command } from './types.js';
  * `throwUnwired` call sites against this list).
  */
 export const UNWIRED_COMMANDS: ReadonlySet<string> = new Set([
-  'artifacts',
-  'capabilities',
   'observations',
   'proposals',
   'tokens',
-  'memory facts supersede',
   'memory facts retrieve',
 ]);
 
@@ -35,10 +32,6 @@ export const UNWIRED_REASONS: ReadonlyMap<string, string> = new Map([
   ['tokens create', TOKENS_NOT_SERVED],
   ['tokens revoke', TOKENS_NOT_SERVED],
   [
-    'memory facts supersede',
-    "the Kindgi runtime doesn't supersede memory facts yet: it would answer that no such fact exists, even for one that does.",
-  ],
-  [
     'memory facts retrieve',
     "the Kindgi runtime doesn't search memory yet (keyword or semantic): a retrieval would find nothing. To list facts by type or scope: `kindgi memory facts list --type=<type> --scope=<json>`.",
   ],
@@ -47,14 +40,6 @@ export const UNWIRED_REASONS: ReadonlyMap<string, string> = new Map([
     "the Kindgi runtime doesn't record supervisor observations yet, so there's nothing to list; how a run went is in `kindgi runs get <run-id>` and `kindgi runs journal <run-id>`.",
   ],
   ['proposals', "the Kindgi runtime doesn't draft or apply supervisor fix proposals yet."],
-  [
-    'artifacts',
-    "the Kindgi runtime doesn't serve `/v1/artifacts` yet: it has no blob storage wired, so there are no artifacts to list, upload, download or delete.",
-  ],
-  [
-    'capabilities',
-    "the Kindgi runtime doesn't serve `/v1/capabilities` yet: it has no capability catalog wired. Which providers have a model with a feature: `kindgi providers list --feature=<feature>`.",
-  ],
 ]);
 
 /** The reason a command at `path` (its words) is unwired, from its nearest listed path. */

@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/schema",
-  "version": "0.1.4-rc.4",
+  "version": "0.1.4",
   "description": "JSON Schema utilities for Kindgi. Loads specs, provides Ajv-based validation, extracts schema versions. Consumers validate incoming data against the wire contracts in @kindgi/specs.",
   "license": "Apache-2.0",
   "repository": {
