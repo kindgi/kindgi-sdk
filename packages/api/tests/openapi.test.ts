@@ -419,6 +419,8 @@ const noopIdentityProvider: IdentityProviderBinding = {
   get: async () => null,
   register: async ({ config }) => ({ kind: 'ok', providerId: config.providerId }),
   unregister: async () => ({ unregistered: false }),
+  signInUrls: async () => undefined,
+  update: async () => ({ kind: 'not-found' }),
 };
 
 const noopIdentityDirectory: IdentityDirectoryBinding = {
@@ -427,6 +429,7 @@ const noopIdentityDirectory: IdentityDirectoryBinding = {
   listSessions: async () => ({ data: [] }),
   revokeAllSessions: async ({ userId }) => ({ userId, revokedCount: 0 }),
   createUser: async () => ({ kind: 'email-taken', userId: 'noop-user' as never }),
+  unregisterUser: async () => ({ kind: 'not-found' }),
 };
 
 const serviceAccountNotFound = {
@@ -599,6 +602,7 @@ function collectMountedRoutes(): HonoRouteRecord[] {
     judgmentRegistry: noopJudgmentRegistry,
     evalCaseStore: noopEvalCaseStore,
     sessionStore: noopSessionStore,
+    session: { cookie: { allowedOrigins: ['https://console.example.com'] }, tokenSignIn: true },
     identityProvider: noopIdentityProvider,
     exchangeCode: noopExchangeCode,
     identityDirectory: noopIdentityDirectory,

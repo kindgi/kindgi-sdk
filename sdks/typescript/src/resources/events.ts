@@ -31,7 +31,7 @@ import type {
  * `stream(subscriptionId)` — the SDK-side SSE reader (`readSse`) exists;
  * what the API lacks is a `GET /v1/events/subscriptions/{id}/stream`
  * route mapping a subscription's matched events onto SSE frames. For
- * live run-scoped events use `client.runs.stream(runId)`.
+ * live run-scoped events use `client.runs.follow(runId)`.
  */
 export interface EventsClient {
   /**
@@ -52,7 +52,7 @@ export interface EventsClient {
    *   `runs.stream`) exists; the HTTP path from subscription matches to
    *   SSE frames does not.
    *
-   *   For live run-scoped events use `client.runs.stream(runId)`.
+   *   For live run-scoped events use `client.runs.follow(runId)`.
    */
   stream(subscriptionId: SubscriptionId): AsyncIterable<Event>;
 
@@ -140,7 +140,7 @@ export function makeEventsClient(_transport: Transport): EventsClient {
                 new KindgiApiError(
                   notYetWired(
                     'events.stream',
-                    'no GET /v1/events/subscriptions/{id}/stream route on the API — subscription-scoped SSE surface has not landed (runtime event bus is live; SDK-side SSE reader is ready via readSse; HTTP route pending). Use client.runs.stream(runId) for live run-scoped events.',
+                    'no GET /v1/events/subscriptions/{id}/stream route on the API — subscription-scoped SSE surface has not landed (runtime event bus is live; SDK-side SSE reader is ready via readSse; HTTP route pending). Use client.runs.follow(runId) for live run-scoped events.',
                   ),
                 ),
               );

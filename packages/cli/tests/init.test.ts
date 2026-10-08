@@ -86,9 +86,9 @@ describe('kindgi init — argument validation', () => {
     expect(out.stderr).toContain('kebab');
   });
 
-  test('unknown template → exit 1 listing available templates', async () => {
+  test('unknown template → exit 2 listing available templates', async () => {
     const out = await runCli(baseInputs({ argv: ['init', 'my-pack', '--template=nope'] }));
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('Unknown template: nope');
     expect(out.stderr).toContain('minimal');
     expect(out.stderr).toContain('sample');
