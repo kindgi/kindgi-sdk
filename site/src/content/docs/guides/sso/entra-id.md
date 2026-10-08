@@ -5,12 +5,6 @@ sidebar:
   order: 11
 ---
 
-:::caution[Not yet checked live]
-These steps follow Microsoft's documentation and the CLI's own steps. The
-Entra admin center's labels are as they appear today, but a sign-in through a
-workspace's own Entra app hasn't been checked yet.
-:::
-
 People sign in with their accounts in your Microsoft Entra ID directory.
 Start with [Set up SSO](../):
 
@@ -68,6 +62,10 @@ These URLs stay the same after registering and after any `update`.
    set it again under the same name.
 5. **Enterprise applications →** the app **→ Properties → Assignment
    required:** Yes. Then, under **Users and groups**, add who may sign in.
+
+Steps 1 to 4 and the issuer below were checked with a sign-in through such an
+app. Step 5 is from Microsoft's documentation. The app needs no optional
+claims: Kindgi reads the person's email from Microsoft's userinfo endpoint.
 
 The issuer is your directory's own:
 `https://login.microsoftonline.com/<Directory (tenant) ID>/v2.0`. Then:

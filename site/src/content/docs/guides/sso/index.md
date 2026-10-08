@@ -160,7 +160,7 @@ acme-kc   oidc  Acme Keycloak  acme.test
 |---|---|---|
 | Keycloak | [Keycloak](keycloak/) | yes, OpenID Connect and SAML (signed requests) |
 | Google Workspace | [Google](google/) | yes, except the Workspace-only audience |
-| Microsoft Entra ID | [Microsoft Entra ID](entra-id/) | no: steps from Microsoft's docs |
+| Microsoft Entra ID | [Microsoft Entra ID](entra-id/) | yes, single-tenant OpenID Connect |
 | Okta | [Okta](okta/) | no: steps from Okta's docs |
 | Another OpenID Connect provider | [OpenID Connect](oidc/) | through Keycloak and Google |
 | Another SAML provider | [SAML](saml/) | through Keycloak |
