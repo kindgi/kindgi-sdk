@@ -284,6 +284,38 @@ describe('createAnthropicProvider — invoke wire shape', () => {
     expect(options.signal).toBe(controller.signal);
   });
 
+  test('a call with a traceparent sends it as a header, on a retry too, never in the body; without, none', async () => {
+    const traceparent = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01';
+    const sent: { traceparent: string | null; body: string }[] = [];
+    const fetch: typeof globalThis.fetch = async (_input, init) => {
+      sent.push({
+        traceparent: new Headers(init?.headers).get('traceparent'),
+        body: String(init?.body),
+      });
+      if (sent.length === 1) {
+        return new Response(
+          JSON.stringify({ type: 'error', error: { type: 'overloaded_error' } }),
+          { status: 529, headers: { 'content-type': 'application/json', 'retry-after-ms': '1' } },
+        );
+      }
+      return new Response(JSON.stringify(fakeResponse()), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    };
+    const provider = createAnthropicProvider({
+      apiKey: 'sk-test',
+      metadata: OPUS_METADATA,
+      clientOptions: { fetch },
+    });
+    const call = { model: 'claude-opus-4-7', messages: [{ role: 'user', content: 'hi' }] };
+    await provider.invoke({ ...call, traceparent } as ModelCallInput);
+    expect(sent.map((s) => s.traceparent)).toEqual([traceparent, traceparent]);
+    expect(sent.every((s) => !s.body.includes('traceparent'))).toBe(true);
+    await provider.invoke(call as ModelCallInput);
+    expect(sent[2]?.traceparent).toBeNull();
+  });
+
   test('rejects unknown model names with a clean error listing available models', async () => {
     const { client } = fakeClient();
     const provider = createAnthropicProvider({
