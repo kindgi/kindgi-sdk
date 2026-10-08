@@ -50,6 +50,7 @@ export interface PackServiceSupervisorOptions {
    *
    *   - Node: `[process.execPath, '--enable-source-maps', <@kindgi/handler-runtime/pack-service-main>]`
    *   - Python: `[<the pack's python>, '-m', 'kindgi.pack', 'serve']`
+   *   - Java: `['sh', <kindgi-pack-java>, '-cp', <classpath> (or `@<argfile>`), 'com.kindgi.pack.Main', 'serve']`
    */
   readonly command: readonly [string, ...string[]];
   /** Where the index's module paths resolve — the pack directory. */

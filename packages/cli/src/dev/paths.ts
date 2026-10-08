@@ -38,3 +38,12 @@ export function devStagedPackIndexPath(packDir: string): string {
 export function devBundleMapPath(packDir: string): string {
   return join(packDir, '.kindgi', 'dev', 'bundle-map.json');
 }
+
+/**
+ * Where `kindgi dev` keeps a Java pack's build files: the classpath Maven
+ * resolved, the `@argfile` that passes it to \`java`, and the launcher
+ * (`kindgi-pack-java`) extracted from the pack's own kindgi-pack jar.
+ */
+export function devJavaDir(packDir: string): string {
+  return join(packDir, '.kindgi', 'dev', 'java');
+}

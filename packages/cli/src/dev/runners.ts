@@ -17,7 +17,7 @@ import type {
 import type { ProjectDatabases } from './project-database.js';
 import type { ProjectOutcome } from './project.js';
 
-import type { PackCode } from './pack-code.js';
+import type { JavaPackCode, PackCode } from './pack-code.js';
 
 /** The running Kindgi runtime `kindgi dev` talks to. */
 export interface RunningApiServer {
@@ -133,14 +133,14 @@ export interface IndexerRunOptions {
   readonly bundleMap?: Readonly<Record<string, string>>;
   /** Run the indexer in a child process with this environment. */
   readonly env?: () => Promise<Readonly<Record<string, string>>>;
-  /** Which indexer: the TypeScript one (default) or the pack's Python. */
+  /** Which indexer: the TypeScript one (default), the pack's Python, or its JDK. */
   readonly code?: PackCode;
 }
 
 /** The local pack service `kindgi dev` runs the pack's code in. */
 export interface DevPackServiceOptions {
   readonly packDir: string;
-  /** Which pack service runs the code: the Node one, or the pack's Python. */
+  /** Which pack service runs the code: the Node one, the pack's Python, or its JDK. */
   readonly code: PackCode;
   /** The pack service's whole environment, read at every start. */
   readonly env: () => Promise<Readonly<Record<string, string>>>;
@@ -300,6 +300,18 @@ export interface DevRunners {
    */
   readonly checkPackPython: (
     python: readonly [string, ...string[]],
+    env: Readonly<Record<string, string>>,
+    packDir?: string,
+  ) => Promise<
+    | { readonly kind: 'ok'; readonly value: string }
+    | { readonly kind: 'err'; readonly message: string }
+  >;
+  /**
+   * Check a Java pack's JDK (17 or later) and Maven run, with the pack's
+   * environment: a one-line description, or why not.
+   */
+  readonly checkPackJava: (
+    code: JavaPackCode,
     env: Readonly<Record<string, string>>,
     packDir?: string,
   ) => Promise<

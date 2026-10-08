@@ -1,0 +1,28 @@
+package {{JAVA_PACKAGE}}.guardrails;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.kindgi.pack.CheckResult;
+import com.kindgi.pack.Guardrail;
+import jakarta.validation.constraints.Min;
+import java.util.Map;
+
+/** {{PACK_ID}}.response-not-empty — a zero-LLM guardrail: the run's answer has content. */
+public final class ResponseNotEmpty {
+  public record Config(@JsonProperty(defaultValue = "1") @Min(0) int minLength) {}
+
+  public static final Guardrail<Config> GUARDRAIL = Guardrail.define("{{PACK_ID}}.response-not-empty")
+      .name("Response is non-empty")
+      .checkId("{{PACK_ID}}.checks.response-not-empty")
+      .onViolation("halt")
+      .severity("error")
+      .set("scope", Map.of("when", "runtime-only"))
+      .config(Config.class)
+      .check((config, trace) -> {
+        String text = trace.output() == null ? "" : trace.output().strip();
+        return text.length() >= config.minLength()
+            ? CheckResult.pass()
+            : CheckResult.fail("Response too short: " + text.length() + " chars, expected >= " + config.minLength() + ".");
+      });
+
+  private ResponseNotEmpty() {}
+}

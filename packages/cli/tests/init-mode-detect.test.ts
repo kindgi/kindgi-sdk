@@ -109,6 +109,26 @@ describe('detectInitMode — augment mode', () => {
     });
   });
 
+  test('a pom.xml alone → augment, a Java pack; next to package.json, only with --template=java', async () => {
+    const pomOnly = {
+      cwd: '/tmp/maven-app',
+      positionals: [],
+      newRepoFlag: false,
+      fileExists: async (path: string) => path === '/tmp/maven-app/pom.xml',
+    };
+    expect(await detectInitMode(pomOnly)).toEqual({
+      kind: 'ok',
+      mode: 'augment',
+      targetDir: '/tmp/maven-app',
+      language: 'java',
+    });
+    const both = { cwd: '/tmp/both', positionals: [], newRepoFlag: false, fileExists: alwaysFile };
+    expect(await detectInitMode({ ...both, templateFlag: 'java' })).toMatchObject({
+      mode: 'augment',
+      language: 'java',
+    });
+  });
+
   test('both project files: TypeScript unless --template=python', async () => {
     const both = { cwd: '/tmp/both', positionals: [], newRepoFlag: false, fileExists: alwaysFile };
     expect(await detectInitMode(both)).toMatchObject({ mode: 'augment', language: 'node' });

@@ -20,12 +20,14 @@ import { parsePrivateKeyPem, serializePublicKeyPem, signEd25519 } from '@kindgi/
 
 import { readSse } from '@kindgi/sdk/client';
 
-import { runPythonIndexer } from '../dev/defaults.js';
+import { runJavaIndexer, runPythonIndexer } from '../dev/defaults.js';
+import { createJavaPackBuilder } from '../dev/java-builder.js';
 import { REQUIRE_BANNER, collectPackEntries, nodeModulesExternalPlugin } from './bundle.js';
 import { loadEsbuild } from '../esbuild-loader.js';
 import { readPnpmVersion } from '../package-manager.js';
 import { renderContainerfile } from './containerfile.js';
 import { installCommands, withoutInstallScripts } from './host-install.js';
+import { renderJavaContainerfile } from './java-image.js';
 import { renderPythonContainerfile } from './python-image.js';
 import type {
   BuildRunners,
@@ -33,6 +35,7 @@ import type {
   DockerBuildResult,
   EsbuildBundleOptions,
   EsbuildBundleResult,
+  JavaBuildRunners,
   LocalIndexResult,
   PostBuildOptions,
   PostBuildResult,
@@ -352,6 +355,44 @@ export const PYTHON_BUILD_RUNNERS: PythonBuildRunners = {
       'utf8',
     );
   },
+  writeContext: writePythonContextReal,
+};
+
+/** The Java pack's steps of `kindgi build`. */
+export const JAVA_BUILD_RUNNERS: JavaBuildRunners = {
+  async prepare(opts) {
+    const built = await createJavaPackBuilder({
+      packDir: opts.packDir,
+      code: opts.code,
+      env: async () => opts.env,
+    }).build();
+    return built.kind === 'ok' ? { kind: 'ok' } : { kind: 'err', errors: built.errors };
+  },
+  runLocalIndexer: (opts) =>
+    runJavaIndexer({
+      packDir: opts.packDir,
+      outputPath: opts.outputPath,
+      code: opts.code,
+      env: opts.env,
+      artifactVersion: opts.artifactVersion,
+      publishedAt: opts.publishedAt,
+    }),
+  async writeContainerfile(opts) {
+    await mkdir(join(opts.outputPath, '..'), { recursive: true });
+    await writeFile(
+      opts.outputPath,
+      renderJavaContainerfile({
+        buildImageRef: opts.buildImageRef,
+        runtimeImageRef: opts.runtimeImageRef,
+        artifactVersion: opts.artifactVersion,
+        publishedAt: opts.publishedAt,
+        buildTarget: opts.buildTarget,
+        systemPackages: opts.systemPackages,
+      }),
+      'utf8',
+    );
+  },
+  // The pack files and the Containerfile, as for a Python pack.
   writeContext: writePythonContextReal,
 };
 
@@ -689,6 +730,7 @@ export const REAL_BUILD_RUNNERS: BuildRunners = {
   pullImageIndex: pullImageIndexReal,
   signEnvelope: signEnvelopeReal,
   python: PYTHON_BUILD_RUNNERS,
+  java: JAVA_BUILD_RUNNERS,
   hostPnpmVersion: readPnpmVersion,
 };
 

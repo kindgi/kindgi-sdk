@@ -231,3 +231,52 @@ export async function resolveKindgiPythonSource(
   }
   return { kind: 'local-checkout', path: python };
 }
+
+/**
+ * Where a Java pack gets `com.kindgi:kindgi-pack`: from Maven Central at the
+ * CLI's version (`published`), or — from a Kindgi checkout — the checkout's
+ * `sdks/java`, which installs it into the local Maven repository.
+ *
+ * kindgi-pack isn't on Maven Central yet (`KINDGI_PACK_ON_MAVEN_CENTRAL`):
+ * until it is, a published CLI's pack says to build it from the SDK
+ * repository.
+ */
+export type KindgiJavaSource =
+  | { readonly kind: 'published'; readonly version: string }
+  | { readonly kind: 'local-checkout'; readonly path: string; readonly version: string }
+  | { readonly kind: 'error'; readonly message: string };
+
+/** Whether `com.kindgi:kindgi-pack` is on Maven Central (flip it with the first publish). */
+export const KINDGI_PACK_ON_MAVEN_CENTRAL = false;
+
+export async function resolveKindgiJavaSource(
+  input: Pick<ResolveDependencySpecsInput, 'cli' | 'sdkRoot' | 'realpath' | 'exists'> = {},
+): Promise<KindgiJavaSource> {
+  const realpath = input.realpath ?? fsRealpath;
+  const exists = input.exists ?? pathExists;
+  const cli = input.cli ?? resolveCliPackage();
+  if (cli === undefined) {
+    return {
+      kind: 'error',
+      message: 'Cannot locate the @kindgi/cli package.json — broken install.',
+    };
+  }
+  if ((await realpath(cli.root)).split(sep).includes('node_modules')) {
+    return { kind: 'published', version: cli.version };
+  }
+  const sdkRootRaw = input.sdkRoot ?? resolveSdkPackageRoot();
+  if (sdkRootRaw === undefined) {
+    return {
+      kind: 'error',
+      message: 'Cannot resolve @kindgi/sdk from the CLI checkout — run the checkout install first.',
+    };
+  }
+  const java = join(await realpath(sdkRootRaw), '..', '..', 'sdks', 'java');
+  if (!(await exists(join(java, 'pom.xml')))) {
+    return {
+      kind: 'error',
+      message: `No Java SDK at ${java} — the Kindgi checkout is incomplete.`,
+    };
+  }
+  return { kind: 'local-checkout', path: java, version: cli.version };
+}

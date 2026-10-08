@@ -350,7 +350,7 @@ async function listBundledSkills(root: string, language: PackLanguage): Promise<
 
 /**
  * The pack languages a SKILL.md is written for — its frontmatter's
- * `pack_languages: [node, python]`. A skill without the field predates
+ * `pack_languages: [node, python, java]`. A skill without the field predates
  * it and teaches the TypeScript surface: `['node']`.
  */
 export function skillPackLanguages(text: string): readonly PackLanguage[] {
@@ -360,7 +360,9 @@ export function skillPackLanguages(text: string): readonly PackLanguage[] {
   return list
     .split(',')
     .map((item) => item.trim().replace(/^["']|["']$/g, ''))
-    .filter((item): item is PackLanguage => item === 'node' || item === 'python');
+    .filter(
+      (item): item is PackLanguage => item === 'node' || item === 'python' || item === 'java',
+    );
 }
 
 async function pathExists(p: string): Promise<boolean> {
