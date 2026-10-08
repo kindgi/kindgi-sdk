@@ -13,16 +13,16 @@ import type { Cursor, TenantId, Timestamp, UserId } from '@kindgi/types';
  * tenant" / "show me a user's profile" / "revoke all a user's active
  * sessions" question this binding covers.
  *
- * Registry-only over HTTP — the framework does NOT own user
- * persistence. Deployments plug in an LDAP / SCIM / IdP-mirror /
- * bespoke store behind this binding.
+ * The framework does NOT own user persistence. Deployments plug in an
+ * LDAP / SCIM / IdP-mirror / bespoke store behind this binding.
  *
  * Same caller-plugged pattern as every other admin-plane binding
  * (`PolicyRegistryBinding`, `ProviderRegistryBinding`, ...).
  *
  * The directory is flat. Groups / roles / RBAC / invitations /
  * audit history / LDAP+SCIM sync / impersonation are not part of this
- * binding.
+ * binding. Adding a person (`createUser`) is optional: a directory that
+ * mirrors an identity provider leaves it out.
  */
 export interface IdentityDirectoryBinding {
   /**
@@ -55,7 +55,69 @@ export interface IdentityDirectoryBinding {
    * delegate to `SessionStoreBinding.revokeAllForUser`.
    */
   revokeAllSessions(input: IdentityRevokeSessionsInput): Promise<RevokeSessionsResult>;
+  /**
+   * Optional. Add a person to the tenant as a tenant member, written to
+   * the authorization store before it returns: they can read the
+   * tenant's settings, not its projects. A tenant admin then gives them a
+   * role and mints their first API key. When present,
+   * `POST /v1/identity/users` mounts (tenant admins only). An email
+   * another person of the tenant has is refused.
+   */
+  createUser?(input: IdentityCreateUserInput): Promise<IdentityCreateUserResult>;
+  /**
+   * Optional. Unregister a person (remove them from the tenant), in one
+   * step: they're marked unregistered (their record stays, with
+   * `unregisteredAt`, so their history still says who they were), every
+   * API key and session of theirs is revoked, and every grant and
+   * membership they hold is taken from the authorization store, all before
+   * it returns. Their email is then free: adding it again makes a new
+   * person. Unregistering someone already unregistered changes nothing.
+   * Refused for yourself, the deployment's seed user, and the tenant's
+   * only tenant admin. When present,
+   * `POST /v1/identity/users/{userId}/unregister` mounts (tenant admins
+   * only).
+   */
+  unregisterUser?(input: IdentityUnregisterUserInput): Promise<IdentityUnregisterUserResult>;
 }
+
+export interface IdentityUnregisterUserInput {
+  readonly tenantId: TenantId;
+  readonly userId: UserId;
+  /** Who unregisters them: `user:<id>` or `service_account:<id>`. */
+  readonly unregisteredBy?: string;
+}
+
+/** Why a person can't be unregistered. */
+export type IdentityUnregisterUserRefusal = 'yourself' | 'seed-user' | 'last-tenant-admin';
+
+export type IdentityUnregisterUserResult =
+  | {
+      readonly kind: 'unregistered';
+      /** The person, with `unregisteredAt`. */
+      readonly user: UserRecord;
+      /** What unregistering took away (each 0 when they were already unregistered). */
+      readonly keysRevoked: number;
+      readonly sessionsRevoked: number;
+      readonly grantsRemoved: number;
+    }
+  | { readonly kind: 'not-found' }
+  | {
+      readonly kind: 'refused';
+      readonly reason: IdentityUnregisterUserRefusal;
+      readonly message: string;
+    };
+
+export interface IdentityCreateUserInput {
+  readonly tenantId: TenantId;
+  readonly displayName: string;
+  readonly primaryEmail?: string;
+  /** Who added them: `user:<id>` or `service_account:<id>`. */
+  readonly createdBy?: string;
+}
+
+export type IdentityCreateUserResult =
+  | { readonly kind: 'created'; readonly user: UserRecord }
+  | { readonly kind: 'email-taken'; readonly userId: UserId };
 
 export interface IdentityGetUserInput {
   readonly tenantId: TenantId;
@@ -68,6 +130,8 @@ export interface IdentityListUsersInput {
   readonly cursor?: Cursor;
   /** Prefix match on `UserRecord.displayName`. Undefined = no filter. */
   readonly query?: string;
+  /** Unregistered people too (`unregisteredAt` set). Default: only the people still here. */
+  readonly includeUnregistered?: boolean;
 }
 
 export interface IdentityListSessionsInput {
@@ -94,6 +158,8 @@ export interface UserRecord {
   readonly displayName?: string;
   readonly createdAt: Timestamp;
   readonly lastActiveAt?: Timestamp;
+  /** When they were removed from the tenant (`unregisterUser`); absent while they're here. */
+  readonly unregisteredAt?: Timestamp;
   readonly metadata?: Readonly<Record<string, unknown>>;
 }
 

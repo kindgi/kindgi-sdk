@@ -16,7 +16,8 @@
  *   3. calls `handler(input, ctx)`;
  *   4. validates the output against the tool's output JSON Schema.
  *
- * A check imports the module, resolves its `evaluate`, and calls
+ * A check validates the config against the guardrail's `configSchema`
+ * (as sent), imports the module, resolves its `evaluate`, and calls
  * `evaluate(config, trace, bindings)`.
  *
  * Neither throws: every failure is a typed `HandlerError`. The runner
@@ -24,7 +25,7 @@
  * pack code is the team's own (trusted).
  */
 
-import type { ValidateFunction } from 'ajv';
+import type { ErrorObject, ValidateFunction } from 'ajv';
 import * as addFormatsModule from 'ajv-formats';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 
@@ -33,8 +34,9 @@ import type { Result } from '@kindgi/types';
 
 /**
  * What a handler gets beside its input: the tenant and run it serves,
- * and its resolved "typed needs" (env, secrets, config), composed by
- * the server and sent with the call.
+ * and the "typed needs" it declares (`needsSpec.env`, `needsSpec.secrets`),
+ * resolved by the runtime for this call and sent with it. `config` is
+ * reserved: no runtime sends it yet.
  */
 export interface HandlerContext {
   readonly tenantId: string;
@@ -44,6 +46,7 @@ export interface HandlerContext {
   /** The project's org, when it has one (2.3.0). */
   readonly orgId?: string;
   readonly requestId?: string;
+  /** The declared env values: project, else org, else tenant (protocol 2.5.0). */
   readonly env?: Readonly<Record<string, unknown>>;
   readonly secrets?: Readonly<Record<string, unknown>>;
   readonly config?: Readonly<Record<string, unknown>>;
@@ -87,6 +90,14 @@ export interface ToolInvocationSpec {
 export interface CheckInvocationSpec {
   readonly id: string;
   readonly modulePath: string;
+  /**
+   * The guardrail's `configSchema` from the index. A call's `config` that
+   * doesn't fit it is refused (`input-validation-failed`, with the
+   * issues) before the check runs. It is checked as sent, the schema's
+   * defaults not filled in, as the indexer checks a declared config; the
+   * check's own schema fills them in.
+   */
+  readonly configSchema?: Readonly<Record<string, unknown>>;
 }
 
 /** Every way a call can fail; the pack service answers with the same code. */
@@ -367,6 +378,35 @@ export async function runCheck(options: RunCheckOptions): Promise<Result<unknown
   const { check, config, trace } = options;
   const importCheck = options.importCheck ?? defaultImportCheck;
 
+  if (check.configSchema !== undefined) {
+    let configValidator: ValidateFunction;
+    try {
+      configValidator = compileSchema(check.configSchema, 'output');
+    } catch (cause) {
+      return {
+        kind: 'err',
+        error: {
+          code: 'input-validation-failed',
+          message: `Check "${check.id}" config schema failed to compile: ${stringifyError(cause)}`,
+          toolId: check.id,
+          cause: serializeCause(cause),
+        },
+      };
+    }
+    if (!configValidator(config)) {
+      const issues = configValidator.errors ?? [];
+      return {
+        kind: 'err',
+        error: {
+          code: 'input-validation-failed',
+          message: `Check "${check.id}" config failed validation${describeFirstIssue(issues)}`,
+          toolId: check.id,
+          issues,
+        },
+      };
+    }
+  }
+
   let module_: CheckModule;
   try {
     module_ = await importCheck(check.modulePath);
@@ -412,6 +452,17 @@ export async function runCheck(options: RunCheckOptions): Promise<Result<unknown
   }
 
   return { kind: 'ok', value: result };
+}
+
+/**
+ * Where the first issue is and what it says (` at /maxChars: must be >= 0`),
+ * for a message that is read without its issues: a runtime reports a
+ * check's error by its code and message alone.
+ */
+function describeFirstIssue(issues: readonly ErrorObject[]): string {
+  const first = issues[0];
+  if (first === undefined) return '';
+  return `${first.instancePath === '' ? '' : ` at ${first.instancePath}`}: ${first.message ?? 'invalid'}`;
 }
 
 function resolveCheckEvaluate(

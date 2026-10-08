@@ -43,12 +43,17 @@ const list: LeafCommand = {
   name: 'list',
   description: 'List runs (paginated).',
   usage:
-    'kindgi runs list [--agent=<agent-id>] [--replays=exclude|include|only] [--eval-run=<id>] [--limit=<n>] [--cursor=<c>]',
+    'kindgi runs list [--agent=<agent-id>] [--trigger=<schedule-id>] [--replays=exclude|include|only] [--eval-run=<id>] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
     agent: {
       type: 'string',
       description:
         "Only this agent's turns, at any version: its own runs and the turns its steps start inside flows. Turns from before Kindgi 0.1.3 don't name their agent and aren't listed.",
+    },
+    trigger: {
+      type: 'string',
+      description:
+        'Only the runs this trigger started: a schedule, by its id (`kindgi schedules list`).',
     },
     replays: {
       type: 'string',
@@ -80,6 +85,7 @@ const list: LeafCommand = {
         }
         const evalRunId = stringFlag(ctx, 'eval-run');
         const agentId = stringFlag(ctx, 'agent');
+        const triggerId = stringFlag(ctx, 'trigger');
         const limitStr = stringFlag(ctx, 'limit');
         const limit = limitStr !== undefined ? Number.parseInt(limitStr, 10) : undefined;
         if (limit !== undefined && Number.isNaN(limit)) {
@@ -91,6 +97,7 @@ const list: LeafCommand = {
           ...(replays !== undefined && { replays: replays as (typeof REPLAYS)[number] }),
           ...(evalRunId !== undefined && { evalRunId }),
           ...(agentId !== undefined && { agentId }),
+          ...(triggerId !== undefined && { triggerId }),
         });
       },
       RUNS_TABLE,
@@ -302,12 +309,14 @@ const start: LeafCommand = {
 };
 
 /**
- * The stderr line for a run that ended `failed`. An agent turn's failure
- * reads back as its typed error, as the SDK's `invokeAgent` reads it
- * (`parseFailureMessage`); any other shows the run's failure message.
+ * The stderr line for a run that ended `failed`: the run's `failure`. A
+ * runtime from before it has only `failureMessage`, decoded the same way
+ * the API decodes it: an agent turn's failure as its typed error
+ * (`parseFailureMessage`), any other in the run's own words.
  */
 async function runFailedLine(run: Run): Promise<string> {
-  // Loaded only for a failed run: it brings in the whole agent loop.
+  if (run.failure !== undefined) return `Error [${run.failure.code}]: ${run.failure.message}\n`;
+  // Loaded only for an older runtime's failed run: it brings in the whole agent loop.
   const { parseFailureMessage } = await import('@kindgi/agents');
   const error = parseFailureMessage(run.failureMessage);
   if (error !== undefined) return `Error [${error.code}]: ${error.message}\n`;
