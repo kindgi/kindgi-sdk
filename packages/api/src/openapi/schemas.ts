@@ -3075,7 +3075,7 @@ export const JudgedRunContextSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'What a judged run needs besides its input to be replayed, captured when it was first judged. For an agent turn: the conversation before it, what its retrievals returned, and the decision at its session approval gate. For a flow run: its tool calls with their results.',
+    'What a judged run needs besides its input to be replayed, captured when it was first judged. For an agent turn: the conversation before it, what its retrievals returned, and the decision at its session approval gate. For a flow run: its tool calls with their results. For both: the env values its tools were sent.',
   properties: {
     history: {
       type: 'array',
@@ -3147,6 +3147,12 @@ export const JudgedRunContextSchema: JsonSchema = {
         },
         truncated: { type: 'boolean', description: 'More calls were made than were kept.' },
       },
+    },
+    toolEnv: {
+      type: 'object',
+      additionalProperties: { type: 'object', additionalProperties: { type: 'string' } },
+      description:
+        "The env values each tool's calls were sent (`needsSpec.env`), by tool id: its first call's, as the run recorded them. A replay sends them to a read-only tool it runs live, so the tool reads the config the run saw, not today's. Absent for a run from before env was recorded.",
     },
   },
 };
