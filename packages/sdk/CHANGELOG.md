@@ -1,5 +1,145 @@
 # @kindgi/sdk
 
+## 0.1.4
+
+### Patch Changes
+
+- 68da079: The providers skill and the `kindgi init` READMEs name each preset's default model and `claude-haiku-5-5`, and the skill says how ties now break (the provider's default model before its others), that the Claude 5.5 and GPT-6 models take no `temperature`, and how thinking counts. The guardrails README describes the `llm-judge` strategy, including its answer's token budget on a model that thinks.
+- 6263b4b: Examples name models that aren't retiring. Anthropic retires `claude-haiku-4-5` on or after 2026-10-15 and Vertex AI retires `gemini-2.5-pro` and `gemini-2.5-flash` on 2026-10-20, so the `kindgi init` READMEs, the CLI README, the Gemini adapter's README and the providers and authoring-agents skills (TypeScript and Python) now use `claude-sonnet-5-5` and `gemini-3.8-flash`. The providers skill's Vertex `provider.json` registers `gemini-3.8-flash` and `gemini-3.5-flash-lite`, as the `gemini` preset does, and says not to pin the retiring models. It also says what a model's `structured-output` feature means: the model can follow a JSON schema natively, while Kindgi's typed outputs use instructions, then parse, check and repair, on every provider.
+- 812aa0b: OpenRouter is described as what it is: a hosted service in front of several vendors that your prompts pass through, one option among the providers, not a way to reach every model. The `openrouter` preset's description, the `kindgi init` READMEs and the providers skill say so; the skill lists the direct vendors and self-hosted servers first.
+- 6eb47c1: Agent instructions name tools by what they do, not by their dotted id. A model sees a tool's id in its provider's form (`my-pack__greet` for Anthropic and OpenAI-compatible models), so `my-pack.greet` in the instructions could make it call a name it wasn't given. The `kindgi init` echo agent (TypeScript and Python) now says "greet them with the greet tool … echo their message with the echo tool", and the authoring-agents skills say to name tools this way.
+- 17f552d: The providers and Python skills describe dev-echo's "isn't a real model" first line and its `dev-echo-not-a-model` warning, and the providers skill lists the one-key presets: openai, gemini-api, groq and openrouter.
+- dd9e856: The providers skill says the in-process ONNX path (Path C) runs only with the runtime from source on macOS or a glibc Linux. It doesn't load in the runtime image, so it doesn't run under `kindgi dev`; local users go to Ollama.
+- f56432f: The Python skills run the CLI from PyPI, `kindgi-cli`, with no Node install: `uvx --from "kindgi-cli>=0.1,<0.2" kindgi init`, `uv add --dev "kindgi-cli>=0.1,<0.2"` in an existing app, then `uv run kindgi <command>`. The authoring skills (agents, tools, flows, guardrails) no longer say the CLI is on `PATH`.
+- 53f87a6: The kindgi-getting-started skill reads a run's cost records from `.data`, as every list call answers now (`items` is deprecated).
+- c744326: The Python guardrails skill's sample config gives its default as `Field(default=1, …)`, so type checkers such as pyright see the field as optional; `Field(1, …)` made `Config()` look like it needs `minLookups`.
+- f90c285: A comparison's result is typed in both clients. `openapi.json` names its shape as `JudgedComparisonResult`: the `summary` (`JudgedComparisonSummary`, with `ComparisonCandidate` and each `ComparisonMetric`) and each case (`ComparisonCaseResult`). `EvalRun.result` stays an open object, since each kind of eval run has its own.
+  
+  The TypeScript client exports the types and `comparisonOf(run)` (also from `@kindgi/sdk/client`), which returns a `judged` eval run's result as `JudgedComparisonResult`, or `undefined` for another kind of run, a dry run, or one not finished. The Python client has `comparison_of(run)`, which returns the validated `models.JudgedComparisonResult`, or `None`.
+- Updated dependencies [9564887]
+- Updated dependencies [68da079]
+- Updated dependencies [1c0252c]
+- Updated dependencies [b9d3c01]
+- Updated dependencies [82f3dec]
+- Updated dependencies [366c31a]
+- Updated dependencies [814af63]
+- Updated dependencies [c313224]
+- Updated dependencies [024a47f]
+- Updated dependencies [0b1f48d]
+- Updated dependencies [9a7f43b]
+- Updated dependencies [6260a59]
+- Updated dependencies [0359caf]
+- Updated dependencies [4287798]
+- Updated dependencies [fcc6a97]
+- Updated dependencies [c7e27fb]
+- Updated dependencies [fd011d4]
+- Updated dependencies [d0ebeb6]
+- Updated dependencies [e97958c]
+- Updated dependencies [a311b81]
+- Updated dependencies [f8deed1]
+- Updated dependencies [a0652ac]
+- Updated dependencies [fa6680c]
+- Updated dependencies [fac7472]
+- Updated dependencies [f96bd58]
+- Updated dependencies [f999acd]
+- Updated dependencies [e197294]
+- Updated dependencies [d3dffb5]
+- Updated dependencies [26b2a23]
+- Updated dependencies [b67eee6]
+- Updated dependencies [b8ff156]
+- Updated dependencies [5608264]
+- Updated dependencies [7a8e764]
+- Updated dependencies [8491dd8]
+- Updated dependencies [a0921a1]
+- Updated dependencies [dde7fdb]
+- Updated dependencies [ba55da0]
+- Updated dependencies [933e00a]
+- Updated dependencies [2040daf]
+- Updated dependencies [ba2f212]
+- Updated dependencies [8b28a25]
+- Updated dependencies [b52d890]
+- Updated dependencies [fe0ad36]
+- Updated dependencies [3d23304]
+- Updated dependencies [42a2e66]
+- Updated dependencies [2923703]
+- Updated dependencies [d69c8e9]
+- Updated dependencies [bfeabfd]
+- Updated dependencies [8861bf8]
+- Updated dependencies [d0ebeb6]
+- Updated dependencies [9801f64]
+- Updated dependencies [dc5cfb1]
+- Updated dependencies [a5560d7]
+- Updated dependencies [e2ba026]
+- Updated dependencies [1bec998]
+- Updated dependencies [62608e3]
+- Updated dependencies [3e427c5]
+- Updated dependencies [376d9e4]
+- Updated dependencies [f90c285]
+- Updated dependencies [cfba46a]
+- Updated dependencies [ffb6096]
+- Updated dependencies [ae417f7]
+  - @kindgi/client@0.1.4
+  - @kindgi/guardrails@0.1.4
+  - @kindgi/handler-runtime@0.1.4
+  - @kindgi/agents@0.1.4
+  - @kindgi/tools@0.1.4
+  - @kindgi/types@0.1.4
+  - @kindgi/flow@0.1.4
+  - @kindgi/schema@0.1.4
+  - @kindgi/crypto@0.1.4
+
+## 0.1.4-rc.5
+
+### Patch Changes
+
+- 6eb47c1: Agent instructions name tools by what they do, not by their dotted id. A model sees a tool's id in its provider's form (`my-pack__greet` for Anthropic and OpenAI-compatible models), so `my-pack.greet` in the instructions could make it call a name it wasn't given. The `kindgi init` echo agent (TypeScript and Python) now says "greet them with the greet tool … echo their message with the echo tool", and the authoring-agents skills say to name tools this way.
+- 17f552d: The providers and Python skills describe dev-echo's "isn't a real model" first line and its `dev-echo-not-a-model` warning, and the providers skill lists the one-key presets: openai, gemini-api, groq and openrouter.
+- c744326: The Python guardrails skill's sample config gives its default as `Field(default=1, …)`, so type checkers such as pyright see the field as optional; `Field(1, …)` made `Config()` look like it needs `minLookups`.
+- Updated dependencies [d69c8e9]
+- Updated dependencies [9801f64]
+  - @kindgi/client@0.1.4-rc.5
+  - @kindgi/handler-runtime@0.1.4-rc.5
+  - @kindgi/agents@0.1.4-rc.5
+  - @kindgi/flow@0.1.4-rc.5
+  - @kindgi/guardrails@0.1.4-rc.5
+  - @kindgi/schema@0.1.4-rc.5
+  - @kindgi/tools@0.1.4-rc.5
+  - @kindgi/crypto@0.1.4-rc.5
+  - @kindgi/types@0.1.4-rc.5
+
+## 0.1.4-rc.4
+
+### Patch Changes
+
+- dd9e856: The providers skill says the in-process ONNX path (Path C) runs only with the runtime from source on macOS or a glibc Linux. It doesn't load in the runtime image, so it doesn't run under `kindgi dev`; local users go to Ollama.
+- f56432f: The Python skills run the CLI from PyPI, `kindgi-cli`, with no Node install: `uvx --from "kindgi-cli>=0.1,<0.2" kindgi init`, `uv add --dev "kindgi-cli>=0.1,<0.2"` in an existing app, then `uv run kindgi <command>`. The authoring skills (agents, tools, flows, guardrails) no longer say the CLI is on `PATH`.
+- Updated dependencies [f999acd]
+- Updated dependencies [5608264]
+  - @kindgi/agents@0.1.4-rc.4
+  - @kindgi/client@0.1.4-rc.4
+  - @kindgi/guardrails@0.1.4-rc.4
+  - @kindgi/crypto@0.1.4-rc.4
+  - @kindgi/flow@0.1.4-rc.4
+  - @kindgi/handler-runtime@0.1.4-rc.4
+  - @kindgi/schema@0.1.4-rc.4
+  - @kindgi/tools@0.1.4-rc.4
+  - @kindgi/types@0.1.4-rc.4
+
+## 0.1.4-rc.3
+
+### Patch Changes
+
+- Updated dependencies [3e427c5]
+  - @kindgi/client@0.1.4-rc.3
+  - @kindgi/agents@0.1.4-rc.3
+  - @kindgi/crypto@0.1.4-rc.3
+  - @kindgi/flow@0.1.4-rc.3
+  - @kindgi/guardrails@0.1.4-rc.3
+  - @kindgi/handler-runtime@0.1.4-rc.3
+  - @kindgi/schema@0.1.4-rc.3
+  - @kindgi/tools@0.1.4-rc.3
+  - @kindgi/types@0.1.4-rc.3
+
 ## 0.1.4-rc.2
 
 ### Patch Changes

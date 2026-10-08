@@ -14,7 +14,7 @@ description: >
   kindgi-python-authoring-agents; models by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.5"
+version: "0.1.7"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -25,9 +25,11 @@ sources:
 
 # Getting started with Kindgi in Python
 
-> **Running `kindgi`:** a Python pack has no Node project, so the
-> `kindgi` CLI (a Node 22.12+ program) is the one on `PATH`. Python
-> commands run in the pack's environment: `uv run …`.
+> **Running `kindgi`:** the CLI is `kindgi-cli` from PyPI (the Kindgi CLI
+> with its own Node, so no Node install), pinned in the pack's dev group.
+> Every `kindgi <command>` below runs as `uv run kindgi <command>` (Poetry:
+> `poetry run kindgi <command>`). Python commands run in the pack's
+> environment the same way: `uv run …`.
 
 ## What a pack is
 
@@ -52,11 +54,11 @@ primitive; `test_*.py`, `*_test.py` and `conftest.py` are skipped.
 ## Scaffold a new pack
 
 ```sh
-kindgi init my-pack --template=python
+uvx --from "kindgi-cli>=0.1,<0.2" kindgi init my-pack --template=python
 cd my-pack
-uv sync            # .venv with the kindgi package
+uv sync            # .venv with the kindgi package and the kindgi CLI
 uv run pytest
-kindgi dev         # boots Kindgi locally and runs this pack, reloading on save
+uv run kindgi dev  # boots Kindgi locally and runs this pack, reloading on save
 ```
 
 `kindgi dev` needs Postgres: it starts one in Docker unless
@@ -70,9 +72,10 @@ kindgi dev         # boots Kindgi locally and runs this pack, reloading on save
 In the app's directory (where its `pyproject.toml` is):
 
 ```sh
-kindgi init            # --pack-id=<id> if the app's name doesn't make one
+uv add --dev "kindgi-cli>=0.1,<0.2"   # the CLI (Poetry: poetry add --group dev …)
+uv run kindgi init     # --pack-id=<id> if the app's name doesn't make one
 uv sync                # or what it prints for Poetry / pip
-kindgi dev
+uv run kindgi dev
 ```
 
 `kindgi init` edits the app's `pyproject.toml` in place — your layout and
@@ -116,17 +119,20 @@ The `[tool.kindgi]` keys are the ones `kindgi.config.ts` takes —
 With `kindgi dev` running, from another terminal in the pack directory:
 
 ```sh
-kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"Ada"}'
+uv run kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"Ada"}'
 ```
 
 The answer comes from `dev-echo`, a **fallback** provider a new pack
-gets: no model, no key — it calls the first tool and replies "Tool
-responded: …", and the turn carries a `fallback-provider` warning. For
-a real model, put the key in `.env` and register a provider:
+gets: no model, no key — it calls the first tool and replies "⚠
+dev-echo isn't a real model: …" then "Tool responded: …", and the turn
+carries the `fallback-provider` and `dev-echo-not-a-model` warnings. For a
+real model, put an LLM provider's key in `.env` and register its preset
+(Anthropic below; `kindgi providers presets` lists OpenAI, Gemini, Groq and
+OpenRouter too):
 
 ```sh
-kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant   # no-echo prompt
-kindgi providers register --preset=anthropic
+uv run kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant   # no-echo prompt
+uv run kindgi providers register --preset=anthropic
 ```
 
 It takes over at the next turn. That registration is in this project's dev

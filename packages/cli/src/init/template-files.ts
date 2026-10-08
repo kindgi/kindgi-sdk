@@ -22,6 +22,8 @@ export interface Substitutions {
   readonly KINDGI_PYTHON_SOURCE?: string;
   /** The python template's `[tool.uv] required-version`. */
   readonly UV_REQUIRED_VERSION?: string;
+  /** The python template's dev group, quoted and comma-separated (`kindgi-cli` too, from the PyPI CLI). */
+  readonly DEV_DEPENDENCIES?: string;
 }
 
 /** Every file under `root`, as paths relative to it. */
@@ -66,5 +68,6 @@ export function substitute(raw: string, subs: Substitutions): string {
     .replaceAll('{{PACK_VERSION}}', subs.PACK_VERSION)
     .replaceAll('{{KINDGI_REQUIREMENT}}', subs.KINDGI_REQUIREMENT ?? '"kindgi"')
     .replaceAll('{{KINDGI_PYTHON_SOURCE}}', subs.KINDGI_PYTHON_SOURCE ?? '')
-    .replaceAll('{{UV_REQUIRED_VERSION}}', subs.UV_REQUIRED_VERSION ?? '');
+    .replaceAll('{{UV_REQUIRED_VERSION}}', subs.UV_REQUIRED_VERSION ?? '')
+    .replaceAll('{{DEV_DEPENDENCIES}}', subs.DEV_DEPENDENCIES ?? '"pytest>=8"');
 }

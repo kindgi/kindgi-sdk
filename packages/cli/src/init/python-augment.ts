@@ -35,9 +35,11 @@ import { PACK_ID_REGEX } from '../commands/init.js';
 import { syncSkills } from '../commands/skills.js';
 import type { CommandResult } from '../commands/types.js';
 import { renderJson } from '../output.js';
-import { binDisplay } from '../package-manager.js';
+import { type BinRunner, binDisplay } from '../package-manager.js';
+import { CLI_VERSION } from '../version-info.js';
 import {
   type KindgiPythonSource,
+  kindgiCliRequirement,
   kindgiRequirementFor,
   resolveKindgiPythonSource,
 } from './dependency-specs.js';
@@ -64,6 +66,8 @@ export interface RunInitPythonAugmentInputs {
   readonly packIdOverride?: string;
   /** Overwrite locally edited skills. */
   readonly force: boolean;
+  /** This CLI is the PyPI one (`kindgi-cli`): the app runs it from its own environment. */
+  readonly pypi?: boolean;
   /** Test seams. */
   readonly pythonSource?: KindgiPythonSource;
   readonly fileExists?: (path: string) => Promise<boolean>;
@@ -85,7 +89,7 @@ export async function runInitPythonAugment(
   const info = read.info;
   if (info.isPack) {
     return fail(
-      `${pyprojectPath} already has a [tool.kindgi] table — this app is a Kindgi pack. Run \`${binDisplay('path', 'kindgi', ['dev'])}\` here.`,
+      `${pyprojectPath} already has a [tool.kindgi] table — this app is a Kindgi pack. Run \`${binDisplay(inputs.pypi === true ? 'uv' : 'path', 'kindgi', ['dev'])}\` here.`,
     );
   }
   const packId = resolvePackId(info, inputs.packIdOverride);
@@ -137,7 +141,13 @@ export async function runInitPythonAugment(
   }
 
   const nextSteps = [
-    ...pythonAugmentNextSteps(installer, edited.dependencyAdded, source),
+    ...pythonAugmentNextSteps(
+      installer,
+      edited.dependencyAdded,
+      source,
+      inputs.pypi === true,
+      info.hasKindgiCli,
+    ),
     ...uvVersionNote(info.uvRequiredVersion),
   ];
   const summary = {
@@ -327,7 +337,31 @@ export function pythonAugmentNextSteps(
   installer: PythonInstaller,
   dependencyAdded: boolean,
   source: Exclude<KindgiPythonSource, { kind: 'error' }>,
+  pypi = false,
+  /** The app lists kindgi-cli already: no step to add it. */
+  cliListed = false,
 ): readonly string[] {
+  // From the PyPI CLI, the app runs it from its own environment, and lists it.
+  const runner: BinRunner = !pypi
+    ? 'path'
+    : installer === 'uv'
+      ? 'uv'
+      : installer === 'poetry'
+        ? 'poetry'
+        : 'venv';
+  const cli = `"${kindgiCliRequirement(CLI_VERSION)}"`;
+  const addCli =
+    !pypi || cliListed
+      ? []
+      : [
+          `Add the CLI to the app's dev dependencies: ${
+            installer === 'uv'
+              ? `uv add --dev ${cli}`
+              : installer === 'poetry'
+                ? `poetry add --group dev ${cli}`
+                : `pip install ${cli} (and list it with the app's dev requirements)`
+          }`,
+        ];
   const sdk = source.kind === 'local-checkout' ? source.path : undefined;
   // Quoted: the range has `<` and `>`, which a shell would read as redirects.
   const requirement = `"${kindgiRequirementFor(source)}"`;
@@ -352,10 +386,11 @@ export function pythonAugmentNextSteps(
       }`;
   return [
     install,
-    `Boot the dev server: ${binDisplay('path', 'kindgi', ['dev'])}`,
+    ...addCli,
+    `Boot the dev server: ${binDisplay(runner, 'kindgi', ['dev'])}`,
     'Write tools, guardrails and agents under kindgi/ — see .claude/skills/kindgi-python-getting-started/SKILL.md',
     'Secrets: kindgi dev reads your .env and .env.local; tools read them from os.environ',
-    `Model provider: agents answer with the dev-echo fallback until you register one — e.g. ${binDisplay('path', 'kindgi', ['providers', 'register', '--preset=anthropic'])} (ANTHROPIC_API_KEY in .env)`,
+    `Model provider: agents answer with the dev-echo fallback until you register one — e.g. ${binDisplay(runner, 'kindgi', ['providers', 'register', '--preset=anthropic'])} (ANTHROPIC_API_KEY in .env)`,
   ];
 }
 

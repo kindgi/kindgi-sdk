@@ -37,6 +37,7 @@ describe('buildRuntimeEnv', () => {
     expect(buildRuntimeEnv(BASE)).toEqual({
       KINDGI_DEV: 'true',
       KINDGI_ENV: 'local',
+      KINDGI_LOG_FORMAT: 'pretty',
       KINDGI_API_PORT: '4000',
       KINDGI_PUBLIC_URL: 'http://127.0.0.1:4001',
       KINDGI_DEV_HOST_ALIAS: 'host.docker.internal',
@@ -45,6 +46,7 @@ describe('buildRuntimeEnv', () => {
       KINDGI_API_TOKEN: 'kgi_bt_dev',
       KINDGI_SEED_USER_ID: BASE.seedUserId,
       KINDGI_PACK_DIR: '/pack',
+      KINDGI_ARTIFACTS: 'local:/pack/.kindgi/dev/artifacts',
       KINDGI_DEV_CONSOLE_LOGIN: 'true',
       KINDGI_SECRETS_BACKEND: 'dotenv',
       KINDGI_SECRETS_DOTENV_DIR: '/pack',
@@ -66,9 +68,11 @@ describe('buildRuntimeEnv', () => {
       localEnvFiles: ['.env', '.env.dev'],
       corsOrigins: ['http://localhost:3000', 'http://localhost:5173'],
       publicTokenKeyPath: '/run/kindgi/public-token-signing.pem',
+      exportSigningKeyPath: '/run/kindgi/export-signing.pem',
       googleCredentialsPath: '/run/kindgi/google-credentials.json',
     });
     expect(env).toMatchObject({
+      KINDGI_EXPORT_SIGNING_KEY_PATH: '/run/kindgi/export-signing.pem',
       KINDGI_SECRETS_DOTENV_FILES: '.env,.env.dev',
       KINDGI_CORS_ORIGINS: 'http://localhost:3000,http://localhost:5173',
       KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH: '/run/kindgi/public-token-signing.pem',
@@ -97,6 +101,7 @@ describe('buildRuntimeEnv', () => {
       localEnvFiles: ['.env'],
       corsOrigins: ['http://localhost:3000'],
       publicTokenKeyPath: '/k.pem',
+      exportSigningKeyPath: '/e.pem',
       googleCredentialsPath: '/g.json',
     });
     const hostNetwork = buildRuntimeEnv({ ...BASE, apiHost: '127.0.0.1' });

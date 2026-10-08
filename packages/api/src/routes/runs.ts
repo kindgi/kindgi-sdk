@@ -16,7 +16,7 @@ import type {
   TriggerId,
 } from '@kindgi/types';
 
-import { ref } from '@kindgi/authz';
+import { type Principal, ref } from '@kindgi/authz';
 
 import { type WireErrorBody, statusFor, toWireError } from '../errors.js';
 import type { EventBusBinding, EventPayload, Subscription } from '../event-bus-binding.js';
@@ -24,9 +24,11 @@ import type {
   RunHandlerBinding,
   RunHandlerFailure,
   RunHandlerOutcome,
+  RunTrace,
 } from '../handler-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { MintPublicRunTokenResult } from '../public-run-token.js';
+import { type RunFailure, runFailure } from '../run-failure.js';
 import type { AppEnv } from '../types.js';
 import { liveScopeToWire } from './live-scope-wire.js';
 import type { DecodedCursor } from './pagination.js';
@@ -162,7 +164,14 @@ export function runsRouter(
       return c.json(toWireError(parsed.error, requestId));
     }
 
-    const invocation = await invokeFromBody(binding, tenantId, parsed.value);
+    const trace = c.get('trace');
+    const invocation = await invokeFromBody(
+      binding,
+      tenantId,
+      parsed.value,
+      c.get('principal') as Principal | undefined,
+      trace !== undefined ? { traceId: trace.traceId, spanId: trace.spanId } : undefined,
+    );
 
     if (invocation.kind === 'err') {
       c.status(statusFor(invocation.error.code) as never);
@@ -625,9 +634,14 @@ function invokeFromBody(
   binding: RunHandlerBinding,
   tenantId: TenantId,
   body: ParsedStartRunBody,
+  principal: Principal | undefined,
+  trace?: RunTrace,
 ): Promise<RunHandlerOutcome> {
   const common = {
     tenantId,
+    // Whom the run acts for: the authenticated caller, never the body.
+    ...(principal !== undefined && { principal }),
+    ...(trace !== undefined && { trace }),
     ...(body.projectId !== undefined && { projectId: body.projectId }),
     input: body.input,
     ...(body.segments !== undefined && { segments: body.segments }),
@@ -670,6 +684,7 @@ function serializeRun(
     updatedAt: row.updatedAt as unknown as string,
     completedAt: row.completedAt ?? undefined,
     failureMessage: row.failureMessage ?? undefined,
+    ...withFailure(row),
     ...(opts.output && row.output !== undefined && { output: row.output }),
     ...(row.parentRunId != null && { parentRunId: row.parentRunId as unknown as string }),
     ...(row.parentNodeId != null && { parentNodeId: row.parentNodeId as unknown as string }),
@@ -701,7 +716,14 @@ function serializeRun(
       row.segments.length > 0 && {
         segments: row.segments.map(({ key, value }) => ({ key, value })),
       }),
+    ...(row.traceId != null && { traceId: row.traceId }),
   };
+}
+
+/** `failure` on a failed run's wire row: its error, decoded once, here. */
+function withFailure(row: KernelRunRecord): { readonly failure?: RunFailure } {
+  const failure = runFailure(row);
+  return failure !== undefined ? { failure } : {};
 }
 
 /** A run's progress: status and timing, no data. */

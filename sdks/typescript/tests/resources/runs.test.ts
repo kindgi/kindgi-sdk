@@ -3,9 +3,9 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { createClient } from '../../src/index.js';
+import { KindgiApiError, createClient } from '../../src/index.js';
 import type { RunEvent } from '../../src/index.js';
-import { errorFetch, jsonFetch, recordingFetch } from '../support/recording-fetch.js';
+import { errorFetch, hangingFetch, jsonFetch, recordingFetch } from '../support/recording-fetch.js';
 import { sseFetch } from '../support/sse-fetch.js';
 
 const AUTH = { kind: 'apiToken' as const, token: 't' };
@@ -65,6 +65,72 @@ describe('runs.start', () => {
       flow: 'ingest.contract-pdf',
       flowVersion: '1.0.0',
     });
+  });
+});
+
+describe('runs.start — the timeout', () => {
+  async function failure(promise: Promise<unknown>): Promise<KindgiApiError> {
+    const error = await promise.then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(KindgiApiError);
+    return error as KindgiApiError;
+  }
+
+  it('a waited start that times out says the run may go on, and how to start a long one', async () => {
+    const stub = hangingFetch();
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    const e = await failure(client.runs.start({ agent: 'acme.drafter', input: {}, timeoutMs: 25 }));
+    expect(e.error).toMatchObject({ code: 'network', timeoutMs: 25 });
+    expect(e.message).toBe(
+      "The run didn't end within 0.025 s, the client's timeout (timeoutMs). A waited start answers only when the run ends, so the run may still be going, and its id didn't arrive. Start a run that can take longer with `options: { wait: false }`: the answer carries its id at once. Then follow it with `runs.stream(runId)` or `runs.get(runId)`. Or raise `timeoutMs`.",
+    );
+    // The timeout is the client's, not part of the request.
+    expect(JSON.parse(stub.calls[0]?.body ?? '{}')).not.toHaveProperty('timeoutMs');
+  });
+
+  it("takes the client's timeout when the call sets none", async () => {
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: hangingFetch().fetch,
+      timeoutMs: 15,
+    });
+    const e = await failure(client.runs.start({ flow: 'acme.nightly', input: {} }));
+    expect(e.error).toMatchObject({ code: 'network', timeoutMs: 15 });
+    expect(e.message).toContain('options: { wait: false }');
+  });
+
+  it('a start with wait: false that times out gets the plain timeout error', async () => {
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: hangingFetch().fetch,
+    });
+    const e = await failure(
+      client.runs.start({
+        agent: 'acme.drafter',
+        input: {},
+        options: { wait: false },
+        timeoutMs: 10,
+      }),
+    );
+    expect(e.message).toBe("No answer within 0.01 s, the client's timeout (timeoutMs).");
+  });
+
+  it('other errors pass through unchanged', async () => {
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: errorFetch(404, { code: 'not-found', message: 'Agent acme.missing not found' }).fetch,
+    });
+    const e = await failure(client.runs.start({ agent: 'acme.missing', input: {} }));
+    expect(e.error.code).toBe('not-found');
   });
 });
 

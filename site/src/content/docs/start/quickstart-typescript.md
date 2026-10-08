@@ -10,9 +10,9 @@ In ten minutes: a pack with two tools, an agent that calls them, a guardrail
 on its answers and a flow, running on your machine.
 
 **Before you start**, set up what the [Install page](../install/) describes:
-Node 22.12, Docker, and access to the runtime image. The image is in private
-preview: request access at contact@kindgi.com, then log in once with
-`kindgi auth registry`.
+Node 22.12, Docker, and access to the runtime image: sign in at
+[access.kindgi.com](https://access.kindgi.com) with GitHub, copy your pull
+token, then log in once with `kindgi auth registry`.
 
 ## 1. Create the pack
 
@@ -69,6 +69,17 @@ save. It prints the API's URL and a token, and writes them to
 `.kindgirc.json` in the pack, so the commands below find the runtime by
 themselves. Leave it running.
 
+Its banner also gives the console's address, where you can see each run:
+what it was asked, the steps it took and what it answered:
+
+```text
+    Console    http://127.0.0.1:4000/console/
+```
+
+Open that address in your browser (note the `/console/` at the end; the port
+is `4000`, or the next free one), and sign in with the token on the banner's
+`Token` line.
+
 ## 3. Run the agent
 
 In a second terminal, in `my-pack`:
@@ -80,13 +91,15 @@ pnpm exec kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"
 ```text tutorial=expect
   "status": "completed",
 …
-⚠ Answered by "dev-echo", a fallback provider: no other registered provider satisfies agent "my-pack.echo-agent".
+⚠ dev-echo answered, and it isn't a real model: it only repeats what it's given. …
 ```
 
 There's no model yet, so the answer comes from `dev-echo`, a stand-in a new
 pack gets: it calls the agent's first tool with `{"message": <your
-userMessage>}` and replies with what the tool returned, and the run carries a
-`fallback-provider` warning. That's enough to see the whole path: the agent's
+userMessage>}` and replies with what the tool returned, after a first line
+that says it isn't a real model. The run carries the `fallback-provider` and
+`dev-echo-not-a-model` warnings, and the command prints the second on its
+stderr, with how to add a key. That's enough to see the whole path: the agent's
 turn, the tool call into your code, the guardrail's check.
 
 :::caution[dev-echo checks the wiring, nothing more]

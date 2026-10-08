@@ -7,6 +7,7 @@ import { defineConfig } from 'astro/config';
 import starlightLlmsTxt from 'starlight-llms-txt';
 import starlightOpenAPI, { createOpenAPISidebarGroup } from 'starlight-openapi';
 import { createStarlightTypeDocPlugin } from 'starlight-typedoc';
+import { docsVersion, versionedPages } from './scripts/versioned-pages.mjs';
 
 // Each released minor line is built from its git tag under its own base
 // (`/v0.1/`), the newest also at the root. Content links are relative, so a
@@ -17,6 +18,11 @@ const preview = process.env.PUBLIC_KINDGI_DOCS_PREVIEW === '1';
 // Only the latest release's docs (served at the root) are indexed: an older
 // line or a preview would compete with them in search results.
 const indexed = base === '/' && !preview;
+// The git ref this build describes (a release's tag, else `main`) and its
+// version: hand-written pages' repository links and `{{kindgi.version}}`
+// follow them (scripts/versioned-pages.mjs; code blocks in ec.config.mjs).
+const ref = process.env.KINDGI_DOCS_REF ?? 'main';
+const version = docsVersion();
 
 // The guides, one collapsible group per area, in reading order.
 const guideAreas = [
@@ -53,6 +59,8 @@ export default defineConfig({
   // flag in prose into an en dash.
   markdown: { processor: satteri({ features: { smartPunctuation: false } }) },
   integrations: [
+    // Before Starlight, so its search index reads the fixed pages.
+    versionedPages({ ref, version }),
     starlight({
       title: 'Kindgi',
       description:
@@ -77,9 +85,9 @@ export default defineConfig({
             'Kindgi runs AI agents and flows beside your application. You define tools (your own',
             'TypeScript or Python code), agents and flows in a pack; the Kindgi runtime runs them',
             'durably, calls your code over HTTP, and records every step in a journal. The SDKs',
-            '(`@kindgi/sdk` on npm, `kindgi` on PyPI) and the CLI (`@kindgi/cli`) are Apache-2.0.',
-            'TypeScript projects run the CLI as `pnpm exec kindgi`; Python projects as',
-            '`npx --yes @kindgi/cli@<minor>`.',
+            '(`@kindgi/sdk` on npm, `kindgi` on PyPI) and the CLI (`@kindgi/cli` on npm, `kindgi-cli`',
+            'on PyPI) are Apache-2.0. TypeScript projects run the CLI as `pnpm exec kindgi`; Python',
+            'projects as `uv run kindgi`.',
           ].join('\n'),
           customSets: [
             {

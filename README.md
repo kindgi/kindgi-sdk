@@ -76,6 +76,7 @@ All `@kindgi/*` packages share one version.
 | [`@kindgi/guardrails`](./packages/guardrails) | Runtime + CI enforcement of agent-behavior guardrails for Kindgi. |
 | [`@kindgi/handler`](./packages/handler) | Kindgi™ pack-author authoring surface. |
 | [`@kindgi/handler-runtime`](./packages/handler-runtime) | Runtime-side primitives for running a Kindgi pack's own code. |
+| [`@kindgi/log`](./packages/log) | Kindgi™ structured logging: levels per subsystem (with dotted inheritance), JSON and pretty formats, redaction of secret keys and token shapes, and W3C trace-context helpers. |
 | [`@kindgi/memory`](./packages/memory) | Kindgi™ memory type surface. |
 | [`@kindgi/pack-conformance`](./packages/pack-conformance) | Conformance suite for pack services: a black-box HTTP and process test of pack protocol v2 and the pack index, run against any language's pack service and indexer over the same fixture pack. |
 | [`@kindgi/platform`](./packages/platform) | Multi-tenant hierarchy primitives — the Tenant → Org → Team → Project + User type surface, the `Scope` discriminated access-boundary, binding interfaces for orgs, teams, projects, memberships, team-project grants and the tenant hierarchy, and reference in-memory adapters. |
@@ -99,6 +100,10 @@ All `@kindgi/*` packages share one version.
 guardrail checks in Python, with agents and flows as data. Its pack service
 speaks the same pack protocol as the Node one, and both pass
 [`@kindgi/pack-conformance`](./packages/pack-conformance).
+
+[`kindgi-cli`](./sdks/python-cli) (on PyPI from 0.1.4: `uv add --dev kindgi-cli`) — the
+Kindgi CLI for Python developers: `@kindgi/cli` with Node from a wheel, so
+`uv run kindgi dev` needs no Node install.
 
 ## Specs
 

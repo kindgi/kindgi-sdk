@@ -7,7 +7,7 @@
  * test skips, not fails, without them, so CI stays green without a
  * Google project. `GOOGLE_CLOUD_LOCATION` picks the location (default
  * `global`), `KINDGI_LIVE_GEMINI_MODEL` the model (default
- * `gemini-2.5-flash`).
+ * `gemini-3.8-flash`, served at `global`, `us` and `eu`).
  *
  * Covers a plain answer and a full tool round trip: the model calls a
  * function, the result goes back with the call's thought signature, and
@@ -23,7 +23,7 @@ import { type GeminiProviderOptions, createGeminiProvider } from '../src/index.j
 
 const project = process.env.GOOGLE_CLOUD_PROJECT;
 const gated = project === undefined || project.length === 0;
-const model = process.env.KINDGI_LIVE_GEMINI_MODEL ?? 'gemini-2.5-flash';
+const model = process.env.KINDGI_LIVE_GEMINI_MODEL ?? 'gemini-3.8-flash';
 
 const METADATA: GeminiProviderOptions['metadata'] = {
   id: 'gemini-live',
@@ -33,7 +33,7 @@ const METADATA: GeminiProviderOptions['metadata'] = {
       name: model,
       contextWindow: 1_048_576,
       features: ['tool-use'],
-      cost: { promptUsdPer1kTokens: 0.0003, completionUsdPer1kTokens: 0.0025 },
+      cost: { promptUsdPer1kTokens: 0.00075, completionUsdPer1kTokens: 0.00375 },
     },
   ],
 };
