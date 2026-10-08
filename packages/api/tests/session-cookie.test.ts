@@ -211,6 +211,47 @@ describe('session cookie', () => {
   });
 });
 
+describe('same origin: a deployment that does not know its public URL', () => {
+  const sameOrigin = { cookie: { allowedOrigins: [], sameOrigin: true } };
+  const logout = (app: ReturnType<typeof makeApp>['app'], headers: Record<string, string>) =>
+    app.request('http://kindgi.internal:8080/v1/auth/logout', { method: 'POST', headers });
+
+  test('an Origin naming the host the request went to passes', async () => {
+    const { app, store } = makeApp(sameOrigin);
+    const { cookie } = await signedIn(store);
+    const res = await logout(app, { cookie, origin: 'http://kindgi.internal:8080' });
+    expect(res.status).toBe(200);
+  });
+
+  test('behind a TLS proxy: the host matches whatever the scheme', async () => {
+    const { app, store } = makeApp(sameOrigin);
+    const { cookie } = await signedIn(store);
+    const res = await logout(app, {
+      cookie,
+      origin: 'https://kindgi.acme.example',
+      'x-forwarded-host': 'kindgi.acme.example',
+    });
+    expect(res.status).toBe(200);
+  });
+
+  test('another host is still refused; so is no Origin', async () => {
+    const { app, store } = makeApp(sameOrigin);
+    const { cookie } = await signedIn(store);
+    const evil = await logout(app, { cookie, origin: 'http://evil.example' });
+    expect(evil.status).toBe(403);
+    expect(await codeOf(evil)).toBe('csrf-origin-mismatch');
+    const none = await logout(app, { cookie });
+    expect(none.status).toBe(403);
+  });
+
+  test('without sameOrigin, the same request is refused (allowed origins only)', async () => {
+    const { app, store } = makeApp({ cookie: { allowedOrigins: [] } });
+    const { cookie } = await signedIn(store);
+    const res = await logout(app, { cookie, origin: 'http://kindgi.internal:8080' });
+    expect(res.status).toBe(403);
+  });
+});
+
 describe('cookie sessions: logout and refresh', () => {
   test('logout from the cookie revokes the session and clears the cookie', async () => {
     const { app, store } = makeApp();
