@@ -64,6 +64,8 @@ export type {
   SessionTouchOutcome,
 } from './session-store-binding.js';
 export type {
+  IdentityCreateUserInput,
+  IdentityCreateUserResult,
   IdentityDirectoryBinding,
   IdentityGetUserInput,
   IdentityListSessionsInput,
@@ -103,9 +105,23 @@ export {
   type TokenListInput,
   type TokenMintInput,
   type TokenMintOutput,
+  type TokenMintRefusal,
+  type TokenPrincipal,
   type TokenRevokeInput,
   type TokenRevokeOutcome,
 } from './token-admin.js';
+export type {
+  ServiceAccount,
+  ServiceAccountBinding,
+  ServiceAccountChange,
+  ServiceAccountCreateInput,
+  ServiceAccountError,
+  ServiceAccountErrorCode,
+  ServiceAccountGrant,
+  ServiceAccountGrantTarget,
+  ServiceAccountListInput,
+  ServiceAccountRef,
+} from './service-account-binding.js';
 export type {
   InvokeAgentBindingInput,
   InvokeFlowBindingInput,
@@ -187,6 +203,8 @@ export type {
   VerifyPublicRunTokenFailure,
   VerifyPublicRunTokenResult,
 } from './public-run-token.js';
+export { runFailure } from './run-failure.js';
+export type { RunFailure } from './run-failure.js';
 export {
   WEBHOOK_DELIVERY_STATUSES,
   WEBHOOK_EVENT_TYPES,
@@ -272,6 +290,7 @@ export type {
 } from './flow-binding.js';
 export type {
   CapabilityDescriptor,
+  CapabilityProvider,
   CapabilityGetInput,
   CapabilityListInput,
   CapabilityPage,
@@ -562,6 +581,8 @@ export type {
 } from './guardrail-binding.js';
 export type {
   MemoryBinding,
+  MemoryDeleteFactInput,
+  MemoryFactChangeOutcome,
   MemoryFactPage,
   MemoryGetFactInput,
   MemoryListFactsInput,
@@ -571,6 +592,7 @@ export type {
   MemoryRetrieveOutcome,
   MemorySupersedeFactInput,
   MemorySupersedeFactOutcome,
+  MemoryVerifyFactInput,
   MemoryWriteFactInput,
   MemoryWriteFactOutcome,
 } from './memory-binding.js';

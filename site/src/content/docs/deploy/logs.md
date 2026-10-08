@@ -112,10 +112,11 @@ traceresponse: 00-4bf92f3577b34da6a3ce929d0e0e4736-e61f14baa539a680-01
 ```
 
 Without a `traceparent`, the runtime starts a trace of its own. A run keeps the
-trace it started in as `traceId`, so its later records, and the calls it makes
-to your pack's service (with a `traceparent` header of their own), can be
-found from it:
+trace it started in as `traceId`, so its later records can be found from it:
 
 ```sh
 kindgi runs get <run-id>   # "traceId": "4bf92f3577b34da6a3ce929d0e0e4736"
 ```
+
+The runtime's calls to your pack's service don't carry the run's trace yet;
+that comes in 0.1.5.

@@ -581,6 +581,22 @@ export const UnpinBodySchema: JsonSchema = {
   },
 };
 
+export const RunFailureSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['code', 'message'],
+  description:
+    "Why a failed run failed; present only on a `failed` run. An agent turn's failure carries its own code (`budget-exceeded`, `capability-routing-failed`, `model-invocation-failed`, …); any other failure is `run-failed`, with the run's failure message.",
+  properties: {
+    code: { type: 'string' },
+    message: { type: 'string' },
+    cause: {
+      description:
+        "What the error came from, when it says: e.g. for `capability-routing-failed`, the router's `capability-unsatisfiable` with its reasons, by provider.",
+    },
+  },
+};
+
 export const RunSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -605,7 +621,12 @@ export const RunSchema: JsonSchema = {
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
     completedAt: { type: 'string', format: 'date-time' },
-    failureMessage: { type: 'string' },
+    failureMessage: {
+      type: 'string',
+      description:
+        'The failure as the runtime recorded it. Read `failure` instead: an agent turn records its typed error here in an internal form.',
+    },
+    failure: { $ref: '#/components/schemas/RunFailure' },
     output: {
       description:
         "The run's output once it completed. Present on single-run responses; on lists only with `?include=output`.",
@@ -898,7 +919,18 @@ const ApiTokenRoleSchema: JsonSchema = {
   type: 'string',
   enum: ['admin', 'member'],
   description:
-    "The key's role in its tenant: `admin` administers the tenant (and manages keys); `member` belongs to it and administers nothing.",
+    "The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action, whoever it's for.",
+};
+
+export const ApiKeyPrincipalSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'id'],
+  description: 'Whom an API key acts for: a person, or a service account.',
+  properties: {
+    kind: { type: 'string', enum: ['user', 'service-account'] },
+    id: { type: 'string', minLength: 1, description: 'The user id, or the service account id.' },
+  },
 };
 
 const ApiTokenCapabilitiesSchema: JsonSchema = {
@@ -911,10 +943,13 @@ const ApiTokenCapabilitiesSchema: JsonSchema = {
 export const MintTokenBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
+  description:
+    'A new API key. `for` is whom it acts for: the caller by default; only a tenant admin mints for someone else.',
   properties: {
+    for: { $ref: '#/components/schemas/ApiKeyPrincipal' },
     role: {
       ...ApiTokenRoleSchema,
-      description: `${ApiTokenRoleSchema.description} Default \`member\`.`,
+      description: `${ApiTokenRoleSchema.description} Default \`member\`; \`admin\` needs a tenant admin minting it.`,
     },
     capabilities: {
       ...ApiTokenCapabilitiesSchema,
@@ -922,24 +957,35 @@ export const MintTokenBodySchema: JsonSchema = {
     },
     label: { type: 'string', description: 'Optional human-readable label.' },
     expiresAt: { type: 'string', format: 'date-time', description: 'ISO 8601 timestamp.' },
-    projectId: { type: 'string', format: 'uuid' },
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        'Limit the key to this project: a request naming another project is refused (`key-project-mismatch`). A key limited to a project mints only keys limited to it.',
+    },
   },
 };
 
 export const ApiTokenSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  description: 'An API key: a service account in its tenant. Never includes the secret.',
+  description:
+    'An API key. Never includes the secret. `principal` is whom it acts for; absent on a key that is a service account of its own (`service_account:<tokenId>`), as keys minted before principals are.',
   required: ['tokenId', 'role', 'capabilities', 'createdAt'],
   properties: {
     tokenId: { type: 'string', format: 'uuid' },
+    principal: { $ref: '#/components/schemas/ApiKeyPrincipal' },
     role: ApiTokenRoleSchema,
     capabilities: ApiTokenCapabilitiesSchema,
     label: { type: 'string' },
-    projectId: { type: 'string', format: 'uuid' },
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description: 'The project the key is limited to.',
+    },
     createdBy: {
       type: 'string',
-      description: 'Who minted it: `user:<id>` or `service_account:<tokenId>`.',
+      description: 'Who minted it: `user:<id>` or `service_account:<id>`.',
     },
     createdAt: { type: 'string', format: 'date-time' },
     expiresAt: { type: 'string', format: 'date-time' },
@@ -981,6 +1027,133 @@ export const ApiTokenPageSchema: JsonSchema = {
       description: 'Opaque cursor for the next page. Absent when `hasMore: false`.',
     },
     hasMore: { type: 'boolean' },
+  },
+};
+
+// ---------------- service accounts ----------------
+
+export const ServiceAccountGrantTenantAdminSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind'],
+  description: 'Tenant admin.',
+  properties: { kind: { type: 'string', enum: ['tenant-admin'] } },
+};
+
+export const ServiceAccountGrantTenantMemberSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind'],
+  description:
+    "Tenant member: read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. A service account has it only when granted; a person has it from being added.",
+  properties: { kind: { type: 'string', enum: ['tenant-member'] } },
+};
+
+export const ServiceAccountGrantProjectSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'projectId', 'role'],
+  description: "A role on one project; it replaces the account's role there.",
+  properties: {
+    kind: { type: 'string', enum: ['project'] },
+    projectId: { type: 'string', format: 'uuid' },
+    role: { $ref: '#/components/schemas/ProjectRole' },
+  },
+};
+
+export const ServiceAccountGrantSchema: JsonSchema = {
+  description:
+    "What a service account may do: tenant admin, tenant member (read the tenant's settings), or a role on one project.",
+  oneOf: [
+    { $ref: '#/components/schemas/ServiceAccountGrantTenantAdmin' },
+    { $ref: '#/components/schemas/ServiceAccountGrantTenantMember' },
+    { $ref: '#/components/schemas/ServiceAccountGrantProject' },
+  ],
+  discriminator: { propertyName: 'kind' },
+};
+
+export const ServiceAccountGrantBodySchema: JsonSchema = {
+  description: 'The grant to add: tenant admin, tenant member, or a role on one project.',
+  oneOf: [
+    { $ref: '#/components/schemas/ServiceAccountGrantTenantAdmin' },
+    { $ref: '#/components/schemas/ServiceAccountGrantTenantMember' },
+    { $ref: '#/components/schemas/ServiceAccountGrantProject' },
+  ],
+  discriminator: { propertyName: 'kind' },
+};
+
+export const ServiceAccountUngrantProjectSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'projectId'],
+  description: 'Whatever role the account has on one project.',
+  properties: {
+    kind: { type: 'string', enum: ['project'] },
+    projectId: { type: 'string', format: 'uuid' },
+  },
+};
+
+export const ServiceAccountUngrantBodySchema: JsonSchema = {
+  description: 'The grant to remove: tenant admin, tenant member, or the role on a project.',
+  oneOf: [
+    { $ref: '#/components/schemas/ServiceAccountGrantTenantAdmin' },
+    { $ref: '#/components/schemas/ServiceAccountGrantTenantMember' },
+    { $ref: '#/components/schemas/ServiceAccountUngrantProject' },
+  ],
+  discriminator: { propertyName: 'kind' },
+};
+
+export const ServiceAccountSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'A named, non-human principal (`service_account:<id>`) for an app, a pipeline or a schedule. It acts through API keys minted for it.',
+  required: ['serviceAccountId', 'name', 'grants', 'createdAt'],
+  properties: {
+    serviceAccountId: { type: 'string' },
+    name: { type: 'string', description: "Unique among the tenant's active accounts." },
+    description: { type: 'string' },
+    grants: { type: 'array', items: { $ref: '#/components/schemas/ServiceAccountGrant' } },
+    createdBy: {
+      type: 'string',
+      description: 'Who created it: `user:<id>` or `service_account:<id>`.',
+    },
+    createdAt: { type: 'string', format: 'date-time' },
+    unregisteredAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'Set once unregistered: it has no grants, and its keys no longer work.',
+    },
+  },
+};
+
+export const ServiceAccountPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/ServiceAccount' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+  },
+};
+
+export const CreateServiceAccountBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['name'],
+  properties: {
+    name: {
+      type: 'string',
+      pattern: '^[a-z0-9][a-z0-9-]{0,62}$',
+      description: 'Lowercase letters, digits and hyphens, e.g. `acme-ci`.',
+    },
+    description: { type: 'string', maxLength: 500 },
+    grants: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/ServiceAccountGrant' },
+      description: 'Written before the account is returned, so its first key works at once.',
+    },
   },
 };
 
@@ -1175,19 +1348,138 @@ export const UnregisterReviewerResultSchema: JsonSchema = {
   },
 };
 
-export const ExportAuditBundleBodySchema: JsonSchema = {
+// ---------------- signed exports: one envelope ----------------
+
+const SIGNING_KEY_ID_PROPERTY: JsonSchema = {
+  type: 'string',
+  minLength: 1,
   description:
-    "Body for `POST /v1/approvals/{approvalId}/audit-bundle`. `signingKeyId` selects the Ed25519 key from the deployment's `signingKey` binding. `includeMessages` optionally hydrates conversation messages tied to the approval's run.",
+    "Optional: sign with this key, one of `GET /v1/export-signing-keys`. Leave it out to sign with the deployment's active key. A key the deployment doesn't sign with is `404 signing-key-not-found`.",
+};
+
+/**
+ * The envelope every signed export answers (an audit bundle, a run's
+ * provenance, compliance evidence): the same fields, so one verifier
+ * reads all three. Only the subject field differs.
+ */
+function signedExportEnvelope(input: {
+  readonly description: string;
+  readonly kind: 'audit-bundle' | 'provenance' | 'compliance';
+  readonly subject: readonly [string, JsonSchema];
+  readonly versionDescription: string;
+}): JsonSchema {
+  const [subjectKey, subjectSchema] = input.subject;
+  return {
+    description: input.description,
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      subjectKey,
+      'bundle',
+      'bundleSchemaVersion',
+      'algorithm',
+      'signingKeyId',
+      'signature',
+      'publicKey',
+      'canonicalization',
+      'exportedAt',
+    ],
+    properties: {
+      [subjectKey]: subjectSchema,
+      kind: {
+        type: 'string',
+        const: input.kind,
+        description:
+          'Which export this is: `audit-bundle`, `provenance` or `compliance`. Absent from older servers.',
+      },
+      bundle: {
+        type: 'string',
+        description:
+          'Base64 of the exact bytes that were signed: the body, as sorted-key JSON with no whitespace. Verify these bytes; nothing needs re-serializing.',
+      },
+      bundleSchemaVersion: { type: 'string', description: input.versionDescription },
+      algorithm: {
+        type: 'string',
+        enum: ['ed25519', 'ecdsa-p256-sha256'],
+        description:
+          "The signing key's algorithm. `ecdsa-p256-sha256` signatures are IEEE P1363 `r‖s`. A verifier refuses an algorithm it doesn't know.",
+      },
+      signingKeyId: {
+        type: 'string',
+        description: 'The key that signed it: one of `GET /v1/export-signing-keys`.',
+      },
+      signature: {
+        type: 'string',
+        description:
+          "Base64 of the 64-byte signature over the `bundle` bytes: Ed25519's, or ECDSA P-256's as IEEE P1363 `r‖s`.",
+      },
+      publicKey: {
+        type: 'string',
+        description:
+          "The signing key's public half, PEM SPKI. On its own it only proves the bytes weren't changed; check it against `GET /v1/export-signing-keys` (or a key you pinned) to know who signed them.",
+      },
+      canonicalization: {
+        type: 'string',
+        const: 'sorted-key-json',
+        description: 'Sorted-key JSON, no whitespace (`canonicalize` in `@kindgi/schema`).',
+      },
+      exportedAt: {
+        type: 'string',
+        format: 'date-time',
+        description: "When it was signed: the same instant as the signed body's `exportedAt`.",
+      },
+    },
+  };
+}
+
+export const ExportSigningKeySchema: JsonSchema = {
+  description: 'A public key this deployment signs exports with.',
   type: 'object',
   additionalProperties: false,
-  required: ['signingKeyId'],
+  required: ['keyId', 'algorithm', 'publicKeyPem', 'fingerprint', 'active'],
   properties: {
-    signingKeyId: {
+    keyId: {
       type: 'string',
-      minLength: 1,
       description:
-        'The `SigningKeyId` the deployment plugs into its `signingKey` binding. Server looks up the private key via `signingKey.getPrivateKey(signingKeyId)` — 404 if unknown.',
+        'Derived from the public key (`ex_` and 16 base64url characters), so the same key keeps its id.',
     },
+    algorithm: {
+      type: 'string',
+      enum: ['ed25519', 'ecdsa-p256-sha256'],
+      description:
+        'An Ed25519 key signs `ed25519`; an EC P-256 key (a KMS without Ed25519) signs `ecdsa-p256-sha256`.',
+    },
+    publicKeyPem: { type: 'string', description: 'PEM SPKI.' },
+    fingerprint: {
+      type: 'string',
+      pattern: '^sha256:[0-9a-f]{64}$',
+      description:
+        '`sha256:` and the hex SHA-256 of the raw public key: to pin it, or compare by eye.',
+    },
+    active: { type: 'boolean', description: 'Whether new exports are signed with it.' },
+  },
+};
+
+export const ExportSigningKeyListSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: {
+    data: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/ExportSigningKey' },
+      description: "Active first. Empty when the deployment doesn't sign exports.",
+    },
+  },
+};
+
+export const ExportAuditBundleBodySchema: JsonSchema = {
+  description:
+    "Body for `POST /v1/approvals/{approvalId}/audit-bundle`, optional: no body signs with the active key. `includeMessages` adds the conversation messages of the approval's run.",
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    signingKeyId: SIGNING_KEY_ID_PROPERTY,
     includeMessages: {
       type: 'boolean',
       description:
@@ -1197,52 +1489,14 @@ export const ExportAuditBundleBodySchema: JsonSchema = {
   },
 };
 
-export const ExportAuditBundleResultSchema: JsonSchema = {
+export const ExportAuditBundleResultSchema: JsonSchema = signedExportEnvelope({
   description:
-    'Signed exportable audit bundle. Same envelope shape as `ExportProvenanceResult` — clients can reuse the same `verifyEd25519` wrapper for both. `bundle` is base64 of the exact bytes that were signed (sorted-key canonical JSON, no whitespace). Bundle body: `{ bundleVersion, approvalId, tenantId, subjectKind, subjectRef, requiredRole, status, decision, decidedAt?, evidence: { guardrailResults?, messages? }, createdAt, exportedAt }`.',
-  type: 'object',
-  additionalProperties: false,
-  required: [
-    'approvalId',
-    'bundle',
-    'bundleSchemaVersion',
-    'algorithm',
-    'signingKeyId',
-    'signature',
-    'publicKey',
-    'canonicalization',
-    'exportedAt',
-  ],
-  properties: {
-    approvalId: { type: 'string', format: 'uuid' },
-    bundle: {
-      type: 'string',
-      description: 'Base64-encoded canonical JSON of the bundle body.',
-    },
-    bundleSchemaVersion: {
-      type: 'integer',
-      description: 'Integer schema version for the bundle body shape. Currently `1`.',
-    },
-    algorithm: { type: 'string', const: 'ed25519' },
-    signingKeyId: { type: 'string' },
-    signature: {
-      type: 'string',
-      description: 'Base64-encoded Ed25519 signature over `bundle` (after base64-decode).',
-    },
-    publicKey: {
-      type: 'string',
-      description:
-        'PEM-encoded Ed25519 public key (DER SPKI envelope). Pass into `parsePublicKeyPem` for verification.',
-    },
-    canonicalization: {
-      type: 'string',
-      const: 'sorted-key-json',
-      description:
-        'Canonicalization algorithm — sorted-key JSON, no whitespace. Same algorithm as `canonicalize`.',
-    },
-    exportedAt: { type: 'string', format: 'date-time' },
-  },
-};
+    "A decided approval's signed audit bundle. Body: `{ bundleSchemaVersion, approvalId, tenantId, subjectKind, subjectRef, requiredRole, status, createdAt, decidedAt?, decision, evidence: { guardrailResults?, messages? }, exportedAt }`.",
+  kind: 'audit-bundle',
+  subject: ['approvalId', { type: 'string', format: 'uuid' }],
+  versionDescription:
+    "The body's version, semver. `2.0.0`: a string like the other exports' (it was the integer `1`), named `bundleSchemaVersion` in the body too, with `exportedAt` signed once.",
+});
 
 export const CompleteApprovalResultSchema: JsonSchema = {
   type: 'object',
@@ -3074,7 +3328,7 @@ export const FactScopeSchema: JsonSchema = {
   additionalProperties: true,
   required: ['tenantId'],
   description:
-    'Fact scope object. `tenantId` is required; every optional key narrows the fact (`userId`, `orgId`, `projectId`, `threadId`, `sessionId`). Additional keys accepted for forward compatibility.',
+    'Fact scope object. `tenantId` is required; every optional key narrows the fact (`userId`, `orgId`, `projectId`, `threadId`, `sessionId`, `participantId`). A fact is readable by whoever has every container it names. Additional keys accepted for forward compatibility.',
   properties: {
     tenantId: { type: 'string' },
     userId: { type: 'string' },
@@ -3082,6 +3336,47 @@ export const FactScopeSchema: JsonSchema = {
     projectId: { type: 'string' },
     threadId: { type: 'string' },
     sessionId: { type: 'string' },
+    participantId: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "An app's end user, by the app's own id: a fact private to that participant's runs. Needs `projectId`.",
+    },
+  },
+};
+
+export const FactSubjectSchema: JsonSchema = {
+  description: 'Whom a fact is about: what access and erasure requests by person find.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'id'],
+  properties: {
+    kind: { type: 'string', enum: ['participant', 'user', 'external'] },
+    id: { type: 'string', minLength: 1 },
+  },
+};
+
+export const FactAttributionSchema: JsonSchema = {
+  description: 'Who asserted a fact, set by the server from the writer.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'id'],
+  properties: {
+    kind: { type: 'string', enum: ['user', 'service', 'agent'] },
+    id: { type: 'string' },
+    agentVersion: { type: 'string' },
+  },
+};
+
+export const FactGeneratedBySchema: JsonSchema = {
+  description: 'The run step that wrote a fact, for one an agent wrote.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['runId'],
+  properties: {
+    runId: { type: 'string' },
+    stepId: { type: 'string' },
+    toolCallId: { type: 'string' },
   },
 };
 
@@ -3137,7 +3432,15 @@ export const FactSchema: JsonSchema = {
   additionalProperties: false,
   required: ['id', 'type', 'scope', 'version', 'createdAt'],
   properties: {
-    id: { type: 'string', description: 'FactId.' },
+    id: {
+      type: 'string',
+      description:
+        'The fact id, kept across revisions (for a fact never superseded, also its one revision id).',
+    },
+    revisionId: {
+      type: 'string',
+      description: "This revision's own id; absent where it equals `id`.",
+    },
     type: {
       type: 'string',
       description: 'Fact type identifier (pack-defined; a few are framework-standard).',
@@ -3146,7 +3449,7 @@ export const FactSchema: JsonSchema = {
     version: {
       type: 'integer',
       minimum: 1,
-      description: 'Monotonic version within (scope, id). Supersession increments.',
+      description: 'The revision number within the fact: 1, then one more per supersede or verify.',
     },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
@@ -3163,7 +3466,57 @@ export const FactSchema: JsonSchema = {
     causedByLogId: { type: 'array', items: { type: 'string' } },
     supersedes: {
       type: 'string',
-      description: 'FactId of the predecessor when this row supersedes another.',
+      description: 'The revision this one replaced.',
+    },
+    trust: {
+      type: 'string',
+      enum: ['verified', 'asserted', 'unverified'],
+      description:
+        '`verified`: a person with the right checked it. `asserted`: an app or a person wrote it. `unverified`: an agent remembered it during a conversation. Absent on facts from before trust was recorded: `asserted`.',
+    },
+    verifiedBy: { type: 'string' },
+    verifiedAt: { type: 'string', format: 'date-time' },
+    attributedTo: { $ref: '#/components/schemas/FactAttribution' },
+    generatedBy: { $ref: '#/components/schemas/FactGeneratedBy' },
+    subjects: { type: 'array', items: { $ref: '#/components/schemas/FactSubject' } },
+    validFrom: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When the fact starts being true in the world; absent: always.',
+    },
+    validUntil: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When the fact stops being true in the world; absent: still true.',
+    },
+    observedAt: { type: 'string', format: 'date-time', description: 'When it was said or seen.' },
+    invalidatedAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When this revision stopped being current; absent: it is current.',
+    },
+    invalidatedBy: { type: 'string', description: '`user:<id>` or `service:<id>`.' },
+    invalidationReason: {
+      type: 'string',
+      enum: ['superseded', 'deleted', 'erased', 'expired'],
+    },
+    review: {
+      type: 'string',
+      enum: ['pending'],
+      description: '`pending` while a person must approve it: a pending fact is never retrieved.',
+    },
+  },
+};
+
+export const FactRevisionListSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: {
+    data: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/Fact' },
+      description: 'Every revision, newest first.',
     },
   },
 };
@@ -3184,7 +3537,7 @@ export const FactCollectionPageSchema: JsonSchema = {
 
 export const WriteFactBodySchema: JsonSchema = {
   description:
-    "Write a fact. `type` selects the retrieval-policy (which indexes populate); `scope.tenantId` MUST match the caller's tenant. Optional `retention` overrides tenant defaults; optional `contentHash` is a caller-supplied idempotence hint (runtime computes its own hash regardless).",
+    "Write a fact. `type` selects the retrieval-policy (which indexes populate); `scope.tenantId` MUST match the caller's tenant. Optional `retention` overrides tenant defaults; optional `contentHash` is a caller-supplied idempotence hint (runtime computes its own hash regardless). `subjects` names whom it is about; `validFrom`/`validUntil` when it is true in the world; `observedAt` when it was said or seen.",
   type: 'object',
   additionalProperties: false,
   required: ['type', 'scope', 'content'],
@@ -3194,16 +3547,43 @@ export const WriteFactBodySchema: JsonSchema = {
     content: { description: 'Free-form structured payload.' },
     retention: { $ref: '#/components/schemas/Retention' },
     contentHash: { type: 'string' },
+    subjects: {
+      type: 'array',
+      maxItems: 20,
+      items: { $ref: '#/components/schemas/FactSubject' },
+    },
+    validFrom: { type: 'string', format: 'date-time' },
+    validUntil: { type: 'string', format: 'date-time' },
+    observedAt: { type: 'string', format: 'date-time' },
   },
 };
 
-export const SupersedeFactResultSchema: JsonSchema = {
+export const SupersedeFactBodySchema: JsonSchema = {
+  description:
+    "The fact's next revision: new `content`, and optionally new `retention`, `subjects` and times (absent ones keep their current values). Its scope and type stay. `expectVersion`: only if the current revision is still this one.",
   type: 'object',
   additionalProperties: false,
-  required: ['factId', 'superseded'],
+  required: ['content'],
   properties: {
-    factId: { type: 'string' },
-    superseded: { type: 'boolean', const: true },
+    content: { description: 'Free-form structured payload.' },
+    expectVersion: { type: 'integer', minimum: 1 },
+    retention: { $ref: '#/components/schemas/Retention' },
+    subjects: {
+      type: 'array',
+      maxItems: 20,
+      items: { $ref: '#/components/schemas/FactSubject' },
+    },
+    validFrom: { type: 'string', format: 'date-time' },
+    validUntil: { type: 'string', format: 'date-time' },
+    observedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const VerifyFactBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    expectVersion: { type: 'integer', minimum: 1 },
   },
 };
 
@@ -3783,16 +4163,11 @@ export const ProvenanceCollectionPageSchema: JsonSchema = {
 };
 
 export const ExportProvenanceBodySchema: JsonSchema = {
+  description: 'Optional: no body signs with the active key.',
   type: 'object',
   additionalProperties: false,
-  required: ['signingKeyId'],
   properties: {
-    signingKeyId: {
-      type: 'string',
-      minLength: 1,
-      description:
-        'The `SigningKeyId` the deployment plugs into its `signingKey` binding. Server looks up the private key via `signingKey.getPrivateKey(signingKeyId)` — 404 if unknown.',
-    },
+    signingKeyId: SIGNING_KEY_ID_PROPERTY,
     includeMessages: {
       type: 'boolean',
       description:
@@ -3802,53 +4177,14 @@ export const ExportProvenanceBodySchema: JsonSchema = {
   },
 };
 
-export const ExportProvenanceResultSchema: JsonSchema = {
+export const ExportProvenanceResultSchema: JsonSchema = signedExportEnvelope({
   description:
-    'Signed exportable bundle. `bundle` is base64 of the exact bytes that were signed (sorted-key canonical JSON, no whitespace); verifiers can pass those bytes directly to `verifyEd25519`. The bundle body itself includes `bundleSchemaVersion`, `runId`, `tenantId`, `dag: { nodes, edges }`, `messages?` (if requested), `callUsage?` (the usage of the model calls, from the cost ledger), etc. See `canonicalization` for the deterministic serialization algorithm.',
-  type: 'object',
-  additionalProperties: false,
-  required: [
-    'runId',
-    'bundle',
-    'bundleSchemaVersion',
-    'algorithm',
-    'signingKeyId',
-    'signature',
-    'publicKey',
-    'canonicalization',
-    'exportedAt',
-  ],
-  properties: {
-    runId: { type: 'string', format: 'uuid' },
-    bundle: {
-      type: 'string',
-      description: 'Base64-encoded canonical JSON of the bundle body.',
-    },
-    bundleSchemaVersion: {
-      type: 'string',
-      description:
-        "Semver for the shape of the bundle body. Currently `1.1.0`, which adds `callUsage`: each model call's usage from the cost ledger, by call id, as it stood when signed.",
-    },
-    algorithm: { type: 'string', const: 'ed25519' },
-    signingKeyId: { type: 'string' },
-    signature: {
-      type: 'string',
-      description: 'Base64-encoded Ed25519 signature bytes over `bundle` (after base64-decode).',
-    },
-    publicKey: {
-      type: 'string',
-      description:
-        'PEM-encoded Ed25519 public key (DER SPKI envelope). Callers can pass this straight into `parsePublicKeyPem` for verification.',
-    },
-    canonicalization: {
-      type: 'string',
-      const: 'sorted-key-json',
-      description:
-        'Canonicalization algorithm — sorted-key JSON, no whitespace. Same algorithm as `canonicalize`.',
-    },
-    exportedAt: { type: 'string', format: 'date-time' },
-  },
-};
+    "A run's signed provenance. Body: `{ bundleSchemaVersion, provenanceId, runId, tenantId, version, createdAt, flowRef?, dag: { nodes, edges }, messages?, callUsage?, exportedAt }`; `callUsage` is each model call's usage from the cost ledger, as it stood when signed.",
+  kind: 'provenance',
+  subject: ['runId', { type: 'string', format: 'uuid' }],
+  versionDescription:
+    "The body's version, semver. `1.2.0` adds `exportedAt` to the signed body; `1.1.0` added `callUsage`.",
+});
 
 // ---------------- registry (exported to the generator) ----------------
 
@@ -3888,6 +4224,15 @@ export const BlobMetaSchema: JsonSchema = {
       format: 'uuid',
       description: 'Optional back-ref to the RunId that produced this blob.',
     },
+    projectId: {
+      type: 'string',
+      description:
+        "The project the artifact belongs to: its owner run's, else the upload's `projectId`, else the tenant's default project. Reading it needs `read` there; deleting it, `write`. Absent on blobs stored before projects were recorded.",
+    },
+    createdBy: {
+      type: 'string',
+      description: 'Who uploaded it: `user:<id>` or `service_account:<id>`.',
+    },
     createdAt: { type: 'string', format: 'date-time' },
   },
 };
@@ -3917,6 +4262,11 @@ export const UploadArtifactBodySchema: JsonSchema = {
       description: 'JSON-encoded `Record<string, string>` — parsed server-side.',
     },
     ownerRunId: { type: 'string', format: 'uuid' },
+    projectId: {
+      type: 'string',
+      description:
+        "The project it belongs to, when there's no `ownerRunId` (with one, the run's project, and this must agree). Default: the tenant's default project.",
+    },
     expectedHash: {
       type: 'string',
       pattern: '^[0-9a-f]{64}$',
@@ -3999,6 +4349,23 @@ export const CapabilityDescriptorSchema: JsonSchema = {
       description:
         'Optional JSON Schema fragment describing the parameters an agent may attach to `{ feature, params }` in a `Requirement`.',
     },
+    providers: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/CapabilityProvider' },
+      description:
+        "The tenant's registered providers with a model that has the feature, and those models. Absent from servers that don't read the provider registry; `[]` when no provider of the tenant has one.",
+    },
+  },
+};
+
+export const CapabilityProviderSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['providerId', 'models'],
+  description: 'A provider of the tenant with a model that has the feature.',
+  properties: {
+    providerId: { type: 'string' },
+    models: { type: 'array', items: { type: 'string' }, description: 'Its models that have it.' },
   },
 };
 
@@ -4013,6 +4380,28 @@ export const CapabilityCollectionPageSchema: JsonSchema = {
     },
     nextCursor: { type: 'string' },
     hasMore: { type: 'boolean' },
+  },
+};
+
+/** `ModelInfo.thinking`: how a model thinks, so a judge can ask for its least. */
+export const ModelThinkingSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['mode', 'lowest'],
+  description:
+    "How the model thinks before it answers, so a call that wants as little as it allows (a judge's) gets it. Absent: it doesn't think, or nothing is known.",
+  properties: {
+    mode: {
+      type: 'string',
+      enum: ['adaptive', 'always'],
+      description: '`adaptive`: on unless turned down. `always`: on, and it can only be lowered.',
+    },
+    lowest: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "The vendor's own setting for the least thinking: for Anthropic `disabled`, `between_tools` or an effort (`low`); for Gemini a thinking level (`low`, `minimal`); for OpenAI a reasoning effort (`low`, `none`).",
+    },
   },
 };
 
@@ -4067,6 +4456,12 @@ export const ModelInfoSchema: JsonSchema = {
       description:
         'Fallback cap on output tokens. Adapters that require `max_tokens` on every request (e.g. Anthropic) use this when `ModelCallInput.maxOutputTokens` is unset.',
     },
+    sampling: {
+      type: 'boolean',
+      description:
+        "Whether the model takes sampling settings (`temperature`). `false`: its API rejects a non-default value, so the call goes without one and the answer's `warnings` say so (`sampling-unsupported`). Absent: it takes them.",
+    },
+    thinking: { $ref: '#/components/schemas/ModelThinking' },
     description: {
       type: 'string',
       description: 'Short per-model description surfaced in logs.',
@@ -4103,6 +4498,12 @@ export const ProviderMetadataSchema: JsonSchema = {
       items: { $ref: '#/components/schemas/ModelInfo' },
       description:
         'Models this connection exposes. Non-empty. `models[i].name` must be unique within the list.',
+    },
+    defaultModel: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "The model to use when an agent doesn't choose: one of `models[].name`. When candidates rank equally, it comes before the provider's other models; without it, ties break by model name. A preset sets it. A runtime before 0.1.4 ignores it.",
     },
     attributes: {
       type: 'array',
@@ -4205,6 +4606,47 @@ export const UnregisterProviderResultSchema: JsonSchema = {
   properties: {
     providerId: { type: 'string' },
     unregistered: { type: 'boolean', const: true },
+  },
+};
+
+/**
+ * One thing an adapter's check finds wrong with a provider registration,
+ * in the shape of the API's validation issues.
+ */
+export const AdapterConfigProblemSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['path', 'message'],
+  properties: {
+    path: {
+      type: 'string',
+      description:
+        'The setting at fault, as a JSON pointer into the registration: `/adapter_config/<key>`, `/secret_ref`, `/metadata/region`, `/metadata/models/<i>/name`, or `/adapter_id` (an adapter this runtime does not have).',
+    },
+    message: {
+      type: 'string',
+      description:
+        "What's wrong with that setting and what it takes (e.g. `adapter_config.api must be one of responses, chat-completions.`). The error's `message` names the provider and its adapter.",
+    },
+  },
+};
+
+export const ProviderCheckResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['providerId', 'adapterId', 'checked', 'issues'],
+  properties: {
+    providerId: { type: 'string' },
+    adapterId: { type: 'string' },
+    checked: {
+      type: 'boolean',
+      description:
+        "False when this runtime has no check for the provider's adapter; `issues` is then empty.",
+    },
+    issues: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/AdapterConfigProblem' },
+    },
   },
 };
 
@@ -6407,7 +6849,7 @@ export const LogoutResultSchema: JsonSchema = {
 
 export const WhoamiResultSchema: JsonSchema = {
   description:
-    "Introspection of the caller's current authentication context. Always carries `tenantId` and `scopes` (empty for static bearer tokens), plus `userId` when the token carries one; session-token callers additionally see `sessionId`, `providerId`, and `expiresAt`. `user` is the caller's directory record, present when the deployment wires an identity directory and it knows the `userId`. `reviewerRole` is set when the caller is a reviewer — its token carries a reviewer role, or its user is a registered reviewer — so clients can gate reviewer-only UI (the approvals surface) without a second round trip.",
+    "Introspection of the caller's current authentication context. Always carries `tenantId` and `scopes` (empty for static bearer tokens), plus `userId` when the token carries one; `principal` says whom the caller acts as, and an API key adds `tokenId`, its `role` and the `projectId` it is limited to; session-token callers additionally see `sessionId`, `providerId`, and `expiresAt`. `user` is the caller's directory record, present when the deployment wires an identity directory and it knows the `userId`. `reviewerRole` is set when the caller is a reviewer — its token carries a reviewer role, or its user is a registered reviewer — so clients can gate reviewer-only UI (the approvals surface) without a second round trip.",
   type: 'object',
   additionalProperties: false,
   required: ['tenantId', 'scopes'],
@@ -6420,6 +6862,16 @@ export const WhoamiResultSchema: JsonSchema = {
     expiresAt: { type: 'string', format: 'date-time' },
     reviewerRole: ReviewerRoleSchema,
     user: { $ref: '#/components/schemas/UserRecord' },
+    principal: { $ref: '#/components/schemas/ApiKeyPrincipal' },
+    tokenId: { type: 'string', description: "The caller's API key, when it is one." },
+    role: {
+      ...ApiTokenRoleSchema,
+      description: "The caller's API key role, when the key has one.",
+    },
+    projectId: {
+      type: 'string',
+      description: "The project the caller's API key is limited to, when it is.",
+    },
   },
 };
 
@@ -6437,6 +6889,16 @@ export const UserRecordSchema: JsonSchema = {
     createdAt: { type: 'string', format: 'date-time' },
     lastActiveAt: { type: 'string', format: 'date-time' },
     metadata: { type: 'object', additionalProperties: true },
+  },
+};
+
+export const CreateUserBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['displayName'],
+  properties: {
+    displayName: { type: 'string', minLength: 1, maxLength: 200 },
+    primaryEmail: { type: 'string', description: "Unique among the tenant's people." },
   },
 };
 
@@ -6944,63 +7406,22 @@ export const ExportComplianceEvidenceFilterSchema: JsonSchema = {
 };
 
 export const ExportComplianceEvidenceBodySchema: JsonSchema = {
+  description: 'Optional: no body exports every exportable kind, signed with the active key.',
   type: 'object',
   additionalProperties: false,
-  required: ['signingKeyId'],
   properties: {
-    signingKeyId: {
-      type: 'string',
-      minLength: 1,
-      description:
-        'The `SigningKeyId` the deployment plugs into its `signingKey` binding. Server looks up the private key via `signingKey.getPrivateKey(signingKeyId)` — 404 `signing-key-not-found` if unknown.',
-    },
+    signingKeyId: SIGNING_KEY_ID_PROPERTY,
     filter: ExportComplianceEvidenceFilterSchema,
   },
 };
 
-export const SignedComplianceEvidenceBundleSchema: JsonSchema = {
+export const SignedComplianceEvidenceBundleSchema: JsonSchema = signedExportEnvelope({
   description:
-    'Signed exportable bundle. `bundle` is base64 of the exact bytes that were signed (sorted-key canonical JSON, no whitespace); verifiers can pass those bytes directly to `verifyEd25519`. Bundle body: `{ bundleSchemaVersion, tenantId, filter, records, recordCount, exportedAt }`. Envelope shape identical to `ExportProvenanceResult` + audit-bundle — verifiers reuse one `verifyEd25519` wrapper across all three surfaces.',
-  type: 'object',
-  additionalProperties: false,
-  required: [
-    'bundleSchemaVersion',
-    'tenantId',
-    'bundle',
-    'algorithm',
-    'signingKeyId',
-    'signature',
-    'publicKey',
-    'canonicalization',
-    'exportedAt',
-  ],
-  properties: {
-    bundleSchemaVersion: { type: 'string', const: '1.0.0' },
-    tenantId: { type: 'string', format: 'uuid' },
-    bundle: {
-      type: 'string',
-      description: 'Base64-encoded canonical JSON of the bundle body.',
-    },
-    algorithm: { type: 'string', const: 'ed25519' },
-    signingKeyId: { type: 'string' },
-    signature: {
-      type: 'string',
-      description: 'Base64-encoded Ed25519 signature bytes over `bundle` (after base64-decode).',
-    },
-    publicKey: {
-      type: 'string',
-      description:
-        'PEM-encoded Ed25519 public key (DER SPKI envelope). Callers can pass this straight into `parsePublicKeyPem` for verification.',
-    },
-    canonicalization: {
-      type: 'string',
-      const: 'sorted-key-json',
-      description:
-        'Canonicalization algorithm — sorted-key JSON, no whitespace. Same algorithm as `canonicalize`.',
-    },
-    exportedAt: { type: 'string', format: 'date-time' },
-  },
-};
+    'Signed compliance evidence. Body: `{ bundleSchemaVersion, tenantId, filter, records, recordCount, exportedAt }`.',
+  kind: 'compliance',
+  subject: ['tenantId', { type: 'string', format: 'uuid' }],
+  versionDescription: "The body's version, semver: `1.0.0`.",
+});
 
 // ---------------- platform hierarchy ----------------
 
@@ -8545,6 +8966,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RollbackBody', RollbackBodySchema],
   ['UnpinBody', UnpinBodySchema],
   ['Run', RunSchema],
+  ['RunFailure', RunFailureSchema],
   ['StartRunOptions', StartRunOptionsSchema],
   ['StartRunBody', StartRunBodySchema],
   ['ResumeRunBody', ResumeRunBodySchema],
@@ -8559,6 +8981,17 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['MintTokenResult', MintTokenResultSchema],
   ['ApiToken', ApiTokenSchema],
   ['ApiTokenPage', ApiTokenPageSchema],
+  ['ApiKeyPrincipal', ApiKeyPrincipalSchema],
+  ['ServiceAccountGrantTenantAdmin', ServiceAccountGrantTenantAdminSchema],
+  ['ServiceAccountGrantTenantMember', ServiceAccountGrantTenantMemberSchema],
+  ['ServiceAccountGrantProject', ServiceAccountGrantProjectSchema],
+  ['ServiceAccountGrant', ServiceAccountGrantSchema],
+  ['ServiceAccountGrantBody', ServiceAccountGrantBodySchema],
+  ['ServiceAccountUngrantProject', ServiceAccountUngrantProjectSchema],
+  ['ServiceAccountUngrantBody', ServiceAccountUngrantBodySchema],
+  ['ServiceAccount', ServiceAccountSchema],
+  ['ServiceAccountPage', ServiceAccountPageSchema],
+  ['CreateServiceAccountBody', CreateServiceAccountBodySchema],
   ['RevokeTokenResult', RevokeTokenResultSchema],
   ['TrustedSigningKey', TrustedSigningKeySchema],
   ['TrustSigningKeyBody', TrustSigningKeyBodySchema],
@@ -8580,6 +9013,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ReviewerCollectionPage', ReviewerCollectionPageSchema],
   ['RegisterReviewerBody', RegisterReviewerBodySchema],
   ['UnregisterReviewerResult', UnregisterReviewerResultSchema],
+  ['ExportSigningKey', ExportSigningKeySchema],
+  ['ExportSigningKeyList', ExportSigningKeyListSchema],
   ['ExportAuditBundleBody', ExportAuditBundleBodySchema],
   ['ExportAuditBundleResult', ExportAuditBundleResultSchema],
   ['ObservationStatus', ObservationStatusSchema],
@@ -8677,10 +9112,15 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['SourceFreshness', SourceFreshnessSchema],
   ['SourceRefresh', SourceRefreshSchema],
   ['FactSource', FactSourceSchema],
+  ['FactSubject', FactSubjectSchema],
+  ['FactAttribution', FactAttributionSchema],
+  ['FactGeneratedBy', FactGeneratedBySchema],
   ['Fact', FactSchema],
   ['FactCollectionPage', FactCollectionPageSchema],
   ['WriteFactBody', WriteFactBodySchema],
-  ['SupersedeFactResult', SupersedeFactResultSchema],
+  ['SupersedeFactBody', SupersedeFactBodySchema],
+  ['VerifyFactBody', VerifyFactBodySchema],
+  ['FactRevisionList', FactRevisionListSchema],
   ['RetrieveIntent', RetrieveIntentSchema],
   ['RetrieveMemoryBody', RetrieveMemoryBodySchema],
   ['RetrievalHit', RetrievalHitSchema],
@@ -8719,7 +9159,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['DeleteArtifactResult', DeleteArtifactResultSchema],
   ['Feature', FeatureSchema],
   ['CapabilityDescriptor', CapabilityDescriptorSchema],
+  ['CapabilityProvider', CapabilityProviderSchema],
   ['CapabilityCollectionPage', CapabilityCollectionPageSchema],
+  ['ModelThinking', ModelThinkingSchema],
   ['ProviderCost', ProviderCostSchema],
   ['ModelInfo', ModelInfoSchema],
   ['ProviderMetadata', ProviderMetadataSchema],
@@ -8728,6 +9170,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RegisterProviderResult', RegisterProviderResultSchema],
   ['UnregisterProviderResult', UnregisterProviderResultSchema],
   ['ProviderCapabilitiesResult', ProviderCapabilitiesResultSchema],
+  ['AdapterConfigProblem', AdapterConfigProblemSchema],
+  ['ProviderCheckResult', ProviderCheckResultSchema],
   ['MCPTransport', MCPTransportSchema],
   ['MCPEndpoint', MCPEndpointSchema],
   ['MCPEndpointSecretRef', MCPEndpointSecretRefSchema],
@@ -8830,6 +9274,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['LogoutResult', LogoutResultSchema],
   ['WhoamiResult', WhoamiResultSchema],
   ['UserRecord', UserRecordSchema],
+  ['CreateUserBody', CreateUserBodySchema],
   ['UserCollectionPage', UserCollectionPageSchema],
   ['IdentitySessionSummary', IdentitySessionSummarySchema],
   ['IdentitySessionCollectionPage', IdentitySessionCollectionPageSchema],
