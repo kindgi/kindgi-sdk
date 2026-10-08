@@ -26,11 +26,7 @@ import type { CommandResult } from '../commands/types.js';
 import { renderJson } from '../output.js';
 import { binDisplay } from '../package-manager.js';
 import { CLI_VERSION } from '../version-info.js';
-import {
-  KINDGI_PACK_ON_MAVEN_CENTRAL,
-  type KindgiJavaSource,
-  resolveKindgiJavaSource,
-} from './dependency-specs.js';
+import { JVM_PREVIEW, type KindgiJavaSource, resolveKindgiJavaSource } from './dependency-specs.js';
 import { patchGitignore } from './gitignore-patcher.js';
 
 const DEFAULT_VERSION = '0.1.0';
@@ -177,11 +173,7 @@ export async function runInitJavaAugment(inputs: RunInitJavaAugmentInputs): Prom
       ? [
           `(cd ${source.path} && ./mvnw -q install -DskipTests)  # kindgi-pack ${source.version} into your local Maven repository`,
         ]
-      : KINDGI_PACK_ON_MAVEN_CENTRAL
-        ? []
-        : [
-            `# kindgi-pack ${source.version} isn't on Maven Central yet: build it from the Kindgi SDK repository (sdks/java: ./mvnw install)`,
-          ]),
+      : []),
     ...(hasDependency
       ? []
       : [
@@ -200,6 +192,7 @@ export async function runInitJavaAugment(inputs: RunInitJavaAugmentInputs): Prom
     packId,
     packVersion: version,
     kindgiPack: source,
+    preview: true,
     dependencyInPom: hasDependency,
     created,
     skipped,
@@ -211,7 +204,8 @@ export async function runInitJavaAugment(inputs: RunInitJavaAugmentInputs): Prom
       stdout: renderJson(summary, 'json').stdout,
       stderr: [
         '',
-        `  Kindgi added to ${inputs.targetDir} (a Java pack in the app).`,
+        `  Kindgi added to ${inputs.targetDir} (a Java pack in the app; preview).`,
+        `  ${JVM_PREVIEW}`,
         `  Pack id: ${packId}    Version: ${version}`,
         `  Wrote ${created.length} file${created.length === 1 ? '' : 's'}; skipped ${skipped.length}.`,
         '',

@@ -7,6 +7,10 @@ heading into its version.
 
 ## Unreleased
 
+- The CLI: `kindgi init` says a Java or Scala pack is a preview, and its
+  kindgi-pack and kindgi-pack-scala come from Maven Central at the CLI's
+  version (no more building them from this repository). The READMEs and the
+  docs' Java and Scala pages say what preview means.
 - All artifacts: **on Maven Central** (`com.kindgi`), each jar with its sources
   and javadoc jars and every file signed. A version's Java and Scala artifacts
   are published together, release candidates too. They're in preview: tested

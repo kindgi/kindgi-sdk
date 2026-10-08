@@ -4,18 +4,16 @@ description: Create a Scala pack with tools, an agent, a guardrail and a flow, r
 sidebar:
   order: 4.6
   label: "Quickstart: Scala"
+  badge: { text: 'Preview', variant: 'caution' }
 ---
 
 The same pack as the [TypeScript quickstart](../quickstart-typescript/), in
 Scala: two tools, an agent that calls them, a guardrail and a flow. Its tools
 are case classes and functions, built with sbt, on Scala 3 (2.13 works too).
 
-:::caution[Preview: built from source]
-The Scala SDK for packs, `com.kindgi %% kindgi-pack-scala`, and the Java one
-it builds on, `com.kindgi:kindgi-pack`, aren't on Maven Central yet. Until
-they are, you build them from the Kindgi SDK repository (step 1), and
-`kindgi build` can't make a Scala pack's image (its sbt fetches them from
-Maven Central).
+:::caution[Preview]
+**Preview.** Java and Scala support is tested and supported, but its API may
+still change in 0.1.6 without the usual deprecation period.
 :::
 
 **Before you start**, set up what the [Install page](../install/) describes:
@@ -25,21 +23,7 @@ with `kindgi auth registry`. You also need a JDK 17 or later, with
 `JAVA_HOME` set to it, and [sbt](https://www.scala-sbt.org/download) 1.10 or
 later.
 
-## 1. Get kindgi-pack-scala
-
-Build kindgi-pack into your local Maven repository, then the Scala layer into
-your local Ivy repository:
-
-```sh
-git clone https://github.com/kindgi/kindgi-sdk.git
-cd kindgi-sdk/sdks/java
-./mvnw -q -pl kindgi-pack -am install -DskipTests
-cd ../scala
-sbt +publishLocal
-cd ../../..
-```
-
-## 2. Create the pack
+## 1. Create the pack
 
 ```sh tutorial=run
 npx --yes @kindgi/cli@0.1 init my-pack --template=scala
@@ -82,7 +66,7 @@ yet: point your agent at the pack's `README.md` and `AGENTS.md` and at
 [kindgi-pack-scala's README](https://github.com/kindgi/kindgi-sdk/tree/main/sdks/scala).
 :::
 
-## 3. Run it
+## 2. Run it
 
 ```sh tutorial=background ready="Kindgi is up"
 ./kindgiw dev
@@ -98,7 +82,7 @@ already run (your IDE's) is used and left running. It writes the API's URL
 and a token to `.kindgirc.json`, so the commands below find the runtime by
 themselves. Leave it running.
 
-## 4. Run the agent and the flow
+## 3. Run the agent and the flow
 
 In a second terminal, in `my-pack`:
 
@@ -125,11 +109,11 @@ the pack service.
 :::caution[dev-echo checks the wiring, nothing more]
 It can't fill in any other tool input, and it can't produce a typed answer
 (an agent with an `output` fails with `output-schema-violation`).
-Connect a model ([step 6](#6-connect-a-real-model)) before you write an agent
+Connect a model ([step 5](#5-connect-a-real-model)) before you write an agent
 of your own.
 :::
 
-## 5. Look at the code
+## 4. Look at the code
 
 A tool is a `val`: its input and output are case classes, and their schemas
 come from them. `Option` is optional, a parameter's default is the schema's
@@ -207,7 +191,7 @@ Fix it, and the pack reloads:
 - **A tool defined as a `def` or a `lazy val`** isn't read without running
   it: the indexer says so, and asks for a `val`.
 
-## 6. Connect a real model
+## 5. Connect a real model
 
 Store an Anthropic key as a secret (you're prompted for it; it isn't
 echoed), then register the provider:

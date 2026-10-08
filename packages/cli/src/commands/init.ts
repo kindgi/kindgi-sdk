@@ -12,13 +12,15 @@ import { PACK_UV_REQUIRED_VERSION } from '../build/python-image.js';
 import type { CommandContext } from '../context.js';
 import { runInitAugment } from '../init/augment-scaffolder.js';
 import {
-  KINDGI_PACK_ON_MAVEN_CENTRAL,
+  JVM_PREVIEW,
   type KindgiDependencySpecs,
+  type KindgiJavaSource,
   kindgiCliRequirement,
   kindgiRequirementFor,
   resolveKindgiDependencySpecs,
   resolveKindgiJavaSource,
   resolveKindgiPythonSource,
+  sbtLocalResolver,
 } from '../init/dependency-specs.js';
 import { runInitJavaAugment } from '../init/java-augment.js';
 import { detectInitMode } from '../init/mode-detect.js';
@@ -67,14 +69,14 @@ export const initCommand: LeafCommand = {
   kind: 'leaf',
   name: 'init',
   description:
-    'Scaffold a new Kindgi pack repo, or add Kindgi to an existing app: a Node.js, Python or Maven project, auto-detected from its `package.json`, `pyproject.toml` or `pom.xml` when no pack-name is given.',
+    'Scaffold a new Kindgi pack repo, or add Kindgi to an existing app: a Node.js, Python, Maven or sbt project, auto-detected from its `package.json`, `pyproject.toml`, `pom.xml` or `build.sbt` when no pack-name is given.',
   usage:
-    'kindgi init [<pack-name>] [--template=minimal|sample|python|java] [--path=<dir>] [--force] [--link-local] [--new-repo]',
+    'kindgi init [<pack-name>] [--template=minimal|sample|python|java|scala] [--path=<dir>] [--force] [--link-local] [--new-repo]',
   optionSpec: {
     template: {
       type: 'string',
       description:
-        'The starter: `minimal` (default; empty primitive folders), `sample` (tools, a guardrail, an agent and a flow), `python` (a Python pack) or `java` (a Java pack, built with Maven).',
+        'The starter: `minimal` (default; empty primitive folders), `sample` (tools, a guardrail, an agent and a flow), `python` (a Python pack), `java` (a Java pack, built with Maven; preview) or `scala` (a Scala pack, built with sbt; preview).',
     },
     path: {
       type: 'string',
@@ -526,9 +528,9 @@ async function runInitPython(
 /**
  * The java template: a Maven project (`pom.xml` with `com.kindgi:kindgi-pack`
  * at this CLI's version, the Maven wrapper) whose sources sit under a
- * package named from the pack id. Until kindgi-pack is on Maven Central,
- * the next steps install it from the Kindgi SDK into the local Maven
- * repository: from a checkout, that checkout's `sdks/java`.
+ * package named from the pack id. kindgi-pack comes from Maven Central; from a
+ * Kindgi checkout, the next steps install the checkout's `sdks/java` into the
+ * local Maven repository first.
  */
 async function runInitJava(
   ctx: CommandContext,
@@ -564,11 +566,7 @@ async function runInitJava(
       ? [
           `(cd ${source.path} && ./mvnw -q install -DskipTests)  # kindgi-pack ${source.version} into your local Maven repository`,
         ]
-      : KINDGI_PACK_ON_MAVEN_CENTRAL
-        ? []
-        : [
-            `# kindgi-pack ${source.version} isn't on Maven Central yet: build it from the Kindgi SDK repository (sdks/java: ./mvnw install)`,
-          ];
+      : [];
   const nextSteps = [
     ...install,
     `cd ${displayPath}`,
@@ -576,7 +574,8 @@ async function runInitJava(
     `${binDisplay('kindgiw', 'kindgi', ['dev'])}  # the CLI the pack pins (kindgi.config.json "cli"): boots Kindgi locally + compiles and runs this pack, recompiling on save`,
   ];
   const stderr = [
-    `✓ Java pack scaffolded at ${args.targetDir}/`,
+    `✓ Java pack scaffolded at ${args.targetDir}/ (preview)`,
+    `  ${JVM_PREVIEW}`,
     '',
     'Next steps (a JDK 17 or later, JAVA_HOME set):',
     ...nextSteps.map((s) => `  ${s}`),
@@ -591,6 +590,7 @@ async function runInitJava(
       packVersion: DEFAULT_PACK_VERSION,
       javaPackage,
       kindgiPack: source,
+      preview: true,
       path: args.targetDir,
       filesWritten: filesWritten.length,
       files: filesWritten.map((p) => relative(args.targetDir, p)),
@@ -621,11 +621,20 @@ function runInitLanguageTemplate(
   }
 }
 
+/** build.sbt's resolver line for kindgi-pack from a checkout (the local Maven repository); none from Maven Central. */
+function scalaTemplateResolver(source: KindgiJavaSource): string {
+  const resolver = sbtLocalResolver(source);
+  return resolver === undefined
+    ? ''
+    : `\n    // kindgi-pack from the Kindgi checkout this pack was made from (./mvnw install).\n    ${resolver},`;
+}
+
 /**
  * A Scala pack (`--template=scala`): sbt, kindgi-pack-scala, the `kindgiw`
- * wrappers (the java template's) that run the CLI the pack pins. Until
- * kindgi-pack-scala is on Maven Central, the next steps say how to build it
- * (and kindgi-pack, which it builds on) from the Kindgi SDK repository.
+ * wrappers (the java template's) that run the CLI the pack pins.
+ * kindgi-pack-scala comes from Maven Central; from a Kindgi checkout, the next
+ * steps publish the checkout's (and kindgi-pack, which it builds on) locally
+ * first, and the build reads the local Maven repository.
  */
 async function runInitScala(
   ctx: CommandContext,
@@ -646,6 +655,7 @@ async function runInitScala(
       SCALA_PACKAGE: scalaPackage,
       SCALA_PACKAGE_PATH: scalaPackage.split('.').join('/'),
       KINDGI_SCALA_VERSION: source.version,
+      SCALA_LOCAL_RESOLVER: scalaTemplateResolver(source),
       KINDGI_CLI_VERSION: CLI_VERSION,
     },
   });
@@ -663,11 +673,7 @@ async function runInitScala(
           `(cd ${source.path} && ./mvnw -q -pl kindgi-pack -am install -DskipTests)  # kindgi-pack ${source.version} into your local Maven repository`,
           `(cd ${join(source.path, '..', 'scala')} && sbt +publishLocal)  # kindgi-pack-scala ${source.version} into your local Ivy repository`,
         ]
-      : KINDGI_PACK_ON_MAVEN_CENTRAL
-        ? []
-        : [
-            `# kindgi-pack-scala ${source.version} isn't on Maven Central yet: build it from the Kindgi SDK repository (README.md, "Get kindgi-pack-scala")`,
-          ];
+      : [];
   const nextSteps = [
     ...install,
     `cd ${displayPath}`,
@@ -675,7 +681,8 @@ async function runInitScala(
     `${binDisplay('kindgiw', 'kindgi', ['dev'])}  # the CLI the pack pins (kindgi.config.json "cli"): boots Kindgi locally + compiles and runs this pack, recompiling on save`,
   ];
   const stderr = [
-    `✓ Scala pack scaffolded at ${args.targetDir}/`,
+    `✓ Scala pack scaffolded at ${args.targetDir}/ (preview)`,
+    `  ${JVM_PREVIEW}`,
     '',
     'Next steps (a JDK 17 or later, JAVA_HOME set, and sbt):',
     ...nextSteps.map((s) => `  ${s}`),
@@ -690,6 +697,7 @@ async function runInitScala(
       packVersion: DEFAULT_PACK_VERSION,
       scalaPackage,
       kindgiPack: source,
+      preview: true,
       path: args.targetDir,
       filesWritten: filesWritten.length,
       files: filesWritten.map((p) => relative(args.targetDir, p)),

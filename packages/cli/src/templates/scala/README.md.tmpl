@@ -5,6 +5,9 @@ A sample Kindgi pack in Scala — scaffolded by `kindgi init --template=scala`.
 Two tools (`echo`, `greet`), one guardrail (`response-not-empty`), one agent
 that uses both tools and the guardrail, and one flow that runs the echo tool.
 
+Java and Scala support is in preview: tested and supported, but the API may
+still change in 0.1.6 without the usual deprecation period.
+
 ## Layout
 
 ```
@@ -46,16 +49,6 @@ left running. It uses `JAVA_HOME`'s JDK (or `dev.javaHome` in
 `["sbt", "-mem", "2048"]`). `SBT_OPTS` in your shell reaches sbt only, never
 the pack.
 
-## Get kindgi-pack-scala
-
-kindgi-pack-scala and kindgi-pack (Java) aren't on Maven Central yet. Build
-them from the Kindgi SDK repository, at the version `build.sbt` names:
-
-```sh
-(cd sdks/java && ./mvnw -q -pl kindgi-pack -am install -DskipTests)   # kindgi-pack, into ~/.m2
-(cd sdks/scala && sbt +publishLocal)                                  # kindgi-pack-scala, into ~/.ivy2/local
-```
-
 ## Use a real model
 
 `kindgi dev` gives a new pack `dev-echo`, a fallback provider that isn't a
@@ -79,5 +72,4 @@ OpenRouter (`OPENROUTER_API_KEY`, `--preset=openrouter`) work the same way;
 
 `kindgi build --env=<name>` makes the pack's image: sbt compiles it in a
 pinned sbt + JDK 17 image, the index is built in the image, and the pack
-service runs on a JRE 17 as its entrypoint. Until kindgi-pack-scala is on
-Maven Central, an image can't fetch it.
+service runs on a JRE 17 as its entrypoint.

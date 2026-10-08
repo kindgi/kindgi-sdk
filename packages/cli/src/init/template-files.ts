@@ -38,6 +38,8 @@ export interface Substitutions {
   readonly SCALA_PACKAGE_PATH?: string;
   /** The scala template's `com.kindgi %% kindgi-pack-scala` version. */
   readonly KINDGI_SCALA_VERSION?: string;
+  /** build.sbt's line(s) for kindgi-pack from a Kindgi checkout's local Maven repository; empty from Maven Central. */
+  readonly SCALA_LOCAL_RESOLVER?: string;
 }
 
 /** Java's reserved words, which a package segment can't be. */
@@ -134,5 +136,6 @@ export function substitute(raw: string, subs: Substitutions): string {
     .replaceAll('{{SCALA_PACKAGE_PATH}}', subs.SCALA_PACKAGE_PATH ?? '')
     .replaceAll('{{SCALA_PACKAGE}}', subs.SCALA_PACKAGE ?? '')
     .replaceAll('{{KINDGI_SCALA_VERSION}}', subs.KINDGI_SCALA_VERSION ?? '')
+    .replaceAll('{{SCALA_LOCAL_RESOLVER}}', subs.SCALA_LOCAL_RESOLVER ?? '')
     .replaceAll('{{KINDGI_CLI_VERSION}}', subs.KINDGI_CLI_VERSION ?? '');
 }

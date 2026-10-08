@@ -306,6 +306,11 @@ Inside `kindgi/`, import the pack's own modules relatively. Don't add an
 
 ## A Java app (Maven)
 
+:::caution[Preview]
+**Preview.** Java and Scala support is tested and supported, but its API may
+still change in 0.1.6 without the usual deprecation period.
+:::
+
 In the app's directory (where its `pom.xml` is), with a JDK 17 or later and
 `JAVA_HOME` set:
 
@@ -329,10 +334,9 @@ prints the dependency to add to it:
 </dependency>
 ```
 
-kindgi-pack isn't on Maven Central yet: install it from the Kindgi SDK
-repository first, as the [Java quickstart](../quickstart-java/#1-get-kindgi-pack)
-shows. An app with both a `package.json` and a `pom.xml` gets a TypeScript
-pack unless you pass `--template=java`.
+kindgi-pack comes from Maven Central, at the CLI's version. An app with both a
+`package.json` and a `pom.xml` gets a TypeScript pack unless you pass
+`--template=java`.
 
 `kindgi dev` runs the app's own Maven (its `mvnw`, else `mvn`; `dev.maven` in
 `kindgi.config.json` names another, such as `["mvn", "-s", "settings.xml"]`)
@@ -377,6 +381,11 @@ or an interface.
 
 ## A Scala app (sbt)
 
+:::caution[Preview]
+**Preview.** Java and Scala support is tested and supported, but its API may
+still change in 0.1.6 without the usual deprecation period.
+:::
+
 In the app's directory (where its `build.sbt` is), with a JDK 17 or later,
 `JAVA_HOME` set, and sbt:
 
@@ -394,14 +403,11 @@ prints what to add to it:
 
 ```scala
 libraryDependencies += "com.kindgi" %% "kindgi-pack-scala" % "…"
-resolvers += Resolver.mavenLocal   // kindgi-pack, until it is on Maven Central
 ```
 
-kindgi-pack-scala isn't on Maven Central yet: build it from the Kindgi SDK
-repository first, as the
-[Scala quickstart](../quickstart-scala/#1-get-kindgi-pack-scala) shows. An app
-with a `build.sbt` next to a `package.json` or a `pom.xml` gets a TypeScript
-or Java pack unless you pass `--template=scala`.
+kindgi-pack-scala, and kindgi-pack under it, come from Maven Central at the
+CLI's version. An app with a `build.sbt` next to a `package.json` or a
+`pom.xml` gets a TypeScript or Java pack unless you pass `--template=scala`.
 
 `kindgi dev` builds through the app's sbt server (`sbt --client`): it starts
 one when none is running and stops it when it stops, and a server your IDE

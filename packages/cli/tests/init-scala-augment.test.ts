@@ -13,7 +13,13 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import { kindgiPackScalaDependency, readSbtIdentity } from '../src/init/scala-augment.js';
+import { defaultTemplatesRoot } from '../src/commands/init.js';
+import { JVM_PREVIEW, type KindgiJavaSource } from '../src/init/dependency-specs.js';
+import {
+  kindgiPackScalaDependency,
+  readSbtIdentity,
+  runInitScalaAugment,
+} from '../src/init/scala-augment.js';
 import { runCli } from '../src/main.js';
 import { CLI_VERSION } from '../src/version-info.js';
 
@@ -92,6 +98,42 @@ describe('kindgi init in an sbt app', () => {
     const out = await init();
     expect(out.exitCode).toBe(0);
     expect(out.stderr).not.toContain('Add to build.sbt');
+  });
+
+  async function augment(javaSource: KindgiJavaSource) {
+    const out = await runInitScalaAugment({
+      targetDir: app,
+      templatesRoot: defaultTemplatesRoot(),
+      force: true,
+      javaSource,
+    });
+    if (out.kind !== 'ok') throw new Error(JSON.stringify(out));
+    return out.rendered;
+  }
+
+  test('from Maven Central: only the dependency to add; it says the pack is a preview', async () => {
+    const { stderr, stdout } = await augment({ kind: 'published', version: '0.1.5' });
+    expect(stderr).toContain(`Add to build.sbt:\n      ${kindgiPackScalaDependency('0.1.5')}\n`);
+    expect(stderr).not.toContain('Resolver.mavenLocal');
+    expect(stderr).not.toContain('sbt +publishLocal');
+    expect(stderr).toContain('(a Scala pack in the app; preview)');
+    expect(stderr).toContain(JVM_PREVIEW);
+    expect(JSON.parse(stdout)).toMatchObject({ preview: true });
+  });
+
+  test('from a Kindgi checkout: its SDK published locally first, and the local Maven repository', async () => {
+    const { stderr } = await augment({
+      kind: 'local-checkout',
+      path: '/k/sdks/java',
+      version: '0.1.5',
+    });
+    expect(stderr).toContain(
+      '(cd /k/sdks/java && ./mvnw -q -pl kindgi-pack -am install -DskipTests)',
+    );
+    expect(stderr).toContain('(cd /k/sdks/scala && sbt +publishLocal)');
+    expect(stderr).toContain(
+      `${kindgiPackScalaDependency('0.1.5')}\n      resolvers += Resolver.mavenLocal`,
+    );
   });
 });
 

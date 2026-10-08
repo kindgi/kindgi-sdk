@@ -233,21 +233,28 @@ export async function resolveKindgiPythonSource(
 }
 
 /**
- * Where a Java pack gets `com.kindgi:kindgi-pack`: from Maven Central at the
- * CLI's version (`published`), or — from a Kindgi checkout — the checkout's
- * `sdks/java`, which installs it into the local Maven repository.
- *
- * kindgi-pack isn't on Maven Central yet (`KINDGI_PACK_ON_MAVEN_CENTRAL`):
- * until it is, a published CLI's pack says to build it from the SDK
- * repository.
+ * Where a Java or Scala pack gets `com.kindgi:kindgi-pack` (and
+ * kindgi-pack-scala): from Maven Central at the CLI's version (`published`;
+ * the Release workflow publishes them there before the CLI reaches npm), or —
+ * from a Kindgi checkout — the checkout's `sdks/java` and `sdks/scala`, which
+ * install them into the local Maven and Ivy repositories.
  */
 export type KindgiJavaSource =
   | { readonly kind: 'published'; readonly version: string }
   | { readonly kind: 'local-checkout'; readonly path: string; readonly version: string }
   | { readonly kind: 'error'; readonly message: string };
 
-/** Whether `com.kindgi:kindgi-pack` is on Maven Central (flip it with the first publish). */
-export const KINDGI_PACK_ON_MAVEN_CENTRAL = false;
+/** What a Java or Scala pack's "preview" means, said wherever one is made. */
+export const JVM_PREVIEW =
+  'Java and Scala support is in preview: tested and supported, but the API may still change in 0.1.6 without the usual deprecation period.';
+
+/**
+ * The resolver an sbt build needs for kindgi-pack: none from Maven Central;
+ * the local Maven repository for a checkout's (`./mvnw install` puts it there).
+ */
+export function sbtLocalResolver(source: KindgiJavaSource): string | undefined {
+  return source.kind === 'local-checkout' ? 'resolvers += Resolver.mavenLocal' : undefined;
+}
 
 export async function resolveKindgiJavaSource(
   input: Pick<ResolveDependencySpecsInput, 'cli' | 'sdkRoot' | 'realpath' | 'exists'> = {},

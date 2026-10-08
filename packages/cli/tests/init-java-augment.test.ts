@@ -13,7 +13,9 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import { packIdOf, readPomIdentity } from '../src/init/java-augment.js';
+import { defaultTemplatesRoot } from '../src/commands/init.js';
+import { JVM_PREVIEW, type KindgiJavaSource } from '../src/init/dependency-specs.js';
+import { packIdOf, readPomIdentity, runInitJavaAugment } from '../src/init/java-augment.js';
 import { runCli } from '../src/main.js';
 import { CLI_VERSION } from '../src/version-info.js';
 
@@ -111,6 +113,36 @@ describe('kindgi init in a Maven app', () => {
     const out = await init();
     expect(out.exitCode).toBe(0);
     expect(out.stderr).not.toContain("Add to pom.xml's <dependencies>");
+  });
+
+  async function augment(javaSource: KindgiJavaSource) {
+    const out = await runInitJavaAugment({
+      targetDir: app,
+      templatesRoot: defaultTemplatesRoot(),
+      force: true,
+      javaSource,
+    });
+    if (out.kind !== 'ok') throw new Error(JSON.stringify(out));
+    return out.rendered;
+  }
+
+  test('from Maven Central: no install step; it says the pack is a preview', async () => {
+    const { stderr, stdout } = await augment({ kind: 'published', version: '0.1.5' });
+    expect(stderr).not.toContain('./mvnw -q install');
+    expect(stderr).not.toContain('Maven Central');
+    expect(stderr).toContain('<version>0.1.5</version>');
+    expect(stderr).toContain('(a Java pack in the app; preview)');
+    expect(stderr).toContain(JVM_PREVIEW);
+    expect(JSON.parse(stdout)).toMatchObject({ preview: true });
+  });
+
+  test('from a Kindgi checkout: its SDK installed into the local Maven repository first', async () => {
+    const { stderr } = await augment({
+      kind: 'local-checkout',
+      path: '/k/sdks/java',
+      version: '0.1.5',
+    });
+    expect(stderr).toContain('(cd /k/sdks/java && ./mvnw -q install -DskipTests)');
   });
 });
 

@@ -7,6 +7,9 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
+import { defaultTemplatesRoot } from '../src/commands/init.js';
+import { JVM_PREVIEW } from '../src/init/dependency-specs.js';
+import { substitute } from '../src/init/template-files.js';
 import { runCli } from '../src/main.js';
 import { publishedCliSpec } from '../src/package-manager.js';
 import { CLI_VERSION } from '../src/version-info.js';
@@ -405,6 +408,14 @@ describe('kindgi init — java template', () => {
     expect(out.stderr).toMatch(/\(cd .*sdks\/java && \.\/mvnw -q install -DskipTests\)/);
     expect(out.stderr).toContain('./mvnw test');
     expect(out.stderr).toContain('./kindgiw dev');
+    // Java packs are a preview, and say what that means.
+    expect(out.stderr).toContain(
+      `✓ Java pack scaffolded at ${join(cwd, 'billing')}/ (preview)\n  ${JVM_PREVIEW}`,
+    );
+    expect(JSON.parse(out.stdout)).toMatchObject({ preview: true });
+    expect(await readFile(join(cwd, 'billing', 'README.md'), 'utf8')).toContain(
+      'Java and Scala support is in preview',
+    );
   });
 });
 
@@ -452,6 +463,25 @@ describe('kindgi init — scala template', () => {
     expect(out.stderr).toMatch(/\(cd .*sdks\/scala && sbt \+publishLocal\)/);
     expect(out.stderr).toContain('sbt test');
     expect(out.stderr).toContain('./kindgiw dev');
+    // ... and the build reads the local Maven repository, where kindgi-pack went.
+    expect(build).toContain('    resolvers += Resolver.mavenLocal,\n');
+    expect(out.stderr).toContain(
+      `✓ Scala pack scaffolded at ${join(cwd, 'type')}/ (preview)\n  ${JVM_PREVIEW}`,
+    );
+    expect(JSON.parse(out.stdout)).toMatchObject({ preview: true });
+  });
+
+  test('from Maven Central, build.sbt names no resolver: kindgi-pack-scala and kindgi-pack resolve there', async () => {
+    const raw = await readFile(join(defaultTemplatesRoot(), 'scala', 'build.sbt.tmpl'), 'utf8');
+    const build = substitute(raw, {
+      PACK_NAME: 'type',
+      PACK_ID: 'acme.type',
+      PACK_VERSION: '0.1.0',
+      KINDGI_SCALA_VERSION: '0.1.5',
+      SCALA_LOCAL_RESOLVER: '',
+    });
+    expect(build).not.toContain('resolvers');
+    expect(build).toContain('    version := "0.1.0",\n    libraryDependencies ++= Seq(');
   });
 
   test('--template=scala in a Node app is refused, pointing at --new-repo', async () => {

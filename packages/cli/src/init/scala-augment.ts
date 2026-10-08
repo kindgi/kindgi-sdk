@@ -28,9 +28,10 @@ import { renderJson } from '../output.js';
 import { binDisplay } from '../package-manager.js';
 import { CLI_VERSION } from '../version-info.js';
 import {
-  KINDGI_PACK_ON_MAVEN_CENTRAL,
+  JVM_PREVIEW,
   type KindgiJavaSource,
   resolveKindgiJavaSource,
+  sbtLocalResolver,
 } from './dependency-specs.js';
 import { patchGitignore } from './gitignore-patcher.js';
 import { packIdOf } from './java-augment.js';
@@ -116,7 +117,7 @@ export async function runInitScalaAugment(
     ...(hasDependency
       ? []
       : [
-          `Add to build.sbt:\n      ${kindgiPackScalaDependency(source.version)}${KINDGI_PACK_ON_MAVEN_CENTRAL ? '' : '\n      resolvers += Resolver.mavenLocal   // kindgi-pack, until it is on Maven Central'}`,
+          `Add to build.sbt:\n      ${[kindgiPackScalaDependency(source.version), sbtLocalResolver(source)].filter(Boolean).join('\n      ')}`,
         ]),
     "Put tools in a `kindgi.tools` package under your own (e.g. com.acme.app.kindgi.tools), guardrails in `kindgi.guardrails`, agents in `kindgi.agents`, flows in `kindgi.flows`: a file's primitives are the vals of an object named like it",
     `${binDisplay('kindgiw', 'kindgi', ['dev'])}  # the CLI the pack pins (kindgi.config.json "cli"): boots Kindgi locally + compiles and runs the pack through sbt, recompiling on save`,
@@ -128,6 +129,7 @@ export async function runInitScalaAugment(
     packId: packId.value,
     packVersion: version,
     kindgiPack: source,
+    preview: true,
     dependencyInBuild: hasDependency,
     created,
     skipped,
@@ -139,7 +141,8 @@ export async function runInitScalaAugment(
       stdout: renderJson(summary, 'json').stdout,
       stderr: [
         '',
-        `  Kindgi added to ${inputs.targetDir} (a Scala pack in the app).`,
+        `  Kindgi added to ${inputs.targetDir} (a Scala pack in the app; preview).`,
+        `  ${JVM_PREVIEW}`,
         `  Pack id: ${packId.value}    Version: ${version}`,
         `  Wrote ${created.length} file${created.length === 1 ? '' : 's'}; skipped ${skipped.length}.`,
         '',
@@ -220,17 +223,12 @@ function resolvePackId(
   };
 }
 
-/** From a checkout: build kindgi-pack and kindgi-pack-scala; else, while not on Maven Central, where they come from. */
+/** From a checkout: build kindgi-pack and kindgi-pack-scala first. From Maven Central: nothing to do. */
 function installSteps(source: KindgiJavaSource): string[] {
-  if (source.kind === 'local-checkout') {
-    return [
-      `(cd ${source.path} && ./mvnw -q -pl kindgi-pack -am install -DskipTests)  # kindgi-pack ${source.version} into your local Maven repository`,
-      `(cd ${join(source.path, '..', 'scala')} && sbt +publishLocal)  # kindgi-pack-scala ${source.version} into your local Ivy repository`,
-    ];
-  }
-  if (source.kind === 'error' || KINDGI_PACK_ON_MAVEN_CENTRAL) return [];
+  if (source.kind !== 'local-checkout') return [];
   return [
-    `# kindgi-pack-scala ${source.version} isn't on Maven Central yet: build it from the Kindgi SDK repository (sdks/java: ./mvnw -pl kindgi-pack -am install; sdks/scala: sbt +publishLocal)`,
+    `(cd ${source.path} && ./mvnw -q -pl kindgi-pack -am install -DskipTests)  # kindgi-pack ${source.version} into your local Maven repository`,
+    `(cd ${join(source.path, '..', 'scala')} && sbt +publishLocal)  # kindgi-pack-scala ${source.version} into your local Ivy repository`,
   ];
 }
 

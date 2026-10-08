@@ -4,15 +4,16 @@ description: Start runs, follow them and read their answers from a Java applicat
 sidebar:
   order: 5.5
   label: Call Kindgi from Java
+  badge: { text: 'Preview', variant: 'caution' }
 ---
 
 Your Java app starts runs, follows them and reads what they answered,
 through the Java client: every operation of the API, with typed answers and
 typed errors.
 
-:::caution[Preview: built from source]
-The Java client isn't on Maven Central yet. Until it is, you build it from
-the Kindgi SDK repository, as below. It needs Java 17 or later.
+:::caution[Preview]
+**Preview.** Java and Scala support is tested and supported, but its API may
+still change in 0.1.6 without the usual deprecation period.
 :::
 
 **Before you start:** a pack running under `kindgi dev`, such as the one
@@ -21,28 +22,14 @@ with its `echo-agent`). The client finds that runtime by itself.
 
 ## 1. Get the client
 
-Build it, and install it into your local Maven repository:
-
-```sh
-git clone https://github.com/kindgi/kindgi-sdk.git
-cd kindgi-sdk/sdks/java
-./mvnw install -DskipTests
-./mvnw -q help:evaluate -Dexpression=project.version -DforceStdout
-```
-
-The last command prints the version you built:
-
-```text
-0.1.4-rc.4
-```
-
-In your app, the client is one dependency, at that version:
+The client is on Maven Central, and needs Java 17 or later. In your app, it's
+one dependency, at your Kindgi release's version (the CLI's, `kindgi --version`):
 
 ```xml
 <dependency>
   <groupId>com.kindgi</groupId>
   <artifactId>kindgi-client</artifactId>
-  <version>0.1.4-rc.4</version>
+  <version>0.1.5</version>
 </dependency>
 ```
 
@@ -72,7 +59,7 @@ To try it, make a small app in a folder inside the pack, `my-pack/hello-java`:
     <dependency>
       <groupId>com.kindgi</groupId>
       <artifactId>kindgi-client</artifactId>
-      <version>0.1.4-rc.4</version>
+      <version>0.1.5</version>
     </dependency>
   </dependencies>
 </project>
@@ -116,8 +103,7 @@ public final class StartRun {
 ```
 
 Run it, with `kindgi dev` still running. This needs Maven 3.9 or later
-(`mvn`); without it, use the wrapper in the SDK you cloned
-(`…/kindgi-sdk/sdks/java/mvnw` in place of `mvn`):
+(`mvn`):
 
 ```sh
 cd my-pack/hello-java
