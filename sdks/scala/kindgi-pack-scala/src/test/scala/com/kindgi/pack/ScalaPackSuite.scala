@@ -49,6 +49,7 @@ class ScalaPackSuite extends munit.FunSuite {
     assertEquals(list(index.get("tools")).map(_.get("id")), Seq("acme.echo-json", "acme.greet", "acme.later"))
     assertEquals(list(index.get("guardrails")).map(_.get("id")), Seq("acme.min-length"))
     assertEquals(list(index.get("agents")).map(_.get("id")), Seq("acme.bot"))
+    assertEquals(list(index.get("agents")).head.get("description"), "Greets whoever asks.")
     assertEquals(list(index.get("flows")).map(_.get("id")), Seq("acme.pipeline"))
   }
 
