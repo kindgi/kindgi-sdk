@@ -36,6 +36,7 @@ import { reviewersCommand } from './reviewers.js';
 import { runsCommand } from './runs.js';
 import { secretsCommand } from './secrets.js';
 import { skillsCommand } from './skills.js';
+import { ssoCommand } from './sso.js';
 import { testCommand } from './test.js';
 import { tokensCommand } from './tokens.js';
 import { toolsCommand } from './tools.js';
@@ -51,6 +52,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   testCommand,
   envCommand,
   secretsCommand,
+  ssoCommand,
   keyCommand,
   mcpCommand,
   mcpLaunchCommand,

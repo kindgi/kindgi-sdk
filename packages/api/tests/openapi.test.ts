@@ -415,6 +415,8 @@ const noopIdentityProvider: IdentityProviderBinding = {
   get: async () => null,
   register: async ({ config }) => ({ kind: 'ok', providerId: config.providerId }),
   unregister: async () => ({ unregistered: false }),
+  signInUrls: async () => undefined,
+  update: async () => ({ kind: 'not-found' }),
 };
 
 const noopIdentityDirectory: IdentityDirectoryBinding = {

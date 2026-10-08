@@ -35,7 +35,47 @@ export interface IdentityProviderBinding {
    * Absent → the route answers an empty list.
    */
   readonly signInOptions?: (input: SignInOptionsInput) => Promise<readonly SignInOption[]>;
+  /**
+   * What to give the identity provider so it can send people back
+   * (`signIn`), for a provider registered now or later under this
+   * `providerId`: the same before registration, after it, and after an
+   * unregister and a new registration, so an admin can set up the
+   * identity provider's side first. `undefined` when this deployment
+   * doesn't sign in with that `kind`.
+   * Absent → `GET /v1/auth/providers/:providerId/sign-in` isn't mounted.
+   */
+  readonly signInUrls?: (
+    input: IdentityProviderSignInUrlsInput,
+  ) => Promise<ProviderSignIn | undefined>;
+  /**
+   * Replace a registered provider's configuration, keeping its `signIn`
+   * (the identity provider's side doesn't change). Validated as a new
+   * registration is.
+   * Absent → `PATCH /v1/auth/providers/:providerId` isn't mounted.
+   */
+  readonly update?: (input: IdentityProviderUpdateInput) => Promise<IdentityProviderUpdateOutcome>;
 }
+
+export interface IdentityProviderSignInUrlsInput {
+  readonly tenantId: TenantId;
+  readonly providerId: string;
+  readonly kind: IdentityProviderKind;
+}
+
+export interface IdentityProviderUpdateInput {
+  readonly tenantId: TenantId;
+  /** The whole new configuration (the route merges the changes in). */
+  readonly config: ProviderConfig;
+}
+
+export type IdentityProviderUpdateOutcome =
+  | { readonly kind: 'ok'; readonly provider: ProviderConfig }
+  | {
+      /** As on registration: 422 `identity-provider-invalid`, with `message`. */
+      readonly kind: 'invalid';
+      readonly message: string;
+    }
+  | { readonly kind: 'not-found' };
 
 export interface SignInOptionsInput {
   /** Lowercase, from the email the person typed. Absent for the buttons. */

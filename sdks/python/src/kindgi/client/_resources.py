@@ -468,6 +468,15 @@ OPERATIONS: dict[str, Operation] = {
     "auth.signInOptions": Operation(
         "auth.signInOptions", "GET", "/v1/auth/sign-in-options", "json", False
     ),
+    "auth.providers.get": Operation(
+        "auth.providers.get", "GET", "/v1/auth/providers/{providerId}", "json", False
+    ),
+    "auth.providers.update": Operation(
+        "auth.providers.update", "PATCH", "/v1/auth/providers/{providerId}", "json", True
+    ),
+    "auth.providers.signIn": Operation(
+        "auth.providers.signIn", "GET", "/v1/auth/providers/{providerId}/sign-in", "json", False
+    ),
     "auth.providers.unregister": Operation(
         "auth.providers.unregister",
         "POST",
@@ -4600,7 +4609,7 @@ class AuthProvidersResource:
     ) -> _models.RegisterIdentityProviderResult:
         """Register an identity provider (OIDC, SAML or OAuth 2.0). `POST /v1/auth/providers`
 
-        Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered` — unregister it first, then register again. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`. The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.
+        Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`. The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.
         """
         return self._client._request(
             _OPERATIONS["auth.providers.register"],
@@ -4609,6 +4618,67 @@ class AuthProvidersResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.IdentityProviderConfig, body, fields),
             response=_models.RegisterIdentityProviderResult,
+            timeout=timeout,
+        )
+
+    def get(
+        self, provider_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.IdentityProviderConfig:
+        """Get one identity provider. `GET /v1/auth/providers/{providerId}`
+
+        The provider as stored, with `signIn` when the deployment sets it. Secrets appear only as references.
+        """
+        return self._client._request(
+            _OPERATIONS["auth.providers.get"],
+            path={"providerId": provider_id},
+            query={},
+            headers={},
+            response=_models.IdentityProviderConfig,
+            timeout=timeout,
+        )
+
+    def update(
+        self,
+        provider_id: str | UUID,
+        body: _models.UpdateIdentityProviderBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.UpdateIdentityProviderResult:
+        """Change an identity provider, keeping its sign-in URLs. `PATCH /v1/auth/providers/{providerId}`
+
+        Merges the changes into the stored provider and checks the result as a registration is (`400 invalid-provider-config`; `422 identity-provider-invalid` when the deployment can't use it). The provider keeps its `signIn`, so nothing changes on the identity provider's side. Not mounted when the deployment can't update providers.
+        """
+        return self._client._request(
+            _OPERATIONS["auth.providers.update"],
+            path={"providerId": provider_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UpdateIdentityProviderBody, body, fields),
+            response=_models.UpdateIdentityProviderResult,
+            timeout=timeout,
+        )
+
+    def sign_in(
+        self,
+        provider_id: str | UUID,
+        /,
+        *,
+        kind: Literal["oauth2", "oidc", "saml"] | None = None,
+        timeout: float | None = None,
+    ) -> _models.IdentityProviderSignInUrls:
+        """What to give the identity provider, before or after registering. `GET /v1/auth/providers/{providerId}/sign-in`
+
+        The redirect URI (OIDC) or the ACS URL, entity ID and metadata URL (SAML) a provider under this `providerId` gets: the same before it's registered, after, and after an unregister and a new registration. So an admin sets up the identity provider's side first, then registers with what it gives back. `kind` is required until the provider is registered. Not mounted when the deployment can't say.
+        """
+        return self._client._request(
+            _OPERATIONS["auth.providers.signIn"],
+            path={"providerId": provider_id},
+            query={"kind": kind},
+            headers={},
+            response=_models.IdentityProviderSignInUrls,
             timeout=timeout,
         )
 
@@ -10533,7 +10603,7 @@ class AsyncAuthProvidersResource:
     ) -> _models.RegisterIdentityProviderResult:
         """Register an identity provider (OIDC, SAML or OAuth 2.0). `POST /v1/auth/providers`
 
-        Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered` — unregister it first, then register again. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`. The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.
+        Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`. The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.
         """
         return await self._client._request(
             _OPERATIONS["auth.providers.register"],
@@ -10542,6 +10612,67 @@ class AsyncAuthProvidersResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.IdentityProviderConfig, body, fields),
             response=_models.RegisterIdentityProviderResult,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, provider_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.IdentityProviderConfig:
+        """Get one identity provider. `GET /v1/auth/providers/{providerId}`
+
+        The provider as stored, with `signIn` when the deployment sets it. Secrets appear only as references.
+        """
+        return await self._client._request(
+            _OPERATIONS["auth.providers.get"],
+            path={"providerId": provider_id},
+            query={},
+            headers={},
+            response=_models.IdentityProviderConfig,
+            timeout=timeout,
+        )
+
+    async def update(
+        self,
+        provider_id: str | UUID,
+        body: _models.UpdateIdentityProviderBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.UpdateIdentityProviderResult:
+        """Change an identity provider, keeping its sign-in URLs. `PATCH /v1/auth/providers/{providerId}`
+
+        Merges the changes into the stored provider and checks the result as a registration is (`400 invalid-provider-config`; `422 identity-provider-invalid` when the deployment can't use it). The provider keeps its `signIn`, so nothing changes on the identity provider's side. Not mounted when the deployment can't update providers.
+        """
+        return await self._client._request(
+            _OPERATIONS["auth.providers.update"],
+            path={"providerId": provider_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UpdateIdentityProviderBody, body, fields),
+            response=_models.UpdateIdentityProviderResult,
+            timeout=timeout,
+        )
+
+    async def sign_in(
+        self,
+        provider_id: str | UUID,
+        /,
+        *,
+        kind: Literal["oauth2", "oidc", "saml"] | None = None,
+        timeout: float | None = None,
+    ) -> _models.IdentityProviderSignInUrls:
+        """What to give the identity provider, before or after registering. `GET /v1/auth/providers/{providerId}/sign-in`
+
+        The redirect URI (OIDC) or the ACS URL, entity ID and metadata URL (SAML) a provider under this `providerId` gets: the same before it's registered, after, and after an unregister and a new registration. So an admin sets up the identity provider's side first, then registers with what it gives back. `kind` is required until the provider is registered. Not mounted when the deployment can't say.
+        """
+        return await self._client._request(
+            _OPERATIONS["auth.providers.signIn"],
+            path={"providerId": provider_id},
+            query={"kind": kind},
+            headers={},
+            response=_models.IdentityProviderSignInUrls,
             timeout=timeout,
         )
 

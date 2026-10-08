@@ -144,6 +144,100 @@ export function authRouters(options: AuthRouterOptions): {
     });
   });
 
+  // ---------- GET /providers/:providerId ----------
+  authed.get('/providers/:providerId', async (c) => {
+    const tenantId = c.get('tenantId') as TenantId;
+    const providerId = c.req.param('providerId');
+    const found = await identityProvider.get({ tenantId, providerId });
+    if (found === null) return providerNotFound(c, providerId);
+    return c.json(serializeProviderConfig(found));
+  });
+
+  // ---------- GET /providers/:providerId/sign-in ----------
+  const signInUrls = identityProvider.signInUrls;
+  if (signInUrls !== undefined) {
+    authed.get('/providers/:providerId/sign-in', async (c) => {
+      const requestId = c.get('requestId');
+      const tenantId = c.get('tenantId') as TenantId;
+      const providerId = c.req.param('providerId');
+      const asked = c.req.query('kind');
+      if (asked !== undefined && asked !== 'oidc' && asked !== 'saml' && asked !== 'oauth2') {
+        c.status(statusFor('bad-input') as never);
+        return c.json(
+          toWireError(
+            { code: 'bad-input', message: '`kind` must be `oidc`, `saml` or `oauth2`' },
+            requestId,
+          ),
+        );
+      }
+      const registered = await identityProvider.get({ tenantId, providerId });
+      const kind = asked ?? registered?.kind;
+      if (kind === undefined) {
+        c.status(statusFor('bad-input') as never);
+        return c.json(
+          toWireError(
+            {
+              code: 'bad-input',
+              message: `No identity provider "${providerId}" is registered yet: say which \`kind\` it will be (\`?kind=oidc\` or \`?kind=saml\`)`,
+            },
+            requestId,
+          ),
+        );
+      }
+      const signIn = await signInUrls({ tenantId, providerId, kind });
+      if (signIn === undefined) {
+        c.status(statusFor('bad-input') as never);
+        return c.json(
+          toWireError(
+            {
+              code: 'bad-input',
+              message: `This deployment doesn't sign in with \`${kind}\` providers`,
+            },
+            requestId,
+          ),
+        );
+      }
+      return c.json({ providerId, kind, signIn, registered: registered !== null });
+    });
+  }
+
+  // ---------- PATCH /providers/:providerId ----------
+  const update = identityProvider.update;
+  if (update !== undefined) {
+    authed.patch('/providers/:providerId', async (c) => {
+      const requestId = c.get('requestId');
+      const tenantId = c.get('tenantId') as TenantId;
+      const providerId = c.req.param('providerId');
+
+      const parsedJson = await parseJsonBody(c);
+      if (parsedJson.kind === 'err') {
+        c.status(statusFor('bad-input') as never);
+        return c.json(toWireError(parsedJson.error, requestId));
+      }
+      const existing = await identityProvider.get({ tenantId, providerId });
+      if (existing === null) return providerNotFound(c, providerId);
+      const merged = mergeProviderChanges(existing, parsedJson.value);
+      const parsed = merged.kind === 'err' ? merged : parseProviderConfig(merged.value);
+      if (parsed.kind === 'err') {
+        c.status(statusFor(parsed.error.code) as never);
+        return c.json(toWireError(parsed.error, requestId));
+      }
+
+      const outcome = await update({ tenantId, config: parsed.value });
+      if (outcome.kind === 'not-found') return providerNotFound(c, providerId);
+      if (outcome.kind === 'invalid') {
+        c.status(statusFor('identity-provider-invalid') as never);
+        return c.json(
+          toWireError(
+            { code: 'identity-provider-invalid', message: outcome.message, providerId },
+            requestId,
+          ),
+        );
+      }
+      return c.json({ providerId, provider: serializeProviderConfig(outcome.provider) });
+    });
+  }
+
   // ---------- POST /providers/:providerId/unregister ----------
   authed.post('/providers/:providerId/unregister', async (c) => {
     const requestId = c.get('requestId');
@@ -604,6 +698,68 @@ function buildAuthorizationUrl(input: {
   url.searchParams.set('code_challenge', codeChallenge);
   url.searchParams.set('code_challenge_method', 'S256');
   return url.toString();
+}
+
+function providerNotFound(c: Context<AppEnv>, providerId: string): Response {
+  c.status(statusFor('identity-provider-not-found') as never);
+  return c.json(
+    toWireError(
+      {
+        code: 'identity-provider-not-found',
+        message: `No identity provider registered with id "${providerId}"`,
+        providerId,
+      },
+      c.get('requestId'),
+    ),
+  );
+}
+
+/** What the issuer's discovery gave: stale once the issuer changes. */
+const DISCOVERED_OIDC_FIELDS = [
+  'authorizationEndpoint',
+  'tokenEndpoint',
+  'userinfoEndpoint',
+  'jwksEndpoint',
+] as const;
+
+/**
+ * A PATCH body merged into the stored provider: a field given replaces
+ * it, `null` removes it, `providerId` and `kind` can't change. `signIn`
+ * is the deployment's, so it never comes from the stored copy. A new
+ * `issuer` drops the endpoints discovered from the old one.
+ */
+function mergeProviderChanges(
+  existing: ProviderConfig,
+  body: unknown,
+): ParsedOk<Record<string, unknown>> | ParsedErr {
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    return { kind: 'err', error: { code: 'bad-input', message: 'Request body must be an object' } };
+  }
+  const changes = body as Record<string, unknown>;
+  if (changes.providerId !== undefined && changes.providerId !== existing.providerId) {
+    return invalid(
+      "`providerId` can't change: register the provider under the new id, then unregister this one",
+    );
+  }
+  if (changes.kind !== undefined && changes.kind !== existing.kind) {
+    return invalid(
+      "`kind` can't change: register a new provider of that kind, then unregister this one",
+    );
+  }
+  const { signIn: _deployments, ...stored } = serializeProviderConfig(existing);
+  const merged: Record<string, unknown> = stored;
+  if (
+    existing.kind === 'oidc' &&
+    changes.issuer !== undefined &&
+    changes.issuer !== existing.issuer
+  ) {
+    for (const field of DISCOVERED_OIDC_FIELDS) delete merged[field];
+  }
+  for (const [field, value] of Object.entries(changes)) {
+    if (value === null) delete merged[field];
+    else merged[field] = value;
+  }
+  return { kind: 'ok', value: merged };
 }
 
 function serializeProviderConfig(c: ProviderConfig): Record<string, unknown> {
