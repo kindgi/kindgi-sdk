@@ -7,9 +7,10 @@ sidebar:
 
 Kindgi's Terraform module runs the runtime and your pack's service as two
 container apps in one Azure resource group you already have, with everything
-around them. In the verification run, the first apply took about six minutes
-(most of it PostgreSQL), the services two and a half more, and a new runtime
-replica was ready about 8 seconds after its container started.
+around them. In the verification run, the first apply took about seven minutes
+(most of it PostgreSQL), the services under three more, and a new runtime
+replica was ready 10 seconds after its container started, its first
+migrations included.
 
 :::note[Access to the runtime image]
 Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
@@ -118,8 +119,8 @@ terraform apply -var-file=dev.tfvars \
 
 The image variables need only a digest-shaped placeholder here, and
 `secrets_aad_key_version` and `erasure_ledger_key_version` may stay empty.
-The plan creates 22 resources; in the verification run the apply took 5
-minutes 44 seconds. The database's admin password is write-only: Terraform
+The plan creates 22 resources; in the verification run the apply took 6
+minutes 47 seconds. The database's admin password is write-only: Terraform
 sends a random one that nobody keeps, and it never reaches the state. You set
 the real one in step 3.
 
@@ -162,7 +163,7 @@ pnpm exec kindgi build --local --push --env dev
 ```
 
 ```text
-    ✓ Pushed w8l10tj3.azurecr.io/acme.azl1@sha256:24cc125a…
+    ✓ Pushed acmeep0y.azurecr.io/acme@sha256:4d18e695…
     ✓ /app/index.json in the image matches the local index byte for byte
     ✓ Ed25519 signature over (imageDigest, artifactVersion, indexHash, tenantId, publishedAt)
 ```
@@ -250,7 +251,7 @@ terraform apply -var-file=dev.tfvars
 
 The module waits a minute after granting the apps' roles before it creates
 them, so they start with the roles in place. In the verification run the apply
-took 2 minutes 32 seconds, and the runtime reached Key Vault and the pack's
+took 2 minutes 43 seconds, and the runtime reached Key Vault and the pack's
 service on its first start, with no warning.
 
 The runtime logs JSON, so its startup lines are the `lines` of one record,
@@ -263,15 +264,15 @@ az monitor log-analytics query -w "$WS" --analytics-query \
   --query "[0].Log_s" -o tsv | jq -r '.lines[]'
 ```
 
-The first time, the CLI installs its `log-analytics` extension, and a new
-replica's lines take a few minutes to reach the workspace.
+The first time, the CLI installs its `log-analytics` extension. A new
+replica's lines take a minute or more to reach the workspace.
 `az containerapp logs show -n <name_prefix>-server -g <rg> --type console`
 streams the running replica's lines at once.
 
 Before them, the runtime checks the key:
 
 ```text
-KMS probe OK (azure-key-vault): azure-key-vault 7.5 (wrap/unwrap round trip, RSA-OAEP-256, key w8l1-secrets version caa2c23e…) (1069ms)
+KMS probe OK (azure-key-vault): azure-key-vault 7.5 (wrap/unwrap round trip, RSA-OAEP-256, key acme-secrets version 28fedcfb…) (999ms)
 ```
 
 Then the lines name the license and the pack's service it reached:
@@ -280,7 +281,7 @@ Then the lines name the license and the pack's service it reached:
   License: … · non-production · until 2026-11-20
   Env: dev (tool secrets resolve in it)
   …
-  Pack service: https://w8l1-pack.internal.jollywave-8b739fc9.canadacentral.azurecontainerapps.io — acme.azl1 (artifact 20261008.1), protocol 2, 4 tools, 1 check
+  Pack service: https://acme-pack.internal.… — acme (artifact 20261008.211554), protocol 2, 3 tools, 1 check
 ```
 
 ### How the runtime calls your pack's service
@@ -298,7 +299,7 @@ token on every call.
 
 ### Requests longer than 240 seconds
 
-Container Apps ends every HTTP request at 240 seconds, and it can't be raised
+Container Apps ends HTTP requests at 240 seconds
 ([Microsoft: Ingress, HTTP](https://learn.microsoft.com/en-us/azure/container-apps/ingress-overview#http)).
 A start that waits for a run longer than that gets this at 240 seconds:
 
@@ -331,11 +332,11 @@ Application Gateway in front, set `trusted_proxies = "2"`. See
 ```sh
 URL=$(terraform output -raw server_url)
 KINDGI_API_TOKEN=$(az keyvault secret show --vault-name "$V" -n api-token --query value -o tsv)
-pnpm exec kindgi key trust w8-l1 --label dev --url "$URL" --token "$KINDGI_API_TOKEN"
+pnpm exec kindgi key trust acme-dev --label dev --url "$URL" --token "$KINDGI_API_TOKEN"
 ```
 
 ```text
-  ✓ Trusted w8-l1 (sha256:c1943505…)
+  ✓ Trusted acme-dev (sha256:d872dbbf…)
     The runtime now accepts deploys this key signs.
 ```
 
@@ -345,10 +346,10 @@ pnpm exec kindgi deploy --env dev --endpoint "$URL" --token "$KINDGI_API_TOKEN"
 
 ```text
     ✓ POST /v1/deployments  →  201 Created
-      deploymentId:    940dd133-…
-      artifactVersion: 20261008.1
-      primitives:      4 tools, 1 guardrail, 1 agent, 3 flows
-      activatedAt:     2026-10-08T20:00:21.630Z
+      deploymentId:    8ae8c6d0-…
+      artifactVersion: 20261008.211554
+      primitives:      3 tools, 1 guardrail, 1 agent, 2 flows
+      activatedAt:     2026-10-08T21:22:04.191Z
 
   Deploy complete.
 ```
@@ -361,10 +362,10 @@ The runtime read your pack's image from the registry with its own identity
 ```sh
 curl "$URL/health"                                   # {"ok":true}
 pnpm exec kindgi tools list --url "$URL" --token …   # your pack's tools
-pnpm exec kindgi runs start --flow=acme.azl1.greet-flow --input='{"name":"Azure"}' --url "$URL" --token …
+pnpm exec kindgi runs start --flow=acme.greet-flow --input='{"name":"Azure"}' --url "$URL" --token …
 ```
 
-In the verification run, that flow (one tool step) completed in 311 ms, start
+In the verification run, that flow (one tool step) completed in 399 ms, start
 to finish, with the output `{"greeting":"Hello, Azure!"}`.
 
 ## The roles it sets up
@@ -384,9 +385,11 @@ to finish, with the output `{"greeting":"Hello, Azure!"}`.
   point-in-time restore are on), copy the new runtime image by digest, set
   `server_image`, and apply. Migrations only go forward: never run two runtime
   versions on one database, and go back by restoring the backup.
-- **Rotate a secret:** add a version (`put` again). Container Apps picks it up
-  on its own and restarts the apps that read it
-  ([Microsoft: Key Vault secret URI and secret rotation](https://learn.microsoft.com/en-us/azure/container-apps/manage-secrets#key-vault-secret-uri-and-secret-rotation)).
+- **Rotate a secret:** add a version (`put` again). The apps read their
+  secrets when they start, and the module references every secret but the two
+  pinned keys without a version, so a replica that starts after Container
+  Apps picks up the new version gets it (when that happens:
+  [Microsoft: Key Vault secret URI and secret rotation](https://learn.microsoft.com/en-us/azure/container-apps/manage-secrets#key-vault-secret-uri-and-secret-rotation)).
   Never rotate the AAD key or the erasure ledger's key this way: they're
   pinned.
 - **Rotate the wrapping key:** with `key_rotation_days` (90 by default), Key
@@ -428,6 +431,8 @@ terraform destroy -var-file=dev.tfvars
   `key_vault_purge_on_destroy = true`, if whoever runs Terraform may purge.
 - **The infrastructure group** goes with the environment. Check:
   `az group exists -n <rg>-<name_prefix>-infra`.
+- **How long:** in the verification run, one `destroy` took 25 minutes, most
+  of it the environment.
 - **On azurerm 5.8**, the destroy stopped after each container app and the
   environment were already deleted, with
   `polling support for the Content-Type "" was not implemented`. 5.9 fixes it,

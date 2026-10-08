@@ -18,7 +18,7 @@ A Terraform root module that runs Kindgi in one Azure resource group you already
 
 In both shapes the pack service's ingress is **environment-internal**: only apps in the same Container Apps environment reach it, and the environment holds only Kindgi's two apps. The runtime sends the pack token on every call (`KINDGI_PACK_SERVICE_AUTH=token`).
 
-**One platform limit to know:** Container Apps cuts every HTTP request at **240 seconds**, and it can't be raised. A request still open then gets `504` with the body `stream timeout`; the run itself carries on. Start runs that can take longer with `wait: false` and follow them (events or polling), as `kindgi runs start` does; a stream cut at the limit resumes with `Last-Event-ID`. For the same reason the runtime's wait for one tool call (`pack_call_timeout_ms`) must stay under 240 000.
+**One platform limit to know:** Container Apps ends HTTP requests at **240 seconds** ([Microsoft: Ingress, HTTP](https://learn.microsoft.com/en-us/azure/container-apps/ingress-overview#http)). A request still open then gets `504` with the body `stream timeout`; the run itself carries on. Start runs that can take longer with `wait: false` and follow them (events or polling), as `kindgi runs start` does; a stream cut at the limit resumes with `Last-Event-ID`. For the same reason the runtime's wait for one tool call (`pack_call_timeout_ms`) must stay under 240 000.
 
 ## Before you start
 
@@ -178,7 +178,7 @@ The runtime reads the pack image from the registry with its own identity (`KINDG
 - **Client addresses:** the server trusts one proxy, the Container Apps ingress, which appends the caller to `X-Forwarded-For` (`trusted_proxies = "1"`, `KINDGI_TRUSTED_PROXIES`), so rate limits and audit records see the caller. With Front Door or Application Gateway in front, set `"2"`.
 - **One server replica** until several are verified. Migrations run at boot over a direct connection (port 5432, not the built-in PgBouncer on 6432).
 - **Upgrades roll forward:** migrations only go forward. Before a new runtime version boots on the database, make sure a restorable backup exists (automatic backups with point-in-time restore are on), and roll back by restoring it.
-- **Rotating a secret:** add a version (`put` again). Container Apps picks up a new version of a versionless reference within 30 minutes and restarts the apps that read it. Never rotate the AAD key or the erasure ledger's key this way.
+- **Rotating a secret:** add a version (`put` again). Every secret but the two pinned keys is referenced without a version, so a replica that starts after Container Apps picks up the new version gets it ([Microsoft: Key Vault secret URI and secret rotation](https://learn.microsoft.com/en-us/azure/container-apps/manage-secrets#key-vault-secret-uri-and-secret-rotation)). Never rotate the AAD key or the erasure ledger's key this way.
 - **Rotating the key:** with `key_rotation_days` (default 90) Key Vault adds a key version on schedule. New secrets use it; old ones keep unwrapping with theirs.
 - **Hardening:** the vault and registry are reached over their public endpoints, guarded by Entra RBAC. To close those, add private endpoints (the registry needs the Premium tier) and network rules.
 
