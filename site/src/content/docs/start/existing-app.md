@@ -233,7 +233,7 @@ With a `prisma.config.ts`, name it too:
 The build ends with the image and a check of what's in it:
 
 ```text
-    ✓ Built kindgi-pack/acme-orders:20261004.110230 (sha256:042e285f8cd9…)
+    ✓ Built kindgi-pack/acme-orders:20261008.193804 (sha256:9e102b60f643…)
     ✓ /app/index.json in the image matches the local index byte for byte
 ```
 

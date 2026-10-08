@@ -221,7 +221,7 @@ module loaded and every required variable is set. Then the runtime. Its
 startup log names the pack's service it reached, and how it calls it:
 
 ```text
-Pack service: https://kindgi-pack-…a.run.app — acme (artifact 20261004.093512), protocol 2, 3 tools, 1 check
+Pack service: https://kindgi-pack-…a.run.app — acme (artifact …), protocol 2, 3 tools, 1 check
 Pack service auth: a Google ID token per call (KINDGI_PACK_SERVICE_AUTH)
 ```
 
@@ -253,7 +253,7 @@ pnpm exec kindgi deploy --env prod --endpoint "$(terraform output -raw server_ur
 
 ```text
 ✓ POST /v1/deployments  →  201 Created
-  artifactVersion: 20261004.093512
+  artifactVersion: …
   primitives:      3 tools, 1 guardrail, 1 agent, 2 flows
 Deploy complete.
 ```

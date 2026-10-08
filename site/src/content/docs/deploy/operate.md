@@ -100,7 +100,7 @@ The runtime prints what it's running with when it starts (`docker logs kindgi-se
   ⚠ The license key expires in 29 days (2026-11-02). Renew it: contact@kindgi.com.
   Env: production (tool secrets resolve in it)
   Tenant host access: deployed (stdio MCP endpoints refused; KINDGI_TENANT_HOST_ACCESS)
-  Pack service: http://kindgi-pack:8080 — acme-pack (artifact 20261003.101544), protocol 2, 3 tools, 1 check
+  Pack service: http://kindgi-pack:8080 — acme-pack (artifact 20261008.193828), protocol 2, 3 tools, 1 check
 ```
 
 - **`Token`:** the last four characters of the API token it accepts.
@@ -374,8 +374,8 @@ Rotate under a new key id. A key id stays bound to its public key, and a revoked
    ```text
      Registering deployment
        ✓ POST /v1/deployments  →  201 Created
-         deploymentId:    2a4677f2-5845-4e05-8630-5f0d01972331
-         artifactVersion: 20261003.141502
+         deploymentId:    3c4f4d76-f4a4-4d5f-8339-f05b0497b462
+         artifactVersion: 20261008.193855
    ```
 
    The artifact version defaults to the build time, `YYYYMMDD.HHMMSS` in UTC, so a second build the same day gets its own tag.
