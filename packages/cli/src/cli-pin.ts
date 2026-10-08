@@ -39,10 +39,7 @@ export async function readCliPin(dir: string): Promise<string | undefined> {
 /** One line when the running CLI isn't the pinned one; `undefined` when it is. */
 export function cliPinWarning(pin: string, running: string): string | undefined {
   if (pin === running) return undefined;
-  return (
-    `⚠ This pack pins the Kindgi CLI ${pin} ("${CLI_PIN_KEY}" in ${KINDGI_JSON_CONFIG_FILENAME}), and this is ${running}. ` +
-    `Run it as ./kindgiw <command>, or move the pin with: kindgi upgrade\n`
-  );
+  return `⚠ This pack pins the Kindgi CLI ${pin} ("${CLI_PIN_KEY}" in ${KINDGI_JSON_CONFIG_FILENAME}), and this is ${running}. Run it as ./kindgiw <command>, or move the pin with: kindgi upgrade\n`;
 }
 
 /**
