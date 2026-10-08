@@ -152,6 +152,11 @@ pnpm exec kindgi build --local --push --env prod
 ✓ Ed25519 signature over (imageDigest, artifactVersion, indexHash, tenantId, publishedAt)
 ```
 
+Every build without `--artifact-version` is version `YYYYMMDD.1` of the day,
+and its image gets that tag. For a second build the same day, pass
+`--artifact-version YYYYMMDD.2` (then `.3`, …): otherwise the new image takes
+the first one's tag.
+
 Set `server_image` and `pack_image` in `prod.tfvars` to the two digests
 (`…@sha256:…`).
 

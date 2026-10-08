@@ -131,6 +131,11 @@ A Python pack's build also says where its dependencies come from:
 
 The image is for `linux/amd64` by default. On Apple silicon it runs under emulation; `--platform` picks another.
 
+Every build without `--artifact-version` is version `YYYYMMDD.1` of the day,
+and its image gets that tag. For a second build the same day, pass
+`--artifact-version YYYYMMDD.2` (then `.3`, …): otherwise the new image takes
+the first one's tag.
+
 ## 4. Run your pack's service
 
 Your tools' code runs in the pack's own container. The runtime calls it with a token both sides share:
