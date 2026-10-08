@@ -5,8 +5,9 @@ description: >
   can actually call a real model. Covers four paths — hosted via
   Anthropic native adapter, Gemini on Vertex AI (Google Application
   Default Credentials, no API key), hosted via the OpenAI-compat adapter
-  (works with OpenAI + Groq + Together + Fireworks + OpenRouter +
-  Ollama + vLLM + any other OpenAI-compatible endpoint), and local
+  (works with OpenAI, Groq, self-hosted vLLM and Ollama, and any other
+  OpenAI-compatible endpoint, a hosted gateway such as OpenRouter
+  included), and local
   via the in-process ONNX adapter — plus the credential flow (in
   `kindgi dev` the key lives in the project's env files — `.env`, then
   `.env.local` — added by hand or with `kindgi secrets set`'s no-echo
@@ -22,7 +23,7 @@ description: >
   kindgi-getting-started.
 type: core
 library: "@kindgi/sdk"
-version: "0.9.7"
+version: "0.9.8"
 sdk_version: "0.0.0"
 pack_languages: [node, python]
 sources:
@@ -264,9 +265,9 @@ Works with **any** OpenAI-compatible endpoint. Same adapter, different
 | Groq | `https://api.groq.com/openai/v1` |
 | Together | `https://api.together.xyz/v1` |
 | Fireworks | `https://api.fireworks.ai/inference/v1` |
-| OpenRouter | `https://openrouter.ai/api/v1` |
 | DeepSeek | `https://api.deepseek.com/v1` |
 | LiteLLM proxy | `http://localhost:4000/v1` |
+| OpenRouter (a hosted gateway) | `https://openrouter.ai/api/v1` |
 
 The connection carries the `baseURL` (in `adapter_config`);
 each endpoint is a separate provider row because each has its own API
