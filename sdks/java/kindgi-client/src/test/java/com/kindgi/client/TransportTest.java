@@ -444,4 +444,40 @@ class TransportTest {
     assertThat(done.await(10, TimeUnit.SECONDS)).isTrue();
     assertThat(kinds).containsExactly("run.started", "run.completed");
   }
+
+  @Test
+  void followRetriesABusyOrBrieflyAwayServerOnReconnect() {
+    handler = (ex, n) -> {
+      if (n == 1) {
+        sse(ex, frame(1, "run.started"), false);
+      } else if (n == 2) {
+        answer(ex, 503, "{\"error\":{\"code\":\"unavailable\",\"message\":\"Deploying.\"}}");
+      } else {
+        sse(ex, frame(2, "run.completed"), false);
+      }
+    };
+    List<String> kinds = new ArrayList<>();
+    try (EventStream<RunEvent> events = client.runs().follow(RUN_ID)) {
+      events.forEachRemaining(e -> kinds.add(e.kind().asString()));
+    }
+    assertThat(kinds).containsExactly("run.started", "run.completed");
+    assertThat(seen).hasSize(3);
+    assertThat(seen.get(2).header("Last-Event-Id")).isEqualTo("a:1");
+  }
+
+  @Test
+  void followThrowsAServerErrorItShouldntRetry() {
+    handler = (ex, n) -> {
+      if (n == 1) {
+        sse(ex, frame(1, "run.started"), false);
+      } else {
+        answer(ex, 500, "{\"error\":{\"code\":\"internal\",\"message\":\"Boom.\"}}");
+      }
+    };
+    try (EventStream<RunEvent> events = client.runs().follow(RUN_ID)) {
+      assertThat(events.next().kind().asString()).isEqualTo("run.started");
+      assertThatThrownBy(events::hasNext).isInstanceOf(ServerException.class);
+    }
+    assertThat(seen).hasSize(2);
+  }
 }

@@ -52,8 +52,9 @@ exceptionally with the same typed exception.
 run's events through to its end (`run.completed`, `run.failed` or
 `run.cancelled`). Iterate it, or `stream()` it. The server ends a stream
 after a time limit while the run is still going. `follow` reconnects with
-`Last-Event-Id`, so each event comes once, and so does a dropped connection
-(backoff 0.5 s → 30 s, 10 attempts). Close it to stop early.
+`Last-Event-Id`, so each event comes once. A dropped connection, or a
+429 or 502–504 answer, is retried the same way (backoff 0.5 s → 30 s, 10 in
+a row); any other error answer throws. Close it to stop early.
 `followProgress(runId)` does the same for the progress events (no payloads).
 `runs().stream(runId)` is the plain operation, which ends when the server
 closes it. On the async client these are `Flow.Publisher`s.
