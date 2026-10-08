@@ -65,7 +65,9 @@
         "service-account-granted",
         "service-account-ungranted",
         "service-account-unregistered",
-        "person-added"
+        "person-added",
+        "person-granted",
+        "person-ungranted"
       ]
     },
     "timestamp": {

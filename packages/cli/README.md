@@ -756,6 +756,9 @@ Inside a pack that `kindgi dev` runs, they find it on their own (see
 | `provenance` | `list`, `get <run-id>`: each run's graph of what ran; `export <run-id> --signing-key=<id>`, signed |
 | `memory facts` | `list` (by `--type`, `--scope`), `get <fact-id>`, `write --input=<json>`: the facts agents remember |
 | `conversations` | `list`, `get`, `open <agent-id> <version>`, `close`, `messages` |
+| `tokens` | API keys for you, a person (`--for=user:<id>`) or a service account (`--for=sa:<id>`): `create` (its secret shown once; `--role`, `--project`, `--expires`), `list`, `get`, `revoke` |
+| `service-accounts` | `create <name>` (with `--tenant-admin`, `--project=<id>:<role>`), `list`, `get`, `grant`, `ungrant`, `unregister` |
+| `people` | `add --name [--email]` (tenant admins), `list`, `get`, `grants <id>`, `grant`/`ungrant <id> --tenant-admin` (tenant admins) |
 | `runs` | `list`, `get`, `cancel`, `journal`, `stream` (one JSON event per line), `start`, `resume` |
 | `agents` | `list`, `get <agent-id> [<version>]`, `publish`, `derive`, `unregister <agent-id> <version>`, `versions`; which version runs where: `live`, `live-versions`, `promote`, `rollback`, `unpin`, `promotions` |
 | `tools` | `list`, `get`, `publish`, `unregister`, `versions`, `get-version`, `reinstate` |

@@ -1907,7 +1907,7 @@ export interface Session {
 /**
  * Wire shape — matches `@kindgi/api/openapi.json#UserRecord`:
  * `{ userId, tenantId, primaryEmail?, displayName?, createdAt,
- * lastActiveAt?, metadata? }`. The API does not own user persistence
+ * lastActiveAt?, unregisteredAt?, metadata? }`. The API does not own user persistence
  * (deployments plug in their identity plane — LDAP, SCIM, or a bespoke
  * store); attributes such as email verification or deactivation, when
  * an identity provider has them, travel in `metadata`.
@@ -1919,7 +1919,20 @@ export interface User {
   readonly displayName?: string;
   readonly createdAt: import('@kindgi/types').Timestamp;
   readonly lastActiveAt?: import('@kindgi/types').Timestamp;
+  /** When they were removed from the tenant (`client.users.unregister`); absent while they're here. */
+  readonly unregisteredAt?: import('@kindgi/types').Timestamp;
   readonly metadata?: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * A removed person and what removing them took away (each 0 when they
+ * were already removed). Matches `@kindgi/api/openapi.json#UnregisterUserResult`.
+ */
+export interface UnregisterUserResult {
+  readonly user: User;
+  readonly keysRevoked: number;
+  readonly sessionsRevoked: number;
+  readonly grantsRemoved: number;
 }
 
 /**
@@ -2197,6 +2210,29 @@ export interface ServiceAccount {
   /** Set once unregistered: it has no grants, and its keys no longer work. */
   readonly unregisteredAt?: import('@kindgi/types').Timestamp;
 }
+
+/**
+ * What a person may do, as granted directly: tenant admin, a role on a
+ * project, a role in a team, the reviewer roster. What a team's or an
+ * org's grants imply is not expanded. Matches
+ * `@kindgi/api/openapi.json#PersonGrants`.
+ */
+export interface PersonGrants {
+  readonly userId: string;
+  /** Absent when the runtime has no authorization store: nothing grants it then. */
+  readonly tenantAdmin?: boolean;
+  /** A tenant member: reads the tenant's settings, not its projects. Absent when not reported. */
+  readonly tenantMember?: boolean;
+  readonly projects: readonly {
+    readonly projectId: string;
+    readonly role: 'viewer' | 'editor' | 'owner' | 'admin' | 'member';
+  }[];
+  readonly teams: readonly { readonly teamId: string; readonly role: 'member' | 'admin' }[];
+  readonly reviewer?: { readonly role: 'standard' | 'senior' | 'admin' };
+}
+
+/** What `users.grant` / `users.ungrant` take: tenant admin. Matches `#PersonGrantBody`. */
+export type PersonGrant = { readonly kind: 'tenant-admin' };
 
 /** Input for `POST /v1/service-accounts` per `#CreateServiceAccountBody`. */
 export interface CreateServiceAccountInput {
