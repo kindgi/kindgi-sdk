@@ -434,9 +434,18 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_AUTH_EMAIL_LINK_DAILY_CAP',
+    description:
+      'At most this many emailed sign-in links to one address in 24 hours, whoever asks for them (rotating client addresses gets past the per-client limit). Default 10. At the cap the request answers as usual, and nothing is sent.',
+    example: '10',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_AUTH_TURNSTILE_SECRET',
     description:
-      "A Cloudflare Turnstile secret key: asking for an emailed link then needs the widget's token, checked with Cloudflare. Without it, the link is still sent only to people who can sign in, at most one per address a minute, and requests are rate-limited per client. Set this or `KINDGI_AUTH_TURNSTILE_SECRET_PATH`, not both, with `KINDGI_AUTH_TURNSTILE_SITE_KEY`.",
+      "A Cloudflare Turnstile secret key: asking for an emailed link then needs the widget's token, checked with Cloudflare. Required when the runtime serves several tenants. Without it (one tenant), the link is still sent only to people who can sign in, at most one per address a minute and the daily cap a day, and requests are rate-limited per client. Set this or `KINDGI_AUTH_TURNSTILE_SECRET_PATH`, not both, with `KINDGI_AUTH_TURNSTILE_SITE_KEY`.",
     example: '',
     required: false,
     appliesTo: appliesToServer,
