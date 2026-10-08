@@ -149,6 +149,16 @@ uv run kindgi env set ORDERS_REGION us --scope=project:<project-id> --env=local
   `kindgi env unset NAME --scope=… --env=…` removes one, so a call gets the
   next scope's value again.
 
+### A value nobody set
+
+A call that needs a declared value no scope sets, and that has no `default`,
+fails before the tool runs. The message names the value and the command that
+sets it:
+
+```text
+precondition-failed: Tool "my-pack.find-order" was not run: env-value-missing: tool "my-pack.find-order" needs env value "ORDERS_BASE_URL" in env "local", and none is set for project <project-id>, its org, or the tenant. Set it: kindgi env set ORDERS_BASE_URL <value> --scope=project:<project-id> --env=local (or --scope=tenant, for every project)
+```
+
 :::note
 Without `--scope`, `kindgi env set`, `list` and `unset` edit the pack's own
 env files, as before. Those files are the pack service's process
