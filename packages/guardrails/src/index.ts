@@ -35,7 +35,7 @@ export type {
   StrategyError,
   StrategyResult,
 } from './execution-strategy.js';
-export { invokeJudge } from './judge.js';
+export { JUDGE_THINKING_TOKENS, JUDGE_VERDICT_TOKENS, invokeJudge } from './judge.js';
 export type { LlmJudgeConfig } from './judge.js';
 export type {
   Action,
