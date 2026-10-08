@@ -46,6 +46,9 @@ export const RETENTION_DOMAINS = [
   'env',
   'secret',
   'run',
+  // An artifact's row (no authorization type of its own: it answers to
+  // its project); its bytes go once no row names them.
+  'artifact',
   'policy',
   'judgment',
   'judge_class',

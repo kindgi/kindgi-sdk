@@ -69,7 +69,11 @@
     },
     {
       "name": "provenance",
-      "description": "Causal DAG readback + signed exports (list, get, export — signing is caller-plugged via `SigningKeyBinding`)."
+      "description": "Causal DAG readback + signed exports (list, get, export), signed with the deployment's export key."
+    },
+    {
+      "name": "export-signing-keys",
+      "description": "The public keys this deployment signs its exports with (audit bundles, provenance, compliance evidence): what a verifier pins."
     },
     {
       "name": "artifacts",
@@ -141,7 +145,7 @@
     },
     {
       "name": "compliance",
-      "description": "Compliance-evidence readback + signed exports (list, get, export). Reads are a classification lens over `AuditEventBinding`; only classifier-marked `exportable` kinds appear on the wire. Signed export is caller-plugged via `SigningKeyBinding` — deployments without a signing key get `404 signing-not-configured`. Bundle envelope matches `provenance.export` + audit-bundle byte-for-byte so verifiers reuse one `verifyEd25519` wrapper across all three surfaces. Redaction happens when evidence is generated, not at the export boundary — records are stored already redacted."
+      "description": "Compliance-evidence readback + signed exports (list, get, export). Reads are a classification lens over `AuditEventBinding`; only classifier-marked `exportable` kinds appear on the wire. A signed export is signed with the export signing key of the deployment (`exportSigning`); a deployment without one answers `404 signing-not-configured`. It is the same envelope as the audit-bundle and provenance exports, so one verifier reads all three. Redaction happens when evidence is generated, not at the export boundary — records are stored already redacted."
     },
     {
       "name": "audit",
@@ -216,6 +220,8 @@
           "fact-not-found": 404,
           "flow-not-found": 404,
           "already-terminal": 409,
+          "fact-changed": 409,
+          "legal-hold": 409,
           "run-already-terminal": 409,
           "run-lease-lost": 409,
           "idempotency-key-body-mismatch": 409,
@@ -295,6 +301,7 @@
           "provider-not-found": 404,
           "provider-already-registered": 409,
           "invalid-provider": 400,
+          "provider-config-invalid": 422,
           "cost-record-not-found": 404,
           "adapter-not-found": 404,
           "policy-not-found": 404,
@@ -340,9 +347,11 @@
           "identity-user-unregistered": 409,
           "person-grants-unsupported": 501,
           "agent-version-live": 409,
+          "artifact-too-large": 413,
           "run-not-finished": 409,
           "item-not-found": 400,
           "test-sets-not-supported": 501,
+          "memory-operation-unsupported": 501,
           "authz-membership-unsupported": 501,
           "eval-run-already-terminal": 409,
           "dispatcher-not-registered": 422,
@@ -1354,7 +1363,11 @@
             "format": "date-time"
           },
           "failureMessage": {
-            "type": "string"
+            "type": "string",
+            "description": "The failure as the runtime recorded it. Read `failure` instead: an agent turn records its typed error here in an internal form."
+          },
+          "failure": {
+            "$ref": "#/components/schemas/RunFailure"
           },
           "output": {
             "description": "The run's output once it completed. Present on single-run responses; on lists only with `?include=output`."
@@ -1403,6 +1416,26 @@
             "type": "string",
             "format": "date-time",
             "description": "When `publicAccessToken` stops working."
+          }
+        }
+      },
+      "RunFailure": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message"
+        ],
+        "description": "Why a failed run failed; present only on a `failed` run. An agent turn's failure carries its own code (`budget-exceeded`, `capability-routing-failed`, `model-invocation-failed`, …); any other failure is `run-failed`, with the run's failure message.",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "cause": {
+            "description": "What the error came from, when it says: e.g. for `capability-routing-failed`, the router's `capability-unsatisfiable` with its reasons, by provider."
           }
         }
       },
@@ -1609,7 +1642,11 @@
                   "format": "date-time"
                 },
                 "failureMessage": {
-                  "type": "string"
+                  "type": "string",
+                  "description": "The failure as the runtime recorded it. Read `failure` instead: an agent turn records its typed error here in an internal form."
+                },
+                "failure": {
+                  "$ref": "#/components/schemas/RunFailure"
                 },
                 "output": {
                   "description": "The run's output once it completed. Present on single-run responses; on lists only with `?include=output`."
@@ -3090,18 +3127,70 @@
           }
         }
       },
-      "ExportAuditBundleBody": {
-        "description": "Body for `POST /v1/approvals/{approvalId}/audit-bundle`. `signingKeyId` selects the Ed25519 key from the deployment's `signingKey` binding. `includeMessages` optionally hydrates conversation messages tied to the approval's run.",
+      "ExportSigningKey": {
+        "description": "A public key this deployment signs exports with.",
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "signingKeyId"
+          "keyId",
+          "algorithm",
+          "publicKeyPem",
+          "fingerprint",
+          "active"
         ],
+        "properties": {
+          "keyId": {
+            "type": "string",
+            "description": "Derived from the public key (`ex_` and 16 base64url characters), so the same key keeps its id."
+          },
+          "algorithm": {
+            "type": "string",
+            "enum": [
+              "ed25519",
+              "ecdsa-p256-sha256"
+            ],
+            "description": "An Ed25519 key signs `ed25519`; an EC P-256 key (a KMS without Ed25519) signs `ecdsa-p256-sha256`."
+          },
+          "publicKeyPem": {
+            "type": "string",
+            "description": "PEM SPKI."
+          },
+          "fingerprint": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "description": "`sha256:` and the hex SHA-256 of the raw public key: to pin it, or compare by eye."
+          },
+          "active": {
+            "type": "boolean",
+            "description": "Whether new exports are signed with it."
+          }
+        }
+      },
+      "ExportSigningKeyList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExportSigningKey"
+            },
+            "description": "Active first. Empty when the deployment doesn't sign exports."
+          }
+        }
+      },
+      "ExportAuditBundleBody": {
+        "description": "Body for `POST /v1/approvals/{approvalId}/audit-bundle`, optional: no body signs with the active key. `includeMessages` adds the conversation messages of the approval's run.",
+        "type": "object",
+        "additionalProperties": false,
         "properties": {
           "signingKeyId": {
             "type": "string",
             "minLength": 1,
-            "description": "The `SigningKeyId` the deployment plugs into its `signingKey` binding. Server looks up the private key via `signingKey.getPrivateKey(signingKeyId)` — 404 if unknown."
+            "description": "Optional: sign with this key, one of `GET /v1/export-signing-keys`. Leave it out to sign with the deployment's active key. A key the deployment doesn't sign with is `404 signing-key-not-found`."
           },
           "includeMessages": {
             "type": "boolean",
@@ -3111,7 +3200,7 @@
         }
       },
       "ExportAuditBundleResult": {
-        "description": "Signed exportable audit bundle. Same envelope shape as `ExportProvenanceResult` — clients can reuse the same `verifyEd25519` wrapper for both. `bundle` is base64 of the exact bytes that were signed (sorted-key canonical JSON, no whitespace). Bundle body: `{ bundleVersion, approvalId, tenantId, subjectKind, subjectRef, requiredRole, status, decision, decidedAt?, evidence: { guardrailResults?, messages? }, createdAt, exportedAt }`.",
+        "description": "A decided approval's signed audit bundle. Body: `{ bundleSchemaVersion, approvalId, tenantId, subjectKind, subjectRef, requiredRole, status, createdAt, decidedAt?, decision, evidence: { guardrailResults?, messages? }, exportedAt }`.",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -3130,37 +3219,48 @@
             "type": "string",
             "format": "uuid"
           },
+          "kind": {
+            "type": "string",
+            "const": "audit-bundle",
+            "description": "Which export this is: `audit-bundle`, `provenance` or `compliance`. Absent from older servers."
+          },
           "bundle": {
             "type": "string",
-            "description": "Base64-encoded canonical JSON of the bundle body."
+            "description": "Base64 of the exact bytes that were signed: the body, as sorted-key JSON with no whitespace. Verify these bytes; nothing needs re-serializing."
           },
           "bundleSchemaVersion": {
-            "type": "integer",
-            "description": "Integer schema version for the bundle body shape. Currently `1`."
+            "type": "string",
+            "description": "The body's version, semver. `2.0.0`: a string like the other exports' (it was the integer `1`), named `bundleSchemaVersion` in the body too, with `exportedAt` signed once."
           },
           "algorithm": {
             "type": "string",
-            "const": "ed25519"
+            "enum": [
+              "ed25519",
+              "ecdsa-p256-sha256"
+            ],
+            "description": "The signing key's algorithm. `ecdsa-p256-sha256` signatures are IEEE P1363 `r‖s`. A verifier refuses an algorithm it doesn't know."
           },
           "signingKeyId": {
-            "type": "string"
+            "type": "string",
+            "description": "The key that signed it: one of `GET /v1/export-signing-keys`."
           },
           "signature": {
             "type": "string",
-            "description": "Base64-encoded Ed25519 signature over `bundle` (after base64-decode)."
+            "description": "Base64 of the 64-byte signature over the `bundle` bytes: Ed25519's, or ECDSA P-256's as IEEE P1363 `r‖s`."
           },
           "publicKey": {
             "type": "string",
-            "description": "PEM-encoded Ed25519 public key (DER SPKI envelope). Pass into `parsePublicKeyPem` for verification."
+            "description": "The signing key's public half, PEM SPKI. On its own it only proves the bytes weren't changed; check it against `GET /v1/export-signing-keys` (or a key you pinned) to know who signed them."
           },
           "canonicalization": {
             "type": "string",
             "const": "sorted-key-json",
-            "description": "Canonicalization algorithm — sorted-key JSON, no whitespace. Same algorithm as `canonicalize`."
+            "description": "Sorted-key JSON, no whitespace (`canonicalize` in `@kindgi/schema`)."
           },
           "exportedAt": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "When it was signed: the same instant as the signed body's `exportedAt`."
           }
         }
       },
@@ -6442,7 +6542,7 @@
         "required": [
           "tenantId"
         ],
-        "description": "Fact scope object. `tenantId` is required; every optional key narrows the fact (`userId`, `orgId`, `projectId`, `threadId`, `sessionId`). Additional keys accepted for forward compatibility.",
+        "description": "Fact scope object. `tenantId` is required; every optional key narrows the fact (`userId`, `orgId`, `projectId`, `threadId`, `sessionId`, `participantId`). A fact is readable by whoever has every container it names. Additional keys accepted for forward compatibility.",
         "properties": {
           "tenantId": {
             "type": "string"
@@ -6461,6 +6561,11 @@
           },
           "sessionId": {
             "type": "string"
+          },
+          "participantId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "An app's end user, by the app's own id: a fact private to that participant's runs. Needs `projectId`."
           }
         }
       },
@@ -6554,6 +6659,73 @@
           }
         }
       },
+      "FactSubject": {
+        "description": "Whom a fact is about: what access and erasure requests by person find.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "id"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "participant",
+              "user",
+              "external"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "FactAttribution": {
+        "description": "Who asserted a fact, set by the server from the writer.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "id"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "user",
+              "service",
+              "agent"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "agentVersion": {
+            "type": "string"
+          }
+        }
+      },
+      "FactGeneratedBy": {
+        "description": "The run step that wrote a fact, for one an agent wrote.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "runId"
+        ],
+        "properties": {
+          "runId": {
+            "type": "string"
+          },
+          "stepId": {
+            "type": "string"
+          },
+          "toolCallId": {
+            "type": "string"
+          }
+        }
+      },
       "Fact": {
         "type": "object",
         "additionalProperties": false,
@@ -6567,7 +6739,11 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "FactId."
+            "description": "The fact id, kept across revisions (for a fact never superseded, also its one revision id)."
+          },
+          "revisionId": {
+            "type": "string",
+            "description": "This revision's own id; absent where it equals `id`."
           },
           "type": {
             "type": "string",
@@ -6579,7 +6755,7 @@
           "version": {
             "type": "integer",
             "minimum": 1,
-            "description": "Monotonic version within (scope, id). Supersession increments."
+            "description": "The revision number within the fact: 1, then one more per supersede or verify."
           },
           "createdAt": {
             "type": "string",
@@ -6620,7 +6796,75 @@
           },
           "supersedes": {
             "type": "string",
-            "description": "FactId of the predecessor when this row supersedes another."
+            "description": "The revision this one replaced."
+          },
+          "trust": {
+            "type": "string",
+            "enum": [
+              "verified",
+              "asserted",
+              "unverified"
+            ],
+            "description": "`verified`: a person with the right checked it. `asserted`: an app or a person wrote it. `unverified`: an agent remembered it during a conversation. Absent on facts from before trust was recorded: `asserted`."
+          },
+          "verifiedBy": {
+            "type": "string"
+          },
+          "verifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "attributedTo": {
+            "$ref": "#/components/schemas/FactAttribution"
+          },
+          "generatedBy": {
+            "$ref": "#/components/schemas/FactGeneratedBy"
+          },
+          "subjects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FactSubject"
+            }
+          },
+          "validFrom": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the fact starts being true in the world; absent: always."
+          },
+          "validUntil": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the fact stops being true in the world; absent: still true."
+          },
+          "observedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it was said or seen."
+          },
+          "invalidatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When this revision stopped being current; absent: it is current."
+          },
+          "invalidatedBy": {
+            "type": "string",
+            "description": "`user:<id>` or `service:<id>`."
+          },
+          "invalidationReason": {
+            "type": "string",
+            "enum": [
+              "superseded",
+              "deleted",
+              "erased",
+              "expired"
+            ]
+          },
+          "review": {
+            "type": "string",
+            "enum": [
+              "pending"
+            ],
+            "description": "`pending` while a person must approve it: a pending fact is never retrieved."
           }
         }
       },
@@ -6648,7 +6892,7 @@
         }
       },
       "WriteFactBody": {
-        "description": "Write a fact. `type` selects the retrieval-policy (which indexes populate); `scope.tenantId` MUST match the caller's tenant. Optional `retention` overrides tenant defaults; optional `contentHash` is a caller-supplied idempotence hint (runtime computes its own hash regardless).",
+        "description": "Write a fact. `type` selects the retrieval-policy (which indexes populate); `scope.tenantId` MUST match the caller's tenant. Optional `retention` overrides tenant defaults; optional `contentHash` is a caller-supplied idempotence hint (runtime computes its own hash regardless). `subjects` names whom it is about; `validFrom`/`validUntil` when it is true in the world; `observedAt` when it was said or seen.",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -6672,23 +6916,90 @@
           },
           "contentHash": {
             "type": "string"
+          },
+          "subjects": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "$ref": "#/components/schemas/FactSubject"
+            }
+          },
+          "validFrom": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "validUntil": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "observedAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
-      "SupersedeFactResult": {
+      "SupersedeFactBody": {
+        "description": "The fact's next revision: new `content`, and optionally new `retention`, `subjects` and times (absent ones keep their current values). Its scope and type stay. `expectVersion`: only if the current revision is still this one.",
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "factId",
-          "superseded"
+          "content"
         ],
         "properties": {
-          "factId": {
-            "type": "string"
+          "content": {
+            "description": "Free-form structured payload."
           },
-          "superseded": {
-            "type": "boolean",
-            "const": true
+          "expectVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "retention": {
+            "$ref": "#/components/schemas/Retention"
+          },
+          "subjects": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "$ref": "#/components/schemas/FactSubject"
+            }
+          },
+          "validFrom": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "validUntil": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "observedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "VerifyFactBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectVersion": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "FactRevisionList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Fact"
+            },
+            "description": "Every revision, newest first."
           }
         }
       },
@@ -7758,16 +8069,14 @@
         }
       },
       "ExportProvenanceBody": {
+        "description": "Optional: no body signs with the active key.",
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "signingKeyId"
-        ],
         "properties": {
           "signingKeyId": {
             "type": "string",
             "minLength": 1,
-            "description": "The `SigningKeyId` the deployment plugs into its `signingKey` binding. Server looks up the private key via `signingKey.getPrivateKey(signingKeyId)` — 404 if unknown."
+            "description": "Optional: sign with this key, one of `GET /v1/export-signing-keys`. Leave it out to sign with the deployment's active key. A key the deployment doesn't sign with is `404 signing-key-not-found`."
           },
           "includeMessages": {
             "type": "boolean",
@@ -7777,7 +8086,7 @@
         }
       },
       "ExportProvenanceResult": {
-        "description": "Signed exportable bundle. `bundle` is base64 of the exact bytes that were signed (sorted-key canonical JSON, no whitespace); verifiers can pass those bytes directly to `verifyEd25519`. The bundle body itself includes `bundleSchemaVersion`, `runId`, `tenantId`, `dag: { nodes, edges }`, `messages?` (if requested), `callUsage?` (the usage of the model calls, from the cost ledger), etc. See `canonicalization` for the deterministic serialization algorithm.",
+        "description": "A run's signed provenance. Body: `{ bundleSchemaVersion, provenanceId, runId, tenantId, version, createdAt, flowRef?, dag: { nodes, edges }, messages?, callUsage?, exportedAt }`; `callUsage` is each model call's usage from the cost ledger, as it stood when signed.",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -7796,37 +8105,48 @@
             "type": "string",
             "format": "uuid"
           },
+          "kind": {
+            "type": "string",
+            "const": "provenance",
+            "description": "Which export this is: `audit-bundle`, `provenance` or `compliance`. Absent from older servers."
+          },
           "bundle": {
             "type": "string",
-            "description": "Base64-encoded canonical JSON of the bundle body."
+            "description": "Base64 of the exact bytes that were signed: the body, as sorted-key JSON with no whitespace. Verify these bytes; nothing needs re-serializing."
           },
           "bundleSchemaVersion": {
             "type": "string",
-            "description": "Semver for the shape of the bundle body. Currently `1.1.0`, which adds `callUsage`: each model call's usage from the cost ledger, by call id, as it stood when signed."
+            "description": "The body's version, semver. `1.2.0` adds `exportedAt` to the signed body; `1.1.0` added `callUsage`."
           },
           "algorithm": {
             "type": "string",
-            "const": "ed25519"
+            "enum": [
+              "ed25519",
+              "ecdsa-p256-sha256"
+            ],
+            "description": "The signing key's algorithm. `ecdsa-p256-sha256` signatures are IEEE P1363 `r‖s`. A verifier refuses an algorithm it doesn't know."
           },
           "signingKeyId": {
-            "type": "string"
+            "type": "string",
+            "description": "The key that signed it: one of `GET /v1/export-signing-keys`."
           },
           "signature": {
             "type": "string",
-            "description": "Base64-encoded Ed25519 signature bytes over `bundle` (after base64-decode)."
+            "description": "Base64 of the 64-byte signature over the `bundle` bytes: Ed25519's, or ECDSA P-256's as IEEE P1363 `r‖s`."
           },
           "publicKey": {
             "type": "string",
-            "description": "PEM-encoded Ed25519 public key (DER SPKI envelope). Callers can pass this straight into `parsePublicKeyPem` for verification."
+            "description": "The signing key's public half, PEM SPKI. On its own it only proves the bytes weren't changed; check it against `GET /v1/export-signing-keys` (or a key you pinned) to know who signed them."
           },
           "canonicalization": {
             "type": "string",
             "const": "sorted-key-json",
-            "description": "Canonicalization algorithm — sorted-key JSON, no whitespace. Same algorithm as `canonicalize`."
+            "description": "Sorted-key JSON, no whitespace (`canonicalize` in `@kindgi/schema`)."
           },
           "exportedAt": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "When it was signed: the same instant as the signed body's `exportedAt`."
           }
         }
       },
@@ -7881,6 +8201,14 @@
             "type": "string",
             "format": "uuid",
             "description": "Optional back-ref to the RunId that produced this blob."
+          },
+          "projectId": {
+            "type": "string",
+            "description": "The project the artifact belongs to: its owner run's, else the upload's `projectId`, else the tenant's default project. Reading it needs `read` there; deleting it, `write`. Absent on blobs stored before projects were recorded."
+          },
+          "createdBy": {
+            "type": "string",
+            "description": "Who uploaded it: `user:<id>` or `service_account:<id>`."
           },
           "createdAt": {
             "type": "string",
@@ -7950,6 +8278,14 @@
                   "format": "uuid",
                   "description": "Optional back-ref to the RunId that produced this blob."
                 },
+                "projectId": {
+                  "type": "string",
+                  "description": "The project the artifact belongs to: its owner run's, else the upload's `projectId`, else the tenant's default project. Reading it needs `read` there; deleting it, `write`. Absent on blobs stored before projects were recorded."
+                },
+                "createdBy": {
+                  "type": "string",
+                  "description": "Who uploaded it: `user:<id>` or `service_account:<id>`."
+                },
                 "createdAt": {
                   "type": "string",
                   "format": "date-time"
@@ -7989,6 +8325,10 @@
           "ownerRunId": {
             "type": "string",
             "format": "uuid"
+          },
+          "projectId": {
+            "type": "string",
+            "description": "The project it belongs to, when there's no `ownerRunId` (with one, the run's project, and this must agree). Default: the tenant's default project."
           },
           "expectedHash": {
             "type": "string",
@@ -8067,6 +8407,34 @@
             "type": "object",
             "additionalProperties": true,
             "description": "Optional JSON Schema fragment describing the parameters an agent may attach to `{ feature, params }` in a `Requirement`."
+          },
+          "providers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CapabilityProvider"
+            },
+            "description": "The tenant's registered providers with a model that has the feature, and those models. Absent from servers that don't read the provider registry; `[]` when no provider of the tenant has one."
+          }
+        }
+      },
+      "CapabilityProvider": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "providerId",
+          "models"
+        ],
+        "description": "A provider of the tenant with a model that has the feature.",
+        "properties": {
+          "providerId": {
+            "type": "string"
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Its models that have it."
           }
         }
       },
@@ -8089,6 +8457,30 @@
           },
           "hasMore": {
             "type": "boolean"
+          }
+        }
+      },
+      "ModelThinking": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mode",
+          "lowest"
+        ],
+        "description": "How the model thinks before it answers, so a call that wants as little as it allows (a judge's) gets it. Absent: it doesn't think, or nothing is known.",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "adaptive",
+              "always"
+            ],
+            "description": "`adaptive`: on unless turned down. `always`: on, and it can only be lowered."
+          },
+          "lowest": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The vendor's own setting for the least thinking: for Anthropic `disabled`, `between_tools` or an effort (`low`); for Gemini a thinking level (`low`, `minimal`); for OpenAI a reasoning effort (`low`, `none`)."
           }
         }
       },
@@ -8151,6 +8543,13 @@
             "minimum": 1,
             "description": "Fallback cap on output tokens. Adapters that require `max_tokens` on every request (e.g. Anthropic) use this when `ModelCallInput.maxOutputTokens` is unset."
           },
+          "sampling": {
+            "type": "boolean",
+            "description": "Whether the model takes sampling settings (`temperature`). `false`: its API rejects a non-default value, so the call goes without one and the answer's `warnings` say so (`sampling-unsupported`). Absent: it takes them."
+          },
+          "thinking": {
+            "$ref": "#/components/schemas/ModelThinking"
+          },
           "description": {
             "type": "string",
             "description": "Short per-model description surfaced in logs."
@@ -8183,6 +8582,11 @@
               "$ref": "#/components/schemas/ModelInfo"
             },
             "description": "Models this connection exposes. Non-empty. `models[i].name` must be unique within the list."
+          },
+          "defaultModel": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The model to use when an agent doesn't choose: one of `models[].name`. When candidates rank equally, it comes before the provider's other models; without it, ties break by model name. A preset sets it. A runtime before 0.1.4 ignores it."
           },
           "attributes": {
             "type": "array",
@@ -8333,6 +8737,52 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/CapabilityDescriptor"
+            }
+          }
+        }
+      },
+      "AdapterConfigProblem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "message"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "The setting at fault, as a JSON pointer into the registration: `/adapter_config/<key>`, `/secret_ref`, `/metadata/region`, `/metadata/models/<i>/name`, or `/adapter_id` (an adapter this runtime does not have)."
+          },
+          "message": {
+            "type": "string",
+            "description": "What's wrong with that setting and what it takes (e.g. `adapter_config.api must be one of responses, chat-completions.`). The error's `message` names the provider and its adapter."
+          }
+        }
+      },
+      "ProviderCheckResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "providerId",
+          "adapterId",
+          "checked",
+          "issues"
+        ],
+        "properties": {
+          "providerId": {
+            "type": "string"
+          },
+          "adapterId": {
+            "type": "string"
+          },
+          "checked": {
+            "type": "boolean",
+            "description": "False when this runtime has no check for the provider's adapter; `issues` is then empty."
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdapterConfigProblem"
             }
           }
         }
@@ -9611,6 +10061,7 @@
           "env",
           "secret",
           "run",
+          "artifact",
           "policy",
           "judgment",
           "judge_class",
@@ -12689,16 +13140,14 @@
         }
       },
       "ExportComplianceEvidenceBody": {
+        "description": "Optional: no body exports every exportable kind, signed with the active key.",
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "signingKeyId"
-        ],
         "properties": {
           "signingKeyId": {
             "type": "string",
             "minLength": 1,
-            "description": "The `SigningKeyId` the deployment plugs into its `signingKey` binding. Server looks up the private key via `signingKey.getPrivateKey(signingKeyId)` — 404 `signing-key-not-found` if unknown."
+            "description": "Optional: sign with this key, one of `GET /v1/export-signing-keys`. Leave it out to sign with the deployment's active key. A key the deployment doesn't sign with is `404 signing-key-not-found`."
           },
           "filter": {
             "type": "object",
@@ -12775,13 +13224,13 @@
         }
       },
       "SignedComplianceEvidenceBundle": {
-        "description": "Signed exportable bundle. `bundle` is base64 of the exact bytes that were signed (sorted-key canonical JSON, no whitespace); verifiers can pass those bytes directly to `verifyEd25519`. Bundle body: `{ bundleSchemaVersion, tenantId, filter, records, recordCount, exportedAt }`. Envelope shape identical to `ExportProvenanceResult` + audit-bundle — verifiers reuse one `verifyEd25519` wrapper across all three surfaces.",
+        "description": "Signed compliance evidence. Body: `{ bundleSchemaVersion, tenantId, filter, records, recordCount, exportedAt }`.",
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "bundleSchemaVersion",
           "tenantId",
           "bundle",
+          "bundleSchemaVersion",
           "algorithm",
           "signingKeyId",
           "signature",
@@ -12790,41 +13239,52 @@
           "exportedAt"
         ],
         "properties": {
-          "bundleSchemaVersion": {
-            "type": "string",
-            "const": "1.0.0"
-          },
           "tenantId": {
             "type": "string",
             "format": "uuid"
           },
+          "kind": {
+            "type": "string",
+            "const": "compliance",
+            "description": "Which export this is: `audit-bundle`, `provenance` or `compliance`. Absent from older servers."
+          },
           "bundle": {
             "type": "string",
-            "description": "Base64-encoded canonical JSON of the bundle body."
+            "description": "Base64 of the exact bytes that were signed: the body, as sorted-key JSON with no whitespace. Verify these bytes; nothing needs re-serializing."
+          },
+          "bundleSchemaVersion": {
+            "type": "string",
+            "description": "The body's version, semver: `1.0.0`."
           },
           "algorithm": {
             "type": "string",
-            "const": "ed25519"
+            "enum": [
+              "ed25519",
+              "ecdsa-p256-sha256"
+            ],
+            "description": "The signing key's algorithm. `ecdsa-p256-sha256` signatures are IEEE P1363 `r‖s`. A verifier refuses an algorithm it doesn't know."
           },
           "signingKeyId": {
-            "type": "string"
+            "type": "string",
+            "description": "The key that signed it: one of `GET /v1/export-signing-keys`."
           },
           "signature": {
             "type": "string",
-            "description": "Base64-encoded Ed25519 signature bytes over `bundle` (after base64-decode)."
+            "description": "Base64 of the 64-byte signature over the `bundle` bytes: Ed25519's, or ECDSA P-256's as IEEE P1363 `r‖s`."
           },
           "publicKey": {
             "type": "string",
-            "description": "PEM-encoded Ed25519 public key (DER SPKI envelope). Callers can pass this straight into `parsePublicKeyPem` for verification."
+            "description": "The signing key's public half, PEM SPKI. On its own it only proves the bytes weren't changed; check it against `GET /v1/export-signing-keys` (or a key you pinned) to know who signed them."
           },
           "canonicalization": {
             "type": "string",
             "const": "sorted-key-json",
-            "description": "Canonicalization algorithm — sorted-key JSON, no whitespace. Same algorithm as `canonicalize`."
+            "description": "Sorted-key JSON, no whitespace (`canonicalize` in `@kindgi/schema`)."
           },
           "exportedAt": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "When it was signed: the same instant as the signed body's `exportedAt`."
           }
         }
       },
@@ -18499,7 +18959,7 @@
             }
           }
         },
-        "description": "Canonicalizes the approval + decision + evidence as sorted-key JSON and signs with the deployment's Ed25519 key looked up by `signingKeyId`. Envelope shape mirrors `provenance.export` byte-for-byte so SDK clients can reuse a single `verifyEd25519` wrapper for both. Only meaningful post-decision — pending approvals return `409 approval-not-decided`.",
+        "description": "Signs the approval, its decision and its evidence with the deployment's export key, and records the export (an `export-signed` audit event). The same envelope as the other signed exports, so one verifier reads all three; check `publicKey` against `GET /v1/export-signing-keys`. For a decided approval only (approved, rejected, escalated, expired, withdrawn): a pending one is `409 approval-not-decided`. A deployment with no export key answers `404 signing-not-configured`.",
         "parameters": [
           {
             "name": "approvalId",
@@ -18523,7 +18983,7 @@
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -22797,7 +23257,7 @@
             }
           },
           "400": {
-            "description": "Malformed query parameter (e.g. `scope` not valid JSON).",
+            "description": "Malformed query parameter (e.g. `scope` not valid JSON, `asOf` not a time).",
             "content": {
               "application/json": {
                 "schema": {
@@ -22817,7 +23277,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Filters: `?type=` (exact match on `Fact.type`), `?scope=` (URL-encoded JSON partial memory `Scope`), `?scopeKind + ?scopeId + ?inherit` (discriminated `PlatformScope` triplet — threaded into the binding as `platformScope`; both fields coexist). Sort order is binding-defined.",
+        "description": "Cursor-paginated: the current revision of each fact the caller may see. That is tenant-wide facts, the projects they may read (with those projects' orgs), their own user facts, and every end user's and conversation's facts in the projects they may write; a tenant admin sees every fact. Filters: `?type=` (exact match on `Fact.type`), `?scope=` (URL-encoded JSON partial memory `Scope`), `?scopeKind + ?scopeId + ?inherit` (discriminated `PlatformScope` triplet — threaded into the binding as `platformScope`; both fields coexist), `?asOf=` (memory as it stood then). Sort order is binding-defined.",
         "parameters": [
           {
             "name": "limit",
@@ -22886,6 +23346,16 @@
             },
             "required": false,
             "description": "Default `true`. `false` = literal-at-this-scope only (admin/audit view). Load-bearing for policy/config-scoped resources (mcp-endpoints); documented no-op for content-scoped resources (agents/flows/tools/...)."
+          },
+          {
+            "name": "asOf",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "description": "Read memory as it stood at this time (ISO 8601): the revision that was current then, including one since superseded or deleted."
           }
         ],
         "security": [
@@ -22931,6 +23401,16 @@
               }
             }
           },
+          "403": {
+            "description": "`permission-denied`: the caller may not write in the fact's scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "409": {
             "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
             "content": {
@@ -22952,7 +23432,7 @@
             }
           }
         },
-        "description": "Persists a new fact. `type` selects the retrieval policy (which indexes populate). Semantic-indexed types require an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`.",
+        "description": "Persists a new fact. `type` selects the retrieval policy (which indexes populate). Semantic-indexed types require an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`. The caller needs write where the scope says: `write` on its project (an end user's or a conversation's fact included), `write` on its conversation outside a project, `admin` on its org for an org-wide fact, being that user for a user's fact, and tenant `admin` for a tenant-wide fact. The fact records who wrote it (`attributedTo`).",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -23000,6 +23480,16 @@
               }
             }
           },
+          "400": {
+            "description": "`version` is not a revision number, or `asOf` not a time.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
             "content": {
@@ -23011,7 +23501,7 @@
             }
           },
           "404": {
-            "description": "No fact with that id under this tenant.",
+            "description": "No fact with that id the caller may see (or no such revision).",
             "content": {
               "application/json": {
                 "schema": {
@@ -23021,6 +23511,7 @@
             }
           }
         },
+        "description": "Its current revision; `?version=` reads one revision, `?asOf=` the revision current at that time. A fact the caller may not see is not found.",
         "parameters": [
           {
             "name": "factId",
@@ -23029,7 +23520,201 @@
               "type": "string"
             },
             "required": true,
-            "description": "FactId — opaque branded string."
+            "description": "The fact id (kept across revisions)."
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "required": false,
+            "description": "A revision number: that revision, current or not."
+          },
+          {
+            "name": "asOf",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "description": "Read memory as it stood at this time (ISO 8601): the revision that was current then, including one since superseded or deleted."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "memory.deleteFact",
+        "summary": "Delete a fact",
+        "tags": [
+          "memory"
+        ],
+        "responses": {
+          "200": {
+            "description": "The closed revision.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Fact"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`expectVersion` is not a revision number.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: the caller may not write in the fact's scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No fact with that id the caller may see, or it was deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`fact-changed`: the current revision is not `expectVersion`; `legal-hold`: the fact is under legal hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`memory-operation-unsupported`: this runtime's memory can't delete facts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Closes the current revision (`invalidationReason: deleted`): the fact is no longer listed, fetched or retrieved, and its history stays readable until the retention sweep removes it.",
+        "parameters": [
+          {
+            "name": "factId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "The fact id (kept across revisions)."
+          },
+          {
+            "name": "expectVersion",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "required": false,
+            "description": "Only if the current revision is still this one; otherwise `409 fact-changed` with `currentVersion`."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/memory/facts/{factId}/revisions": {
+      "get": {
+        "operationId": "memory.listFactRevisions",
+        "summary": "List a fact's revisions",
+        "tags": [
+          "memory"
+        ],
+        "responses": {
+          "200": {
+            "description": "The revisions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FactRevisionList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No fact with that id the caller may see.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`memory-operation-unsupported`: this runtime's memory doesn't keep fact history.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Every revision of the fact, newest first, superseded and deleted ones included: who changed it, when and why (`invalidatedBy`, `invalidatedAt`, `invalidationReason`).",
+        "parameters": [
+          {
+            "name": "factId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "The fact id (kept across revisions)."
           }
         ],
         "security": [
@@ -23042,17 +23727,17 @@
     "/v1/memory/facts/{factId}/supersede": {
       "post": {
         "operationId": "memory.supersedeFact",
-        "summary": "Mark a fact as superseded",
+        "summary": "Change a fact's content",
         "tags": [
           "memory"
         ],
         "responses": {
           "200": {
-            "description": "Superseded (or already superseded).",
+            "description": "The new revision.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SupersedeFactResult"
+                  "$ref": "#/components/schemas/Fact"
                 }
               }
             }
@@ -23077,8 +23762,18 @@
               }
             }
           },
+          "403": {
+            "description": "`permission-denied`: the caller may not write in the fact's scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
-            "description": "No fact with that id under this tenant.",
+            "description": "No fact with that id the caller may see, or it was deleted.",
             "content": {
               "application/json": {
                 "schema": {
@@ -23088,7 +23783,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "`fact-changed`: the current revision is not `expectVersion` (`details.currentVersion`); `legal-hold`: the fact is under legal hold.",
             "content": {
               "application/json": {
                 "schema": {
@@ -23108,7 +23803,7 @@
             }
           }
         },
-        "description": "Soft-delete via supersession — the historical row is retained until retention sweeps remove it. Idempotent: superseding an already-superseded fact returns `200 { superseded: true }`.",
+        "description": "Writes the next revision (same fact id, `version` one more) and closes the current one; the old revision stays readable with `?version=`, `?asOf=` and in the history until the retention sweep removes it. `expectVersion` refuses if someone changed it first.",
         "parameters": [
           {
             "name": "factId",
@@ -23117,7 +23812,7 @@
               "type": "string"
             },
             "required": true,
-            "description": "FactId — opaque branded string."
+            "description": "The fact id (kept across revisions)."
           },
           {
             "name": "Idempotency-Key",
@@ -23130,6 +23825,144 @@
             "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupersedeFactBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/memory/facts/{factId}/verify": {
+      "post": {
+        "operationId": "memory.verifyFact",
+        "summary": "Mark a fact verified",
+        "tags": [
+          "memory"
+        ],
+        "responses": {
+          "200": {
+            "description": "The verified revision.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Fact"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: the caller may not write in the fact's scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No fact with that id the caller may see, or it was deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`fact-changed`: the current revision is not `expectVersion`; `legal-hold`: the fact is under legal hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`memory-operation-unsupported`: this runtime's memory can't verify facts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A person who may write in its scope checked it: the next revision has `trust: verified`, `verifiedBy` and `verifiedAt`, and the same content.",
+        "parameters": [
+          {
+            "name": "factId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "The fact id (kept across revisions)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyFactBody"
+              }
+            }
+          }
+        },
         "security": [
           {
             "bearerAuth": []
@@ -23194,9 +24027,19 @@
                 }
               }
             }
+          },
+          "501": {
+            "description": "`memory-operation-unsupported`: this runtime's memory can't retrieve by intent yet.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
           }
         },
-        "description": "Cross-history retrieval. Body is a `RetrieveIntent` shape mirroring the agent-side declarative retrieval. Semantic modes require an embedding provider bound on the deployment.",
+        "description": "Cross-history retrieval over the facts the caller may see (as for listing). Body is a `RetrieveIntent` shape mirroring the agent-side declarative retrieval. Semantic modes require an embedding provider bound on the deployment.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -24338,6 +25181,43 @@
         ]
       }
     },
+    "/v1/export-signing-keys": {
+      "get": {
+        "operationId": "exportSigningKeys.list",
+        "summary": "List the keys this deployment signs exports with",
+        "tags": [
+          "export-signing-keys"
+        ],
+        "responses": {
+          "200": {
+            "description": "The keys.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportSigningKeyList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "The public keys of the deployment's export signing key, active first: what a verifier pins. An export's embedded `publicKey` only proves its bytes weren't changed; this list says who signed them. Empty when the deployment doesn't sign exports. Any authenticated caller may read it.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/v1/provenance/{runId}/export": {
       "post": {
         "operationId": "provenance.export",
@@ -24407,7 +25287,7 @@
             }
           }
         },
-        "description": "Canonicalizes the record + optional messages as sorted-key JSON and signs with the deployment's Ed25519 key looked up by `signingKeyId`. Verification is a pure client-side operation: `verifyEd25519(publicKey, bundleBytes, signature)`. Deployments without a `signingKey` binding mounted return `404 signing-not-configured`.",
+        "description": "Signs the run's provenance (and, when asked, its messages) with the deployment's export key, and records the export (an `export-signed` audit event). The same envelope as the other signed exports; check `publicKey` against `GET /v1/export-signing-keys`. A deployment with no export key answers `404 signing-not-configured`.",
         "parameters": [
           {
             "name": "runId",
@@ -24431,7 +25311,7 @@
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -24486,7 +25366,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`).",
+        "description": "Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?projectId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`). With authorization on, only artifacts in projects the caller can read are listed.",
         "parameters": [
           {
             "name": "limit",
@@ -24527,6 +25407,15 @@
             },
             "required": false,
             "description": "Filter by exact content-type match."
+          },
+          {
+            "name": "projectId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Filter to the artifacts of one project."
           }
         ],
         "security": [
@@ -24553,7 +25442,7 @@
             }
           },
           "400": {
-            "description": "Malformed multipart body, bad tag JSON, hash mismatch, or declared size mismatch.",
+            "description": "Malformed multipart body, bad tag JSON, hash mismatch, declared size mismatch, or a `projectId` that isn't the owner run's.",
             "content": {
               "application/json": {
                 "schema": {
@@ -24572,8 +25461,38 @@
               }
             }
           },
+          "403": {
+            "description": "No `write` on the project (`permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such owner run (`run-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "409": {
             "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Over the upload cap (`artifact-too-large`; `details.maxBytes` says how much).",
             "content": {
               "application/json": {
                 "schema": {
@@ -24593,7 +25512,7 @@
             }
           }
         },
-        "description": "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller.",
+        "description": "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the tenant's default project; uploading needs `write` there. An upload over the runtime's cap (default 100 MB) is `413 artifact-too-large`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -24661,7 +25580,7 @@
             }
           },
           "404": {
-            "description": "No blob with that id under this tenant.",
+            "description": "No blob with that id under this tenant, or one in a project the caller can't read.",
             "content": {
               "application/json": {
                 "schema": {
@@ -24761,6 +25680,26 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No `write` on its project (`permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "An artifact in a project the caller can't read (`blob-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -25213,6 +26152,16 @@
               }
             }
           },
+          "422": {
+            "description": "`provider-config-invalid`: the provider's adapter refuses the registration (its `adapter_config`, its metadata, or a missing `secret_ref`); `details.issues` lists each (`path`, a JSON pointer, and `message`), as other validation errors do. Nothing is stored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Server error (unmapped domain code or framework crash).",
             "content": {
@@ -25224,7 +26173,7 @@
             }
           }
         },
-        "description": "Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped; optional `labels` within their limits — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding.",
+        "description": "Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped; optional `labels` within their limits — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding. When the runtime has the adapter the body names, that adapter checks the registration first (its `adapter_config`, the metadata and the presence of `secret_ref`; static: no network, no secret read): a problem refuses it with `422 provider-config-invalid`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -25352,6 +26301,64 @@
           }
         },
         "description": "Sub-resource: returns the catalog capability descriptors the provider fulfils. Empty array = known provider with no matches; 404 = unknown provider.",
+        "parameters": [
+          {
+            "name": "providerId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "ProviderId — opaque string identifier chosen by the deployment."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/providers/{providerId}/check": {
+      "get": {
+        "operationId": "providers.check",
+        "summary": "Check a provider's registration",
+        "tags": [
+          "providers"
+        ],
+        "responses": {
+          "200": {
+            "description": "The check.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderCheckResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No provider with that id under this tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Runs the provider's adapter check over its stored registration (its `adapter_config`, its metadata, whether it names a `secret_ref`): the check `POST /v1/providers` runs before it stores one. Static: no network call, no secret read. `issues` lists what would keep the runtime from building the provider, each with a JSON-pointer `path`; an adapter this runtime doesn't have is one (`/adapter_id`). `checked` is false when this runtime has no check for the provider's adapter.",
         "parameters": [
           {
             "name": "providerId",
@@ -32833,7 +33840,7 @@
             }
           }
         },
-        "description": "Canonicalizes the filtered records as sorted-key JSON and signs with the deployment's Ed25519 key looked up by `signingKeyId`. Verification is a pure client-side operation: `verifyEd25519(publicKey, bundleBytes, signature)`. Envelope shape matches `ExportProvenanceResult` + audit-bundle — verifiers reuse one wrapper across all three surfaces. Deployments without a `signingKey` binding mounted return `404 signing-not-configured`.",
+        "description": "Signs the evidence the filter matches (exportable kinds only) with the deployment's export key, and records the export (an `export-signed` audit event). The same envelope as the other signed exports; check `publicKey` against `GET /v1/export-signing-keys`. A deployment with no export key answers `404 signing-not-configured`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -32847,7 +33854,7 @@
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {

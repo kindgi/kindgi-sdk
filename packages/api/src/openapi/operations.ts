@@ -484,7 +484,7 @@ const FactIdPathParam: ParameterSpec = {
   name: 'factId',
   in: 'path',
   required: true,
-  description: 'FactId — opaque branded string.',
+  description: 'The fact id (kept across revisions).',
   schema: { type: 'string' },
 };
 
@@ -503,6 +503,32 @@ const FactScopeQueryParam: ParameterSpec = {
   description:
     'JSON-encoded partial scope object. Every provided key must match. Example: `%7B%22projectId%22%3A%22...%22%7D`.',
   schema: { type: 'string' },
+};
+
+const FactAsOfQueryParam: ParameterSpec = {
+  name: 'asOf',
+  in: 'query',
+  required: false,
+  description:
+    'Read memory as it stood at this time (ISO 8601): the revision that was current then, including one since superseded or deleted.',
+  schema: { type: 'string', format: 'date-time' },
+};
+
+const FactVersionQueryParam: ParameterSpec = {
+  name: 'version',
+  in: 'query',
+  required: false,
+  description: 'A revision number: that revision, current or not.',
+  schema: { type: 'integer', minimum: 1 },
+};
+
+const FactExpectVersionQueryParam: ParameterSpec = {
+  name: 'expectVersion',
+  in: 'query',
+  required: false,
+  description:
+    'Only if the current revision is still this one; otherwise `409 fact-changed` with `currentVersion`.',
+  schema: { type: 'integer', minimum: 1 },
 };
 
 // ---------------- scope triplet ----------------
@@ -1902,11 +1928,11 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'approvals.auditBundle',
     summary: 'Export a signed audit bundle for a decided approval',
     description:
-      "Canonicalizes the approval + decision + evidence as sorted-key JSON and signs with the deployment's Ed25519 key looked up by `signingKeyId`. Envelope shape mirrors `provenance.export` byte-for-byte so SDK clients can reuse a single `verifyEd25519` wrapper for both. Only meaningful post-decision — pending approvals return `409 approval-not-decided`.",
+      "Signs the approval, its decision and its evidence with the deployment's export key, and records the export (an `export-signed` audit event). The same envelope as the other signed exports, so one verifier reads all three; check `publicKey` against `GET /v1/export-signing-keys`. For a decided approval only (approved, rejected, escalated, expired, withdrawn): a pending one is `409 approval-not-decided`. A deployment with no export key answers `404 signing-not-configured`.",
     tags: ['approvals'],
     security: 'bearer',
     parameters: [ApprovalIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('ExportAuditBundleBody') },
+    requestBody: { required: false, schema: ref('ExportAuditBundleBody') },
     responses: {
       '200': { description: 'Signed audit bundle.', schema: ref('ExportAuditBundleResult') },
       ...CommonMutationErrors,
@@ -2881,7 +2907,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'memory.listFacts',
     summary: 'List facts',
     description:
-      'Cursor-paginated. Filters: `?type=` (exact match on `Fact.type`), `?scope=` (URL-encoded JSON partial memory `Scope`), `?scopeKind + ?scopeId + ?inherit` (discriminated `PlatformScope` triplet — threaded into the binding as `platformScope`; both fields coexist). Sort order is binding-defined.',
+      "Cursor-paginated: the current revision of each fact the caller may see. That is tenant-wide facts, the projects they may read (with those projects' orgs), their own user facts, and every end user's and conversation's facts in the projects they may write; a tenant admin sees every fact. Filters: `?type=` (exact match on `Fact.type`), `?scope=` (URL-encoded JSON partial memory `Scope`), `?scopeKind + ?scopeId + ?inherit` (discriminated `PlatformScope` triplet — threaded into the binding as `platformScope`; both fields coexist), `?asOf=` (memory as it stood then). Sort order is binding-defined.",
     tags: ['memory'],
     security: 'bearer',
     parameters: [
@@ -2892,11 +2918,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ScopeKindQueryParam,
       ScopeIdQueryParam,
       InheritQueryParam,
+      FactAsOfQueryParam,
     ],
     responses: {
       '200': { description: 'Page of facts.', schema: ref('FactCollectionPage') },
       ...CommonAuthErrors,
-      '400': ErrorResponse('Malformed query parameter (e.g. `scope` not valid JSON).'),
+      '400': ErrorResponse(
+        'Malformed query parameter (e.g. `scope` not valid JSON, `asOf` not a time).',
+      ),
     },
   },
   {
@@ -2905,13 +2934,36 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/memory/facts/{factId}',
     operationId: 'memory.getFact',
     summary: 'Fetch a fact',
+    description:
+      'Its current revision; `?version=` reads one revision, `?asOf=` the revision current at that time. A fact the caller may not see is not found.',
+    tags: ['memory'],
+    security: 'bearer',
+    parameters: [FactIdPathParam, FactVersionQueryParam, FactAsOfQueryParam],
+    responses: {
+      '200': { description: 'Fact.', schema: ref('Fact') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('`version` is not a revision number, or `asOf` not a time.'),
+      '404': ErrorResponse('No fact with that id the caller may see (or no such revision).'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/memory/facts/:factId/revisions',
+    openapiPath: '/v1/memory/facts/{factId}/revisions',
+    operationId: 'memory.listFactRevisions',
+    summary: "List a fact's revisions",
+    description:
+      'Every revision of the fact, newest first, superseded and deleted ones included: who changed it, when and why (`invalidatedBy`, `invalidatedAt`, `invalidationReason`).',
     tags: ['memory'],
     security: 'bearer',
     parameters: [FactIdPathParam],
     responses: {
-      '200': { description: 'Fact.', schema: ref('Fact') },
+      '200': { description: 'The revisions.', schema: ref('FactRevisionList') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No fact with that id under this tenant.'),
+      '404': ErrorResponse('No fact with that id the caller may see.'),
+      '501': ErrorResponse(
+        "`memory-operation-unsupported`: this runtime's memory doesn't keep fact history.",
+      ),
     },
   },
   {
@@ -2921,7 +2973,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'memory.writeFact',
     summary: 'Write a fact',
     description:
-      'Persists a new fact. `type` selects the retrieval policy (which indexes populate). Semantic-indexed types require an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`.',
+      "Persists a new fact. `type` selects the retrieval policy (which indexes populate). Semantic-indexed types require an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`. The caller needs write where the scope says: `write` on its project (an end user's or a conversation's fact included), `write` on its conversation outside a project, `admin` on its org for an org-wide fact, being that user for a user's fact, and tenant `admin` for a tenant-wide fact. The fact records who wrote it (`attributedTo`).",
     tags: ['memory'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -2932,6 +2984,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         'Malformed body, or the fact type requires semantic indexing and no embedding provider is bound.',
       ),
+      '403': ErrorResponse("`permission-denied`: the caller may not write in the fact's scope."),
     },
   },
   {
@@ -2939,19 +2992,71 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/memory/facts/:factId/supersede',
     openapiPath: '/v1/memory/facts/{factId}/supersede',
     operationId: 'memory.supersedeFact',
-    summary: 'Mark a fact as superseded',
+    summary: "Change a fact's content",
     description:
-      'Soft-delete via supersession — the historical row is retained until retention sweeps remove it. Idempotent: superseding an already-superseded fact returns `200 { superseded: true }`.',
+      'Writes the next revision (same fact id, `version` one more) and closes the current one; the old revision stays readable with `?version=`, `?asOf=` and in the history until the retention sweep removes it. `expectVersion` refuses if someone changed it first.',
     tags: ['memory'],
     security: 'bearer',
     parameters: [FactIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('SupersedeFactBody') },
     responses: {
-      '200': {
-        description: 'Superseded (or already superseded).',
-        schema: ref('SupersedeFactResult'),
-      },
+      '200': { description: 'The new revision.', schema: ref('Fact') },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No fact with that id under this tenant.'),
+      '403': ErrorResponse("`permission-denied`: the caller may not write in the fact's scope."),
+      '404': ErrorResponse('No fact with that id the caller may see, or it was deleted.'),
+      '409': ErrorResponse(
+        '`fact-changed`: the current revision is not `expectVersion` (`details.currentVersion`); `legal-hold`: the fact is under legal hold.',
+      ),
+    },
+  },
+  {
+    method: 'delete',
+    honoPath: '/v1/memory/facts/:factId',
+    openapiPath: '/v1/memory/facts/{factId}',
+    operationId: 'memory.deleteFact',
+    summary: 'Delete a fact',
+    description:
+      'Closes the current revision (`invalidationReason: deleted`): the fact is no longer listed, fetched or retrieved, and its history stays readable until the retention sweep removes it.',
+    tags: ['memory'],
+    security: 'bearer',
+    parameters: [FactIdPathParam, FactExpectVersionQueryParam],
+    responses: {
+      '200': { description: 'The closed revision.', schema: ref('Fact') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('`expectVersion` is not a revision number.'),
+      '403': ErrorResponse("`permission-denied`: the caller may not write in the fact's scope."),
+      '404': ErrorResponse('No fact with that id the caller may see, or it was deleted.'),
+      '409': ErrorResponse(
+        '`fact-changed`: the current revision is not `expectVersion`; `legal-hold`: the fact is under legal hold.',
+      ),
+      '501': ErrorResponse(
+        "`memory-operation-unsupported`: this runtime's memory can't delete facts.",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/memory/facts/:factId/verify',
+    openapiPath: '/v1/memory/facts/{factId}/verify',
+    operationId: 'memory.verifyFact',
+    summary: 'Mark a fact verified',
+    description:
+      'A person who may write in its scope checked it: the next revision has `trust: verified`, `verifiedBy` and `verifiedAt`, and the same content.',
+    tags: ['memory'],
+    security: 'bearer',
+    parameters: [FactIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: false, schema: ref('VerifyFactBody') },
+    responses: {
+      '200': { description: 'The verified revision.', schema: ref('Fact') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse("`permission-denied`: the caller may not write in the fact's scope."),
+      '404': ErrorResponse('No fact with that id the caller may see, or it was deleted.'),
+      '409': ErrorResponse(
+        '`fact-changed`: the current revision is not `expectVersion`; `legal-hold`: the fact is under legal hold.',
+      ),
+      '501': ErrorResponse(
+        "`memory-operation-unsupported`: this runtime's memory can't verify facts.",
+      ),
     },
   },
   {
@@ -2961,7 +3066,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'memory.retrieve',
     summary: 'Retrieve facts by intent',
     description:
-      'Cross-history retrieval. Body is a `RetrieveIntent` shape mirroring the agent-side declarative retrieval. Semantic modes require an embedding provider bound on the deployment.',
+      'Cross-history retrieval over the facts the caller may see (as for listing). Body is a `RetrieveIntent` shape mirroring the agent-side declarative retrieval. Semantic modes require an embedding provider bound on the deployment.',
     tags: ['memory'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -2971,6 +3076,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '400': ErrorResponse(
         'Malformed intent, or semantic mode requested and no embedding provider is bound.',
+      ),
+      '501': ErrorResponse(
+        "`memory-operation-unsupported`: this runtime's memory can't retrieve by intent yet.",
       ),
     },
   },
@@ -3179,17 +3287,32 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'get',
+    honoPath: '/v1/export-signing-keys',
+    openapiPath: '/v1/export-signing-keys',
+    operationId: 'exportSigningKeys.list',
+    summary: 'List the keys this deployment signs exports with',
+    description:
+      "The public keys of the deployment's export signing key, active first: what a verifier pins. An export's embedded `publicKey` only proves its bytes weren't changed; this list says who signed them. Empty when the deployment doesn't sign exports. Any authenticated caller may read it.",
+    tags: ['export-signing-keys'],
+    security: 'bearer',
+    responses: {
+      '200': { description: 'The keys.', schema: ref('ExportSigningKeyList') },
+      ...CommonAuthErrors,
+    },
+  },
+  {
     method: 'post',
     honoPath: '/v1/provenance/:runId/export',
     openapiPath: '/v1/provenance/{runId}/export',
     operationId: 'provenance.export',
     summary: 'Export a signed provenance bundle for a run',
     description:
-      "Canonicalizes the record + optional messages as sorted-key JSON and signs with the deployment's Ed25519 key looked up by `signingKeyId`. Verification is a pure client-side operation: `verifyEd25519(publicKey, bundleBytes, signature)`. Deployments without a `signingKey` binding mounted return `404 signing-not-configured`.",
+      "Signs the run's provenance (and, when asked, its messages) with the deployment's export key, and records the export (an `export-signed` audit event). The same envelope as the other signed exports; check `publicKey` against `GET /v1/export-signing-keys`. A deployment with no export key answers `404 signing-not-configured`.",
     tags: ['provenance'],
     security: 'bearer',
     parameters: [RunIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('ExportProvenanceBody') },
+    requestBody: { required: false, schema: ref('ExportProvenanceBody') },
     responses: {
       '200': { description: 'Signed bundle.', schema: ref('ExportProvenanceResult') },
       ...CommonMutationErrors,
@@ -3207,7 +3330,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'artifacts.list',
     summary: 'List artifact metadata',
     description:
-      'Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`).',
+      'Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?projectId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`). With authorization on, only artifacts in projects the caller can read are listed.',
     tags: ['artifacts'],
     security: 'bearer',
     parameters: [
@@ -3227,6 +3350,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
         description: 'Filter by exact content-type match.',
         schema: { type: 'string' },
       },
+      {
+        name: 'projectId',
+        in: 'query',
+        required: false,
+        description: 'Filter to the artifacts of one project.',
+        schema: { type: 'string' },
+      },
     ],
     responses: {
       '200': { description: 'Page of blob metadata.', schema: ref('ArtifactCollectionPage') },
@@ -3241,7 +3371,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'artifacts.upload',
     summary: 'Upload an artifact',
     description:
-      'Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller.',
+      "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the tenant's default project; uploading needs `write` there. An upload over the runtime's cap (default 100 MB) is `413 artifact-too-large`.",
     tags: ['artifacts'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -3258,7 +3388,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Upload accepted; metadata returned.', schema: ref('BlobMeta') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        'Malformed multipart body, bad tag JSON, hash mismatch, or declared size mismatch.',
+        "Malformed multipart body, bad tag JSON, hash mismatch, declared size mismatch, or a `projectId` that isn't the owner run's.",
+      ),
+      '403': ErrorResponse('No `write` on the project (`permission-denied`).'),
+      '404': ErrorResponse('No such owner run (`run-not-found`).'),
+      '413': ErrorResponse(
+        'Over the upload cap (`artifact-too-large`; `details.maxBytes` says how much).',
       ),
     },
   },
@@ -3288,7 +3423,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: { type: 'string', format: 'binary' },
       },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No blob with that id under this tenant.'),
+      '404': ErrorResponse(
+        "No blob with that id under this tenant, or one in a project the caller can't read.",
+      ),
     },
   },
   {
@@ -3341,6 +3478,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Delete acknowledged.', schema: ref('DeleteArtifactResult') },
       ...CommonMutationErrors,
+      '403': ErrorResponse('No `write` on its project (`permission-denied`).'),
+      '404': ErrorResponse("An artifact in a project the caller can't read (`blob-not-found`)."),
     },
   },
 
@@ -3469,13 +3608,30 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'get',
+    honoPath: '/v1/providers/:providerId/check',
+    openapiPath: '/v1/providers/{providerId}/check',
+    operationId: 'providers.check',
+    summary: "Check a provider's registration",
+    description:
+      "Runs the provider's adapter check over its stored registration (its `adapter_config`, its metadata, whether it names a `secret_ref`): the check `POST /v1/providers` runs before it stores one. Static: no network call, no secret read. `issues` lists what would keep the runtime from building the provider, each with a JSON-pointer `path`; an adapter this runtime doesn't have is one (`/adapter_id`). `checked` is false when this runtime has no check for the provider's adapter.",
+    tags: ['providers'],
+    security: 'bearer',
+    parameters: [ProviderIdPathParam],
+    responses: {
+      '200': { description: 'The check.', schema: ref('ProviderCheckResult') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No provider with that id under this tenant.'),
+    },
+  },
+  {
     method: 'post',
     honoPath: '/v1/providers',
     openapiPath: '/v1/providers',
     operationId: 'providers.register',
     summary: 'Register a model provider',
     description:
-      'Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped; optional `labels` within their limits — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding.',
+      'Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped; optional `labels` within their limits — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding. When the runtime has the adapter the body names, that adapter checks the registration first (its `adapter_config`, the metadata and the presence of `secret_ref`; static: no network, no secret read): a problem refuses it with `422 provider-config-invalid`.',
     tags: ['providers'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -3485,6 +3641,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '400': ErrorResponse('Validation failed (see `details.reason`).'),
       '409': ErrorResponse('Provider already registered at that id.'),
+      '422': ErrorResponse(
+        "`provider-config-invalid`: the provider's adapter refuses the registration (its `adapter_config`, its metadata, or a missing `secret_ref`); `details.issues` lists each (`path`, a JSON pointer, and `message`), as other validation errors do. Nothing is stored.",
+      ),
     },
   },
   {
@@ -5231,11 +5390,11 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'compliance.evidence.export',
     summary: 'Export a signed compliance-evidence bundle',
     description:
-      "Canonicalizes the filtered records as sorted-key JSON and signs with the deployment's Ed25519 key looked up by `signingKeyId`. Verification is a pure client-side operation: `verifyEd25519(publicKey, bundleBytes, signature)`. Envelope shape matches `ExportProvenanceResult` + audit-bundle — verifiers reuse one wrapper across all three surfaces. Deployments without a `signingKey` binding mounted return `404 signing-not-configured`.",
+      "Signs the evidence the filter matches (exportable kinds only) with the deployment's export key, and records the export (an `export-signed` audit event). The same envelope as the other signed exports; check `publicKey` against `GET /v1/export-signing-keys`. A deployment with no export key answers `404 signing-not-configured`.",
     tags: ['compliance'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('ExportComplianceEvidenceBody') },
+    requestBody: { required: false, schema: ref('ExportComplianceEvidenceBody') },
     responses: {
       '200': {
         description: 'Signed evidence bundle.',
