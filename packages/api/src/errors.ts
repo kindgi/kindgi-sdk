@@ -158,6 +158,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'provider-not-found': 404,
   'provider-already-registered': 409,
   'invalid-provider': 400,
+  'provider-config-invalid': 422,
   // Admin plane — cost readback.
   'cost-record-not-found': 404,
   // Admin plane — adapters.
@@ -200,6 +201,20 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'gate-policy-scope-unpinned': 409,
   'gate-policy-needs-pin': 409,
   'gate-policy-descendant-unpinned': 409,
+  // API keys: whom a key acts for, and what it may do.
+  /** Mint: the person or service account named doesn't exist. */
+  'principal-not-found': 404,
+  /** Mint: an `admin` key for a principal that isn't a tenant admin. */
+  'role-exceeds-principal': 403,
+  /** A key limited to one project, on a request that names another. */
+  'key-project-mismatch': 403,
+  'service-account-not-found': 404,
+  /** An active service account of the tenant already has the name. */
+  'service-account-name-taken': 409,
+  /** A grant for an unregistered service account. */
+  'service-account-unregistered': 409,
+  /** Adding a person with an email another person of the tenant has. */
+  'identity-user-email-taken': 409,
   /** Unregister: the version is live in a scope; move that pin first. */
   'agent-version-live': 409,
   'run-not-finished': 409,

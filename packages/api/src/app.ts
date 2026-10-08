@@ -10,7 +10,8 @@ import type { AuditEventBinding } from '@kindgi/audit-events';
 import type { AuthzCheckBinding } from '@kindgi/authz';
 import type { AdapterFactoryRegistry } from '@kindgi/capabilities';
 import type { ComplianceEvidenceGenerator, LoadedClassifier } from '@kindgi/compliance';
-import type { SigningKeyBinding } from '@kindgi/crypto';
+import { exportSignerFromSigningKeyBinding } from '@kindgi/crypto';
+import type { ExportSigningBinding, SigningKeyBinding } from '@kindgi/crypto';
 import type { TenantHierarchyBinding } from '@kindgi/platform';
 import type {
   OrgBinding,
@@ -60,6 +61,7 @@ import {
   createInMemoryIdempotencyStore,
   idempotencyMiddleware,
 } from './middleware/idempotency.js';
+import { refuseOtherProjectForKey } from './middleware/key-project.js';
 import { principalMiddleware } from './middleware/principal.js';
 import { PROJECT_REF_ROUTES, refuseBadProjectId } from './middleware/project-ref.js';
 import { publicRunCorsMiddleware, publicRunRouteMatcher } from './middleware/public-run-routes.js';
@@ -96,6 +98,7 @@ import { envRouter } from './routes/env.js';
 import { evalRunsRouters } from './routes/eval-runs.js';
 import { evalSuitesRouter } from './routes/eval-suites.js';
 import { eventTriggersRouter } from './routes/event-triggers.js';
+import { exportSigningKeysRouter } from './routes/export-signing-keys.js';
 import { flowsRouter } from './routes/flows.js';
 import { gatePoliciesRouter } from './routes/gate-policies.js';
 import { guardrailsRouter } from './routes/guardrails.js';
@@ -118,6 +121,7 @@ import { runsRouter } from './routes/runs.js';
 import { s3Router } from './routes/s3.js';
 import { schedulesRouter } from './routes/schedules.js';
 import { secretsRouter } from './routes/secrets.js';
+import { serviceAccountsRouter } from './routes/service-accounts.js';
 import { signingKeysRouter } from './routes/signing-keys.js';
 import { teamsRouter } from './routes/teams.js';
 import { tenantRouter } from './routes/tenant.js';
@@ -127,6 +131,7 @@ import { webhookEndpointsRouter } from './routes/webhook-endpoints.js';
 import { webhooksRouter } from './routes/webhooks.js';
 import type { S3CredentialBinding } from './s3-credential-binding.js';
 import type { SecretBinding } from './secrets-binding.js';
+import type { ServiceAccountBinding } from './service-account-binding.js';
 import type { SessionStoreBinding } from './session-store-binding.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from './signing-key-binding.js';
 import { type OauthStateStore, createInMemoryOauthStateStore } from './state-store-binding.js';
@@ -286,6 +291,12 @@ export interface CreateAppInput {
    */
   readonly tokenAdmin?: TokenAdmin;
   /**
+   * Optional. When present, mounts `/v1/service-accounts` (tenant admins):
+   * create with grants, list, get, grant, ungrant, unregister. Keys for an
+   * account are minted at `POST /v1/tokens` with `for`.
+   */
+  readonly serviceAccountBinding?: ServiceAccountBinding;
+  /**
    * Optional. When present, mounts the HITL surface:
    *   - `GET /v1/approvals` (list, role-scoped)
    *   - `GET /v1/approvals/:approvalId`
@@ -409,17 +420,24 @@ export interface CreateAppInput {
    */
   readonly supervisor?: SupervisorBinding;
   /**
-   * Optional. Caller-plugged key store for signed provenance exports
-   * (`POST /v1/provenance/:runId/export`). When omitted, the export
-   * route responds `404 signing-not-configured` — the read routes
-   * (`GET /v1/provenance`, `GET /v1/provenance/:runId`) remain mounted
-   * either way because they read through `provenanceBinding` and do not
-   * need signing material.
+   * Optional. The key the deployment signs its exports with: an
+   * approval's audit bundle (`POST /v1/approvals/:approvalId/audit-bundle`),
+   * a run's provenance (`POST /v1/provenance/:runId/export`) and
+   * compliance evidence (`POST /v1/compliance/evidence/export`). Its
+   * public keys are `GET /v1/export-signing-keys`. Each signed export is
+   * recorded as an `export-signed` audit event when `auditEvents` is
+   * given.
    *
-   * Same caller-plugged pattern as the other bindings — the API package
-   * does NOT own key persistence. Deployments plug in a binding that
-   * wraps their KMS / HSM / env-var store; see `SigningKeyBinding` in
-   * `@kindgi/crypto`.
+   * Without it (and without `signingKey`), the three exports answer
+   * `404 signing-not-configured`; the read routes stay mounted. The API
+   * doesn't own key material: a deployment plugs a file key
+   * (`createEd25519ExportSigner` in `@kindgi/crypto`) or a KMS-backed
+   * binding.
+   */
+  readonly exportSigning?: ExportSigningBinding;
+  /**
+   * @deprecated Use `exportSigning`. Still read, as its Ed25519 keys
+   * (`exportSignerFromSigningKeyBinding`), when `exportSigning` isn't given.
    */
   readonly signingKey?: SigningKeyBinding;
   /**
@@ -898,6 +916,15 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
   const runBinding = input.kernelBinding.run;
+  const exportSigning =
+    input.exportSigning ??
+    (input.signingKey !== undefined
+      ? exportSignerFromSigningKeyBinding(input.signingKey)
+      : undefined);
+  const exportOptions = {
+    ...(exportSigning !== undefined && { exportSigning }),
+    ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
+  };
 
   // ---------- global middleware ----------
   app.use('*', requestIdMiddleware());
@@ -984,6 +1011,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     if (tenantId !== undefined) c.set('log', c.get('log').child({ tenantId }));
     await next();
   });
+  // A key limited to a project names no other one.
+  v1.use('*', refuseOtherProjectForKey());
   const authorizer: Authorizer | undefined =
     input.authz !== undefined ? createAuthorizer(input.authz.authzCheckBinding) : undefined;
 
@@ -1028,6 +1057,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   if (input.tokenAdmin !== undefined) {
     v1.route('/tokens', tokensRouter(input.tokenAdmin, authorizer));
   }
+  if (input.serviceAccountBinding !== undefined) {
+    v1.route('/service-accounts', serviceAccountsRouter(input.serviceAccountBinding, authorizer));
+  }
   // Mount the reviewer roster sub-resource BEFORE the approvals router
   // so `/v1/approvals/reviewers/*` resolves here rather than being
   // captured by the `:approvalId` param on the approvals router.
@@ -1043,7 +1075,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.hitlBinding,
         runBinding,
         {
-          ...(input.signingKey !== undefined && { signingKey: input.signingKey }),
+          ...exportOptions,
           // Inline resume after approval-complete drives
           // completeToken. Passing the runHandler here means the route
           // calls `runHandler.resumeRun(...)` synchronously in the same
@@ -1110,11 +1142,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   if (input.supervisor !== undefined) {
     v1.route('/proposals', proposalsRouter(input.supervisor));
   }
+  v1.route('/export-signing-keys', exportSigningKeysRouter(exportSigning));
   v1.route(
     '/provenance',
     provenanceRouter(input.provenanceBinding, {
       conversationBinding: input.conversationBinding,
-      ...(input.signingKey !== undefined && { signingKey: input.signingKey }),
+      ...exportOptions,
     }),
   );
   if (
@@ -1127,8 +1160,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       complianceRouter({
         auditEvents: input.auditEvents,
         classifier: input.complianceClassifier,
-        complianceGenerator: input.complianceGenerator,
-        ...(input.signingKey !== undefined && { signingKey: input.signingKey }),
+        ...(exportSigning !== undefined && { exportSigning }),
       }),
     );
   }
@@ -1139,7 +1171,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     v1.route('/capabilities', capabilitiesRouter(input.capabilityRegistry));
   }
   if (input.providerRegistry !== undefined) {
-    v1.route('/providers', providersRouter(input.providerRegistry, input.onProviderWrite));
+    v1.route(
+      '/providers',
+      providersRouter(input.providerRegistry, input.onProviderWrite, input.adapterFactories),
+    );
   }
   if (input.mcpEndpointRegistry !== undefined) {
     v1.route(
@@ -1159,6 +1194,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.identityDirectory !== undefined && { directory: input.identityDirectory }),
       ...(input.sessionStore !== undefined && { sessionStore: input.sessionStore }),
       ...(input.reviewerBinding !== undefined && { reviewerBinding: input.reviewerBinding }),
+      ...(authorizer !== undefined && { authorizer }),
     }),
   );
   if (input.cost !== undefined) {
