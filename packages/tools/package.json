@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/tools",
-  "version": "0.1.4-rc.4",
+  "version": "0.1.4",
   "description": "Tool authoring shape + registry + invocation for Kindgi. A tool is a typed, effect-declared unit of work — the same definition runs in-process for one flow, over MCP for another. Pure — no kernel dependency; the kernel bridges tools to node handlers separately.",
   "license": "Apache-2.0",
   "repository": {

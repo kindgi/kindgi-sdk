@@ -144,8 +144,8 @@ Error [invalid-request]: Agent "my-pack.gated" references guardrails not in the 
 
 ## Run it
 
-`dev-echo` answers with the tool's result, which is longer than 60
-characters, so the turn stops:
+`dev-echo`'s answer, its "isn't a real model" line and the tool's result,
+is longer than 60 characters, so the turn stops:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -155,7 +155,7 @@ pnpm exec kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"
 ```
 
 ```text
-Error [guardrail-violation]: Turn blocked by guardrail 'my-pack.answer-length': The answer is 86 characters; the limit is 60.
+Error [guardrail-violation]: Turn blocked by guardrail 'my-pack.answer-length': The answer is 243 characters; the limit is 60.
 ```
 
 </TabItem>
@@ -166,7 +166,7 @@ uv run kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"Ada
 ```
 
 ```text
-Error [guardrail-violation]: Turn blocked by guardrail 'my-pack.answer-length': The answer is 95 characters; the limit is 60.
+Error [guardrail-violation]: Turn blocked by guardrail 'my-pack.answer-length': The answer is 252 characters; the limit is 60.
 ```
 
 </TabItem>
