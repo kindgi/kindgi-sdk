@@ -91,6 +91,13 @@ Anything that isn't a preset registers from a spec: a JSON file you pass with
 - **`secret_ref`** names the secret that holds the key:
   `{ "envName": "local", "name": "GROQ_API_KEY" }`. Leave it out for an
   endpoint that takes none.
+- **`send_traceparent`** (optional, `true` or `false`) sends each model call's
+  W3C `traceparent` to the provider as a request header, so its request logs
+  can be matched to the run that made the call
+  ([Follow a request or a run](../../deploy/logs/#follow-a-request-or-a-run)).
+  Only the ids go: the trace id and a span id, never a prompt or an answer.
+  It's off by default: nothing about a run's trace leaves your deployment
+  unless you turn it on (see below).
 - **`metadata.id`** names the connection; agents prefer it by this id.
   **`metadata.models`** lists the models, by the name the endpoint knows them
   by, each with its `contextWindow`, its `features` (what agents can require)
@@ -109,6 +116,21 @@ Anything that isn't a preset registers from a spec: a JSON file you pass with
   lowercase letters and digits (with `.`, `-`, `_` or `/` inside), each value up
   to 256 characters. Another key is refused:
   `provider "ollama" labels key "Team Name" must be 1-63 lowercase letters and digits, with ".", "-", "_" or "/" inside`.
+
+With `send_traceparent: true`, a model call's request to the provider carries
+the run's trace id and a span of its own:
+
+```text
+traceparent: 00-57fb198d8afd340a2b81454221085849-6fef3833e512d758-01
+```
+
+`kindgi runs get <run-id>` shows the same trace id as the run's `traceId`. A
+value other than `true` or `false` is refused, and nothing is registered:
+
+```text
+Error [invalid-request]: Provider "acme-vendor": send_traceparent must be true or false.
+  ✗ /send_traceparent: send_traceparent must be true or false.
+```
 
 :::caution[Prices are per thousand tokens]
 `promptUsdPer1kTokens` and `completionUsdPer1kTokens` are per **thousand**
