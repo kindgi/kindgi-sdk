@@ -64,6 +64,8 @@ export function agentsRouter(
   releases?: AgentReleaseBindings,
   /** What a promotion's gate reads besides the releases (evals step 4b). */
   gateDeps?: AgentReleaseGateDeps,
+  /** What the deployment can do for an agent's turns, for publish warnings. */
+  capabilities: AgentPublishCapabilities = {},
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // A read-only registry (under `kindgi dev`, the pack's files) refuses
@@ -170,8 +172,15 @@ export function agentsRouter(
       ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
     });
+    // Only what the caller may read (T243 A), as `GET …/:id` asks.
+    const visible =
+      authorizer === undefined
+        ? page.data
+        : await authorizer.filterByCan(c, 'read', page.data, (a) =>
+            ref('agent', a.id as unknown as string),
+          );
     return c.json({
-      data: page.data.map(serializeAgent),
+      data: visible.map(serializeAgent),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -400,10 +409,12 @@ export function agentsRouter(
         ),
       );
     }
+    const warnings = publishWarnings(defined.value, capabilities);
     c.status(201);
     return c.json({
       agentId: outcome.agentId as unknown as string,
       version: outcome.version as unknown as string,
+      ...(warnings.length > 0 && { warnings }),
     });
   });
 
@@ -671,6 +682,44 @@ function derived(
   }
 }
 
+/** What the deployment can do for an agent's turns, for publish warnings. */
+export interface AgentPublishCapabilities {
+  /** Whether memory can search by meaning (embeddings are on). Absent: unknown, no warning. */
+  readonly semanticSearch?: boolean;
+}
+
+/**
+ * What a published agent should know about this deployment before its
+ * first turn: an intent that searches by meaning on a runtime without
+ * embeddings fails its turns (`semantic`) or searches by keyword only
+ * (`both`).
+ */
+function publishWarnings(
+  agent: Agent,
+  capabilities: AgentPublishCapabilities,
+): { readonly code: string; readonly message: string }[] {
+  if (capabilities.semanticSearch !== false) return [];
+  return agent.retrieval.flatMap((intent, i) => {
+    if (intent.mode === 'semantic') {
+      return [
+        {
+          code: 'semantic-unavailable',
+          message: `Retrieval intent ${i} searches by meaning (mode "semantic"), and this runtime has no embeddings: its turns fail with semantic-unavailable until an operator turns them on (KINDGI_MEMORY_EMBEDDINGS).`,
+        },
+      ];
+    }
+    if (intent.mode === 'both') {
+      return [
+        {
+          code: 'semantic-unavailable',
+          message: `Retrieval intent ${i} (mode "both") runs only its keyword search: this runtime has no embeddings (KINDGI_MEMORY_EMBEDDINGS).`,
+        },
+      ];
+    }
+    return [];
+  });
+}
+
 function serializeAgent(a: AgentVersionRecord): Record<string, unknown> {
   return {
     id: a.id as unknown as string,
@@ -684,6 +733,7 @@ function serializeAgent(a: AgentVersionRecord): Record<string, unknown> {
     capabilities: a.capabilities,
     tools: a.tools,
     retrieval: a.retrieval,
+    ...(a.memory !== undefined && { memory: a.memory }),
     guardrails: a.guardrails,
     ...(a.conversationPolicy !== undefined && { conversationPolicy: a.conversationPolicy }),
     ...(a.budget !== undefined && { budget: a.budget }),
