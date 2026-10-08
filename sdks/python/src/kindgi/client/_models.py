@@ -477,6 +477,23 @@ class UnpinBody(BaseModel):
     reason: Annotated[str | None, Field(max_length=2000)] = None
 
 
+class RunFailure(BaseModel):
+    """
+    Why a failed run failed; present only on a `failed` run. An agent turn's failure carries its own code (`budget-exceeded`, `capability-routing-failed`, `model-invocation-failed`, …); any other failure is `run-failed`, with the run's failure message.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    code: str
+    message: str
+    cause: Any | None = None
+    """
+    What the error came from, when it says: e.g. for `capability-routing-failed`, the router's `capability-unsatisfiable` with its reasons, by provider.
+    """
+
+
 class StartRunOptions(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -3994,6 +4011,14 @@ class BlobMeta(BaseModel):
     """
     Optional back-ref to the RunId that produced this blob.
     """
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+    """
+    The project the artifact belongs to: its owner run's, else the upload's `projectId`, else the tenant's default project. Reading it needs `read` there; deleting it, `write`. Absent on blobs stored before projects were recorded.
+    """
+    created_by: Annotated[str | None, Field(alias="createdBy")] = None
+    """
+    Who uploaded it: `user:<id>` or `service_account:<id>`.
+    """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
 
 
@@ -4031,6 +4056,14 @@ class Datum3(BaseModel):
     """
     Optional back-ref to the RunId that produced this blob.
     """
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+    """
+    The project the artifact belongs to: its owner run's, else the upload's `projectId`, else the tenant's default project. Reading it needs `read` there; deleting it, `write`. Absent on blobs stored before projects were recorded.
+    """
+    created_by: Annotated[str | None, Field(alias="createdBy")] = None
+    """
+    Who uploaded it: `user:<id>` or `service_account:<id>`.
+    """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
 
 
@@ -4061,6 +4094,10 @@ class UploadArtifactBody(BaseModel):
     JSON-encoded `Record<string, string>` — parsed server-side.
     """
     owner_run_id: Annotated[UUID | None, Field(alias="ownerRunId")] = None
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+    """
+    The project it belongs to, when there's no `ownerRunId` (with one, the run's project, and this must agree). Default: the tenant's default project.
+    """
     expected_hash: Annotated[str | None, Field(alias="expectedHash", pattern="^[0-9a-f]{64}$")] = (
         None
     )
@@ -4081,52 +4118,20 @@ class DeleteArtifactResult(BaseModel):
     """
 
 
-class CapabilityDescriptor(BaseModel):
+class CapabilityProvider(BaseModel):
+    """
+    A provider of the tenant with a model that has the feature.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    id: str
+    provider_id: Annotated[str, Field(alias="providerId")]
+    models: list[str]
     """
-    Stable identifier — e.g. `feature:<feature>`; deployments MAY pick other conventions for extension entries.
+    Its models that have it.
     """
-    feature: (
-        str
-        | Literal[
-            "structured-output",
-            "vision",
-            "audio-input",
-            "audio-output",
-            "tool-use",
-            "parallel-tool-use",
-            "thinking",
-            "long-context",
-            "code-execution",
-            "web-search",
-            "file-search",
-            "streaming",
-            "batch",
-        ]
-    )
-    description: str
-    kind: str | None = None
-    """
-    Capability kind (`llm-inference`, `embedding`, `gpu-compute`, `sandbox-exec`, `browser-session`, ...). Absent = `llm-inference`.
-    """
-    params_schema: Annotated[dict[str, Any] | None, Field(alias="paramsSchema")] = None
-    """
-    Optional JSON Schema fragment describing the parameters an agent may attach to `{ feature, params }` in a `Requirement`.
-    """
-
-
-class CapabilityCollectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[CapabilityDescriptor]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    has_more: Annotated[bool, Field(alias="hasMore")]
 
 
 class ModelThinking(BaseModel):
@@ -4321,14 +4326,6 @@ class UnregisterProviderResult(BaseModel):
     )
     provider_id: Annotated[str, Field(alias="providerId")]
     unregistered: Literal[True]
-
-
-class ProviderCapabilitiesResult(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[CapabilityDescriptor]
 
 
 class AdapterConfigProblem(BaseModel):
@@ -4929,6 +4926,7 @@ class RetentionPolicyConflict(BaseModel):
         "env",
         "secret",
         "run",
+        "artifact",
         "policy",
         "judgment",
         "judge_class",
@@ -4963,6 +4961,7 @@ class RetentionScheduledItem(BaseModel):
         "env",
         "secret",
         "run",
+        "artifact",
         "policy",
         "judgment",
         "judge_class",
@@ -5022,6 +5021,7 @@ class RetentionScheduledPage(BaseModel):
                 "env",
                 "secret",
                 "run",
+                "artifact",
                 "policy",
                 "judgment",
                 "judge_class",
@@ -5049,6 +5049,7 @@ class RetentionScheduledPage(BaseModel):
                 "env",
                 "secret",
                 "run",
+                "artifact",
                 "policy",
                 "judgment",
                 "judge_class",
@@ -5086,6 +5087,7 @@ class RetentionSweepBody(BaseModel):
             "env",
             "secret",
             "run",
+            "artifact",
             "policy",
             "judgment",
             "judge_class",
@@ -5132,6 +5134,7 @@ class PerDomainItem(BaseModel):
         "env",
         "secret",
         "run",
+        "artifact",
         "policy",
         "judgment",
         "judge_class",
@@ -8295,6 +8298,10 @@ class Run(BaseModel):
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
     completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
     failure_message: Annotated[str | None, Field(alias="failureMessage")] = None
+    """
+    The failure as the runtime recorded it. Read `failure` instead: an agent turn records its typed error here in an internal form.
+    """
+    failure: RunFailure | None = None
     output: Any | None = None
     """
     The run's output once it completed. Present on single-run responses; on lists only with `?include=output`.
@@ -8359,6 +8366,10 @@ class Datum(BaseModel):
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
     completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
     failure_message: Annotated[str | None, Field(alias="failureMessage")] = None
+    """
+    The failure as the runtime recorded it. Read `failure` instead: an agent turn records its typed error here in an internal form.
+    """
+    failure: RunFailure | None = None
     output: Any | None = None
     """
     The run's output once it completed. Present on single-run responses; on lists only with `?include=output`.
@@ -8967,6 +8978,66 @@ class ProvenanceRecord(BaseModel):
     """
     Each model call's usage from the cost ledger, by the `callId` in its `model-call` node's attributes. Joined when read: not part of the signed DAG. A signed export includes it, as it stood when signed.
     """
+
+
+class CapabilityDescriptor(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    Stable identifier — e.g. `feature:<feature>`; deployments MAY pick other conventions for extension entries.
+    """
+    feature: (
+        str
+        | Literal[
+            "structured-output",
+            "vision",
+            "audio-input",
+            "audio-output",
+            "tool-use",
+            "parallel-tool-use",
+            "thinking",
+            "long-context",
+            "code-execution",
+            "web-search",
+            "file-search",
+            "streaming",
+            "batch",
+        ]
+    )
+    description: str
+    kind: str | None = None
+    """
+    Capability kind (`llm-inference`, `embedding`, `gpu-compute`, `sandbox-exec`, `browser-session`, ...). Absent = `llm-inference`.
+    """
+    params_schema: Annotated[dict[str, Any] | None, Field(alias="paramsSchema")] = None
+    """
+    Optional JSON Schema fragment describing the parameters an agent may attach to `{ feature, params }` in a `Requirement`.
+    """
+    providers: list[CapabilityProvider] | None = None
+    """
+    The tenant's registered providers with a model that has the feature, and those models. Absent from servers that don't read the provider registry; `[]` when no provider of the tenant has one.
+    """
+
+
+class CapabilityCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[CapabilityDescriptor]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class ProviderCapabilitiesResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[CapabilityDescriptor]
 
 
 class MCPEndpoint(BaseModel):
