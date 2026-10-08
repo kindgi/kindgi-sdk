@@ -71,6 +71,7 @@ describe('kindgi sso providers start', () => {
     expect(calls).toEqual([['signIn', 'acme-google', { kind: 'oidc' }]]);
     expect(out.stdout).toContain(`Redirect URI:  ${REDIRECT}`);
     expect(out.stdout).toContain('never by email or chat');
+    expect(out.stdout).toContain('Step by step: https://docs.kindgi.com/guides/sso/oidc/');
     expect(out.stdout).toContain(
       'kindgi sso providers finish acme-google --kind=oidc --issuer=<issuer> --client-id=<client-id> --client-secret-ref=<NAME>',
     );
@@ -84,12 +85,14 @@ describe('kindgi sso providers start', () => {
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([['signIn', 'acme-google', { kind: 'oidc' }]]);
     expect(out.stdout).toContain('Audience: Internal');
+    expect(out.stdout).toContain('Step by step: https://docs.kindgi.com/guides/sso/google/');
     expect(out.stdout).toContain('Issuer: https://accounts.google.com');
     const entra = await run(['sso', 'providers', 'start', 'acme-entra', '--idp=entra'], {
       auth: { providers: { signIn: rec('signIn', OIDC_URLS) } },
     });
     expect(entra.stdout).toContain('single tenant');
     expect(entra.stdout).toContain('never `common`');
+    expect(entra.stdout).toContain('https://docs.kindgi.com/guides/sso/entra-id/');
   });
 
   test('SAML: the ACS URL, entity ID and metadata URL', async () => {
@@ -101,6 +104,7 @@ describe('kindgi sso providers start', () => {
     expect(out.stdout).toContain(`ACS URL (single sign-on URL):  ${SAML_URLS.signIn.acsUrl}`);
     expect(out.stdout).toContain(`Entity ID (audience):          ${SAML_URLS.signIn.spEntityId}`);
     expect(out.stdout).toContain('--kind=saml --idp-metadata=@<metadata.xml>');
+    expect(out.stdout).toContain('Step by step: https://docs.kindgi.com/guides/sso/saml/');
   });
 
   test('--json prints the URLs as they came; a bad --idp or --kind is refused', async () => {

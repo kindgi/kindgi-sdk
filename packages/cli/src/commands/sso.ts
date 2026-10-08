@@ -32,9 +32,15 @@ import type { Command, LeafCommand } from './types.js';
 type Kind = 'oidc' | 'saml';
 
 /** The identity providers `start --idp` has steps for. */
-const IDP_STEPS: Readonly<Record<string, { readonly kind: Kind; readonly steps: string }>> = {
+/** The setup guides, at the docs' root (always the latest release). */
+const GUIDES = 'https://docs.kindgi.com/guides/sso';
+
+const IDP_STEPS: Readonly<
+  Record<string, { readonly kind: Kind; readonly guide: string; readonly steps: string }>
+> = {
   google: {
     kind: 'oidc',
+    guide: 'google',
     steps: [
       'Google Cloud console → Google Auth Platform:',
       '  1. Branding: the app name and a support email.',
@@ -47,6 +53,7 @@ const IDP_STEPS: Readonly<Record<string, { readonly kind: Kind; readonly steps: 
   },
   entra: {
     kind: 'oidc',
+    guide: 'entra-id',
     steps: [
       'Microsoft Entra admin center → App registrations → New registration:',
       '  1. Supported account types: this organizational directory only (single tenant).',
@@ -61,6 +68,7 @@ const IDP_STEPS: Readonly<Record<string, { readonly kind: Kind; readonly steps: 
   },
   okta: {
     kind: 'oidc',
+    guide: 'okta',
     steps: [
       'Okta admin console → Applications → Create App Integration → OIDC - OpenID Connect →',
       'Web Application:',
@@ -72,6 +80,7 @@ const IDP_STEPS: Readonly<Record<string, { readonly kind: Kind; readonly steps: 
   },
   keycloak: {
     kind: 'oidc',
+    guide: 'keycloak',
     steps: [
       'Keycloak admin console → your realm → Clients → Create client → OpenID Connect:',
       '  1. Client authentication: On. Authentication flow: Standard flow.',
@@ -194,6 +203,8 @@ export function handoffText(urls: IdentityProviderSignInUrlsResult, idp?: string
   }
   const steps = idp === undefined ? undefined : IDP_STEPS[idp];
   if (steps !== undefined) out.push('', steps.steps);
+  const guide = steps?.guide ?? ('redirectUri' in signIn ? 'oidc' : 'saml');
+  out.push('', `Step by step: ${GUIDES}/${guide}/`);
   out.push(
     '',
     'Then register it:',
