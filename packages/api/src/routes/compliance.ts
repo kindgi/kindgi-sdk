@@ -17,6 +17,7 @@ import type {
 } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
+import type { Authorizer } from '../middleware/authorize.js';
 import {
   exportActor,
   parseSigningKeyId,
@@ -27,6 +28,7 @@ import {
 } from '../signed-export.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import { tenantAdminAccess } from './tenant-access.js';
 
 /**
  * Compliance-evidence readback + signed-export routes over the unified
@@ -58,8 +60,13 @@ export interface ComplianceRouterOptions {
 /** The evidence bundle body's version. Unchanged: the body is the one the runtime's generator signed. */
 const BUNDLE_SCHEMA_VERSION = '1.0.0';
 
-export function complianceRouter(options: ComplianceRouterOptions): Hono<AppEnv> {
+export function complianceRouter(
+  options: ComplianceRouterOptions,
+  authorizer?: Authorizer,
+): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  // Evidence across the tenant, as the audit routes: an admin's.
+  r.use('*', tenantAdminAccess(authorizer));
   const { auditEvents, classifier, exportSigning } = options;
 
   const isExportable = (kind: string): boolean => classifier.resolve(kind).exportable;
