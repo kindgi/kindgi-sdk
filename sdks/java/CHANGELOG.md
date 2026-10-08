@@ -10,7 +10,7 @@ heading into its version.
 - Skills for coding agents in Scala packs: `kindgi-scala-getting-started` and
   the Scala authoring skills for tools, guardrails, agents and flows in
   `.claude/skills/`, with the shared skills for providers, MCP servers and
-  framework feedback.
+  framework feedback. (#370)
 - Skills for coding agents: a Java pack gets `kindgi-java-getting-started` and
   the Java authoring skills for tools, guardrails, agents and flows in
   `.claude/skills/`, with the shared skills for providers, MCP servers and
