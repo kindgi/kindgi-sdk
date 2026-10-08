@@ -37,6 +37,10 @@ import { type RetentionClient, makeRetentionClient } from './resources/retention
 import { type RunsClient, makeRunsClient } from './resources/runs.js';
 import { type SchedulesClient, makeSchedulesClient } from './resources/schedules.js';
 import { type SecretsClient, makeSecretsClient } from './resources/secrets.js';
+import {
+  type ServiceAccountsClient,
+  makeServiceAccountsClient,
+} from './resources/service-accounts.js';
 import { type SigningKeysClient, makeSigningKeysClient } from './resources/signing-keys.js';
 import { type SupervisorClient, makeSupervisorClient } from './resources/supervisor.js';
 import { type TeamsClient, makeTeamsClient } from './resources/teams.js';
@@ -106,6 +110,8 @@ export interface KindgiClient {
   readonly orgs: OrgsClient;
   readonly signingKeys: SigningKeysClient;
   readonly tokens: TokensClient;
+  /** Non-human principals with their own grants; they act through API keys. */
+  readonly serviceAccounts: ServiceAccountsClient;
   // Interop
   readonly mcp: McpClient;
   readonly events: EventsClient;
@@ -172,6 +178,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     orgs: makeOrgsClient(transport),
     signingKeys: makeSigningKeysClient(transport),
     tokens: makeTokensClient(transport),
+    serviceAccounts: makeServiceAccountsClient(transport),
     mcp: makeMcpClient(transport),
     events: makeEventsClient(transport),
     eventTriggers: makeEventTriggersClient(transport),

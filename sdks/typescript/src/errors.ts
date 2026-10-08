@@ -38,6 +38,8 @@ export interface NetworkError {
   readonly code: 'network';
   readonly message: string;
   readonly cause?: unknown;
+  /** Set when the client's own timeout ended the request: that timeout, in milliseconds. */
+  readonly timeoutMs?: number;
 }
 
 export interface AuthError {
@@ -239,6 +241,8 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'auth-revoked':
       return { code: 'auth', message, reason: 'unauthenticated' };
     case 'permission-denied':
+    case 'role-exceeds-principal':
+    case 'key-project-mismatch':
       return { code: 'auth', message, reason: 'forbidden' };
     case 'rate-limited':
     case 'rate-limit-exceeded':
@@ -267,6 +271,8 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'token-not-found':
     case 'agent-version-not-found':
     case 'promotion-not-found':
+    case 'principal-not-found':
+    case 'service-account-not-found':
       return notFound(code, message, details);
     case 'conflict':
     case 'already-terminal':
@@ -304,6 +310,9 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'gate-policy-scope-unpinned':
     case 'gate-policy-needs-pin':
     case 'gate-policy-descendant-unpinned':
+    case 'service-account-name-taken':
+    case 'service-account-unregistered':
+    case 'identity-user-email-taken':
       return { code: 'conflict', message, reason: code };
     case 'invalid-request':
     case 'validation-failed':
@@ -318,6 +327,7 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'unknown-effect':
     case 'invalid-guardrail':
     case 'invalid-provider':
+    case 'provider-config-invalid':
     case 'supervisor-header-missing':
     case 'scope-invalid':
       return invalidRequest(message, obj, details);

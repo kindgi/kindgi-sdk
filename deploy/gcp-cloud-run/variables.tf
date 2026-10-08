@@ -276,3 +276,12 @@ variable "subnet_cidr" {
   type        = string
   default     = "10.10.0.0/24"
 }
+
+variable "secrets_aad_key_version" {
+  description = "The Secret Manager version of KINDGI_SECRETS_AAD_KEY the server reads: \"1\" for a new deployment (the first version added). Pin it; never \"latest\". Every secret stored in Postgres is bound to this key, so a new version is a key change that needs every stored secret re-encrypted, and a version added by mistake must not reach the server."
+  type        = string
+  validation {
+    condition     = can(regex("^[1-9][0-9]*$", var.secrets_aad_key_version))
+    error_message = "secrets_aad_key_version is a version number (\"1\" for a new deployment), never \"latest\": every secret stored in Postgres is bound to the key it names."
+  }
+}

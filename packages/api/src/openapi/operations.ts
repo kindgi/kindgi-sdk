@@ -106,6 +106,14 @@ const TokenIdPathParam: ParameterSpec = {
   schema: { type: 'string', format: 'uuid' },
 };
 
+const ServiceAccountIdPathParam: ParameterSpec = {
+  name: 'serviceAccountId',
+  in: 'path',
+  required: true,
+  description: 'The service account id.',
+  schema: { type: 'string' },
+};
+
 const SigningKeyIdPathParam: ParameterSpec = {
   name: 'keyId',
   in: 'path',
@@ -1513,7 +1521,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'tokens.mint',
     summary: 'Mint an API key',
     description:
-      'An API key is a service account in the tenant, with a `role` and explicit `capabilities`. Returns the plaintext token exactly once. Tenant admins only; a caller can only grant capabilities it holds. Only mounted when the deployment supplies a `TokenAdmin`.',
+      "An API key acts for one principal (`for`: a person or a service account; default the caller), with that principal's grants. Its `role` is a ceiling under them and its `projectId` a limit. Returns the plaintext token exactly once. A person or a service account's key mints its own keys; only a tenant admin mints for someone else, or an `admin` key. A caller can only grant capabilities it holds, and a key limited to a project mints only keys limited to it. Only mounted when the deployment supplies a `TokenAdmin`.",
     tags: ['tokens'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -1521,12 +1529,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Token minted.', schema: ref('MintTokenResult') },
       ...CommonMutationErrors,
-      '403': ErrorResponse('Not a tenant admin, or a capability the caller does not hold.'),
+      '403': ErrorResponse(
+        "Not a tenant admin where one is needed, or a capability the caller does not hold (`permission-denied`); an `admin` key for a principal that isn't a tenant admin (`role-exceeds-principal`); a key limited to a project minting for another (`key-project-mismatch`).",
+      ),
       '400': ErrorResponse(
         "Malformed request body, or the body's `projectId` isn't a project id (a UUID).",
       ),
       '404': ErrorResponse(
-        "The body's `projectId` names no project of this tenant (`project-not-found`).",
+        "The body's `projectId` names no project of this tenant (`project-not-found`), or `for` names no person or service account (`principal-not-found`).",
       ),
     },
   },
@@ -1536,15 +1546,27 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/tokens',
     operationId: 'tokens.list',
     summary: 'List API keys',
-    description: 'Newest first. Never returns secrets. Tenant admins only.',
+    description:
+      "Newest first. Never returns secrets. A tenant admin sees every key (`?principal=` for one principal's); anyone else sees their own.",
     tags: ['tokens'],
     security: 'bearer',
-    parameters: [CursorQueryParam, LimitQueryParam],
+    parameters: [
+      CursorQueryParam,
+      LimitQueryParam,
+      {
+        name: 'principal',
+        in: 'query',
+        required: false,
+        description:
+          "Tenant admins: only this principal's keys, `user:<id>` or `service-account:<id>`.",
+        schema: { type: 'string' },
+      },
+    ],
     responses: {
       '200': { description: 'A page of keys.', schema: ref('ApiTokenPage') },
       ...CommonAuthErrors,
-      '400': ErrorResponse('Malformed cursor.'),
-      '403': ErrorResponse('Not a tenant admin.'),
+      '400': ErrorResponse('Malformed cursor or `principal`.'),
+      '403': ErrorResponse('A caller with no keys of its own that is not a tenant admin.'),
     },
   },
   {
@@ -1553,15 +1575,16 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/tokens/{tokenId}',
     operationId: 'tokens.get',
     summary: 'Read an API key',
-    description: 'Never returns the secret. Tenant admins only.',
+    description:
+      "Never returns the secret. A tenant admin reads any key; anyone else only their own (someone else's reads as missing).",
     tags: ['tokens'],
     security: 'bearer',
     parameters: [TokenIdPathParam],
     responses: {
       '200': { description: 'The key.', schema: ref('ApiToken') },
       ...CommonAuthErrors,
-      '403': ErrorResponse('Not a tenant admin.'),
-      '404': ErrorResponse('No token with that id under this tenant.'),
+      '403': ErrorResponse('A caller with no keys of its own that is not a tenant admin.'),
+      '404': ErrorResponse('No token with that id that the caller may see.'),
     },
   },
   {
@@ -1570,15 +1593,143 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/tokens/{tokenId}/revoke',
     operationId: 'tokens.revoke',
     summary: 'Revoke an API key',
-    description: 'Takes effect on the next request. Tenant admins only.',
+    description:
+      'Takes effect on the next request. A tenant admin revokes any key; anyone else only their own.',
     tags: ['tokens'],
     security: 'bearer',
     parameters: [TokenIdPathParam, IdempotencyKeyParam],
     responses: {
       '200': { description: 'Revoked.', schema: ref('RevokeTokenResult') },
       ...CommonMutationErrors,
+      '403': ErrorResponse('A caller with no keys of its own that is not a tenant admin.'),
+      '404': ErrorResponse('No token with that id that the caller may see.'),
+    },
+  },
+  // ---------- service accounts ----------
+  {
+    method: 'post',
+    honoPath: '/v1/service-accounts',
+    openapiPath: '/v1/service-accounts',
+    operationId: 'serviceAccounts.create',
+    summary: 'Create a service account',
+    description:
+      "A named, non-human principal with its first grants, written before it is returned. It isn't a tenant member unless a grant makes it one (`{kind: 'tenant-member'}`: read the tenant's settings); give it only what its job needs. Mint its keys at `POST /v1/tokens` with `for`. Tenant admins only. Mounted when the deployment supplies a `ServiceAccountBinding`.",
+    tags: ['service-accounts'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('CreateServiceAccountBody') },
+    responses: {
+      '201': { description: 'Created.', schema: ref('ServiceAccount') },
+      ...CommonMutationErrors,
       '403': ErrorResponse('Not a tenant admin.'),
-      '404': ErrorResponse('No token with that id under this tenant.'),
+      '404': ErrorResponse('A grant names no project of this tenant (`project-not-found`).'),
+      '409': ErrorResponse(
+        'An active service account has the name (`service-account-name-taken`), or an idempotency conflict.',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/service-accounts',
+    openapiPath: '/v1/service-accounts',
+    operationId: 'serviceAccounts.list',
+    summary: 'List service accounts',
+    description:
+      'Oldest first; active only unless `?includeUnregistered=true`. Tenant admins only.',
+    tags: ['service-accounts'],
+    security: 'bearer',
+    parameters: [
+      CursorQueryParam,
+      LimitQueryParam,
+      {
+        name: 'includeUnregistered',
+        in: 'query',
+        required: false,
+        description: '`true`: unregistered accounts too.',
+        schema: { type: 'string', enum: ['true', 'false'] },
+      },
+    ],
+    responses: {
+      '200': { description: 'A page of service accounts.', schema: ref('ServiceAccountPage') },
+      ...CommonAuthErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/service-accounts/:serviceAccountId',
+    openapiPath: '/v1/service-accounts/{serviceAccountId}',
+    operationId: 'serviceAccounts.get',
+    summary: 'Read a service account',
+    description: 'Unregistered ones too. Tenant admins only.',
+    tags: ['service-accounts'],
+    security: 'bearer',
+    parameters: [ServiceAccountIdPathParam],
+    responses: {
+      '200': { description: 'The service account.', schema: ref('ServiceAccount') },
+      ...CommonAuthErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse('No such service account (`service-account-not-found`).'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/service-accounts/:serviceAccountId/grant',
+    openapiPath: '/v1/service-accounts/{serviceAccountId}/grant',
+    operationId: 'serviceAccounts.grant',
+    summary: 'Grant a service account',
+    description:
+      "Tenant admin, or a role on a project (replacing the account's role there). Written before the call answers. Tenant admins only.",
+    tags: ['service-accounts'],
+    security: 'bearer',
+    parameters: [ServiceAccountIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('ServiceAccountGrantBody') },
+    responses: {
+      '200': { description: 'The account, with its grants.', schema: ref('ServiceAccount') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse(
+        'No such service account (`service-account-not-found`), or no such project (`project-not-found`).',
+      ),
+      '409': ErrorResponse(
+        'The account is unregistered (`service-account-unregistered`), or an idempotency conflict.',
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/service-accounts/:serviceAccountId/ungrant',
+    openapiPath: '/v1/service-accounts/{serviceAccountId}/ungrant',
+    operationId: 'serviceAccounts.ungrant',
+    summary: 'Remove a grant from a service account',
+    description: 'A no-op when the account does not hold it. Tenant admins only.',
+    tags: ['service-accounts'],
+    security: 'bearer',
+    parameters: [ServiceAccountIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('ServiceAccountUngrantBody') },
+    responses: {
+      '200': { description: 'The account, with its grants.', schema: ref('ServiceAccount') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse('No such service account (`service-account-not-found`).'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/service-accounts/:serviceAccountId/unregister',
+    openapiPath: '/v1/service-accounts/{serviceAccountId}/unregister',
+    operationId: 'serviceAccounts.unregister',
+    summary: 'Unregister a service account',
+    description:
+      'A tombstone: its grants go and its keys stop working; it stays readable. Idempotent. Tenant admins only.',
+    tags: ['service-accounts'],
+    security: 'bearer',
+    parameters: [ServiceAccountIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'The unregistered account.', schema: ref('ServiceAccount') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse('No such service account (`service-account-not-found`).'),
     },
   },
   {
@@ -3318,13 +3469,30 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'get',
+    honoPath: '/v1/providers/:providerId/check',
+    openapiPath: '/v1/providers/{providerId}/check',
+    operationId: 'providers.check',
+    summary: "Check a provider's registration",
+    description:
+      "Runs the provider's adapter check over its stored registration (its `adapter_config`, its metadata, whether it names a `secret_ref`): the check `POST /v1/providers` runs before it stores one. Static: no network call, no secret read. `issues` lists what would keep the runtime from building the provider, each with a JSON-pointer `path`; an adapter this runtime doesn't have is one (`/adapter_id`). `checked` is false when this runtime has no check for the provider's adapter.",
+    tags: ['providers'],
+    security: 'bearer',
+    parameters: [ProviderIdPathParam],
+    responses: {
+      '200': { description: 'The check.', schema: ref('ProviderCheckResult') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No provider with that id under this tenant.'),
+    },
+  },
+  {
     method: 'post',
     honoPath: '/v1/providers',
     openapiPath: '/v1/providers',
     operationId: 'providers.register',
     summary: 'Register a model provider',
     description:
-      'Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped; optional `labels` within their limits — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding.',
+      'Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped; optional `labels` within their limits — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding. When the runtime has the adapter the body names, that adapter checks the registration first (its `adapter_config`, the metadata and the presence of `secret_ref`; static: no network, no secret read): a problem refuses it with `422 provider-config-invalid`.',
     tags: ['providers'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -3334,6 +3502,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '400': ErrorResponse('Validation failed (see `details.reason`).'),
       '409': ErrorResponse('Provider already registered at that id.'),
+      '422': ErrorResponse(
+        "`provider-config-invalid`: the provider's adapter refuses the registration (its `adapter_config`, its metadata, or a missing `secret_ref`); `details.issues` lists each (`path`, a JSON pointer, and `message`), as other validation errors do. Nothing is stored.",
+      ),
     },
   },
   {
@@ -4779,6 +4950,27 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'post',
+    honoPath: '/v1/identity/users',
+    openapiPath: '/v1/identity/users',
+    operationId: 'identity.users.create',
+    summary: 'Add a person',
+    description:
+      "Adds a person to the tenant as a tenant member, written before it answers: they can read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. Give them a role to work (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. Tenant admins only. Mounted when the identity directory can add people.",
+    tags: ['identity'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('CreateUserBody') },
+    responses: {
+      '201': { description: 'The new person.', schema: ref('UserRecord') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '409': ErrorResponse(
+        'Another person of the tenant has the email (`identity-user-email-taken`), or an idempotency conflict.',
+      ),
+    },
+  },
+  {
     method: 'get',
     honoPath: '/v1/identity/users/:userId',
     openapiPath: '/v1/identity/users/{userId}',
@@ -4820,7 +5012,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.users.revokeSessions',
     summary: 'Revoke every active session for a user',
     description:
-      'Admin op — idempotent. Under the hood, deployments typically delegate to `SessionStoreBinding.revokeAllForUser`. Returns `{ revokedCount: 0 }` when the user was already fully signed out.',
+      "A tenant admin revokes anyone's sessions; anyone else only their own. Idempotent. Under the hood, deployments typically delegate to `SessionStoreBinding.revokeAllForUser`. Returns `{ revokedCount: 0 }` when the user was already fully signed out.",
     tags: ['identity'],
     security: 'bearer',
     parameters: [
@@ -4830,6 +5022,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Revocation outcome.', schema: ref('RevokeSessionsResult') },
       ...CommonMutationErrors,
+      '403': ErrorResponse("Another person's sessions, and not a tenant admin."),
       '500': ErrorResponse('Session revocation failed inside the caller-plugged binding.'),
     },
   },

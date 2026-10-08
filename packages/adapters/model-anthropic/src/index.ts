@@ -2,6 +2,12 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 export { createAnthropicProvider } from './provider.js';
+export {
+  ANTHROPIC_ADAPTER_ID,
+  anthropicAdapterEntry,
+  anthropicAdapterFactory,
+  anthropicCheckConfig,
+} from './entry.js';
 export type { AnthropicModelInfo, AnthropicProviderOptions } from './provider.js';
 export {
   DEFAULT_CACHE_CREATION_MULTIPLIER_5MIN,

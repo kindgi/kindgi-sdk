@@ -64,6 +64,7 @@ import {
   createInMemoryIdempotencyStore,
   idempotencyMiddleware,
 } from './middleware/idempotency.js';
+import { refuseOtherProjectForKey } from './middleware/key-project.js';
 import { principalMiddleware } from './middleware/principal.js';
 import { PROJECT_REF_ROUTES, refuseBadProjectId } from './middleware/project-ref.js';
 import { publicRunCorsMiddleware, publicRunRouteMatcher } from './middleware/public-run-routes.js';
@@ -122,6 +123,7 @@ import { runsRouter } from './routes/runs.js';
 import { s3Router } from './routes/s3.js';
 import { schedulesRouter } from './routes/schedules.js';
 import { secretsRouter } from './routes/secrets.js';
+import { serviceAccountsRouter } from './routes/service-accounts.js';
 import { type SignInOptionsRateLimit, signInOptionsRouter } from './routes/sign-in-options.js';
 import { signingKeysRouter } from './routes/signing-keys.js';
 import { teamsRouter } from './routes/teams.js';
@@ -132,6 +134,7 @@ import { webhookEndpointsRouter } from './routes/webhook-endpoints.js';
 import { webhooksRouter } from './routes/webhooks.js';
 import type { S3CredentialBinding } from './s3-credential-binding.js';
 import type { SecretBinding } from './secrets-binding.js';
+import type { ServiceAccountBinding } from './service-account-binding.js';
 import type { SessionStoreBinding } from './session-store-binding.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from './signing-key-binding.js';
 import { type OauthStateStore, createInMemoryOauthStateStore } from './state-store-binding.js';
@@ -290,6 +293,12 @@ export interface CreateAppInput {
    * keys out-of-band (e.g. via a separate admin console).
    */
   readonly tokenAdmin?: TokenAdmin;
+  /**
+   * Optional. When present, mounts `/v1/service-accounts` (tenant admins):
+   * create with grants, list, get, grant, ungrant, unregister. Keys for an
+   * account are minted at `POST /v1/tokens` with `for`.
+   */
+  readonly serviceAccountBinding?: ServiceAccountBinding;
   /**
    * Optional. When present, mounts the HITL surface:
    *   - `GET /v1/approvals` (list, role-scoped)
@@ -1009,6 +1018,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     if (tenantId !== undefined) c.set('log', c.get('log').child({ tenantId }));
     await next();
   });
+  // A key limited to a project names no other one.
+  v1.use('*', refuseOtherProjectForKey());
   const authorizer: Authorizer | undefined =
     input.authz !== undefined ? createAuthorizer(input.authz.authzCheckBinding) : undefined;
 
@@ -1052,6 +1063,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   }
   if (input.tokenAdmin !== undefined) {
     v1.route('/tokens', tokensRouter(input.tokenAdmin, authorizer));
+  }
+  if (input.serviceAccountBinding !== undefined) {
+    v1.route('/service-accounts', serviceAccountsRouter(input.serviceAccountBinding, authorizer));
   }
   // Mount the reviewer roster sub-resource BEFORE the approvals router
   // so `/v1/approvals/reviewers/*` resolves here rather than being
@@ -1164,7 +1178,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     v1.route('/capabilities', capabilitiesRouter(input.capabilityRegistry));
   }
   if (input.providerRegistry !== undefined) {
-    v1.route('/providers', providersRouter(input.providerRegistry, input.onProviderWrite));
+    v1.route(
+      '/providers',
+      providersRouter(input.providerRegistry, input.onProviderWrite, input.adapterFactories),
+    );
   }
   if (input.mcpEndpointRegistry !== undefined) {
     v1.route(
@@ -1184,6 +1201,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.identityDirectory !== undefined && { directory: input.identityDirectory }),
       ...(input.sessionStore !== undefined && { sessionStore: input.sessionStore }),
       ...(input.reviewerBinding !== undefined && { reviewerBinding: input.reviewerBinding }),
+      ...(authorizer !== undefined && { authorizer }),
     }),
   );
   if (input.cost !== undefined) {
