@@ -14,14 +14,14 @@ import java.lang.reflect.{Method, Modifier}
 import scala.util.Try
 
 /**
- * Scala 3's simple enums ({@code enum Color { case Red, Green }}): a string, the case's name. Found
+ * Scala 3's simple enums (`enum Color { case Red, Green `}): a string, the case's name. Found
  * by reflection, so this compiles and does nothing on Scala 2.13. An enum whose cases take
- * parameters isn't a simple one; it's a sealed hierarchy, which {@code @JsonTypeInfo} describes.
+ * parameters isn't a simple one; it's a sealed hierarchy, which `@JsonTypeInfo` describes.
  */
 private[scaladsl] object ScalaEnums {
   private val enumClass: Option[Class[_]] = Try(Class.forName("scala.reflect.Enum")).toOption
 
-  /** The enum's {@code values()}, when the class is a simple Scala 3 enum. */
+  /** The enum's `values()`, when the class is a simple Scala 3 enum. */
   def valuesMethod(cls: Class[_]): Option[Method] =
     enumClass.filter(_.isAssignableFrom(cls)).flatMap { _ =>
       Try(cls.getMethod("values")).toOption.filter(m => Modifier.isStatic(m.getModifiers) && m.getReturnType.isArray)
@@ -31,12 +31,12 @@ private[scaladsl] object ScalaEnums {
   def names(cls: Class[_]): Option[Seq[String]] =
     valuesMethod(cls).map(_.invoke(null).asInstanceOf[Array[AnyRef]].toSeq.map(_.toString))
 
-  /** The enum class a value's case belongs to: the class whose {@code values()} lists it. */
+  /** The enum class a value's case belongs to: the class whose `values()` lists it. */
   def isSimple(cls: Class[_]): Boolean =
     valuesMethod(cls).isDefined || Option(cls.getSuperclass).exists(s => valuesMethod(s).isDefined)
 }
 
-/** Reads and writes Scala 3's simple enums by name; found by Jackson through {@code ServiceLoader}. */
+/** Reads and writes Scala 3's simple enums by name; found by Jackson through `ServiceLoader`. */
 final class ScalaEnumModule extends Module {
   override def getModuleName: String = "kindgi-scala-enums"
 

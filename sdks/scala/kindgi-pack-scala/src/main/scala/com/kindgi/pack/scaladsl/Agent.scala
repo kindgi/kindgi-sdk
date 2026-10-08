@@ -11,7 +11,7 @@ object Agent {
   def apply(id: String): AgentBuilder = new AgentBuilder(com.kindgi.pack.Agent.define(id))
 }
 
-/** An agent being built; {@code build} finishes it. */
+/** An agent being built; `build` finishes it. */
 final class AgentBuilder private[scaladsl] (b: com.kindgi.pack.Agent.Builder) {
   def version(version: String): AgentBuilder = new AgentBuilder(b.version(version))
   def name(name: String): AgentBuilder = new AgentBuilder(b.name(name))
@@ -34,7 +34,7 @@ object Flow {
   def apply(id: String): FlowBuilder = new FlowBuilder(com.kindgi.pack.Flow.define(id))
 }
 
-/** A flow being built; {@code build} finishes it. */
+/** A flow being built; `build` finishes it. */
 final class FlowBuilder private[scaladsl] (b: com.kindgi.pack.Flow.Builder) {
   def version(version: String): FlowBuilder = new FlowBuilder(b.version(version))
   def toolNode(nodeId: String, tool: Tool[_, _]): FlowBuilder = new FlowBuilder(b.toolNode(nodeId, tool))

@@ -20,7 +20,7 @@ object Guardrail {
     new GuardrailBuilder[C](id, Some(config.runtimeClass), None, Vector.empty)
 
   /**
-   * A guardrail whose config is a plain JSON object, with the schema you give ({@code configSchema}).
+   * A guardrail whose config is a plain JSON object, with the schema you give (`configSchema`).
    *
    * @param id the guardrail's id
    */
@@ -28,7 +28,7 @@ object Guardrail {
     new GuardrailBuilder[Map[String, Any]](id, None, None, Vector.empty)
 }
 
-/** A guardrail being built; {@code check} or {@code checkAsync} finishes it. */
+/** A guardrail being built; `check` or `checkAsync` finishes it. */
 final class GuardrailBuilder[C] private[scaladsl] (
     id: String,
     configType: Option[Class[_]],
@@ -44,10 +44,10 @@ final class GuardrailBuilder[C] private[scaladsl] (
   /** The check's id, which the runtime calls. */
   def checkId(checkId: String): GuardrailBuilder[C] = step(_.checkId(checkId))
 
-  /** Its kind ({@code zero-llm}, the default, or another). */
+  /** Its kind (`zero-llm`, the default, or another). */
   def kind(kind: String): GuardrailBuilder[C] = step(_.kind(kind))
 
-  /** What a violation does ({@code halt}, {@code log-only}, …). */
+  /** What a violation does (`halt`, `log-only`, …). */
   def onViolation(action: String): GuardrailBuilder[C] = step(_.onViolation(action))
 
   /** The whole action, as a plain JSON object. */

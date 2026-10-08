@@ -15,14 +15,14 @@ object Tool {
    * A tool whose input and output are case classes (or other types Jackson binds); their schemas
    * come from the types.
    *
-   * @param id the tool's id ({@code acme.greet})
+   * @param id the tool's id (`acme.greet`)
    */
   def apply[I, O](id: String)(implicit input: ClassTag[I], output: ClassTag[O]): ToolBuilder[I, O] =
     new ToolBuilder[I, O](id, Some(input.runtimeClass), Some(output.runtimeClass), None, None, Vector.empty)
 
   /**
    * A tool whose input is a plain JSON object and whose output any JSON value, with the schemas you
-   * give ({@code inputSchema}, {@code outputSchema}): for what a type can't say.
+   * give (`inputSchema`, `outputSchema`): for what a type can't say.
    *
    * @param id the tool's id
    */
@@ -30,7 +30,7 @@ object Tool {
     new ToolBuilder[Map[String, Any], Any](id, None, None, None, None, Vector.empty)
 }
 
-/** A tool being built; {@code handler} or {@code handlerAsync} finishes it. */
+/** A tool being built; `handler` or `handlerAsync` finishes it. */
 final class ToolBuilder[I, O] private[scaladsl] (
     id: String,
     inputType: Option[Class[_]],
@@ -76,7 +76,7 @@ final class ToolBuilder[I, O] private[scaladsl] (
 
   /**
    * Finishes the tool with code that answers later. The service awaits the future. Cancelling the
-   * call doesn't stop a Scala future: stop its work with {@code ctx.cancellation().onCancel}.
+   * call doesn't stop a Scala future: stop its work with `ctx.cancellation().onCancel`.
    */
   def handlerAsync(f: (I, ToolContext) => Future[O]): Tool[I, O] =
     build(_.asyncHandler(new AsyncToolHandler[AnyRef, AnyRef] {

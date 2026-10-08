@@ -54,9 +54,10 @@ jobs:
       - name: kindgi-pack, into the local Maven repository
         working-directory: sdks/java
         run: ./mvnw -B -ntp -pl kindgi-pack -am install -DskipTests
-      - name: Test the layer (Scala 2.13 and 3.3)
+      # publishLocal builds the Scaladoc too, so a doc comment Scaladoc can't read fails here.
+      - name: Test and publish the layer locally (Scala 2.13 and 3.3)
         working-directory: sdks/scala
-        run: sbt -batch +test
+        run: sbt -batch +test +publishLocal
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v5
         with:

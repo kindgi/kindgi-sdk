@@ -17,7 +17,7 @@ package com.kindgi.pack
  *   val tool: Tool[Input, Output] = Tool[Input, Output]("acme.greet")
  *     .description("Formats a greeting for the named recipient.")
  *     .readOnly
- *     .handler((in, ctx) => Output(s"${in.greeting}, ${in.name}!"))
+ *     .handler((in, ctx) => Output(s"\${in.greeting}, \${in.name}!"))
  * }
  * }}}
  *

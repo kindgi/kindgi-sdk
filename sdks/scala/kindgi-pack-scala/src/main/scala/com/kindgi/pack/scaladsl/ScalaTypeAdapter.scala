@@ -10,18 +10,18 @@ import java.util.function.{Function => JFunction}
 import scala.util.Try
 
 /**
- * Teaches kindgi-pack's schema deriver Scala's types (found through {@code ServiceLoader}):
+ * Teaches kindgi-pack's schema deriver Scala's types (found through `ServiceLoader`):
  *
- *  - {@code Option[T]}: not required, and {@code null} allowed;
- *  - {@code Seq}, {@code List}, {@code Vector} and other sequences: {@code array};
- *    {@code Set}: {@code array} with {@code uniqueItems};
- *  - {@code Map[String, T]}: {@code object} with {@code additionalProperties};
- *  - {@code BigDecimal}: {@code number}; {@code BigInt}: {@code integer};
- *  - a Scala 3 simple enum ({@code enum Color { case Red, Green }}): {@code string} of its case names;
- *  - a case class parameter's default: {@code default}, not required.
+ *  - `Option[T]`: not required, and `null` allowed;
+ *  - `Seq`, `List`, `Vector` and other sequences: `array`;
+ *    `Set`: `array` with `uniqueItems`;
+ *  - `Map[String, T]`: `object` with `additionalProperties`;
+ *  - `BigDecimal`: `number`; `BigInt`: `integer`;
+ *  - a Scala 3 simple enum (`enum Color { case Red, Green `}): `string` of its case names;
+ *  - a case class parameter's default: `default`, not required.
  *
- * Scala's primitives inside a type parameter ({@code Seq[Int]}, {@code Option[Long]}) are
- * {@code Object} on the JVM, so their schema there is any JSON value.
+ * Scala's primitives inside a type parameter (`Seq[Int]`, `Option[Long]`) are
+ * `Object` on the JVM, so their schema there is any JSON value.
  */
 final class ScalaTypeAdapter extends SchemaTypeAdapter {
   override def schema(t: SchemaType, derive: JFunction[SchemaType, ju.Map[String, AnyRef]]): ju.Map[String, AnyRef] = {
@@ -50,7 +50,7 @@ final class ScalaTypeAdapter extends SchemaTypeAdapter {
   override def optionalOf(t: SchemaType): SchemaType =
     if (classOf[Option[_]].isAssignableFrom(t.rawClass)) t.typeArgument(0) else null
 
-  /** A case class parameter's default: its companion's {@code $lessinit$greater$default$N}, by position. */
+  /** A case class parameter's default: its companion's `\$lessinit\$greater\$default\$N`, by position. */
   override def defaultValue(property: SchemaProperty): Optional[AnyRef] = {
     val owner = property.declaringType
     if (property.constructorIndex.isEmpty || !classOf[Product].isAssignableFrom(owner)) {
