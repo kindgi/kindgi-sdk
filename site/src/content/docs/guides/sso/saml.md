@@ -49,5 +49,25 @@ Send back the identity provider's metadata XML. Then:
 kindgi sso providers finish acme-saml --kind=saml --idp-metadata=@idp-metadata.xml --domains=<your domain>
 ```
 
-If your identity provider wants signed requests, store Kindgi's signing key
-in the secret store and add `--sp-signing-key-ref=<NAME>`.
+## When your identity provider wants signed requests
+
+If its metadata says `WantAuthnRequestsSigned="true"` (Keycloak's always
+does), Kindgi must sign its sign-in requests, and `finish` refuses without a
+key:
+
+```text
+Error [identity-provider-invalid]: The identity provider wants signed sign-in requests (its metadata says WantAuthnRequestsSigned="true"): make a signing key and certificate, give IT the certificate, put the key (PEM) in the secret store, and set `spSigningKeyRef` to its name
+```
+
+Make a key and certificate, store the key by name, and give IT the
+certificate to add to the app:
+
+```sh
+openssl req -x509 -newkey rsa:2048 -nodes -keyout acme-sp-key.pem -out acme-sp-cert.pem -days 730 -subj "/CN=Kindgi SAML (acme.test)"
+kindgi secrets set ACME_SAML_SIGNING_KEY --env=production --scope=tenant --from-stdin < acme-sp-key.pem
+```
+
+Then finish with `--sp-signing-key-ref=ACME_SAML_SIGNING_KEY`. Kindgi's
+service provider metadata doesn't carry the certificate yet, so IT adds it
+to the app by hand. [Keycloak](../keycloak/#saml) has the steps, checked
+end to end.

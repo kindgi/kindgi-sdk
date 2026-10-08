@@ -6,7 +6,7 @@ sidebar:
 ---
 
 These steps were checked on Keycloak 26.4, with OpenID Connect and with
-SAML. Start with [Set up SSO](../), which gives you the redirect URI or the
+SAML (signed requests). Start with [Set up SSO](../), which gives you the redirect URI or the
 SAML URLs to use here.
 
 ## OpenID Connect
@@ -44,32 +44,54 @@ kindgi sso providers finish acme-kc --kind=oidc --issuer=https://<keycloak-host>
 
 ## SAML
 
+Keycloak's SAML metadata always asks for signed sign-in requests, so a
+Keycloak SAML client needs a signing key and certificate for Kindgi. Start
+with `--kind=saml` ([SAML](../saml/) shows what it prints):
+
 ```sh
-kindgi sso providers start acme-kc-saml --kind=saml
+kindgi sso providers start acme-saml --kind=saml
 ```
 
-In your realm, **Clients → Create client**, client type **SAML**:
+1. **Make Kindgi's signing key and certificate,** and put the key in Kindgi's
+   secret store by name:
 
-1. **Client ID:** the SP entity ID `start` printed. Keycloak uses the client
-   ID as the service provider's entity ID.
-2. **Assertion Consumer Service POST Binding URL:** the ACS URL `start`
-   printed. Put the same URL in **Valid redirect URIs**.
-3. **Sign assertions:** On.
-4. **Name ID format:** email, with **Force name ID format** On.
-5. **Client scopes → the client's dedicated scope → Add mapper → By
-   configuration → User Property:** property `email`, SAML attribute name
-   `email`.
-6. **Client signature required:** On, with Kindgi's signing certificate on
-   the client's **Keys** tab. Keycloak's metadata then asks for signed
-   requests. Store Kindgi's signing key in the secret store, and register it
-   with `--sp-signing-key-ref`.
+   ```sh
+   openssl req -x509 -newkey rsa:2048 -nodes -keyout acme-sp-key.pem -out acme-sp-cert.pem -days 730 -subj "/CN=Kindgi SAML (acme.test)"
+   kindgi secrets set ACME_SAML_SIGNING_KEY --env=production --scope=tenant --from-stdin < acme-sp-key.pem
+   ```
 
-Keycloak's metadata for the realm is at
+   Give IT the certificate, `acme-sp-cert.pem`. The key stays in the secret
+   store.
+
+2. In your realm, **Clients → Create client**, client type **SAML**. On the
+   client's **Settings** tab:
+   - **Client ID:** the entity ID `start` printed. Keycloak uses the client ID
+     as the service provider's entity ID.
+   - **Valid redirect URIs** and **Assertion Consumer Service POST Binding
+     URL:** the ACS URL `start` printed.
+   - **Name ID format:** email, with **Force name ID format** On.
+   - **Sign assertions:** On.
+3. On the **Keys** tab ("Signing keys config"): **Client signature
+   required** On, and import Kindgi's certificate, `acme-sp-cert.pem`.
+   (Keycloak can also read keys from a service provider's metadata URL, but
+   Kindgi's metadata doesn't carry the certificate yet: import it.)
+4. On the client's **Client scopes** tab, open its dedicated scope
+   (`<client id>-dedicated`), then **Add mapper → By configuration → User
+   Property**: **Property** `email`, **SAML Attribute Name** `email`.
+
+The realm's metadata is at
 `https://<keycloak-host>/realms/<realm>/protocol/saml/descriptor`. Save it,
-then:
+and finish with the signing key's name:
 
 ```sh
-kindgi sso providers finish acme-kc-saml --kind=saml --idp-metadata=@keycloak-metadata.xml --domains=<your domain>
+kindgi sso providers finish acme-saml --kind=saml --idp-metadata=@acme-idp-metadata.xml \
+  --domains=acme.test --sp-signing-key-ref=ACME_SAML_SIGNING_KEY --name="Acme SAML"
+```
+
+Without `--sp-signing-key-ref`, `finish` refuses:
+
+```text
+Error [identity-provider-invalid]: The identity provider wants signed sign-in requests (its metadata says WantAuthnRequestsSigned="true"): make a signing key and certificate, give IT the certificate, put the key (PEM) in the secret store, and set `spSigningKeyRef` to its name
 ```
 
 ## Keycloak on a private network

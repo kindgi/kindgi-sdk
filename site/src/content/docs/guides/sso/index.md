@@ -159,12 +159,12 @@ acme-kc   oidc  Acme Keycloak  acme.test
 
 | Identity provider | Page | Checked live |
 |---|---|---|
-| Keycloak | [Keycloak](keycloak/) | yes, OpenID Connect and SAML |
+| Keycloak | [Keycloak](keycloak/) | yes, OpenID Connect and SAML (signed requests) |
 | Google Workspace | [Google](google/) | yes, except the Workspace-only audience |
 | Microsoft Entra ID | [Microsoft Entra ID](entra-id/) | no: steps from Microsoft's docs |
 | Okta | [Okta](okta/) | no: steps from Okta's docs |
-| Another OpenID Connect provider | [OpenID Connect](oidc/) | |
-| Another SAML provider | [SAML](saml/) | |
+| Another OpenID Connect provider | [OpenID Connect](oidc/) | through Keycloak and Google |
+| Another SAML provider | [SAML](saml/) | through Keycloak |
 
 **An identity provider on a private network** (an internal Keycloak, say)
 is refused unless the runtime's operator allows its origin with
