@@ -250,6 +250,9 @@ importers:
       '@kindgi/capabilities':
         specifier: workspace:*
         version: link:../../capabilities
+      '@kindgi/embedding':
+        specifier: workspace:*
+        version: link:../../embedding
       openai:
         specifier: ^7.17.0
         version: 7.17.0(@aws-sdk/credential-provider-node@3.972.83)(@smithy/signature-v4@5.7.3)(undici@5.29.0)(ws@8.21.3)(zod@4.6.5)
@@ -801,6 +804,9 @@ importers:
       '@kindgi/flow':
         specifier: workspace:*
         version: link:../flow
+      '@kindgi/log':
+        specifier: workspace:*
+        version: link:../log
       '@kindgi/sandbox':
         specifier: workspace:*
         version: link:../sandbox
@@ -1140,6 +1146,9 @@ importers:
 
   packages/tools:
     dependencies:
+      '@kindgi/log':
+        specifier: workspace:*
+        version: link:../log
       '@kindgi/schema':
         specifier: workspace:*
         version: link:../schema

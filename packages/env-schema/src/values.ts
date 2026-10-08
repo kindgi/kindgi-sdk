@@ -28,6 +28,24 @@ export const CORS_ORIGINS_VAR = 'KINDGI_CORS_ORIGINS';
 /** The URL clients reach the runtime at, when it isn't the address it binds. */
 export const PUBLIC_URL_VAR = 'KINDGI_PUBLIC_URL';
 
+/** Sign-in with identity providers: the secret its browser flow signs with (a file). */
+export const AUTH_SECRET_PATH_VAR = 'KINDGI_AUTH_SECRET_PATH';
+
+/** The same secret, base64. */
+export const AUTH_SECRET_VAR = 'KINDGI_AUTH_SECRET';
+
+/** Identity provider origins on a private network the operator allows. */
+export const AUTH_PRIVATE_IDP_ORIGINS_VAR = 'KINDGI_AUTH_PRIVATE_IDP_ORIGINS';
+
+/** A browser session's absolute lifetime, in milliseconds. */
+export const SESSION_TTL_MS_VAR = 'KINDGI_SESSION_TTL_MS';
+
+/** How long a browser session may sit idle, in milliseconds. */
+export const SESSION_IDLE_TIMEOUT_MS_VAR = 'KINDGI_SESSION_IDLE_TIMEOUT_MS';
+
+/** Whether a person may sign in to the console with an API token (`on` / `off`). */
+export const CONSOLE_TOKEN_SIGN_IN_VAR = 'KINDGI_CONSOLE_TOKEN_SIGN_IN';
+
 /** The shared secret between the server and the pack service. */
 export const PACK_SERVICE_TOKEN_VAR = 'KINDGI_PACK_SERVICE_TOKEN';
 

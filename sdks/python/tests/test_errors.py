@@ -14,6 +14,7 @@ import pytest
 from kindgi.client import (
     AuthError,
     ConflictError,
+    GuardrailViolationError,
     InvalidRequestError,
     NotFoundError,
     RateLimitedError,
@@ -34,8 +35,9 @@ def body(code: str, **details: Any) -> dict[str, Any]:
         (404, NotFoundError),
         (410, NotFoundError),
         (400, InvalidRequestError),
-        # 409 and 422 stay server errors: the docs match codes there.
-        (409, ServerError),
+        (413, InvalidRequestError),
+        (409, ConflictError),
+        # 422 stays a server error: the docs match its codes there.
         (422, ServerError),
         (401, AuthError),
         (403, AuthError),
@@ -100,16 +102,49 @@ def test_a_documented_422_is_still_a_server_error(code: str) -> None:
     assert error.server_code == code
 
 
-def test_every_4xx_code_but_409_and_422_is_a_typed_error() -> None:
+def test_a_guardrail_config_invalid_is_an_invalid_request_with_its_issues() -> None:
+    issue = {"path": "/config/maxChars", "message": "must be > 0"}
+    error = from_wire(body("guardrail-config-invalid", issues=[issue]), 422)
+    assert type(error) is InvalidRequestError
+    assert error.server_code == "guardrail-config-invalid"
+    assert error.issues == [issue]
+
+
+# The family a documented code belongs in: its HTTP status's (`x-error-codes` in
+# openapi.json), except where this client classifies a code on purpose.
+_EXCEPTIONS: dict[str, type] = {
+    # Its own class, with the violations.
+    "guardrail-violation": GuardrailViolationError,
+    # A provider registration the adapter refuses: an invalid request, with its issues.
+    "provider-config-invalid": InvalidRequestError,
+    # A guardrail whose config its check refuses: the same.
+    "guardrail-config-invalid": InvalidRequestError,
+}
+_BY_STATUS: dict[int, type] = {
+    400: InvalidRequestError,
+    413: InvalidRequestError,
+    401: AuthError,
+    403: AuthError,
+    404: NotFoundError,
+    410: NotFoundError,
+    409: ConflictError,
+    429: RateLimitedError,
+}
+
+
+def expected_class(code: str, status: int) -> type:
+    """422 and 5xx are server errors: the docs match their codes by `server_code`."""
+    return _EXCEPTIONS.get(code) or _BY_STATUS.get(status, ServerError)
+
+
+def test_every_documented_code_is_in_its_status_family_and_keeps_its_code() -> None:
     spec = json.loads(OPENAPI.read_text())
     codes: dict[str, int] = spec["components"]["schemas"]["WireError"]["x-error-codes"]
     assert len(codes) > 100
-    server = [
-        f"{code} ({status})"
+    wrong = [
+        f"{code} ({status}): {type(error).__name__}, not {expected_class(code, status).__name__}"
         for code, status in codes.items()
-        if 400 <= status < 500
-        and status not in (409, 422)
-        and isinstance(from_wire(body(code), status), ServerError)
+        if type(error := from_wire(body(code), status)) is not expected_class(code, status)
     ]
-    assert server == []
+    assert wrong == []
     assert [c for c, s in codes.items() if from_wire(body(c), s).server_code != c] == []

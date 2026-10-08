@@ -4,6 +4,7 @@
 import type { ReviewerSpec } from '@kindgi/client';
 import type { ReviewerId, UserId } from '@kindgi/types';
 
+import { UsageError } from '../errors.js';
 import { integerFlag, readJsonInput, requiredPositional, runSdk, stringFlag } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
@@ -61,10 +62,10 @@ const register: LeafCommand = {
   run: (ctx) =>
     runSdk(ctx, 'reviewers register', async () => {
       const raw = stringFlag(ctx, 'spec');
-      if (raw === undefined) throw new Error('--spec=<json-or-@file> is required');
+      if (raw === undefined) throw new UsageError('--spec=<json-or-@file> is required');
       const spec = (await readJsonInput(raw)) as Partial<ReviewerSpec> | null;
       if (spec === null || typeof spec !== 'object' || typeof spec.role !== 'string') {
-        throw new Error('--spec must be an object with a `role` (standard, senior or admin)');
+        throw new UsageError('--spec must be an object with a `role` (standard, senior or admin)');
       }
       const client = ctx.client();
       const userId = spec.userId ?? ((await client.identity.whoami()).userId as UserId);

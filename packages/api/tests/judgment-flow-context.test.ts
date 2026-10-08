@@ -216,6 +216,49 @@ describe('what a judged flow run keeps', () => {
   });
 });
 
+describe('the env values its tools were sent (toolEnv)', () => {
+  const recorded = (key: string, value: unknown) => ({
+    kind: 'value.recorded',
+    payload: { scope: 'x', key, value },
+  });
+  /** The fixture journals, with `extra` entries added per run (runs it doesn't have included). */
+  const withEnv = (extra: Record<string, unknown[]>): Record<string, unknown[]> => {
+    const runIds = new Set([...Object.keys(journals), ...Object.keys(extra)]);
+    return Object.fromEntries(
+      [...runIds].map((runId) => [runId, [...(journals[runId] ?? []), ...(extra[runId] ?? [])]]),
+    );
+  };
+
+  test("by tool id, from tool nodes, an agent step's turn and a sub-flow; a tool's first call wins", async () => {
+    const journal = withEnv({
+      'run-flow': [
+        recorded('tool-call:acme.lookup:env', { REGION: 'eu' }),
+        recorded('tool-call:acme.score:env', { MODE: 1 }),
+      ],
+      'run-turn': [recorded('tool-call:c1:acme.lookup:env', { REGION: 'us' })],
+      'run-sub': [recorded('tool-call:acme.send:env', { CHANNEL: 'desk' })],
+    });
+    const ctx = await capture(bindings({ journal }));
+    expect(ctx?.toolEnv).toEqual({
+      'acme.lookup': { REGION: 'eu' },
+      'acme.send': { CHANNEL: 'desk' },
+    });
+  });
+
+  test("an agent step's turn's call, under its call id", async () => {
+    const journal = withEnv({
+      'run-turn': [recorded('tool-call:c1:acme.lookup:env', { REGION: 'us' })],
+    });
+    const ctx = await capture(bindings({ journal }));
+    expect(ctx?.toolEnv).toEqual({ 'acme.lookup': { REGION: 'us' } });
+  });
+
+  test('a run that recorded none has no toolEnv', async () => {
+    const ctx = await capture();
+    expect(ctx).not.toHaveProperty('toolEnv');
+  });
+});
+
 test('a run binding that throws while listing children leaves the rest kept (best effort)', async () => {
   const { runBinding, flows } = bindings();
   const throwing = {

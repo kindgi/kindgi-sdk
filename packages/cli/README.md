@@ -566,10 +566,12 @@ go in `[tool.kindgi.image] system-packages = ["tesseract-ocr"]`. The image's
 uv version must be in the pack's `[tool.uv] required-version`; `kindgi
 build` stops before building when it isn't.
 
-**Reproducible:** the build pins `SOURCE_DATE_EPOCH=0`, the publish time
-(`--published-at`, default the epoch) and the artifact version
-(`--artifact-version`, default `YYYYMMDD.1`), and the base images by digest,
-so the same inputs give the same image.
+**Versions and reproducible builds:** the artifact version
+(`--artifact-version`) and the publish time (`--published-at`) default to
+the build time (`YYYYMMDD.HHMMSS` and ISO 8601, both UTC), so a second build
+the same day gets its own tag. The build pins `SOURCE_DATE_EPOCH=0` and the
+base images by digest. For a reproducible build, pass `--artifact-version`
+and `--published-at`: the same inputs then give the same image.
 
 | Flag | Purpose |
 |---|---|
@@ -756,6 +758,9 @@ Inside a pack that `kindgi dev` runs, they find it on their own (see
 | `provenance` | `list`, `get <run-id>`: each run's graph of what ran; `export <run-id> --signing-key=<id>`, signed |
 | `memory facts` | `list` (by `--type`, `--scope`), `get <fact-id>`, `write --input=<json>`: the facts agents remember |
 | `conversations` | `list`, `get`, `open <agent-id> <version>`, `close`, `messages` |
+| `tokens` | API keys for you, a person (`--for=user:<id>`) or a service account (`--for=sa:<id>`): `create` (its secret shown once; `--role`, `--project`, `--expires`), `list`, `get`, `revoke` |
+| `service-accounts` | `create <name>` (with `--tenant-admin`, `--project=<id>:<role>`), `list`, `get`, `grant`, `ungrant`, `unregister` |
+| `people` | `add --name [--email]` (tenant admins), `list`, `get`, `grants <id>`, `grant`/`ungrant <id> --tenant-admin` (tenant admins) |
 | `runs` | `list`, `get`, `cancel`, `journal`, `stream` (one JSON event per line), `start`, `resume` |
 | `agents` | `list`, `get <agent-id> [<version>]`, `publish`, `derive`, `unregister <agent-id> <version>`, `versions`; which version runs where: `live`, `live-versions`, `promote`, `rollback`, `unpin`, `promotions` |
 | `tools` | `list`, `get`, `publish`, `unregister`, `versions`, `get-version`, `reinstate` |

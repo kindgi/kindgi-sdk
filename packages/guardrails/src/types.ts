@@ -262,6 +262,14 @@ export interface Guardrail {
    * check handler bytes. Absent for in-process declarations.
    */
   readonly codeArtifactRef?: CodeArtifactRef;
+  /**
+   * JSON Schema of the check's `config`, for a check that is pack code:
+   * the pack index's `configSchema`, kept by a deployment on the
+   * guardrails it registers. A runtime checks any guardrail naming this
+   * check against it at registration (`guardrailConfigProblems`), as the
+   * pack service does on every call.
+   */
+  readonly configSchema?: Readonly<Record<string, unknown>>;
 }
 
 /**

@@ -5,7 +5,7 @@ import type { ModelMessage, ModelToolCall } from '@kindgi/capabilities';
 import type { NodeContext, NodeHandler } from '@kindgi/handler';
 import { WaitpointCancelledError } from '@kindgi/handler';
 import { stricterToolHitlRule } from '@kindgi/policy-contract';
-import { invokeTool } from '@kindgi/tools';
+import { invokeTool, toolCallRecordKey } from '@kindgi/tools';
 import type { Tool, ToolContext } from '@kindgi/tools';
 
 import { emitTurnEvent } from '../streaming.js';
@@ -28,13 +28,6 @@ import {
   toolRetriesSoFar,
 } from './tool-errors.js';
 import { TOOL_GATE_RECORD_PREFIX, computeToolCallWaitToken, hashToolArgs } from './tool-hitl.js';
-
-/**
- * The `NodeContext.record` key of a tool call's own decisions, before
- * `<call id>:<tool id>:<key>`: what the call's `ToolContext.record`
- * journals (the runtime keeps the call's resolved env under `env`).
- */
-export const TOOL_CALL_RECORD_PREFIX = 'tool-call:';
 import { addStepToolNodes } from './turn-provenance.js';
 
 /**
@@ -393,7 +386,9 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
         continue;
       }
 
-      const dispatched = await dispatchOne(ctx, tool, call, kctx);
+      // A replay's live call reads the env the past run's call saw.
+      const replayEnv = replayed?.kind === 'live' ? replayed.env : undefined;
+      const dispatched = await dispatchOne(ctx, tool, call, kctx, replayEnv);
       if (dispatched.kind === 'err') {
         await emitTurnEvent(ctx.bindings.onEvent, {
           kind: 'tool.failed',
@@ -583,6 +578,7 @@ async function dispatchOne(
   tool: Tool,
   call: ModelToolCall,
   kctx: NodeContext,
+  replayEnv?: Readonly<Record<string, string>>,
 ): Promise<
   | {
       readonly kind: 'ok';
@@ -604,10 +600,7 @@ async function dispatchOne(
     }
 > {
   const runId = kctx.runId as unknown as string;
-  // The call's durable decisions (its resolved env): this step's own
-  // record, keyed by the call and the tool. Call ids are unique only by
-  // provider convention, so the tool id keeps two tools apart.
-  const recordPrefix = `${TOOL_CALL_RECORD_PREFIX}${call.id}:${tool.id as unknown as string}:`;
+  const toolId = tool.id as unknown as string;
   const toolCtx: ToolContext = {
     tenantId: ctx.input.tenantId,
     runId,
@@ -622,7 +615,12 @@ async function dispatchOne(
     ...(ctx.bindings.resolveSecret !== undefined && { resolveSecret: ctx.bindings.resolveSecret }),
     // The pinned settings blocks' values, by block id.
     ...(ctx.blocks !== undefined && { settings: ctx.blocks.settings }),
-    record: (key, decide) => kctx.record(`${recordPrefix}${key}`, decide),
+    // The call's durable decisions (its resolved env): this step's own
+    // record, keyed by the call and the tool (`toolCallRecordKey`).
+    record: (key, decide) =>
+      kctx.record(toolCallRecordKey({ toolId, key, callId: call.id }), decide),
+    // A replay's live call: the past run's env values for the tool.
+    ...(replayEnv !== undefined && { env: replayEnv }),
   };
   const result = await invokeTool(tool, call.arguments, toolCtx);
   if (result.kind === 'err') {
