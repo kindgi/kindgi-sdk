@@ -11,8 +11,10 @@ end to end on runtime 0.1.1, the first apply takes about ten minutes (most of
 it Cloud SQL), and a tool call from the runtime to your pack takes 42 ms at the
 median (100 ms at p95).
 
-:::note[Private preview]
-The runtime image is in private preview: request access at contact@kindgi.com
+:::note[Access to the runtime image]
+Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
+runtime image's pull credentials, and log in once with `kindgi auth registry`
+(see [Install](../../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
 :::
 
 ## What you'll have

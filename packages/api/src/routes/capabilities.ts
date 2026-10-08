@@ -7,8 +7,10 @@ import type { Cursor, TenantId } from '@kindgi/types';
 
 import type { CapabilityDescriptor, CapabilityRegistryBinding } from '../capability-binding.js';
 import { statusFor, toWireError } from '../errors.js';
+import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import { tenantResourceAccess } from './tenant-access.js';
 
 /**
  * Capabilities resource routes — part of the admin control plane.
@@ -19,8 +21,12 @@ import { clampLimit } from './pagination.js';
  * the HTTP surface — that would fork the closed-enum feature set the
  * router depends on.
  */
-export function capabilitiesRouter(binding: CapabilityRegistryBinding): Hono<AppEnv> {
+export function capabilitiesRouter(
+  binding: CapabilityRegistryBinding,
+  authorizer?: Authorizer,
+): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  r.use('*', tenantResourceAccess(authorizer));
 
   // ---------- GET / (list, cursor-paginated) ----------
   r.get('/', async (c) => {
