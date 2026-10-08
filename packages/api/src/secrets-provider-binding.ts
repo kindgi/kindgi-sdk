@@ -123,6 +123,16 @@ export interface SecretProviderPutInput {
   readonly name: string;
   readonly value: string;
   readonly writeMode: 'create-new' | 'add-version';
+  /**
+   * Kindgi's number for the version this write creates, when the caller
+   * numbers versions itself (the router does). Adapters make the write
+   * idempotent per `(name, versionId)`: if that version already exists
+   * (a retry after the provider wrote it but the caller couldn't record
+   * it), they return it instead of writing again, so a retry never
+   * leaves an orphaned version. Key Vault tags the version, AWS stages
+   * it, Vault checks-and-sets, GCP's own numbers match.
+   */
+  readonly versionId?: number;
 }
 
 export type SecretProviderPutOutput =
@@ -146,6 +156,8 @@ export interface SecretProviderRotateInput {
   readonly name: string;
   readonly newValue?: string;
   readonly revokeOldAfterMs?: number;
+  /** Kindgi's number for the new version: idempotent as `SecretProviderPutInput.versionId`. */
+  readonly versionId?: number;
 }
 
 export type SecretProviderRotateOutput =
