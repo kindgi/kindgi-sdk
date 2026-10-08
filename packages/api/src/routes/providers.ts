@@ -18,6 +18,7 @@ import type { Cursor, TenantId } from '@kindgi/types';
 
 import type { CapabilityDescriptor } from '../capability-binding.js';
 import { statusFor, toWireError } from '../errors.js';
+import type { Authorizer } from '../middleware/authorize.js';
 import type {
   ProviderRegistryBinding,
   ProviderRuntimeEntry,
@@ -25,6 +26,7 @@ import type {
 } from '../provider-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import { tenantResourceAccess } from './tenant-access.js';
 
 /**
  * Providers resource routes — part of the admin control plane. Full
@@ -63,8 +65,10 @@ export function providersRouter(
   binding: ProviderRegistryBinding,
   onWrite?: ProviderWriteHook,
   factories?: AdapterFactoryRegistry,
+  authorizer?: Authorizer,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  r.use('*', tenantResourceAccess(authorizer));
 
   // ---------- GET / (list, cursor-paginated) ----------
   r.get('/', async (c) => {
