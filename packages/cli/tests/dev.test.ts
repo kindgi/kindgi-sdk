@@ -663,6 +663,29 @@ describe('kindgi dev — the project env files', () => {
     expect(spy.mock.calls[0]?.[0]?.corsOrigins).toBeUndefined();
   });
 
+  test('exports: the key file when KINDGI_EXPORT_SIGNING_KEY_PATH is set; a missing one refuses', async () => {
+    const keyPath = join(packDir, 'export-signing.pem');
+    const { privateKey } = generateKeyPairSync('ed25519');
+    await writeFile(keyPath, privateKey.export({ type: 'pkcs8', format: 'pem' }), { mode: 0o600 });
+    const fixtures = makeFixtures();
+    const spy = vi.spyOn(fixtures.runners, 'startApiServer');
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      env: { ...baseInputs(fixtures).env, KINDGI_EXPORT_SIGNING_KEY_PATH: keyPath },
+      argv: ['dev', '--no-watch', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(0);
+    // The key file is handed to the runtime (mounted): its key id holds across restarts.
+    expect(spy.mock.calls[0]?.[0]?.exportSigningKeyPath).toBe(keyPath);
+    const missing = await runCli({
+      ...baseInputs(fixtures),
+      env: { ...baseInputs(fixtures).env, KINDGI_EXPORT_SIGNING_KEY_PATH: join(packDir, 'no.pem') },
+      argv: ['dev', '--no-watch', `--path=${packDir}`],
+    });
+    expect(missing.exitCode).toBe(1);
+    expect(missing.stderr).toContain('KINDGI_EXPORT_SIGNING_KEY_PATH must be the absolute path');
+  });
+
   test('a malformed KINDGI_CORS_ORIGINS refuses to boot', async () => {
     const fixtures = makeFixtures();
     const spy = vi.spyOn(fixtures.runners, 'startApiServer');
