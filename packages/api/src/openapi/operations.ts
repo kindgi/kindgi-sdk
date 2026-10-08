@@ -4727,7 +4727,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     tags: ['auth'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('IdentityProviderConfig') },
+    requestBody: { required: true, schema: ref('RegisterIdentityProviderBody') },
     responses: {
       '201': {
         description: 'Provider registered.',
@@ -4758,7 +4758,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
     ],
     responses: {
-      '200': { description: 'The provider.', schema: ref('IdentityProviderConfig') },
+      '200': { description: 'The provider.', schema: ref('GetIdentityProviderResult') },
       ...CommonAuthErrors,
       '404': ErrorResponse('No identity provider registered with that id under this tenant.'),
     },
