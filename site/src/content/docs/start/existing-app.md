@@ -375,6 +375,70 @@ runtime dependencies only. Other public classes in a `kindgi.tools` package
 must define a tool; a helper there is package-private, or a record, an enum
 or an interface.
 
+## A Scala app (sbt)
+
+In the app's directory (where its `build.sbt` is), with a JDK 17 or later,
+`JAVA_HOME` set, and sbt:
+
+```sh
+npx --yes @kindgi/cli@0.1 init   # --pack-id=<id> if the build's name doesn't make one
+./kindgiw dev
+```
+
+`init` writes `kindgi.config.json`: the pack id from the build's `name`, its
+version, the Kindgi CLI version it pins (`"cli"`, which `./kindgiw` runs, also
+written), and discovery under `kindgi` packages
+(`src/main/scala/**/kindgi/tools/**/*.scala`, and so on), so your app's own
+`tools` packages are never taken for Kindgi's. It leaves `build.sbt` alone and
+prints what to add to it:
+
+```scala
+libraryDependencies += "com.kindgi" %% "kindgi-pack-scala" % "…"
+resolvers += Resolver.mavenLocal   // kindgi-pack, until it is on Maven Central
+```
+
+kindgi-pack-scala isn't on Maven Central yet: build it from the Kindgi SDK
+repository first, as the
+[Scala quickstart](../quickstart-scala/#1-get-kindgi-pack-scala) shows. An app
+with a `build.sbt` next to a `package.json` or a `pom.xml` gets a TypeScript
+or Java pack unless you pass `--template=scala`.
+
+`kindgi dev` builds through the app's sbt server (`sbt --client`): it starts
+one when none is running and stops it when it stops, and a server your IDE
+runs is used and left running. `dev.sbt` in `kindgi.config.json` names
+another sbt (such as `["sbt", "-mem", "2048"]`) and `dev.javaHome` another
+JDK. `SBT_OPTS` reaches sbt, never the pack.
+
+A tool is a `val` of an object in a `kindgi.tools` package under your own,
+named like its file, and calls your app's code directly:
+
+```scala
+// src/main/scala/com/acme/kindgi/tools/CustomerOrders.scala
+package com.acme.kindgi.tools
+
+import com.acme.orders.{Order, OrderService}
+import com.kindgi.pack.scaladsl._
+
+object CustomerOrders {
+  final case class Input(customerId: String)
+  final case class Output(orders: Seq[Order])
+
+  val tool: Tool[Input, Output] = Tool[Input, Output]("acme.customer-orders")
+    .description("The customer's orders, newest first.")
+    .readOnly
+    .handler((in, _) => Output(OrderService.findOrders(in.customerId)))
+}
+```
+
+`readOnly` says the tool only reads, so a dry run may call it.
+
+A class your tool uses must be on the app's runtime classpath (not `% Test`
+or `% Provided`): the pack's image ships the runtime classpath only. In a
+`kindgi.tools` package, a file with no object (a model) or a case class's
+companion is a helper; an object whose tool is a `def` or a `lazy val` is an
+error that asks for a `val`. The
+[Scala quickstart's known limits](../quickstart-scala/#known-limits) apply.
+
 ## Starting runs from your app
 
 Your app calls Kindgi over HTTP, through the SDK's client.

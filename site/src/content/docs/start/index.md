@@ -13,8 +13,8 @@ Begin here.
 2. [Install](install/): Node, Docker, and how a project gets the CLI and
    the SDK.
 3. A first pack, running on your machine in ten minutes:
-   [TypeScript](quickstart-typescript/), [Python](quickstart-python/) or
-   [Java](quickstart-java/) (preview).
+   [TypeScript](quickstart-typescript/), [Python](quickstart-python/),
+   [Java](quickstart-java/) or [Scala](quickstart-scala/) (preview).
 4. [Add Kindgi to an existing app](existing-app/): your app's own code as
    tools. From a Java app, [call Kindgi with the Java client](java-app/)
    (preview).

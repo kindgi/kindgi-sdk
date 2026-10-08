@@ -37,7 +37,9 @@
  * runtime image available, uv for Python pages, and for Java pages (those
  * that make a `--template=java` pack) a JDK 17 or later: the run installs
  * this checkout's kindgi-pack into the local Maven repository first, as a
- * reader does from the SDK repository.
+ * reader does from the SDK repository. Scala pages (`--template=scala`) also
+ * need sbt: the run publishes this checkout's kindgi-pack-scala into the
+ * local Ivy repository too.
  *
  * Usage: node site/scripts/run-tutorials.mjs [<page under site/src/content/docs> …]
  */
@@ -466,13 +468,31 @@ function installJavaSdk() {
     );
   }
 }
+/** A Scala page's packs also need this checkout's kindgi-pack-scala in the local Ivy repository. */
+function installScalaSdk() {
+  const published = spawnSync('sbt', ['-batch', '+publishLocal'], {
+    cwd: join(repo, 'sdks', 'scala'),
+    encoding: 'utf8',
+  });
+  if (published.status !== 0) {
+    throw new Error(
+      `couldn't publish kindgi-pack-scala from sdks/scala (sbt, and a JDK 17 or later, are needed):\n${published.stdout}${published.stderr}`,
+    );
+  }
+}
 let javaInstalled = false;
+let scalaInstalled = false;
 let failed = 0;
 try {
   for (const [index, page] of targets.entries()) {
-    if (!javaInstalled && readFileSync(page, 'utf8').includes('--template=java')) {
+    const text = readFileSync(page, 'utf8');
+    if (!javaInstalled && /--template=(java|scala)\b/.test(text)) {
       installJavaSdk();
       javaInstalled = true;
+    }
+    if (!scalaInstalled && text.includes('--template=scala')) {
+      installScalaSdk();
+      scalaInstalled = true;
     }
     const name = relative(docs, page);
     const started = Date.now();

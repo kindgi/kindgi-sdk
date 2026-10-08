@@ -37,7 +37,7 @@ thing at a time, and wait until they say they've done it.
     else `npx --no kindgi`;
   - a Python project: `uv run kindgi` (the project's dev dependencies bring
     the CLI);
-  - a Java project: `./kindgiw` (the CLI version the project pins in
+  - a Java or Scala project: `./kindgiw` (the CLI version the project pins in
     `kindgi.config.json`; `kindgiw.cmd` on Windows).
 
 ## Step 0: check the machine
@@ -84,7 +84,7 @@ running and no model key yet:
 ```
 
 The checks come in this order: `node`, `npm`, `python`, `uv`, `java`,
-`maven`, `docker`, `registry`, `project`, `dependencies`, `model-key`,
+`maven`, `sbt`, `docker`, `registry`, `project`, `dependencies`, `model-key`,
 `runtime`, `provider`.
 
 - **`fail`:** run its `fix`, as written: it names the CLI to use in that
@@ -121,7 +121,8 @@ runtime: skip this step.
    preference; Python if they ask for it, or if there's no Node (doctor's
    `python` and `uv` say whether it's ready); Java if they ask for it
    (doctor's `java` says whether there's a JDK 17 or later; Maven comes with
-   the project).
+   the project); Scala if they ask for it (a JDK 17 or later too, and
+   doctor's `sbt` says whether sbt is installed).
 2. Create it and install its dependencies:
 
    ```sh
@@ -145,13 +146,22 @@ runtime: skip this step.
    ./mvnw -q test
    ```
 
+   ```sh
+   # Scala (preview: first build kindgi-pack-scala from the SDK, as the Scala quickstart's step 1 shows)
+   npx --yes @kindgi/cli@next init my-agents --template=scala   # from now on: ./kindgiw …
+   cd my-agents
+   sbt -batch test
+   ```
+
 3. Run doctor again from the project's folder; `project` and
    `dependencies` should pass.
 
 `init` also gives you Kindgi's skills, in `.claude/skills/`. Read them: they
-are how you write tools and agents for this project. A Java project has none
-yet: read its `README.md` and `AGENTS.md`, and
-[kindgi-pack's README](https://github.com/kindgi/kindgi-sdk/tree/main/sdks/java/kindgi-pack).
+are how you write tools and agents for this project. A Java or Scala project
+has none yet: read its `README.md` and `AGENTS.md`, and
+[kindgi-pack's README](https://github.com/kindgi/kindgi-sdk/tree/main/sdks/java/kindgi-pack)
+(Java) or [kindgi-pack-scala's](https://github.com/kindgi/kindgi-sdk/tree/main/sdks/scala)
+(Scala).
 
 ## Step 3: start Kindgi
 

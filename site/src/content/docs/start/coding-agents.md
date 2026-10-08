@@ -24,8 +24,9 @@ how it knows to.
 ### Skills, loaded for the task
 
 `kindgi init` copies Kindgi's **skills** into the project, under
-`.claude/skills/` (for a TypeScript or Python project; a Java project has
-none yet, so point the agent at its `README.md` and `AGENTS.md`). A skill
+`.claude/skills/` (for a TypeScript or Python project; a Java or Scala
+project has none yet, so point the agent at its `README.md` and
+`AGENTS.md`). A skill
 is a page of instructions written for an agent:
 the steps, the commands to run, what to check, and the mistakes to avoid.
 
