@@ -5966,6 +5966,20 @@ class OAuth2IdentityProviderConfig(BaseModel):
     claim_mapping: Annotated[ClaimMappingSpec | None, Field(alias="claimMapping")] = None
 
 
+class RegisterIdentityProviderBody(
+    RootModel[
+        OidcIdentityProviderConfig | SamlIdentityProviderConfig | OAuth2IdentityProviderConfig
+    ]
+):
+    root: Annotated[
+        OidcIdentityProviderConfig | SamlIdentityProviderConfig | OAuth2IdentityProviderConfig,
+        Field(discriminator="kind"),
+    ]
+    """
+    The identity provider to register, one shape per `kind`: `oidc`, `saml` or `oauth2`. Secrets by reference only (`clientSecretRef`, `spSigningKeyRef`, `spDecryptionKeyRef`); a `clientSecret` field is refused.
+    """
+
+
 class IdentityProviderCollectionPage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
