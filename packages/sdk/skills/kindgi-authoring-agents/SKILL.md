@@ -12,7 +12,7 @@ description: >
   kindgi-authoring-guardrails.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.3"
+version: "0.4.4"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -125,10 +125,10 @@ export default defined.value;
   capability-based selection when the preferred provider is
   unregistered or filtered out.
 - **`preferredModel`** — optional soft hint at the model level: set to
-  a `ModelInfo.name` (e.g. `'gemini-2.5-pro'`), the router prefers
+  a `ModelInfo.name` (e.g. `'gemini-3.8-flash'`), the router prefers
   `(provider, model)` tuples whose model matches. To require a model
   rather than prefer it, add a hard requirement to the capability:
-  `capabilities: [{ needs: [{ feature: 'tool-use' }, { models: { allow: ['gemini-2.5-pro'] } }] }]`.
+  `capabilities: [{ needs: [{ feature: 'tool-use' }, { models: { allow: ['gemini-3.8-flash'] } }] }]`.
 - **`conversationPolicy`** — optional. Absent = each turn loads the
   conversation's full history and no HITL gates apply. `historyLimit`
   caps how many prior messages are loaded; `hitl` configures approval

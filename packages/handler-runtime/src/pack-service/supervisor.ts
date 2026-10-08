@@ -122,6 +122,8 @@ export interface PackRelayCall {
   readonly requestId?: string;
   /** The caller's protocol version (`kindgi-protocol`), passed on as is. */
   readonly protocol?: string;
+  /** The caller's W3C trace context (`traceparent`), passed on as is. */
+  readonly traceparent?: string;
 }
 
 /**
@@ -485,6 +487,7 @@ function childHeaders(token: string, call: PackRelayCall): Record<string, string
     ...(call.runId !== undefined && { [PACK_HEADERS.runId]: call.runId }),
     ...(call.requestId !== undefined && { [PACK_HEADERS.requestId]: call.requestId }),
     ...(call.protocol !== undefined && { [PACK_HEADERS.protocol]: call.protocol }),
+    ...(call.traceparent !== undefined && { [PACK_HEADERS.traceparent]: call.traceparent }),
   };
 }
 
@@ -518,6 +521,7 @@ function relayCall(
   const runId = header(req, PACK_HEADERS.runId);
   const requestId = header(req, PACK_HEADERS.requestId);
   const protocol = header(req, PACK_HEADERS.protocol);
+  const traceparent = header(req, PACK_HEADERS.traceparent);
   return {
     route,
     signal,
@@ -526,6 +530,7 @@ function relayCall(
     ...(runId !== undefined && { runId }),
     ...(requestId !== undefined && { requestId }),
     ...(protocol !== undefined && { protocol }),
+    ...(traceparent !== undefined && { traceparent }),
   };
 }
 
