@@ -234,9 +234,9 @@ def from_wire(body: Any, status: int, *, retry_after: str | None = None) -> Kind
     return ServerError(message, **common)
 
 
-# 409 and 422 aren't here: a code this client doesn't list stays a
-# `ServerError` (the docs match `budget-exceeded`, `agent-version-mismatch`
-# by `server_code`).
+# 422 isn't here: a code this client doesn't list stays a `ServerError` (the
+# docs match `budget-exceeded`, `output-schema-violation` by `server_code`). A
+# test holds this to the API's own list (`x-error-codes` in openapi.json).
 _BY_STATUS: Mapping[int, str] = {
     404: "not-found",
     410: "not-found",
@@ -244,6 +244,7 @@ _BY_STATUS: Mapping[int, str] = {
     413: "invalid",
     401: "auth",
     403: "auth",
+    409: "conflict",
     429: "rate-limited",
 }
 

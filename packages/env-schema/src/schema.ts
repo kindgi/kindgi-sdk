@@ -345,6 +345,42 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_MEMORY_EMBEDDINGS',
+    description:
+      "Turns on memory search by meaning, with the embedding provider: `openai-compat`, an embeddings endpoint that speaks OpenAI's `POST /embeddings` (OpenAI, Ollama, vLLM, Hugging Face TEI, LM Studio; set `KINDGI_MEMORY_EMBEDDINGS_URL` and `KINDGI_MEMORY_EMBEDDINGS_MODEL`), or `local:<model>`, a model run inside the server (`bge-small-en-v1.5`, `nomic-embed-text-v1.5` or `mxbai-embed-large-v1`; only for a server run from source on macOS or glibc Linux: the runtime image can't load it, and the server refuses to start there). Facts are embedded when written, and a background job embeds the ones already there; agents' `semantic` and `both` retrieval and `/v1/memory/retrieve` then search by meaning. Unset (the default): keyword search only; a `semantic` intent fails its turn with `semantic-unavailable`, `both` runs its keyword half, and publishing such an agent warns. An endpoint that doesn't answer yet doesn't stop the server: it is retried in the background (its first answer gives the dimensions), search by meaning waits for it (`semantic-unavailable` meanwhile, writes kept without a vector until then), and `/ready` says `memoryEmbeddings: unavailable (retrying)`.",
+    example: 'openai-compat',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_MEMORY_EMBEDDINGS_URL',
+    description:
+      "With `KINDGI_MEMORY_EMBEDDINGS=openai-compat`: the endpoint's base URL, with its `/v1` (`http://localhost:11434/v1` for Ollama, `https://api.openai.com/v1`). Required then.",
+    example: 'http://localhost:11434/v1',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_MEMORY_EMBEDDINGS_MODEL',
+    description:
+      'With `KINDGI_MEMORY_EMBEDDINGS=openai-compat`: the embedding model the endpoint serves (`nomic-embed-text`, `text-embedding-3-small`). Required then. A different model means a new vector space: the background job re-embeds every fact in it.',
+    example: 'nomic-embed-text',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_MEMORY_EMBEDDINGS_API_KEY',
+    description:
+      "With `KINDGI_MEMORY_EMBEDDINGS=openai-compat`: the endpoint's key, mapped into the environment from your secret store; Kindgi never stores it. Optional: Ollama and a local TEI take none.",
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_RETENTION_SWEEP_INTERVAL_MS',
     description:
       "How often the server purges deleted rows on its own, in milliseconds: in every tenant it serves, it purges for good the tombstones past their retention policy's grace, as `POST /v1/retention/sweep` does, holds (`graceSeconds: -1`) kept, and logs what it purged. Unset (the default): nothing purges on its own; sweep with `POST /v1/retention/sweep` or the console. At least 60000, or the server refuses to start.",

@@ -1532,7 +1532,7 @@ class Flow(BaseModel):
 
 class JudgedRunContext(BaseModel):
     """
-    What a judged run needs besides its input to be replayed, captured when it was first judged. For an agent turn: the conversation before it, what its retrievals returned, and the decision at its session approval gate. For a flow run: its tool calls with their results.
+    What a judged run needs besides its input to be replayed, captured when it was first judged. For an agent turn: the conversation before it, what its retrievals returned, and the decision at its session approval gate. For a flow run: its tool calls with their results. For both: the env values its tools were sent.
     """
 
     model_config = ConfigDict(
@@ -1558,6 +1558,10 @@ class JudgedRunContext(BaseModel):
     flow: Flow | None = None
     """
     For a flow run: what it did, kept at its first judgment so it can be replayed. Every tool call it made with its result (at its tool nodes, in its agent steps' turns and in its sub-flows), at most 500, and its agent steps.
+    """
+    tool_env: Annotated[dict[str, dict[str, str]] | None, Field(alias="toolEnv")] = None
+    """
+    The env values each tool's calls were sent (`needsSpec.env`), by tool id: its first call's, as the run recorded them. A replay sends them to a read-only tool it runs live, so the tool reads the config the run saw, not today's. Absent for a run from before env was recorded.
     """
 
 
@@ -1840,9 +1844,36 @@ class RetrievalIntent(BaseModel):
         populate_by_name=True,
     )
     types: Annotated[list[str], Field(min_length=1)]
-    scope: Literal["same-conversation", "same-project", "tenant"]
+    scope: Literal["same-conversation", "same-user", "same-project", "tenant"]
+    """
+    What the intent selects within what the run may see: this conversation's facts; this run's end user's and user's; the run's project's (none without a project); or every fact of the type it may see.
+    """
     limit: Annotated[int | None, Field(ge=1)] = None
     mode: Literal["keyword", "semantic", "both"] | None = None
+    """
+    With the user's message as the query: full-text, by meaning (fails the turn with `semantic-unavailable` on a runtime without embeddings), or both fused by rank (without embeddings, the keyword half). Absent: the newest facts.
+    """
+
+
+class InstructionType(RootModel[str]):
+    root: Annotated[str, Field(min_length=1)]
+
+
+class AgentMemoryPolicy(BaseModel):
+    """
+    How the agent uses what it retrieves.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    instruction_types: Annotated[list[InstructionType] | None, Field(alias="instructionTypes")] = (
+        None
+    )
+    """
+    Fact types that are instructions for this agent: a retrieved, verified fact of one of these types goes into the system message under 'Policies (verified)'. Default: none.
+    """
 
 
 class ConversationPolicy(BaseModel):
@@ -2134,6 +2165,7 @@ class PublishAgentBody(BaseModel):
     capabilities: list[Capability4]
     tools: list[ToolRef]
     retrieval: list[RetrievalIntent]
+    memory: AgentMemoryPolicy | None = None
     guardrails: list[str]
     preferred_provider: Annotated[str | None, Field(alias="preferredProvider", min_length=1)] = None
     """
@@ -2152,6 +2184,15 @@ class PublishAgentBody(BaseModel):
     tool_errors: Annotated[ToolErrorsSpec | None, Field(alias="toolErrors")] = None
 
 
+class Warning(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    code: str
+    message: str
+
+
 class PublishAgentResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -2159,6 +2200,10 @@ class PublishAgentResult(BaseModel):
     )
     agent_id: Annotated[str, Field(alias="agentId")]
     version: str
+    warnings: list[Warning] | None = None
+    """
+    What the agent should know about this deployment before its first turn, e.g. `semantic-unavailable`: a retrieval intent searches by meaning and the deployment has no embeddings.
+    """
 
 
 class UnregisterAgentResult(BaseModel):
@@ -3289,7 +3334,7 @@ class FactRevisionList(BaseModel):
 
 class RetrieveIntent(BaseModel):
     """
-    Retrieval intent — mirrors `RetrievalIntent` from `@kindgi/agents`, widened for direct-HTTP use. `mode: "list"` returns a plain scoped list (no query). `mode: "keyword"` runs full-text search. `mode: "semantic"` runs vector similarity search — requires an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`. `mode: "both"` unions keyword + semantic results, dedup by fact id.
+    Retrieval intent — mirrors `RetrievalIntent` from `@kindgi/agents`, widened for direct-HTTP use. `mode: "list"` returns a plain scoped list (no query), newest first. `mode: "keyword"` runs full-text search. `mode: "semantic"` searches by meaning — it needs embeddings on the deployment; without them the route answers `422 semantic-unavailable`. `mode: "both"` runs both and fuses them by rank (reciprocal rank fusion), as `semantic` needing embeddings.
     """
 
     model_config = ConfigDict(
@@ -3309,7 +3354,7 @@ class RetrieveIntent(BaseModel):
 
 class RetrieveMemoryBody(BaseModel):
     """
-    Retrieval intent — mirrors `RetrievalIntent` from `@kindgi/agents`, widened for direct-HTTP use. `mode: "list"` returns a plain scoped list (no query). `mode: "keyword"` runs full-text search. `mode: "semantic"` runs vector similarity search — requires an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`. `mode: "both"` unions keyword + semantic results, dedup by fact id.
+    Retrieval intent — mirrors `RetrievalIntent` from `@kindgi/agents`, widened for direct-HTTP use. `mode: "list"` returns a plain scoped list (no query), newest first. `mode: "keyword"` runs full-text search. `mode: "semantic"` searches by meaning — it needs embeddings on the deployment; without them the route answers `422 semantic-unavailable`. `mode: "both"` runs both and fuses them by rank (reciprocal rank fusion), as `semantic` needing embeddings.
     """
 
     model_config = ConfigDict(
@@ -3335,7 +3380,7 @@ class RetrievalHit(BaseModel):
     fact: Fact
     score: float | None = None
     """
-    Relevance score. Keyword mode returns an implementation-defined rank (higher = better). Semantic mode returns cosine similarity in [-1, 1] (higher = better). Absent for `list` mode.
+    Relevance score. Keyword mode returns an implementation-defined rank (higher = better). Semantic mode returns cosine similarity in [-1, 1] (higher = better). Both: the fused rank score, `Σ 1/(60 + rank)` (higher = better). Absent for `list` mode.
     """
 
 
@@ -6070,7 +6115,7 @@ class CallbackResult(BaseModel):
     )
     session_token: Annotated[str, Field(alias="sessionToken")]
     """
-    Opaque framework-issued session token (`kgi_sk_<sessionId>`). Send as `Authorization: Bearer <sessionToken>` on subsequent requests. The underlying provider access-token never leaves the server.
+    Opaque session token (`kgi_sk_…`), shown once: the server keeps only a hash of it. Never parse it. Send as `Authorization: Bearer <sessionToken>` on subsequent requests. The underlying provider access-token never leaves the server.
     """
     session_id: Annotated[str, Field(alias="sessionId")]
     expires_at: Annotated[AwareDatetime, Field(alias="expiresAt")]
@@ -6083,7 +6128,7 @@ class RefreshResult(BaseModel):
     )
     session_token: Annotated[str, Field(alias="sessionToken")]
     """
-    Opaque framework-issued session token (`kgi_sk_<sessionId>`). Send as `Authorization: Bearer <sessionToken>` on subsequent requests. The underlying provider access-token never leaves the server.
+    Opaque session token (`kgi_sk_…`), shown once: the server keeps only a hash of it. Never parse it. Send as `Authorization: Bearer <sessionToken>` on subsequent requests. The underlying provider access-token never leaves the server.
     """
     session_id: Annotated[str, Field(alias="sessionId")]
     expires_at: Annotated[AwareDatetime, Field(alias="expiresAt")]
@@ -7156,11 +7201,19 @@ class ProjectMembershipCollectionPage(BaseModel):
 
 
 class AddProjectMembershipBody(BaseModel):
+    """
+    Exactly one of `userId` and `email` names the person.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    user_id: Annotated[str, Field(alias="userId", min_length=1)]
+    user_id: Annotated[str | None, Field(alias="userId", min_length=1)] = None
+    email: Annotated[str | None, Field(min_length=1)] = None
+    """
+    The person's email, as the tenant has it.
+    """
     role: Literal["viewer", "editor", "owner", "admin", "member"]
     """
     Role on a project membership.
@@ -8514,7 +8567,7 @@ class MintTokenBody(BaseModel):
     for_: Annotated[ApiKeyPrincipal | None, Field(alias="for")] = None
     role: Literal["admin", "member"] | None = None
     """
-    The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action, whoever it's for. Default `member`; `admin` needs a tenant admin minting it.
+    The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action on the tenant, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project). Default `member`; `admin` needs a tenant admin minting it.
     """
     capabilities: list[Capability] | None = None
     """
@@ -8547,7 +8600,7 @@ class MintTokenResult(BaseModel):
     principal: ApiKeyPrincipal | None = None
     role: Literal["admin", "member"]
     """
-    The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action, whoever it's for.
+    The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action on the tenant, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project).
     """
     capabilities: list[Capability]
     """
@@ -8591,7 +8644,7 @@ class ApiToken(BaseModel):
     principal: ApiKeyPrincipal | None = None
     role: Literal["admin", "member"]
     """
-    The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action, whoever it's for.
+    The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action on the tenant, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project).
     """
     capabilities: list[Capability]
     """
@@ -8631,7 +8684,7 @@ class Datum2(BaseModel):
     principal: ApiKeyPrincipal | None = None
     role: Literal["admin", "member"]
     """
-    The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action, whoever it's for.
+    The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action on the tenant, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project).
     """
     capabilities: list[Capability]
     """
@@ -8953,6 +9006,7 @@ class Agent(BaseModel):
     capabilities: list[Capability4]
     tools: list[ToolRef]
     retrieval: list[RetrievalIntent]
+    memory: AgentMemoryPolicy | None = None
     guardrails: list[str]
     preferred_provider: Annotated[str | None, Field(alias="preferredProvider", min_length=1)] = None
     """

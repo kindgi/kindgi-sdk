@@ -3078,7 +3078,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'memory.retrieve',
     summary: 'Retrieve facts by intent',
     description:
-      'Cross-history retrieval over the facts the caller may see (as for listing). Body is a `RetrieveIntent` shape mirroring the agent-side declarative retrieval. Semantic modes require an embedding provider bound on the deployment.',
+      'Retrieval over the facts the caller may see (as for listing), current revisions only. `mode`: `list` (newest first, no query), `keyword` (full-text), `semantic` (by meaning), or `both` (the two searches fused by rank: reciprocal rank fusion). Searching by meaning needs embeddings on the deployment (`KINDGI_MEMORY_EMBEDDINGS`); without them `semantic` and `both` answer `422 semantic-unavailable`.',
     tags: ['memory'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -3086,11 +3086,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Retrieval results.', schema: ref('RetrieveMemoryResult') },
       ...CommonMutationErrors,
-      '400': ErrorResponse(
-        'Malformed intent, or semantic mode requested and no embedding provider is bound.',
+      '400': ErrorResponse('Malformed intent.'),
+      '422': ErrorResponse(
+        '`semantic-unavailable`: `semantic` or `both` asked to search by meaning, and the deployment has no embeddings (`KINDGI_MEMORY_EMBEDDINGS`).',
       ),
       '501': ErrorResponse(
-        "`memory-operation-unsupported`: this runtime's memory can't retrieve by intent yet.",
+        "`memory-operation-unsupported`: this runtime's memory can't retrieve by intent.",
       ),
     },
   },
@@ -4962,7 +4963,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.users.list',
     summary: 'List users in the tenant',
     description:
-      'Cursor-paginated list of tenant users (sort order is binding-defined). Optional `?query=` is a prefix match on `displayName` — the natural filter shape for a "search users" surface. `primaryEmail` may be redacted per tenant policy.',
+      'Cursor-paginated list of tenant users (sort order is binding-defined), for tenant admins only. Optional `?query=` is a prefix match on `displayName` — the natural filter shape for a "search users" surface. `primaryEmail` may be redacted per tenant policy. Anyone else adds a person to a project by their email or id (`POST /v1/projects/{projectId}/memberships`).',
     tags: ['identity'],
     security: 'bearer',
     parameters: [
@@ -4986,6 +4987,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Page of users.', schema: ref('UserCollectionPage') },
       ...CommonAuthErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
     },
   },
   {
@@ -5015,6 +5017,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/identity/users/{userId}',
     operationId: 'identity.users.get',
     summary: 'Get a user by id',
+    description: 'A tenant admin, or the person themselves.',
     tags: ['identity'],
     security: 'bearer',
     parameters: [
@@ -5023,6 +5026,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'User record.', schema: ref('UserRecord') },
       ...CommonAuthErrors,
+      '403': ErrorResponse("Someone else's record, and not a tenant admin."),
       '404': ErrorResponse('No user with that id under this tenant.'),
     },
   },
@@ -5033,7 +5037,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.users.listSessions',
     summary: 'List active sessions for a user',
     description:
-      'Returns the wire-safe `IdentitySessionSummary` shape — provider access-token + refresh-token never cross the wire, even to admins. Unknown user id returns an empty list (call `GET /v1/identity/users/:userId` first to distinguish "no sessions" from "no user").',
+      'A tenant admin, or the person themselves. Returns the wire-safe `IdentitySessionSummary` shape — provider access-token + refresh-token never cross the wire, even to admins. Unknown user id returns an empty list (call `GET /v1/identity/users/:userId` first to distinguish "no sessions" from "no user").',
     tags: ['identity'],
     security: 'bearer',
     parameters: [
@@ -5042,6 +5046,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Page of sessions.', schema: ref('IdentitySessionCollectionPage') },
       ...CommonAuthErrors,
+      '403': ErrorResponse("Someone else's sessions, and not a tenant admin."),
     },
   },
   {
@@ -5927,12 +5932,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.getDefault',
     summary: "Fetch the tenant's Default project",
     description:
-      'Returns the row where `Project.isDefault = true` (exactly one per tenant). Returns 404 `project-not-found` when no Default has been provisioned.',
+      'Returns the row where `Project.isDefault = true` (exactly one per tenant), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when no Default has been provisioned.',
     tags: ['projects'],
     security: 'bearer',
     responses: {
       '200': { description: 'Default project.', schema: ref('Project') },
       ...CommonAuthErrors,
+      '403': ErrorResponse("The caller can't read the Default project."),
       '404': ErrorResponse('Tenant has no Default project.'),
     },
   },
@@ -6102,7 +6108,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.memberships.add',
     summary: 'Add a user directly to a project',
     description:
-      'Idempotent on `(projectId, userId)` — re-adding an existing member with a different role does NOT overwrite; use PATCH for role changes.',
+      'Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Idempotent on `(projectId, userId)` — re-adding an existing member with a different role does NOT overwrite; use PATCH for role changes.',
     tags: ['projects'],
     security: 'bearer',
     parameters: [
@@ -6122,7 +6128,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('AddProjectMembershipResult'),
       },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No project with that id under this tenant.'),
+      '404': ErrorResponse(
+        'No project with that id under this tenant (`project-not-found`), or the person named is not a member of this tenant (`identity-user-not-found`).',
+      ),
     },
   },
   {
