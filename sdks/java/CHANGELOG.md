@@ -14,7 +14,7 @@ heading into its version.
   on `serverCode()`, which every exception carries. An unlisted 413 is an
   `InvalidRequestException`, and `provider-config-invalid` is one too, as in
   the TypeScript and Python clients. A test holds every code the API documents
-  (`x-error-codes` in openapi.json) to its status's family.
+  (`x-error-codes` in openapi.json) to its status's family. (#372)
 - Skills for coding agents in Scala packs: `kindgi-scala-getting-started` and
   the Scala authoring skills for tools, guardrails, agents and flows in
   `.claude/skills/`, with the shared skills for providers, MCP servers and
