@@ -208,6 +208,53 @@ When it starts, the runtime brings the database up to date: it applies the migra
 
 Migrations only go forward, and an older runtime isn't guaranteed to work on a database a newer one migrated. To go back, [restore the backup](#restore-into-a-fresh-database) you took before the upgrade, and run the older version on it.
 
+### Runtime 0.1.4.1
+
+Runtime 0.1.4.1 fixes one bug in 0.1.4, for deployments with authorization on
+(`KINDGI_OPENFGA_API_URL` set): a redeploy that published a new version of an
+existing agent could leave other permission changes made in the same few
+seconds unapplied. A newly published agent or project could then answer `403`
+to the person who made it. Without authorization, and under `kindgi dev`, 0.1.4
+is unaffected. Only the runtime changes: the 0.1.4 CLI and SDKs (npm, PyPI)
+stay as they are.
+
+With authorization on, run 0.1.4.1, pulled by its digest, with the same
+`kindgi.env`. It has no migration, so going back to 0.1.4 works, but the bug
+comes back with it:
+
+```sh
+docker pull quay.io/kindgi/runtime:0.1.4.1@sha256:3f14fcf7336c846b276c6119bc8dc96eaf44faee6dacfd45ba40b2e7c08d555f
+```
+
+On Cloud Run, copy it into your repository the same way as 0.1.4 (see
+[The images into Artifact Registry](../cloud-run/#2-the-images-into-artifact-registry))
+and set `server_image` to its digest.
+
+0.1.4.1 and later don't retry a change 0.1.4 already lost. What comes
+back, and when:
+
+- **A project or agent that answered `403`** reads again from the
+  upgrade on, since the upgrade restarts the runtime. At every start, the
+  runtime writes again the permissions that place each project, agent,
+  flow, tool, guardrail and test set of its tenant (`KINDGI_TENANT_ID`).
+- **The creator's own rights on an agent** come back when a new version of
+  it is published on 0.1.4.1 or later.
+- **A project membership added while the bug hit** stays missing, through
+  restarts and publishes, though the project's member list still shows the
+  person. Add them again on 0.1.4.1 or later with the same call
+  (`POST /v1/projects/<project-id>/memberships`, see
+  [Project memberships](../authorization/#project-memberships)), and their
+  access applies within seconds.
+
+On 0.1.4.1, re-publishing an agent can log a warning like this one:
+
+```text
+WARN  [authz.outbox] drain: FGA refused a batch; trying its tuples one by one tenantId=<tenant> rowCount=2 error="cannot write a tuple which already exists: user: 'project:<id>', relation: 'parent', object: 'agent:acme.alpha': tuple to be written already existed or the tuple to be deleted did not exist"
+```
+
+It's expected: the runtime then applies the batch's changes one at a time,
+and a change that's already there counts as applied.
+
 ### From 0.1.3 to 0.1.4
 
 `kindgi.env` needs no change: the database migrates when 0.1.4 starts. What's different after:
