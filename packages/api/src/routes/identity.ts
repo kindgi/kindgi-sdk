@@ -14,6 +14,12 @@ import type {
   UserRecord,
 } from '../identity-directory-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import type {
+  PersonGrant,
+  PersonGrantError,
+  PersonGrants,
+  PersonGrantsBinding,
+} from '../person-grants-binding.js';
 import type { ReviewerBinding } from '../reviewer-binding.js';
 import { callerReviewerRole } from '../reviewer-role.js';
 import type { SessionStoreBinding } from '../session-store-binding.js';
@@ -34,6 +40,9 @@ import { clampLimit } from './pagination.js';
  *   - `GET  /v1/identity/users/:userId`                 (get)
  *   - `GET  /v1/identity/users/:userId/sessions`        (active sessions)
  *   - `POST /v1/identity/users/:userId/revoke-sessions` (admin op)
+ *   - `GET  /v1/identity/users/:userId/grants`          (admin, or your own)
+ *   - `POST /v1/identity/users/:userId/grant|ungrant`   (tenant admin, tenant admins only)
+ *   - `POST /v1/identity/users/:userId/unregister`      (remove a person; tenant admins, when the directory can)
  *
  * `directory` is optional: deployments without an `IdentityDirectoryBinding`
  * still get `whoami` (returning the minimal `{ tenantId, scopes, ... }` shape
@@ -64,10 +73,15 @@ export interface IdentityRouterOptions {
    * one, the `tenant-admin` scope does.
    */
   readonly authorizer?: Authorizer;
+  /**
+   * Optional. A person's grants: the read, and tenant admin given or
+   * taken. Without it, those routes answer `501 person-grants-unsupported`.
+   */
+  readonly personGrants?: PersonGrantsBinding;
 }
 
 export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv> {
-  const { directory, sessionStore, reviewerBinding, authorizer } = options;
+  const { directory, sessionStore, reviewerBinding, authorizer, personGrants } = options;
   const r = new Hono<AppEnv>();
 
   // ---------- GET / whoami ----------
@@ -115,12 +129,14 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
     const limit = clampLimit(c.req.query('limit'));
     const cursorRaw = c.req.query('cursor');
     const queryRaw = c.req.query('query');
+    const includeUnregistered = c.req.query('includeUnregistered') === 'true';
 
     const page = await directory.listUsers({
       tenantId,
       limit,
       ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
       ...(queryRaw !== undefined && queryRaw.length > 0 && { query: queryRaw }),
+      ...(includeUnregistered && { includeUnregistered: true }),
     });
     return c.json({
       data: page.data.map(serializeUser),
@@ -208,6 +224,67 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
     });
   });
 
+  // ---------- POST /users/:userId/unregister (remove a person; tenant admins) ----------
+  const unregisterUser = directory.unregisterUser?.bind(directory);
+  if (unregisterUser !== undefined) {
+    r.post('/users/:userId/unregister', async (c) => {
+      const requestId = c.get('requestId');
+      const userId = c.req.param('userId') as UserId;
+      if (!(await isTenantAdmin(c, authorizer))) {
+        c.status(statusFor('permission-denied') as never);
+        return c.json(
+          toWireError(
+            { code: 'permission-denied', message: 'Only a tenant admin removes people' },
+            requestId,
+          ),
+        );
+      }
+      const unregisteredBy = callerRef(c);
+      const outcome = await unregisterUser({
+        tenantId: c.get('tenantId') as TenantId,
+        userId,
+        ...(unregisteredBy !== undefined && { unregisteredBy }),
+      });
+      if (outcome.kind === 'not-found') {
+        c.status(statusFor('identity-user-not-found') as never);
+        return c.json(
+          toWireError(
+            {
+              code: 'identity-user-not-found',
+              message: `No user with id "${userId as unknown as string}" under this tenant`,
+              userId: userId as unknown as string,
+            },
+            requestId,
+          ),
+        );
+      }
+      if (outcome.kind === 'refused') {
+        const code =
+          outcome.reason === 'last-tenant-admin'
+            ? 'last-tenant-admin'
+            : 'identity-user-unregister-refused';
+        c.status(statusFor(code) as never);
+        return c.json(
+          toWireError(
+            {
+              code,
+              message: outcome.message,
+              reason: outcome.reason,
+              userId: userId as unknown as string,
+            },
+            requestId,
+          ),
+        );
+      }
+      return c.json({
+        user: serializeUser(outcome.user),
+        keysRevoked: outcome.keysRevoked,
+        sessionsRevoked: outcome.sessionsRevoked,
+        grantsRemoved: outcome.grantsRemoved,
+      });
+    });
+  }
+
   // ---------- POST /users/:userId/revoke-sessions (admin, or your own) ----------
   r.post('/users/:userId/revoke-sessions', async (c) => {
     const requestId = c.get('requestId');
@@ -250,7 +327,118 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
     });
   });
 
+  mountPersonGrants(r, personGrants, authorizer);
   return r;
+}
+
+const unsupported = (c: Context<AppEnv>) => {
+  c.status(statusFor('person-grants-unsupported') as never);
+  return c.json(
+    toWireError(
+      {
+        code: 'person-grants-unsupported',
+        message:
+          "This runtime doesn't read or write a person's grants: it runs without an authorization store",
+      },
+      c.get('requestId'),
+    ),
+  );
+};
+
+const denied = (c: Context<AppEnv>, message: string) => {
+  c.status(statusFor('permission-denied') as never);
+  return c.json(toWireError({ code: 'permission-denied', message }, c.get('requestId')));
+};
+
+/**
+ * `GET /users/:userId/grants` (a tenant admin, or the person), and
+ * `POST /users/:userId/grant|ungrant` (tenant admins): `{kind:
+ * 'tenant-admin'}`, written before the call answers.
+ */
+function mountPersonGrants(
+  r: Hono<AppEnv>,
+  binding: PersonGrantsBinding | undefined,
+  authorizer: Authorizer | undefined,
+): void {
+  r.get('/users/:userId/grants', async (c) => {
+    const userId = c.req.param('userId');
+    const own = (c.get('userId') as unknown as string | undefined) === userId;
+    if (!own && !(await isTenantAdmin(c, authorizer))) {
+      return denied(c, "Only a tenant admin reads someone else's grants");
+    }
+    if (binding === undefined) return unsupported(c);
+    const grants = await binding.read({ tenantId: c.get('tenantId') as TenantId, userId });
+    if (grants === null) return notFound(c, userId);
+    return c.json(serializePersonGrants(grants));
+  });
+
+  for (const action of ['grant', 'ungrant'] as const) {
+    r.post(`/users/:userId/${action}`, async (c) => {
+      if (!(await isTenantAdmin(c, authorizer))) {
+        return denied(c, "Only a tenant admin changes a person's grants");
+      }
+      const grant = parsePersonGrant(await c.req.json().catch(() => undefined));
+      if (typeof grant === 'string') {
+        c.status(statusFor('bad-input') as never);
+        return c.json(toWireError({ code: 'bad-input', message: grant }, c.get('requestId')));
+      }
+      if (binding === undefined) return unsupported(c);
+      const by = callerRef(c);
+      const result = await binding[action]({
+        tenantId: c.get('tenantId') as TenantId,
+        userId: c.req.param('userId'),
+        grant,
+        ...(by !== undefined && { by }),
+      });
+      if (result.kind === 'err') return grantError(c, result.error);
+      return c.json(serializePersonGrants(result.value));
+    });
+  }
+}
+
+function notFound(c: Context<AppEnv>, userId: string) {
+  c.status(statusFor('identity-user-not-found') as never);
+  return c.json(
+    toWireError(
+      {
+        code: 'identity-user-not-found',
+        message: `No user with id "${userId}" under this tenant`,
+        userId,
+      },
+      c.get('requestId'),
+    ),
+  );
+}
+
+function grantError(c: Context<AppEnv>, error: PersonGrantError) {
+  c.status(statusFor(error.code) as never);
+  return c.json(toWireError({ code: error.code, message: error.message }, c.get('requestId')));
+}
+
+/** `{kind: 'tenant-admin'}`, or why not. */
+function parsePersonGrant(raw: unknown): PersonGrant | string {
+  const b = raw as { kind?: unknown } | null | undefined;
+  if (
+    typeof b !== 'object' ||
+    b === null ||
+    Array.isArray(b) ||
+    b.kind !== 'tenant-admin' ||
+    Object.keys(b).length !== 1
+  ) {
+    return "The body must be { kind: 'tenant-admin' }: a person's project and team roles have their own routes (`/v1/projects/{projectId}/memberships`, `/v1/teams/{teamId}/memberships`)";
+  }
+  return { kind: 'tenant-admin' };
+}
+
+function serializePersonGrants(g: PersonGrants): Record<string, unknown> {
+  return {
+    userId: g.userId,
+    ...(g.tenantAdmin !== undefined && { tenantAdmin: g.tenantAdmin }),
+    ...(g.tenantMember !== undefined && { tenantMember: g.tenantMember }),
+    projects: g.projects.map((p) => ({ projectId: p.projectId, role: p.role })),
+    teams: g.teams.map((t) => ({ teamId: t.teamId, role: t.role })),
+    ...(g.reviewer !== undefined && { reviewer: { role: g.reviewer.role } }),
+  };
 }
 
 function serializeUser(u: UserRecord): Record<string, unknown> {
@@ -261,6 +449,9 @@ function serializeUser(u: UserRecord): Record<string, unknown> {
     ...(u.displayName !== undefined && { displayName: u.displayName }),
     createdAt: u.createdAt as unknown as string,
     ...(u.lastActiveAt !== undefined && { lastActiveAt: u.lastActiveAt as unknown as string }),
+    ...(u.unregisteredAt !== undefined && {
+      unregisteredAt: u.unregisteredAt as unknown as string,
+    }),
     ...(u.metadata !== undefined && { metadata: u.metadata }),
   };
 }
