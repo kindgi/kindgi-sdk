@@ -461,6 +461,11 @@ export interface CreateAppInput {
    */
   readonly blobStorage?: BlobStorageBinding;
   /**
+   * The most bytes one artifact upload may carry (`POST /v1/artifacts`);
+   * more is `413 artifact-too-large`. Default 100 MB.
+   */
+  readonly artifactMaxBytes?: number;
+  /**
    * Optional. When present, mounts the read-only capabilities catalog
    * surface (`/v1/capabilities` list, `/v1/capabilities/:capabilityId`
    * get). Capabilities are framework-declared (`FEATURES` enum in
@@ -1137,7 +1142,13 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     v1.route('/retention', retentionRouter(input.retention, authorizer));
   }
   if (input.memory !== undefined) {
-    v1.route('/memory', memoryRouter(input.memory));
+    v1.route(
+      '/memory',
+      memoryRouter(input.memory, {
+        ...(authorizer !== undefined && { authorizer }),
+        ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+      }),
+    );
   }
   if (input.supervisor !== undefined) {
     v1.route('/proposals', proposalsRouter(input.supervisor));
@@ -1165,7 +1176,15 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     );
   }
   if (input.blobStorage !== undefined) {
-    v1.route('/artifacts', artifactsRouter(input.blobStorage));
+    v1.route(
+      '/artifacts',
+      artifactsRouter(input.blobStorage, {
+        runBinding,
+        ...(input.projectBinding !== undefined && { projectBinding: input.projectBinding }),
+        ...(authorizer !== undefined && { authorizer }),
+        ...(input.artifactMaxBytes !== undefined && { maxBytes: input.artifactMaxBytes }),
+      }),
+    );
   }
   if (input.capabilityRegistry !== undefined) {
     v1.route('/capabilities', capabilitiesRouter(input.capabilityRegistry));

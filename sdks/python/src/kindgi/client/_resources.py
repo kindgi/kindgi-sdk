@@ -257,8 +257,17 @@ OPERATIONS: dict[str, Operation] = {
     "memory.getFact": Operation(
         "memory.getFact", "GET", "/v1/memory/facts/{factId}", "json", False
     ),
+    "memory.deleteFact": Operation(
+        "memory.deleteFact", "DELETE", "/v1/memory/facts/{factId}", "json", False
+    ),
+    "memory.listFactRevisions": Operation(
+        "memory.listFactRevisions", "GET", "/v1/memory/facts/{factId}/revisions", "json", False
+    ),
     "memory.supersedeFact": Operation(
         "memory.supersedeFact", "POST", "/v1/memory/facts/{factId}/supersede", "json", True
+    ),
+    "memory.verifyFact": Operation(
+        "memory.verifyFact", "POST", "/v1/memory/facts/{factId}/verify", "json", True
     ),
     "memory.retrieve": Operation("memory.retrieve", "POST", "/v1/memory/retrieve", "json", True),
     "proposals.list": Operation("proposals.list", "GET", "/v1/proposals", "json", False),
@@ -2614,11 +2623,12 @@ class MemoryResource:
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
         inherit: bool | None = None,
+        as_of: str | None = None,
         timeout: float | None = None,
     ) -> _models.FactCollectionPage:
         """List facts. `GET /v1/memory/facts`
 
-        Cursor-paginated. Filters: `?type=` (exact match on `Fact.type`), `?scope=` (URL-encoded JSON partial memory `Scope`), `?scopeKind + ?scopeId + ?inherit` (discriminated `PlatformScope` triplet — threaded into the binding as `platformScope`; both fields coexist). Sort order is binding-defined.
+        Cursor-paginated: the current revision of each fact the caller may see. That is tenant-wide facts, the projects they may read (with those projects' orgs), their own user facts, and every end user's and conversation's facts in the projects they may write; a tenant admin sees every fact. Filters: `?type=` (exact match on `Fact.type`), `?scope=` (URL-encoded JSON partial memory `Scope`), `?scopeKind + ?scopeId + ?inherit` (discriminated `PlatformScope` triplet — threaded into the binding as `platformScope`; both fields coexist), `?asOf=` (memory as it stood then). Sort order is binding-defined.
         """
         return self._client._request(
             _OPERATIONS["memory.listFacts"],
@@ -2631,6 +2641,7 @@ class MemoryResource:
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "inherit": inherit,
+                "asOf": as_of,
             },
             headers={},
             response=_models.FactCollectionPage,
@@ -2648,7 +2659,7 @@ class MemoryResource:
     ) -> _models.Fact:
         """Write a fact. `POST /v1/memory/facts`
 
-        Persists a new fact. `type` selects the retrieval policy (which indexes populate). Semantic-indexed types require an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`.
+        Persists a new fact. `type` selects the retrieval policy (which indexes populate). Semantic-indexed types require an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`. The caller needs write where the scope says: `write` on its project (an end user's or a conversation's fact included), `write` on its conversation outside a project, `admin` on its org for an org-wide fact, being that user for a user's fact, and tenant `admin` for a tenant-wide fact. The fact records who wrote it (`attributedTo`).
         """
         return self._client._request(
             _OPERATIONS["memory.writeFact"],
@@ -2660,35 +2671,110 @@ class MemoryResource:
             timeout=timeout,
         )
 
-    def get_fact(self, fact_id: str | UUID, /, *, timeout: float | None = None) -> _models.Fact:
-        """Fetch a fact. `GET /v1/memory/facts/{factId}`"""
+    def get_fact(
+        self,
+        fact_id: str | UUID,
+        /,
+        *,
+        version: int | None = None,
+        as_of: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.Fact:
+        """Fetch a fact. `GET /v1/memory/facts/{factId}`
+
+        Its current revision; `?version=` reads one revision, `?asOf=` the revision current at that time. A fact the caller may not see is not found.
+        """
         return self._client._request(
             _OPERATIONS["memory.getFact"],
             path={"factId": fact_id},
-            query={},
+            query={"version": version, "asOf": as_of},
             headers={},
             response=_models.Fact,
+            timeout=timeout,
+        )
+
+    def delete_fact(
+        self,
+        fact_id: str | UUID,
+        /,
+        *,
+        expect_version: int | None = None,
+        timeout: float | None = None,
+    ) -> _models.Fact:
+        """Delete a fact. `DELETE /v1/memory/facts/{factId}`
+
+        Closes the current revision (`invalidationReason: deleted`): the fact is no longer listed, fetched or retrieved, and its history stays readable until the retention sweep removes it.
+        """
+        return self._client._request(
+            _OPERATIONS["memory.deleteFact"],
+            path={"factId": fact_id},
+            query={"expectVersion": expect_version},
+            headers={},
+            response=_models.Fact,
+            timeout=timeout,
+        )
+
+    def list_fact_revisions(
+        self, fact_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.FactRevisionList:
+        """List a fact's revisions. `GET /v1/memory/facts/{factId}/revisions`
+
+        Every revision of the fact, newest first, superseded and deleted ones included: who changed it, when and why (`invalidatedBy`, `invalidatedAt`, `invalidationReason`).
+        """
+        return self._client._request(
+            _OPERATIONS["memory.listFactRevisions"],
+            path={"factId": fact_id},
+            query={},
+            headers={},
+            response=_models.FactRevisionList,
             timeout=timeout,
         )
 
     def supersede_fact(
         self,
         fact_id: str | UUID,
+        body: _models.SupersedeFactBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.SupersedeFactResult:
-        """Mark a fact as superseded. `POST /v1/memory/facts/{factId}/supersede`
+        **fields: Any,
+    ) -> _models.Fact:
+        """Change a fact's content. `POST /v1/memory/facts/{factId}/supersede`
 
-        Soft-delete via supersession — the historical row is retained until retention sweeps remove it. Idempotent: superseding an already-superseded fact returns `200 { superseded: true }`.
+        Writes the next revision (same fact id, `version` one more) and closes the current one; the old revision stays readable with `?version=`, `?asOf=` and in the history until the retention sweep removes it. `expectVersion` refuses if someone changed it first.
         """
         return self._client._request(
             _OPERATIONS["memory.supersedeFact"],
             path={"factId": fact_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.SupersedeFactResult,
+            body=_body(_models.SupersedeFactBody, body, fields),
+            response=_models.Fact,
+            timeout=timeout,
+        )
+
+    def verify_fact(
+        self,
+        fact_id: str | UUID,
+        body: _models.VerifyFactBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Fact:
+        """Mark a fact verified. `POST /v1/memory/facts/{factId}/verify`
+
+        A person who may write in its scope checked it: the next revision has `trust: verified`, `verifiedBy` and `verifiedAt`, and the same content.
+        """
+        return self._client._request(
+            _OPERATIONS["memory.verifyFact"],
+            path={"factId": fact_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.VerifyFactBody, body, fields),
+            response=_models.Fact,
             timeout=timeout,
         )
 
@@ -2703,7 +2789,7 @@ class MemoryResource:
     ) -> _models.RetrieveMemoryResult:
         """Retrieve facts by intent. `POST /v1/memory/retrieve`
 
-        Cross-history retrieval. Body is a `RetrieveIntent` shape mirroring the agent-side declarative retrieval. Semantic modes require an embedding provider bound on the deployment.
+        Cross-history retrieval over the facts the caller may see (as for listing). Body is a `RetrieveIntent` shape mirroring the agent-side declarative retrieval. Semantic modes require an embedding provider bound on the deployment.
         """
         return self._client._request(
             _OPERATIONS["memory.retrieve"],
@@ -3050,11 +3136,12 @@ class ArtifactsResource:
         cursor: str | None = None,
         owner_run_id: str | UUID | None = None,
         content_type: str | None = None,
+        project_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.ArtifactCollectionPage:
         """List artifact metadata. `GET /v1/artifacts`
 
-        Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`).
+        Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?projectId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`). With authorization on, only artifacts in projects the caller can read are listed.
         """
         return self._client._request(
             _OPERATIONS["artifacts.list"],
@@ -3064,6 +3151,7 @@ class ArtifactsResource:
                 "cursor": cursor,
                 "ownerRunId": owner_run_id,
                 "contentType": content_type,
+                "projectId": project_id,
             },
             headers={},
             response=_models.ArtifactCollectionPage,
@@ -3081,7 +3169,7 @@ class ArtifactsResource:
     ) -> _models.BlobMeta:
         """Upload an artifact. `POST /v1/artifacts`
 
-        Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller.
+        Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the tenant's default project; uploading needs `write` there. An upload over the runtime's cap (default 100 MB) is `413 artifact-too-large`.
         """
         return self._client._request(
             _OPERATIONS["artifacts.upload"],
@@ -4178,6 +4266,7 @@ class RetentionResource:
             "env",
             "secret",
             "run",
+            "artifact",
             "policy",
             "judgment",
             "judge_class",
@@ -4245,6 +4334,7 @@ class RetentionResource:
             "env",
             "secret",
             "run",
+            "artifact",
             "policy",
             "judgment",
             "judge_class",
@@ -8721,11 +8811,12 @@ class AsyncMemoryResource:
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
         inherit: bool | None = None,
+        as_of: str | None = None,
         timeout: float | None = None,
     ) -> _models.FactCollectionPage:
         """List facts. `GET /v1/memory/facts`
 
-        Cursor-paginated. Filters: `?type=` (exact match on `Fact.type`), `?scope=` (URL-encoded JSON partial memory `Scope`), `?scopeKind + ?scopeId + ?inherit` (discriminated `PlatformScope` triplet — threaded into the binding as `platformScope`; both fields coexist). Sort order is binding-defined.
+        Cursor-paginated: the current revision of each fact the caller may see. That is tenant-wide facts, the projects they may read (with those projects' orgs), their own user facts, and every end user's and conversation's facts in the projects they may write; a tenant admin sees every fact. Filters: `?type=` (exact match on `Fact.type`), `?scope=` (URL-encoded JSON partial memory `Scope`), `?scopeKind + ?scopeId + ?inherit` (discriminated `PlatformScope` triplet — threaded into the binding as `platformScope`; both fields coexist), `?asOf=` (memory as it stood then). Sort order is binding-defined.
         """
         return await self._client._request(
             _OPERATIONS["memory.listFacts"],
@@ -8738,6 +8829,7 @@ class AsyncMemoryResource:
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "inherit": inherit,
+                "asOf": as_of,
             },
             headers={},
             response=_models.FactCollectionPage,
@@ -8755,7 +8847,7 @@ class AsyncMemoryResource:
     ) -> _models.Fact:
         """Write a fact. `POST /v1/memory/facts`
 
-        Persists a new fact. `type` selects the retrieval policy (which indexes populate). Semantic-indexed types require an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`.
+        Persists a new fact. `type` selects the retrieval policy (which indexes populate). Semantic-indexed types require an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`. The caller needs write where the scope says: `write` on its project (an end user's or a conversation's fact included), `write` on its conversation outside a project, `admin` on its org for an org-wide fact, being that user for a user's fact, and tenant `admin` for a tenant-wide fact. The fact records who wrote it (`attributedTo`).
         """
         return await self._client._request(
             _OPERATIONS["memory.writeFact"],
@@ -8768,36 +8860,109 @@ class AsyncMemoryResource:
         )
 
     async def get_fact(
-        self, fact_id: str | UUID, /, *, timeout: float | None = None
+        self,
+        fact_id: str | UUID,
+        /,
+        *,
+        version: int | None = None,
+        as_of: str | None = None,
+        timeout: float | None = None,
     ) -> _models.Fact:
-        """Fetch a fact. `GET /v1/memory/facts/{factId}`"""
+        """Fetch a fact. `GET /v1/memory/facts/{factId}`
+
+        Its current revision; `?version=` reads one revision, `?asOf=` the revision current at that time. A fact the caller may not see is not found.
+        """
         return await self._client._request(
             _OPERATIONS["memory.getFact"],
             path={"factId": fact_id},
-            query={},
+            query={"version": version, "asOf": as_of},
             headers={},
             response=_models.Fact,
+            timeout=timeout,
+        )
+
+    async def delete_fact(
+        self,
+        fact_id: str | UUID,
+        /,
+        *,
+        expect_version: int | None = None,
+        timeout: float | None = None,
+    ) -> _models.Fact:
+        """Delete a fact. `DELETE /v1/memory/facts/{factId}`
+
+        Closes the current revision (`invalidationReason: deleted`): the fact is no longer listed, fetched or retrieved, and its history stays readable until the retention sweep removes it.
+        """
+        return await self._client._request(
+            _OPERATIONS["memory.deleteFact"],
+            path={"factId": fact_id},
+            query={"expectVersion": expect_version},
+            headers={},
+            response=_models.Fact,
+            timeout=timeout,
+        )
+
+    async def list_fact_revisions(
+        self, fact_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.FactRevisionList:
+        """List a fact's revisions. `GET /v1/memory/facts/{factId}/revisions`
+
+        Every revision of the fact, newest first, superseded and deleted ones included: who changed it, when and why (`invalidatedBy`, `invalidatedAt`, `invalidationReason`).
+        """
+        return await self._client._request(
+            _OPERATIONS["memory.listFactRevisions"],
+            path={"factId": fact_id},
+            query={},
+            headers={},
+            response=_models.FactRevisionList,
             timeout=timeout,
         )
 
     async def supersede_fact(
         self,
         fact_id: str | UUID,
+        body: _models.SupersedeFactBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.SupersedeFactResult:
-        """Mark a fact as superseded. `POST /v1/memory/facts/{factId}/supersede`
+        **fields: Any,
+    ) -> _models.Fact:
+        """Change a fact's content. `POST /v1/memory/facts/{factId}/supersede`
 
-        Soft-delete via supersession — the historical row is retained until retention sweeps remove it. Idempotent: superseding an already-superseded fact returns `200 { superseded: true }`.
+        Writes the next revision (same fact id, `version` one more) and closes the current one; the old revision stays readable with `?version=`, `?asOf=` and in the history until the retention sweep removes it. `expectVersion` refuses if someone changed it first.
         """
         return await self._client._request(
             _OPERATIONS["memory.supersedeFact"],
             path={"factId": fact_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.SupersedeFactResult,
+            body=_body(_models.SupersedeFactBody, body, fields),
+            response=_models.Fact,
+            timeout=timeout,
+        )
+
+    async def verify_fact(
+        self,
+        fact_id: str | UUID,
+        body: _models.VerifyFactBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Fact:
+        """Mark a fact verified. `POST /v1/memory/facts/{factId}/verify`
+
+        A person who may write in its scope checked it: the next revision has `trust: verified`, `verifiedBy` and `verifiedAt`, and the same content.
+        """
+        return await self._client._request(
+            _OPERATIONS["memory.verifyFact"],
+            path={"factId": fact_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.VerifyFactBody, body, fields),
+            response=_models.Fact,
             timeout=timeout,
         )
 
@@ -8812,7 +8977,7 @@ class AsyncMemoryResource:
     ) -> _models.RetrieveMemoryResult:
         """Retrieve facts by intent. `POST /v1/memory/retrieve`
 
-        Cross-history retrieval. Body is a `RetrieveIntent` shape mirroring the agent-side declarative retrieval. Semantic modes require an embedding provider bound on the deployment.
+        Cross-history retrieval over the facts the caller may see (as for listing). Body is a `RetrieveIntent` shape mirroring the agent-side declarative retrieval. Semantic modes require an embedding provider bound on the deployment.
         """
         return await self._client._request(
             _OPERATIONS["memory.retrieve"],
@@ -9159,11 +9324,12 @@ class AsyncArtifactsResource:
         cursor: str | None = None,
         owner_run_id: str | UUID | None = None,
         content_type: str | None = None,
+        project_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.ArtifactCollectionPage:
         """List artifact metadata. `GET /v1/artifacts`
 
-        Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`).
+        Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?projectId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`). With authorization on, only artifacts in projects the caller can read are listed.
         """
         return await self._client._request(
             _OPERATIONS["artifacts.list"],
@@ -9173,6 +9339,7 @@ class AsyncArtifactsResource:
                 "cursor": cursor,
                 "ownerRunId": owner_run_id,
                 "contentType": content_type,
+                "projectId": project_id,
             },
             headers={},
             response=_models.ArtifactCollectionPage,
@@ -9190,7 +9357,7 @@ class AsyncArtifactsResource:
     ) -> _models.BlobMeta:
         """Upload an artifact. `POST /v1/artifacts`
 
-        Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller.
+        Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the tenant's default project; uploading needs `write` there. An upload over the runtime's cap (default 100 MB) is `413 artifact-too-large`.
         """
         return await self._client._request(
             _OPERATIONS["artifacts.upload"],
@@ -10291,6 +10458,7 @@ class AsyncRetentionResource:
             "env",
             "secret",
             "run",
+            "artifact",
             "policy",
             "judgment",
             "judge_class",
@@ -10358,6 +10526,7 @@ class AsyncRetentionResource:
             "env",
             "secret",
             "run",
+            "artifact",
             "policy",
             "judgment",
             "judge_class",

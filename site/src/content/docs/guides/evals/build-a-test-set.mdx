@@ -25,7 +25,7 @@ its own id:
   "articles": [
     { "id": "kb-101", "title": "Reset your password" },
     { "id": "kb-102", "title": "Change the email on your account" },
-    { "id": "kb-401", "title": "Close your account" }
+    { "id": "kb-103", "title": "Turn on two-step sign-in" }
   ]
 }
 ```
@@ -88,6 +88,13 @@ for (const c of cases.data) {
 }
 ```
 
+```text
+3 cases
+I was charged twice for one order. How do I get my money back? [ 'kb-201 1 yes, 0 no', 'kb-203 0 yes, 1 no', 'kb-202 0 yes, 1 no' ]
+I forgot my password and can't sign in. [ 'kb-101 1 yes, 0 no', 'kb-102 0 yes, 1 no', 'kb-103 0 yes, 1 no' ]
+My package hasn't arrived yet. Where is it? [ 'kb-301 1 yes, 0 no', 'kb-303 0 yes, 1 no', 'kb-201 0 yes, 1 no' ]
+```
+
 </TabItem>
 <TabItem label="Python">
 
@@ -114,15 +121,15 @@ for case in cases.data:
     print(case.input, [f"{item.key} {item.yes} yes, {item.no} no" for item in case.items])
 ```
 
-</TabItem>
-</Tabs>
-
 ```text
 3 cases
-My package hasn't arrived yet. Where is it? [ 'kb-301 1 yes, 0 no', 'kb-201 0 yes, 1 no', 'kb-302 0 yes, 1 no' ]
-I forgot my password and can't sign in. [ 'kb-101 1 yes, 0 no', 'kb-102 0 yes, 1 no', 'kb-401 0 yes, 1 no' ]
-I was charged twice for one order. How do I get my money back? [ 'kb-201 1 yes, 0 no', 'kb-203 0 yes, 1 no', 'kb-302 0 yes, 1 no' ]
+I was charged twice for one order. How do I get my money back? ['kb-201 1 yes, 0 no', 'kb-203 0 yes, 1 no', 'kb-202 0 yes, 1 no']
+I forgot my password and can't sign in. ['kb-101 1 yes, 0 no', 'kb-102 0 yes, 1 no', 'kb-103 0 yes, 1 no']
+My package hasn't arrived yet. Where is it? ['kb-301 1 yes, 0 no', 'kb-303 0 yes, 1 no', 'kb-201 0 yes, 1 no']
 ```
+
+</TabItem>
+</Tabs>
 
 - **The project's id:** `kindgi projects get-default` prints the Default
   project, with its `id`; `kindgi projects list` lists them all. In code:
@@ -146,7 +153,7 @@ cases. One of them:
 
 ```json
 {
-  "caseId": "fc699799-2900-47d8-8a06-07d64f17cce4",
+  "caseId": "240c0a0b-542b-4cb1-9156-fe7153a4377a",
   "subject": { "kind": "agent", "id": "acme-ops.article-picker", "version": "0.1.0" },
   "input": "I forgot my password and can't sign in.",
   "items": [
@@ -158,6 +165,7 @@ cases. One of them:
       "no": 0,
       "yesWeight": 1,
       "totalWeight": 1,
+      "restricted": { "yesWeight": 0, "totalWeight": 0 },
       "reasons": [{ "verdict": "yes", "reason": "Resets the password" }]
     },
     …

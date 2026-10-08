@@ -220,6 +220,8 @@
           "fact-not-found": 404,
           "flow-not-found": 404,
           "already-terminal": 409,
+          "fact-changed": 409,
+          "legal-hold": 409,
           "run-already-terminal": 409,
           "run-lease-lost": 409,
           "idempotency-key-body-mismatch": 409,
@@ -340,9 +342,11 @@
           "service-account-unregistered": 409,
           "identity-user-email-taken": 409,
           "agent-version-live": 409,
+          "artifact-too-large": 413,
           "run-not-finished": 409,
           "item-not-found": 400,
           "test-sets-not-supported": 501,
+          "memory-operation-unsupported": 501,
           "authz-membership-unsupported": 501,
           "eval-run-already-terminal": 409,
           "dispatcher-not-registered": 422,
@@ -1354,7 +1358,11 @@
             "format": "date-time"
           },
           "failureMessage": {
-            "type": "string"
+            "type": "string",
+            "description": "The failure as the runtime recorded it. Read `failure` instead: an agent turn records its typed error here in an internal form."
+          },
+          "failure": {
+            "$ref": "#/components/schemas/RunFailure"
           },
           "output": {
             "description": "The run's output once it completed. Present on single-run responses; on lists only with `?include=output`."
@@ -1403,6 +1411,26 @@
             "type": "string",
             "format": "date-time",
             "description": "When `publicAccessToken` stops working."
+          }
+        }
+      },
+      "RunFailure": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message"
+        ],
+        "description": "Why a failed run failed; present only on a `failed` run. An agent turn's failure carries its own code (`budget-exceeded`, `capability-routing-failed`, `model-invocation-failed`, …); any other failure is `run-failed`, with the run's failure message.",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "cause": {
+            "description": "What the error came from, when it says: e.g. for `capability-routing-failed`, the router's `capability-unsatisfiable` with its reasons, by provider."
           }
         }
       },
@@ -1609,7 +1637,11 @@
                   "format": "date-time"
                 },
                 "failureMessage": {
-                  "type": "string"
+                  "type": "string",
+                  "description": "The failure as the runtime recorded it. Read `failure` instead: an agent turn records its typed error here in an internal form."
+                },
+                "failure": {
+                  "$ref": "#/components/schemas/RunFailure"
                 },
                 "output": {
                   "description": "The run's output once it completed. Present on single-run responses; on lists only with `?include=output`."
@@ -6515,7 +6547,7 @@
         "required": [
           "tenantId"
         ],
-        "description": "Fact scope object. `tenantId` is required; every optional key narrows the fact (`userId`, `orgId`, `projectId`, `threadId`, `sessionId`). Additional keys accepted for forward compatibility.",
+        "description": "Fact scope object. `tenantId` is required; every optional key narrows the fact (`userId`, `orgId`, `projectId`, `threadId`, `sessionId`, `participantId`). A fact is readable by whoever has every container it names. Additional keys accepted for forward compatibility.",
         "properties": {
           "tenantId": {
             "type": "string"
@@ -6534,6 +6566,11 @@
           },
           "sessionId": {
             "type": "string"
+          },
+          "participantId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "An app's end user, by the app's own id: a fact private to that participant's runs. Needs `projectId`."
           }
         }
       },
@@ -6627,6 +6664,73 @@
           }
         }
       },
+      "FactSubject": {
+        "description": "Whom a fact is about: what access and erasure requests by person find.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "id"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "participant",
+              "user",
+              "external"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "FactAttribution": {
+        "description": "Who asserted a fact, set by the server from the writer.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "id"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "user",
+              "service",
+              "agent"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "agentVersion": {
+            "type": "string"
+          }
+        }
+      },
+      "FactGeneratedBy": {
+        "description": "The run step that wrote a fact, for one an agent wrote.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "runId"
+        ],
+        "properties": {
+          "runId": {
+            "type": "string"
+          },
+          "stepId": {
+            "type": "string"
+          },
+          "toolCallId": {
+            "type": "string"
+          }
+        }
+      },
       "Fact": {
         "type": "object",
         "additionalProperties": false,
@@ -6640,7 +6744,11 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "FactId."
+            "description": "The fact id, kept across revisions (for a fact never superseded, also its one revision id)."
+          },
+          "revisionId": {
+            "type": "string",
+            "description": "This revision's own id; absent where it equals `id`."
           },
           "type": {
             "type": "string",
@@ -6652,7 +6760,7 @@
           "version": {
             "type": "integer",
             "minimum": 1,
-            "description": "Monotonic version within (scope, id). Supersession increments."
+            "description": "The revision number within the fact: 1, then one more per supersede or verify."
           },
           "createdAt": {
             "type": "string",
@@ -6693,7 +6801,75 @@
           },
           "supersedes": {
             "type": "string",
-            "description": "FactId of the predecessor when this row supersedes another."
+            "description": "The revision this one replaced."
+          },
+          "trust": {
+            "type": "string",
+            "enum": [
+              "verified",
+              "asserted",
+              "unverified"
+            ],
+            "description": "`verified`: a person with the right checked it. `asserted`: an app or a person wrote it. `unverified`: an agent remembered it during a conversation. Absent on facts from before trust was recorded: `asserted`."
+          },
+          "verifiedBy": {
+            "type": "string"
+          },
+          "verifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "attributedTo": {
+            "$ref": "#/components/schemas/FactAttribution"
+          },
+          "generatedBy": {
+            "$ref": "#/components/schemas/FactGeneratedBy"
+          },
+          "subjects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FactSubject"
+            }
+          },
+          "validFrom": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the fact starts being true in the world; absent: always."
+          },
+          "validUntil": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the fact stops being true in the world; absent: still true."
+          },
+          "observedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it was said or seen."
+          },
+          "invalidatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When this revision stopped being current; absent: it is current."
+          },
+          "invalidatedBy": {
+            "type": "string",
+            "description": "`user:<id>` or `service:<id>`."
+          },
+          "invalidationReason": {
+            "type": "string",
+            "enum": [
+              "superseded",
+              "deleted",
+              "erased",
+              "expired"
+            ]
+          },
+          "review": {
+            "type": "string",
+            "enum": [
+              "pending"
+            ],
+            "description": "`pending` while a person must approve it: a pending fact is never retrieved."
           }
         }
       },
@@ -6721,7 +6897,7 @@
         }
       },
       "WriteFactBody": {
-        "description": "Write a fact. `type` selects the retrieval-policy (which indexes populate); `scope.tenantId` MUST match the caller's tenant. Optional `retention` overrides tenant defaults; optional `contentHash` is a caller-supplied idempotence hint (runtime computes its own hash regardless).",
+        "description": "Write a fact. `type` selects the retrieval-policy (which indexes populate); `scope.tenantId` MUST match the caller's tenant. Optional `retention` overrides tenant defaults; optional `contentHash` is a caller-supplied idempotence hint (runtime computes its own hash regardless). `subjects` names whom it is about; `validFrom`/`validUntil` when it is true in the world; `observedAt` when it was said or seen.",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -6745,23 +6921,90 @@
           },
           "contentHash": {
             "type": "string"
+          },
+          "subjects": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "$ref": "#/components/schemas/FactSubject"
+            }
+          },
+          "validFrom": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "validUntil": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "observedAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
-      "SupersedeFactResult": {
+      "SupersedeFactBody": {
+        "description": "The fact's next revision: new `content`, and optionally new `retention`, `subjects` and times (absent ones keep their current values). Its scope and type stay. `expectVersion`: only if the current revision is still this one.",
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "factId",
-          "superseded"
+          "content"
         ],
         "properties": {
-          "factId": {
-            "type": "string"
+          "content": {
+            "description": "Free-form structured payload."
           },
-          "superseded": {
-            "type": "boolean",
-            "const": true
+          "expectVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "retention": {
+            "$ref": "#/components/schemas/Retention"
+          },
+          "subjects": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "$ref": "#/components/schemas/FactSubject"
+            }
+          },
+          "validFrom": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "validUntil": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "observedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "VerifyFactBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectVersion": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "FactRevisionList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Fact"
+            },
+            "description": "Every revision, newest first."
           }
         }
       },
@@ -7964,6 +8207,14 @@
             "format": "uuid",
             "description": "Optional back-ref to the RunId that produced this blob."
           },
+          "projectId": {
+            "type": "string",
+            "description": "The project the artifact belongs to: its owner run's, else the upload's `projectId`, else the tenant's default project. Reading it needs `read` there; deleting it, `write`. Absent on blobs stored before projects were recorded."
+          },
+          "createdBy": {
+            "type": "string",
+            "description": "Who uploaded it: `user:<id>` or `service_account:<id>`."
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -8032,6 +8283,14 @@
                   "format": "uuid",
                   "description": "Optional back-ref to the RunId that produced this blob."
                 },
+                "projectId": {
+                  "type": "string",
+                  "description": "The project the artifact belongs to: its owner run's, else the upload's `projectId`, else the tenant's default project. Reading it needs `read` there; deleting it, `write`. Absent on blobs stored before projects were recorded."
+                },
+                "createdBy": {
+                  "type": "string",
+                  "description": "Who uploaded it: `user:<id>` or `service_account:<id>`."
+                },
                 "createdAt": {
                   "type": "string",
                   "format": "date-time"
@@ -8071,6 +8330,10 @@
           "ownerRunId": {
             "type": "string",
             "format": "uuid"
+          },
+          "projectId": {
+            "type": "string",
+            "description": "The project it belongs to, when there's no `ownerRunId` (with one, the run's project, and this must agree). Default: the tenant's default project."
           },
           "expectedHash": {
             "type": "string",
@@ -8149,6 +8412,34 @@
             "type": "object",
             "additionalProperties": true,
             "description": "Optional JSON Schema fragment describing the parameters an agent may attach to `{ feature, params }` in a `Requirement`."
+          },
+          "providers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CapabilityProvider"
+            },
+            "description": "The tenant's registered providers with a model that has the feature, and those models. Absent from servers that don't read the provider registry; `[]` when no provider of the tenant has one."
+          }
+        }
+      },
+      "CapabilityProvider": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "providerId",
+          "models"
+        ],
+        "description": "A provider of the tenant with a model that has the feature.",
+        "properties": {
+          "providerId": {
+            "type": "string"
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Its models that have it."
           }
         }
       },
@@ -9775,6 +10066,7 @@
           "env",
           "secret",
           "run",
+          "artifact",
           "policy",
           "judgment",
           "judge_class",
@@ -22826,7 +23118,7 @@
             }
           },
           "400": {
-            "description": "Malformed query parameter (e.g. `scope` not valid JSON).",
+            "description": "Malformed query parameter (e.g. `scope` not valid JSON, `asOf` not a time).",
             "content": {
               "application/json": {
                 "schema": {
@@ -22846,7 +23138,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Filters: `?type=` (exact match on `Fact.type`), `?scope=` (URL-encoded JSON partial memory `Scope`), `?scopeKind + ?scopeId + ?inherit` (discriminated `PlatformScope` triplet — threaded into the binding as `platformScope`; both fields coexist). Sort order is binding-defined.",
+        "description": "Cursor-paginated: the current revision of each fact the caller may see. That is tenant-wide facts, the projects they may read (with those projects' orgs), their own user facts, and every end user's and conversation's facts in the projects they may write; a tenant admin sees every fact. Filters: `?type=` (exact match on `Fact.type`), `?scope=` (URL-encoded JSON partial memory `Scope`), `?scopeKind + ?scopeId + ?inherit` (discriminated `PlatformScope` triplet — threaded into the binding as `platformScope`; both fields coexist), `?asOf=` (memory as it stood then). Sort order is binding-defined.",
         "parameters": [
           {
             "name": "limit",
@@ -22915,6 +23207,16 @@
             },
             "required": false,
             "description": "Default `true`. `false` = literal-at-this-scope only (admin/audit view). Load-bearing for policy/config-scoped resources (mcp-endpoints); documented no-op for content-scoped resources (agents/flows/tools/...)."
+          },
+          {
+            "name": "asOf",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "description": "Read memory as it stood at this time (ISO 8601): the revision that was current then, including one since superseded or deleted."
           }
         ],
         "security": [
@@ -22960,6 +23262,16 @@
               }
             }
           },
+          "403": {
+            "description": "`permission-denied`: the caller may not write in the fact's scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "409": {
             "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
             "content": {
@@ -22981,7 +23293,7 @@
             }
           }
         },
-        "description": "Persists a new fact. `type` selects the retrieval policy (which indexes populate). Semantic-indexed types require an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`.",
+        "description": "Persists a new fact. `type` selects the retrieval policy (which indexes populate). Semantic-indexed types require an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`. The caller needs write where the scope says: `write` on its project (an end user's or a conversation's fact included), `write` on its conversation outside a project, `admin` on its org for an org-wide fact, being that user for a user's fact, and tenant `admin` for a tenant-wide fact. The fact records who wrote it (`attributedTo`).",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -23029,6 +23341,16 @@
               }
             }
           },
+          "400": {
+            "description": "`version` is not a revision number, or `asOf` not a time.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
             "content": {
@@ -23040,7 +23362,7 @@
             }
           },
           "404": {
-            "description": "No fact with that id under this tenant.",
+            "description": "No fact with that id the caller may see (or no such revision).",
             "content": {
               "application/json": {
                 "schema": {
@@ -23050,6 +23372,7 @@
             }
           }
         },
+        "description": "Its current revision; `?version=` reads one revision, `?asOf=` the revision current at that time. A fact the caller may not see is not found.",
         "parameters": [
           {
             "name": "factId",
@@ -23058,7 +23381,201 @@
               "type": "string"
             },
             "required": true,
-            "description": "FactId — opaque branded string."
+            "description": "The fact id (kept across revisions)."
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "required": false,
+            "description": "A revision number: that revision, current or not."
+          },
+          {
+            "name": "asOf",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "description": "Read memory as it stood at this time (ISO 8601): the revision that was current then, including one since superseded or deleted."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "memory.deleteFact",
+        "summary": "Delete a fact",
+        "tags": [
+          "memory"
+        ],
+        "responses": {
+          "200": {
+            "description": "The closed revision.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Fact"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`expectVersion` is not a revision number.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: the caller may not write in the fact's scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No fact with that id the caller may see, or it was deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`fact-changed`: the current revision is not `expectVersion`; `legal-hold`: the fact is under legal hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`memory-operation-unsupported`: this runtime's memory can't delete facts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Closes the current revision (`invalidationReason: deleted`): the fact is no longer listed, fetched or retrieved, and its history stays readable until the retention sweep removes it.",
+        "parameters": [
+          {
+            "name": "factId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "The fact id (kept across revisions)."
+          },
+          {
+            "name": "expectVersion",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "required": false,
+            "description": "Only if the current revision is still this one; otherwise `409 fact-changed` with `currentVersion`."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/memory/facts/{factId}/revisions": {
+      "get": {
+        "operationId": "memory.listFactRevisions",
+        "summary": "List a fact's revisions",
+        "tags": [
+          "memory"
+        ],
+        "responses": {
+          "200": {
+            "description": "The revisions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FactRevisionList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No fact with that id the caller may see.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`memory-operation-unsupported`: this runtime's memory doesn't keep fact history.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Every revision of the fact, newest first, superseded and deleted ones included: who changed it, when and why (`invalidatedBy`, `invalidatedAt`, `invalidationReason`).",
+        "parameters": [
+          {
+            "name": "factId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "The fact id (kept across revisions)."
           }
         ],
         "security": [
@@ -23071,17 +23588,17 @@
     "/v1/memory/facts/{factId}/supersede": {
       "post": {
         "operationId": "memory.supersedeFact",
-        "summary": "Mark a fact as superseded",
+        "summary": "Change a fact's content",
         "tags": [
           "memory"
         ],
         "responses": {
           "200": {
-            "description": "Superseded (or already superseded).",
+            "description": "The new revision.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SupersedeFactResult"
+                  "$ref": "#/components/schemas/Fact"
                 }
               }
             }
@@ -23106,8 +23623,18 @@
               }
             }
           },
+          "403": {
+            "description": "`permission-denied`: the caller may not write in the fact's scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
-            "description": "No fact with that id under this tenant.",
+            "description": "No fact with that id the caller may see, or it was deleted.",
             "content": {
               "application/json": {
                 "schema": {
@@ -23117,7 +23644,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "`fact-changed`: the current revision is not `expectVersion` (`details.currentVersion`); `legal-hold`: the fact is under legal hold.",
             "content": {
               "application/json": {
                 "schema": {
@@ -23137,7 +23664,7 @@
             }
           }
         },
-        "description": "Soft-delete via supersession — the historical row is retained until retention sweeps remove it. Idempotent: superseding an already-superseded fact returns `200 { superseded: true }`.",
+        "description": "Writes the next revision (same fact id, `version` one more) and closes the current one; the old revision stays readable with `?version=`, `?asOf=` and in the history until the retention sweep removes it. `expectVersion` refuses if someone changed it first.",
         "parameters": [
           {
             "name": "factId",
@@ -23146,7 +23673,7 @@
               "type": "string"
             },
             "required": true,
-            "description": "FactId — opaque branded string."
+            "description": "The fact id (kept across revisions)."
           },
           {
             "name": "Idempotency-Key",
@@ -23159,6 +23686,144 @@
             "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupersedeFactBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/memory/facts/{factId}/verify": {
+      "post": {
+        "operationId": "memory.verifyFact",
+        "summary": "Mark a fact verified",
+        "tags": [
+          "memory"
+        ],
+        "responses": {
+          "200": {
+            "description": "The verified revision.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Fact"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: the caller may not write in the fact's scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No fact with that id the caller may see, or it was deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`fact-changed`: the current revision is not `expectVersion`; `legal-hold`: the fact is under legal hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`memory-operation-unsupported`: this runtime's memory can't verify facts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A person who may write in its scope checked it: the next revision has `trust: verified`, `verifiedBy` and `verifiedAt`, and the same content.",
+        "parameters": [
+          {
+            "name": "factId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "The fact id (kept across revisions)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyFactBody"
+              }
+            }
+          }
+        },
         "security": [
           {
             "bearerAuth": []
@@ -23223,9 +23888,19 @@
                 }
               }
             }
+          },
+          "501": {
+            "description": "`memory-operation-unsupported`: this runtime's memory can't retrieve by intent yet.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
           }
         },
-        "description": "Cross-history retrieval. Body is a `RetrieveIntent` shape mirroring the agent-side declarative retrieval. Semantic modes require an embedding provider bound on the deployment.",
+        "description": "Cross-history retrieval over the facts the caller may see (as for listing). Body is a `RetrieveIntent` shape mirroring the agent-side declarative retrieval. Semantic modes require an embedding provider bound on the deployment.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -24552,7 +25227,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`).",
+        "description": "Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?projectId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`). With authorization on, only artifacts in projects the caller can read are listed.",
         "parameters": [
           {
             "name": "limit",
@@ -24593,6 +25268,15 @@
             },
             "required": false,
             "description": "Filter by exact content-type match."
+          },
+          {
+            "name": "projectId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Filter to the artifacts of one project."
           }
         ],
         "security": [
@@ -24619,7 +25303,7 @@
             }
           },
           "400": {
-            "description": "Malformed multipart body, bad tag JSON, hash mismatch, or declared size mismatch.",
+            "description": "Malformed multipart body, bad tag JSON, hash mismatch, declared size mismatch, or a `projectId` that isn't the owner run's.",
             "content": {
               "application/json": {
                 "schema": {
@@ -24638,8 +25322,38 @@
               }
             }
           },
+          "403": {
+            "description": "No `write` on the project (`permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such owner run (`run-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "409": {
             "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Over the upload cap (`artifact-too-large`; `details.maxBytes` says how much).",
             "content": {
               "application/json": {
                 "schema": {
@@ -24659,7 +25373,7 @@
             }
           }
         },
-        "description": "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller.",
+        "description": "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the tenant's default project; uploading needs `write` there. An upload over the runtime's cap (default 100 MB) is `413 artifact-too-large`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -24727,7 +25441,7 @@
             }
           },
           "404": {
-            "description": "No blob with that id under this tenant.",
+            "description": "No blob with that id under this tenant, or one in a project the caller can't read.",
             "content": {
               "application/json": {
                 "schema": {
@@ -24827,6 +25541,26 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No `write` on its project (`permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "An artifact in a project the caller can't read (`blob-not-found`).",
             "content": {
               "application/json": {
                 "schema": {

@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import type { Principal } from '@kindgi/authz';
 import type { NodeContext, NodeHandler } from '@kindgi/handler';
+import type { UserId } from '@kindgi/types';
 
 import { runRetrievals } from '../retrieval.js';
 import { emitTurnEvent } from '../streaming.js';
@@ -59,8 +61,15 @@ async function recordedRetrievals(
   });
 }
 
+/** The Kindgi user a turn acts for: the one an agent was delegated by, or the actor. */
+function runUserId(principal: Principal | undefined): UserId | undefined {
+  const user = principal?.onBehalfOf ?? principal?.actor;
+  return user?.kind === 'user' ? (user.id as UserId) : undefined;
+}
+
 async function retrieveLive(ctx: TurnContext): Promise<readonly RetrievedFact[]> {
   if (ctx.conversation === undefined) return [];
+  const userId = runUserId(ctx.input.principal);
   const retrieved = await runRetrievals(
     ctx.input.agent,
     ctx.conversation,
@@ -74,6 +83,12 @@ async function retrieveLive(ctx: TurnContext): Promise<readonly RetrievedFact[]>
       ...(ctx.bindings.embeddingModel !== undefined && {
         embeddingModel: ctx.bindings.embeddingModel,
       }),
+    },
+    {
+      projectId: ctx.input.projectId,
+      ...(ctx.input.orgId !== undefined && { orgId: ctx.input.orgId }),
+      ...(ctx.input.participantId !== undefined && { participantId: ctx.input.participantId }),
+      ...(userId !== undefined && { userId }),
     },
   );
   if (retrieved.kind === 'err') throwAgentTurnFailure(retrieved.error);

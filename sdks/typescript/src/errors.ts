@@ -309,6 +309,8 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'gate-policy-scope-changed':
     case 'gate-policy-scope-unpinned':
     case 'gate-policy-needs-pin':
+    case 'fact-changed':
+    case 'legal-hold':
     case 'gate-policy-descendant-unpinned':
     case 'service-account-name-taken':
     case 'service-account-unregistered':
@@ -330,6 +332,7 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'provider-config-invalid':
     case 'supervisor-header-missing':
     case 'scope-invalid':
+    case 'artifact-too-large':
       return invalidRequest(message, obj, details);
     case 'guardrail-violation':
       return {
