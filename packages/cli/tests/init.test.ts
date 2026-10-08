@@ -366,9 +366,21 @@ describe('kindgi init — java template', () => {
   test('scaffolds a Maven pack: kindgi.config.json, pom.xml, the wrapper, sources under the pack id', async () => {
     const out = await runCli(baseInputs({ argv: ['init', 'acme.billing', '--template=java'] }));
     expect(out.exitCode, out.stderr).toBe(0);
-    const files = (await listRecursive(join(cwd, 'billing'))).filter(
-      (f) => !f.startsWith('.claude/'),
-    );
+    const all = await listRecursive(join(cwd, 'billing'));
+    // The skills written for Java packs: the shared ones and the Java getting-started and
+    // authoring skills, none of the TypeScript or Python ones.
+    expect(all.filter((f) => f.startsWith('.claude/'))).toEqual([
+      '.claude/skills/.kindgi-manifest.json',
+      '.claude/skills/kindgi-authoring-mcp-servers/SKILL.md',
+      '.claude/skills/kindgi-authoring-providers/SKILL.md',
+      '.claude/skills/kindgi-framework-feedback/SKILL.md',
+      '.claude/skills/kindgi-java-authoring-agents/SKILL.md',
+      '.claude/skills/kindgi-java-authoring-flows/SKILL.md',
+      '.claude/skills/kindgi-java-authoring-guardrails/SKILL.md',
+      '.claude/skills/kindgi-java-authoring-tools/SKILL.md',
+      '.claude/skills/kindgi-java-getting-started/SKILL.md',
+    ]);
+    const files = all.filter((f) => !f.startsWith('.claude/'));
     expect(files).toEqual([
       '.gitignore',
       '.mvn/wrapper/maven-wrapper.properties',

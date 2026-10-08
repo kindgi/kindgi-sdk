@@ -59,11 +59,11 @@ as Maven's wrapper pins Maven. Run the CLI as `./kindgiw` (`kindgiw.cmd` on
 Windows): it uses Node's `npx` when Node is installed, else `uvx` (no Node
 needed). `kindgi upgrade` moves the pin.
 
-:::note[No skills for coding agents yet]
-A TypeScript or Python pack gets Kindgi's skills in `.claude/skills/`,
-which teach a coding agent how to write tools and agents. Java has none
-yet: point your agent at the pack's `README.md` and `AGENTS.md` and at
-[kindgi-pack's README](https://github.com/kindgi/kindgi-sdk/tree/main/sdks/java/kindgi-pack).
+:::tip[Skills for your coding agent]
+The pack comes with Kindgi's skills in `.claude/skills/`: how to write
+tools, guardrails, agents and flows in Java, connect a model, and report a
+problem in Kindgi. Claude Code loads the one your request needs
+([Coding agents](../coding-agents/)). `./kindgiw skills sync` refreshes them.
 :::
 
 ## 2. Run it

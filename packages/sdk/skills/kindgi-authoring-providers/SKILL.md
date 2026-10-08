@@ -22,9 +22,9 @@ description: >
   kindgi-getting-started.
 type: core
 library: "@kindgi/sdk"
-version: "0.9.5"
+version: "0.9.6"
 sdk_version: "0.0.0"
-pack_languages: [node, python]
+pack_languages: [node, python, java]
 sources:
   - packages/adapters/model-anthropic/src/provider.ts
   - packages/adapters/model-gemini/src/provider.ts
@@ -40,7 +40,8 @@ sources:
 > (`@kindgi/cli`), not a global command. Run it through the project's
 > package manager — `pnpm exec kindgi …`, `npx --no kindgi …` (npm),
 > `yarn kindgi …` or `bun run kindgi …`. A Python pack (`[tool.kindgi]` in
-> `pyproject.toml`) has no Node project: run the `kindgi` on `PATH`.
+> `pyproject.toml`) has no Node project: run the `kindgi` on `PATH`. A Java
+> or Scala pack (`kindgi.config.json`) runs the CLI it pins: `./kindgiw …`.
 > Commands below are written `kindgi …` for brevity.
 
 An **agent** is a versioned declaration; it needs a **provider** to run.
@@ -75,8 +76,9 @@ Three moving parts:
 1. **API key on disk** — in `kindgi dev` (environment `local`) the dotenv
    secret binding reads the project's own env files: `.env`, then
    `.env.local` on top (change the list with `dev.envFiles` in
-   `kindgi.config.ts`, or `envFiles` under `[tool.kindgi.dev]` in a Python
-   pack's `pyproject.toml`). A key already in the app's `.env` just works.
+   `kindgi.config.ts`, `envFiles` under `[tool.kindgi.dev]` in a Python
+   pack's `pyproject.toml`, or `dev.envFiles` in a Java or Scala pack's
+   `kindgi.config.json`). A key already in the app's `.env` just works.
    `kindgi secrets set` (interactive, no-echo) writes `.env.local`. For
    non-sensitive values (log levels, region names, feature flags),
    `kindgi env set NAME VALUE --env=local` writes the same file with a
@@ -150,12 +152,15 @@ providers: [
 preset = "anthropic"
 models = ["claude-haiku-4-5"]
 ```
+In a Java or Scala pack's `kindgi.config.json`, the same keys:
+`"providers": [{"preset": "anthropic", "models": ["claude-haiku-4-5"]}]`.
 - A preset entry takes `models`, `project`, `secret` (the key's name, in place
-  of the preset's) and `maxOutputTokens`, spelled the same in `pyproject.toml`;
+  of the preset's) and `maxOutputTokens`, spelled the same in `pyproject.toml`
+  and `kindgi.config.json`;
   a `spec` entry is a `--spec` body. A
   key is always a secret's name (`secret_ref`); a credential in
   `adapter_config` is refused.
-- Each boot prints `Providers from kindgi.config.ts:` with one line each:
+- Each boot prints `Providers from kindgi.config.ts:` (the pack's config file) with one line each:
   `registered`, `unchanged`, `registered again (changed in kindgi.config.ts)`,
   `unregistered (no longer in kindgi.config.ts)`, or ⚠ `not registered: <KEY>
   is not in .env, .env.local` (set the key, then restart: the config isn't
@@ -533,7 +538,8 @@ Or skip step 2: `kindgi providers register --preset=gemini --project=<your-gcp-p
 registers both models above.
 Then pin it from an agent with `preferredProvider: 'gemini'` (and a model
 with `preferredModel`; in Python, `preferred_provider="gemini"` and
-`preferred_model=…`), or let the router pick by capability.
+`preferred_model=…`; in Java, `.set("preferredProvider", "gemini")`), or let
+the router pick by capability.
 
 ## How the router picks between multiple providers + models
 
@@ -548,7 +554,8 @@ tenant policy), then sorts survivors in this order:
      - Only `preferredModel` set → promote any provider exposing that model.
      - Only `preferredProvider` set → promote every model of that provider.
    `defineAgent` takes both (`preferredProvider`, `preferredModel`), and
-   so does a Python `Agent` (`preferred_provider=`, `preferred_model=`).
+   so does a Python `Agent` (`preferred_provider=`, `preferred_model=`) and
+   a Java `Agent.define(…)` (`set("preferredProvider", …)`).
 2. **`capability.prefer[]` weights.** If the agent's capability
    declares `prefer: [{feature: 'thinking', weight: 3}, ...]`, tuples
    with matching model features (or provider attributes) get higher
@@ -682,8 +689,9 @@ defineAgent({
    Then re-register.
 
 6. **Key not found by the runtime.** `kindgi dev` reads the env files
-   at the PACK ROOT (the directory with `kindgi.config.ts`, or a Python
-   pack's `pyproject.toml` with `[tool.kindgi]`) — `.env` and
+   at the PACK ROOT (the directory with `kindgi.config.ts`, a Python
+   pack's `pyproject.toml` with `[tool.kindgi]`, or a Java or Scala pack's
+   `kindgi.config.json`) — `.env` and
    `.env.local`, or whatever `dev.envFiles` lists; the boot log prints
    which files it found. A `KINDGI_`-prefixed name is Kindgi runtime
    config and never resolves as a secret. Outside `kindgi dev`, the
