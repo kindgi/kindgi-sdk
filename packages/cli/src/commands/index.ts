@@ -9,6 +9,7 @@ import { authCommand } from './auth.js';
 import { blocksCommand } from './blocks.js';
 import { buildCommand } from './build.js';
 import { capabilitiesCommand } from './capabilities.js';
+import { consoleCommand } from './console.js';
 import { conversationsCommand } from './conversations.js';
 import { deployCommand } from './deploy.js';
 import { devCommand } from './dev.js';
@@ -49,6 +50,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   authCommand,
   initCommand,
   devCommand,
+  consoleCommand,
   buildCommand,
   deployCommand,
   testCommand,

@@ -1150,6 +1150,11 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(input.evalRunBinding !== undefined && { evalRuns: input.evalRunBinding }),
           ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
         },
+        {
+          ...(input.memory?.semanticSearch !== undefined && {
+            semanticSearch: input.memory.semanticSearch,
+          }),
+        },
       ),
     );
   }
@@ -1358,6 +1363,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.projectMembershipBinding,
         tenantHierarchyBinding,
         authorizer,
+        input.identityDirectory,
       ),
     );
   }

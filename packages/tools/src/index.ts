@@ -22,6 +22,7 @@ export { registerToolSpecSynthesizer, getToolSpecSynthesizer } from './spec-regi
 export type { ToolSpecSynthesizer, ToolSpecSynthesizerOptions } from './spec-registry.js';
 export { invokeTool } from './invoke.js';
 export { ToolPreconditionError, isToolPreconditionError } from './precondition.js';
+export { TOOL_ENV_RECORD_KEY, toolCallRecordKey } from './record-keys.js';
 export type { InvokeToolOptions } from './invoke.js';
 export { createToolRegistry } from './registry.js';
 export type { ToolRegisterOptions, ToolRegistry, ToolResolution } from './registry.js';

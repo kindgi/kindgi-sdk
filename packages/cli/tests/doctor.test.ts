@@ -296,12 +296,31 @@ describe('a TypeScript project', () => {
     expect(check('project')?.message).toContain('kindgi dev has run here (.kindgirc.json)');
     expect(check('runtime')).toMatchObject({
       status: 'pass',
-      message: 'The runtime answers at http://127.0.0.1:4999.',
+      message:
+        'The runtime answers at http://127.0.0.1:4999; its console is at http://127.0.0.1:4999/console/.',
     });
+    expect(report?.consoleUrl).toBe('http://127.0.0.1:4999/console/');
     expect(check('provider')).toMatchObject({
       status: 'pass',
       message: 'A provider is registered: anthropic.',
     });
+  });
+
+  test('a runtime that serves no console: said so, and no console URL', async () => {
+    await tsProject({ installed: true, rc: RC, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+    const headless: typeof fetch = async (input) =>
+      String(input).endsWith('/console/')
+        ? new Response('{"error":{"code":"route-not-found"}}', { status: 404 })
+        : new Response('{"status":"ok"}', { status: 200 });
+    const { report, check } = await doctor({
+      fetchImpl: headless,
+      providers: [{ id: 'anthropic' }],
+    });
+    expect(check('runtime')).toMatchObject({
+      status: 'pass',
+      message: 'The runtime answers at http://127.0.0.1:4999 (it serves no console).',
+    });
+    expect(report?.consoleUrl).toBeUndefined();
   });
 
   test("only kindgi dev's dev-echo: a failure, since it isn't a model", async () => {
@@ -330,6 +349,60 @@ describe('a TypeScript project', () => {
   });
 });
 
+describe('a Vertex provider and the Google credentials kindgi dev gives the runtime', () => {
+  const vertex = [
+    { id: 'gemini', models: [{ name: 'gemini-3.8-flash' }], defaultModel: 'gemini-3.8-flash' },
+  ];
+
+  test('none (KINDGI_DEV_GOOGLE_CREDENTIALS unset): a warning that says how to give them', async () => {
+    await tsProject({ installed: true, rc: RC, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+    const { out, check } = await doctor({ fetchImpl: healthy, providers: vertex });
+    expect(out.exitCode).toBe(0);
+    expect(check('provider')).toMatchObject({
+      status: 'warn',
+      message:
+        'A provider is registered: gemini. gemini is Vertex AI, and kindgi dev gives the runtime no Google credentials (KINDGI_DEV_GOOGLE_CREDENTIALS is unset).',
+      fix: "Provider gemini (Vertex AI) has no Google credentials: set KINDGI_DEV_GOOGLE_CREDENTIALS=adc (or a credentials file), in the pack's .env or the shell, and restart kindgi dev.",
+    });
+  });
+
+  test('named in the shell or the env files: a pass', async () => {
+    const creds = join(dir, 'vertex-sa.json');
+    await writeFile(
+      creds,
+      JSON.stringify({ type: 'service_account', client_email: 'v@acme.iam.gserviceaccount.com' }),
+    );
+    await tsProject({ installed: true, rc: RC, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+    const shell = await doctor({
+      fetchImpl: healthy,
+      providers: vertex,
+      env: { KINDGI_DEV_GOOGLE_CREDENTIALS: creds },
+    });
+    expect(shell.check('provider')).toMatchObject({
+      status: 'pass',
+      message: 'A provider is registered: gemini.',
+    });
+    await tsProject({
+      installed: true,
+      rc: RC,
+      envLocal: `ANTHROPIC_API_KEY=${SECRET}\nKINDGI_DEV_GOOGLE_CREDENTIALS=${creds}\n`,
+    });
+    const files = await doctor({ fetchImpl: healthy, providers: vertex });
+    expect(files.check('provider')).toMatchObject({ status: 'pass' });
+  });
+
+  test('a value kindgi dev would refuse: the warning says why', async () => {
+    await tsProject({ installed: true, rc: RC, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+    const { check } = await doctor({
+      fetchImpl: healthy,
+      providers: vertex,
+      env: { KINDGI_DEV_GOOGLE_CREDENTIALS: 'relative.json' },
+    });
+    expect(check('provider')).toMatchObject({ status: 'warn' });
+    expect(check('provider')?.message).toContain('KINDGI_DEV_GOOGLE_CREDENTIALS must be `adc`');
+  });
+});
+
 describe('a registration whose default model the preset no longer gives: a warning', () => {
   const models = (...names: string[]) => names.map((name) => ({ name }));
   /** The bundled presets, as `kindgi providers register --preset` reads them. */
@@ -348,7 +421,7 @@ describe('a registration whose default model the preset no longer gives: a warni
     expect(check('provider')).toMatchObject({
       status: 'warn',
       message:
-        'A provider is registered: gemini. On gemini, an agent that names no model gets gemini-2.5-flash, which the gemini preset no longer lists.',
+        'A provider is registered: gemini. On gemini, an agent that names no model gets gemini-2.5-flash, which the gemini preset no longer lists. gemini is Vertex AI, and kindgi dev gives the runtime no Google credentials (KINDGI_DEV_GOOGLE_CREDENTIALS is unset).',
     });
     expect(check('provider')?.fix).toContain(
       'kindgi providers register --preset=gemini --project=<project>',

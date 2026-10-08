@@ -23,15 +23,15 @@ import type {
  *
  * Routes:
  *   - `GET  /v1/identity/users` (cursor-paginated list, `?query=`
- *     displayName prefix)
- *   - `GET  /v1/identity/users/{userId}` (get; `404 identity-user-not-found`
- *     on unknown or cross-tenant)
+ *     displayName prefix; tenant admins only)
+ *   - `GET  /v1/identity/users/{userId}` (get; a tenant admin, or the
+ *     person; `404 identity-user-not-found` on unknown or cross-tenant)
  *   - `GET  /v1/identity/whoami` (self — returns `WhoamiResult`, not
  *     `User`; carries the current-token's auth context plus the
  *     fuller `UserRecord` when the token has a `userId`)
  *   - `GET  /v1/identity/users/{userId}/sessions` (active sessions for
- *     a user; `IdentitySessionSummary` — provider access-token +
- *     refresh-token NEVER cross the wire)
+ *     a user, to a tenant admin or the person; `IdentitySessionSummary` —
+ *     provider access-token + refresh-token NEVER cross the wire)
  *   - `POST /v1/identity/users/{userId}/revoke-sessions` (admin;
  *     revokes ALL sessions for a user, returns `revokedCount`)
  *   - `GET  /v1/identity/users/{userId}/grants` (a person's grants:
@@ -64,6 +64,9 @@ export interface UsersClient {
   create(spec: UserSpec, options?: { readonly idempotencyKey?: string }): Promise<UserId>;
 
   /**
+   * A tenant admin reads anyone's record; anyone else only their own
+   * (`403 permission-denied`).
+   *
    * @wire `GET /v1/identity/users/{userId}` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1identity~1users~1{userId}/get`.
    */
@@ -86,6 +89,10 @@ export interface UsersClient {
   me(): Promise<WhoamiResult>;
 
   /**
+   * The tenant's people, for tenant admins only (`403 permission-denied`
+   * otherwise). Anyone else adds a person to a project by their email or
+   * id: `projects.memberships.add(projectId, { email, role })`.
+   *
    * @wire `GET /v1/identity/users` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1identity~1users/get`.
    */

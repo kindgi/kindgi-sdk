@@ -120,13 +120,23 @@ describe('createAnthropicProvider — invoke wire shape', () => {
     const [callBody] = create.mock.calls[0] as [Record<string, unknown>];
     expect(callBody.model).toBe('claude-opus-4-7');
     expect(callBody.max_tokens).toBe(1024);
-    expect(callBody.system).toBe('You are helpful.');
-    expect(callBody.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'Hi' }] }]);
+    // Cache breakpoints: the tools, the agent's prompt, and (a call with
+    // tools can continue) the last message.
+    expect(callBody.system).toEqual([
+      { type: 'text', text: 'You are helpful.', cache_control: { type: 'ephemeral' } },
+    ]);
+    expect(callBody.messages).toEqual([
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'Hi', cache_control: { type: 'ephemeral' } }],
+      },
+    ]);
     expect(callBody.tools).toEqual([
       {
         name: 'demo__echo',
         description: 'Echo back a message.',
         input_schema: { type: 'object', properties: { message: { type: 'string' } } },
+        cache_control: { type: 'ephemeral' },
       },
     ]);
   });
@@ -151,12 +161,21 @@ describe('createAnthropicProvider — invoke wire shape', () => {
     };
     await provider.invoke(input);
     const [callBody] = create.mock.calls[0] as [Record<string, unknown>];
-    expect(callBody.system).toBe(
-      'Call `demo__echo` with the message. Never demo.echoes or other.echo.',
-    );
+    expect(callBody.system).toEqual([
+      {
+        type: 'text',
+        text: 'Call `demo__echo` with the message. Never demo.echoes or other.echo.',
+        cache_control: { type: 'ephemeral' },
+      },
+    ]);
     // The user's own words, and the trail the caller keeps, are untouched.
     expect(callBody.messages).toEqual([
-      { role: 'user', content: [{ type: 'text', text: 'Use demo.echo please' }] },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Use demo.echo please', cache_control: { type: 'ephemeral' } },
+        ],
+      },
     ]);
     expect(input.messages[0]?.content).toBe(system);
   });
@@ -174,6 +193,43 @@ describe('createAnthropicProvider — invoke wire shape', () => {
     });
     const [callBody] = create.mock.calls[0] as [Record<string, unknown>];
     expect(callBody.max_tokens).toBe(4096);
+  });
+
+  test("each system message is its own block and only the agent's prompt is cached: retrieved context changes per turn", async () => {
+    const { client, create } = fakeClient();
+    const provider = createAnthropicProvider({
+      apiKey: 'sk-unused',
+      metadata: OPUS_METADATA,
+      client,
+    });
+    await provider.invoke({
+      model: 'claude-opus-4-7',
+      messages: [
+        { role: 'system', content: 'You answer questions about orders. Use demo.echo to repeat.' },
+        { role: 'system', content: 'Retrieved: order A-1042 shipped.' },
+        { role: 'user', content: 'Where is A-1042?' },
+        { role: 'assistant', content: 'It shipped.' },
+        { role: 'user', content: 'Thanks. And A-1043?' },
+      ],
+      tools: [
+        { name: 'demo.echo', description: 'Echo back a message.', inputSchema: { type: 'object' } },
+      ],
+    });
+    const [callBody] = create.mock.calls[0] as [Record<string, unknown>];
+    expect(callBody.system).toEqual([
+      {
+        type: 'text',
+        text: 'You answer questions about orders. Use demo__echo to repeat.',
+        cache_control: { type: 'ephemeral' },
+      },
+      { type: 'text', text: 'Retrieved: order A-1042 shipped.' },
+    ]);
+    const messages = callBody.messages as { content: { cache_control?: unknown }[] }[];
+    expect(messages.map((m) => m.content.map((b) => b.cache_control !== undefined))).toEqual([
+      [false],
+      [false],
+      [true],
+    ]);
   });
 
   test('per-model maxOutputTokens overrides the adapter DEFAULT when caller omits maxOutputTokens', async () => {

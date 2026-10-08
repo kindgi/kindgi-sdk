@@ -8,6 +8,7 @@ export type {
   AmbiguousDefaultProviderError,
   DuplicateEmbeddingProviderError,
   EmbeddingError,
+  EmbeddingUnavailableError,
   NoEmbeddingProviderError,
   UnknownEmbeddingModelError,
 } from './errors.js';

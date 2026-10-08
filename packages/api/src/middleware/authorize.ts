@@ -250,8 +250,10 @@ function keyDecision(action: Action, resource: ResourceRef, reason: string): Dec
  * What an API key itself rules out, before the principal's grants are
  * asked: a key can do less than its principal, never more.
  *
- * - A `member` key takes no `admin` action, even for a principal who is an
- *   admin: a day-to-day key can't change keys, grants or policies.
+ * - A `member` key takes no `admin` action on the tenant, even for a
+ *   principal who is a tenant admin: a day-to-day key can't change keys,
+ *   grants or policies. Below the tenant, its principal's roles hold: a
+ *   project admin's member key administers that project.
  * - A key limited to a project acts on no other project, and takes no
  *   `admin` action on the tenant, an org or a team. Other resources must
  *   be in its project (`inKeyProject`).
@@ -261,8 +263,8 @@ function keyCeilingDeny(
   action: Action,
   resource: ResourceRef,
 ): Decision | undefined {
-  if (action === 'admin' && c.get('tokenRole') === 'member') {
-    return keyDecision(action, resource, 'a member API key takes no admin action');
+  if (action === 'admin' && resource.type === 'tenant' && c.get('tokenRole') === 'member') {
+    return keyDecision(action, resource, 'a member API key takes no admin action on the tenant');
   }
   const keyProject = c.get('tokenProjectId');
   if (keyProject === undefined) return undefined;
