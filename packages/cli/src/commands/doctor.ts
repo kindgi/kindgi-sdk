@@ -31,6 +31,12 @@ import { findKindgiConfig } from '@kindgi/handler-runtime';
 import { LOCAL_ENV_NAME, displayEnvPath, readPackEnv } from '@kindgi/secrets-dotenv';
 
 import type { CommandContext } from '../context.js';
+import {
+  DEV_GOOGLE_CREDENTIALS_VAR,
+  VERTEX_PROVIDER_ID,
+  resolveDevGoogleCredentials,
+  vertexCredentialsHint,
+} from '../dev/google-credentials.js';
 import { type DockerRunner, docker } from '../dev/runtime-container.js';
 import { DEFAULT_RUNTIME_IMAGE, registryOf } from '../dev/runtime-image.js';
 import { checkDocker, checkImageAccess, credentialHelperHint } from '../dev/runtime-registry.js';
@@ -192,7 +198,7 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
   checks.push(runtime.check);
   checks.push(
     runtime.check.status === 'pass' && runtime.url !== undefined && rc.token !== undefined
-      ? await providerCheck(ctx, runtime.url, rc.token, kindgi, seam)
+      ? await providerCheck(ctx, runtime.url, rc.token, kindgi, seam, dir)
       : skip('provider', `Not checked: it needs the runtime running (${kindgi('dev')}).`),
   );
   return report(checks, { dir, language });
@@ -602,6 +608,7 @@ async function providerCheck(
   token: string,
   kindgi: Kindgi,
   seam: DoctorSeam,
+  dir: string,
 ): Promise<DoctorCheck> {
   try {
     const page = await ctx.clientFor(apiUrl, token).providers.list();
@@ -620,12 +627,14 @@ async function providerCheck(
         await (seam.presets ?? (() => loadProviderPresets()))(),
         kindgi,
       );
-      return stale.length === 0
+      const google = await vertexCredentials(ids, dir, ctx.env);
+      const notes = [...stale, ...(google === undefined ? [] : [google])];
+      return notes.length === 0
         ? pass('provider', registered)
         : warn(
             'provider',
-            [registered, ...stale.map((s) => s.message)].join(' '),
-            stale.map((s) => s.fix).join(' '),
+            [registered, ...notes.map((s) => s.message)].join(' '),
+            notes.map((s) => s.fix).join(' '),
           );
     }
     return ids.length > 0
@@ -645,6 +654,30 @@ async function providerCheck(
 }
 
 /** A registered provider as `providers.list` answers it; a runtime before 0.1.4 sends no `defaultModel`. */
+/**
+ * A Vertex provider (the `gemini` preset) with no Google credentials in
+ * `kindgi dev`: `KINDGI_DEV_GOOGLE_CREDENTIALS` unset, `off`, or not
+ * usable. `undefined` when there's no Vertex provider, or it has them.
+ */
+async function vertexCredentials(
+  ids: readonly string[],
+  dir: string,
+  hostEnv: Readonly<Record<string, string | undefined>>,
+): Promise<{ readonly message: string; readonly fix: string } | undefined> {
+  const vertex = ids.filter((id) => id === VERTEX_PROVIDER_ID);
+  if (vertex.length === 0) return undefined;
+  const env = await readPackEnv({ packDir: dir, envName: LOCAL_ENV_NAME });
+  const setting = hostEnv[DEV_GOOGLE_CREDENTIALS_VAR] ?? env.values[DEV_GOOGLE_CREDENTIALS_VAR];
+  const resolved = resolveDevGoogleCredentials(setting, hostEnv);
+  if (resolved.kind === 'ok' && resolved.credentials !== undefined) return undefined;
+  return resolved.kind === 'error'
+    ? { message: resolved.message, fix: vertexCredentialsHint(vertex, hostEnv) }
+    : {
+        message: `${vertex.join(', ')} is Vertex AI, and kindgi dev gives the runtime no Google credentials (${DEV_GOOGLE_CREDENTIALS_VAR} is ${setting === undefined || setting.trim() === '' ? 'unset' : 'off'}).`,
+        fix: vertexCredentialsHint(vertex, hostEnv),
+      };
+}
+
 interface ListedProvider {
   readonly id?: string;
   readonly models?: readonly { readonly name: string }[];
