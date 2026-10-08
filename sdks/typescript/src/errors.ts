@@ -38,6 +38,8 @@ export interface NetworkError {
   readonly code: 'network';
   readonly message: string;
   readonly cause?: unknown;
+  /** Set when the client's own timeout ended the request: that timeout, in milliseconds. */
+  readonly timeoutMs?: number;
 }
 
 export interface AuthError {
@@ -307,6 +309,8 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'gate-policy-scope-changed':
     case 'gate-policy-scope-unpinned':
     case 'gate-policy-needs-pin':
+    case 'fact-changed':
+    case 'legal-hold':
     case 'gate-policy-descendant-unpinned':
     case 'service-account-name-taken':
     case 'service-account-unregistered':
@@ -329,8 +333,10 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'unknown-effect':
     case 'invalid-guardrail':
     case 'invalid-provider':
+    case 'provider-config-invalid':
     case 'supervisor-header-missing':
     case 'scope-invalid':
+    case 'artifact-too-large':
       return invalidRequest(message, obj, details);
     case 'guardrail-violation':
       return {

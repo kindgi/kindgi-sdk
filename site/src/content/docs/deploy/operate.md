@@ -17,7 +17,7 @@ docker rm kindgi-server
 docker run -d --name kindgi-server --network kindgi \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.3
+  quay.io/kindgi/runtime:0.1.4
 ```
 
 On a stop, the runtime stops taking requests and gives the runs it's executing up to 7 seconds to finish, then exits with code 0. `--time 30` gives it that time before Docker kills it.
@@ -33,6 +33,10 @@ To avoid it, restart when no runs are executing.
 :::
 
 ## Check health and logs
+
+The log lines on this page are in the pretty format. A runtime in a container
+logs JSON unless `KINDGI_LOG_FORMAT=pretty` is set; [Logs](../logs/) has both
+formats, the levels, and how to follow one request.
 
 ```sh
 curl -s http://localhost:4000/health
@@ -66,7 +70,7 @@ kindgi-server   Up 34 seconds (healthy)
 `docker ps` shows `(unhealthy)` while the database is down, and the runtime's log says why:
 
 ```text
-[ready] the database doesn't answer: host not found (getaddrinfo ENOTFOUND kindgi-db)
+17:37:34.151 WARN  [ready] the database doesn't answer: no answer within 2000 ms
 ```
 
 A route that reads the database answers `500` and names the cause. With Postgres unreachable, `GET /v1/deployments` answers:
@@ -81,7 +85,7 @@ curl -s http://localhost:4000/v1/deployments -H "authorization: Bearer $KINDGI_A
 
 ### The startup log
 
-The runtime prints what it's running with when it starts (`docker logs kindgi-server`). The lines to check after a change:
+The runtime prints what it's running with when it starts (`docker logs kindgi-server`; in the JSON format they're the `lines` of its `boot` record). The lines to check after a change:
 
 ```text
   Token:   kgi_bt_…65bb (provided)
@@ -106,14 +110,14 @@ repairs the runs the stop left mid-way
 repair is a line in its log:
 
 ```text
-[run-leases] resuming run <run id> (tenant <tenant id>): its wait resolved and nothing resumed it
-[run-leases] woke the flow run waiting on child run <run id> …: the child had moved on
-[run-leases] ended run <run id> …: its parent run had ended
+<time> INFO  [leases] resuming run <run id> (tenant <tenant id>): its wait resolved and nothing resumed it
+<time> INFO  [leases] woke the flow run waiting on child run <run id> …: the child had moved on
+<time> INFO  [leases] ended run <run id> …: its parent run had ended
 ```
 
 ### Where errors show
 
-- **A setting the runtime refuses** (a missing license key, for example): it exits with code 2, and its log says what to fix.
+- **A setting the runtime refuses** (a missing license key, or a log setting it can't use): it exits with code 2, and its log says what to fix.
 - **A database it can't reach while starting:** it exits with code 1, and its log says which database and why, never the password. Here Postgres wasn't running:
 
   ```sh
@@ -204,6 +208,53 @@ When it starts, the runtime brings the database up to date: it applies the migra
 
 Migrations only go forward, and an older runtime isn't guaranteed to work on a database a newer one migrated. To go back, [restore the backup](#restore-into-a-fresh-database) you took before the upgrade, and run the older version on it.
 
+### Runtime 0.1.4.1
+
+Runtime 0.1.4.1 fixes one bug in 0.1.4, for deployments with authorization on
+(`KINDGI_OPENFGA_API_URL` set): a redeploy that published a new version of an
+existing agent could leave other permission changes made in the same few
+seconds unapplied. A newly published agent or project could then answer `403`
+to the person who made it. Without authorization, and under `kindgi dev`, 0.1.4
+is unaffected. Only the runtime changes: the 0.1.4 CLI and SDKs (npm, PyPI)
+stay as they are.
+
+With authorization on, run 0.1.4.1, pulled by its digest, with the same
+`kindgi.env`. It has no migration, so going back to 0.1.4 works, but the bug
+comes back with it:
+
+```sh
+docker pull quay.io/kindgi/runtime:0.1.4.1@sha256:3f14fcf7336c846b276c6119bc8dc96eaf44faee6dacfd45ba40b2e7c08d555f
+```
+
+On Cloud Run, copy it into your repository the same way as 0.1.4 (see
+[The images into Artifact Registry](../cloud-run/#2-the-images-into-artifact-registry))
+and set `server_image` to its digest.
+
+0.1.4.1 and later don't retry a change 0.1.4 already lost. What comes
+back, and when:
+
+- **A project or agent that answered `403`** reads again from the
+  upgrade on, since the upgrade restarts the runtime. At every start, the
+  runtime writes again the permissions that place each project, agent,
+  flow, tool, guardrail and test set of its tenant (`KINDGI_TENANT_ID`).
+- **The creator's own rights on an agent** come back when a new version of
+  it is published on 0.1.4.1 or later.
+- **A project membership added while the bug hit** stays missing, through
+  restarts and publishes, though the project's member list still shows the
+  person. Add them again on 0.1.4.1 or later with the same call
+  (`POST /v1/projects/<project-id>/memberships`, see
+  [Project memberships](../authorization/#project-memberships)), and their
+  access applies within seconds.
+
+On 0.1.4.1, re-publishing an agent can log a warning like this one:
+
+```text
+WARN  [authz.outbox] drain: FGA refused a batch; trying its tuples one by one tenantId=<tenant> rowCount=2 error="cannot write a tuple which already exists: user: 'project:<id>', relation: 'parent', object: 'agent:acme.alpha': tuple to be written already existed or the tuple to be deleted did not exist"
+```
+
+It's expected: the runtime then applies the batch's changes one at a time,
+and a change that's already there counts as applied.
+
 ### From 0.1.3 to 0.1.4
 
 `kindgi.env` needs no change: the database migrates when 0.1.4 starts. What's different after:
@@ -218,13 +269,27 @@ Migrations only go forward, and an older runtime isn't guaranteed to work on a d
 - **With authorization on** (`KINDGI_OPENFGA_API_URL`), the first start brings each tenant's authorization store up to 0.1.4's model, with a line per store before the banner:
 
   ```text
-  [authz] tenant 8c3b6779-c02b-47e1-a9e1-4d0cd7f0c5a7: store 01M48C11G6C00WQXYMAJEWH7DW now has the current model (01M48C11V76E0C6APGAKKPRXXK → 01M48C24EGSZQHYJMEE2ZD88S2)
+  <time> INFO  [authz] tenant 8c3b6779-c02b-47e1-a9e1-4d0cd7f0c5a7: store 01M48C11G6C00WQXYMAJEWH7DW now has the current model (01M48C11V76E0C6APGAKKPRXXK → 01M48C24EGSZQHYJMEE2ZD88S2)
   ```
 
   Later starts print nothing. A store it can't reach gets a warning instead (`could not bring store … up to the current model`), the runtime starts anyway, and the next start tries again.
 - **Deleting an org keeps its record** until a retention policy on `org` purges it. It still answers `404 org-not-found`, its projects and teams stay without an org, and its slug is free at once ([Delete an org](../../guides/projects/organize-by-org-and-project/#delete-an-org)). 0.1.3 removed the record at once.
 - **Unregistering a provider keeps its record** until a retention policy on `provider` purges it; its id is free to register again at once ([List, change and remove](../../guides/models/#list-change-and-remove)). 0.1.3 removed the record at once.
 - **`KINDGI_PUBLIC_URL`** is new: the address clients use when it isn't the one the runtime binds, behind a proxy or a load balancer ([Check it](../self-host/#6-check-it)).
+- **The runtime's logs are structured.** Each line is a record with a level and a subsystem: JSON when the output isn't a terminal (as on a server), readable lines on one. `KINDGI_LOG_LEVEL`, `KINDGI_LOG_LEVELS` and `KINDGI_LOG_FORMAT` choose what's written, and a request's `traceparent` is joined ([Logs](../logs/)).
+- **A conversation's turns run the agent version it was opened with.** A turn that names another version is refused (`agent-version-mismatch`); one whose version is no longer registered answers `404` ([A conversation keeps its agent version](../../guides/agents/conversations/#a-conversation-keeps-its-agent-version)). 0.1.3 ran the current version and refused the turn when it differed.
+- **`kindgi runs start` exits `1` for a failed run,** with `Error [<code>]: <message>` naming the error's own code, such as `budget-exceeded` or `model-invocation-failed`. 0.1.3 printed `Error [server]` and exited `0` for a run that failed. A script that checks the exit code now sees the failure; the run itself is still printed on stdout.
+- **`dev-echo` says it isn't a real model.** Its answers start with `⚠ dev-echo isn't a real model`, and a turn it answers carries a `dev-echo-not-a-model` warning.
+- **On Cloud Run,** the Terraform module pins the version of the secrets' AAD key it reads: add `secrets_aad_key_version` (normally `"1"`) to your `.tfvars` before you apply ([Deploy on Google Cloud Run](../cloud-run/#operate-it)).
+- **Two models retire.** Anthropic retires `claude-haiku-4-5` on or after 2026-10-15, and Vertex AI retires `gemini-2.5-pro` and `gemini-2.5-flash` on 2026-10-20; a turn routed to them fails after. The 0.1.4 presets list `claude-haiku-5-5`, and `gemini-3.8-flash` with `gemini-3.5-flash-lite`, instead ([Connect Anthropic](../../guides/models/anthropic/#if-you-registered-it-before-014), [If you registered Gemini 2.5](../../guides/models/gemini-on-vertex-ai/#if-you-registered-gemini-25)).
+- **Register presets again.** A provider registered from a preset before 0.1.4 keeps what it had: no default model, so an agent that names none gets the first model by name (`claude-haiku-4-5` for `anthropic`); none of the models' temperature and thinking marks; and only the two base prices. Unregister it and register the preset again with the 0.1.4 CLI, or restart `kindgi dev` for one the pack's config declares. `kindgi doctor` warns (`!`) about one that's stale.
+- **Each provider can name a default model** (`metadata.defaultModel`): when nothing else decides, an agent gets it rather than the first model by name. Each preset names a mid-priced one, such as `claude-sonnet-5-5` ([How Kindgi picks](../../guides/agents/choose-a-model/#how-kindgi-picks)).
+- **Models that take no temperature get none.** A model registered with `"sampling": false` (the Claude 5.5 and GPT-6 models) is called without one, and the turn carries a `sampling-unsupported` warning instead of failing. A model's `thinking` says how it thinks; thinking counts against its output limit and bills as output ([Temperature and thinking](../../guides/models/#temperature-and-thinking)).
+- **Costs follow what providers bill.** A registration keeps its model's extra rates: cached prompts, cache writes, long prompts and data residency. A long prompt prices the whole call at the long rates (Claude Haiku 5.5 past 100,000 tokens, Gemini 3.1 Pro past 200,000, GPT-6 past 272,000). A rate that isn't a non-negative number is refused when you register. Kindgi's costs stay estimates from published prices; your provider's invoice is what you pay.
+- **OpenAI calls use OpenAI's Responses API,** which GPT-6 models need to call tools: agents with tools now work on them. Every call sends `store: false`. An existing OpenAI registration moves over when you upgrade, with nothing to register again; `"api": "chat-completions"` in its `adapter_config` keeps the older API ([OpenAI's own API](../../guides/models/openai-compatible/#openais-own-api)).
+- **Gemini calls retry a temporary failure** (a rate limit `429`, an overloaded model `503`, and the like), three attempts in all, as the Anthropic and OpenAI-compatible adapters already did.
+- **A waited start that outlasts the client's timeout** (30 seconds in TypeScript, now settable with `timeoutMs`; 60 seconds in Python) fails on the client without the run's id, and says to start the run in the background and follow it ([Wait for the result](../../guides/runs/start-a-run/#wait-for-the-result)).
+- **In 0.1.2 and 0.1.3, the Python client could start a waited run up to three times** when it outlasted the client's timeout. 0.1.4's client never sends a call again once it may be running: upgrade the client. A start you repeat yourself with the same idempotency key still returns the first run only once the first request has answered ([Retry a start safely](../../guides/runs/retry-a-start-safely/)).
 
 ## Rotate the API token
 
@@ -368,7 +433,7 @@ docker run -d --name kindgi-server --network kindgi \
   --add-host registry.localhost:host-gateway \
   -v "$PWD/public-token-signing.pem:/etc/kindgi/public-token-signing.pem:ro" \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.3
+  quay.io/kindgi/runtime:0.1.4
 ```
 
 The file must have mode 0600, and the runtime's user in the container (uid 10001) must be able to read it. The log says:

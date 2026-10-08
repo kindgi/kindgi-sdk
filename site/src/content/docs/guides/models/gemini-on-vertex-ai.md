@@ -5,8 +5,8 @@ sidebar:
   order: 2
 ---
 
-The `gemini` preset registers Gemini 2.5 Pro and Gemini 2.5 Flash on Google
-Cloud's Vertex AI. It takes no API key: calls use your Google Cloud
+The `gemini` preset registers Gemini 3.8 Flash and Gemini 3.5 Flash Lite on
+Google Cloud's Vertex AI. It takes no API key: calls use your Google Cloud
 credentials, and Vertex AI runs and bills them in a project you name.
 
 ## 1. Log in to Google Cloud
@@ -37,7 +37,7 @@ Error: preset "gemini" needs --project=<…> (The Google Cloud project Vertex AI
 `--models` registers only some of the models:
 
 ```sh
-kindgi providers register --preset=gemini --project=<gcp-project> --models=gemini-2.5-flash
+kindgi providers register --preset=gemini --project=<gcp-project> --models=gemini-3.8-flash
 ```
 
 The preset's models answer with up to 65,536 tokens, thinking included.
@@ -53,7 +53,7 @@ instead: `{ preset: 'gemini', project: '<gcp-project>' }` in
 {
   "providerId": "gemini"
 }
-✓ Registered gemini: gemini-2.5-flash
+✓ Registered gemini: gemini-3.8-flash (default)
 ```
 
 ## What it registers
@@ -62,18 +62,61 @@ instead: `{ preset: 'gemini', project: '<gcp-project>' }` in
 kindgi providers get gemini
 ```
 
-The provider's id is `gemini` and its region `global`. Both models list
-`tool-use` as their only feature:
+The provider's id is `gemini` and its region `global`, where Vertex AI serves
+Gemini 3.8 Flash (it isn't served from `us-central1`). Both models list
+`tool-use`, `structured-output` and `long-context`:
 
 | Model | Context window | Per 1K input / output tokens |
 | --- | --- | --- |
-| `gemini-2.5-pro` | 1,048,576 | $0.00125 / $0.01 |
-| `gemini-2.5-flash` | 1,048,576 | $0.0003 / $0.0025 |
+| `gemini-3.8-flash` (default) | 1,048,576 | $0.00075 / $0.00375 |
+| `gemini-3.5-flash-lite` | 1,048,576 | $0.0003 / $0.0025 |
 
-An agent that needs `structured-output` or `long-context` doesn't route to
-them. To send an agent to Gemini when other providers are registered too, set
+- **Gemini 3.8 Flash thinks before it answers,** and Vertex AI bills the
+  thinking as output tokens. Kindgi counts them in the turn's output tokens
+  and its cost: in a check on 2026-10-07, a one-word answer used 94 output
+  tokens, 93 of them thinking. Gemini 3.5 Flash Lite answered without
+  thinking.
+- **Its price is Google's launch price,** through 2026-12-31. From
+  2027-01-01 Google charges $0.0015 / $0.0075 per 1K tokens, and a turn's
+  `totalCostUsd` still uses the price the provider was registered with.
+
+To send an agent to Gemini when other providers are registered too, set
 `preferredProvider: 'gemini'` (`preferred_provider="gemini"` in Python), or
 require it: see [Choose the model an agent uses](../../agents/choose-a-model/).
+
+## If you registered Gemini 2.5
+
+Earlier releases' preset registered `gemini-2.5-pro` and `gemini-2.5-flash`.
+Vertex AI retires both on **2026-10-20**; after that, a turn routed to them
+fails. Move to this release's CLI, then:
+
+- **A provider you registered with `kindgi providers register`:** unregister
+  it and register the preset again (a registration can't be edited):
+
+  ```sh
+  kindgi providers unregister gemini
+  kindgi providers register --preset=gemini --project=<gcp-project>
+  ```
+
+- **A provider the pack's config declares:** restart `kindgi dev`. It
+  registers the preset's new models in place of the old ones:
+
+  ```text
+    Providers from kindgi.config.ts:
+      ✓ gemini: registered again (changed in kindgi.config.ts)
+  ```
+
+  A declaration whose `models` names a Gemini 2.5 model stops `kindgi dev`
+  from starting, as `--models` does with `kindgi providers register`. Name
+  one of the new models instead:
+
+  ```text
+  kindgi dev: `providers` in kindgi.config.ts: entry 1: preset "gemini" has no model gemini-2.5-flash — it has gemini-3.8-flash, gemini-3.5-flash-lite
+  ```
+
+An agent that prefers or requires a Gemini 2.5 model needs a new version that
+names one of these: a preference falls to the next model in line, and a
+requirement matches nothing.
 
 ## From a deployed runtime
 
