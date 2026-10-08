@@ -2,7 +2,7 @@
 title: Use an MCP server's tools
 description: Register an MCP server with the runtime, and call its tools from agents and flows like your own.
 sidebar:
-  order: 5
+  order: 6
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
@@ -132,7 +132,7 @@ The runtime connects, lists the server's tools and registers them. The
 `kindgi dev` terminal says how it went:
 
 ```text
-    [runtime] [mcp-bridge] MCP endpoint "inventory" synced — 2 published, 0 reinstated, 0 unchanged, 0 retired
+    [runtime] <time> INFO  [mcp] MCP endpoint "inventory" synced — 2 published, 0 reinstated, 0 unchanged, 0 retired
 ```
 
 The tools are now your tenant's:
@@ -251,7 +251,7 @@ there when the endpoint is registered, no tools are registered, and the
 `kindgi dev` terminal says why:
 
 ```text
-    [runtime] [mcp-bridge] WARN MCP endpoint "warehouse" sync failed: mcp-auth-unresolved: MCP endpoint "warehouse": its secretRef local/INVENTORY_TOKEN did not resolve: No secret "INVENTORY_TOKEN" for env "local" in .env, .env.local at /pack
+    [runtime] <time> WARN  [mcp] MCP endpoint "warehouse" sync failed: mcp-auth-unresolved: MCP endpoint "warehouse": its secretRef local/INVENTORY_TOKEN did not resolve: No secret "INVENTORY_TOKEN" for env "local" in .env, .env.local at /pack
 ```
 
 Store the secret (`kindgi secrets set INVENTORY_TOKEN --env=local --scope=tenant`),

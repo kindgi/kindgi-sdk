@@ -57,7 +57,12 @@ import {
 } from '@kindgi/secrets-dotenv';
 
 import type { KindgiClient, Provider } from '@kindgi/client';
-import { CORS_ORIGINS_VAR, PUBLIC_TOKEN_KEY_PATH_VAR, parseCorsOrigins } from '@kindgi/env-schema';
+import {
+  CORS_ORIGINS_VAR,
+  EXPORT_SIGNING_KEY_PATH_VAR,
+  PUBLIC_TOKEN_KEY_PATH_VAR,
+  parseCorsOrigins,
+} from '@kindgi/env-schema';
 
 import type { CommandContext } from '../context.js';
 import { createDevOnlyImportsCheck } from '../dev/dev-only-imports.js';
@@ -581,6 +586,9 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
         ...(publicRunTokens.keyPath !== undefined && {
           publicRunTokenKeyPath: publicRunTokens.keyPath,
         }),
+        ...(publicRunTokens.exportKeyPath !== undefined && {
+          exportSigningKeyPath: publicRunTokens.exportKeyPath,
+        }),
         ...(publicRunTokens.corsOrigins.length > 0 && {
           corsOrigins: publicRunTokens.corsOrigins,
         }),
@@ -661,7 +669,7 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
     envFiles: projectEnv.envFilesLabel,
   });
   const providers = await registeredProviders(client);
-  const registerProviderCommand = kindgi('providers', 'register', '--preset=anthropic');
+  const registerProviderCommand = await registerProviderHint(kindgi);
 
   const bannerLines = renderDevBanner({
     baseUrl: server.baseUrl,
@@ -915,7 +923,8 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
  * Public run tokens for the browser app under development: signed with
  * the key file when `KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH` is set,
  * otherwise with a key made now (tokens stop working when `kindgi dev`
- * stops). `KINDGI_CORS_ORIGINS` lists the app's origins
+ * stops). Exports the same way: `KINDGI_EXPORT_SIGNING_KEY_PATH`'s key
+ * file, otherwise a key the runtime makes at startup. `KINDGI_CORS_ORIGINS` lists the app's origins
  * (`http://localhost:3000`). Both come from the shell, then the env files,
  * like `KINDGI_DATABASE_URL`.
  */
@@ -927,6 +936,8 @@ async function resolveDevPublicRunTokens(
       readonly kind: 'ok';
       /** The developer's key file, mounted into the runtime; absent: the runtime makes a key. */
       readonly keyPath: string | undefined;
+      /** The developer's export signing key file (`KINDGI_EXPORT_SIGNING_KEY_PATH`), the same way. */
+      readonly exportKeyPath: string | undefined;
       readonly corsOrigins: readonly string[];
     }
   | { readonly kind: 'error'; readonly stderr: string; readonly exitCode: number }
@@ -936,13 +947,21 @@ async function resolveDevPublicRunTokens(
     return value === undefined || value.trim() === '' ? undefined : value.trim();
   };
   try {
-    const keyPath = pick(PUBLIC_TOKEN_KEY_PATH_VAR);
-    if (keyPath !== undefined && (!isAbsolute(keyPath) || !existsSync(keyPath))) {
-      throw new Error(
-        `${PUBLIC_TOKEN_KEY_PATH_VAR} must be the absolute path of an existing key file. Got "${keyPath}".`,
-      );
-    }
-    return { kind: 'ok', keyPath, corsOrigins: parseCorsOrigins(pick(CORS_ORIGINS_VAR)) };
+    const keyFile = (name: string): string | undefined => {
+      const path = pick(name);
+      if (path !== undefined && (!isAbsolute(path) || !existsSync(path))) {
+        throw new Error(
+          `${name} must be the absolute path of an existing key file. Got "${path}".`,
+        );
+      }
+      return path;
+    };
+    return {
+      kind: 'ok',
+      keyPath: keyFile(PUBLIC_TOKEN_KEY_PATH_VAR),
+      exportKeyPath: keyFile(EXPORT_SIGNING_KEY_PATH_VAR),
+      corsOrigins: parseCorsOrigins(pick(CORS_ORIGINS_VAR)),
+    };
   } catch (err) {
     return { kind: 'error', stderr: `kindgi dev: ${(err as Error).message}\n`, exitCode: 1 };
   }
@@ -1631,6 +1650,20 @@ function describeBrowserOrigins(origins: readonly string[]): string {
   return origins.length > 0
     ? `${origins.join(', ')} (browsers may follow runs with public run tokens)`
     : 'none (set KINDGI_CORS_ORIGINS so a browser app can follow runs)';
+}
+
+/**
+ * How to get a real model, for the banner: the presets that take an LLM
+ * provider key (anthropic, openai, gemini-api, groq, openrouter…), as
+ * the dev-echo warning and doctor name them.
+ */
+async function registerProviderHint(kindgi: (...args: string[]) => string): Promise<string> {
+  const keyed = Object.values(await loadProviderPresets()).flatMap((p) =>
+    p.secret !== undefined ? [p.name] : [],
+  );
+  return keyed.length > 1
+    ? `set an LLM provider key, then ${kindgi('providers', 'register', `--preset=<${keyed.join('|')}>`)}`
+    : kindgi('providers', 'register', `--preset=${keyed[0] ?? 'anthropic'}`);
 }
 
 /**

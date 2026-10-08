@@ -6,12 +6,21 @@ export {
   EXTRA_BODY_PREFIX,
   EXTRA_BODY_RESERVED,
   OPENAI_COMPAT_ADAPTER_ID,
+  OPENAI_COMPAT_APIS,
   createOpenAICompatModelProvider,
+  openAICompatAdapterEntry,
+  openAICompatCheckConfig,
+  defaultOpenAICompatApi,
+  isDataResidencyHost,
   openAICompatAdapterFactory,
+  openAICompatApi,
   openAICompatBaseUrl,
   openAICompatExtraBody,
 } from './provider.js';
-export type { OpenAICompatProviderOptions } from './provider.js';
+export { EXTRA_BODY_RESERVED_RESPONSES } from './responses.js';
+export { computeCost } from './wire.js';
+export type { OpenAICompatCostRates, OpenAICompatModelInfo } from './wire.js';
+export type { OpenAICompatApi, OpenAICompatProviderOptions } from './provider.js';
 export { createOpenAICompatEmbeddingProvider } from './embedding.js';
 export type {
   OpenAICompatEmbeddingOptions,

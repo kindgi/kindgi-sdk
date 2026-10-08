@@ -12,7 +12,7 @@ description: >
   kindgi-authoring-guardrails.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.2"
+version: "0.4.4"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -63,7 +63,7 @@ const defined = defineAgent({
   description:
     'Drafts appellate briefs from a case file. Cites precedents; escalates novel legal questions.',
   instructions:
-    'You are drafting a brief in {{ jurisdiction }}. The user provides the case facts; you produce a Section IV argument citing at least two precedents. Use `acme.verify-citation` on every cite before including it. Refuse to fabricate citations — always call the tool.',
+    'You are drafting a brief in {{ jurisdiction }}. The user provides the case facts; you produce a Section IV argument citing at least two precedents. Check every cite with the verify-citation tool before including it. Refuse to fabricate citations — always call the tool.',
   capabilities: [{ needs: [{ feature: 'tool-use' as const }] }],
   tools: [
     { id: 'acme.verify-citation', version: '^0.1.0' },
@@ -96,7 +96,11 @@ export default defined.value;
   `conversation.*`). Rendered with `strictVariables: true` — unresolved
   references fail loudly at invoke time. Frame instructions like a
   competent employee brief: what the agent does, what tools to prefer,
-  what to refuse, what quality bar to hit.
+  what to refuse, what quality bar to hit. Name a tool by what it does
+  ("the verify-citation tool"), never by its dotted id: the model sees
+  ids in its provider's form (`acme__verify-citation` for Anthropic and
+  OpenAI-compatible models), and `acme.verify-citation` in the
+  instructions can make it call a name it wasn't given.
 - **`capabilities`** — declares the resource kinds the agent needs at
   runtime. `{feature: 'tool-use'}` is standard for tool-calling
   agents. The router picks the concrete LLM provider at turn time.
@@ -121,10 +125,10 @@ export default defined.value;
   capability-based selection when the preferred provider is
   unregistered or filtered out.
 - **`preferredModel`** — optional soft hint at the model level: set to
-  a `ModelInfo.name` (e.g. `'gemini-2.5-pro'`), the router prefers
+  a `ModelInfo.name` (e.g. `'gemini-3.8-flash'`), the router prefers
   `(provider, model)` tuples whose model matches. To require a model
   rather than prefer it, add a hard requirement to the capability:
-  `capabilities: [{ needs: [{ feature: 'tool-use' }, { models: { allow: ['gemini-2.5-pro'] } }] }]`.
+  `capabilities: [{ needs: [{ feature: 'tool-use' }, { models: { allow: ['gemini-3.8-flash'] } }] }]`.
 - **`conversationPolicy`** — optional. Absent = each turn loads the
   conversation's full history and no HITL gates apply. `historyLimit`
   caps how many prior messages are loaded; `hitl` configures approval

@@ -119,9 +119,12 @@ describe('kindgi provenance (T238)', () => {
     expect(plain.calls).toEqual([['export', { runId: 'run-1', signingKeyId: 'k-1' }]]);
   });
 
-  test('export without --signing-key, and get/export without the run: usage errors', async () => {
-    const noKey = await provenance(['export', 'run-1']);
-    expect(noKey.out.stderr).toContain('--signing-key=<key-id> is required');
+  test('export without --signing-key signs with the active key: the call names none', async () => {
+    const { calls } = await provenance(['export', 'run-1']);
+    expect(calls).toEqual([['export', { runId: 'run-1' }]]);
+  });
+
+  test('get/export without the run: usage errors', async () => {
     for (const command of ['get', 'export']) {
       const { out, calls } = await provenance([command]);
       expect(out.exitCode).not.toBe(0);

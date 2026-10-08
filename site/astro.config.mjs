@@ -77,9 +77,9 @@ export default defineConfig({
             'Kindgi runs AI agents and flows beside your application. You define tools (your own',
             'TypeScript or Python code), agents and flows in a pack; the Kindgi runtime runs them',
             'durably, calls your code over HTTP, and records every step in a journal. The SDKs',
-            '(`@kindgi/sdk` on npm, `kindgi` on PyPI) and the CLI (`@kindgi/cli`) are Apache-2.0.',
-            'TypeScript projects run the CLI as `pnpm exec kindgi`; Python projects as',
-            '`npx --yes @kindgi/cli@<minor>`.',
+            '(`@kindgi/sdk` on npm, `kindgi` on PyPI) and the CLI (`@kindgi/cli` on npm, `kindgi-cli`',
+            'on PyPI) are Apache-2.0. TypeScript projects run the CLI as `pnpm exec kindgi`; Python',
+            'projects as `uv run kindgi`.',
           ].join('\n'),
           customSets: [
             {

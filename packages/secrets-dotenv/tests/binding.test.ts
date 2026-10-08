@@ -289,7 +289,7 @@ describe('SecretBinding.resolve — round-trips values written by set', () => {
 });
 
 describe('SecretBinding — rotate/revoke stay unsupported', () => {
-  test('rotate returns secret-store-error with a message pointing at add-version', async () => {
+  test('rotate is unsupported by design (501), with a message pointing at add-version', async () => {
     const binding = createDotenvSecretBinding({ packDir });
     const outcome = await binding.rotate({
       scope: SCOPE,
@@ -299,12 +299,12 @@ describe('SecretBinding — rotate/revoke stay unsupported', () => {
 
     expect(outcome.kind).toBe('err');
     if (outcome.kind === 'err') {
-      expect(outcome.error.code).toBe('secret-store-error');
+      expect(outcome.error.code).toBe('secret-operation-unsupported');
       expect(outcome.error.message).toContain('add-version');
     }
   });
 
-  test('revoke returns secret-store-error naming the env files to edit', async () => {
+  test('revoke is unsupported by design (501), naming the env files to edit', async () => {
     const binding = createDotenvSecretBinding({ packDir });
     const outcome = await binding.revoke({
       scope: SCOPE,
@@ -314,7 +314,7 @@ describe('SecretBinding — rotate/revoke stay unsupported', () => {
 
     expect(outcome.kind).toBe('err');
     if (outcome.kind === 'err') {
-      expect(outcome.error.code).toBe('secret-store-error');
+      expect(outcome.error.code).toBe('secret-operation-unsupported');
       expect(outcome.error.message).toContain('.env, .env.local');
     }
   });

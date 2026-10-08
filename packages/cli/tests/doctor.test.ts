@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { type DoctorReport, type DoctorSeam, MIN_NODE, atLeast } from '../src/commands/doctor.js';
 import type { DockerRunner } from '../src/dev/runtime-container.js';
 import { runCli } from '../src/main.js';
+import { loadProviderPresets } from '../src/providers/preset-loader.js';
 
 let dir: string;
 let home: string;
@@ -327,6 +328,99 @@ describe('a TypeScript project', () => {
     expect(check('provider')).toMatchObject({ status: 'fail' });
     expect(check('provider')?.fix).toContain('kindgi providers register --preset=anthropic');
   });
+});
+
+describe('a registration whose default model the preset no longer gives: a warning', () => {
+  const models = (...names: string[]) => names.map((name) => ({ name }));
+  /** The bundled presets, as `kindgi providers register --preset` reads them. */
+  const withPresets = (): DoctorSeam => ({ ...seam(), presets: () => loadProviderPresets() });
+  const run = async (providers: unknown[], json = true) => {
+    await tsProject({ installed: true, rc: RC, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+    return doctor({ fetchImpl: healthy, providers, seam: withPresets(), json });
+  };
+
+  test('on a model the preset dropped: says which, and how to re-register; exit 0', async () => {
+    const { out, report, check } = await run([
+      { id: 'gemini', models: models('gemini-2.5-pro', 'gemini-2.5-flash') },
+    ]);
+    expect(out.exitCode).toBe(0);
+    expect(report?.ok).toBe(true);
+    expect(check('provider')).toMatchObject({
+      status: 'warn',
+      message:
+        'A provider is registered: gemini. On gemini, an agent that names no model gets gemini-2.5-flash, which the gemini preset no longer lists.',
+    });
+    expect(check('provider')?.fix).toContain(
+      'kindgi providers register --preset=gemini --project=<project>',
+    );
+  });
+
+  test('registered before presets named a default: says where agents land, and the preset’s default', async () => {
+    const { check } = await run([
+      {
+        id: 'anthropic',
+        models: models('claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-4-5'),
+      },
+    ]);
+    expect(check('provider')).toMatchObject({ status: 'warn' });
+    expect(check('provider')?.message).toContain(
+      "On anthropic, an agent that names no model gets claude-haiku-4-5, the first by name: anthropic has no default model, and the anthropic preset's is claude-sonnet-5-5.",
+    );
+    expect(check('provider')?.fix).toContain('kindgi providers register --preset=anthropic.');
+    expect(check('provider')?.fix).toContain('older than 0.1.4');
+  });
+
+  test("a registration on the preset's default, one without it, or not from a preset: no warning", async () => {
+    for (const provider of [
+      {
+        id: 'anthropic',
+        models: models('claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-4-5'),
+        defaultModel: 'claude-sonnet-5-5',
+      },
+      // --models=claude-haiku-4-5: a subset without the default is the person's choice.
+      { id: 'anthropic', models: models('claude-haiku-4-5') },
+      { id: 'acme-llm', models: models('acme-small', 'acme-large') },
+    ]) {
+      const { check } = await run([provider]);
+      expect(check('provider'), JSON.stringify(provider)).toMatchObject({ status: 'pass' });
+    }
+  });
+
+  test('several providers: one check, each warning with its fix', async () => {
+    const { check } = await run([
+      { id: 'anthropic', models: models('claude-sonnet-5-5', 'claude-haiku-4-5') },
+      { id: 'gemini', models: models('gemini-2.5-flash') },
+    ]);
+    expect(check('provider')?.message).toMatch(
+      /^2 providers are registered: anthropic, gemini\. On anthropic, .* On gemini, /,
+    );
+    expect(check('provider')?.fix).toMatch(/Re-register anthropic: .* Re-register gemini /);
+  });
+
+  test('a --json reader that knows only pass, fail and skip still reads it as ready', async () => {
+    const { out, report } = await run([{ id: 'gemini', models: models('gemini-2.5-flash') }]);
+    const known = new Set(['pass', 'fail', 'skip']);
+    expect(report?.checks.some((c) => !known.has(c.status))).toBe(true);
+    // Such a reader goes by `ok` and the failures, and a warning is neither.
+    expect(report?.ok).toBe(true);
+    expect(report?.checks.filter((c) => c.status === 'fail')).toEqual([]);
+    expect(out.exitCode).toBe(0);
+    for (const c of report?.checks ?? []) {
+      expect(Object.keys(c).every((k) => ['id', 'status', 'message', 'fix'].includes(k))).toBe(
+        true,
+      );
+    }
+  });
+
+  test('the human report: ! with its fix, and the closing line counts it', async () => {
+    const { out } = await run([{ id: 'gemini', models: models('gemini-2.5-flash') }], false);
+    expect(out.exitCode).toBe(0);
+    expect(out.stdout).toContain(
+      '  ! Provider: A provider is registered: gemini. On gemini, an agent that names no model gets gemini-2.5-flash',
+    );
+    expect(out.stdout).toMatch(/\n {6}Fix: Re-register gemini for the preset's current models: /);
+    expect(out.stdout).toContain('Everything checked is ready, with 1 warning.\n');
+  });
 
   test('the runtime: nothing answering is a skip; a wrong answer or a hang is a failure', async () => {
     await tsProject({ installed: true, rc: RC });
@@ -365,7 +459,35 @@ describe('a TypeScript project', () => {
       "Install them: npm install (the project names pnpm, which isn't installed here)",
     );
     expect(check('model-key')?.fix).toMatch(
-      /^With kindgi dev running: npx --no kindgi secrets set ANTHROPIC_API_KEY /,
+      /^With kindgi dev running, set one LLM provider's key: npx --no kindgi secrets set ANTHROPIC_API_KEY /,
+    );
+  });
+
+  test('several key presets: the model-key fix offers any one of their keys', async () => {
+    await tsProject();
+    const keyed = (name: string, secret: string) => ({
+      name,
+      description: '',
+      adapterId: 'x',
+      secret,
+      pricesCheckedAt: '',
+      metadata: {} as never,
+    });
+    const { check } = await doctor({
+      seam: {
+        ...seam(),
+        presets: async () => ({
+          anthropic: keyed('anthropic', 'ANTHROPIC_API_KEY'),
+          openai: keyed('openai', 'OPENAI_API_KEY'),
+          openrouter: keyed('openrouter', 'OPENROUTER_API_KEY'),
+        }),
+      },
+    });
+    expect(check('model-key')?.message).toContain(
+      'looked for ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY',
+    );
+    expect(check('model-key')?.fix).toContain(
+      'secrets set ANTHROPIC_API_KEY --env=local --scope=tenant, or the same with OPENAI_API_KEY or OPENROUTER_API_KEY',
     );
   });
 
@@ -375,7 +497,7 @@ describe('a TypeScript project', () => {
     const { check } = await doctor({ seam: seam({ tools: { pnpm: '10.28.0' } }) });
     expect(check('dependencies')?.fix).toBe('Install them: pnpm install');
     expect(check('model-key')?.fix).toMatch(
-      /^With kindgi dev running: pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant /,
+      /^With kindgi dev running, set one LLM provider's key: pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant /,
     );
     expect(check('runtime')?.fix).toBe(
       'Start it: pnpm exec kindgi dev (it keeps running; stop it with Ctrl+C).',

@@ -1,0 +1,40 @@
+{
+  "name": "groq",
+  "description": "Open-weight models on Groq's fast inference (key: GROQ_API_KEY).",
+  "adapterId": "@kindgi/adapter-model-openai-compat",
+  "adapterConfigValues": {
+    "baseURL": "https://api.groq.com/openai/v1"
+  },
+  "secret": "GROQ_API_KEY",
+  "pricesCheckedAt": "2026-10-07",
+  "metadata": {
+    "id": "groq",
+    "region": "unspecified",
+    "defaultModel": "openai/gpt-oss-120b",
+    "description": "Open-weight models on Groq",
+    "models": [
+      {
+        "name": "openai/gpt-oss-120b",
+        "contextWindow": 131072,
+        "maxOutputTokens": 65536,
+        "features": ["tool-use"],
+        "cost": {
+          "promptUsdPer1kTokens": 0.00015,
+          "completionUsdPer1kTokens": 0.0006
+        },
+        "description": "gpt-oss 120B: the stronger of the two."
+      },
+      {
+        "name": "openai/gpt-oss-20b",
+        "contextWindow": 131072,
+        "maxOutputTokens": 65536,
+        "features": ["tool-use"],
+        "cost": {
+          "promptUsdPer1kTokens": 7.5e-5,
+          "completionUsdPer1kTokens": 0.0003
+        },
+        "description": "gpt-oss 20B: fastest and cheapest."
+      }
+    ]
+  }
+}

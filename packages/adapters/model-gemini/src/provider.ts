@@ -6,14 +6,20 @@ import {
   type GenerateContentParameters,
   type GenerateContentResponse,
   GoogleGenAI,
+  type ThinkingLevel,
 } from '@google/genai';
 import type {
+  AdapterConfigCheckInput,
+  AdapterConfigProblem,
   AdapterFactory,
+  AdapterFactoryEntry,
+  AdapterFactoryInput,
   ModelCallInput,
   ModelCallResult,
   ModelProvider,
   ProviderMetadata,
 } from '@kindgi/capabilities';
+import { adapterConfigError, samplingFor } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
 
 import { type GeminiModelInfo, computeCostUsd, toFrameworkUsage } from './cost.js';
@@ -38,28 +44,47 @@ export interface GeminiProviderOptions {
   readonly metadata: Omit<ProviderMetadata, 'models'> & {
     readonly models: readonly GeminiModelInfo[];
   };
-  /** The Vertex AI project and location (`global`, or a region such as `us-central1`). */
-  readonly vertex: { readonly project: string; readonly location: string };
   /**
-   * A service-account key (its JSON), resolved on every call. Absent:
-   * Google Application Default Credentials — `gcloud auth
+   * The Vertex AI project and location (`global`, or a region such as
+   * `us-central1`): Gemini on Vertex AI, the route for a regulated
+   * deployment (its data residency, its IAM). Set this or `apiKey`.
+   */
+  readonly vertex?: { readonly project: string; readonly location: string };
+  /**
+   * A service-account key (its JSON), resolved on every call, for Vertex.
+   * Absent: Google Application Default Credentials — `gcloud auth
    * application-default login` on a laptop, the attached service account
    * on Cloud Run and other Google Cloud runtimes.
    */
   readonly credentials?: () => string | Promise<string>;
-  /** An injected client, used as is (tests). `vertex` and `credentials` are then unused. */
+  /**
+   * A Gemini Developer API key (from Google AI Studio), resolved on every
+   * call: Gemini without a Google Cloud project. Set this or `vertex`.
+   */
+  readonly apiKey?: () => string | Promise<string>;
+  /** An injected client, used as is (tests). `vertex`, `credentials` and `apiKey` are then unused. */
   readonly client?: GeminiClient;
 }
 
 const CLOUD_PLATFORM_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
 
 /**
- * A Gemini `ModelProvider` on Vertex AI. Non-streaming, tool-use enabled:
- * one `generateContent` call per `invoke`.
+ * The SDK retries a call only when it's given `retryOptions`: three
+ * attempts on a transient status (408, 429, 500, 502, 503, 504), backing
+ * off from a second, with jitter, the OpenAI and Anthropic SDKs' default
+ * count. Unlike theirs, it doesn't retry a failed connection (Node's
+ * `fetch failed`).
+ */
+const RETRY_ATTEMPTS = 3;
+
+/**
+ * A Gemini `ModelProvider`, on Vertex AI (`vertex`) or the Gemini
+ * Developer API (`apiKey`). Non-streaming, tool-use enabled: one
+ * `generateContent` call per `invoke`.
  */
 export function createGeminiProvider(options: GeminiProviderOptions): ModelProvider {
   const { metadata } = options;
-  checkVertexTarget(metadata.id, options.vertex);
+  if (options.client === undefined) checkTarget(metadata.id, options);
   const modelsByName = new Map<string, GeminiModelInfo>(
     metadata.models.map((m) => [m.name, m] as const),
   );
@@ -71,13 +96,29 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
   const attempts = createAttemptCounter();
   async function resolveClient(): Promise<GeminiClient> {
     if (options.client !== undefined) return options.client;
+    if (options.apiKey !== undefined) {
+      const key = await options.apiKey();
+      if (key.trim() === '') {
+        throw new Error(
+          `${GEMINI_ADAPTER_ID}: provider "${metadata.id}"'s Gemini API key is empty.`,
+        );
+      }
+      if (cached?.key === key) return cached.client;
+      const client = new GoogleGenAI({
+        apiKey: key,
+        httpOptions: { fetch: attempts.fetch, retryOptions: { attempts: RETRY_ATTEMPTS } },
+      });
+      cached = { key, client };
+      return client;
+    }
+    const vertex = options.vertex as NonNullable<GeminiProviderOptions['vertex']>;
     const key = options.credentials !== undefined ? await options.credentials() : '';
     if (cached?.key === key) return cached.client;
     const client = new GoogleGenAI({
       vertexai: true,
-      project: options.vertex.project,
-      location: options.vertex.location,
-      httpOptions: { fetch: attempts.fetch },
+      project: vertex.project,
+      location: vertex.location,
+      httpOptions: { fetch: attempts.fetch, retryOptions: { attempts: RETRY_ATTEMPTS } },
       ...(key !== '' && {
         googleAuthOptions: {
           credentials: parseServiceAccountKey(key),
@@ -102,6 +143,7 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
       const startedAt = Date.now();
       const { systemInstruction, contents } = toGeminiRequest(input.messages);
       const maxOutputTokens = input.maxOutputTokens ?? model.maxOutputTokens;
+      const sampling = samplingFor(model, input);
       const config: GenerateContentConfig = {
         ...(systemInstruction !== undefined && { systemInstruction }),
         ...(input.tools !== undefined &&
@@ -112,7 +154,12 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
           responseMimeType: 'application/json',
           responseJsonSchema: input.structuredOutput.schema,
         }),
-        ...(input.temperature !== undefined && { temperature: input.temperature }),
+        ...(sampling.temperature !== undefined && { temperature: sampling.temperature }),
+        ...(input.thinking === 'lowest' &&
+          model.thinking !== undefined && {
+            // Gemini's thinking levels: `low`, `minimal` (3.8 Flash refuses `minimal`).
+            thinkingConfig: { thinkingLevel: model.thinking.lowest.toUpperCase() as ThinkingLevel },
+          }),
         ...(maxOutputTokens !== undefined && { maxOutputTokens }),
         ...(input.abortSignal !== undefined && { abortSignal: input.abortSignal }),
       };
@@ -141,6 +188,7 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
         // An injected client sends with its own fetch: nothing was counted.
         ...(counted.attempts > 0 && { attempts: counted.attempts }),
         ...(response.usageMetadata !== undefined && { rawUsage: { ...response.usageMetadata } }),
+        ...(sampling.warnings.length > 0 && { warnings: sampling.warnings }),
       };
     },
   };
@@ -191,37 +239,126 @@ export function parseServiceAccountKey(key: string): Record<string, string> {
 
 /**
  * The adapter factory servers register under `GEMINI_ADAPTER_ID`. A
- * provider registered with it carries:
+ * provider registered with it carries `adapter_config.api`: `vertex` (the
+ * default) or `developer`.
  *
+ * On Vertex AI (`api: "vertex"`, or none):
  *   - `adapter_config.project` — the Vertex AI project (required);
  *   - `metadata.region` — the Vertex location (`global`, `us-central1`,
  *     `northamerica-northeast1`, …); `'unspecified'` means `global`;
  *   - `secret_ref` (optional) — a service-account key. Without one the
  *     adapter uses Application Default Credentials.
+ *
+ * On the Gemini Developer API (`api: "developer"`):
+ *   - `secret_ref` (required) — a Gemini API key from Google AI Studio.
  */
-export const geminiAdapterFactory: AdapterFactory = (input) =>
-  createGeminiProvider({
-    metadata: input.metadata as GeminiProviderOptions['metadata'],
+export const geminiAdapterFactory: AdapterFactory = (input) => {
+  const metadata = input.metadata as GeminiProviderOptions['metadata'];
+  const hasSecretRef = input.resolveApiKey !== undefined;
+  throwIf(input.metadata.id, apiProblem(input) ?? developerKeyProblem(input, hasSecretRef));
+  if (apiOf(input) === 'developer') {
+    return createGeminiProvider({ metadata, apiKey: input.resolveApiKey as () => Promise<string> });
+  }
+  return createGeminiProvider({
+    metadata,
     vertex: vertexTarget(input),
     ...(input.resolveApiKey !== undefined && { credentials: input.resolveApiKey }),
   });
+};
+
+/**
+ * What's wrong with a registration for this adapter, read without building
+ * it (`AdapterFactoryEntry.checkConfig`): its API, its Gemini API key on
+ * the Developer API, its Vertex project and location. Each problem's
+ * message is the error the factory throws for it: both read the
+ * registration through the same functions.
+ */
+export function geminiCheckConfig(input: AdapterConfigCheckInput): readonly AdapterConfigProblem[] {
+  const api = apiProblem(input);
+  if (api !== undefined) return [api];
+  if (apiOf(input) === 'developer') {
+    const key = developerKeyProblem(input, input.hasSecretRef);
+    return key !== undefined ? [key] : [];
+  }
+  return vertexTargetProblems(input);
+}
+
+/** The entry a runtime registers: the factory, and its static check. */
+export const geminiAdapterEntry: AdapterFactoryEntry = {
+  adapterId: GEMINI_ADAPTER_ID,
+  capabilityKind: 'llm-inference',
+  factory: geminiAdapterFactory,
+  checkConfig: geminiCheckConfig,
+};
+
+/** What the checks read of a registration. */
+type Registration = Pick<AdapterFactoryInput, 'metadata' | 'config'>;
+
+function throwIf(providerId: string, problem: AdapterConfigProblem | undefined): void {
+  if (problem !== undefined) throw adapterConfigError(GEMINI_ADAPTER_ID, providerId, problem);
+}
+
+function apiOf(input: Registration): unknown {
+  return input.config?.api ?? 'vertex';
+}
+
+function apiProblem(input: Registration): AdapterConfigProblem | undefined {
+  const api = apiOf(input);
+  if (api === 'vertex' || api === 'developer') return undefined;
+  return {
+    path: '/adapter_config/api',
+    message: `adapter_config.api must be "vertex" or "developer", got ${JSON.stringify(api)}.`,
+  };
+}
+
+function developerKeyProblem(
+  input: Registration,
+  hasSecretRef: boolean,
+): AdapterConfigProblem | undefined {
+  if (apiOf(input) !== 'developer' || hasSecretRef) return undefined;
+  return {
+    path: '/secret_ref',
+    message:
+      'uses the Gemini Developer API (adapter_config.api "developer") and needs secret_ref: its Gemini API key.',
+  };
+}
 
 /** The Vertex project and location a registration names (see `geminiAdapterFactory`). */
 export function vertexTarget(
   input: Parameters<AdapterFactory>[0],
-): GeminiProviderOptions['vertex'] {
+): NonNullable<GeminiProviderOptions['vertex']> {
+  throwIf(input.metadata.id, vertexTargetProblems(input)[0]);
+  return {
+    project: input.config?.project as string,
+    location: locationOf(input),
+  };
+}
+
+function locationOf(input: Registration): string {
+  return input.metadata.region === 'unspecified' ? 'global' : input.metadata.region;
+}
+
+function vertexTargetProblems(input: Registration): AdapterConfigProblem[] {
   const project = input.config?.project;
   if (typeof project !== 'string' || project.length === 0) {
+    return [
+      {
+        path: '/adapter_config/project',
+        message: 'needs adapter_config.project (the Vertex AI project).',
+      },
+    ];
+  }
+  return vertexTargetProblemsOf({ project, location: locationOf(input) });
+}
+
+/** A provider names exactly one target: Vertex AI, or a Gemini API key. */
+function checkTarget(providerId: string, options: GeminiProviderOptions): void {
+  if ((options.vertex === undefined) === (options.apiKey === undefined)) {
     throw new Error(
-      `${GEMINI_ADAPTER_ID}: provider "${input.metadata.id}" needs adapter_config.project (the Vertex AI project).`,
+      `${GEMINI_ADAPTER_ID}: provider "${providerId}" needs exactly one of vertex (a Vertex AI project) or apiKey (a Gemini Developer API key).`,
     );
   }
-  const target = {
-    project,
-    location: input.metadata.region === 'unspecified' ? 'global' : input.metadata.region,
-  };
-  checkVertexTarget(input.metadata.id, target);
-  return target;
+  if (options.vertex !== undefined) throwIf(providerId, vertexTargetProblemsOf(options.vertex)[0]);
 }
 
 /**
@@ -230,17 +367,23 @@ export function vertexTarget(
  * anything but a project id and one DNS label could move the request,
  * with the server's credentials, to another host.
  */
-function checkVertexTarget(providerId: string, vertex: GeminiProviderOptions['vertex']): void {
+function vertexTargetProblemsOf(
+  vertex: NonNullable<GeminiProviderOptions['vertex']>,
+): AdapterConfigProblem[] {
+  const problems: AdapterConfigProblem[] = [];
   if (!VERTEX_PROJECT.test(vertex.project)) {
-    throw new Error(
-      `${GEMINI_ADAPTER_ID}: provider "${providerId}" adapter_config.project must be a Google Cloud project id or number.`,
-    );
+    problems.push({
+      path: '/adapter_config/project',
+      message: 'adapter_config.project must be a Google Cloud project id or number.',
+    });
   }
   if (!VERTEX_LOCATION.test(vertex.location)) {
-    throw new Error(
-      `${GEMINI_ADAPTER_ID}: provider "${providerId}" metadata.region must be a Vertex AI location (one DNS label, e.g. us-central1).`,
-    );
+    problems.push({
+      path: '/metadata/region',
+      message: 'metadata.region must be a Vertex AI location (one DNS label, e.g. us-central1).',
+    });
   }
+  return problems;
 }
 
 /** A Google Cloud project id (6–30: lowercase, digits, hyphens) or project number. */
