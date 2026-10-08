@@ -59,10 +59,13 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { docsVersion, fillVersion } from './versioned-pages.mjs';
 
 const site = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repo = resolve(site, '..');
 const docs = join(site, 'src', 'content', 'docs');
+/** `{{kindgi.version}}` in a page, as the build fills it. */
+const version = docsVersion();
 const cli = join(repo, 'packages', 'cli', 'dist', 'cli.js');
 const READY_TIMEOUT_MS = 10 * 60_000;
 /** The image `kindgi dev`'s bundled Postgres runs (`docker-compose.dev.yml`). */
@@ -337,7 +340,7 @@ async function runPage(page, databaseUrl) {
   const background = [];
   const log = [];
   try {
-    for (const [index, step] of steps(readFileSync(page, 'utf8')).entries()) {
+    for (const [index, step] of steps(fillVersion(readFileSync(page, 'utf8'), version)).entries()) {
       const where = `step ${index + 1} (${step.kind})`;
       const body = step.lines.join('\n');
       if (step.kind === 'write') {
@@ -433,7 +436,7 @@ if (!existsSync(cli)) {
 }
 const selected = process.argv.slice(2).map((page) => resolve(docs, page));
 const targets = (selected.length > 0 ? selected : pages()).filter(
-  (page) => steps(readFileSync(page, 'utf8')).length > 0,
+  (page) => steps(fillVersion(readFileSync(page, 'utf8'), version)).length > 0,
 );
 if (targets.length === 0) {
   console.log('run-tutorials: no page has tutorial steps.');

@@ -32,8 +32,10 @@ kindgi dev
 `kindgi dev` runs the runtime in development mode (`KINDGI_DEV=true`), which
 needs no license key. Everything you build and test on your machine is free.
 
-:::note[Private preview]
-The runtime image is in private preview: request access at contact@kindgi.com.
+:::note[Access to the runtime image]
+Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
+runtime image's pull credentials, and log in once with `kindgi auth registry`
+(see [Install](../../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
 :::
 
 ## Running outside development mode

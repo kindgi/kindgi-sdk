@@ -4,7 +4,7 @@
 /**
  * A provenance read carries each model call's usage from the cost ledger
  * (`ProvenanceBinding.getCallUsage`) beside the DAG, as `callUsage`; the
- * signed export (bundle 1.1.0) signs it with the DAG. A ledger read that
+ * signed export (bundle 1.2.0) signs it with the DAG. A ledger read that
  * fails fails the request with its status.
  */
 
@@ -150,7 +150,7 @@ describe('POST /v1/provenance/:runId/export — callUsage is signed', () => {
     });
   }
 
-  test('bundle 1.1.0 carries callUsage, and the signature covers it', async () => {
+  test('bundle 1.2.0 carries callUsage and exportedAt, and the signature covers them', async () => {
     const res = await exportRun(binding(async () => ({ kind: 'ok', value: usage })));
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
@@ -158,14 +158,18 @@ describe('POST /v1/provenance/:runId/export — callUsage is signed', () => {
       bundleSchemaVersion: string;
       signature: string;
       publicKey: string;
+      exportedAt: string;
     };
-    expect(body.bundleSchemaVersion).toBe('1.1.0');
+    expect(body.bundleSchemaVersion).toBe('1.2.0');
     const bytes = Buffer.from(body.bundle, 'base64');
     const decoded = JSON.parse(bytes.toString('utf8')) as {
       bundleSchemaVersion: string;
       callUsage?: unknown;
+      exportedAt: string;
     };
-    expect(decoded.bundleSchemaVersion).toBe('1.1.0');
+    expect(decoded.bundleSchemaVersion).toBe('1.2.0');
+    // Signed once: the envelope's exportedAt is the body's.
+    expect(decoded.exportedAt).toBe(body.exportedAt);
     expect(decoded.callUsage).toEqual(usage);
 
     const pub = parsePublicKeyPem(body.publicKey);
