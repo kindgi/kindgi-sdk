@@ -7,8 +7,11 @@ import { KindgiApiError, notYetWired } from '../errors.js';
 import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { Transport } from '../transport.js';
 import type {
+  PersonGrant,
+  PersonGrants,
   RevokeSessionsResult,
   Session,
+  UnregisterUserResult,
   User,
   UserPatch,
   UserSpec,
@@ -20,17 +23,22 @@ import type {
  *
  * Routes:
  *   - `GET  /v1/identity/users` (cursor-paginated list, `?query=`
- *     displayName prefix)
- *   - `GET  /v1/identity/users/{userId}` (get; `404 identity-user-not-found`
- *     on unknown or cross-tenant)
+ *     displayName prefix; tenant admins only)
+ *   - `GET  /v1/identity/users/{userId}` (get; a tenant admin, or the
+ *     person; `404 identity-user-not-found` on unknown or cross-tenant)
  *   - `GET  /v1/identity/whoami` (self — returns `WhoamiResult`, not
  *     `User`; carries the current-token's auth context plus the
  *     fuller `UserRecord` when the token has a `userId`)
  *   - `GET  /v1/identity/users/{userId}/sessions` (active sessions for
- *     a user; `IdentitySessionSummary` — provider access-token +
- *     refresh-token NEVER cross the wire)
+ *     a user, to a tenant admin or the person; `IdentitySessionSummary` —
+ *     provider access-token + refresh-token NEVER cross the wire)
  *   - `POST /v1/identity/users/{userId}/revoke-sessions` (admin;
  *     revokes ALL sessions for a user, returns `revokedCount`)
+ *   - `GET  /v1/identity/users/{userId}/grants` (a person's grants:
+ *     tenant admins, or the person) and `POST …/grant|ungrant` (tenant
+ *     admin; tenant admins only)
+ *   - `POST /v1/identity/users/{userId}/unregister` (remove a person:
+ *     their keys, sessions and grants go at once; tenant admins only)
  *
  * User records live in the deployment's identity directory (LDAP,
  * SCIM or a bespoke store, plugged in through
@@ -56,6 +64,9 @@ export interface UsersClient {
   create(spec: UserSpec, options?: { readonly idempotencyKey?: string }): Promise<UserId>;
 
   /**
+   * A tenant admin reads anyone's record; anyone else only their own
+   * (`403 permission-denied`).
+   *
    * @wire `GET /v1/identity/users/{userId}` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1identity~1users~1{userId}/get`.
    */
@@ -78,10 +89,66 @@ export interface UsersClient {
   me(): Promise<WhoamiResult>;
 
   /**
+   * The tenant's people, for tenant admins only (`403 permission-denied`
+   * otherwise). Anyone else adds a person to a project by their email or
+   * id: `projects.memberships.add(projectId, { email, role })`.
+   *
    * @wire `GET /v1/identity/users` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1identity~1users/get`.
    */
   list(filter?: UserFilter): Promise<ListPage<User>>;
+
+  /**
+   * What a person may do, as granted directly: tenant admin, project and
+   * team roles, the reviewer roster. A tenant admin reads anyone's;
+   * anyone else only their own. `501 person-grants-unsupported` on a
+   * runtime without an authorization store.
+   *
+   * @wire `GET /v1/identity/users/{userId}/grants` — see
+   *   `@kindgi/api/openapi.json#/paths/~1v1~1identity~1users~1{userId}~1grants/get`.
+   */
+  grants(id: UserId): Promise<PersonGrants>;
+
+  /**
+   * Make a person a tenant admin, before the call answers. Tenant admins
+   * only. Project and team roles have their own membership routes.
+   *
+   * @wire `POST /v1/identity/users/{userId}/grant` — see
+   *   `@kindgi/api/openapi.json#/paths/~1v1~1identity~1users~1{userId}~1grant/post`.
+   */
+  grant(
+    id: UserId,
+    grant: PersonGrant,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<PersonGrants>;
+
+  /**
+   * Remove tenant admin from a person. Refused for the only person who
+   * holds it (`409 last-tenant-admin`) and for the seed user
+   * (`409 seed-user-admin`). Tenant admins only.
+   *
+   * @wire `POST /v1/identity/users/{userId}/ungrant` — see
+   *   `@kindgi/api/openapi.json#/paths/~1v1~1identity~1users~1{userId}~1ungrant/post`.
+   */
+  ungrant(
+    id: UserId,
+    grant: PersonGrant,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<PersonGrants>;
+
+  /**
+   * Remove a person from the tenant, where the directory can: every API
+   * key and session of theirs is revoked and every grant and membership
+   * taken away before it returns (their keys get 401 at once). Their
+   * record stays, with `unregisteredAt`; their email is free again.
+   * Removing someone already removed changes nothing. Refused for
+   * yourself, the deployment's seed user (`identity-user-unregister-refused`)
+   * and the only tenant admin (`last-tenant-admin`). Tenant admins only.
+   */
+  unregister(
+    id: UserId,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<UnregisterUserResult>;
 
   /**
    * @unwired No user-update route — users live in the deployment's
@@ -130,6 +197,8 @@ export interface SessionsClient {
 export interface UserFilter extends Filter {
   /** Server-side displayName prefix match. Case-sensitive. */
   readonly query?: string;
+  /** People who were removed (`unregisteredAt`) too. Default: only the people still here. */
+  readonly includeUnregistered?: boolean;
 }
 
 export function makeUsersClient(transport: Transport): UsersClient {
@@ -176,9 +245,44 @@ export function makeUsersClient(transport: Transport): UsersClient {
           ...(filter?.limit !== undefined && { limit: filter.limit }),
           ...(filter?.cursor !== undefined && { cursor: filter.cursor as unknown as string }),
           ...(filter?.query !== undefined && { query: filter.query }),
+          ...(filter?.includeUnregistered === true && { includeUnregistered: 'true' }),
         },
       });
       return listPage(page);
+    },
+
+    async grants(id) {
+      return transport.request<PersonGrants>({
+        method: 'GET',
+        path: `/v1/identity/users/${encodeURIComponent(id as unknown as string)}/grants`,
+      });
+    },
+
+    async grant(id, grant, options) {
+      return transport.request<PersonGrants>({
+        method: 'POST',
+        path: `/v1/identity/users/${encodeURIComponent(id as unknown as string)}/grant`,
+        body: grant,
+        ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+      });
+    },
+
+    async ungrant(id, grant, options) {
+      return transport.request<PersonGrants>({
+        method: 'POST',
+        path: `/v1/identity/users/${encodeURIComponent(id as unknown as string)}/ungrant`,
+        body: grant,
+        ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+      });
+    },
+
+    async unregister(id, options) {
+      return transport.request<UnregisterUserResult>({
+        method: 'POST',
+        path: `/v1/identity/users/${encodeURIComponent(id as unknown as string)}/unregister`,
+        body: {},
+        ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+      });
     },
 
     async update(_id, _patch) {

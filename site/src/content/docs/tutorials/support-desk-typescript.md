@@ -289,7 +289,9 @@ pnpm exec kindgi runs start --agent=acme-desk.triage --input='{"userMessage":"Tr
 ```
 
 The agent called `get-ticket`, read the ticket, and answered in the shape
-you gave it. Your reply will read differently: it's the model's.
+you gave it. Your reply will read differently: it's the model's. To see the
+run's page, with each step, the tool call and the cost, run
+`pnpm exec kindgi console` and open **Runs**.
 
 ## 8. Handle tickets
 

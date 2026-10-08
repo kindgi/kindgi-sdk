@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import type { Logger } from '@kindgi/log';
 import type { ZodLikeSchema } from '@kindgi/schema';
 import type { OrgId, ProjectId, TenantId, ToolId, UserId } from '@kindgi/types';
 
@@ -118,6 +119,15 @@ export interface ToolContext {
    * `SecretBinding` scoped to the invoking tenant.
    */
   readonly resolveSecret?: (ref: ToolSecretRef) => Promise<string>;
+  /**
+   * A logger bound to this call: its records carry the run's ids and the
+   * caller's trace id (`ctx.log.info('looked up order', { orderId })`).
+   * The pack service sets it; a caller that synthesises a context may
+   * not, so write `ctx.log?.info(…)` in code that also runs elsewhere. A
+   * secret's value is never a field (the logger redacts secret-looking
+   * keys and shapes, but don't rely on it).
+   */
+  readonly log?: Logger;
   /**
    * The values of the settings blocks the calling agent version pins, by
    * block id (`ctx.settings['acme.weights'].recency`). Unset when the

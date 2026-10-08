@@ -51,6 +51,7 @@ import {
   DEFAULT_SCALA_BUILD_IMAGE_REF,
   SCALA_PACK_SERVICE_COMMAND,
 } from '../src/build/scala-image.js';
+import { buildTimeDefaults } from '../src/commands/build.js';
 import { type RunCliInputs, runCli } from '../src/main.js';
 
 let cwd: string;
@@ -548,10 +549,16 @@ describe('kindgi build — integrity gate', () => {
 describe('kindgi build — signing surface', () => {
   test('signs the canonicalised body (sorted-key JSON, five fields)', async () => {
     const fixtures = makeFixtures();
-    await runCli({
-      ...baseInputs(fixtures),
-      argv: ['build', '--env=staging', `--path=${packDir}`],
-    });
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-08T09:05:03.042Z'));
+    try {
+      await runCli({
+        ...baseInputs(fixtures),
+        argv: ['build', '--env=staging', `--path=${packDir}`],
+      });
+    } finally {
+      vi.useRealTimers();
+    }
     expect(fixtures.state.capturedSignedMessage).toBeDefined();
     const text = new TextDecoder().decode(fixtures.state.capturedSignedMessage);
     // Sorted keys: artifactVersion, imageDigest, indexHash, publishedAt, tenantId.
@@ -564,7 +571,9 @@ describe('kindgi build — signing surface', () => {
       'tenantId',
     ]);
     expect(parsed.tenantId).toBe('tenant-acme-staging');
-    expect(parsed.publishedAt).toBe('1970-01-01T00:00:00.000Z');
+    // Unpinned, the build server's build signs the build time too.
+    expect(parsed.artifactVersion).toBe('20261008.090503');
+    expect(parsed.publishedAt).toBe('2026-10-08T09:05:03.042Z');
     // Key order in the raw string is sorted (canonical stringify).
     expect(text.indexOf('artifactVersion')).toBeLessThan(text.indexOf('imageDigest'));
     expect(text.indexOf('imageDigest')).toBeLessThan(text.indexOf('indexHash'));
@@ -1395,5 +1404,127 @@ describe('kindgi build --local --push', () => {
     expect(fixtures.state.dockerBuilds[0]).not.toHaveProperty('push');
     expect(fixtures.state.dockerBuilds[0]).not.toHaveProperty('platform');
     expect(fixtures.state.signCalls).toBe(0);
+  });
+});
+
+describe('kindgi build — the artifact version and publish time', () => {
+  // What the runtime's deploy route accepts.
+  const ARTIFACT_VERSION_RE = /^\d{8}\.\d+$/;
+
+  test('default to the build time: YYYYMMDD.HHMMSS and the ISO time, both UTC', () => {
+    expect(buildTimeDefaults(new Date('2026-10-08T09:05:03.042Z'))).toEqual({
+      artifactVersion: '20261008.090503',
+      publishedAt: '2026-10-08T09:05:03.042Z',
+    });
+    expect(buildTimeDefaults(new Date('2026-01-02T03:04:05.006Z')).artifactVersion).toBe(
+      '20260102.030405',
+    );
+    for (const at of ['2026-10-08T00:00:00.000Z', '2026-10-08T23:59:59.999Z']) {
+      expect(buildTimeDefaults(new Date(at)).artifactVersion).toMatch(ARTIFACT_VERSION_RE);
+    }
+  });
+
+  test('sort in build order within a day, and across midnight', () => {
+    const times = [
+      '2026-10-08T00:00:00.000Z',
+      '2026-10-08T00:00:01.000Z',
+      '2026-10-08T00:59:59.999Z',
+      '2026-10-08T09:59:59.000Z',
+      '2026-10-08T10:00:00.000Z',
+      '2026-10-08T23:59:59.999Z',
+      '2026-10-09T00:00:00.000Z',
+    ];
+    const versions = times.map((at) => buildTimeDefaults(new Date(at)).artifactVersion);
+    expect(new Set(versions).size).toBe(versions.length);
+    expect([...versions].sort()).toEqual(versions);
+    const sameDay = versions.slice(0, -1).map((v) => Number(v.split('.')[1]));
+    expect([...sameDay].sort((a, b) => a - b)).toEqual(sameDay);
+  });
+
+  test('two unpinned builds the same day get their own versions, tags and publish times', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const builds = [];
+      for (const at of ['2026-10-08T09:05:03.042Z', '2026-10-08T09:05:04.510Z']) {
+        vi.setSystemTime(new Date(at));
+        const fixtures = makeFixtures();
+        const seen: { artifactVersion: string; publishedAt: string }[] = [];
+        const runners: BuildRunners = {
+          ...fixtures.runners,
+          runLocalIndexer: async (o) => {
+            seen.push({ artifactVersion: o.artifactVersion, publishedAt: o.publishedAt });
+            return fixtures.runners.runLocalIndexer(o);
+          },
+          writeContainerfile: async (o) => {
+            seen.push({ artifactVersion: o.artifactVersion, publishedAt: o.publishedAt });
+            return fixtures.runners.writeContainerfile(o);
+          },
+        };
+        const out = await runCli({
+          ...baseInputs({ ...fixtures, runners }),
+          argv: ['build', '--local', '--push', '--env=staging', `--path=${packDir}`],
+        });
+        expect(out.exitCode, out.stderr).toBe(0);
+        const envelope = JSON.parse(
+          await readFile(join(packDir, '.kindgi/build/deploy-envelope.json'), 'utf8'),
+        ) as Record<string, unknown>;
+        builds.push({ tag: fixtures.state.dockerBuilds[0]?.tag, envelope, seen });
+      }
+      expect(builds.map((b) => b.tag)).toEqual([
+        'ghcr.io/acme/my-pack:20261008.090503',
+        'ghcr.io/acme/my-pack:20261008.090504',
+      ]);
+      expect(builds.map((b) => b.envelope)).toMatchObject([
+        { artifactVersion: '20261008.090503', publishedAt: '2026-10-08T09:05:03.042Z' },
+        { artifactVersion: '20261008.090504', publishedAt: '2026-10-08T09:05:04.510Z' },
+      ]);
+      // The local index, the image and the signature get the same values.
+      for (const { envelope, seen } of builds) {
+        expect(seen).toHaveLength(2);
+        for (const values of seen) {
+          expect(values).toEqual({
+            artifactVersion: envelope.artifactVersion,
+            publishedAt: envelope.publishedAt,
+          });
+        }
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('a pinned build uses both flags as given, whenever it runs', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const envelopes = [];
+      for (const at of ['2026-10-08T09:05:03.042Z', '2026-10-09T17:00:00.000Z']) {
+        vi.setSystemTime(new Date(at));
+        const fixtures = makeFixtures();
+        const out = await runCli({
+          ...baseInputs(fixtures),
+          argv: [
+            'build',
+            '--local',
+            '--push',
+            '--env=staging',
+            '--artifact-version=20261008.7',
+            '--published-at=2026-10-08T12:00:00.000Z',
+            `--path=${packDir}`,
+          ],
+        });
+        expect(out.exitCode, out.stderr).toBe(0);
+        expect(fixtures.state.dockerBuilds[0]?.tag).toBe('ghcr.io/acme/my-pack:20261008.7');
+        envelopes.push(
+          JSON.parse(await readFile(join(packDir, '.kindgi/build/deploy-envelope.json'), 'utf8')),
+        );
+      }
+      expect(envelopes[0]).toMatchObject({
+        artifactVersion: '20261008.7',
+        publishedAt: '2026-10-08T12:00:00.000Z',
+      });
+      expect(envelopes[1]).toEqual(envelopes[0]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

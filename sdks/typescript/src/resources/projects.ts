@@ -67,7 +67,13 @@ export interface ProjectsClient {
 export interface ProjectMembershipsClient {
   /** @wire GET /v1/projects/:projectId/memberships */
   list(projectId: string, filter?: ListProjectMembershipsFilter): Promise<ProjectMembershipPage>;
-  /** @wire POST /v1/projects/:projectId/memberships */
+  /**
+   * Add a person of the tenant, named by exactly one of `userId` and
+   * `email`; someone who isn't one is `404 identity-user-not-found`. The
+   * outcome has their `userId`.
+   *
+   * @wire POST /v1/projects/:projectId/memberships
+   */
   add(
     projectId: string,
     input: AddProjectMembershipInput,

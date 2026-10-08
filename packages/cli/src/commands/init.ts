@@ -293,7 +293,7 @@ async function runInitFresh(
     return {
       kind: 'error',
       stderr: `Unknown template: ${args.template}. Available: ${AVAILABLE_TEMPLATES.join(', ')}\n`,
-      exitCode: 1,
+      exitCode: 2,
     };
   }
 
@@ -719,7 +719,7 @@ function resolveFreshArgs(ctx: CommandContext, packName: string, targetDir: stri
     return {
       kind: 'error',
       stderr: `Unknown template: ${templateInput}. Available: ${AVAILABLE_TEMPLATES.join(', ')}\n`,
-      exitCode: 1,
+      exitCode: 2,
     };
   }
   const force = ctx.options.force === true;
