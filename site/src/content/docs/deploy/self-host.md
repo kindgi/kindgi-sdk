@@ -148,7 +148,7 @@ docker run -d --name kindgi-pack --network kindgi --env-file pack.env \
 Its log says it's listening:
 
 ```text
-{"kind":"listening","port":8080,"packId":"acme-pack","artifactVersion":"20261003.1"}
+{"kind":"listening","port":8080,"packId":"acme-pack","artifactVersion":"20261003.101544"}
 ```
 
 ## 5. Configure and start the runtime
@@ -223,7 +223,7 @@ Kindgi API server listening on http://localhost:4000
   ⚠ The license key expires in 29 days (2026-11-02). Renew it: contact@kindgi.com.
   Env: production (tool secrets resolve in it)
   Tenant host access: deployed (stdio MCP endpoints refused; KINDGI_TENANT_HOST_ACCESS)
-  Pack service: http://kindgi-pack:8080 — acme-pack (artifact 20261003.1), protocol 2, 3 tools, 1 check
+  Pack service: http://kindgi-pack:8080 — acme-pack (artifact 20261003.101544), protocol 2, 3 tools, 1 check
 ```
 
 Without `KINDGI_LICENSE_KEY`, the runtime doesn't start. It exits with code 2 and says:
