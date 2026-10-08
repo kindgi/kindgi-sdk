@@ -229,7 +229,7 @@ gcloud logging read 'resource.labels.service_name="'$N'-server" AND jsonPayload.
 They name the pack's service it reached, and how it calls it:
 
 ```text
-Pack service: https://kindgi-pack-…a.run.app — acme (artifact 20261004.1), protocol 2, 3 tools, 1 check
+Pack service: https://kindgi-pack-…a.run.app — acme (artifact …), protocol 2, 3 tools, 1 check
 Pack service auth: a Google ID token per call (KINDGI_PACK_SERVICE_AUTH)
 ```
 
@@ -273,7 +273,7 @@ pnpm exec kindgi deploy --env prod --endpoint "$(terraform output -raw server_ur
 
 ```text
 ✓ POST /v1/deployments  →  201 Created
-  artifactVersion: 20261004.1
+  artifactVersion: …
   primitives:      3 tools, 1 guardrail, 1 agent, 2 flows
 Deploy complete.
 ```
