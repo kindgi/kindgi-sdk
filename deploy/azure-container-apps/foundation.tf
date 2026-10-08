@@ -237,6 +237,32 @@ resource "azurerm_role_assignment" "server_wraps" {
   principal_type       = "ServicePrincipal"
 }
 
+# export_signing = "kms": an EC P-256 key the server signs exports with, in
+# the vault (Key Vault has no Ed25519, so exports are ecdsa-p256-sha256). The
+# server signs with the version named here; a new version (a rotation) is
+# used once Terraform applies it, and older exports keep verifying against
+# the public key they carry.
+resource "azurerm_key_vault_key" "exports" {
+  count        = var.export_signing == "kms" ? 1 : 0
+  name         = "${var.name_prefix}-exports"
+  key_vault_id = azurerm_key_vault.kindgi.id
+  key_type     = "EC"
+  curve        = "P-256"
+  key_opts     = ["sign", "verify"]
+  tags         = local.tags
+
+  depends_on = [time_sleep.key_vault_admins]
+}
+
+# The server reads the key and signs with it: Key Vault Crypto User, on this key.
+resource "azurerm_role_assignment" "server_signs_exports" {
+  count                = var.export_signing == "kms" ? 1 : 0
+  scope                = azurerm_key_vault_key.exports[0].resource_versionless_id
+  role_definition_name = "Key Vault Crypto User"
+  principal_id         = azurerm_user_assigned_identity.server.principal_id
+  principal_type       = "ServicePrincipal"
+}
+
 # ---- the Container Apps environment ---------------------------------------------
 # A workload-profiles environment (Consumption) in the environment subnet.
 # Azure creates a platform-managed resource group for its infrastructure

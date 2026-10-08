@@ -114,6 +114,10 @@ openssl rand 32 | base64 | tr -d '\n' | put erasure-ledger-key
 # The key that signs public run tokens: Ed25519, PKCS#8 PEM, base64.
 openssl genpkey -algorithm ed25519 | base64 | tr -d '\n' | put public-token-key
 
+# Only with export_signing = "secret": the key that signs exports, base64
+# (Ed25519 here; an EC P-256 key works too).
+openssl genpkey -algorithm ed25519 | base64 | tr -d '\n' | put export-signing-key
+
 # The license key: paste it; it never goes in a file.
 read -rs LICENSE_KEY && printf '%s' "$LICENSE_KEY" | put license-key && unset LICENSE_KEY
 ```
@@ -175,6 +179,7 @@ The runtime reads the pack image from the registry with its own identity (`KINDG
 
 ## Operating it
 
+- **Signed exports** (approval audit bundles, run provenance, compliance evidence) are off by default (`export_signing = "none"`). `"kms"`: the module makes an EC P-256 key in the vault (`<name_prefix>-exports`) and the server signs with it there, with Key Vault Crypto User on that key alone; exports are `ecdsa-p256-sha256`, since Key Vault has no Ed25519. `"secret"`: a key you put in the vault as `export-signing-key` (step 3).
 - **Client addresses:** the server trusts one proxy, the Container Apps ingress, which appends the caller to `X-Forwarded-For` (`trusted_proxies = "1"`, `KINDGI_TRUSTED_PROXIES`), so rate limits and audit records see the caller. With Front Door or Application Gateway in front, set `"2"`.
 - **One server replica** until several are verified. Migrations run at boot over a direct connection (port 5432, not the built-in PgBouncer on 6432).
 - **Upgrades roll forward:** migrations only go forward. Before a new runtime version boots on the database, make sure a restorable backup exists (automatic backups with point-in-time restore are on), and roll back by restoring it.

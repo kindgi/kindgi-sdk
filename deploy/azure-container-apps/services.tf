@@ -125,7 +125,7 @@ resource "azurerm_container_app" "pack" {
 # ---- the server ---------------------------------------------------------------
 
 locals {
-  server_secret_refs = {
+  server_secret_refs = merge({
     KINDGI_DATABASE_URL             = "database-url"
     KINDGI_API_TOKEN                = "api-token"
     KINDGI_SECRETS_AAD_KEY          = "secrets-aad-key"
@@ -133,7 +133,7 @@ locals {
     KINDGI_LICENSE_KEY              = "license-key"
     KINDGI_PACK_SERVICE_TOKEN       = "pack-service-token"
     KINDGI_ERASURE_LEDGER_KEY       = "erasure-ledger-key"
-  }
+  }, var.export_signing == "secret" ? { KINDGI_EXPORT_SIGNING_KEY = "export-signing-key" } : {})
   server_env = merge(
     {
       KINDGI_ENV          = var.kindgi_env
@@ -161,6 +161,8 @@ locals {
     length(var.cors_origins) == 0 ? {} : { KINDGI_CORS_ORIGINS = join(",", var.cors_origins) },
     var.openfga_api_url == "" ? {} : { KINDGI_OPENFGA_API_URL = var.openfga_api_url },
     var.trusted_proxies == "" ? {} : { KINDGI_TRUSTED_PROXIES = var.trusted_proxies },
+    # The key version's URL: the server reads the key at boot and signs there.
+    var.export_signing == "kms" ? { KINDGI_EXPORT_SIGNING_KMS_KEY = azurerm_key_vault_key.exports[0].id } : {},
   )
 }
 

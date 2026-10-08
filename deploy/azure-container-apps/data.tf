@@ -85,6 +85,8 @@ locals {
     # keyed hash, so erasures replay after a backup restore (read at a pinned version).
     erasure_ledger_key = "erasure-ledger-key"
   }
+  # export_signing = "secret": the export signing key, a PEM private key, base64.
+  export_signing_secrets = var.export_signing == "secret" ? { export_signing_key = "export-signing-key" } : {}
   shared_secrets = {
     pack_service_token = "pack-service-token" # KINDGI_PACK_SERVICE_TOKEN, both services
   }
@@ -100,7 +102,7 @@ locals {
     erasure_ledger_key = var.erasure_ledger_key_version
   }
   secret_ids = {
-    for role, name in merge(local.server_secrets, local.shared_secrets) :
+    for role, name in merge(local.server_secrets, local.export_signing_secrets, local.shared_secrets) :
     role => (
       contains(keys(local.pinned_versions), role)
       ? "${azurerm_key_vault.kindgi.vault_uri}secrets/${name}/${local.pinned_versions[role]}"
@@ -109,7 +111,7 @@ locals {
   }
 
   secret_ids_by_name = {
-    for role, name in merge(local.server_secrets, local.shared_secrets) : name => local.secret_ids[role]
+    for role, name in merge(local.server_secrets, local.export_signing_secrets, local.shared_secrets) : name => local.secret_ids[role]
   }
 
   # The pack's own secrets (`secret_env` from `kindgi env plan`), one
@@ -131,7 +133,7 @@ locals {
 # that use it; C-PK-6: the pack gets nothing of Kindgi's but the shared token).
 
 resource "azurerm_role_assignment" "server_reads" {
-  for_each             = merge(local.server_secrets, local.shared_secrets)
+  for_each             = merge(local.server_secrets, local.export_signing_secrets, local.shared_secrets)
   scope                = "${azurerm_key_vault.kindgi.id}/secrets/${each.value}"
   role_definition_name = "Key Vault Secrets User"
   principal_id         = azurerm_user_assigned_identity.server.principal_id
@@ -162,5 +164,6 @@ resource "time_sleep" "secret_grants" {
     azurerm_role_assignment.server_reads,
     azurerm_role_assignment.pack_reads_token,
     azurerm_role_assignment.pack_reads_its_secrets,
+    azurerm_role_assignment.server_signs_exports,
   ]
 }

@@ -105,6 +105,17 @@ variable "cors_origins" {
   default     = []
 }
 
+variable "export_signing" {
+  description = "How the server signs exports (approval audit bundles, run provenance, compliance evidence). \"none\": exports answer 404 signing-not-configured. \"secret\": a key you put in the vault as export-signing-key (a PEM private key, Ed25519 or EC P-256, base64), as KINDGI_EXPORT_SIGNING_KEY. \"kms\": the module makes an EC P-256 key in the vault (<name_prefix>-exports) and the server signs with it there, as KINDGI_EXPORT_SIGNING_KMS_KEY: the private key never leaves Key Vault, and exports are ecdsa-p256-sha256 (Key Vault has no Ed25519)."
+  type        = string
+  default     = "none"
+
+  validation {
+    condition     = contains(["none", "secret", "kms"], var.export_signing)
+    error_message = "export_signing must be none, secret or kms."
+  }
+}
+
 variable "trusted_proxies" {
   description = "KINDGI_TRUSTED_PROXIES on the server: which proxies in front of it to trust for a client's address, which rate limits and audit records use. A hop count, or comma-separated IPs/CIDR ranges. Container Apps' ingress appends the client to X-Forwarded-For, so 1; add one for each proxy you put in front of it (Front Door or Application Gateway: 2). Empty leaves it unset, and every client counts as the ingress."
   type        = string

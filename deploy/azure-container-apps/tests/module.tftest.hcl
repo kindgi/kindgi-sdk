@@ -253,6 +253,48 @@ run "empty_trusted_proxies_leaves_it_unset" {
   }
 }
 
+# Exports are off unless asked for: no key, no secret, no setting.
+run "exports_are_not_signed_by_default" {
+  command = plan
+  assert {
+    condition     = length(azurerm_key_vault_key.exports) == 0 && !contains(keys(local.server_env), "KINDGI_EXPORT_SIGNING_KMS_KEY") && !contains(keys(local.server_secret_refs), "KINDGI_EXPORT_SIGNING_KEY")
+    error_message = "export_signing = none sets up nothing."
+  }
+}
+
+# export_signing = "kms": an EC P-256 key in the vault (Key Vault has no
+# Ed25519), the server allowed to read it and sign, and its version's URL.
+run "exports_signed_in_key_vault" {
+  command = plan
+  variables {
+    export_signing = "kms"
+  }
+  assert {
+    condition     = azurerm_key_vault_key.exports[0].key_type == "EC" && azurerm_key_vault_key.exports[0].curve == "P-256" && toset(azurerm_key_vault_key.exports[0].key_opts) == toset(["sign", "verify"])
+    error_message = "The export key is an EC P-256 key that signs."
+  }
+  assert {
+    condition     = azurerm_role_assignment.server_signs_exports[0].role_definition_name == "Key Vault Crypto User" && azurerm_role_assignment.server_signs_exports[0].scope == azurerm_key_vault_key.exports[0].resource_versionless_id
+    error_message = "The server gets Key Vault Crypto User on that key, and nothing wider."
+  }
+  assert {
+    condition     = local.server_env.KINDGI_EXPORT_SIGNING_KMS_KEY == azurerm_key_vault_key.exports[0].id && !contains(keys(local.server_secret_refs), "KINDGI_EXPORT_SIGNING_KEY")
+    error_message = "The server signs with the key version, and reads no export key secret."
+  }
+}
+
+# export_signing = "secret": a key the operator puts in the vault, read like the others.
+run "exports_signed_with_a_secret" {
+  command = plan
+  variables {
+    export_signing = "secret"
+  }
+  assert {
+    condition     = local.server_secret_refs.KINDGI_EXPORT_SIGNING_KEY == "export-signing-key" && contains(keys(azurerm_role_assignment.server_reads), "export_signing_key") && length(azurerm_key_vault_key.exports) == 0
+    error_message = "The server reads export-signing-key, granted on that secret alone."
+  }
+}
+
 run "refuses_a_trusted_proxies_that_is_neither" {
   command = plan
   variables {
