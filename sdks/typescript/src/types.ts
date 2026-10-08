@@ -1705,6 +1705,8 @@ export type RetentionDomain =
   | 'judgment'
   | 'judge_class'
   | 'provider'
+  | 'api_key'
+  | 'service_account'
   | '*';
 
 /**
@@ -1855,7 +1857,9 @@ export interface User {
  * see `tenantId` only (plus optional `userId` when the token was minted
  * with one); session-token callers additionally see `sessionId`,
  * `providerId`, `scopes`, and `expiresAt`. When the token carries a
- * `userId`, the identity directory adds `user: UserRecord`.
+ * `userId`, the identity directory adds `user: UserRecord`. `principal`
+ * says whom the caller acts as; an API key adds `tokenId`, its `role` and
+ * the `projectId` it is limited to.
  */
 export interface WhoamiResult {
   readonly tenantId: import('@kindgi/types').TenantId;
@@ -1865,17 +1869,23 @@ export interface WhoamiResult {
   readonly providerId?: string;
   readonly expiresAt?: import('@kindgi/types').Timestamp;
   readonly user?: User;
+  readonly principal?: ApiKeyPrincipal;
+  readonly tokenId?: string;
+  readonly role?: ApiTokenRole;
+  readonly projectId?: string;
 }
 
 /**
- * @deprecated No user-creation route on the wire (the API does not own
- *   user persistence — deployments plug in their own identity plane).
- *   Used only by `client.users.create`, which throws `not-yet-wired`.
+ * A person to add (`client.users.create`), with no grants yet. Matches
+ * `@kindgi/api/openapi.json#CreateUserBody` (`email` is `primaryEmail`).
  */
 export interface UserSpec {
-  readonly email: string;
   readonly displayName: string;
+  /** Unique among the tenant's people. */
+  readonly email?: string;
+  /** @deprecated Not on the wire: `users.create` throws `not-yet-wired` when it is set. */
   readonly orgId?: import('@kindgi/types').OrgId;
+  /** @deprecated Not on the wire: `users.create` throws `not-yet-wired` when it is set. */
   readonly metadata?: Readonly<Record<string, unknown>>;
 }
 
@@ -2024,14 +2034,30 @@ export type ApiTokenRole = 'admin' | 'member';
  * with a role and explicit capabilities. The secret is shown once, at
  * creation.
  */
+/**
+ * Whom an API key acts for: a person (`user`) or a service account.
+ * Matches `@kindgi/api/openapi.json#ApiKeyPrincipal`.
+ */
+export interface ApiKeyPrincipal {
+  readonly kind: 'user' | 'service-account';
+  /** The user id, or the service account id. */
+  readonly id: string;
+}
+
 export interface ApiToken {
   readonly id: ApiTokenId;
+  /**
+   * Whom the key acts for, with their grants. Absent on a key that is a
+   * service account of its own, as keys minted before principals are.
+   */
+  readonly principal?: ApiKeyPrincipal;
+  /** The most the key may do, under its principal's grants. */
   readonly role: ApiTokenRole;
   /** Framework capabilities the key carries (`env:write`, `secrets:write`, …). */
   readonly capabilities: readonly string[];
   readonly label?: string;
   readonly projectId?: import('@kindgi/types').ProjectId;
-  /** Who minted it: `user:<id>` or `service_account:<tokenId>`. */
+  /** Who minted it: `user:<id>` or `service_account:<id>`. */
   readonly createdBy?: string;
   readonly createdAt: import('@kindgi/types').Timestamp;
   readonly lastUsedAt?: import('@kindgi/types').Timestamp;
@@ -2040,12 +2066,21 @@ export interface ApiToken {
 }
 
 export interface ApiTokenSpec {
-  /** `member` when absent. */
+  /**
+   * Whom the key acts for; the caller when absent. Only a tenant admin
+   * mints for someone else.
+   */
+  readonly for?: ApiKeyPrincipal;
+  /** `member` when absent; `admin` needs a tenant admin minting it. */
   readonly role?: ApiTokenRole;
   /** None when absent. Only capabilities the caller holds can be granted. */
   readonly capabilities?: readonly string[];
   readonly label?: string;
   readonly expiresAt?: import('@kindgi/types').Timestamp;
+  /**
+   * Limit the key to this project: a request naming another project is
+   * refused (`key-project-mismatch`).
+   */
   readonly projectId?: import('@kindgi/types').ProjectId;
 }
 
@@ -2056,6 +2091,49 @@ export interface ApiTokenSpec {
 export interface ApiTokenCreated {
   readonly meta: ApiToken;
   readonly secret: string;
+}
+
+/**
+ * What a service account may do: tenant admin, tenant member (read the
+ * tenant's settings), or a role on one project.
+ * Matches `@kindgi/api/openapi.json#ServiceAccountGrant`.
+ */
+export type ServiceAccountGrant =
+  | { readonly kind: 'tenant-admin' }
+  | { readonly kind: 'tenant-member' }
+  | {
+      readonly kind: 'project';
+      readonly projectId: string;
+      readonly role: 'viewer' | 'editor' | 'owner' | 'admin' | 'member';
+    };
+
+/** A grant to remove: tenant admin, tenant member, or whatever role the account has on a project. */
+export type ServiceAccountGrantTarget =
+  | { readonly kind: 'tenant-admin' }
+  | { readonly kind: 'tenant-member' }
+  | { readonly kind: 'project'; readonly projectId: string };
+
+/** Matches `@kindgi/api/openapi.json#ServiceAccount`. */
+export interface ServiceAccount {
+  readonly serviceAccountId: string;
+  /** Unique among the tenant's active accounts, e.g. `acme-ci`. */
+  readonly name: string;
+  readonly description?: string;
+  readonly grants: readonly ServiceAccountGrant[];
+  /** Who created it: `user:<id>` or `service_account:<id>`. */
+  readonly createdBy?: string;
+  readonly createdAt: import('@kindgi/types').Timestamp;
+  /** Set once unregistered: it has no grants, and its keys no longer work. */
+  readonly unregisteredAt?: import('@kindgi/types').Timestamp;
+}
+
+/** Input for `POST /v1/service-accounts` per `#CreateServiceAccountBody`. */
+export interface CreateServiceAccountInput {
+  /** Lowercase letters, digits and hyphens, e.g. `acme-ci`. */
+  readonly name: string;
+  readonly description?: string;
+  /** Written before the account is returned, so its first key works at once. */
+  readonly grants?: readonly ServiceAccountGrant[];
 }
 
 // ============================================================
