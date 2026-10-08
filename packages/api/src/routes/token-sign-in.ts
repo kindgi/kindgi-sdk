@@ -25,16 +25,18 @@ import type { AppEnv } from '../types.js';
  * be widened to the person's full grants by a session: both are refused,
  * 403 `token-sign-in-not-allowed`. The session never outlives the key.
  */
-export interface TokenSignInRouteOptions {
-  readonly sessionStore: SessionStoreBinding;
-  /** Whether the deployment allows it; otherwise 403 `token-sign-in-off`. */
-  readonly enabled: boolean;
-  /** The session's lifetime, in milliseconds. */
-  readonly ttlMs: number;
-  readonly cookieName: string;
-  /** `signed-in` events, best effort. */
-  readonly auditEvents?: AuditEventBinding;
-}
+export type TokenSignInRouteOptions =
+  /** The deployment doesn't allow it, or has no browser sessions: 403 `token-sign-in-off`. */
+  | { readonly enabled: false }
+  | {
+      readonly enabled: true;
+      readonly sessionStore: SessionStoreBinding;
+      /** The session's lifetime, in milliseconds. */
+      readonly ttlMs: number;
+      readonly cookieName: string;
+      /** `signed-in` events, best effort. */
+      readonly auditEvents?: AuditEventBinding;
+    };
 
 export function tokenSignInRouter(options: TokenSignInRouteOptions): Hono<AppEnv> {
   const r = new Hono<AppEnv>();

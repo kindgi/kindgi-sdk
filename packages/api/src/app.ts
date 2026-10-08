@@ -1431,44 +1431,46 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     if (input.exchangeCode !== undefined) app.route('/v1/auth/callback', routers.callback);
   }
   // How a person can sign in, before anyone is: outside the bearer chain
-  // too (mounted ahead of `/v1`, like the callback). Mounted whenever there
-  // is a way in: identity providers, or browser sessions an API token can
-  // open.
+  // too (mounted ahead of `/v1`, like the callback). Always mounted, so the
+  // console and `kindgi doctor` get a definite answer even when there is no
+  // way in at all: the case an operator most needs to hear about.
   const cookieSessions = input.sessionStore !== undefined && input.session?.cookie !== undefined;
   const tokenSignIn = cookieSessions && input.session?.tokenSignIn === true;
-  if (input.identityProvider !== undefined || cookieSessions) {
-    app.route(
-      '/v1/auth/sign-in-options',
-      signInOptionsRouter({
-        ...(input.identityProvider !== undefined && { identityProvider: input.identityProvider }),
-        tokenSignIn,
-        ...(input.signInOptionsRateLimit !== undefined && {
-          rateLimit: input.signInOptionsRateLimit,
-        }),
+  app.route(
+    '/v1/auth/sign-in-options',
+    signInOptionsRouter({
+      ...(input.identityProvider !== undefined && { identityProvider: input.identityProvider }),
+      tokenSignIn,
+      ...(input.signInOptionsRateLimit !== undefined && {
+        rateLimit: input.signInOptionsRateLimit,
       }),
-    );
+    }),
+  );
+  // Browser sessions need a way out even without identity providers
+  // (which bring their own `/auth` routes, logout included).
+  if (cookieSessions && input.identityProvider === undefined && input.sessionStore !== undefined) {
+    v1.post('/auth/logout', logoutHandler(input.sessionStore));
   }
   // A person signs in to the console with an API token: inside the bearer
-  // chain (the token arrives in `Authorization`), mounted with cookie
-  // sessions and refusing (403 token-sign-in-off) unless the deployment
-  // allows it.
-  if (input.sessionStore !== undefined && input.session?.cookie !== undefined) {
-    // Browser sessions need a way out even without identity providers
-    // (which bring their own `/auth` routes, logout included).
-    if (input.identityProvider === undefined) {
-      v1.post('/auth/logout', logoutHandler(input.sessionStore));
-    }
-    v1.route(
-      '/auth/token-sign-in',
-      tokenSignInRouter({
-        sessionStore: input.sessionStore,
-        enabled: tokenSignIn,
-        ttlMs: input.session.ttl ?? DEFAULT_TOKEN_SIGN_IN_TTL_MS,
-        cookieName: input.session.cookie.name ?? SESSION_COOKIE_NAME,
-        ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
-      }),
-    );
-  }
+  // chain (the token arrives in `Authorization`). Always mounted: without
+  // browser sessions, or unless the deployment allows it, it refuses with
+  // 403 token-sign-in-off.
+  v1.route(
+    '/auth/token-sign-in',
+    tokenSignInRouter(
+      input.sessionStore !== undefined &&
+        input.session?.cookie !== undefined &&
+        input.session.tokenSignIn === true
+        ? {
+            enabled: true,
+            sessionStore: input.sessionStore,
+            ttlMs: input.session.ttl ?? DEFAULT_TOKEN_SIGN_IN_TTL_MS,
+            cookieName: input.session.cookie.name ?? SESSION_COOKIE_NAME,
+            ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
+          }
+        : { enabled: false },
+    ),
+  );
   app.route('/v1', v1);
 
   // ---------- S3-compat surface (/s3/*, SigV4 auth) ----------

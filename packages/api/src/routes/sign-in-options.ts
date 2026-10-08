@@ -17,8 +17,8 @@ import type { AppEnv } from '../types.js';
  * are rate-limited per client, as a speed bump against scraping.
  *
  * Email first: without an email, nothing is offered (an empty list), and
- * the binding isn't asked. The empty answer still tells a sign-in page
- * that sign-in with identity providers is on (off is a 404).
+ * the binding isn't asked. `methods` tells a sign-in page which ways in
+ * there are; always mounted, so with none it says so (both `false`).
  */
 export interface SignInOptionsRouteOptions {
   /** Absent: no sign-in with identity providers here (only an API token, if allowed). */

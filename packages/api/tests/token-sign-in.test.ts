@@ -260,9 +260,19 @@ describe('POST /v1/auth/token-sign-in', () => {
     expect((await signIn(app, 'kgi_nobody')).status).toBe(401);
   });
 
-  test('not mounted without browser sessions (no cookie configured)', async () => {
-    const { app } = makeApp({ tokenSignIn: true });
-    expect((await signIn(app, 'kgi_person_full')).status).toBe(404);
+  test('no browser sessions (no cookie configured): 403 token-sign-in-off, even when allowed', async () => {
+    const { app, created } = makeApp({ tokenSignIn: true });
+    const res = await signIn(app, 'kgi_person_full');
+    expect(res.status).toBe(403);
+    expect((await codeOf(res)).code).toBe('token-sign-in-off');
+    expect(created).toHaveLength(0);
+  });
+
+  test('no browser sessions at all: still 403 token-sign-in-off, not 404', async () => {
+    const { app } = makeApp(null);
+    const res = await signIn(app, 'kgi_person_full');
+    expect(res.status).toBe(403);
+    expect((await codeOf(res)).code).toBe('token-sign-in-off');
   });
 });
 
@@ -291,8 +301,13 @@ describe('GET /v1/auth/sign-in-options: the ways in', () => {
     });
   });
 
-  test('neither identity providers nor browser sessions: not mounted (falls through to the authenticated API: 401)', async () => {
+  test('neither identity providers nor browser sessions: mounted, says there is no way in', async () => {
     const { app } = makeApp(null);
-    expect((await lookup(app)).status).toBe(401);
+    const res = await lookup(app);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      data: [],
+      methods: { identityProviders: false, apiToken: false },
+    });
   });
 });
