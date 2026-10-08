@@ -1339,7 +1339,7 @@ describe('runIndexer — artifactVersion behavior', () => {
 });
 
 describe('runIndexer — agents (agent schema-version 1.3.0)', () => {
-  test('an agent keeps every field it declares: output, toolErrors, preferred provider/model, policy, description, tags', async () => {
+  test('an agent keeps every field it declares: output, toolErrors, memory, preferred provider/model, policy, description, tags', async () => {
     const output = {
       name: 'axes',
       schema: { type: 'object', properties: { remedy: { type: 'array' } }, required: ['remedy'] },
@@ -1353,6 +1353,7 @@ describe('runIndexer — agents (agent schema-version 1.3.0)', () => {
         'agents/support.mjs': agentModule({
           output,
           toolErrors,
+          memory: { instructionTypes: ['acme.policy'] },
           conversationPolicy,
           preferredProvider: 'anthropic',
           preferredModel: 'claude-x',
@@ -1372,6 +1373,7 @@ describe('runIndexer — agents (agent schema-version 1.3.0)', () => {
     expect(parsed.agents[0]).toMatchObject({
       output,
       toolErrors,
+      memory: { instructionTypes: ['acme.policy'] },
       conversationPolicy,
       preferredProvider: 'anthropic',
       preferredModel: 'claude-x',

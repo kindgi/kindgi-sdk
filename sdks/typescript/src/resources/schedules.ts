@@ -10,8 +10,12 @@
  *   hand-edit those types — edit `packages/api/src/openapi/{operations,
  *   schemas}.ts` and re-run `pnpm --filter @kindgi/api gen:openapi`.
  *
- * A registered schedule starts a run of its flow each time its cron
- * expression comes due; `nextFireAt` is computed from the expression.
+ * A registered schedule starts a run of an agent or a flow each time its
+ * cron expression comes due, as its owner (whoever registered it); a run
+ * it started names it (`Run.trigger`). After a gap it runs once for the
+ * latest missed occurrence (`catchUp: 'latest'`, the default) or skips
+ * them, and it skips an occurrence while its previous run is still going
+ * (`overlap: 'skip'`, the default). `fires` is its history.
  *
  * Soft-delete: `unregister()` tombstones the schedule. Tombstoned
  * schedules are excluded from `list` and return 404 from `get`.
@@ -21,6 +25,8 @@ import type {
   PatchScheduleBody,
   RegisterScheduleBody,
   ScheduleCollectionPage,
+  ScheduleFirePage as ScheduleFirePageWire,
+  ScheduleFire as ScheduleFireWire,
   ScheduleRecord,
   ScheduleUnregisterResult,
 } from '../generated/api.js';
@@ -32,6 +38,13 @@ export type SchedulePage = ScheduleCollectionPage;
 export type RegisterScheduleInput = RegisterScheduleBody;
 export type UpdateScheduleInput = PatchScheduleBody;
 export type UnregisterScheduleResult = ScheduleUnregisterResult;
+export type ScheduleFire = ScheduleFireWire;
+export type ScheduleFirePage = ScheduleFirePageWire;
+
+export interface ListScheduleFiresFilter {
+  readonly limit?: number;
+  readonly cursor?: string;
+}
 
 export interface ListSchedulesFilter {
   readonly limit?: number;
@@ -62,7 +75,7 @@ export interface SchedulesClient {
    *
    * @wire GET /v1/schedules/:triggerId
    */
-  get(triggerId: string): Promise<Schedule>;
+  get(triggerId: string, options?: { readonly upcoming?: number }): Promise<Schedule>;
 
   /**
    * Partial update. Passing `label: null` clears; omit to leave
@@ -99,6 +112,30 @@ export interface SchedulesClient {
    * @wire POST /v1/schedules/:triggerId/unregister
    */
   unregister(triggerId: string, options?: MutationOptions): Promise<UnregisterScheduleResult>;
+
+  /**
+   * The schedule's fire history, newest first: each occurrence (and
+   * run-now), the run it started, or why it was skipped, refused or failed.
+   *
+   * @wire GET /v1/schedules/:triggerId/fires
+   */
+  fires(triggerId: string, filter?: ListScheduleFiresFilter): Promise<ScheduleFirePage>;
+
+  /**
+   * Fire it now, outside the schedule: one run as the schedule's owner,
+   * recorded with `manual: true`. The next occurrence is unchanged.
+   *
+   * @wire POST /v1/schedules/:triggerId/run-now
+   */
+  runNow(triggerId: string, options?: MutationOptions): Promise<ScheduleFire>;
+
+  /**
+   * Become the schedule's owner, so its runs act as you from the next fire
+   * (for a schedule whose owner left). Needs `admin` on its project.
+   *
+   * @wire POST /v1/schedules/:triggerId/owner
+   */
+  takeOwnership(triggerId: string, options?: MutationOptions): Promise<Schedule>;
 }
 
 interface MutationOptions {
@@ -126,10 +163,11 @@ export function makeSchedulesClient(transport: Transport): SchedulesClient {
         },
       });
     },
-    async get(triggerId) {
+    async get(triggerId, options) {
       return transport.request<Schedule>({
         method: 'GET',
         path: `/v1/schedules/${encodeURIComponent(triggerId)}`,
+        ...(options?.upcoming !== undefined && { query: { upcoming: options.upcoming } }),
       });
     },
     async update(triggerId, input, options) {
@@ -158,6 +196,30 @@ export function makeSchedulesClient(transport: Transport): SchedulesClient {
       return transport.request<UnregisterScheduleResult>({
         method: 'POST',
         path: `/v1/schedules/${encodeURIComponent(triggerId)}/unregister`,
+        ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+      });
+    },
+    async fires(triggerId, filter) {
+      return transport.request<ScheduleFirePage>({
+        method: 'GET',
+        path: `/v1/schedules/${encodeURIComponent(triggerId)}/fires`,
+        query: {
+          ...(filter?.limit !== undefined && { limit: filter.limit }),
+          ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
+        },
+      });
+    },
+    async runNow(triggerId, options) {
+      return transport.request<ScheduleFire>({
+        method: 'POST',
+        path: `/v1/schedules/${encodeURIComponent(triggerId)}/run-now`,
+        ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+      });
+    },
+    async takeOwnership(triggerId, options) {
+      return transport.request<Schedule>({
+        method: 'POST',
+        path: `/v1/schedules/${encodeURIComponent(triggerId)}/owner`,
         ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
       });
     },

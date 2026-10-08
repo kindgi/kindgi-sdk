@@ -468,7 +468,7 @@ describe('API — memory retrieve', () => {
     expect(body.results[0]?.score).toBeUndefined();
   });
 
-  test('semantic mode without embedding binding → 400 bad-input', async () => {
+  test('semantic mode without embeddings → 422 semantic-unavailable (never an empty success)', async () => {
     const { app } = makeApp({ hasEmbeddings: false });
     await app.request('/v1/memory/facts', {
       method: 'POST',
@@ -481,9 +481,9 @@ describe('API — memory retrieve', () => {
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: JSON.stringify(intent),
     });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(422);
     const body = (await res.json()) as { error: { code: string; message: string } };
-    expect(body.error.code).toBe('bad-input');
+    expect(body.error.code).toBe('semantic-unavailable');
     expect(body.error.message).toMatch(/embedding|semantic/i);
   });
 

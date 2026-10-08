@@ -4,6 +4,7 @@
 import type { FlowsClient } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
+import { UsageError } from '../errors.js';
 import {
   type TableSpec,
   integerFlag,
@@ -104,7 +105,7 @@ const publish: LeafCommand = {
   run: (ctx) =>
     runSdk(ctx, 'flows publish', async () => {
       const specText = stringFlag(ctx, 'spec');
-      if (specText === undefined) throw new Error('--spec=<json-or-@file> is required');
+      if (specText === undefined) throw new UsageError('--spec=<json-or-@file> is required');
       const spec = (await readJsonInput(specText)) as FlowSpec;
       const projectId = await projectIdFlag(ctx);
       return await ctx.client().flows.define(spec, { projectId });
