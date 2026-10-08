@@ -222,9 +222,24 @@ export function packServiceIndex(
  * failed calls, and crashes. Successful calls and restarts that work
  * stay quiet.
  */
-/** A pack service log line worth a line of `kindgi dev` output: a failed call, missing env. */
+/**
+ * A pack service log line worth a line of `kindgi dev` output: a failed
+ * call, missing env, and what the pack's own code logs (`ctx.log`).
+ */
 function describePackLog(event: unknown): string | undefined {
-  const e = event as { kind?: unknown; id?: unknown; outcome?: unknown; names?: unknown };
+  const e = event as {
+    kind?: unknown;
+    id?: unknown;
+    outcome?: unknown;
+    names?: unknown;
+    level?: unknown;
+    message?: unknown;
+  };
+  if (e.kind === 'record' && typeof e.message === 'string') {
+    const level =
+      typeof e.level === 'string' && e.level !== 'info' ? `${e.level.toUpperCase()} ` : '';
+    return `  [pack] ${level}${e.message}`;
+  }
   if (e.kind === 'missing-env' && Array.isArray(e.names)) {
     const names = e.names.map(String);
     const one = names.length === 1;

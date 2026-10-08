@@ -419,6 +419,8 @@ const noopIdentityProvider: IdentityProviderBinding = {
   get: async () => null,
   register: async ({ config }) => ({ kind: 'ok', providerId: config.providerId }),
   unregister: async () => ({ unregistered: false }),
+  signInUrls: async () => undefined,
+  update: async () => ({ kind: 'not-found' }),
 };
 
 const noopIdentityDirectory: IdentityDirectoryBinding = {
@@ -600,6 +602,7 @@ function collectMountedRoutes(): HonoRouteRecord[] {
     judgmentRegistry: noopJudgmentRegistry,
     evalCaseStore: noopEvalCaseStore,
     sessionStore: noopSessionStore,
+    session: { cookie: { allowedOrigins: ['https://console.example.com'] }, tokenSignIn: true },
     identityProvider: noopIdentityProvider,
     exchangeCode: noopExchangeCode,
     identityDirectory: noopIdentityDirectory,
