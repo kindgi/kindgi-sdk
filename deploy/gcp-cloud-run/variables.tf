@@ -84,6 +84,26 @@ variable "cors_origins" {
   default     = []
 }
 
+variable "export_signing" {
+  description = "How the server signs exports (approval audit bundles, run provenance, compliance evidence). \"none\": exports answer 404 signing-not-configured. \"secret\": an Ed25519 key in Secret Manager (<name_prefix>-export-signing-key, its PEM base64), as KINDGI_EXPORT_SIGNING_KEY. \"kms\": a Cloud KMS EC_SIGN_ED25519 key version (export_signing_kms_key), as KINDGI_EXPORT_SIGNING_KMS_KEY; the private key never leaves KMS."
+  type        = string
+  default     = "none"
+  validation {
+    condition     = contains(["none", "secret", "kms"], var.export_signing)
+    error_message = "export_signing must be none, secret or kms."
+  }
+}
+
+variable "export_signing_kms_key" {
+  description = "With export_signing = \"kms\": the key version that signs, projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>/cryptoKeyVersions/<n>. The server's service account gets signerVerifier and publicKeyViewer on its key."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.export_signing_kms_key == "" || can(regex("^projects/[^/]+/locations/[^/]+/keyRings/[^/]+/cryptoKeys/[^/]+/cryptoKeyVersions/[0-9]+$", var.export_signing_kms_key))
+    error_message = "export_signing_kms_key must be a key version: projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>/cryptoKeyVersions/<n>."
+  }
+}
+
 variable "openfga_api_url" {
   description = "KINDGI_OPENFGA_API_URL. Production must set it: unset, routes mount without authorization."
   type        = string
@@ -275,4 +295,13 @@ variable "subnet_cidr" {
   description = "The subnet Cloud Run's Direct VPC egress uses (the server reaches the internal pack service through it)."
   type        = string
   default     = "10.10.0.0/24"
+}
+
+variable "secrets_aad_key_version" {
+  description = "The Secret Manager version of KINDGI_SECRETS_AAD_KEY the server reads: \"1\" for a new deployment (the first version added). Pin it; never \"latest\". Every secret stored in Postgres is bound to this key, so a new version is a key change that needs every stored secret re-encrypted, and a version added by mistake must not reach the server."
+  type        = string
+  validation {
+    condition     = can(regex("^[1-9][0-9]*$", var.secrets_aad_key_version))
+    error_message = "secrets_aad_key_version is a version number (\"1\" for a new deployment), never \"latest\": every secret stored in Postgres is bound to the key it names."
+  }
 }

@@ -130,8 +130,61 @@ describe('users.sessions.list / revokeAll', () => {
   });
 });
 
+describe('users.create — POST /v1/identity/users', () => {
+  it('adds a person and returns their id', async () => {
+    const stub = jsonFetch(WIRE_USER, { status: 201 });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    const id = await client.users.create(
+      { displayName: 'Alice', email: 'alice@example.com' },
+      { idempotencyKey: 'idem-u' },
+    );
+    expect(id).toBe('user-alice');
+    const req = stub.calls[0]!;
+    expect(req.method).toBe('POST');
+    expect(req.url).toBe('https://api.example.com/v1/identity/users');
+    expect(req.headers['idempotency-key']).toBe('idem-u');
+    expect(JSON.parse(req.body ?? '{}')).toEqual({
+      displayName: 'Alice',
+      primaryEmail: 'alice@example.com',
+    });
+  });
+
+  it('a taken email is a conflict', async () => {
+    const stub = errorFetch(409, {
+      code: 'identity-user-email-taken',
+      message: 'taken',
+      details: { userId: 'user-bob' },
+    });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    await expect(client.users.create({ displayName: 'B', email: 'b@x' })).rejects.toMatchObject({
+      error: { code: 'conflict', reason: 'identity-user-email-taken' },
+    });
+  });
+
+  it('orgId and metadata are not on the wire: not-yet-wired, nothing sent', async () => {
+    const stub = recordingFetch([]);
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    await expect(
+      client.users.create({ displayName: 'X', orgId: 'o' as never }),
+    ).rejects.toMatchObject({ error: { code: 'not-yet-wired', method: 'users.create' } });
+    expect(stub.calls.length).toBe(0);
+  });
+});
+
 describe('users not-yet-wired surface', () => {
-  it('create / update / deactivate / sessions.revoke throw not-yet-wired', async () => {
+  it('update / deactivate / sessions.revoke throw not-yet-wired', async () => {
     const stub = recordingFetch([]);
     const client = createClient({
       apiUrl: 'https://api.example.com',
@@ -139,11 +192,6 @@ describe('users not-yet-wired surface', () => {
       fetch: stub.fetch,
     });
 
-    await expect(client.users.create({ email: 'x@y.com', displayName: 'X' })).rejects.toMatchObject(
-      {
-        error: { code: 'not-yet-wired', method: 'users.create' },
-      },
-    );
     await expect(client.users.update('x' as never, { displayName: 'Y' })).rejects.toMatchObject({
       error: { code: 'not-yet-wired', method: 'users.update' },
     });

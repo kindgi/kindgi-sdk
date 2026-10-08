@@ -348,6 +348,10 @@ jobs:
         with:
           version-file: sdks/python-cli/pyproject.toml
           python-version: "3.13"
+          # Without it, setup-uv hashes its default glob (**/pyproject.toml,
+          # **/uv.lock, **/*requirements*.txt, …) across the whole checkout,
+          # node_modules included, for its cache key: about 23 minutes a run.
+          cache-dependency-glob: sdks/python-cli/uv.lock
       # A dry run published nothing to npm: the wheel comes from this commit.
       - name: Build the wheel (dry run, from this checkout)
         if: ${{ inputs.dry-run }}
