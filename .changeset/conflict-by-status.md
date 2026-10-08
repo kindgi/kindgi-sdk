@@ -2,11 +2,11 @@
 "@kindgi/client": patch
 ---
 
-**Every 409 is a conflict, in the TypeScript and Python clients.** A 409 whose code a client didn't list was a server error (`code: 'server'`, Python `ServerError`); now it's a conflict, as a 404 is already a not-found:
-- TypeScript: `code: 'conflict'`, with `reason` the server's code;
-- Python: `ConflictError`.
+**Every 409 is a conflict, in the TypeScript and Python clients.** These 409s are now `ConflictError` in the TypeScript and Python clients; they were `ServerError`. The server still answers them with 409: the clients had misread them as server errors, because they didn't list their codes. A 409 is now read as a conflict, as a 404 is already read as a not-found:
+- TypeScript: `code: 'conflict'` (was `code: 'server'`), with `reason` the server's code;
+- Python: `ConflictError` (was `ServerError`).
 
-That moves 20 codes the API documents: `run-lease-lost`, `duplicate-node-id`, `duplicate-edge-id`, `agent-version-mismatch`, `waitpoint-error`, `reviewer-deactivated`, `approval-terminal`, `invalid-transition`, `signing-key-conflict`, `signing-key-revoked`, `proposal-terminal`, `block-already-registered`, `block-project-mismatch`, `run-not-finished`, `session-revoked`, `tenant-config-revision-conflict`, `secret-write-conflict`, `env-write-conflict`, `trigger-webhook-id-conflict`, `trigger-already-in-state`.
+The 20 codes the API documents with 409 that move: `run-lease-lost`, `duplicate-node-id`, `duplicate-edge-id`, `agent-version-mismatch`, `waitpoint-error`, `reviewer-deactivated`, `approval-terminal`, `invalid-transition`, `signing-key-conflict`, `signing-key-revoked`, `proposal-terminal`, `block-already-registered`, `block-project-mismatch`, `run-not-finished`, `session-revoked`, `tenant-config-revision-conflict`, `secret-write-conflict`, `env-write-conflict`, `trigger-webhook-id-conflict`, `trigger-already-in-state`.
 
 **If you matched one of them by its class** (`err.code === 'server' && err.serverCode === 'run-lease-lost'`, `except ServerError`), match on its code alone: `err.serverCode` / `e.server_code`. Every error carries it, whatever its class.
 
