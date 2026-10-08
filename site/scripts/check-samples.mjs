@@ -24,8 +24,12 @@
  * and kindgi-pack's classes and dependencies), offline. When they're a
  * pack's (they use `com.kindgi.pack`), they go over a fresh `java` pack,
  * compile with its sources, and the pack is indexed
- * (`com.kindgi.pack.Main index`), with no file errors allowed. A sample
- * without a file name is a fragment and isn't checked.
+ * (`com.kindgi.pack.Main index`), with no file errors allowed. Its Scala
+ * files (`// src/main/scala/acme/tools/Name.scala`) go over a fresh `scala`
+ * pack, which sbt compiles against the Scala layer this checkout builds
+ * (kindgi-pack in the local Maven repository, kindgi-pack-scala published
+ * locally), and the pack is indexed the same way. A sample without a file
+ * name is a fragment and isn't checked.
  *
  * A sample may import the reader's own app code (`@/lib/requests`,
  * `acme.orders`). The page gives the checker a stand-in for it in a comment
@@ -36,10 +40,13 @@
  * an app with its own settings (Next.js: `moduleResolution: "bundler"`, the
  * `@/*` paths).
  *
- * Needs the workspace built (`pnpm run build`), uv for Python samples, and for
+ * Needs the workspace built (`pnpm run build`), uv for Python samples, for
  * Java samples a JDK 17 or later and the Java SDK built
- * (`cd sdks/java && ./mvnw package -DskipTests`). A missing tool fails the
- * check; it's never skipped.
+ * (`cd sdks/java && ./mvnw package -DskipTests`), and for Scala samples sbt,
+ * with kindgi-pack installed and the Scala layer published locally
+ * (`./mvnw -pl kindgi-pack -am install -DskipTests` in sdks/java,
+ * `sbt publishLocal` in sdks/scala). A missing tool fails the check; it's
+ * never skipped.
  *
  * Usage: node site/scripts/check-samples.mjs [<page or skill file> …]
  *   (a page path is relative to site/src/content/docs; default: every page and skill)
@@ -85,6 +92,12 @@ const LANGUAGES = {
     file: /^\/\/\s*(src\/main\/java\/\S+\.java)\s*$/,
     id: /\bdefine\("([a-z0-9-]+)\.[^"]+"\)/,
   },
+  // A Scala file, over a `scala` pack: `Tool[I, O]("acme.x")`, `Agent("acme.x")`, …
+  scala: {
+    template: 'scala',
+    file: /^\/\/\s*(src\/main\/scala\/\S+\.scala)\s*$/,
+    id: /\b(?:Tool|Guardrail|Agent|Flow)(?:\[[^\]]*\])?(?:\.json)?\("([a-z0-9-]+)\.[^"]+"\)/,
+  },
 };
 const FENCE_LANGUAGE = {
   ts: 'ts',
@@ -93,6 +106,7 @@ const FENCE_LANGUAGE = {
   python: 'python',
   py: 'python',
   java: 'java',
+  scala: 'scala',
 };
 const javaSdk = join(repo, 'sdks', 'java');
 
@@ -158,7 +172,7 @@ function blocks(markdown) {
 
 /** A page's samples that are whole files, by language: `{ path, content }[]`. */
 function fileSamples(markdown) {
-  const byLanguage = { ts: [], python: [], java: [] };
+  const byLanguage = { ts: [], python: [], java: [], scala: [] };
   for (const block of blocks(markdown)) {
     if (block.stub && ['json', 'jsonc'].includes(block.language)) {
       const config = block.lines[0]?.match(/^\/\/\s*(\S+\.json)\s*$/);
@@ -204,7 +218,7 @@ function freshPack(template, packId) {
     const prepare =
       template === 'python'
         ? run('uv', ['sync', '--quiet'], dir)
-        : template === 'java'
+        : template === 'java' || template === 'scala'
           ? { ok: true, output: '' }
           : run('pnpm', ['install', '--prefer-offline', '--silent'], dir);
     if (!prepare.ok) throw new Error(`preparing the ${template} pack failed:\n${prepare.output}`);
@@ -282,12 +296,17 @@ function checkJava(files) {
     dir,
   );
   if (!compiled.ok || !pack) return compiled.ok ? undefined : compiled.output;
+  return indexJvmPack(dir, [classes, classpath].join(delimiter));
+}
+
+/** A JVM pack indexed with kindgi-pack's indexer: its problems, or undefined when it has none. */
+function indexJvmPack(dir, classpath) {
   const javaBin = process.env.JAVA_HOME ? join(process.env.JAVA_HOME, 'bin', 'java') : 'java';
   const index = run(
     javaBin,
     [
       '-cp',
-      [classes, classpath].join(delimiter),
+      classpath,
       'com.kindgi.pack.Main',
       'index',
       '--pack-dir',
@@ -310,6 +329,48 @@ function checkJava(files) {
   return errors.length > 0
     ? errors.map((error) => `${error.filePath}: ${error.code}: ${error.message}`).join('\n')
     : undefined;
+}
+
+/**
+ * sbt, and the Scala layer this checkout builds where a fresh `scala` pack
+ * resolves it (kindgi-pack in the local Maven repository, kindgi-pack-scala
+ * in the local Ivy one): found once; a missing one fails the check, saying what to do.
+ */
+let scalaReady = false;
+function scala() {
+  if (scalaReady) return;
+  const sbt = run('sbt', ['--script-version'], repo);
+  if (!sbt.ok) {
+    throw new Error('Scala samples need sbt on PATH (https://www.scala-sbt.org/download).');
+  }
+  const version = JSON.parse(
+    readFileSync(join(repo, 'packages', 'sdk', 'package.json'), 'utf8'),
+  ).version;
+  const home = process.env.HOME ?? '';
+  const pack = join(home, '.m2', 'repository', 'com', 'kindgi', 'kindgi-pack', version);
+  const layer = join(home, '.ivy2', 'local', 'com.kindgi', 'kindgi-pack-scala_3', version);
+  if (!existsSync(pack) || !existsSync(layer)) {
+    throw new Error(
+      `Scala samples compile against the Scala layer this checkout builds (${version}), and it isn't published locally: run \`cd sdks/java && ./mvnw -pl kindgi-pack -am install -DskipTests\` and \`cd sdks/scala && sbt publishLocal\` first.`,
+    );
+  }
+  scalaReady = true;
+}
+
+function checkScala(files) {
+  scala();
+  const packId = files.map((file) => file.content.match(LANGUAGES.scala.id)?.[1]).find(Boolean);
+  const dir = freshPack('scala', packId ?? 'my-pack');
+  for (const file of files) {
+    const target = join(dir, file.path);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, file.content);
+  }
+  // sbt compiles the pack and prints its runtime classpath as the last line.
+  const exported = run('sbt', ['-batch', '-error', 'export Runtime/fullClasspath'], dir);
+  if (!exported.ok) return exported.output;
+  const classpath = exported.output.trim().split('\n').at(-1);
+  return indexJvmPack(dir, classpath);
 }
 
 function check(language, files, packDir) {
@@ -360,6 +421,8 @@ try {
       let error;
       if (language === 'java') {
         error = checkJava(files);
+      } else if (language === 'scala') {
+        error = checkScala(files);
       } else {
         const { template, id } = LANGUAGES[language];
         const packId = files.map((file) => file.content.match(id)?.[1]).find(Boolean) ?? 'my-pack';

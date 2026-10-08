@@ -649,4 +649,15 @@ public final class OrderService {
   }
 }
 ```
+
+```scala
+// src/main/scala/com/acme/orders/OrderService.scala
+package com.acme.orders
+
+final case class Order(id: String, total: BigDecimal)
+
+object OrderService {
+  def findOrders(customerId: String): Seq[Order] = Seq.empty
+}
+```
 -->

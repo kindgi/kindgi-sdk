@@ -145,6 +145,31 @@ describe('kindgi skills sync', () => {
     ]);
   });
 
+  test('in a Scala pack, copies the bundled skills written for Scala packs', async () => {
+    await writeFile(
+      join(packDir, 'kindgi.config.json'),
+      '{"language": "scala", "pack": {"id": "ledger", "version": "0.1.0"}}',
+    );
+    const out = await runCli({
+      argv: ['skills', 'sync', '--json'],
+      env: {},
+      cwd: packDir,
+      home: packDir,
+    });
+    expect(out.exitCode).toBe(0);
+    expect(JSON.parse(out.stdout).packLanguage).toBe('scala');
+    expect(await installed()).toEqual([
+      'kindgi-authoring-mcp-servers',
+      'kindgi-authoring-providers',
+      'kindgi-framework-feedback',
+      'kindgi-scala-authoring-agents',
+      'kindgi-scala-authoring-flows',
+      'kindgi-scala-authoring-guardrails',
+      'kindgi-scala-authoring-tools',
+      'kindgi-scala-getting-started',
+    ]);
+  });
+
   test('in a Java pack, copies the bundled skills written for Java packs', async () => {
     await writeFile(
       join(packDir, 'kindgi.config.json'),

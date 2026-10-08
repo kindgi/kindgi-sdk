@@ -17,9 +17,9 @@ description: >
   `kindgi secrets set` flow.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.1"
+version: "0.3.2"
 sdk_version: "0.0.0"
-pack_languages: [node, python, java]
+pack_languages: [node, python, java, scala]
 ---
 
 # Wiring an MCP server for a Kindgi pack

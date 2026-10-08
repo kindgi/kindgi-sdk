@@ -14,9 +14,9 @@ description: >
   diagnostic output into durable input for framework improvement.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.1"
+version: "0.4.2"
 sdk_version: "0.0.0"
-pack_languages: [node, python, java]
+pack_languages: [node, python, java, scala]
 ---
 
 # Capturing framework feedback

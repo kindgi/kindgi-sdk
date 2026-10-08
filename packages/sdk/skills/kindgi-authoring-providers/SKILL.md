@@ -22,9 +22,9 @@ description: >
   kindgi-getting-started.
 type: core
 library: "@kindgi/sdk"
-version: "0.9.6"
+version: "0.9.7"
 sdk_version: "0.0.0"
-pack_languages: [node, python, java]
+pack_languages: [node, python, java, scala]
 sources:
   - packages/adapters/model-anthropic/src/provider.ts
   - packages/adapters/model-gemini/src/provider.ts

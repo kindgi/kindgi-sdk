@@ -24,8 +24,7 @@ how it knows to.
 ### Skills, loaded for the task
 
 `kindgi init` copies Kindgi's **skills** into the project, under
-`.claude/skills/` (for a TypeScript, Python or Java project; a Scala project
-has none yet, so point the agent at its `README.md` and `AGENTS.md`). A skill
+`.claude/skills/`, for a TypeScript, Python, Java or Scala project. A skill
 is a page of instructions written for an agent:
 the steps, the commands to run, what to check, and the mistakes to avoid.
 
@@ -37,11 +36,11 @@ agent that uses it, a flow around both) loads each one in turn.
 
 | Skill | Loaded when |
 |---|---|
-| `kindgi-getting-started`, `kindgi-python-getting-started`, `kindgi-java-getting-started` | Setting up or orienting in a pack |
-| `kindgi-authoring-tools`, `kindgi-python-authoring-tools`, `kindgi-java-authoring-tools` | Writing a tool: typed input and output, side effects, secrets, HTTP tools |
-| `kindgi-authoring-agents`, `kindgi-python-authoring-agents`, `kindgi-java-authoring-agents` | Writing an agent: instructions, tools, typed output, budgets |
-| `kindgi-authoring-flows`, `kindgi-python-authoring-flows`, `kindgi-java-authoring-flows` | Writing a flow: steps, edges, conditions, loops, fanout |
-| `kindgi-authoring-guardrails`, `kindgi-python-authoring-guardrails`, `kindgi-java-authoring-guardrails` | Writing a guardrail check |
+| `kindgi-getting-started`, `kindgi-python-getting-started`, `kindgi-java-getting-started`, `kindgi-scala-getting-started` | Setting up or orienting in a pack |
+| `kindgi-authoring-tools`, `kindgi-python-authoring-tools`, `kindgi-java-authoring-tools`, `kindgi-scala-authoring-tools` | Writing a tool: typed input and output, side effects, secrets, HTTP tools |
+| `kindgi-authoring-agents`, `kindgi-python-authoring-agents`, `kindgi-java-authoring-agents`, `kindgi-scala-authoring-agents` | Writing an agent: instructions, tools, typed output, budgets |
+| `kindgi-authoring-flows`, `kindgi-python-authoring-flows`, `kindgi-java-authoring-flows`, `kindgi-scala-authoring-flows` | Writing a flow: steps, edges, conditions, loops, fanout |
+| `kindgi-authoring-guardrails`, `kindgi-python-authoring-guardrails`, `kindgi-java-authoring-guardrails`, `kindgi-scala-authoring-guardrails` | Writing a guardrail check |
 | `kindgi-authoring-providers` | Connecting a model: Anthropic, Gemini, OpenAI-compatible endpoints |
 | `kindgi-authoring-mcp-servers` | Giving the coding agent an MCP server |
 | `kindgi-framework-feedback` | Reporting a problem in Kindgi itself |

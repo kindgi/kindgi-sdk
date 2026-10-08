@@ -23,6 +23,7 @@ import { chmod, copyFile, readFile, readdir, stat, writeFile } from 'node:fs/pro
 import { join } from 'node:path';
 
 import { PACK_ID_REGEX } from '../commands/init.js';
+import { syncSkills } from '../commands/skills.js';
 import type { CommandResult } from '../commands/types.js';
 import { renderJson } from '../output.js';
 import { binDisplay } from '../package-manager.js';
@@ -43,6 +44,8 @@ export interface RunInitScalaAugmentInputs {
   readonly targetDir: string;
   /** Where the java template's `kindgiw` wrappers are. */
   readonly templatesRoot: string;
+  /** The skills bundled into the CLI; the ones written for Scala packs are copied. */
+  readonly skillsRoot?: string;
   readonly packIdOverride?: string;
   /** Overwrite an existing `kindgi.config.json` and the wrappers. */
   readonly force: boolean;
@@ -183,6 +186,7 @@ async function writePackFiles(
     if (wrapper === 'kindgiw') await chmod(dest, 0o755);
     created.push(dest);
   }
+  await writeSkills(inputs, created, skipped);
   const gitignorePath = join(inputs.targetDir, '.gitignore');
   const gitignore = await patchGitignore(gitignorePath);
   if (gitignore.kind === 'error') {
@@ -195,6 +199,27 @@ async function writePackFiles(
     created.push(`${gitignorePath} (patched: +${gitignore.appended.join(', +')})`);
   }
   return { kind: 'ok', created, skipped };
+}
+
+/** The skills written for Scala packs, into `.claude/skills/`, as `kindgi skills sync` writes them. */
+async function writeSkills(
+  inputs: RunInitScalaAugmentInputs,
+  created: string[],
+  skipped: string[],
+): Promise<void> {
+  if (inputs.skillsRoot === undefined) return;
+  const report = await syncSkills({
+    skillsRoot: inputs.skillsRoot,
+    targetDir: inputs.targetDir,
+    language: 'scala',
+    force: inputs.force,
+    dryRun: false,
+  });
+  for (const o of report.outcomes) {
+    const target = join(inputs.targetDir, '.claude', 'skills', o.name, 'SKILL.md');
+    if (o.status === 'added' || o.status === 'updated') created.push(target);
+    else if (o.status !== 'local-only') skipped.push(target);
+  }
 }
 
 /** `--pack-id`, else the build's name as a pack id. */

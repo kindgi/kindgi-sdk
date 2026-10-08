@@ -157,17 +157,24 @@ jobs:
       # and search index, from the workspace built above.
       - name: Docs site
         run: pnpm run docs:build
-      # The Java SDK, for the docs' Java samples: they compile against it.
+      # The Java SDK, for the docs' Java samples: they compile against it. It's
+      # installed too, so the Scala layer and the Scala samples resolve kindgi-pack.
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
           cache: maven
-      - name: The Java SDK (for the docs' Java samples)
+      - name: The Java SDK (for the docs' Java and Scala samples)
         working-directory: sdks/java
-        run: ./mvnw -B -ntp package -DskipTests
-      # Every sample that is a whole file compiles (TypeScript, Java) or indexes
-      # (Python).
+        run: ./mvnw -B -ntp install -DskipTests
+      # The Scala layer, published locally, for the docs' Scala samples: a fresh
+      # Scala pack compiles them against it.
+      - uses: sbt/setup-sbt@v1
+      - name: The Scala layer (for the docs' Scala samples)
+        working-directory: sdks/scala
+        run: sbt -batch publishLocal
+      # Every sample that is a whole file compiles (TypeScript, Java, Scala) or
+      # indexes (Python, Java, Scala).
       - name: Docs samples
         run: pnpm run docs:samples
 

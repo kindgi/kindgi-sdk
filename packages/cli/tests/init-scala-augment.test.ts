@@ -73,6 +73,16 @@ describe('kindgi init in an sbt app', () => {
     expect(out.stderr).toContain('./kindgiw dev');
     expect(await readFile(join(app, '.gitignore'), 'utf8')).toContain('.kindgirc.json');
     expect(JSON.parse(out.stdout)).toMatchObject({ language: 'scala', dependencyInBuild: false });
+    // The skills written for Scala packs.
+    expect(
+      await readFile(
+        join(app, '.claude', 'skills', 'kindgi-scala-authoring-tools', 'SKILL.md'),
+        'utf8',
+      ),
+    ).toContain('name: kindgi-scala-authoring-tools');
+    expect(JSON.parse(out.stdout).created).toContain(
+      join(app, '.claude', 'skills', 'kindgi-scala-getting-started', 'SKILL.md'),
+    );
   });
 
   test('a second run refuses; --force writes it again; another template is refused', async () => {

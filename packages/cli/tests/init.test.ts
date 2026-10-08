@@ -436,6 +436,17 @@ describe('kindgi init — scala template', () => {
     const out = await runCli(baseInputs({ argv: ['init', 'acme.type', '--template=scala'] }));
     expect(out.exitCode, out.stderr).toBe(0);
     expect(await listRecursive(join(cwd, 'type'))).toEqual([
+      // The skills written for Scala packs: the shared ones and the Scala getting-started and
+      // authoring skills.
+      '.claude/skills/.kindgi-manifest.json',
+      '.claude/skills/kindgi-authoring-mcp-servers/SKILL.md',
+      '.claude/skills/kindgi-authoring-providers/SKILL.md',
+      '.claude/skills/kindgi-framework-feedback/SKILL.md',
+      '.claude/skills/kindgi-scala-authoring-agents/SKILL.md',
+      '.claude/skills/kindgi-scala-authoring-flows/SKILL.md',
+      '.claude/skills/kindgi-scala-authoring-guardrails/SKILL.md',
+      '.claude/skills/kindgi-scala-authoring-tools/SKILL.md',
+      '.claude/skills/kindgi-scala-getting-started/SKILL.md',
       '.gitignore',
       'AGENTS.md',
       'README.md',

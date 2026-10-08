@@ -196,6 +196,7 @@ export async function runInit(
     return runInitScalaAugment({
       targetDir: detected.targetDir,
       templatesRoot,
+      ...(skillsRoot !== undefined && { skillsRoot }),
       ...(typeof packIdRaw === 'string' && packIdRaw !== '' && { packIdOverride: packIdRaw }),
       force: ctx.options.force === true,
     });
@@ -615,7 +616,7 @@ function runInitLanguageTemplate(
     case 'java':
       return runInitJava(ctx, args, templateDir, skillsRoot);
     case 'scala':
-      return runInitScala(ctx, args, templatesRoot, templateDir);
+      return runInitScala(ctx, args, templatesRoot, templateDir, skillsRoot);
     default:
       return undefined;
   }
@@ -641,6 +642,7 @@ async function runInitScala(
   args: ResolvedArgs,
   templatesRoot: string,
   templateDir: string,
+  skillsRoot: string | undefined,
 ): Promise<CommandResult> {
   const source = await resolveKindgiJavaSource();
   if (source.kind === 'error') return { kind: 'error', stderr: `${source.message}\n`, exitCode: 1 };
@@ -664,6 +666,13 @@ async function runInitScala(
     await writeFile(dest, await readFile(join(templatesRoot, 'java', wrapper)));
     if (wrapper === 'kindgiw') await chmod(dest, 0o755);
     filesWritten.push(dest);
+  }
+  for (const s of await copyClaudeSkills({
+    skillsRoot,
+    targetDir: args.targetDir,
+    language: 'scala',
+  })) {
+    filesWritten.push(s);
   }
   filesWritten.sort();
   const displayPath = relative(ctx.cwd, args.targetDir) || '.';

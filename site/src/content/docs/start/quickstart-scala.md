@@ -59,11 +59,11 @@ Run the CLI as `./kindgiw` (`kindgiw.cmd` on Windows): it uses Node's `npx`
 when Node is installed, else `uvx` (no Node needed). `kindgi upgrade` moves
 the pin, and kindgi-pack-scala's version in `build.sbt` with it.
 
-:::note[No skills for coding agents yet]
-A TypeScript or Python pack gets Kindgi's skills in `.claude/skills/`,
-which teach a coding agent how to write tools and agents. Scala has none
-yet: point your agent at the pack's `README.md` and `AGENTS.md` and at
-[kindgi-pack-scala's README](https://github.com/kindgi/kindgi-sdk/tree/main/sdks/scala).
+:::tip[Skills for your coding agent]
+The pack comes with Kindgi's skills in `.claude/skills/`: how to write
+tools, guardrails, agents and flows in Scala, connect a model, and report a
+problem in Kindgi. Claude Code loads the one your request needs
+([Coding agents](../coding-agents/)). `./kindgiw skills sync` refreshes them.
 :::
 
 ## 2. Run it
