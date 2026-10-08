@@ -22,7 +22,8 @@ It checks, from the outside:
 - **every message**: results, Ajv-shaped validation issues, `handler-throw`,
   `tool-not-in-pack`, `tool-version-mismatch`, malformed requests,
   `deadline-exceeded` from `kindgi-timeout-ms`, `cancelled` on disconnect,
-  check results — each answer validated against the protocol schema.
+  check results, a check's `config` refused against its `configSchema` (the
+  first issue in the message) — each answer validated against the protocol schema.
 
 ## Targets
 

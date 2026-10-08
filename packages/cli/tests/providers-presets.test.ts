@@ -140,6 +140,49 @@ describe('the bundled presets', () => {
     }
   });
 
+  test("the anthropic preset's rates are Anthropic's prices, cache writes and reads included (pricing page, 2026-10-07)", async () => {
+    const { anthropic } = await loadProviderPresets();
+    if (anthropic === undefined) throw new Error('preset missing');
+    // Per 1M tokens: input, 5-minute cache writes, cache hits, output; then past 100K
+    // prompt tokens (Haiku 5.5 only). Cache hits are 0.05x on Opus 5.5 and Sonnet 5.5.
+    const table: Record<string, readonly number[]> = {
+      'claude-opus-5-5': [4, 5, 0.2, 20],
+      'claude-sonnet-5-5': [2, 2.5, 0.1, 10],
+      'claude-haiku-5-5': [0.1, 0.125, 0.01, 0.5, 0.5, 0.625, 0.05, 2.5],
+      'claude-haiku-4-5': [1, 1.25, 0.1, 5],
+    };
+    for (const model of anthropic.metadata.models) {
+      const cost = model.cost as typeof model.cost & {
+        readonly promptCacheCreationMultiplier: number;
+        readonly promptCacheReadMultiplier: number;
+        readonly longContext?: {
+          readonly promptUsdPer1kTokens: number;
+          readonly completionUsdPer1kTokens: number;
+        };
+      };
+      const perM = (per1k: number) => per1k * 1000;
+      const rates = (prompt: number, completion: number) => [
+        perM(prompt),
+        perM(prompt) * cost.promptCacheCreationMultiplier,
+        perM(prompt) * cost.promptCacheReadMultiplier,
+        perM(completion),
+      ];
+      const prices = [
+        ...rates(cost.promptUsdPer1kTokens, cost.completionUsdPer1kTokens),
+        ...(cost.longContext === undefined
+          ? []
+          : rates(
+              cost.longContext.promptUsdPer1kTokens,
+              cost.longContext.completionUsdPer1kTokens,
+            )),
+      ];
+      const expected = table[model.name];
+      if (expected === undefined) throw new Error(`no published prices for ${model.name}`);
+      expect(prices).toHaveLength(expected.length);
+      prices.forEach((price, i) => expect(price).toBeCloseTo(expected[i] as number, 9));
+    }
+  });
+
   test("the openai preset speaks OpenAI's Responses API, the one GPT-6 calls tools through", async () => {
     const { openai } = await loadProviderPresets();
     if (openai === undefined) throw new Error('preset missing');

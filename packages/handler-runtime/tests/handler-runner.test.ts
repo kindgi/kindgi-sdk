@@ -363,4 +363,74 @@ describe('runCheck', () => {
     });
     expect(outcome.kind === 'err' && outcome.error.code).toBe('check-shape-invalid');
   });
+
+  describe("the guardrail's configSchema", () => {
+    const withSchema = {
+      ...check,
+      configSchema: {
+        type: 'object',
+        properties: { minChars: { type: 'integer', minimum: 0, default: 1 } },
+      },
+    };
+
+    test("a config that doesn't fit → input-validation-failed with the issues; the check isn't imported", async () => {
+      const imported: string[] = [];
+      const outcome = await runCheck({
+        check: withSchema,
+        config: { minChars: -1 },
+        trace: {},
+        importCheck: (path) => {
+          imported.push(path);
+          return { evaluate: () => ({ passed: true }) };
+        },
+      });
+      expect(outcome).toMatchObject({
+        kind: 'err',
+        error: {
+          code: 'input-validation-failed',
+          message: 'Check "test.cites" config failed validation at /minChars: must be >= 0',
+          toolId: 'test.cites',
+          issues: [expect.objectContaining({ instancePath: '/minChars', keyword: 'minimum' })],
+        },
+      });
+      expect(imported).toEqual([]);
+    });
+
+    test("a config that fits runs, as sent: the schema's defaults aren't filled in", async () => {
+      const seen: unknown[] = [];
+      const outcome = await runCheck({
+        check: withSchema,
+        config: {},
+        trace: {},
+        importCheck: () => ({
+          evaluate: (config: unknown) => {
+            seen.push(config);
+            return { passed: true };
+          },
+        }),
+      });
+      expect(outcome).toEqual({ kind: 'ok', value: { passed: true } });
+      expect(seen).toEqual([{}]);
+    });
+
+    test("a schema that doesn't compile → input-validation-failed, the check not run", async () => {
+      let ran = false;
+      const outcome = await runCheck({
+        check: { ...check, configSchema: { type: 'no-such-type' } },
+        config: {},
+        trace: {},
+        importCheck: () => ({
+          evaluate: () => {
+            ran = true;
+            return { passed: true };
+          },
+        }),
+      });
+      expect(outcome.kind === 'err' && outcome.error.code).toBe('input-validation-failed');
+      expect(outcome.kind === 'err' && outcome.error.message).toMatch(
+        /^Check "test.cites" config schema failed to compile: /,
+      );
+      expect(ran).toBe(false);
+    });
+  });
 });

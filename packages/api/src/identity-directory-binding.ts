@@ -31,6 +31,14 @@ export interface IdentityDirectoryBinding {
    */
   getUser(input: IdentityGetUserInput): Promise<UserRecord | null>;
   /**
+   * Optional. The person still in the tenant whose `primaryEmail` is
+   * `email`, compared as the directory compares emails when it adds a
+   * person (case-insensitively, for the runtime's); `null` when none.
+   * When present, `POST /v1/projects/{projectId}/memberships` takes an
+   * `email` as well as a `userId`.
+   */
+  findUserByEmail?(input: IdentityFindUserByEmailInput): Promise<UserRecord | null>;
+  /**
    * Cursor-paginated list of users in the tenant. Optional `query`
    * is a prefix match on `displayName` — the natural filter shape
    * for a "search users" surface. Sort order is binding-defined (e.g.
@@ -64,7 +72,48 @@ export interface IdentityDirectoryBinding {
    * another person of the tenant has is refused.
    */
   createUser?(input: IdentityCreateUserInput): Promise<IdentityCreateUserResult>;
+  /**
+   * Optional. Unregister a person (remove them from the tenant), in one
+   * step: they're marked unregistered (their record stays, with
+   * `unregisteredAt`, so their history still says who they were), every
+   * API key and session of theirs is revoked, and every grant and
+   * membership they hold is taken from the authorization store, all before
+   * it returns. Their email is then free: adding it again makes a new
+   * person. Unregistering someone already unregistered changes nothing.
+   * Refused for yourself, the deployment's seed user, and the tenant's
+   * only tenant admin. When present,
+   * `POST /v1/identity/users/{userId}/unregister` mounts (tenant admins
+   * only).
+   */
+  unregisterUser?(input: IdentityUnregisterUserInput): Promise<IdentityUnregisterUserResult>;
 }
+
+export interface IdentityUnregisterUserInput {
+  readonly tenantId: TenantId;
+  readonly userId: UserId;
+  /** Who unregisters them: `user:<id>` or `service_account:<id>`. */
+  readonly unregisteredBy?: string;
+}
+
+/** Why a person can't be unregistered. */
+export type IdentityUnregisterUserRefusal = 'yourself' | 'seed-user' | 'last-tenant-admin';
+
+export type IdentityUnregisterUserResult =
+  | {
+      readonly kind: 'unregistered';
+      /** The person, with `unregisteredAt`. */
+      readonly user: UserRecord;
+      /** What unregistering took away (each 0 when they were already unregistered). */
+      readonly keysRevoked: number;
+      readonly sessionsRevoked: number;
+      readonly grantsRemoved: number;
+    }
+  | { readonly kind: 'not-found' }
+  | {
+      readonly kind: 'refused';
+      readonly reason: IdentityUnregisterUserRefusal;
+      readonly message: string;
+    };
 
 export interface IdentityCreateUserInput {
   readonly tenantId: TenantId;
@@ -83,12 +132,19 @@ export interface IdentityGetUserInput {
   readonly userId: UserId;
 }
 
+export interface IdentityFindUserByEmailInput {
+  readonly tenantId: TenantId;
+  readonly email: string;
+}
+
 export interface IdentityListUsersInput {
   readonly tenantId: TenantId;
   readonly limit: number;
   readonly cursor?: Cursor;
   /** Prefix match on `UserRecord.displayName`. Undefined = no filter. */
   readonly query?: string;
+  /** Unregistered people too (`unregisteredAt` set). Default: only the people still here. */
+  readonly includeUnregistered?: boolean;
 }
 
 export interface IdentityListSessionsInput {
@@ -115,6 +171,8 @@ export interface UserRecord {
   readonly displayName?: string;
   readonly createdAt: Timestamp;
   readonly lastActiveAt?: Timestamp;
+  /** When they were removed from the tenant (`unregisterUser`); absent while they're here. */
+  readonly unregisteredAt?: Timestamp;
   readonly metadata?: Readonly<Record<string, unknown>>;
 }
 

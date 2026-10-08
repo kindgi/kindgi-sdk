@@ -73,10 +73,14 @@ function appWith(resumeRun: RunHandlerBinding['resumeRun']) {
   });
 }
 
-async function approve(app: ReturnType<typeof appWith>) {
+async function approve(app: ReturnType<typeof appWith>, extraHeaders: Record<string, string> = {}) {
   const res = await app.request('/v1/approvals/appr-1/complete', {
     method: 'POST',
-    headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+    headers: {
+      authorization: `Bearer ${TOKEN}`,
+      'content-type': 'application/json',
+      ...extraHeaders,
+    },
     body: JSON.stringify({ decision: 'approve' }),
   });
   return { status: res.status, json: (await res.json()) as Record<string, unknown> };
@@ -87,6 +91,25 @@ describe('an approval says how its run went on', () => {
     const answer = await approve(appWith(async () => ({ kind: 'ok', runId: 'run-1' as never })));
     expect(answer.status).toBe(200);
     expect(answer.json).toMatchObject({ waitpointResolved: true, resume: { kind: 'ok' } });
+  });
+
+  test("the resume runs under the reviewer's request's trace", async () => {
+    const seen: unknown[] = [];
+    const app = appWith(async (input) => {
+      seen.push(input.trace);
+      return { kind: 'ok', runId: 'run-1' as never };
+    });
+    await approve(app, {
+      traceparent: '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01',
+    });
+    expect(seen).toEqual([
+      {
+        traceId: '4bf92f3577b34da6a3ce929d0e0e4736',
+        spanId: expect.stringMatching(/^[0-9a-f]{16}$/),
+      },
+    ]);
+    // The request's own span, a child of the caller's.
+    expect((seen[0] as { spanId: string }).spanId).not.toBe('00f067aa0ba902b7');
   });
 
   test("the run couldn't go on: resume failed, with the run's error; the decision stands", async () => {
