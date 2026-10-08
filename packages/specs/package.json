@@ -23,9 +23,18 @@
     },
     "./*.schema.json": "./schemas/*.schema.json",
     "./examples/*.json": "./examples/*.json",
+    "./test-vectors/*": "./test-vectors/*",
     "./package.json": "./package.json"
   },
-  "files": ["dist", "src", "schemas", "examples", "README.md", "type-manifest.json"],
+  "files": [
+    "dist",
+    "src",
+    "schemas",
+    "examples",
+    "test-vectors",
+    "README.md",
+    "type-manifest.json"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",

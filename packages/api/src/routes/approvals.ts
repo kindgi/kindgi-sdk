@@ -5,18 +5,16 @@ import { Hono } from 'hono';
 
 import { AGENT_GATE_SUBJECTS, TOOL_CALL_GATE_SUBJECT } from '@kindgi/agents';
 import type { ConversationBinding, GateDecisionValue } from '@kindgi/agents';
+import type { AuditEventBinding } from '@kindgi/audit-events';
 import { REVIEWER_ROLE_RANK, type ReviewerRole } from '@kindgi/authz';
-import { serializePublicKeyPem, signEd25519 } from '@kindgi/crypto';
-import type { SigningKeyBinding } from '@kindgi/crypto';
+import type { ExportSigningBinding } from '@kindgi/crypto';
 import type { RunBinding } from '@kindgi/runtime';
-import { canonicalize } from '@kindgi/schema';
 import type {
   ApprovalId,
   ConversationId,
   Cursor,
   ReviewerId,
   RunId,
-  SigningKeyId,
   TenantId,
   Timestamp,
   UserId,
@@ -33,6 +31,14 @@ import type {
 } from '../hitl-binding.js';
 import type { ReviewerBinding } from '../reviewer-binding.js';
 import { callerReviewerRole } from '../reviewer-role.js';
+import {
+  exportActor,
+  parseSigningKeyId,
+  readExportBody,
+  signExport,
+  signExportFailure,
+  signingNotConfigured,
+} from '../signed-export.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
 import { parseListScope } from './scope-params.js';
@@ -73,11 +79,18 @@ const DECIDED_STATUSES: ReadonlySet<ApprovalStatus> = new Set([
   'withdrawn',
 ]);
 
-/** Audit-bundle body schema version — bump when the bundle wire shape changes. */
-const AUDIT_BUNDLE_SCHEMA_VERSION = 1;
+/**
+ * Audit-bundle body schema version — bump when the bundle wire shape changes.
+ * 2.0.0: a string like the other exports' (was the integer 1), named
+ * `bundleSchemaVersion` in the body too, `exportedAt` signed once.
+ */
+const AUDIT_BUNDLE_SCHEMA_VERSION = '2.0.0';
 
 export interface ApprovalsRouterOptions {
-  readonly signingKey?: SigningKeyBinding;
+  /** Signs audit bundles. Absent: `POST /:approvalId/audit-bundle` answers `404 signing-not-configured`. */
+  readonly exportSigning?: ExportSigningBinding;
+  /** Records each signed export (`export-signed`). */
+  readonly auditEvents?: AuditEventBinding;
   /**
    * When supplied, the POST /:approvalId/complete handler
    * invokes `runHandler.resumeRun(runId)` INLINE after `completeToken`
@@ -113,7 +126,7 @@ export function approvalsRouter(
   options: ApprovalsRouterOptions = {},
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
-  const signingKey = options.signingKey;
+  const { exportSigning, auditEvents } = options;
   const runHandler = options.runHandler;
 
   // ---------- role gate for the whole resource ----------
@@ -492,36 +505,10 @@ export function approvalsRouter(
     const role = c.get('reviewerRole') as ReviewerRole;
     const approvalId = c.req.param('approvalId') as ApprovalId;
 
-    if (signingKey === undefined) {
-      c.status(statusFor('signing-not-configured') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'signing-not-configured',
-            message:
-              'This deployment does not have a `signingKey` binding mounted; signed audit bundles are unavailable.',
-          },
-          requestId,
-        ),
-      );
-    }
+    if (exportSigning === undefined) return signingNotConfigured(c, 'signed audit bundles');
 
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      c.status(statusFor('bad-input') as never);
-      return c.json(
-        toWireError({ code: 'bad-input', message: 'Request body must be valid JSON' }, requestId),
-      );
-    }
-    if (body === null || typeof body !== 'object' || Array.isArray(body)) {
-      c.status(statusFor('bad-input') as never);
-      return c.json(
-        toWireError({ code: 'bad-input', message: 'Request body must be an object' }, requestId),
-      );
-    }
-    const parsed = parseAuditBundleBody(body as Record<string, unknown>);
+    const read = await readExportBody(c);
+    const parsed = read.kind === 'ok' ? parseAuditBundleBody(read.value) : read;
     if (parsed.kind === 'err') {
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: parsed.message }, requestId));
@@ -596,96 +583,54 @@ export function approvalsRouter(
       messages = [];
     }
 
-    // 5. Look up the private key material.
-    const privateKey = signingKey.getPrivateKey(signingKeyId);
-    if (privateKey === null) {
-      c.status(statusFor('signing-key-not-found') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'signing-key-not-found',
-            message: `No signing key registered with id "${signingKeyId as unknown as string}"`,
-            signingKeyId: signingKeyId as unknown as string,
-          },
-          requestId,
-        ),
-      );
-    }
-    const publicKeyRaw = signingKey.getPublicKey(signingKeyId);
-    if (publicKeyRaw === null) {
-      c.status(statusFor('signing-key-not-found') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'signing-key-not-found',
-            message: `Signing key "${signingKeyId as unknown as string}" resolved a private key but no public key`,
-            signingKeyId: signingKeyId as unknown as string,
-          },
-          requestId,
-        ),
-      );
-    }
-
-    // 6. Build the canonical bundle body.
+    // 5. Sign the bundle body (and record the export).
     const guardrailResults = extractGuardrailResults(approval.context);
-    const bundleBody: Record<string, unknown> = {
-      bundleVersion: AUDIT_BUNDLE_SCHEMA_VERSION,
-      approvalId: approval.id as unknown as string,
-      tenantId: approval.tenantId as unknown as string,
-      subjectKind: approval.subjectKind,
-      subjectRef: approval.subjectRef,
-      requiredRole: approval.requiredRole,
-      status: approval.status,
-      createdAt: approval.createdAt as unknown as string,
-      ...(approval.decidedAt !== undefined && {
-        decidedAt: approval.decidedAt as unknown as string,
-      }),
-      decision:
-        decisionRow !== null
-          ? {
-              kind: decisionRow.decision,
-              reviewerId: decisionRow.reviewerId,
-              reviewerRoleAtDecision: decisionRow.reviewerRoleAtDecision,
-              decidedAt: decisionRow.decidedAt as unknown as string,
-              ...(decisionRow.rationale !== undefined && { rationale: decisionRow.rationale }),
-            }
-          : null,
-      evidence: {
-        ...(guardrailResults !== undefined && { guardrailResults }),
-        ...(messages !== undefined && { messages }),
-      },
-      exportedAt: new Date().toISOString(),
-    };
-    const canonicalBundleBytes = new TextEncoder().encode(canonicalize(bundleBody));
-
-    // 7. Sign.
-    const signResult = signEd25519(privateKey, canonicalBundleBytes);
-    if (signResult.kind === 'err') {
-      c.status(statusFor('export-key-error') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'export-key-error',
-            message: `Failed to sign audit bundle: ${signResult.error.message}`,
-          },
-          requestId,
-        ),
-      );
-    }
-
-    return c.json({
-      approvalId: approvalId as unknown as string,
-      bundle: Buffer.from(canonicalBundleBytes).toString('base64'),
+    const runId = approval.provenanceRef?.runId as unknown as string | undefined;
+    const signed = await signExport({
+      signer: exportSigning,
+      kind: 'audit-bundle',
       bundleSchemaVersion: AUDIT_BUNDLE_SCHEMA_VERSION,
-      algorithm: 'ed25519' as const,
-      signingKeyId: signingKeyId as unknown as string,
-      signature: Buffer.from(signResult.value).toString('base64'),
-      publicKey: serializePublicKeyPem(publicKeyRaw),
-      canonicalization: 'sorted-key-json' as const,
-      exportedAt: new Date().toISOString() as unknown as Timestamp,
+      ...(signingKeyId !== undefined && { signingKeyId }),
+      body: {
+        approvalId: approval.id as unknown as string,
+        tenantId: approval.tenantId as unknown as string,
+        subjectKind: approval.subjectKind,
+        subjectRef: approval.subjectRef,
+        requiredRole: approval.requiredRole,
+        status: approval.status,
+        createdAt: approval.createdAt as unknown as string,
+        ...(approval.decidedAt !== undefined && {
+          decidedAt: approval.decidedAt as unknown as string,
+        }),
+        decision:
+          decisionRow !== null
+            ? {
+                kind: decisionRow.decision,
+                reviewerId: decisionRow.reviewerId,
+                reviewerRoleAtDecision: decisionRow.reviewerRoleAtDecision,
+                decidedAt: decisionRow.decidedAt as unknown as string,
+                ...(decisionRow.rationale !== undefined && { rationale: decisionRow.rationale }),
+              }
+            : null,
+        evidence: {
+          ...(guardrailResults !== undefined && { guardrailResults }),
+          ...(messages !== undefined && { messages }),
+        },
+      },
+      ...(auditEvents !== undefined && {
+        record: {
+          auditEvents,
+          tenantId,
+          ...(approval.projectId !== undefined && { projectId: approval.projectId }),
+          ...(runId !== undefined && { runId }),
+          actor: exportActor(c),
+          subject: { approvalId: approval.id as unknown as string },
+        },
+      }),
     });
+    if (signed.kind === 'err') return signExportFailure(c, signed.error, 'export-key-error');
+    return c.json({ approvalId: approvalId as unknown as string, ...signed.value });
   });
-
   return r;
 }
 
@@ -800,7 +745,7 @@ function parseCompleteBody(
 }
 
 interface ParsedAuditBundle {
-  readonly signingKeyId: SigningKeyId;
+  readonly signingKeyId: string | undefined;
   readonly includeMessages: boolean;
 }
 
@@ -809,10 +754,8 @@ function parseAuditBundleBody(
 ):
   | { readonly kind: 'ok'; readonly value: ParsedAuditBundle }
   | { readonly kind: 'err'; readonly message: string } {
-  const raw = body.signingKeyId;
-  if (typeof raw !== 'string' || raw.length === 0) {
-    return { kind: 'err', message: 'Field `signingKeyId` must be a non-empty string' };
-  }
+  const signingKeyId = parseSigningKeyId(body);
+  if (signingKeyId.kind === 'err') return signingKeyId;
   let includeMessages = false;
   if ('includeMessages' in body) {
     const im = body.includeMessages;
@@ -821,13 +764,7 @@ function parseAuditBundleBody(
     }
     includeMessages = im;
   }
-  return {
-    kind: 'ok',
-    value: {
-      signingKeyId: raw as SigningKeyId,
-      includeMessages,
-    },
-  };
+  return { kind: 'ok', value: { signingKeyId: signingKeyId.value, includeMessages } };
 }
 
 /** How the inline resume after a decision went. */

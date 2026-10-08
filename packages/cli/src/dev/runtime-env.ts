@@ -19,6 +19,7 @@ export const RUNTIME_PACK_DIR = '/pack';
 /** Where read-only credential files are mounted in the runtime container. */
 export const RUNTIME_GOOGLE_CREDENTIALS = '/run/kindgi/google-credentials.json';
 export const RUNTIME_PUBLIC_TOKEN_KEY = '/run/kindgi/public-token-signing.pem';
+export const RUNTIME_EXPORT_SIGNING_KEY = '/run/kindgi/export-signing.pem';
 
 /** `<pack>/.kindgi/dev/runtime.env`. */
 export function runtimeEnvPath(packDir: string): string {
@@ -56,6 +57,8 @@ export interface RuntimeEnvInput {
   readonly corsOrigins: readonly string[];
   /** The developer's public run token key file, as the runtime sees it. */
   readonly publicTokenKeyPath?: string;
+  /** The developer's export signing key file, as the runtime sees it. */
+  readonly exportSigningKeyPath?: string;
   /** The developer's Google Application Default Credentials, as the runtime sees them. */
   readonly googleCredentialsPath?: string;
   /**
@@ -101,6 +104,9 @@ export function buildRuntimeEnv(input: RuntimeEnvInput): Record<string, string> 
     ...(input.corsOrigins.length > 0 && { KINDGI_CORS_ORIGINS: input.corsOrigins.join(',') }),
     ...(input.publicTokenKeyPath !== undefined && {
       KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH: input.publicTokenKeyPath,
+    }),
+    ...(input.exportSigningKeyPath !== undefined && {
+      KINDGI_EXPORT_SIGNING_KEY_PATH: input.exportSigningKeyPath,
     }),
     ...(input.googleCredentialsPath !== undefined && {
       GOOGLE_APPLICATION_CREDENTIALS: input.googleCredentialsPath,

@@ -26,8 +26,11 @@
 /**
  * Closed vocabulary of tombstoning domains. Uses the object type names
  * of the authorization model in `@kindgi/authz` wherever one exists
- * (`policy`, `judgment`, `judge_class` and `provider` have none), so a retention policy on `domain: 'tool'` names
- * the same resource kind that authorization checks refer to.
+ * (`policy`, `judgment`, `judge_class`, `provider` and `api_key` have
+ * none), so a retention policy on `domain: 'tool'` names the same
+ * resource kind that authorization checks refer to. `api_key`'s
+ * tombstones are revoked and expired keys; `service_account`'s are
+ * unregistered accounts.
  *
  * `'*'` is a wildcard — matches any domain that has no specific policy.
  * Useful shape for "unless overridden, everything sits for 90 days".
@@ -50,6 +53,8 @@ export const RETENTION_DOMAINS = [
   'judgment',
   'judge_class',
   'provider',
+  'api_key',
+  'service_account',
   '*',
 ] as const;
 export type RetentionDomain = (typeof RETENTION_DOMAINS)[number];

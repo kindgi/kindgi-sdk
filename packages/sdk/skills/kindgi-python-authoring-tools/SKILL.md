@@ -116,7 +116,11 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
   or wait with `ctx.cancellation.wait(timeout)` between slow steps.
 - `ctx.secrets` — the secrets the tool declares in `needs_spec`,
   resolved for the call's tenant (below).
-- `ctx.env`, `ctx.config` — **reserved, empty today**.
+- `ctx.env` — the env values the tool declares in `needs_spec`, resolved
+  for the call: its project's value, else its org's, else the tenant's
+  (`kindgi env set NAME <value> --scope=project:<id> --env=<env>`).
+  Strings, and not secret. Empty from an older runtime.
+- `ctx.config` — **reserved, empty today**.
 
 ## Configuration and secrets
 
@@ -274,9 +278,9 @@ removed field, a narrower type — not on every save.
 ## Common mistakes
 
 1. **Copying the sample tool's shape without asking what the tool should do.**
-2. **Reading `ctx.env` / `ctx.config`, or an undeclared `ctx.secrets` name.**
-   The first two are empty, and `ctx.secrets` holds only what `needs_spec`
-   declares; use `os.environ` for the rest.
+2. **Reading `ctx.config`, or an undeclared `ctx.env` or `ctx.secrets` name.**
+   `ctx.config` is empty, and `ctx.env` and `ctx.secrets` hold only what
+   `needs_spec` declares; use `os.environ` for the rest.
 3. **A non-object input** (`def f(n: int)`): the input must be a model,
    TypedDict, dataclass or object schema.
 4. **No docstring and no `description=`**, or an unannotated input or
