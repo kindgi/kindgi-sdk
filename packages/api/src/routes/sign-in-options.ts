@@ -15,6 +15,10 @@ import type { AppEnv } from '../types.js';
  * the same domain is the same byte for byte, whether or not either of
  * them has an account: it can't be used to find out who does. Requests
  * are rate-limited per client, as a speed bump against scraping.
+ *
+ * Email first: without an email, nothing is offered (an empty list), and
+ * the binding isn't asked. The empty answer still tells a sign-in page
+ * that sign-in with identity providers is on (off is a 404).
  */
 export interface SignInOptionsRouteOptions {
   readonly identityProvider: IdentityProviderBinding;
@@ -90,9 +94,9 @@ export function signInOptionsRouter(options: SignInOptionsRouteOptions): Hono<Ap
     }
 
     const options: readonly SignInOption[] =
-      identityProvider.signInOptions === undefined
+      identityProvider.signInOptions === undefined || emailDomain === undefined
         ? []
-        : await identityProvider.signInOptions(emailDomain === undefined ? {} : { emailDomain });
+        : await identityProvider.signInOptions({ emailDomain });
     c.header('Cache-Control', 'no-store');
     return c.json({
       data: options.map((o) => ({
