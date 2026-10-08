@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/policy-contract",
-  "version": "0.1.4-rc.5",
+  "version": "0.1.4",
   "description": "Kindgi™ policy-contract type surface. Contract for the tenant policy catalog — Policy, PolicyKind + POLICY_KINDS, the PolicyRegistryBinding storage interface with its I/O shapes and PolicyPublishOutcome / PolicyUnregisterOutcome / PolicyReinstateVersionOutcome result unions, the PolicyExecutor / PolicyRegistry / PolicyEvalContext evaluation interfaces, and the specs of three kinds with their pure validators: retention (RetentionSpec, RETENTION_DOMAINS, validateRetentionSpec), tool-errors (ToolErrorsSpec, validateToolErrorsSpec) and hitl (HitlSpec, validateHitlSpec, combineHitlSpecs), plus validatePolicySpec(kind, spec). Types, interfaces, constants, validators and combinators — no runtime state, no implementations. Policy executors and storage bindings implement these interfaces; @kindgi/api routes and @kindgi/agents bind against them.",
   "license": "Apache-2.0",
   "repository": {
