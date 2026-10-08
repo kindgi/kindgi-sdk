@@ -19,6 +19,7 @@ import scala.util.Try
  *    {@code Set}: {@code array} with {@code uniqueItems};
  *  - {@code Map[String, T]}: {@code object} with {@code additionalProperties};
  *  - {@code BigDecimal}: {@code number}; {@code BigInt}: {@code integer};
+ *  - a Scala 3 simple enum ({@code enum Color { case Red, Green }}): {@code string} of its case names;
  *  - a case class parameter's default: {@code default}, not required.
  *
  * Scala's primitives inside a type parameter ({@code Seq[Int]}, {@code Option[Long]}) are
@@ -41,6 +42,8 @@ final class ScalaTypeAdapter extends SchemaTypeAdapter {
       schemaOf("type" -> "number")
     } else if (raw == classOf[BigInt]) {
       schemaOf("type" -> "integer")
+    } else if (ScalaEnums.names(raw).isDefined) {
+      schemaOf("type" -> "string", "enum" -> JsonValues.toJava(ScalaEnums.names(raw).get))
     } else {
       null
     }

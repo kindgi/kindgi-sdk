@@ -1,7 +1,7 @@
 # Kindgi JVM SDKs
 
-Every artifact under `sdks/java` has one version, the same as the npm
-packages' and PyPI's. Each user-visible change adds its line under
+Every artifact under `sdks/java` and `sdks/scala` has one version, the same as
+the npm packages' and PyPI's. Each user-visible change adds its line under
 **Unreleased** in the pull request that makes it. A release turns that
 heading into its version.
 
@@ -19,6 +19,13 @@ heading into its version.
   handler started elsewhere. (#329)
 - `kindgi-pack`: `com.kindgi.pack.spi.SchemaTypeAdapter` lets a JVM language
   layer teach the schema deriver its own types. (#329)
+- `kindgi-pack-scala`: first release. Tools, guardrail checks, agents and flows
+  in Scala 2.13 and 3, with case classes for schemas (`Option`, collections,
+  defaults, Scala 3 simple enums) and `Future`s for async work, on
+  kindgi-pack's indexer and service (preview).
+- `kindgi-pack`: reads Scala packs (`"language": "scala"`). A `.scala` file's
+  primitives are the vals of its object. A tool defined as a `def` or a
+  `lazy val` is a file error that says to make it a `val`.
 - `kindgi-pack`: first release. Tools, guardrail checks, agents and flows in
   Java, plus the indexer and the pack service that runs them (preview). (#313)
 - `kindgi-client` and `kindgi-models`: first release. The Kindgi API client

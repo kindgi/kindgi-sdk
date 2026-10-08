@@ -75,11 +75,18 @@ Maven project:
 - `discovery` (optional) says where the primitives are. The defaults are
   `src/main/java/**/tools/**/*.java`, `…/guardrails/…`, `…/agents/…` and
   `…/flows/…`.
+- `language` is `java`, or `scala` for a Scala pack
+  ([`kindgi-pack-scala`](../../scala)): its defaults are under
+  `src/main/scala/` with `*.scala` files. A file's extension says how to read
+  it, so a pack may mix the two.
 
 The indexer loads the class of each discovered file and collects the tools,
 guardrails, agents and flows its static fields hold. It takes only those the
 class (or a class nested in it) defined. A tool that `Bot.java` re-exports from
 `Greet` is indexed once, from `Greet.java`.
+
+A Scala file's primitives are the vals of its object (`Greet.scala` →
+`object Greet`, the class `Greet$`); see the Scala layer's README.
 
 A file under `tools/` must define tools, one under `guardrails/` guardrails,
 and so on. A helper there is a package-private class, a record, an enum or an
