@@ -709,10 +709,10 @@ describe('kindgi dev — the project env files', () => {
       expect(fromShell.out.exitCode).toBe(0);
       expect(spy.mock.calls.at(-1)?.[0]?.googleCredentialsPath).toBe(adc);
       expect(fromShell.stderr).toContain(
-        `✓ Google credentials: ${adc} (your gcloud application-default login (a user account)), mounted read-only for Vertex AI`,
+        `✓ Google credentials: ${adc} (your gcloud application-default login, a user account), mounted read-only for Vertex AI`,
       );
       expect(fromShell.stderr).toContain(
-        `    Google credentials ${adc} (your gcloud application-default login (a user account)), read-only, for Vertex AI\n`,
+        `    Google credentials ${adc} (your gcloud application-default login, a user account), read-only, for Vertex AI\n`,
       );
       expect(fromShell.stderr).not.toContain('not-a-real-refresh-token');
 

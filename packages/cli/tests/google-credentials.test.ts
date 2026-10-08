@@ -54,7 +54,7 @@ describe('resolveDevGoogleCredentials', () => {
     await writeFile(adc, JSON.stringify(userLogin));
     expect(resolveDevGoogleCredentials('adc', { HOME: home })).toEqual({
       kind: 'ok',
-      credentials: { path: adc, who: 'your gcloud application-default login (a user account)' },
+      credentials: { path: adc, who: 'your gcloud application-default login, a user account' },
     });
   });
 
@@ -108,10 +108,20 @@ describe('describeGoogleCredentials', () => {
       await writeFile(file, JSON.stringify(body));
       return describeGoogleCredentials(file);
     };
-    expect(await who(userLogin)).toBe('your gcloud application-default login (a user account)');
+    // A user login that isn't gcloud's own file is named as one.
+    expect(await who(userLogin)).toBe('a gcloud user login');
     expect(
       await who({ ...userLogin, account: 'dev@acme.example', quota_project_id: 'acme-billing' }),
-    ).toBe('your gcloud application-default login, dev@acme.example, quota project acme-billing');
+    ).toBe('a gcloud user login, dev@acme.example, quota project acme-billing');
+    // gcloud's own file (where `gcloud auth application-default login` writes) is "your" login.
+    await writeFile(adc, JSON.stringify({ ...userLogin, account: 'dev@acme.example' }));
+    expect(describeGoogleCredentials(adc, { HOME: home })).toBe(
+      'your gcloud application-default login, dev@acme.example',
+    );
+    await writeFile(adc, JSON.stringify(userLogin));
+    expect(describeGoogleCredentials(adc, { HOME: home })).toBe(
+      'your gcloud application-default login, a user account',
+    );
     expect(
       await who({
         type: 'impersonated_service_account',

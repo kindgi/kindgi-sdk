@@ -78,7 +78,7 @@ export function resolveDevGoogleCredentials(
       message: `${DEV_GOOGLE_CREDENTIALS_VAR} must be \`adc\` (your gcloud application-default login), the absolute path of a Google credentials file, or \`off\`. Got "${raw}".`,
     };
   }
-  const who = describeGoogleCredentials(path);
+  const who = describeGoogleCredentials(path, hostEnv);
   if (who === undefined) {
     return {
       kind: 'error',
@@ -109,9 +109,14 @@ export function gcloudApplicationDefaultPath(
 
 /**
  * Whose credentials the file holds, from its non-secret fields only;
- * `undefined` when it isn't a Google credentials file.
+ * `undefined` when it isn't a Google credentials file. A user login is
+ * "your gcloud application-default login" only when it's gcloud's own
+ * file (`gcloudApplicationDefaultPath`); any other is "a gcloud user login".
  */
-export function describeGoogleCredentials(path: string): string | undefined {
+export function describeGoogleCredentials(
+  path: string,
+  hostEnv: Readonly<Record<string, string | undefined>> = {},
+): string | undefined {
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(path, 'utf8'));
@@ -132,11 +137,13 @@ export function describeGoogleCredentials(path: string): string | undefined {
       return `service account ${text('client_email') ?? '(no client_email)'}`;
     case 'authorized_user': {
       const account = text('account');
-      return withQuota(
-        account === undefined
-          ? 'your gcloud application-default login (a user account)'
-          : `your gcloud application-default login, ${account}`,
-      );
+      // gcloud's own file says nothing about whose it is; any other user
+      // login is named as one, so a stray file can't pass as yours.
+      const named =
+        path === gcloudApplicationDefaultPath(hostEnv)
+          ? `your gcloud application-default login, ${account ?? 'a user account'}`
+          : `a gcloud user login${account === undefined ? '' : `, ${account}`}`;
+      return withQuota(named);
     }
     case 'impersonated_service_account': {
       const url = text('service_account_impersonation_url') ?? '';
