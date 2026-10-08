@@ -80,6 +80,24 @@ public final class Guardrail<C> {
   }
 
   /**
+   * Runs the check, for a unit test: with the config as given (no schema check, no defaults filled
+   * in) and the run. A check given with {@code asyncCheck} is awaited.
+   *
+   * <pre>{@code
+   * CheckResult result = Checks.RESPONSE_NOT_EMPTY.evaluate(new MinLength(1), new RunTrace(Map.of("output", "")));
+   * assertFalse(result.passed());
+   * }</pre>
+   *
+   * @param config the config
+   * @param trace the run ({@code new RunTrace(Map.of("output", …, "toolCalls", List.of(…)))})
+   * @return the verdict
+   * @throws Exception what the check throws
+   */
+  public CheckResult evaluate(C config, RunTrace trace) throws Exception {
+    return check.check(config, trace);
+  }
+
+  /**
    * @return the config's JSON Schema; {@code null} when the config is any object
    */
   public @Nullable Map<String, Object> configSchema() {

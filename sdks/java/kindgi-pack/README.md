@@ -178,7 +178,25 @@ public static final Flow FLOW = Flow.define("acme.record")
 ```
 
 An agent or a flow takes any other field of its schema with
-`set(field, value)`.
+`set(field, value)`. A node or an edge with more than `toolNode`, `agentNode`
+or `edge(id, from, to)` say is a map, as the flow schema describes it: a node
+with an `inputMapping`, an edge with a condition (`when`) or a `policy`. A
+`Tool`, `Agent` or `Flow` in a node's map becomes its id.
+
+```java
+.node(Map.of("id", "billing", "kind", "tool", "ref", LookupInvoice.TOOL,
+    "inputMapping", Map.of("customerId", Map.of("path", "runInput.customerId"))))
+.edge(Map.of("id", "e2", "from", "classify", "to", "billing",
+    "when", Map.of("op", "eq", "left", Map.of("path", "nodeOutputs.classify.output.category"),
+        "right", Map.of("literal", "billing"))))
+```
+
+Unit-test a check with `evaluate`, which runs it with the config as given
+(an async check is awaited):
+
+```java
+assertFalse(Checks.RESPONSE_NOT_EMPTY.evaluate(new MinLength(1), new RunTrace(Map.of("output", ""))).passed());
+```
 
 The service checks a check's config against its schema as sent, before the
 check runs. A config that doesn't fit is answered `input-validation-failed`,

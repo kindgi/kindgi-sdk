@@ -7,6 +7,11 @@ heading into its version.
 
 ## Unreleased
 
+- `kindgi-pack`, `kindgi-pack-scala`: **a flow's edges can branch.**
+  `Flow.Builder.edge(Map)` (Scala: `edge(Map(…))`) takes an edge as the flow
+  schema describes it, with a condition (`when`) or a `policy`; until now an
+  edge could only join two nodes. `Guardrail.evaluate(config, trace)` runs a
+  check in a unit test, as `Tool.call` runs a handler.
 - The CLI: `kindgi init` says a Java or Scala pack is a preview, and its
   kindgi-pack and kindgi-pack-scala come from Maven Central at the CLI's
   version (no more building them from this repository). The READMEs and the

@@ -12,8 +12,10 @@ public final class Pipeline {
   public static final Flow FLOW = Flow.define("acme.pipeline")
       .version("1.0.0")
       .node(Map.of("id", "greet", "kind", "tool", "ref", Greet.TOOL))
-      .edge("e1", "$start", "greet")
-      .edge("e2", "greet", "$end")
+      .edge(Map.of("id", "e1", "from", "$start", "to", "greet",
+          "policy", Map.of("retry", Map.of("maxAttempts", 2))))
+      .edge(Map.of("id", "e2", "from", "greet", "to", "$end",
+          "when", Map.of("op", "exists", "value", Map.of("path", "nodeOutputs.greet.message"))))
       .set("metadata", Map.of("tags", List.of("demo")))
       .build();
 }

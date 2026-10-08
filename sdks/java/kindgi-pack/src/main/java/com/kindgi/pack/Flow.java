@@ -165,6 +165,19 @@ public final class Flow {
     }
 
     /**
+     * An edge with more than its ends: a condition ({@code when}) that decides whether it fires, or a
+     * {@code policy} for the step it leads to ({@code retry}, {@code timeoutMs}, …).
+     *
+     * @param edge any edge, as the flow schema describes it ({@code id}, {@code from}, {@code to},
+     *     and the rest)
+     * @return this
+     */
+    public Builder edge(Map<String, Object> edge) {
+      edges.add(new LinkedHashMap<>(edge));
+      return this;
+    }
+
+    /**
      * Another field of the flow ({@code name}, {@code description}, {@code maxParallelism}, {@code
      * metadata}, {@code output}).
      *

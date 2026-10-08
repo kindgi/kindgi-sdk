@@ -70,6 +70,11 @@ class IndexerTest {
 
     Map<String, Object> flow = ((List<Map<String, Object>>) index.get("flows")).get(0);
     assertThat(flow.get("nodes")).isEqualTo(List.of(Map.of("id", "greet", "kind", "tool", "ref", "acme.greet")));
+    // An edge's condition and policy, as written.
+    assertThat(flow.get("edges")).isEqualTo(List.of(
+        Map.of("id", "e1", "from", "$start", "to", "greet", "policy", Map.of("retry", Map.of("maxAttempts", 2))),
+        Map.of("id", "e2", "from", "greet", "to", "$end",
+            "when", Map.of("op", "exists", "value", Map.of("path", "nodeOutputs.greet.message")))));
     assertThat(flow).containsEntry("kernelPayloadVersion", 1);
   }
 

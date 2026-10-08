@@ -51,6 +51,20 @@ class ScalaPackSuite extends munit.FunSuite {
     assertEquals(list(index.get("agents")).map(_.get("id")), Seq("acme.bot"))
     assertEquals(list(index.get("agents")).head.get("description"), "Greets whoever asks.")
     assertEquals(list(index.get("flows")).map(_.get("id")), Seq("acme.pipeline"))
+    // An edge with a condition, written as a Scala map.
+    assertEquals(
+      list(list(index.get("flows")).head.get("edges")).last.get("when"),
+      ju.Map.of("op", "exists", "value", ju.Map.of("path", "nodeOutputs.greet.message"))
+    )
+  }
+
+  test("a guardrail's check runs in a unit test with evaluate") {
+    import scalapack.guardrails.Checks
+    assert(Checks.minLength.evaluate(Checks.MinLength(3), new RunTrace(ju.Map.of("output", "abc"))).passed)
+    assertEquals(
+      Checks.minLength.evaluate(Checks.MinLength(4), new RunTrace(ju.Map.of("output", "abc"))).reason,
+      "too short"
+    )
   }
 
   test("a case class's schema: Option not required, defaults said, constraints on parameters") {

@@ -43,6 +43,8 @@ final class FlowBuilder private[scaladsl] (b: com.kindgi.pack.Flow.Builder) {
   def agentNode(nodeId: String, agent: Agent): FlowBuilder = new FlowBuilder(b.agentNode(nodeId, agent))
   def node(node: Map[String, Any]): FlowBuilder = new FlowBuilder(b.node(JsonValues.javaMap(node)))
   def edge(edgeId: String, from: String, to: String): FlowBuilder = new FlowBuilder(b.edge(edgeId, from, to))
+  /** An edge with a condition (`when`) or a `policy`, as the flow schema describes it. */
+  def edge(edge: Map[String, Any]): FlowBuilder = new FlowBuilder(b.edge(JsonValues.javaMap(edge)))
   def set(field: String, value: Any): FlowBuilder = new FlowBuilder(b.set(field, JsonValues.toJava(value)))
   def build(): Flow = b.build()
 }

@@ -11,6 +11,7 @@ object Pipeline {
     .version("1.0.0")
     .toolNode("greet", Greet.tool)
     .edge("e-start", "$start", "greet")
-    .edge("e-end", "greet", "$end")
+    .edge(Map("id" -> "e-end", "from" -> "greet", "to" -> "$end",
+      "when" -> Map("op" -> "exists", "value" -> Map("path" -> "nodeOutputs.greet.message"))))
     .build()
 }
