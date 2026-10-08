@@ -780,6 +780,10 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         True,
     ),
+    "runs.follow": Operation("runs.follow", "GET", "/v1/runs/{runId}/stream", "sse", False),
+    "runs.followProgress": Operation(
+        "runs.followProgress", "GET", "/v1/runs/{runId}/progress/stream", "sse", False
+    ),
 }
 _OPERATIONS = OPERATIONS
 
@@ -1012,6 +1016,48 @@ class RunsResource:
         """
         return self._client._stream(
             _OPERATIONS["runs.progressStream"],
+            path={"runId": run_id},
+            query={},
+            headers={"Last-Event-Id": last_event_id},
+            response=_models.RunProgressEvent,
+            timeout=timeout,
+        )
+
+    def follow(
+        self,
+        run_id: str | UUID,
+        /,
+        *,
+        last_event_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> Iterator[_models.RunEvent]:
+        """Follow a run's events to its end. `GET /v1/runs/{runId}/stream`
+
+        `runs.stream`, through to the run's terminal event (`run.completed`, `run.failed` or `run.cancelled`), each event once. The server ends a run's stream after 5 minutes while the run goes on; this reconnects with `Last-Event-Id` and goes on. A dropped connection, a 429 or a 502-504 is retried with backoff; any other error is raised. Ends after the terminal event.
+        """
+        return self._client._follow(
+            _OPERATIONS["runs.follow"],
+            path={"runId": run_id},
+            query={},
+            headers={"Last-Event-Id": last_event_id},
+            response=_models.RunEvent,
+            timeout=timeout,
+        )
+
+    def follow_progress(
+        self,
+        run_id: str | UUID,
+        /,
+        *,
+        last_event_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> Iterator[_models.RunProgressEvent]:
+        """Follow a run's progress to its end. `GET /v1/runs/{runId}/progress/stream`
+
+        `runs.progress_stream`, through to the run's terminal event (`run.completed`, `run.failed` or `run.cancelled`), each event once. The server ends a run's stream after 5 minutes while the run goes on; this reconnects with `Last-Event-Id` and goes on. A dropped connection, a 429 or a 502-504 is retried with backoff; any other error is raised. Ends after the terminal event.
+        """
+        return self._client._follow(
+            _OPERATIONS["runs.followProgress"],
             path={"runId": run_id},
             query={},
             headers={"Last-Event-Id": last_event_id},
@@ -7283,6 +7329,48 @@ class AsyncRunsResource:
         """
         return self._client._stream(
             _OPERATIONS["runs.progressStream"],
+            path={"runId": run_id},
+            query={},
+            headers={"Last-Event-Id": last_event_id},
+            response=_models.RunProgressEvent,
+            timeout=timeout,
+        )
+
+    def follow(
+        self,
+        run_id: str | UUID,
+        /,
+        *,
+        last_event_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> AsyncIterator[_models.RunEvent]:
+        """Follow a run's events to its end. `GET /v1/runs/{runId}/stream`
+
+        `runs.stream`, through to the run's terminal event (`run.completed`, `run.failed` or `run.cancelled`), each event once. The server ends a run's stream after 5 minutes while the run goes on; this reconnects with `Last-Event-Id` and goes on. A dropped connection, a 429 or a 502-504 is retried with backoff; any other error is raised. Ends after the terminal event.
+        """
+        return self._client._follow(
+            _OPERATIONS["runs.follow"],
+            path={"runId": run_id},
+            query={},
+            headers={"Last-Event-Id": last_event_id},
+            response=_models.RunEvent,
+            timeout=timeout,
+        )
+
+    def follow_progress(
+        self,
+        run_id: str | UUID,
+        /,
+        *,
+        last_event_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> AsyncIterator[_models.RunProgressEvent]:
+        """Follow a run's progress to its end. `GET /v1/runs/{runId}/progress/stream`
+
+        `runs.progress_stream`, through to the run's terminal event (`run.completed`, `run.failed` or `run.cancelled`), each event once. The server ends a run's stream after 5 minutes while the run goes on; this reconnects with `Last-Event-Id` and goes on. A dropped connection, a 429 or a 502-504 is retried with backoff; any other error is raised. Ends after the terminal event.
+        """
+        return self._client._follow(
+            _OPERATIONS["runs.followProgress"],
             path={"runId": run_id},
             query={},
             headers={"Last-Event-Id": last_event_id},
