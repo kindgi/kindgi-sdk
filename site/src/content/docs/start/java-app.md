@@ -29,7 +29,7 @@ one dependency, at your Kindgi release's version (the CLI's, `kindgi --version`)
 <dependency>
   <groupId>com.kindgi</groupId>
   <artifactId>kindgi-client</artifactId>
-  <version>0.1.5</version>
+  <version>{{kindgi.version}}</version>
 </dependency>
 ```
 
@@ -59,7 +59,7 @@ To try it, make a small app in a folder inside the pack, `my-pack/hello-java`:
     <dependency>
       <groupId>com.kindgi</groupId>
       <artifactId>kindgi-client</artifactId>
-      <version>0.1.5</version>
+      <version>{{kindgi.version}}</version>
     </dependency>
   </dependencies>
 </project>

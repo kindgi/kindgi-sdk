@@ -20,6 +20,7 @@ import type {
   SignedComplianceEvidenceBundle,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
+import { type SignedExportVerification, verifySignedExport } from '../verify-export.js';
 
 export type Evidence = ComplianceEvidence;
 export type EvidencePage = ComplianceEvidenceCollectionPage;
@@ -54,6 +55,12 @@ export interface EvidenceClient {
     input: EvidenceExportInput,
     options?: { readonly idempotencyKey?: string },
   ): Promise<EvidenceExportBundle>;
+  /**
+   * Verify an evidence bundle where it's read (Web Crypto's Ed25519; no
+   * request): its signature over the bytes shipped, and that it was
+   * signed with `publicKey`, a key you trust.
+   */
+  verify(bundle: EvidenceExportBundle, publicKey: string): Promise<SignedExportVerification>;
 }
 
 export function makeComplianceClient(transport: Transport): ComplianceClient {
@@ -89,6 +96,7 @@ export function makeComplianceClient(transport: Transport): ComplianceClient {
           ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
         });
       },
+      verify: (bundle, publicKey) => verifySignedExport(bundle, { trustedKeys: [publicKey] }),
     },
   };
 }

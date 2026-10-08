@@ -4,25 +4,27 @@
 import { Hono } from 'hono';
 
 import type { AuditEvent, AuditEventBinding, AuditEventFilter } from '@kindgi/audit-events';
-import type {
-  ComplianceEvidence,
-  ComplianceEvidenceGenerator,
-  EvidenceFilter,
-  LoadedClassifier,
-} from '@kindgi/compliance';
-import { auditEventToEvidence } from '@kindgi/compliance';
-import type { SigningKeyBinding } from '@kindgi/crypto';
+import type { ComplianceEvidence, EvidenceFilter, LoadedClassifier } from '@kindgi/compliance';
+import { auditEventToEvidence, collectEvidence } from '@kindgi/compliance';
+import type { ExportSigningBinding } from '@kindgi/crypto';
 import type {
   AgentId,
   ComplianceEvidenceId,
   FlowId,
   RunId,
-  SigningKeyId,
   TenantId,
   Timestamp,
 } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
+import {
+  exportActor,
+  parseSigningKeyId,
+  readExportBody,
+  signExport,
+  signExportFailure,
+  signingNotConfigured,
+} from '../signed-export.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
 
@@ -44,20 +46,21 @@ import { clampLimit } from './pagination.js';
 export interface ComplianceRouterOptions {
   readonly auditEvents: AuditEventBinding;
   readonly classifier: LoadedClassifier;
-  readonly signingKey?: SigningKeyBinding;
   /**
-   * Caller-plugged evidence generator. Supplied at app-composition
-   * time by the host (the Kindgi runtime provides one). Kept
-   * required — signed export routes cannot run without it, and the
-   * route mount guards (auditEvents + classifier) already imply
-   * signed-export capability.
+   * Signs evidence exports. Absent: `POST /evidence/export` answers
+   * `404 signing-not-configured`. The route collects the evidence from
+   * `auditEvents` itself (`collectEvidence`), signs it, and records the
+   * export there (`export-signed`).
    */
-  readonly complianceGenerator: ComplianceEvidenceGenerator;
+  readonly exportSigning?: ExportSigningBinding;
 }
+
+/** The evidence bundle body's version. Unchanged: the body is the one the runtime's generator signed. */
+const BUNDLE_SCHEMA_VERSION = '1.0.0';
 
 export function complianceRouter(options: ComplianceRouterOptions): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
-  const { auditEvents, classifier, signingKey, complianceGenerator } = options;
+  const { auditEvents, classifier, exportSigning } = options;
 
   const isExportable = (kind: string): boolean => classifier.resolve(kind).exportable;
   const exportableKinds = (): readonly string[] =>
@@ -165,36 +168,10 @@ export function complianceRouter(options: ComplianceRouterOptions): Hono<AppEnv>
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
 
-    if (signingKey === undefined) {
-      c.status(statusFor('signing-not-configured') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'signing-not-configured',
-            message:
-              'This deployment does not have a `signingKey` binding mounted; signed compliance exports are unavailable.',
-          },
-          requestId,
-        ),
-      );
-    }
+    if (exportSigning === undefined) return signingNotConfigured(c, 'signed compliance exports');
 
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      c.status(statusFor('bad-input') as never);
-      return c.json(
-        toWireError({ code: 'bad-input', message: 'Request body must be valid JSON' }, requestId),
-      );
-    }
-    if (body === null || typeof body !== 'object' || Array.isArray(body)) {
-      c.status(statusFor('bad-input') as never);
-      return c.json(
-        toWireError({ code: 'bad-input', message: 'Request body must be an object' }, requestId),
-      );
-    }
-    const parsed = parseExportBody(body as Record<string, unknown>);
+    const read = await readExportBody(c);
+    const parsed = read.kind === 'ok' ? parseExportBody(read.value) : read;
     if (parsed.kind === 'err') {
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: parsed.message }, requestId));
@@ -223,52 +200,34 @@ export function complianceRouter(options: ComplianceRouterOptions): Hono<AppEnv>
       );
     }
 
-    const generator = complianceGenerator;
-    const bundle = await generator.exportSigned(tenantId, filter, signingKeyId);
-    if (bundle.kind === 'err') {
-      const err = bundle.error;
-      if (err.code === 'signing-key-missing') {
-        c.status(statusFor('signing-key-not-found') as never);
-        return c.json(
-          toWireError(
-            {
-              code: 'signing-key-not-found',
-              message: err.message,
-              signingKeyId: err.signingKeyId as unknown as string,
-            },
-            requestId,
-          ),
-        );
-      }
-      if (err.code === 'signing-failure') {
-        c.status(statusFor('compliance-export-failed') as never);
-        return c.json(
-          toWireError(
-            {
-              code: 'compliance-export-failed',
-              message: err.message,
-              signingKeyId: err.signingKeyId as unknown as string,
-            },
-            requestId,
-          ),
-        );
-      }
-      if (err.code === 'persistence-error') {
-        c.status(statusFor('persistence-error') as never);
-        return c.json(toWireError({ code: 'persistence-error', message: err.message }, requestId));
-      }
-      c.status(statusFor('compliance-export-failed') as never);
+    const records = await collectEvidence(auditEvents, tenantId, filter);
+    if (records.kind === 'err') {
+      c.status(statusFor('persistence-error') as never);
       return c.json(
-        toWireError(
-          {
-            code: 'compliance-export-failed',
-            message: `Signed export failed: ${(err as { readonly message: string }).message}`,
-          },
-          requestId,
-        ),
+        toWireError({ code: 'persistence-error', message: records.error.message }, requestId),
       );
     }
-    return c.json(bundle.value);
+    const signed = await signExport({
+      signer: exportSigning,
+      kind: 'compliance',
+      bundleSchemaVersion: BUNDLE_SCHEMA_VERSION,
+      ...(signingKeyId !== undefined && { signingKeyId }),
+      body: {
+        tenantId: tenantId as unknown as string,
+        filter,
+        records: records.value,
+        recordCount: records.value.length,
+      },
+      record: {
+        auditEvents,
+        tenantId,
+        actor: exportActor(c),
+        subject: { filter },
+      },
+    });
+    if (signed.kind === 'err')
+      return signExportFailure(c, signed.error, 'compliance-export-failed');
+    return c.json({ tenantId: tenantId as unknown as string, ...signed.value });
   });
 
   return r;
@@ -352,15 +311,13 @@ function buildAuditFilter(
 }
 
 interface ValidatedExportBody {
-  readonly signingKeyId: SigningKeyId;
+  readonly signingKeyId: string | undefined;
   readonly filter: EvidenceFilter;
 }
 
 function parseExportBody(body: Record<string, unknown>): ParseResult<ValidatedExportBody> {
-  const rawKey = body.signingKeyId;
-  if (typeof rawKey !== 'string' || rawKey.length === 0) {
-    return { kind: 'err', message: 'Field `signingKeyId` must be a non-empty string' };
-  }
+  const signingKeyId = parseSigningKeyId(body);
+  if (signingKeyId.kind === 'err') return signingKeyId;
   const filterRaw = body.filter;
   if (
     filterRaw !== undefined &&
@@ -372,10 +329,7 @@ function parseExportBody(body: Record<string, unknown>): ParseResult<ValidatedEx
   if (parsedFilter.kind === 'err') return parsedFilter;
   return {
     kind: 'ok',
-    value: {
-      signingKeyId: rawKey as SigningKeyId,
-      filter: parsedFilter.value ?? {},
-    },
+    value: { signingKeyId: signingKeyId.value, filter: parsedFilter.value ?? {} },
   };
 }
 
