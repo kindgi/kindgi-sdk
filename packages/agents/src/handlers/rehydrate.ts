@@ -48,6 +48,7 @@ import type { ConversationMessage, RecalledMemory, RetrievedFact } from '../type
 import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
 import { readGateDecision } from './gate-decision.js';
+import { addModelWarnings } from './model-call.js';
 import { rehydrateReplay } from './replay.js';
 import type { PinnedBlockVersions } from './resolve-blocks.js';
 import { TOOL_GATE_RECORD_PREFIX } from './tool-hitl.js';
@@ -157,12 +158,14 @@ export async function rehydrateTurnContext(
         readonly costUsd?: number;
       };
       readonly provider?: { readonly id: string; readonly model: string };
+      readonly warnings?: readonly { readonly code: string; readonly message: string }[];
     };
     ctx.usage.steps = Math.max(ctx.usage.steps, out.step ?? 0);
     ctx.usage.promptTokens += out.iterationUsage?.promptTokens ?? 0;
     ctx.usage.completionTokens += out.iterationUsage?.completionTokens ?? 0;
     ctx.usage.totalCostUsd += out.iterationUsage?.costUsd ?? 0;
     if (out.provider !== undefined) ctx.lastProvider = out.provider;
+    addModelWarnings(ctx, out.warnings);
   }
   ctx.toolApprovals = toolApprovalsOf(journal);
   rebuildProvenance(ctx, steps, retrievals?.retrieved, retrievals?.recalled);

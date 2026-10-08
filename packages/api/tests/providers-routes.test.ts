@@ -426,6 +426,149 @@ describe('API — providers register + get', () => {
     }
   });
 
+  test('defaultModel round-trips through register + get; a name it lacks → 400 unknown-default-model', async () => {
+    const { app } = makeApp();
+    const spec = providerSpec({ id: 'with-default' });
+    const name = spec.models[0]?.name as string;
+    const register = await app.request('/v1/providers', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        metadata: { ...spec, defaultModel: name },
+        adapter_id: TEST_ADAPTER_ID,
+      }),
+    });
+    expect(register.status).toBe(201);
+    const get = await app.request('/v1/providers/with-default', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(((await get.json()) as { defaultModel?: string }).defaultModel).toBe(name);
+    const bad = await app.request('/v1/providers', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        metadata: { ...providerSpec({ id: 'bad-default' }), defaultModel: 'not-one-of-them' },
+        adapter_id: TEST_ADAPTER_ID,
+      }),
+    });
+    expect(bad.status).toBe(400);
+    const body = (await bad.json()) as { error: { code: string; details?: { reason?: string } } };
+    expect(body.error.details?.reason).toBe('unknown-default-model');
+  });
+
+  test("a model's sampling round-trips through register + get; a non-boolean → 400 invalid-sampling", async () => {
+    const { app } = makeApp();
+    const spec = providerSpec({ id: 'no-sampling' });
+    const models = spec.models.map((m, i) => (i === 0 ? { ...m, sampling: false } : m));
+    const register = await app.request('/v1/providers', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ metadata: { ...spec, models }, adapter_id: TEST_ADAPTER_ID }),
+    });
+    expect(register.status).toBe(201);
+    const get = await app.request('/v1/providers/no-sampling', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    const got = (await get.json()) as { models: { sampling?: boolean }[] };
+    expect(got.models[0]?.sampling).toBe(false);
+    expect(got.models.slice(1).every((m) => m.sampling === undefined)).toBe(true);
+    const bad = await app.request('/v1/providers', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        metadata: {
+          ...providerSpec({ id: 'bad-sampling' }),
+          models: spec.models.map((m) => ({ ...m, sampling: 'off' })),
+        },
+        adapter_id: TEST_ADAPTER_ID,
+      }),
+    });
+    expect(bad.status).toBe(400);
+    const body = (await bad.json()) as { error: { code: string; details?: { reason?: string } } };
+    expect(body.error.details?.reason).toBe('invalid-sampling');
+  });
+
+  test("a model's thinking round-trips through register + get; a bad one → 400 invalid-thinking", async () => {
+    const { app } = makeApp();
+    const spec = providerSpec({ id: 'thinks' });
+    const thinking = { mode: 'adaptive', lowest: 'low' };
+    const models = spec.models.map((m, i) => (i === 0 ? { ...m, thinking } : m));
+    const register = await app.request('/v1/providers', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ metadata: { ...spec, models }, adapter_id: TEST_ADAPTER_ID }),
+    });
+    expect(register.status).toBe(201);
+    const get = await app.request('/v1/providers/thinks', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(
+      ((await get.json()) as { models: { thinking?: unknown }[] }).models[0]?.thinking,
+    ).toEqual(thinking);
+    const bad = await app.request('/v1/providers', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        metadata: {
+          ...providerSpec({ id: 'bad-thinking' }),
+          models: spec.models.map((m) => ({ ...m, thinking: { mode: 'off' } })),
+        },
+        adapter_id: TEST_ADAPTER_ID,
+      }),
+    });
+    expect(bad.status).toBe(400);
+    const body = (await bad.json()) as { error: { details?: { reason?: string } } };
+    expect(body.error.details?.reason).toBe('invalid-thinking');
+  });
+
+  test("a model's cost keeps its adapter's rates through register + get; a bad one → 400 invalid-cost", async () => {
+    const { app } = makeApp();
+    const spec = providerSpec({ id: 'rated' });
+    const cost = {
+      promptUsdPer1kTokens: 0.0001,
+      completionUsdPer1kTokens: 0.0005,
+      promptCacheReadMultiplier: 0.1,
+      longContext: {
+        thresholdTokens: 100000,
+        promptUsdPer1kTokens: 0.0005,
+        completionUsdPer1kTokens: 0.0025,
+      },
+    };
+    const models = spec.models.map((m, i) => (i === 0 ? { ...m, cost } : m));
+    const register = await app.request('/v1/providers', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ metadata: { ...spec, models }, adapter_id: TEST_ADAPTER_ID }),
+    });
+    expect(register.status).toBe(201);
+    const get = await app.request('/v1/providers/rated', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(((await get.json()) as { models: { cost: unknown }[] }).models[0]?.cost).toEqual(cost);
+    for (const bad of [
+      { ...cost, longContext: { thresholdTokens: -1 } },
+      { ...cost, longContext: {} },
+      { ...cost, promptCacheReadMultiplier: 'cheap' },
+      { ...cost, tiers: [0.1] },
+      { ...cost, longContext: { nested: { deeper: 1 } } },
+    ]) {
+      const res = await app.request('/v1/providers', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          metadata: {
+            ...providerSpec({ id: 'bad-rates' }),
+            models: spec.models.map((m) => ({ ...m, cost: bad })),
+          },
+          adapter_id: TEST_ADAPTER_ID,
+        }),
+      });
+      expect(res.status, JSON.stringify(bad)).toBe(400);
+      const body = (await res.json()) as { error: { details?: { reason?: string } } };
+      expect(body.error.details?.reason).toBe('invalid-cost');
+    }
+  });
+
   test('validation failure (non-boolean fallback) → 400 invalid-provider', async () => {
     const { app } = makeApp();
     const res = await app.request('/v1/providers', {

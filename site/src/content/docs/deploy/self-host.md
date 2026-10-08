@@ -14,13 +14,15 @@ You run four containers on one Docker network:
 
 You then deploy a pack to it, and run a flow end to end. Everything here runs on one machine with Docker Desktop. On a server the pieces are the same; step 2 says what changes.
 
-:::note[Private preview]
-The runtime image is in private preview: request access at contact@kindgi.com
+:::note[Access to the runtime image]
+Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
+runtime image's pull credentials, and log in once with `kindgi auth registry`
+(see [Install](../../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
 :::
 
 ## Before you start
 
-- **Docker**, and **Node 22.12** or later.
+- **Docker**, and for a TypeScript pack **Node 22.12** or later.
 - **A pack.** This page uses the sample:
 
   ```sh
@@ -35,7 +37,7 @@ The runtime image is in private preview: request access at contact@kindgi.com
 
 ```sh
 docker login quay.io
-docker pull quay.io/kindgi/runtime:0.1.3
+docker pull quay.io/kindgi/runtime:0.1.4
 ```
 
 ## 2. Start Postgres and a registry
@@ -70,7 +72,7 @@ example), set that up first:
 [What the pack's image needs](../../start/existing-app/#what-the-packs-image-needs).
 
 In a Python pack, run each `pnpm exec kindgi` on this page as
-`npx --yes @kindgi/cli@0.1`, and lock its dependencies first (`uv lock`, or
+`uv run kindgi`, and lock its dependencies first (`uv lock`, or
 `poetry lock`): the image installs them from the lockfile.
 
 Pick a tenant id. The runtime serves this tenant, and the pack's signature names it:
@@ -146,7 +148,7 @@ docker run -d --name kindgi-pack --network kindgi --env-file pack.env \
 Its log says it's listening:
 
 ```text
-{"kind":"listening","port":8080,"packId":"acme-pack","artifactVersion":"20261003.1"}
+{"time":"2026-10-08T19:38:48.568Z","level":"info","severity":"INFO","subsystem":"pack","message":"Listening on port 8080","port":8080,"packId":"acme-pack","artifactVersion":"20261008.193828","event":"listening","kind":"listening"}
 ```
 
 ## 5. Configure and start the runtime
@@ -168,15 +170,18 @@ KINDGI_PACK_SERVICE_URL=http://kindgi-pack:8080
 KINDGI_PACK_SERVICE_TOKEN=<the same token as in pack.env>
 KINDGI_IMAGE_REGISTRY_INSECURE_HOSTS=registry.localhost:5050
 KINDGI_LICENSE_KEY=<your license key>
+KINDGI_LOG_FORMAT=pretty
 ```
 
 It holds the API token and the license key, so keep it to yourself:
 `chmod 600 kindgi.env`.
 
-Every setting is in the [environment variable reference](../../reference/env-vars/). Three are worth knowing now:
+Every setting is in the [environment variable reference](../../reference/env-vars/). These are worth knowing now:
 
 - **`KINDGI_ENV`** names the environment your tools' secrets resolve in.
 - **The port** is 4000 unless something sets another. The runtime takes the first that's set: `KINDGI_API_PORT`, then the platform's `PORT` (Cloud Run, Render, Heroku and Fly set it), then 4000 ([`KINDGI_API_PORT`](../../reference/env-vars/#kindgi_api_port) has the whole order).
+- **`KINDGI_LOG_FORMAT=pretty`** makes `docker logs` readable by eye. Without it, a container logs JSON, one record per line, for a log platform to index: see [Logs](../logs/).
+- **`KINDGI_PACK_SERVICE_URL`** is the pack service's address only. A user and password in it stop the runtime at boot (exit code 2): `` KINDGI_PACK_SERVICE_URL must not carry a user or password ("https://svc:***@pack.example.com"): the server authenticates to the pack service with KINDGI_PACK_SERVICE_TOKEN. Remove the "user:password@" part. ``
 - **`KINDGI_TENANT_HOST_ACCESS`** isn't set here, so it's `deployed`, the default outside development. It refuses an MCP endpoint that would run a command on the runtime's host (`stdio`). Run MCP servers over HTTP instead. `local` allows it; set that only on a machine where everyone with an API token may run commands.
 
 Start the runtime:
@@ -185,7 +190,7 @@ Start the runtime:
 docker run -d --name kindgi-server --network kindgi \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.3
+  quay.io/kindgi/runtime:0.1.4
 ```
 
 ## 6. Check it
@@ -199,6 +204,8 @@ curl -s http://localhost:4000/ready
 ```
 
 `/ready` answers once the runtime is up and its database answers (`/health` checks only the process; see [Operate](../operate/#check-health-and-logs)).
+
+Open `http://localhost:4000/` in a browser: it leads to the console, at `/console/`. A runtime started without the console answers there with a short page naming what it serves (`/health`, `/ready`, the API reference at `/docs`).
 
 Its log names what it's running with:
 
@@ -216,7 +223,7 @@ Kindgi API server listening on http://localhost:4000
   ⚠ The license key expires in 29 days (2026-11-02). Renew it: contact@kindgi.com.
   Env: production (tool secrets resolve in it)
   Tenant host access: deployed (stdio MCP endpoints refused; KINDGI_TENANT_HOST_ACCESS)
-  Pack service: http://kindgi-pack:8080 — acme-pack (artifact 20261003.1), protocol 2, 3 tools, 1 check
+  Pack service: http://kindgi-pack:8080 — acme-pack (artifact …), protocol 2, 3 tools, 1 check
 ```
 
 Without `KINDGI_LICENSE_KEY`, the runtime doesn't start. It exits with code 2 and says:

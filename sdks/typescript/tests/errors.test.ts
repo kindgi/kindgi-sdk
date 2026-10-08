@@ -85,6 +85,10 @@ describe('fromWire — conflicts', () => {
     'promotion-superseded',
     'gate-policy-already-registered',
     'gate-policy-needs-pin',
+    'gate-policy-descendant-unpinned',
+    'service-account-name-taken',
+    'service-account-unregistered',
+    'identity-user-email-taken',
   ])('a %s is a conflict, its code the reason', (code) => {
     expect(fromWire({ code, message: 'taken' })).toEqual({
       code: 'conflict',
@@ -99,6 +103,8 @@ describe('fromWire — live versions', () => {
   it.each([
     ['agent-version-not-found', 'agent-version'],
     ['promotion-not-found', 'promotion'],
+    ['principal-not-found', 'principal'],
+    ['service-account-not-found', 'service-account'],
   ])('a %s is a not-found of a %s', (code, kind) => {
     expect(fromWire({ code, message: 'gone' })).toMatchObject({
       code: 'not-found',
@@ -106,9 +112,40 @@ describe('fromWire — live versions', () => {
     });
   });
 
+  it.each(['role-exceeds-principal', 'key-project-mismatch'])('a %s is forbidden', (code) => {
+    expect(fromWire({ code, message: 'no' })).toMatchObject({
+      code: 'auth',
+      reason: 'forbidden',
+      serverCode: code,
+    });
+  });
+
+  it('a provider registration its adapter refuses (422) is an invalid request, with its issues', () => {
+    const issues = [
+      { path: '/adapter_config/api', message: 'adapter_config.api must be one of …' },
+    ];
+    expect(
+      fromWire({ code: 'provider-config-invalid', message: 'm', details: { issues } }, 422),
+    ).toMatchObject({ code: 'invalid-request', serverCode: 'provider-config-invalid', issues });
+  });
+
   it('a scope-invalid is an invalid request', () => {
     expect(fromWire({ code: 'scope-invalid', message: 'no such project' })).toMatchObject({
       code: 'invalid-request',
+    });
+  });
+
+  it("a guardrail-config-invalid (422) is an invalid request with the check's issues", () => {
+    const issue = { path: '/config/maxChars', message: 'must be > 0' };
+    expect(
+      fromWire(
+        { code: 'guardrail-config-invalid', message: 'm', details: { issues: [issue] } },
+        422,
+      ),
+    ).toMatchObject({
+      code: 'invalid-request',
+      serverCode: 'guardrail-config-invalid',
+      issues: [issue],
     });
   });
 });
@@ -118,8 +155,9 @@ describe('fromWire — a code this client does not list is read by its HTTP stat
     [404, { code: 'not-found', resource: { kind: 'org', id: 'o-1' } }],
     [410, { code: 'not-found' }],
     [400, { code: 'invalid-request', issues: [] }],
-    // 409 and 422 stay server errors: the docs match codes there.
-    [409, { code: 'server', serverCode: 'org-not-found' }],
+    [413, { code: 'invalid-request', issues: [] }],
+    [409, { code: 'conflict', reason: 'org-not-found' }],
+    // 422 stays a server error: the docs match its codes there.
     [422, { code: 'server', serverCode: 'org-not-found' }],
     [401, { code: 'auth', reason: 'unauthenticated' }],
     [403, { code: 'auth', reason: 'forbidden' }],
@@ -157,7 +195,7 @@ describe('fromWire — a code this client does not list is read by its HTTP stat
     });
   });
 
-  it('every 4xx code but 409/422 maps to a typed error; every error keeps its serverCode', () => {
+  it("every code the API documents is in its status's family, and keeps its serverCode", () => {
     const spec = JSON.parse(
       readFileSync(createRequire(import.meta.url).resolve('@kindgi/api/openapi.json'), 'utf8'),
     ) as {
@@ -165,11 +203,18 @@ describe('fromWire — a code this client does not list is read by its HTTP stat
     };
     const codes = Object.entries(spec.components.schemas.WireError['x-error-codes']);
     expect(codes.length).toBeGreaterThan(100);
-    const server = codes
-      .filter(([, status]) => status >= 400 && status < 500 && status !== 409 && status !== 422)
-      .filter(([code, status]) => fromWire({ code, message: 'm' }, status).code === 'server')
-      .map(([code, status]) => `${code} (${status})`);
-    expect(server).toEqual([]);
+    const wrong = codes
+      .map(([code, status]) => ({
+        code,
+        status,
+        family: fromWire({ code, message: 'm' }, status).code,
+      }))
+      .filter(({ code, status, family }) => family !== expectedFamily(code, status))
+      .map(
+        ({ code, status, family }) =>
+          `${code} (${status}): ${family}, not ${expectedFamily(code, status)}`,
+      );
+    expect(wrong).toEqual([]);
     const withoutCode = codes
       .filter(([code, status]) => {
         const error = fromWire({ code, message: 'm' }, status) as { serverCode?: string };
@@ -179,3 +224,31 @@ describe('fromWire — a code this client does not list is read by its HTTP stat
     expect(withoutCode).toEqual([]);
   });
 });
+
+/**
+ * The family a documented code belongs in: its HTTP status's (`x-error-codes`
+ * in openapi.json), except where this client classifies a code on purpose.
+ */
+function expectedFamily(code: string, status: number): string {
+  const exceptions: Record<string, string> = {
+    // Its own variant, with the violations.
+    'guardrail-violation': 'guardrail-violation',
+    // A provider registration the adapter refuses: an invalid request, with its issues.
+    'provider-config-invalid': 'invalid-request',
+    // A guardrail whose config its check refuses: the same.
+    'guardrail-config-invalid': 'invalid-request',
+  };
+  if (exceptions[code] !== undefined) return exceptions[code];
+  const byStatus: Record<number, string> = {
+    400: 'invalid-request',
+    413: 'invalid-request',
+    401: 'auth',
+    403: 'auth',
+    404: 'not-found',
+    410: 'not-found',
+    409: 'conflict',
+    429: 'rate-limited',
+  };
+  // 422 and 5xx are server errors: the docs match their codes by `serverCode`.
+  return byStatus[status] ?? 'server';
+}

@@ -53,6 +53,7 @@ import type {
   ReviewerRegistryBinding,
   RunHandlerBinding,
   SecretBinding,
+  ServiceAccountBinding,
   SessionStoreBinding,
   SigningKeyBinding as SigningKeyRegistryBinding,
   SupervisorBinding,
@@ -418,6 +419,8 @@ const noopIdentityProvider: IdentityProviderBinding = {
   get: async () => null,
   register: async ({ config }) => ({ kind: 'ok', providerId: config.providerId }),
   unregister: async () => ({ unregistered: false }),
+  signInUrls: async () => undefined,
+  update: async () => ({ kind: 'not-found' }),
 };
 
 const noopIdentityDirectory: IdentityDirectoryBinding = {
@@ -425,6 +428,21 @@ const noopIdentityDirectory: IdentityDirectoryBinding = {
   listUsers: async () => ({ data: [] }),
   listSessions: async () => ({ data: [] }),
   revokeAllSessions: async ({ userId }) => ({ userId, revokedCount: 0 }),
+  createUser: async () => ({ kind: 'email-taken', userId: 'noop-user' as never }),
+  unregisterUser: async () => ({ kind: 'not-found' }),
+};
+
+const serviceAccountNotFound = {
+  kind: 'err',
+  error: { code: 'service-account-not-found', message: 'noop' },
+} as const;
+const noopServiceAccounts: ServiceAccountBinding = {
+  create: async () => serviceAccountNotFound,
+  get: async () => null,
+  list: async () => ({ data: [] }),
+  grant: async () => serviceAccountNotFound,
+  ungrant: async () => serviceAccountNotFound,
+  unregister: async () => serviceAccountNotFound,
 };
 
 const noopExchangeCode: ExchangeCodeFn = async () => ({
@@ -555,6 +573,7 @@ function collectMountedRoutes(): HonoRouteRecord[] {
     resolveToken: noopResolveToken,
     runHandler: noopRunHandler,
     tokenAdmin: noopTokenAdmin,
+    serviceAccountBinding: noopServiceAccounts,
     reviewerBinding: noopReviewerBinding,
     hitlBinding: noopHitlBinding,
     reviewerRegistry: noopReviewerRegistry,
@@ -583,6 +602,7 @@ function collectMountedRoutes(): HonoRouteRecord[] {
     judgmentRegistry: noopJudgmentRegistry,
     evalCaseStore: noopEvalCaseStore,
     sessionStore: noopSessionStore,
+    session: { cookie: { allowedOrigins: ['https://console.example.com'] }, tokenSignIn: true },
     identityProvider: noopIdentityProvider,
     exchangeCode: noopExchangeCode,
     identityDirectory: noopIdentityDirectory,

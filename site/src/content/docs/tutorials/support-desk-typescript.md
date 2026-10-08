@@ -148,7 +148,7 @@ const defined = defineAgent({
   name: 'Triage',
   description: 'Classifies a support ticket and drafts a first reply.',
   instructions: [
-    'You triage support tickets. Read the ticket with `acme-desk.get-ticket`, then answer',
+    'You triage support tickets. Read the ticket with the get-ticket tool, then answer',
     'with its category (billing, access or other), its priority (low, normal or urgent)',
     'and a short, friendly first reply to the customer.',
     'A ticket is urgent when the customer cannot work at all.',
@@ -289,7 +289,9 @@ pnpm exec kindgi runs start --agent=acme-desk.triage --input='{"userMessage":"Tr
 ```
 
 The agent called `get-ticket`, read the ticket, and answered in the shape
-you gave it. Your reply will read differently: it's the model's.
+you gave it. Your reply will read differently: it's the model's. To see the
+run's page, with each step, the tool call and the cost, run
+`pnpm exec kindgi console` and open **Runs**.
 
 ## 8. Handle tickets
 

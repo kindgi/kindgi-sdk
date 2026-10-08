@@ -27,10 +27,26 @@ export function cliError(message: string, exitCode = 1): CliError {
  * plus the preview stub (`not-implemented-in-preview`), and falls back
  * to raw `Error.message` for anything else.
  */
+/**
+ * The command line was wrong: a missing or conflicting argument or flag, or
+ * a value a flag can't take. The CLI exits 2 for it, as for an unknown
+ * command, subcommand or flag (`main.ts`), so a script can tell "called it
+ * wrong" (2) from "the call failed" (1).
+ */
+export class UsageError extends Error {
+  override readonly name = 'UsageError';
+}
+
 export function formatThrown(
   thrown: unknown,
   options: { readonly verbose?: boolean; readonly commandLabel: string },
 ): CliError {
+  if (thrown instanceof UsageError) {
+    const label = options.commandLabel.startsWith('kindgi ')
+      ? options.commandLabel
+      : `kindgi ${options.commandLabel}`;
+    return cliError(`Error: ${thrown.message}\nUsage: ${label} --help`, 2);
+  }
   const wire = extractKindgiError(thrown);
   if (wire !== null) {
     if (wire.code === 'not-implemented-in-preview') {
@@ -65,13 +81,18 @@ export function formatThrown(
 /**
  * The code an error line shows: a conflict's own reason when it has one
  * (`registry-read-only`, `agent-already-registered`), which says more
- * than `conflict`; otherwise the error's code.
+ * than `conflict`; the server's own code for a server-class error that
+ * carries one (`gate-failed`, `budget-exceeded`, `secret-store-error`),
+ * which says more than `server`; otherwise the error's code.
  */
 function errorTag(wire: KindgiError): string {
   const reason = (wire as { readonly reason?: unknown }).reason;
-  return wire.code === 'conflict' && typeof reason === 'string' && reason !== ''
-    ? reason
-    : wire.code;
+  if (wire.code === 'conflict' && typeof reason === 'string' && reason !== '') return reason;
+  // `unknown` is the client's own stand-in for a body without a code.
+  if (wire.code === 'server' && wire.serverCode !== '' && wire.serverCode !== 'unknown') {
+    return wire.serverCode;
+  }
+  return wire.code;
 }
 
 /**

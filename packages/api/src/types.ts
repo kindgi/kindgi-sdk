@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { Principal, ReviewerRole } from '@kindgi/authz';
+import type { Logger, TraceContext } from '@kindgi/log';
 import type { ApiTokenId, RunId, SessionId, TenantId, UserId } from '@kindgi/types';
 
 /**
@@ -11,6 +12,14 @@ import type { ApiTokenId, RunId, SessionId, TenantId, UserId } from '@kindgi/typ
 export interface AppEnv {
   Variables: {
     requestId: string;
+    /**
+     * The request's logger (`requestLogMiddleware`): the app's, with the
+     * request's `requestId`, `traceId` and `spanId`, and its `tenantId`
+     * once authenticated. Routes log through it.
+     */
+    log: Logger;
+    /** The request's W3C trace context: the caller's trace when it sent a valid `traceparent`. */
+    trace: TraceContext;
     /** Set by `bearerAuthMiddleware` on authenticated routes. */
     tenantId: TenantId;
     /**
@@ -33,6 +42,14 @@ export interface AppEnv {
      * account.
      */
     tokenId?: ApiTokenId;
+    /** The service account an API key acts for. */
+    serviceAccountId?: string;
+    /** An API key's role ceiling (`member` keys can't administer the tenant). */
+    tokenRole?: 'admin' | 'member';
+    /** The project an API key is narrowed to. */
+    tokenProjectId?: string;
+    /** When the API token the request came with expires, if it does. */
+    tokenExpiresAt?: Date;
     /**
      * Set by `bearerAuthMiddleware` when the caller presented a
      * framework-issued OAuth session token (`kgi_sk_*`).
@@ -40,6 +57,8 @@ export interface AppEnv {
      * revoke without a second lookup. Absent for static bearer tokens.
      */
     sessionId?: SessionId;
+    /** Set when the session token came from a cookie (not a header): that cookie's name. */
+    sessionCookieName?: string;
     /** Identity-provider id behind a session token. Absent for bearer. */
     providerId?: string;
     /** Set by `sigv4Middleware` on `/s3/*`: the bucket the credential may access. */

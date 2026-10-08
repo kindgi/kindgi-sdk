@@ -144,6 +144,12 @@ export interface TurnContext {
    */
   lastProvider?: { readonly id: string; readonly model: string };
   /**
+   * The providers' warnings about the turn's answers, by code (the first
+   * message of each): set by `model-call`, surfaced in
+   * `AgentTurnResult.warnings`.
+   */
+  modelWarnings?: Map<string, string>;
+  /**
    * Provenance builder — undefined when the caller didn't wire one.
    */
   provenance?: ProvenanceBuilder;
@@ -233,6 +239,8 @@ export interface AgentTurnIterationOutput {
     readonly costUsd: number;
   };
   readonly provider: { readonly id: string; readonly model: string };
+  /** The provider's warnings about this answer (`ModelCallResult.warnings`). */
+  readonly warnings?: readonly { readonly code: string; readonly message: string }[];
   readonly finishedTurn: boolean;
   readonly nextMessages: readonly ModelMessage[];
   /**

@@ -6,7 +6,7 @@ import { readFile } from 'node:fs/promises';
 import { KindgiApiError } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
-import { formatThrown } from '../errors.js';
+import { UsageError, formatThrown } from '../errors.js';
 import { type Column, type Rendered, renderJson, renderTable } from '../output.js';
 import type { CommandResult } from './types.js';
 
@@ -60,16 +60,21 @@ export function truncateCell(text: string, max: number): string {
 /**
  * Call a leaf that has already produced a `Rendered` (custom formatting
  * such as tables), still routing any thrown value through the standard
- * error formatter.
+ * error formatter. An `exitCode` with it is the command's own (e.g. a run
+ * that failed: its output is still printed, and the exit code says so).
  */
 export async function runSdkRendered(
   ctx: CommandContext,
   commandLabel: string,
-  fn: () => Promise<Rendered>,
+  fn: () => Promise<Rendered & { readonly exitCode?: number }>,
 ): Promise<CommandResult> {
   try {
-    const rendered = await fn();
-    return { kind: 'ok', rendered };
+    const { stdout, stderr, exitCode } = await fn();
+    return {
+      kind: 'ok',
+      rendered: { stdout, stderr },
+      ...(exitCode !== undefined && { exitCode }),
+    };
   } catch (err) {
     return commandResultFromThrown(err, ctx, commandLabel);
   }
@@ -104,7 +109,7 @@ export async function readJsonInput(spec: string): Promise<unknown> {
   try {
     return JSON.parse(raw);
   } catch (err) {
-    throw new Error(`Malformed JSON input: ${(err as Error).message}`);
+    throw new UsageError(`Malformed JSON input: ${(err as Error).message}`);
   }
 }
 
@@ -112,7 +117,7 @@ export async function readJsonInput(spec: string): Promise<unknown> {
 export function requiredPositional(ctx: CommandContext, index: number, label: string): string {
   const value = ctx.positionals[index];
   if (typeof value !== 'string' || value === '') {
-    throw new Error(`Missing required argument: ${label}`);
+    throw new UsageError(`Missing required argument: ${label}`);
   }
   return value;
 }
@@ -134,7 +139,7 @@ export function segmentsFlag(
   return listFlag(ctx, name).map((raw) => {
     const at = raw.indexOf(':');
     if (at <= 0 || at === raw.length - 1) {
-      throw new Error(`--${name} must be key:value, got "${raw}"`);
+      throw new UsageError(`--${name} must be key:value, got "${raw}"`);
     }
     return { key: raw.slice(0, at), value: raw.slice(at + 1) };
   });
@@ -161,7 +166,7 @@ export function integerFlag(ctx: CommandContext, name: string): number | undefin
   if (typeof raw !== 'string' || raw === '') return undefined;
   const n = Number(raw);
   if (!Number.isInteger(n)) {
-    throw new Error(`--${name} must be an integer, got '${raw}'`);
+    throw new UsageError(`--${name} must be an integer, got '${raw}'`);
   }
   return n;
 }

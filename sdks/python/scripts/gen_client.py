@@ -93,6 +93,7 @@ class Operation:
     response: str | None  # model class name
     response_kind: str  # json | sse | binary | empty
     status: int
+    follow: bool = False  # a FOLLOWS method: `_follow`, not `_stream`
 
     @property
     def resource(self) -> tuple[str, ...]:
@@ -120,14 +121,21 @@ def deref(doc: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
     return schema
 
 
-def param_annotation(doc: dict[str, Any], schema: dict[str, Any]) -> str:
+ID_PARAM = re.compile(r"(?:^id|Id)$")
+
+
+def param_annotation(doc: dict[str, Any], schema: dict[str, Any], name: str = "") -> str:
     resolved = deref(doc, schema)
     if "enum" in resolved:
         return "Literal[" + ", ".join(json.dumps(v) for v in resolved["enum"]) + "]"
     kind = resolved.get("type")
     if kind == "array":
         # A repeated query parameter (`segment=a&segment=b`): httpx repeats a list's key.
-        return f"list[{param_annotation(doc, resolved.get('items', {}))}]"
+        return f"list[{param_annotation(doc, resolved.get('items', {}), name)}]"
+    if kind == "string" and (resolved.get("format") == "uuid" or ID_PARAM.search(name)):
+        # An id: the models carry ids as `UUID` (`format: uuid`), so a model's
+        # id passes straight back in (`client.runs.get(run.id)`); it's sent as text.
+        return "str | UUID"
     return {"string": "str", "integer": "int", "number": "float", "boolean": "bool"}.get(
         kind if isinstance(kind, str) else "", "Any"
     )
@@ -150,6 +158,22 @@ def hoist(doc: dict[str, Any], schema: dict[str, Any], name: str) -> str:
 ALIASES: dict[str, tuple[str, ...]] = {
     "evalSuites.versions.unregister": ("evalSuites.unregister",),
 }
+
+# A run stream's follow method, generated beside it: the same call, through
+# to the run's terminal event. The server ends a run's stream after 5 minutes
+# while the run goes on; `_follow` reconnects after the last event. Named as
+# the Java client names them (`runs().follow`, `runs().followProgress`).
+FOLLOWS: dict[str, tuple[str, str]] = {
+    "runs.stream": ("runs.follow", "Follow a run's events to its end"),
+    "runs.progressStream": ("runs.followProgress", "Follow a run's progress to its end"),
+}
+FOLLOW_DESCRIPTION = (
+    "`{stream}`, through to the run's terminal event (`run.completed`, `run.failed` or "
+    "`run.cancelled`), each event once. The server ends a run's stream after 5 minutes "
+    "while the run goes on; this reconnects with `Last-Event-Id` and goes on. A dropped "
+    "connection, a 429 or a 502-504 is retried with backoff; any other error is raised. "
+    "Ends after the terminal event."
+)
 
 
 def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]:
@@ -188,7 +212,7 @@ def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]
                         py=py,
                         where=p["in"],
                         required=bool(p.get("required", p["in"] == "path")),
-                        annotation=param_annotation(doc, p.get("schema", {})),
+                        annotation=param_annotation(doc, p.get("schema", {}), p["name"]),
                         description=p.get("description", ""),
                     )
                 )
@@ -243,7 +267,23 @@ def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]
                 )
             )
     ops += [replace(op, id=alias) for op in list(ops) for alias in ALIASES.get(op.id, ())]
+    ops += [
+        replace(
+            op,
+            id=FOLLOWS[op.id][0],
+            follow=True,
+            summary=FOLLOWS[op.id][1],
+            description=FOLLOW_DESCRIPTION.format(stream=snake_path(op.id)),
+        )
+        for op in list(ops)
+        if op.id in FOLLOWS
+    ]
     return doc, ops
+
+
+def snake_path(op_id: str) -> str:
+    """`runs.progressStream` → `runs.progress_stream`, as the client names it."""
+    return ".".join(snake(part) for part in op_id.split("."))
 
 
 def tree(ops: list[Operation]) -> Resource:
@@ -324,7 +364,7 @@ def call(op: Operation, asynchronous: bool) -> str:
     args.append("timeout=timeout")
     inner = ", ".join(args)
     if op.response_kind == "sse":
-        return f"        return self._client._stream({inner})"
+        return f"        return self._client._{'follow' if op.follow else 'stream'}({inner})"
     keyword_await = "await " if asynchronous else ""
     return f"        return {keyword_await}self._client._request({inner})"
 
@@ -366,13 +406,14 @@ def render_resources(root: Resource, ops: list[Operation]) -> str:
         "",
         "from collections.abc import AsyncIterator, Iterator, Mapping, Sequence",
         "from typing import Any, Literal, cast",
+        "from uuid import UUID",
         "",
         "from . import _models",
         "from ._base import AsyncClientBase, Operation, SyncClientBase, _body, _segments",
         "",
         '__all__ = ["OPERATIONS", "AsyncResources", "Resources"]',
         "",
-        "_ = Literal  # used in generated annotations",
+        "_ = Literal, UUID  # used in generated annotations",
         "",
         "OPERATIONS: dict[str, Operation] = {",
     ]

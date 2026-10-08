@@ -7,9 +7,18 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-A request to start a run can time out after the run started. Retry it with
-the same **idempotency key**, and Kindgi returns the run the first request
-started instead of starting a second one.
+A request to start a run can fail on its way back, after the run started: a
+dropped connection, say. Send each start with an **idempotency key**. A start
+repeated with the same key, once the first request has answered, returns the
+run the first one started instead of starting a second one.
+
+:::caution[Don't retry a start that may still be running]
+A repeat that arrives while the first request is still running isn't
+recognized yet, and can start the run a second time; 0.1.5 fixes this. That's
+the case after a client's timeout on a waited start. Start a run that can take
+long in the background (`wait: false`, whose answer carries the run's id at
+once) and [follow it](../follow-a-run/), instead of retrying its start.
+:::
 
 ```sh
 kindgi runs start --flow=acme.review-order --input='{"orderId":"A-100"}' --idempotency-key=order-A-100-review
@@ -33,7 +42,7 @@ const start = () =>
   });
 
 const first = await start();
-const retry = await start(); // a retry after a timeout, say
+const retry = await start(); // the same start again, after the first answered
 console.log(first.id === retry.id, retry.status);
 
 try {
@@ -66,7 +75,7 @@ def start():
 
 
 first = start()
-retry = start()  # a retry after a timeout, say
+retry = start()  # the same start again, after the first answered
 print(first.id == retry.id, retry.status)
 
 try:

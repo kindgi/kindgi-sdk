@@ -5,6 +5,7 @@ import type { Run, RunPage } from '@kindgi/client';
 import type { AgentId, FlowId, RunId } from '@kindgi/types';
 
 import type { CommandContext } from '../context.js';
+import { UsageError } from '../errors.js';
 import { renderJson } from '../output.js';
 import { followRun, runsGetHint } from '../runs/follow.js';
 import {
@@ -43,12 +44,17 @@ const list: LeafCommand = {
   name: 'list',
   description: 'List runs (paginated).',
   usage:
-    'kindgi runs list [--agent=<agent-id>] [--replays=exclude|include|only] [--eval-run=<id>] [--limit=<n>] [--cursor=<c>]',
+    'kindgi runs list [--agent=<agent-id>] [--trigger=<schedule-id>] [--replays=exclude|include|only] [--eval-run=<id>] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
     agent: {
       type: 'string',
       description:
         "Only this agent's turns, at any version: its own runs and the turns its steps start inside flows. Turns from before Kindgi 0.1.3 don't name their agent and aren't listed.",
+    },
+    trigger: {
+      type: 'string',
+      description:
+        'Only the runs this trigger started: a schedule, by its id (`kindgi schedules list`).',
     },
     replays: {
       type: 'string',
@@ -76,14 +82,15 @@ const list: LeafCommand = {
         const cursor = stringFlag(ctx, 'cursor');
         const replays = stringFlag(ctx, 'replays');
         if (replays !== undefined && !REPLAYS.includes(replays as (typeof REPLAYS)[number])) {
-          throw new Error(`--replays must be one of ${REPLAYS.join(', ')}, got "${replays}"`);
+          throw new UsageError(`--replays must be one of ${REPLAYS.join(', ')}, got "${replays}"`);
         }
         const evalRunId = stringFlag(ctx, 'eval-run');
         const agentId = stringFlag(ctx, 'agent');
+        const triggerId = stringFlag(ctx, 'trigger');
         const limitStr = stringFlag(ctx, 'limit');
         const limit = limitStr !== undefined ? Number.parseInt(limitStr, 10) : undefined;
         if (limit !== undefined && Number.isNaN(limit)) {
-          throw new Error(`--limit must be an integer, got "${limitStr}"`);
+          throw new UsageError(`--limit must be an integer, got "${limitStr}"`);
         }
         return await ctx.client().runs.list({
           ...(cursor !== undefined && { cursor: cursor as never }),
@@ -91,6 +98,7 @@ const list: LeafCommand = {
           ...(replays !== undefined && { replays: replays as (typeof REPLAYS)[number] }),
           ...(evalRunId !== undefined && { evalRunId }),
           ...(agentId !== undefined && { agentId }),
+          ...(triggerId !== undefined && { triggerId }),
         });
       },
       RUNS_TABLE,
@@ -150,7 +158,7 @@ const journal: LeafCommand = {
       const limitStr = stringFlag(ctx, 'limit');
       const limit = limitStr !== undefined ? Number.parseInt(limitStr, 10) : undefined;
       if (limit !== undefined && Number.isNaN(limit)) {
-        throw new Error(`--limit must be an integer, got "${limitStr}"`);
+        throw new UsageError(`--limit must be an integer, got "${limitStr}"`);
       }
       return await ctx.client().runs.journal(runId, {
         ...(since !== undefined && { since: since as never }),
@@ -168,7 +176,7 @@ const stream: LeafCommand = {
   run: (ctx) =>
     runSdkRendered(ctx, 'runs stream', async () => {
       const runId = requiredPositional(ctx, 0, 'run-id') as RunId;
-      const iterable = ctx.client().runs.stream(runId);
+      const iterable = ctx.client().runs.follow(runId);
       const lines: string[] = [];
       for await (const event of iterable) {
         lines.push(JSON.stringify(event));
@@ -181,7 +189,7 @@ const start: LeafCommand = {
   kind: 'leaf',
   name: 'start',
   description:
-    'Start a run for an agent or flow. Waits until it finishes or waits on an approval; if the wait is stopped (Ctrl+C), the run goes on and its id is printed. With --no-wait it prints as soon as the run exists (follow it with `runs get` / `runs stream`). --dry-run runs only read-only tools.',
+    'Start a run for an agent or flow. Waits until it finishes or waits on an approval; if the wait is stopped (Ctrl+C), the run goes on and its id is printed. A run that fails is still printed, its error goes to stderr (`Error [<code>]: …`), and the command exits 1. With --no-wait it prints as soon as the run exists (follow it with `runs get` / `runs stream`). --dry-run runs only read-only tools.',
   usage:
     'kindgi runs start (--agent=<agent-id> [--agent-version=<v>] | --flow=<flow-id> [--flow-version=<v>]) --input=<json-or-@file> [--project=<project-id>] [--segment=<key:value>]… [--no-wait] [--dry-run] [--idempotency-key=<key>]',
   optionSpec: {
@@ -238,22 +246,22 @@ const start: LeafCommand = {
       const flow = stringFlag(ctx, 'flow');
       const inputSpec = stringFlag(ctx, 'input');
       if (agent === undefined && flow === undefined) {
-        throw new Error('--agent=<id> or --flow=<id> is required');
+        throw new UsageError('--agent=<id> or --flow=<id> is required');
       }
       if (agent !== undefined && flow !== undefined) {
-        throw new Error('--agent and --flow are mutually exclusive');
+        throw new UsageError('--agent and --flow are mutually exclusive');
       }
       const projectId = stringFlag(ctx, 'project');
       const agentVersion = stringFlag(ctx, 'agent-version');
       const flowVersion = stringFlag(ctx, 'flow-version');
       if (agentVersion !== undefined && agent === undefined) {
-        throw new Error('--agent-version goes with --agent=<agent-id>');
+        throw new UsageError('--agent-version goes with --agent=<agent-id>');
       }
       if (flowVersion !== undefined && flow === undefined) {
-        throw new Error('--flow-version goes with --flow=<flow-id>');
+        throw new UsageError('--flow-version goes with --flow=<flow-id>');
       }
       if (inputSpec === undefined) {
-        throw new Error('--input=<json-or-@file> is required');
+        throw new UsageError('--input=<json-or-@file> is required');
       }
       const input = await readJsonInput(inputSpec);
       const idem = stringFlag(ctx, 'idempotency-key');
@@ -289,9 +297,36 @@ const start: LeafCommand = {
       const run =
         ctx.options['no-wait'] === true ? started : await followUntilSettled(ctx, started);
       const rendered = renderJson(run, ctx.globals.format);
-      return { stdout: rendered.stdout, stderr: renderTurnWarnings(run.output) };
+      const warnings = renderTurnWarnings(run.output);
+      if (run.status !== 'failed') return { stdout: rendered.stdout, stderr: warnings };
+      // A run that failed still prints, so its id and failure are at hand;
+      // the exit code says it failed, for scripts.
+      return {
+        stdout: rendered.stdout,
+        stderr: ctx.globals.format === 'quiet' ? '' : `${warnings}${await runFailedLine(run)}`,
+        exitCode: 1,
+      };
     }),
 };
+
+/**
+ * The stderr line for a run that ended `failed`: the run's `failure`. A
+ * runtime from before it has only `failureMessage`, decoded the same way
+ * the API decodes it: an agent turn's failure as its typed error
+ * (`parseFailureMessage`), any other in the run's own words.
+ */
+async function runFailedLine(run: Run): Promise<string> {
+  if (run.failure !== undefined) return `Error [${run.failure.code}]: ${run.failure.message}\n`;
+  // Loaded only for an older runtime's failed run: it brings in the whole agent loop.
+  const { parseFailureMessage } = await import('@kindgi/agents');
+  const error = parseFailureMessage(run.failureMessage);
+  if (error !== undefined) return `Error [${error.code}]: ${error.message}\n`;
+  const message =
+    run.failureMessage !== undefined && run.failureMessage !== ''
+      ? run.failureMessage
+      : `Run ${run.id} failed`;
+  return `Error [run-failed]: ${message}\n`;
+}
 
 /**
  * Follow a started run until it settles. Ctrl+C stops the wait, not the
@@ -319,11 +354,22 @@ async function followUntilSettled(ctx: CommandContext, started: Run): Promise<Ru
 function renderTurnWarnings(output: unknown): string {
   const warnings = (output as { readonly warnings?: unknown } | null | undefined)?.warnings;
   if (!Array.isArray(warnings)) return '';
-  return warnings
-    .map((w) => (w as { readonly message?: unknown }).message)
-    .filter((m): m is string => typeof m === 'string')
-    .map((m) => `⚠ ${m}\n`)
-    .join('');
+  const codes = new Set(warnings.map((w) => (w as { readonly code?: unknown }).code));
+  return (
+    warnings
+      // dev-echo's own warning says more than "a fallback provider answered".
+      .filter(
+        (w) =>
+          !(
+            (w as { readonly code?: unknown }).code === 'fallback-provider' &&
+            codes.has('dev-echo-not-a-model')
+          ),
+      )
+      .map((w) => (w as { readonly message?: unknown }).message)
+      .filter((m): m is string => typeof m === 'string')
+      .map((m) => `⚠ ${m}\n`)
+      .join('')
+  );
 }
 
 const resume: LeafCommand = {

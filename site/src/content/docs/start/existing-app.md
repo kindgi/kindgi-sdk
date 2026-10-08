@@ -126,7 +126,7 @@ const defined = defineAgent({
   name: 'Triage',
   description: 'Reads a support request and sets its priority.',
   instructions:
-    'The user names a support request id. Look it up with `acme-support.get-request`, ' +
+    'The user names a support request id. Look it up with the get-request tool, ' +
     'then answer with its priority and a one-sentence summary.',
   capabilities: [{ needs: [{ feature: 'tool-use' as const }] }],
   tools: [{ id: 'acme-support.get-request', version: '^0.1.0' }],
@@ -233,7 +233,7 @@ With a `prisma.config.ts`, name it too:
 The build ends with the image and a check of what's in it:
 
 ```text
-    ✓ Built kindgi-pack/acme-orders:20261004.1 (sha256:042e285f8cd9…)
+    ✓ Built kindgi-pack/acme-orders:20261008.193804 (sha256:9e102b60f643…)
     ✓ /app/index.json in the image matches the local index byte for byte
 ```
 
@@ -244,10 +244,14 @@ The build ends with the image and a check of what's in it:
 In the app's directory (where its `pyproject.toml` is):
 
 ```sh
-npx --yes @kindgi/cli@0.1 init   # --pack-id=<id> if the app's name doesn't make one
+uv add --dev "kindgi-cli>=0.1,<0.2"   # the CLI, pinned to Kindgi's minor version
+uv run kindgi init     # --pack-id=<id> if the app's name doesn't make one
 uv sync                # or what it prints for Poetry or pip
-npx --yes @kindgi/cli@0.1 dev
+uv run kindgi dev
 ```
+
+With Poetry, add the CLI with `poetry add --group dev "kindgi-cli>=0.1,<0.2"`
+and run it as `poetry run kindgi`.
 
 `init` edits your `pyproject.toml` in place, keeping its layout and
 comments:
@@ -317,6 +321,10 @@ app as `KINDGI_API_URL` and `KINDGI_API_TOKEN` in your env file (`.env` /
 KINDGI_API_URL=http://127.0.0.1:4000
 KINDGI_API_TOKEN=kgi_bt_…
 ```
+
+The banner's first line, `Console`, is the console's address
+(`http://127.0.0.1:4000/console/`; `kindgi console` opens it). Sign in there
+with **Sign in as seeded user**, or with the same token.
 
 The token stays the same when you restart `kindgi dev`. `kindgi dev --reset`
 starts the project over, dropping its database
@@ -424,7 +432,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const encoder = new TextEncoder();
   const body = new ReadableStream({
     async start(controller) {
-      for await (const event of kindgi.runs.stream(run.id)) {
+      for await (const event of kindgi.runs.follow(run.id)) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
       }
       controller.close();
@@ -437,7 +445,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 Each event has a `kind` (`run.started`, `run.step-started`,
 `run.step-completed`, …, `run.completed`) and a `payload`; the
 `run.completed` event's `payload.output` is the run's output. In Python,
-`kindgi.runs.stream(run.id)` is an iterator of the same events.
+`kindgi.runs.follow(run.id)` is an iterator of the same events, through to
+the run's end.
 
 A browser can also follow a run directly, with a short-lived read-only
 token, without your API token: see
@@ -451,3 +460,43 @@ Store the run's id on your own row (a `kindgi_run_id` column), and read its
 status, output, steps and sources through the API when your app shows them.
 Never from Kindgi's database, and never by sending users to Kindgi's
 console: see [Show runs in your app](../../guides/runs/show-runs-in-your-app/).
+
+<!-- check-samples: stand-ins for your app's own code that the samples above import; the docs' sample check reads them, readers don't see them.
+
+```json
+// tsconfig.json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "paths": { "@/*": ["./src/*"] }
+  },
+  "include": ["src/**/*.ts", "kindgi/**/*.ts"]
+}
+```
+
+```ts
+// src/lib/requests.ts
+export function findRequest(id: string): { subject: string; body: string } | undefined {
+  return id === 'REQ-1234' ? { subject: 'Refund', body: 'I was charged twice.' } : undefined;
+}
+```
+
+```python
+# acme/orders.py
+from typing import Any
+
+
+def find_orders(customer_id: str) -> list[dict[str, Any]]:
+    return []
+```
+-->

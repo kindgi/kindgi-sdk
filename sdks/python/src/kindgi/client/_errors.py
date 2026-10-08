@@ -60,6 +60,13 @@ class NetworkError(KindgiApiError):
 
     code = "network"
 
+    def __init__(
+        self, message: str, *, timeout: float | None = None, status: int | None = None
+    ) -> None:
+        super().__init__(message, status=status)
+        self.timeout = timeout
+        """Set when the client's own timeout ended the request: that timeout, in seconds."""
+
 
 class AuthError(KindgiApiError):
     code = "auth"
@@ -136,6 +143,7 @@ _NOT_FOUND = {
 }  # fmt: skip
 _CONFLICT = {
     "conflict", "already-terminal", "run-already-terminal", "idempotency-key-body-mismatch",
+    "idempotency-key-in-flight",
     "hitl-required", "agent-already-registered", "tool-already-registered",
     "guardrail-already-registered", "flow-already-registered", "conversation-closed",
     "provider-already-registered", "proposal-invalid-state-transition", "approval-not-decided",
@@ -146,13 +154,14 @@ _CONFLICT = {
     "version-already-exists", "eval-run-already-terminal", "approval-already-decided",
     "judge-class-name-taken", "promotion-superseded", "gate-policy-already-registered",
     "gate-policy-scope-taken", "gate-policy-scope-changed", "gate-policy-scope-unpinned",
-    "gate-policy-needs-pin", "fact-changed", "legal-hold",
+    "gate-policy-needs-pin", "gate-policy-descendant-unpinned", "fact-changed", "legal-hold",
 }  # fmt: skip
 _INVALID = {
     "invalid-request", "validation-failed", "unknown-field", "bad-input", "unresolved-tool",
     "unresolved-guardrail", "schema-validation-failed", "invalid-agent", "invalid-tool-definition",
     "invalid-schema", "unknown-effect", "invalid-guardrail", "invalid-provider",
-    "supervisor-header-missing", "scope-invalid",
+    "guardrail-config-invalid", "provider-config-invalid", "supervisor-header-missing",
+    "scope-invalid", "artifact-too-large",
 }  # fmt: skip
 _AUTH: Mapping[str, Literal["unauthenticated", "forbidden", "token-expired"]] = {
     "auth-missing": "unauthenticated",
@@ -226,15 +235,17 @@ def from_wire(body: Any, status: int, *, retry_after: str | None = None) -> Kind
     return ServerError(message, **common)
 
 
-# 409 and 422 aren't here: a code this client doesn't list stays a
-# `ServerError` (the docs match `budget-exceeded`, `agent-version-mismatch`
-# by `server_code`).
+# 422 isn't here: a code this client doesn't list stays a `ServerError` (the
+# docs match `budget-exceeded`, `output-schema-violation` by `server_code`). A
+# test holds this to the API's own list (`x-error-codes` in openapi.json).
 _BY_STATUS: Mapping[int, str] = {
     404: "not-found",
     410: "not-found",
     400: "invalid",
+    413: "invalid",
     401: "auth",
     403: "auth",
+    409: "conflict",
     429: "rate-limited",
 }
 

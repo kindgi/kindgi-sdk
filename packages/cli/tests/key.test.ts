@@ -156,7 +156,7 @@ describe('kindgi key create', () => {
   test('rejects an invalid keyId', async () => {
     const fixtures = makeFixtures();
     const out = await runCli(baseInputs(fixtures, ['key', 'create', 'BAD_ID_WITH_UPPER']));
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('Invalid keyId');
   });
 
@@ -229,7 +229,7 @@ describe('kindgi key export', () => {
       '/tmp/fake-home/.kindgi/keys/k1.pub.pem': FAKE_PUBLIC_PEM,
     });
     const out = await runCli(baseInputs(fixtures, ['key', 'export', 'k1', '--format=jwk']));
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('Unknown --format: jwk');
   });
 });
@@ -391,7 +391,7 @@ describe('kindgi key trust', () => {
       );
       expect(out.exitCode).toBe(1);
       expect(out.stderr).toBe(
-        'Error [server]: refused\nTo trust another key: `kindgi key create <newId>`, then `kindgi key trust <newId>`.\n',
+        `Error [${serverCode}]: refused\nTo trust another key: \`kindgi key create <newId>\`, then \`kindgi key trust <newId>\`.\n`,
       );
     },
   );
@@ -412,7 +412,7 @@ describe('kindgi key trust', () => {
       }),
     );
     expect(out.exitCode).toBe(1);
-    expect(out.stderr).toBe('Error [server]: boom\n');
+    expect(out.stderr).toBe('Error [internal-error]: boom\n');
   });
 });
 
@@ -473,7 +473,7 @@ describe('kindgi key revoke', () => {
   test('no id: an error, and nothing called', async () => {
     const { calls, client } = revoker({ revoked: true });
     const out = await runCli(remoteInputs(makeFixtures(), ['key', 'revoke'], client));
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('Missing required argument: keyId');
     expect(calls).toEqual([]);
   });

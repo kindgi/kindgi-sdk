@@ -14,7 +14,7 @@ description: >
   kindgi-python-getting-started.
 type: core
 library: "kindgi (Python)"
-version: "0.1.1"
+version: "0.1.2"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -25,9 +25,11 @@ sources:
 
 # Authoring Kindgi tools in Python
 
-> **Running `kindgi`:** a Python pack has no Node project, so the
-> `kindgi` CLI is the one on `PATH`. Python commands run in the pack's
-> environment: `uv run …` (or `.venv/bin/python …`).
+> **Running `kindgi`:** the CLI is `kindgi-cli` from PyPI, pinned in the
+> pack's dev group, so every `kindgi <command>` below runs as
+> `uv run kindgi <command>` (Poetry: `poetry run kindgi <command>`). Python
+> commands run in the pack's environment the same way: `uv run …` (or
+> `.venv/bin/python …`).
 
 A **tool** is a unit of work an agent (or a flow step) calls: typed
 input, typed output, your code in between. In a Python pack it is a
@@ -114,7 +116,11 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
   or wait with `ctx.cancellation.wait(timeout)` between slow steps.
 - `ctx.secrets` — the secrets the tool declares in `needs_spec`,
   resolved for the call's tenant (below).
-- `ctx.env`, `ctx.config` — **reserved, empty today**.
+- `ctx.env` — the env values the tool declares in `needs_spec`, resolved
+  for the call: its project's value, else its org's, else the tenant's
+  (`kindgi env set NAME <value> --scope=project:<id> --env=<env>`).
+  Strings, and not secret. Empty from an older runtime.
+- `ctx.config` — **reserved, empty today**.
 
 ## Configuration and secrets
 
@@ -137,6 +143,33 @@ pack's `.env` and `.env.local`) — checks it against its schema, and
 fails the call, naming the secret, when it is missing or doesn't match.
 Every declared secret is required. In a test, pass them:
 `ToolContext.for_test(secrets={"CITATOR_KEY": "…"})`.
+
+A value that differs per tenant, org or project but isn't secret (a base URL, a region, an account id) is an **env value**: declared in `needs_spec`, read from `ctx.env`:
+
+```python
+@tool(
+    id="acme.find-order",
+    mutating=False,
+    needs_spec={
+        "env": {
+            "ORDERS_BASE_URL": {"type": "string", "pattern": "^https://"},
+            "ORDERS_REGION": {"type": "string", "enum": ["eu", "us"], "default": "eu"},
+        }
+    },
+)
+def find_order(lookup: Lookup, ctx: ToolContext) -> Found:
+    """…"""
+    return Found(url=f"{ctx.env['ORDERS_BASE_URL']}/{ctx.env['ORDERS_REGION']}/orders/{lookup.order_id}")
+```
+
+- **Which value a call gets:** its project's, else its org's, else the tenant's, in the runtime's env; a schema `default` makes a name optional. The values a call used are recorded with it, so a retry or a resume sees the same ones.
+- **Setting them:** `kindgi env set ORDERS_REGION us --scope=project:<project-id> --env=local` (or `--scope=tenant`, for every project). Changing a value that's already set takes `--force`.
+- **A declared value nobody set** stops the call before the tool runs. For a tool `acme-orders.needs-account` that declares `ACME_ACCOUNT_ID`, the message reads:
+  ```text
+  precondition-failed: Tool "acme-orders.needs-account" was not run: env-value-missing: tool "acme-orders.needs-account" needs env value "ACME_ACCOUNT_ID" in env "local", and none is set for project e889c1f5-eae7-45dc-8669-5bd029a5d85c, its org, or the tenant. Set it: kindgi env set ACME_ACCOUNT_ID <value> --scope=project:e889c1f5-eae7-45dc-8669-5bd029a5d85c --env=local (or --scope=tenant, for every project)
+  ```
+- **Not secret:** env values are recorded with each run that uses them and shown in its journal. A credential is a secret, never an env value.
+- **In a test:** `ToolContext.for_test(env={"ORDERS_BASE_URL": "…"})`.
 
 Everything else comes from the process environment: `os.environ["CITATOR_URL"]`.
 The pack service runs with the pack's environment — in `kindgi dev`
@@ -272,9 +305,9 @@ removed field, a narrower type — not on every save.
 ## Common mistakes
 
 1. **Copying the sample tool's shape without asking what the tool should do.**
-2. **Reading `ctx.env` / `ctx.config`, or an undeclared `ctx.secrets` name.**
-   The first two are empty, and `ctx.secrets` holds only what `needs_spec`
-   declares; use `os.environ` for the rest.
+2. **Reading `ctx.config`, or an undeclared `ctx.env` or `ctx.secrets` name.**
+   `ctx.config` is empty, and `ctx.env` and `ctx.secrets` hold only what
+   `needs_spec` declares; use `os.environ` for the rest.
 3. **A non-object input** (`def f(n: int)`): the input must be a model,
    TypedDict, dataclass or object schema.
 4. **No docstring and no `description=`**, or an unannotated input or

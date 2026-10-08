@@ -1,5 +1,51 @@
 # @kindgi/adapter-model-openai-compat
 
+## 0.1.4
+
+### Patch Changes
+
+- 1c0252c: **A model that rejects `temperature` no longer fails the call.** Anthropic's Claude 4.7 and later (Opus 5.5, Sonnet 5.5, Haiku 5.5) answer a non-default `temperature` with a 400, and OpenAI's GPT-6 models take none at their reasoning efforts. A model's `ModelInfo` now says so with `sampling: false`. For such a model, every adapter sends the call without the temperature and says so in the answer's `warnings`, code `sampling-unsupported`. That covers a model-settings block, a guardrail judge and an eval judge alike.
+  - `@kindgi/capabilities`: `ModelInfo.sampling`, and `samplingFor(model, input)`, the one place an adapter asks what to send.
+  - The HTTP API keeps a model's `sampling` (it must be a boolean; otherwise 400, reason `invalid-sampling`) and returns it. The Python client's `ModelInfo` has it too.
+  - The `anthropic`, `openai` and `openrouter` presets mark those models. A registration made from an older preset keeps sending the temperature: re-register to pick up the marks.
+  - `kindgi providers register --preset` reads the provider back, and on a runtime that drops these rules (older than 0.1.4) says so in one line, naming the models whose temperature may be refused.
+- 1c0252c: **A guardrail judge on a model that thinks still gets its verdict.** Claude Sonnet 5.5 and Opus 5.5, Haiku 5.5, Gemini 3.8 Flash and OpenAI's GPT-6 models think by default, and their thinking counts against the output cap. A judge's 256 tokens could be gone before the verdict.
+  - `ModelInfo.thinking` (`{ mode: 'adaptive' | 'always', lowest }`) says how a model thinks and its vendor's setting for the least thinking. The HTTP API validates it (otherwise 400, reason `invalid-thinking`) and returns it; the Python client has `ModelThinking`.
+  - `ModelCallInput.thinking: 'lowest'` asks for that least. The anthropic adapter sends Sonnet 5.5's `between_tools` or Haiku 5.5's `disabled` with effort `low`, and Opus 5.5's effort `low` alone. The gemini adapter sends the thinking level (`LOW` on 3.8 Flash, which refuses `MINIMAL`; `MINIMAL` on 3.5 Flash-Lite). openai-compat sends `reasoning_effort`. A model without `thinking` gets nothing extra.
+  - A guardrail judge asks for it, and on a thinking model its cap is 256 + 2048 tokens (`JUDGE_VERDICT_TOKENS`, `JUDGE_THINKING_TOKENS`).
+  - The presets mark the models: anthropic's Opus, Sonnet and Haiku 5.5, gemini and gemini-api's 3.8 Flash and 3.5 Flash-Lite, openai's gpt-6.1-sol and gpt-6-luna. Re-register to pick the marks up.
+- 4f90882: The OpenAI-compatible adapter prices a call the way OpenAI bills it, so a run's cost and its cost budget are right on GPT-6. Before, every prompt token billed at the base input rate: cached prompts were overcharged 10–20 times, and a prompt past 272,000 tokens was undercharged (OpenAI bills those at twice the input and 1.5 times the output rate).
+  - **A model's cost table** takes the rates the Gemini and Anthropic adapters already price with: `cachedPromptMultiplier`, `promptCacheCreationMultiplier`, `longContext` (the whole call at its rates past `thresholdTokens`), and `dataResidencyMultiplier` (applied only on a data-residency host such as `eu.api.openai.com`). Both APIs (Responses and Chat Completions) price with them.
+  - **The `openai` preset** carries OpenAI's published GPT-6 rates (checked 2026-10-07): cached input at 10% of input (5% on GPT-6.1 Sol), cache writes at 1.25 times, twice the input and 1.5 times the output past 272,000 input tokens, and +10% on a data-residency host. Past 272,000 means per call, counting all of its input tokens (cached and cache-write ones included), as we read OpenAI's pricing. A registration can't be edited, so one made from an earlier preset keeps its base rates: unregister it (`kindgi providers unregister openai`), then register the preset again; one your pack's config declares updates when `kindgi dev` restarts.
+- bcdc637: OpenAI's GPT-6 models can call tools: the OpenAI-compatible adapter now speaks OpenAI's Responses API to OpenAI itself. GPT-6 Astra and Sol can't call tools through Chat Completions, and Luna only without reasoning, so an agent with tools on the `openai` preset failed.
+  - **Which API:** a provider's `adapter_config.api` picks it, `responses` or `chat-completions`. Without one, a `baseURL` on `api.openai.com` (or a data-residency host such as `eu.api.openai.com`) speaks Responses, and every other endpoint (Ollama, vLLM, Groq, OpenRouter, …) keeps Chat Completions. **An existing OpenAI registration moves to Responses on upgrade, with no re-registration:** set `adapter_config.api` to `chat-completions` to keep the old path. A registration whose `extraBody.*` fields were written for Chat Completions (such as `extraBody.reasoning_effort`) either keeps that path the same way, or moves them to their Responses names (`extraBody.reasoning.effort`).
+  - **The `openai` preset** sets `api: responses`.
+  - **Stateless:** every Responses call sends `store: false`, so OpenAI keeps no conversation state for Kindgi's calls. A reasoning model's reasoning between tool calls goes back to it with the calls (in the tool call's `signature`), for the same model only.
+  - **`extraBody`** on Responses refuses the fields the adapter sets there (`EXTRA_BODY_RESERVED_RESPONSES`); `extraBody.reasoning.effort` sets a reasoning model's effort.
+  - **The model data applies on Responses too:** a temperature the model doesn't take (`sampling: false`) isn't sent and the answer carries a `sampling-unsupported` warning; a call asking for `thinking: 'lowest'` (a guardrail judge) sends the model's lowest `reasoning.effort` (`gpt-6-astra` now has one: `low`, checked live; `none` is refused); and the system prompt names the call's tools as they're sent.
+- 7b63137: An agent whose instructions name a tool by its id (`call acme.lookup_order`) now gets the tool called on Anthropic and OpenAI-compatible models. Those providers forbid dots in tool names, so the tool is sent as `acme__lookup_order`; a model told the dotted id would call a name it wasn't given, writing the call as text or having it dropped (measured on local models: 43% of such turns). The adapters now name the call's own tools in the system prompt by the names they're sent under: whole ids only, deterministically, at the wire boundary. The journal, the conversation and provenance keep the dotted ids. Gemini keeps dots and is unchanged. `nameToolsAsSent` (`@kindgi/capabilities/tool-names`) is the helper.
+- Updated dependencies [1c0252c]
+- Updated dependencies [1c0252c]
+- Updated dependencies [b9d3c01]
+- Updated dependencies [7b63137]
+- Updated dependencies [f999acd]
+- Updated dependencies [2923703]
+- Updated dependencies [d0ebeb6]
+  - @kindgi/capabilities@0.1.4
+
+## 0.1.4-rc.5
+
+### Patch Changes
+
+- @kindgi/capabilities@0.1.4-rc.5
+
+## 0.1.4-rc.4
+
+### Patch Changes
+
+- Updated dependencies [f999acd]
+  - @kindgi/capabilities@0.1.4-rc.4
+
 ## 0.1.4-rc.3
 
 ### Patch Changes

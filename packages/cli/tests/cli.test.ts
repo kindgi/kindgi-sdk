@@ -9,6 +9,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
+import { turnFailureMessage } from '@kindgi/agents';
 import type { KindgiClient } from '@kindgi/client';
 
 import { runCli } from '../src/main.js';
@@ -70,6 +71,33 @@ describe('root-level flags and help', () => {
     const out = await runCli(baseInputs({ argv: ['bogus'] }));
     expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('Unknown command: bogus');
+  });
+
+  test('an unknown subcommand exits 2, naming it and the nearest one, with the group help on stderr', async () => {
+    const out = await runCli(baseInputs({ argv: ['agents', 'register', '--spec=@agent.json'] }));
+    expect(out.exitCode).toBe(2);
+    expect(out.stdout).toBe('');
+    expect(out.stderr).toMatch(
+      /^Unknown subcommand "register" for kindgi agents\. Did you mean "publish"\?\n\n/,
+    );
+    expect(out.stderr).toContain('Usage: kindgi agents <subcommand>');
+  });
+
+  test('a typo of a subcommand: the nearest one; nothing near: no hint', async () => {
+    const typo = await runCli(baseInputs({ argv: ['runs', 'lsit'] }));
+    expect(typo.exitCode).toBe(2);
+    expect(typo.stderr).toContain(
+      'Unknown subcommand "lsit" for kindgi runs. Did you mean "list"?',
+    );
+    const far = await runCli(baseInputs({ argv: ['runs', 'zzzzzz'] }));
+    expect(far.exitCode).toBe(2);
+    expect(far.stderr.split('\n')[0]).toBe('Unknown subcommand "zzzzzz" for kindgi runs.');
+  });
+
+  test('a group with only a flag still prints its help', async () => {
+    const out = await runCli(baseInputs({ argv: ['runs', '--help'] }));
+    expect(out.exitCode).toBe(0);
+    expect(out.stdout).toContain('Usage: kindgi runs <subcommand>');
   });
 
   test('group command without leaf prints group help', async () => {
@@ -313,10 +341,6 @@ describe('not-implemented-in-preview SDK errors', () => {
     [['observations', 'list'], "doesn't record supervisor observations yet"],
     [['proposals', 'list'], "doesn't draft or apply supervisor fix proposals yet"],
     [['proposals', 'get', 'p-1'], "doesn't draft or apply supervisor fix proposals yet"],
-    [['artifacts', 'list'], "doesn't serve `/v1/artifacts` yet"],
-    [['artifacts', 'download', 'blob-1'], 'no artifacts to list, upload, download or delete'],
-    [['capabilities', 'list'], "doesn't serve `/v1/capabilities` yet"],
-    [['capabilities', 'get', 'tool-use'], 'kindgi providers list --feature=<feature>'],
   ])("%j says why: the group's reason covers each of its commands", async (argv, reason) => {
     const out = await runCli(
       baseInputs({
@@ -327,37 +351,6 @@ describe('not-implemented-in-preview SDK errors', () => {
     expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain(`Command 'kindgi ${argv.slice(0, 2).join(' ')}' is not available`);
     expect(out.stderr).toContain(reason);
-  });
-
-  test("tokens create and revoke say the runtime doesn't serve them, and call nothing", async () => {
-    for (const argv of [
-      ['tokens', 'create'],
-      ['tokens', 'revoke', 'tok-1'],
-    ]) {
-      let called = false;
-      const out = await runCli(
-        baseInputs({
-          argv: [...argv, '--url=https://x', '--token=t'],
-          clientFactory: () =>
-            ({
-              tokens: {
-                create: async () => {
-                  called = true;
-                },
-                revoke: async () => {
-                  called = true;
-                },
-              },
-            }) as never,
-        }),
-      );
-      expect(out.exitCode).toBe(2);
-      expect(out.stderr).toContain(
-        `Command 'kindgi ${argv.slice(0, 2).join(' ')}' is not available`,
-      );
-      expect(out.stderr).toContain("the Kindgi runtime doesn't serve `/v1/tokens` yet");
-      expect(called).toBe(false);
-    }
   });
 });
 
@@ -462,6 +455,114 @@ describe('kindgi runs start', () => {
     expect(JSON.parse(out.stdout)).toEqual({ id: 'run-2', status: 'pending' });
   });
 
+  /** `kindgi runs start <flags>` against a run that is `pending`, then reads as `final`. */
+  function startThenRead(flags: readonly string[], final: Record<string, unknown>) {
+    return runCli(
+      baseInputs({
+        argv: ['runs', 'start', ...flags, '--input={"x":1}', '--url=https://x', '--token=t'],
+        clientFactory: () =>
+          ({
+            runs: {
+              start: async () => ({ id: 'run-5', status: 'pending' }),
+              get: async (id: string) => ({ id, ...final }),
+            },
+          }) as never,
+      }),
+    );
+  }
+
+  // A turn's failure as the runtime records it on the run (`turnFailureMessage`).
+  const routing = turnFailureMessage({
+    code: 'capability-routing-failed',
+    message: 'No registered provider satisfies the capability declaration',
+    cause: { code: 'capability-unsatisfiable', message: 'none', reasons: [] },
+  });
+  const budget = turnFailureMessage({
+    code: 'budget-exceeded',
+    message: 'Agent turn steps budget exceeded (limit 1, observed 1)',
+    kind: 'steps',
+    limit: 1,
+    observed: 1,
+  });
+
+  test("an agent turn that fails: the run still prints, its error's code and message, exit 1", async () => {
+    const failed = { status: 'failed', failureMessage: routing };
+    const out = await startThenRead(['--agent=pack.agent'], failed);
+    expect(out.exitCode).toBe(1);
+    // stdout is the run as `runs get` prints it, its failure message as recorded.
+    expect(JSON.parse(out.stdout)).toEqual({ id: 'run-5', ...failed });
+    expect(out.stderr).toBe(
+      'Error [capability-routing-failed]: No registered provider satisfies the capability declaration\n',
+    );
+  });
+
+  test("a run that carries `failure` (0.1.5 runtimes): its code and message, not the raw message's", async () => {
+    const out = await startThenRead(['--agent=pack.agent'], {
+      status: 'failed',
+      failureMessage: routing,
+      failure: {
+        code: 'budget-exceeded',
+        message: 'Agent turn steps budget exceeded (limit 1, observed 1)',
+      },
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      'Error [budget-exceeded]: Agent turn steps budget exceeded (limit 1, observed 1)\n',
+    );
+  });
+
+  test("failures joined with '; ': the first turn error", async () => {
+    const out = await startThenRead(['--agent=pack.agent'], {
+      status: 'failed',
+      failureMessage: `${budget}; ${routing}`,
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      'Error [budget-exceeded]: Agent turn steps budget exceeded (limit 1, observed 1)\n',
+    );
+  });
+
+  test('a failure in plain words: run-failed, with them', async () => {
+    const out = await startThenRead(['--flow=pack.flow'], {
+      status: 'failed',
+      failureMessage:
+        'Interrupted: the run was ready to continue, but every attempt to resume it failed.',
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      'Error [run-failed]: Interrupted: the run was ready to continue, but every attempt to resume it failed.\n',
+    );
+  });
+
+  test('a flow run that fails with no message: run-failed, naming the run', async () => {
+    const out = await startThenRead(['--flow=pack.flow'], { status: 'failed' });
+    expect([out.exitCode, out.stderr]).toEqual([1, 'Error [run-failed]: Run run-5 failed\n']);
+  });
+
+  test("a turn's warnings stay before the error line", async () => {
+    const out = await startThenRead(['--agent=pack.agent'], {
+      status: 'failed',
+      failureMessage: routing,
+      output: { warnings: [{ code: 'fallback-provider', message: 'Answered by a fallback' }] },
+    });
+    expect(out.stderr).toBe(
+      '⚠ Answered by a fallback\nError [capability-routing-failed]: No registered provider satisfies the capability declaration\n',
+    );
+  });
+
+  test('--quiet: nothing printed, and the exit code still says it failed', async () => {
+    const out = await startThenRead(['--agent=pack.agent', '--quiet'], { status: 'failed' });
+    expect([out.exitCode, out.stdout, out.stderr]).toEqual([1, '', '']);
+  });
+
+  test.each(['completed', 'cancelled', 'suspended'])(
+    'a run that ends %s exits 0',
+    async (status) => {
+      const out = await startThenRead(['--agent=pack.agent'], { status });
+      expect([out.exitCode, out.stderr]).toEqual([0, '']);
+    },
+  );
+
   /** `kindgi runs start <flags>` against a client that records what it started. */
   async function start(flags: readonly string[]) {
     const started: unknown[] = [];
@@ -534,7 +635,7 @@ describe('kindgi runs start', () => {
 describe('missing required arguments', () => {
   test('kindgi runs get without run-id fails', async () => {
     const out = await runCli(baseInputs({ argv: ['runs', 'get', '--url=https://x', '--token=t'] }));
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('Missing required argument: run-id');
   });
 
@@ -544,7 +645,7 @@ describe('missing required arguments', () => {
         argv: ['runs', 'start', '--input={"x":1}', '--url=https://x', '--token=t'],
       }),
     );
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr.toLowerCase()).toContain('--agent');
   });
 
@@ -562,7 +663,7 @@ describe('missing required arguments', () => {
         ],
       }),
     );
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('mutually exclusive');
   });
 });
@@ -596,6 +697,19 @@ describe('kindgi runs start — turn warnings', () => {
       '⚠ Answered by "dev-echo", a fallback provider: no other registered provider satisfies agent "ledger.echo-agent".\n',
     );
     expect(JSON.parse(out.stdout).id).toBe('run-1');
+  });
+
+  test("dev-echo's own warning stands for the fallback one: one line, with the fix", async () => {
+    const out = await startWith({
+      warnings: [
+        { code: 'fallback-provider', message: 'Answered by "dev-echo", a fallback provider: …' },
+        {
+          code: 'dev-echo-not-a-model',
+          message: "dev-echo answered, and it isn't a real model: …",
+        },
+      ],
+    });
+    expect(out.stderr).toBe("⚠ dev-echo answered, and it isn't a real model: …\n");
   });
 
   test('no warnings, nothing on stderr', async () => {
@@ -717,13 +831,13 @@ describe('auth login', () => {
 
   test('rejects login without --url', async () => {
     const out = await runCli(baseInputs({ argv: ['auth', 'login', '--token=abc'] }));
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('Missing --url');
   });
 
   test('rejects login without --token', async () => {
     const out = await runCli(baseInputs({ argv: ['auth', 'login', '--url=https://x'] }));
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('Missing --token');
   });
 });
