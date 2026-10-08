@@ -318,6 +318,10 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'service-account-name-taken':
     case 'service-account-unregistered':
     case 'identity-user-email-taken':
+    case 'last-tenant-admin':
+    case 'seed-user-admin':
+    case 'identity-user-unregister-refused':
+    case 'identity-user-unregistered':
       return conflict(code, message, details);
     case 'invalid-request':
     case 'validation-failed':

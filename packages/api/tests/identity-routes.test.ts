@@ -526,3 +526,113 @@ describe('API — identity routes with no directory binding', () => {
     expect(body.user).toBeUndefined();
   });
 });
+
+describe('API — removing a person (POST /users/:userId/unregister)', () => {
+  function makeUnregisterApp(
+    outcome: (
+      userId: string,
+    ) => Awaited<ReturnType<NonNullable<IdentityDirectoryBinding['unregisterUser']>>>,
+  ) {
+    const directory = makeInMemoryDirectory();
+    const calls: { userId: string; includeUnregistered?: boolean }[] = [];
+    const listCalls: (boolean | undefined)[] = [];
+    const binding: IdentityDirectoryBinding = {
+      ...directory.binding,
+      async listUsers(input) {
+        listCalls.push(input.includeUnregistered);
+        return directory.binding.listUsers(input);
+      },
+      async unregisterUser({ userId }) {
+        calls.push({ userId: userId as unknown as string });
+        return outcome(userId as unknown as string);
+      },
+    };
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken: bearerResolver,
+      runHandler: noopRunHandler,
+      identityDirectory: binding,
+    });
+    return { app, calls, listCalls };
+  }
+  const removed = (userId: string) => ({
+    kind: 'unregistered' as const,
+    user: {
+      ...baseUser({ userId: userId as UserId, tenantId: tenantA }),
+      unregisteredAt: '2026-10-07T12:00:00.000Z' as Timestamp,
+    },
+    keysRevoked: 2,
+    sessionsRevoked: 1,
+    grantsRemoved: 3,
+  });
+
+  test('a tenant admin removes a person: the record with unregisteredAt, and what went', async () => {
+    const { app, calls } = makeUnregisterApp(removed);
+    const res = await jsonPost(app, '/v1/identity/users/u-a/unregister', ADMIN_TOKEN);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      user: { userId: 'u-a', unregisteredAt: '2026-10-07T12:00:00.000Z' },
+      keysRevoked: 2,
+      sessionsRevoked: 1,
+      grantsRemoved: 3,
+    });
+    expect(calls).toEqual([{ userId: 'u-a' }]);
+  });
+
+  test('anyone else is refused before the directory is asked', async () => {
+    const { app, calls } = makeUnregisterApp(removed);
+    const res = await jsonPost(app, '/v1/identity/users/u-a/unregister', BEARER_TOKEN);
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'permission-denied',
+    );
+    expect(calls).toEqual([]);
+  });
+
+  test('an unknown person is 404', async () => {
+    const { app } = makeUnregisterApp(() => ({ kind: 'not-found' }));
+    const res = await jsonPost(app, '/v1/identity/users/u-x/unregister', ADMIN_TOKEN);
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'identity-user-not-found',
+    );
+  });
+
+  test('yourself or the seed user: 409 with the reason; the only tenant admin: last-tenant-admin', async () => {
+    for (const reason of ['yourself', 'seed-user'] as const) {
+      const { app } = makeUnregisterApp(() => ({
+        kind: 'refused',
+        reason,
+        message: `no: ${reason}`,
+      }));
+      const res = await jsonPost(app, '/v1/identity/users/u-a/unregister', ADMIN_TOKEN);
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { error: { code: string; details?: { reason?: string } } };
+      expect(body.error.code).toBe('identity-user-unregister-refused');
+      expect(JSON.stringify(body.error)).toContain(reason);
+    }
+    const { app } = makeUnregisterApp(() => ({
+      kind: 'refused',
+      reason: 'last-tenant-admin',
+      message: 'the only tenant admin',
+    }));
+    const res = await jsonPost(app, '/v1/identity/users/u-a/unregister', ADMIN_TOKEN);
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'last-tenant-admin',
+    );
+  });
+
+  test('the list leaves removed people out unless includeUnregistered=true', async () => {
+    const { app, listCalls } = makeUnregisterApp(removed);
+    await jsonGet(app, '/v1/identity/users');
+    await jsonGet(app, '/v1/identity/users?includeUnregistered=true');
+    expect(listCalls).toEqual([undefined, true]);
+  });
+
+  test('without unregisterUser on the directory, the route is not mounted', async () => {
+    const { app } = makeApp();
+    const res = await jsonPost(app, '/v1/identity/users/u-a/unregister', ADMIN_TOKEN);
+    expect(res.status).toBe(404);
+  });
+});
