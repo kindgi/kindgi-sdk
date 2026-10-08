@@ -13,6 +13,10 @@ pack_image   = "northamerica-northeast2-docker.pkg.dev/acme-kindgi-dev/kindgi/ac
 seed_tenant_id = "00000000-0000-0000-0000-000000000001"
 seed_user_id   = "00000000-0000-0000-0000-000000000002"
 
+# The version of the AAD key the server reads: the first one added (README step 3).
+# Pinned, never "latest": every secret stored in Postgres is bound to it.
+secrets_aad_key_version = "1"
+
 cors_origins = ["https://app.acme.example"]
 
 # One server instance until multiple replicas are verified (the default).
