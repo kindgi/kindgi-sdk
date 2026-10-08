@@ -47,6 +47,11 @@ export interface EnvTarget {
   readonly secretsBackend?: 'none' | 'postgres' | 'secret-manager' | 'dotenv';
   readonly secretsBackendKms?: 'gcp' | 'azure' | 'aws' | 'libsodium' | 'vault';
   /**
+   * The secret manager the `secret-manager` backend keeps secrets in
+   * (`KINDGI_SECRETS_MANAGER`). Absent: not chosen yet.
+   */
+  readonly secretsManager?: 'azure' | 'gcp' | 'aws' | 'vault';
+  /**
    * How the server reaches the pack service: `http` when
    * `KINDGI_PACK_SERVICE_URL` is set. Absent: the server has no pack
    * service. Server only.
@@ -105,8 +110,10 @@ export const ENV_GROUPS = {
   core: 'Core server config',
   logging: 'Logging',
   secrets: 'Secrets backend selection',
-  gcp: 'GCP vendor config (postgres + gcp KMS)',
-  azure: "Azure vendor config (the server's managed identity; postgres + azure KMS)",
+  gcp: 'GCP vendor config (postgres + gcp KMS; secret-manager + gcp)',
+  azure:
+    "Azure vendor config (the server's managed identity; postgres + azure KMS; secret-manager + azure)",
+  aws: 'AWS vendor config (secret-manager + aws)',
   'local-key': 'Local key (postgres + libsodium: a key this runtime holds, single-node)',
   'pack-service': 'Pack service (runs the pack code: tools and guardrail checks)',
   'image-registry': "Image registry (where deployments' images are read from)",
@@ -134,6 +141,14 @@ const appliesToPostgresAzure = (t: EnvTarget): boolean =>
 
 const appliesToPostgresLocalKey = (t: EnvTarget): boolean =>
   appliesToPostgresBackend(t) && t.secretsBackendKms === 'libsodium';
+
+const appliesToSecretManagerBackend = (t: EnvTarget): boolean =>
+  appliesToServer(t) && t.secretsBackend === 'secret-manager';
+
+const appliesToSecretManager =
+  (manager: NonNullable<EnvTarget['secretsManager']>) =>
+  (t: EnvTarget): boolean =>
+    appliesToSecretManagerBackend(t) && t.secretsManager === manager;
 
 const appliesToPackService = (t: EnvTarget): boolean => t.component === 'pack-service';
 
@@ -377,12 +392,22 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_SECRETS_BACKEND',
     description:
-      'Where secret bytes live. `none` (default; /v1/secrets/* unmounted) | `postgres` (envelope-encrypted, needs KMS) | `dotenv` (`.env` files in a directory; development only, needs `KINDGI_DEV=true`) | `secret-manager` (reserved; not supported through this variable).',
+      'Where secret bytes live. `none` (default; /v1/secrets/* unmounted) | `postgres` (envelope-encrypted, needs KMS) | `dotenv` (`.env` files in a directory; development only, needs `KINDGI_DEV=true`) | `secret-manager` (your own secret manager holds the bytes; pick it with `KINDGI_SECRETS_MANAGER`).',
     example: 'postgres',
     required: false,
     appliesTo: appliesToServer,
     group: 'secrets',
     allowedValues: ['none', 'postgres', 'dotenv', 'secret-manager'],
+  },
+  {
+    name: 'KINDGI_SECRETS_MANAGER',
+    description:
+      "Which secret manager the `secret-manager` backend keeps secrets in: `azure` (Azure Key Vault, see `KINDGI_SECRETS_AZURE_VAULT_URL`), `gcp` (Google Secret Manager, in `KINDGI_SECRETS_GCP_PROJECT_ID`). Kindgi reads and writes them with the server's own platform identity and keeps only their names and version numbers in its database. Reserved: `aws`, `vault`.",
+    example: 'azure',
+    required: true,
+    appliesTo: appliesToSecretManagerBackend,
+    group: 'secrets',
+    allowedValues: ['azure', 'gcp', 'aws', 'vault'],
   },
   {
     name: 'KINDGI_SECRETS_DOTENV_DIR',
@@ -434,10 +459,11 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   // ---- GCP vendor -------------------------------------------------
   {
     name: 'KINDGI_SECRETS_GCP_PROJECT_ID',
-    description: 'GCP project id owning the KMS keyring + key.',
+    description:
+      "GCP project id owning the KMS keyring + key (postgres backend, KMS `gcp`), or holding the secrets in its Secret Manager (`secret-manager` backend, manager `gcp`; the server's service account needs to create, add versions to and disable them, e.g. Secret Manager Admin, in a project used for Kindgi's secrets alone).",
     example: 'my-proj',
     required: true,
-    appliesTo: appliesToPostgresGcp,
+    appliesTo: (t) => appliesToPostgresGcp(t) || appliesToSecretManager('gcp')(t),
     group: 'gcp',
   },
   {
@@ -469,7 +495,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_AZURE_CLIENT_ID',
     description:
-      "Client id of the user-assigned managed identity the server signs in to Azure with, for its Azure settings (`KINDGI_SECRETS_BACKEND_KMS=azure`, `KINDGI_IMAGE_REGISTRY_AUTH=azure`). Unset: the service's system-assigned identity. With `KINDGI_DEV=true` (a laptop), the Azure CLI's sign-in (`az login`) first, then the managed identity. Kindgi keeps no key or secret for it.",
+      "Client id of the user-assigned managed identity the server signs in to Azure with, for its Azure settings (`KINDGI_SECRETS_BACKEND_KMS=azure`, `KINDGI_SECRETS_MANAGER=azure`, `KINDGI_IMAGE_REGISTRY_AUTH=azure`). Unset: the service's system-assigned identity. With `KINDGI_DEV=true` (a laptop), the Azure CLI's sign-in (`az login`) first, then the managed identity. Kindgi keeps no key or secret for it.",
     example: '11111111-2222-3333-4444-555555555555',
     required: false,
     appliesTo: appliesToServer,
@@ -483,6 +509,26 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     required: true,
     appliesTo: appliesToPostgresAzure,
     group: 'azure',
+  },
+  {
+    name: 'KINDGI_SECRETS_AZURE_VAULT_URL',
+    description:
+      "The Azure Key Vault that holds the secrets set through Kindgi's API (`secret-manager` backend, manager `azure`): its URL, `https://<vault>.vault.azure.net`. Use a vault for these alone, not the one your deployment's own secrets are in: the server's identity needs the Key Vault Secrets Officer role on it, to create, version, disable and recover secrets.",
+    example: 'https://my-kindgi-secrets.vault.azure.net',
+    required: true,
+    appliesTo: appliesToSecretManager('azure'),
+    group: 'azure',
+  },
+
+  // ---- AWS vendor -------------------------------------------------
+  {
+    name: 'KINDGI_SECRETS_AWS_REGION',
+    description:
+      "The AWS region whose Secrets Manager holds the secrets set through Kindgi's API (`secret-manager` backend, manager `aws`). Credentials come from the platform (the ECS task role, EC2 instance profile or EKS web identity), never from `AWS_*` variables.",
+    example: 'ca-central-1',
+    required: true,
+    appliesTo: appliesToSecretManager('aws'),
+    group: 'aws',
   },
 
   // ---- local key (libsodium) --------------------------------------

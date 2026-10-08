@@ -82,6 +82,13 @@ export interface SecretProviderGetVersionInput {
   readonly providerScope: SecretProviderScope;
   readonly name: string;
   readonly versionId: number;
+  /**
+   * The provider's own id for this version, when the caller recorded it
+   * (the router does, from `SecretProviderPutOutput.providerVersion`).
+   * Adapters whose native versions aren't integers (Azure Key Vault's
+   * hex ids, AWS's UUIDs) fetch by it; the others may ignore it.
+   */
+  readonly providerVersion?: string;
 }
 
 export interface SecretProviderPayload {
@@ -119,7 +126,18 @@ export interface SecretProviderPutInput {
 }
 
 export type SecretProviderPutOutput =
-  | { readonly kind: 'ok'; readonly versionId: number; readonly createdAt: string }
+  | {
+      readonly kind: 'ok';
+      readonly versionId: number;
+      readonly createdAt: string;
+      /**
+       * The provider's own id for the version written: a Key Vault
+       * version, an AWS `VersionId`, or Vault's or GCP's version number
+       * as a string. The router records it, so Kindgi's version numbers
+       * stay its own whatever the provider uses.
+       */
+      readonly providerVersion?: string;
+    }
   | { readonly kind: 'already-exists' }
   | { readonly kind: 'version-conflict'; readonly currentVersion: number };
 
@@ -131,7 +149,13 @@ export interface SecretProviderRotateInput {
 }
 
 export type SecretProviderRotateOutput =
-  | { readonly kind: 'ok'; readonly newVersionId: number; readonly oldVersionId: number }
+  | {
+      readonly kind: 'ok';
+      readonly newVersionId: number;
+      readonly oldVersionId: number;
+      /** The provider's own id for the new version (see `SecretProviderPutOutput`). */
+      readonly newProviderVersion?: string;
+    }
   | { readonly kind: 'rotation-pending'; readonly resumeToken: string };
 
 export interface SecretProviderDeleteInput {

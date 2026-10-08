@@ -749,6 +749,7 @@ export interface EnvInitInputSeam {
 
 const SECRETS_BACKEND_CHOICES = ['none', 'postgres', 'secret-manager'] as const;
 const SECRETS_BACKEND_KMS_CHOICES = ['gcp', 'azure', 'aws', 'libsodium', 'vault'] as const;
+const SECRETS_MANAGER_CHOICES = ['azure', 'gcp', 'aws', 'vault'] as const;
 
 const initCmd: LeafCommand = {
   kind: 'leaf',
@@ -756,7 +757,7 @@ const initCmd: LeafCommand = {
   description:
     'Scaffold `.env.example` for a deployment target. Interactive prompt when flags omit an axis and stdin is a TTY.',
   usage:
-    'kindgi env init [--secrets-backend=<none|postgres|secret-manager>] [--kms=<gcp|azure|aws|libsodium|vault>] [--out=<path>] [--force] [--non-interactive]',
+    'kindgi env init [--secrets-backend=<none|postgres|secret-manager>] [--kms=<gcp|azure|aws|libsodium|vault>] [--secrets-manager=<azure|gcp|aws|vault>] [--out=<path>] [--force] [--non-interactive]',
   optionSpec: {
     'secrets-backend': {
       type: 'string' as const,
@@ -766,7 +767,12 @@ const initCmd: LeafCommand = {
     kms: {
       type: 'string' as const,
       description:
-        'The KMS for the `postgres` or `secret-manager` backend: `gcp`, `azure`, `aws`, `libsodium` or `vault`. Asked for when needed and omitted.',
+        'The KMS for the `postgres` backend: `gcp`, `azure`, `aws`, `libsodium` or `vault`. Asked for when needed and omitted.',
+    },
+    'secrets-manager': {
+      type: 'string' as const,
+      description:
+        'The secret manager for the `secret-manager` backend: `azure`, `gcp`, `aws` or `vault`. Asked for when needed and omitted.',
     },
     out: {
       type: 'string' as const,
@@ -778,7 +784,8 @@ const initCmd: LeafCommand = {
     },
     'non-interactive': {
       type: 'boolean' as const,
-      description: 'Never prompt: fail when `--secrets-backend`, or a needed `--kms`, is missing.',
+      description:
+        'Never prompt: fail when `--secrets-backend`, or a needed `--kms` or `--secrets-manager`, is missing.',
     },
   },
   run: async (ctx): Promise<CommandResult> => {
@@ -787,6 +794,7 @@ const initCmd: LeafCommand = {
 
     const backendFlag = stringFlag(ctx, 'secrets-backend');
     const kmsFlag = stringFlag(ctx, 'kms');
+    const managerFlag = stringFlag(ctx, 'secrets-manager');
     const outFlag = stringFlag(ctx, 'out');
     const outPath =
       outFlag !== undefined && outFlag !== '' ? outFlag : join(ctx.cwd, '.env.example');
@@ -807,6 +815,13 @@ const initCmd: LeafCommand = {
         exitCode: 2,
       };
     }
+    if (managerFlag !== undefined && !SECRETS_MANAGER_CHOICES.includes(managerFlag as never)) {
+      return {
+        kind: 'error',
+        stderr: `--secrets-manager must be one of: ${SECRETS_MANAGER_CHOICES.join(', ')}. Got "${managerFlag}".\n`,
+        exitCode: 2,
+      };
+    }
 
     // Resolve missing axes via interactive prompt or fail loud.
     const seam = ctx.envInitInputSeam ?? {};
@@ -814,6 +829,7 @@ const initCmd: LeafCommand = {
 
     let backend = backendFlag as EnvTarget['secretsBackend'] | undefined;
     let kms = kmsFlag as EnvTarget['secretsBackendKms'] | undefined;
+    let manager = managerFlag as EnvTarget['secretsManager'] | undefined;
 
     if (backend === undefined) {
       if (nonInteractive || !stdinIsTty()) {
@@ -834,8 +850,24 @@ const initCmd: LeafCommand = {
       backend = pick as EnvTarget['secretsBackend'];
     }
 
+    // A KMS is the postgres backend's; a secret manager is the secret-manager backend's.
+    if (kms !== undefined && backend !== 'postgres') {
+      return {
+        kind: 'error',
+        stderr: `--kms is for --secrets-backend=postgres.${backend === 'secret-manager' ? ' For secret-manager, pick --secrets-manager.' : ''}\n`,
+        exitCode: 2,
+      };
+    }
+    if (manager !== undefined && backend !== 'secret-manager') {
+      return {
+        kind: 'error',
+        stderr: '--secrets-manager is for --secrets-backend=secret-manager.\n',
+        exitCode: 2,
+      };
+    }
+
     // Only prompt for KMS if backend needs it.
-    const needsKms = backend === 'postgres' || backend === 'secret-manager';
+    const needsKms = backend === 'postgres';
     if (needsKms && kms === undefined) {
       if (nonInteractive || !stdinIsTty()) {
         return {
@@ -855,9 +887,29 @@ const initCmd: LeafCommand = {
       kms = pick as EnvTarget['secretsBackendKms'];
     }
 
+    if (backend === 'secret-manager' && manager === undefined) {
+      if (nonInteractive || !stdinIsTty()) {
+        return {
+          kind: 'error',
+          stderr: `--secrets-manager is required when --secrets-backend=secret-manager. Choices: ${SECRETS_MANAGER_CHOICES.join(', ')}.\n`,
+          exitCode: 2,
+        };
+      }
+      const pick = await promptOnce(
+        seam,
+        'Which secret manager?',
+        SECRETS_MANAGER_CHOICES as unknown as readonly string[],
+      );
+      if (pick === undefined) {
+        return { kind: 'error', stderr: 'Cancelled.\n', exitCode: 1 };
+      }
+      manager = pick as EnvTarget['secretsManager'];
+    }
+
     const target: EnvTarget = {
       ...(backend !== undefined && { secretsBackend: backend }),
       ...(kms !== undefined && { secretsBackendKms: kms }),
+      ...(manager !== undefined && { secretsManager: manager }),
     };
 
     // Refuse to overwrite an existing file unless --force.

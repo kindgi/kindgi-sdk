@@ -12,6 +12,7 @@ export {
 } from './schema.js';
 export {
   AZURE_KEY_ID_VAR,
+  AZURE_VAULT_URL_VAR,
   type AzureKeyId,
   CORS_ORIGINS_VAR,
   PUBLIC_URL_VAR,
@@ -20,6 +21,7 @@ export {
   PUBLIC_TOKEN_KEY_PATH_VAR,
   PUBLIC_TOKEN_KEY_VAR,
   parseAzureKeyId,
+  parseAzureVaultUrl,
   parseCorsOrigins,
   parsePublicUrl,
   parsePackServiceToken,
