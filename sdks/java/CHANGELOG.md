@@ -12,7 +12,7 @@ heading into its version.
   are published together, release candidates too. They're in preview: tested
   and supported, but the API may still change in 0.1.6 without the usual
   deprecation period. `kindgi-pack-scala`'s jars now carry the LICENSE and
-  NOTICE.
+  NOTICE. (#361)
 - `kindgi-pack`: **your app's Jackson modules apply to tool inputs, tool
   outputs, a check's attributes and the schemas derived from your types.**
   They're found the way `ObjectMapper.findAndRegisterModules()` finds them,
