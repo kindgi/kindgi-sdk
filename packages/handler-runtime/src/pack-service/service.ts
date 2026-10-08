@@ -270,7 +270,11 @@ export function createPackService(options: PackServiceOptions): PackService {
       );
     }
     return runCheck({
-      check: { id: message.check.id, modulePath: options.resolveModule(guardrail.checkModulePath) },
+      check: {
+        id: message.check.id,
+        modulePath: options.resolveModule(guardrail.checkModulePath),
+        ...(guardrail.configSchema !== undefined && { configSchema: guardrail.configSchema }),
+      },
       config: message.config,
       trace: message.trace,
       abortSignal: signal,

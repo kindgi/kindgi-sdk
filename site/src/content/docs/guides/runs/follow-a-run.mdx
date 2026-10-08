@@ -44,8 +44,9 @@ run = kindgi.runs.start(
     flow="acme.reserve-order", input={"orderId": "A-400"}, options={"wait": False}
 )
 
-for event in kindgi.runs.stream(run.id):
+for event in kindgi.runs.follow(run.id):
     print(event.sequence, event.kind, event.node_id or "")
+# The loop ends after run.completed, run.failed or run.cancelled.
 ```
 
 ```text
@@ -92,8 +93,11 @@ the last id you saw (the `Last-Event-Id` header) starts after it.
 
 - In TypeScript, `runs.stream` does this for you: it reconnects after a
   dropped connection or the server's limit, and ends only with the run.
-- In Python, `runs.stream` ends when the server closes the stream. Open it
-  again with `last_event_id=f"{run.id}:{event.sequence}"` to go on.
+- In Python, `runs.follow` does the same. `runs.stream` is the plain call: it
+  ends when the server closes the stream, and
+  `last_event_id=f"{run.id}:{event.sequence}"` opens it again after that event.
+  `runs.follow_progress` follows the [progress stream](../follow-from-the-browser/)
+  (no payloads) the same way.
 
 ## From the CLI
 

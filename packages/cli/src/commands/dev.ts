@@ -66,6 +66,14 @@ import {
 
 import type { CommandContext } from '../context.js';
 import { createDevOnlyImportsCheck } from '../dev/dev-only-imports.js';
+import {
+  DEV_GOOGLE_CREDENTIALS_VAR,
+  type DevGoogleCredentials,
+  VERTEX_PROVIDER_ID,
+  isVertexRegistration,
+  resolveDevGoogleCredentials,
+  vertexCredentialsHint,
+} from '../dev/google-credentials.js';
 import { type PackCode, resolvePackCode } from '../dev/pack-code.js';
 import { devPackEnv, devPackEnvFiles } from '../dev/pack-env.js';
 import { createPackRefresher, describePackEvent } from '../dev/pack-service.js';
@@ -325,6 +333,27 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
       : declaredProviders(projectEnv.config, configName, await loadProviderPresets());
   if (declared.kind === 'invalid') {
     return { kind: 'error', stderr: `kindgi dev: ${declared.message}\n`, exitCode: 1 };
+  }
+
+  // Google credentials for Vertex AI: only the ones KINDGI_DEV_GOOGLE_CREDENTIALS
+  // names (the shell, then the env files) reach the runtime. A declared
+  // Vertex provider without them is said now, before anything starts.
+  const google = resolveDevGoogleCredentials(
+    ctx.env[DEV_GOOGLE_CREDENTIALS_VAR] ?? projectEnv.runtime[DEV_GOOGLE_CREDENTIALS_VAR],
+    ctx.env,
+  );
+  if (google.kind === 'error') {
+    return { kind: 'error', stderr: `kindgi dev: ${google.message}\n`, exitCode: 1 };
+  }
+  const declaredVertex = declared.providers
+    .filter((p) => isVertexRegistration(p.input))
+    .map((p) => p.id);
+  if (google.credentials !== undefined) {
+    emitProgress(
+      `✓ Google credentials: ${google.credentials.path} (${google.credentials.who}), mounted read-only for Vertex AI`,
+    );
+  } else if (declaredVertex.length > 0) {
+    emitProgress(`⚠ ${vertexCredentialsHint(declaredVertex, ctx.env)}`);
   }
 
   // The runtime's port, before anything starts. Taken without `--port`
@@ -592,6 +621,9 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
         ...(publicRunTokens.corsOrigins.length > 0 && {
           corsOrigins: publicRunTokens.corsOrigins,
         }),
+        ...(google.credentials !== undefined && {
+          googleCredentialsPath: google.credentials.path,
+        }),
         runtimeImage: args.runtimeImage,
         ...(args.runtimeUrl !== undefined && { runtimeUrl: args.runtimeUrl }),
         onLog: (line) => emitProgress(`  [runtime] ${line}`),
@@ -670,6 +702,14 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   });
   const providers = await registeredProviders(client);
   const registerProviderCommand = await registerProviderHint(kindgi);
+  // A Vertex provider registered by hand (the `gemini` preset) has no
+  // credentials either; a declared one was named before the start.
+  if (google.credentials === undefined) {
+    const byHand = (providers ?? [])
+      .map((p) => p.id)
+      .filter((id) => id === VERTEX_PROVIDER_ID && !declaredVertex.includes(id));
+    if (byHand.length > 0) emitProgress(`⚠ ${vertexCredentialsHint(byHand, ctx.env)}`);
+  }
 
   const bannerLines = renderDevBanner({
     baseUrl: server.baseUrl,
@@ -683,6 +723,7 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
     discoveryRoots: discoveryRoots(projectEnv.discoveryPatterns),
     ...(servicesHandle !== undefined && { autoStartedServices: servicesHandle.services }),
     corsOrigins: publicRunTokens.corsOrigins,
+    ...(google.credentials !== undefined && { googleCredentials: google.credentials }),
   });
 
   // Write `.kindgirc.json` to the pack root so a SECOND terminal in
@@ -1643,6 +1684,8 @@ interface DevBannerInputs {
   readonly discoveryRoots?: readonly string[];
   /** `KINDGI_CORS_ORIGINS`: browser origins allowed to follow runs. Absent: the line is left out. */
   readonly corsOrigins?: readonly string[];
+  /** The Google credentials mounted for Vertex AI (`KINDGI_DEV_GOOGLE_CREDENTIALS`). Absent: no line. */
+  readonly googleCredentials?: DevGoogleCredentials;
 }
 
 /** The browser origins line: who may follow runs with public run tokens (`KINDGI_CORS_ORIGINS`). */
@@ -1712,6 +1755,11 @@ export function renderDevBanner(inputs: DevBannerInputs): readonly string[] {
   }
   if (inputs.corsOrigins !== undefined) {
     lines.push(`    Browser origins    ${describeBrowserOrigins(inputs.corsOrigins)}`);
+  }
+  if (inputs.googleCredentials !== undefined) {
+    lines.push(
+      `    Google credentials ${inputs.googleCredentials.path} (${inputs.googleCredentials.who}), read-only, for Vertex AI`,
+    );
   }
   lines.push('');
   lines.push(...renderIndexSection(inputs));

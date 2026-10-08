@@ -57,6 +57,9 @@ export type {
   IdentityListSessionsInput,
   IdentityListUsersInput,
   IdentityRevokeSessionsInput,
+  IdentityUnregisterUserInput,
+  IdentityUnregisterUserRefusal,
+  IdentityUnregisterUserResult,
   RevokeSessionsResult,
   SessionSummary,
   SessionSummaryPage,
@@ -114,6 +117,15 @@ export type {
   ServiceAccountListInput,
   ServiceAccountRef,
 } from './service-account-binding.js';
+export type {
+  PersonGrant,
+  PersonGrantChange,
+  PersonGrantError,
+  PersonGrantErrorCode,
+  PersonGrants,
+  PersonGrantsBinding,
+  PersonRef,
+} from './person-grants-binding.js';
 export type {
   InvokeAgentBindingInput,
   InvokeFlowBindingInput,

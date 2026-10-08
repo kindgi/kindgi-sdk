@@ -994,6 +994,34 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         });
       });
 
+      test("a config that breaks the check's configSchema: input-validation-failed, and the check doesn't run", async () => {
+        const negative = response(
+          await invoke(service, checkCall('conformance.checks.min-length', { minLength: -1 }, 'x')),
+        );
+        // The message names the first issue: a runtime reports a check's error
+        // by its code and message alone.
+        expect(negative).toMatchObject({
+          kind: 'error',
+          code: 'input-validation-failed',
+          checkId: 'conformance.checks.min-length',
+          message:
+            'Check "conformance.checks.min-length" config failed validation at /minLength: must be >= 0',
+        });
+        expect(negative.issues).toContainEqual(
+          expect.objectContaining({ instancePath: '/minLength', keyword: 'minimum' }),
+        );
+        const wrongType = response(
+          await invoke(
+            service,
+            checkCall('conformance.checks.min-length', { minLength: 'three' }, 'x'),
+          ),
+        );
+        expect(wrongType).toMatchObject({ kind: 'error', code: 'input-validation-failed' });
+        expect(wrongType.issues).toContainEqual(
+          expect.objectContaining({ instancePath: '/minLength', keyword: 'type' }),
+        );
+      });
+
       test('an unknown check: check-not-in-pack', async () => {
         const answer = response(
           await invoke(service, checkCall('conformance.checks.nope', {}, 'x')),

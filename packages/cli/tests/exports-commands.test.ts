@@ -10,9 +10,10 @@
  */
 
 import { generateKeyPairSync, sign } from 'node:crypto';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
@@ -98,6 +99,21 @@ describe('kindgi exports verify', () => {
       checkedAgainst: 'its-own-key',
     });
     expect(out.stderr).toContain('anyone could have signed it');
+  });
+
+  test('an audit bundle made by Kindgi 0.1.4 whose envelope stamp is off: exit 0, the signed time in notes', async () => {
+    const vectors = fileURLToPath(
+      new URL('../../specs/test-vectors/signed-export/kindgi-0.1.4.json', import.meta.url),
+    );
+    const v = JSON.parse(await readFile(vectors, 'utf8')) as {
+      auditBundleStampsDiffer: unknown;
+      note: string;
+    };
+    const file = join(cwd, 'audit-0.1.4.json');
+    await writeFile(file, JSON.stringify(v.auditBundleStampsDiffer));
+    const { out } = await cli(['exports', 'verify', file]);
+    expect(out.exitCode).toBe(0);
+    expect(JSON.parse(out.stdout)).toMatchObject({ valid: true, notes: [v.note] });
   });
 
   test('--trust with its key: exit 0, no note; a stranger key: exit 1, saying so', async () => {

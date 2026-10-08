@@ -25,7 +25,7 @@
 
 import { generateKeyPairSync } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
@@ -661,6 +661,123 @@ describe('kindgi dev — the project env files', () => {
     const paths = spy.mock.calls.map((call) => call[0]?.publicRunTokenKeyPath);
     expect(paths).toEqual([keyPath, keyPath]);
     expect(spy.mock.calls[0]?.[0]?.corsOrigins).toBeUndefined();
+  });
+
+  test("Google credentials: never this machine's gcloud login or GOOGLE_APPLICATION_CREDENTIALS unless KINDGI_DEV_GOOGLE_CREDENTIALS names them", async () => {
+    // A home with a gcloud application-default login, and a shell that sets
+    // GOOGLE_APPLICATION_CREDENTIALS: both exist, and neither is mounted.
+    const fakeHome = await mkdtemp(join(tmpdir(), 'kindgi-dev-home-'));
+    try {
+      await mkdir(join(fakeHome, '.config', 'gcloud'), { recursive: true });
+      const adc = join(fakeHome, '.config', 'gcloud', 'application_default_credentials.json');
+      await writeFile(
+        adc,
+        JSON.stringify({ type: 'authorized_user', refresh_token: 'not-a-real-refresh-token' }),
+      );
+      const shellFile = join(fakeHome, 'shell-sa.json');
+      await writeFile(
+        shellFile,
+        JSON.stringify({
+          type: 'service_account',
+          client_email: 'other@acme.iam.gserviceaccount.com',
+        }),
+      );
+      const fixtures = makeFixtures();
+      const spy = vi.spyOn(fixtures.runners, 'startApiServer');
+      const boot = async (env: Record<string, string>) => {
+        const { writes, restore } = captureStderr();
+        try {
+          const out = await runCli({
+            ...baseInputs(fixtures),
+            env: { ...baseInputs(fixtures).env, ...env },
+            argv: ['dev', '--no-watch', `--path=${packDir}`],
+          });
+          return { out, stderr: writes.join('') + out.stderr };
+        } finally {
+          restore();
+        }
+      };
+      const unset = await boot({ HOME: fakeHome, GOOGLE_APPLICATION_CREDENTIALS: shellFile });
+      expect(unset.out.exitCode).toBe(0);
+      expect(spy.mock.calls.at(-1)?.[0]?.googleCredentialsPath).toBeUndefined();
+      expect(unset.stderr).not.toContain('Google credentials');
+      // The developer's real home too: whatever login it holds stays out.
+      await boot({ HOME: homedir() });
+      expect(spy.mock.calls.at(-1)?.[0]?.googleCredentialsPath).toBeUndefined();
+
+      const fromShell = await boot({ HOME: fakeHome, KINDGI_DEV_GOOGLE_CREDENTIALS: 'adc' });
+      expect(fromShell.out.exitCode).toBe(0);
+      expect(spy.mock.calls.at(-1)?.[0]?.googleCredentialsPath).toBe(adc);
+      expect(fromShell.stderr).toContain(
+        `✓ Google credentials: ${adc} (your gcloud application-default login, a user account), mounted read-only for Vertex AI`,
+      );
+      expect(fromShell.stderr).toContain(
+        `    Google credentials ${adc} (your gcloud application-default login, a user account), read-only, for Vertex AI\n`,
+      );
+      expect(fromShell.stderr).not.toContain('not-a-real-refresh-token');
+
+      // From the pack's .env, like the other dev settings.
+      await writeFile(join(packDir, '.env'), `KINDGI_DEV_GOOGLE_CREDENTIALS=${shellFile}\n`);
+      const fromEnvFile = await boot({ HOME: fakeHome });
+      expect(fromEnvFile.out.exitCode).toBe(0);
+      expect(spy.mock.calls.at(-1)?.[0]?.googleCredentialsPath).toBe(shellFile);
+      expect(fromEnvFile.stderr).toContain('(service account other@acme.iam.gserviceaccount.com)');
+
+      const refused = await boot({ HOME: fakeHome, KINDGI_DEV_GOOGLE_CREDENTIALS: 'yes' });
+      expect(refused.out.exitCode).toBe(1);
+      expect(refused.out.stderr).toContain(
+        'kindgi dev: KINDGI_DEV_GOOGLE_CREDENTIALS must be `adc` (your gcloud application-default login), the absolute path of a Google credentials file, or `off`. Got "yes".',
+      );
+    } finally {
+      await rm(fakeHome, { recursive: true, force: true });
+    }
+  });
+
+  test('a declared Vertex provider without Google credentials is said before the start', async () => {
+    await writeFile(
+      join(packDir, 'kindgi.config.ts'),
+      "export default { pack: { id: 'my-pack', version: '0.1.0' }, providers: [{ preset: 'gemini', project: 'acme-gcp' }] };\n",
+      'utf8',
+    );
+    const fixtures = makeFixtures();
+    const { writes, restore } = captureStderr();
+    try {
+      const out = await runCli({
+        ...baseInputs(fixtures),
+        argv: ['dev', '--no-watch', `--path=${packDir}`],
+      });
+      expect(out.exitCode).toBe(0);
+      const said = writes.join('') + out.stderr;
+      expect(said).toContain(
+        "⚠ Provider gemini (Vertex AI) has no Google credentials: set KINDGI_DEV_GOOGLE_CREDENTIALS=adc (or a credentials file), in the pack's .env or the shell, and restart kindgi dev.",
+      );
+      // Once, before the start: not again after boot for the same provider.
+      expect(said.split('has no Google credentials').length - 1).toBe(1);
+    } finally {
+      restore();
+    }
+  });
+
+  test('a Vertex provider registered by hand without Google credentials is said after boot', async () => {
+    const fixtures = makeFixtures({
+      providers: [
+        { id: 'gemini', region: 'global', models: [{ name: 'gemini-3.8-flash' }] },
+        DEV_ECHO_ROW,
+      ],
+    });
+    const { writes, restore } = captureStderr();
+    try {
+      const out = await runCli({
+        ...baseInputs(fixtures),
+        argv: ['dev', '--no-watch', `--path=${packDir}`],
+      });
+      expect(out.exitCode).toBe(0);
+      expect(writes.join('') + out.stderr).toContain(
+        '⚠ Provider gemini (Vertex AI) has no Google credentials: set KINDGI_DEV_GOOGLE_CREDENTIALS=adc',
+      );
+    } finally {
+      restore();
+    }
   });
 
   test('exports: the key file when KINDGI_EXPORT_SIGNING_KEY_PATH is set; a missing one refuses', async () => {

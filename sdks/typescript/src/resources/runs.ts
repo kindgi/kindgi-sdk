@@ -191,6 +191,8 @@ export interface ListRunsFilter {
   readonly replays?: 'exclude' | 'include' | 'only';
   /** Only the replay runs of this eval run (implies replays are included). */
   readonly evalRunId?: string;
+  /** Only the runs this trigger started. */
+  readonly triggerId?: string;
   /** Include each run's `output` (omitted from lists by default). */
   readonly includeOutput?: boolean;
 }
@@ -296,6 +298,18 @@ export interface RunFailure {
 }
 
 /**
+ * The trigger that started a run (`@kindgi/api/openapi.json#RunTrigger`):
+ * the trigger, and the fire in its history that started the run.
+ */
+export interface RunTrigger {
+  readonly triggerId: string;
+  readonly kind: 'schedule' | 'event' | 'webhook';
+  readonly fireId: string;
+  /** A schedule's fire: the occurrence the run is for. */
+  readonly scheduledFor?: Timestamp;
+}
+
+/**
  * Wire shape — matches `@kindgi/api/openapi.json#Run`. Runs are
  * flow-native on the wire: an agent run executes as a flow on the
  * server, and the row reports that flow's `flowId` / `flowVersion`;
@@ -331,6 +345,8 @@ export interface Run {
    * started). Absent on other runs, and on turns from before 0.1.3.
    */
   readonly agent?: RunAgent;
+  /** Set on a run a trigger started (a schedule, an event trigger, an inbound webhook). */
+  readonly trigger?: RunTrigger;
   /** The segment path the run was started with; a child run has its parent's. */
   readonly segments?: readonly ScopeSegment[];
   /**
@@ -503,6 +519,7 @@ export function makeRunsClient(transport: Transport): RunsClient {
           ...(filter?.agentId !== undefined && { agentId: filter.agentId as string }),
           ...(filter?.replays !== undefined && { replays: filter.replays }),
           ...(filter?.evalRunId !== undefined && { evalRunId: filter.evalRunId }),
+          ...(filter?.triggerId !== undefined && { triggerId: filter.triggerId }),
           ...(filter?.includeOutput === true && { include: 'output' }),
         },
       });
