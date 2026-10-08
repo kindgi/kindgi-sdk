@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { Hono } from 'hono';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
 import type { TenantId } from '@kindgi/types';
 
@@ -200,14 +200,20 @@ describe('idempotencyMiddleware: a key is held while its request runs (T349)', (
   });
 
   test('the hold is renewed while the request runs, past holdMs', async () => {
-    const a = slowApp({ holdMs: 60 });
-    const { answer: first } = await a.started('k1');
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    const repeat = await a.post('k1');
-    expect(repeat.status).toBe(409);
-    a.release();
-    await first;
-    expect(a.ran()).toBe(1);
+    // The clock and the renewal timer are the test's: no real-time margins.
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
+    try {
+      const a = slowApp({ holdMs: 60 });
+      const { answer: first } = await a.started('k1');
+      await vi.advanceTimersByTimeAsync(200);
+      const repeat = await a.post('k1');
+      expect(repeat.status).toBe(409);
+      a.release();
+      await first;
+      expect(a.ran()).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("a crashed request's hold lapses: the next request runs", async () => {
@@ -239,12 +245,14 @@ describe('idempotencyMiddleware: a key is held while its request runs (T349)', (
 
   test('the in-memory store keeps the first answer: a later set never replaces it', async () => {
     const store = createInMemoryIdempotencyStore();
+    // One expiry for every entry built here, so the expected entry is exactly the stored one.
+    const expiresAt = Date.now() + 60_000;
     const entry = (bodyText: string) => ({
       bodyHash: 'h',
       status: 201,
       contentType: 'application/json',
       bodyText,
-      expiresAt: Date.now() + 60_000,
+      expiresAt,
     });
     await store.set('k', entry('first'));
     await store.set('k', entry('second'));
