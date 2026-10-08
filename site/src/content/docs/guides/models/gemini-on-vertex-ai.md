@@ -15,11 +15,30 @@ credentials, and Vertex AI runs and bills them in a project you name.
 gcloud auth application-default login
 ```
 
-That writes your Application Default Credentials. `kindgi dev` hands them to
-the runtime it starts, read-only: the file `GOOGLE_APPLICATION_CREDENTIALS`
-names, if it's set, else the one this command writes
+That writes your Application Default Credentials
 (`~/.config/gcloud/application_default_credentials.json`). The account needs
 access to Vertex AI in the project.
+
+`kindgi dev` gives the runtime Google credentials only when you say which, with
+`KINDGI_DEV_GOOGLE_CREDENTIALS` in the pack's `.env` (or the shell):
+
+```sh
+# .env
+KINDGI_DEV_GOOGLE_CREDENTIALS=adc
+```
+
+`adc` is the login above. An absolute path names another credentials file, such
+as a service-account key, and `off` (the default) gives none. `kindgi dev`
+mounts the file read-only, and names it and whose it is when it starts:
+
+```text
+✓ Google credentials: /Users/you/.config/gcloud/application_default_credentials.json (your gcloud application-default login (a user account)), mounted read-only for Vertex AI
+```
+
+Without the setting, a `gemini` provider has no credentials: `kindgi dev` and
+`kindgi doctor` say so, and its calls fail. A `GOOGLE_APPLICATION_CREDENTIALS`
+in your shell isn't used unless you name it:
+`KINDGI_DEV_GOOGLE_CREDENTIALS=$GOOGLE_APPLICATION_CREDENTIALS`.
 
 ## 2. Register the preset
 

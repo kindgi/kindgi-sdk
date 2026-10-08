@@ -113,7 +113,12 @@ can:
   tenant's own secrets when it's needed;
 - a tool's code receives the secrets it declares, through its context
   (`ctx.secrets`). In development only, the pack's process also sees the
-  values in your env files, since `kindgi dev` reads them for it.
+  values in your env files, since `kindgi dev` reads them for it;
+- in development, Google credentials (for Vertex AI) reach the runtime only
+  when `KINDGI_DEV_GOOGLE_CREDENTIALS` names them: `adc` for your gcloud
+  login, or a credentials file's path. Without it, `kindgi dev` gives the
+  runtime none, whatever login this machine has
+  ([Connect Gemini on Vertex AI](../../guides/models/gemini-on-vertex-ai/)).
 
 The values live where your other secrets live: `.env` files in development,
 and in production Postgres, envelope-encrypted with a key held in your
