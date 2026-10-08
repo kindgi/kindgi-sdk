@@ -189,7 +189,7 @@ from kindgi.client import Kindgi
 client = Kindgi()  # KINDGI_API_URL + KINDGI_API_TOKEN, or Kindgi(url, token=…)
 run = client.runs.start(agent="my-pack.echo-agent", input={"userMessage": "Ada"})
 print(run.status, run.output["response"]["content"])
-for event in client.runs.stream(str(run.id)):
+for event in client.runs.follow(run.id):  # to the run's end, reconnecting
     print(event.kind)
 ```
 

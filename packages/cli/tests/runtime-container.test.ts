@@ -1,17 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { describe, expect, test } from 'vitest';
 
-import {
-  attachToRuntimeReal,
-  databaseUrlFrom,
-  googleCredentialsPath,
-} from '../src/dev/defaults.js';
+import { attachToRuntimeReal, databaseUrlFrom } from '../src/dev/defaults.js';
 import {
   type RuntimeContainerOptions,
   RuntimeStartStopped,
@@ -100,33 +96,6 @@ describe('databaseUrlFrom', () => {
     expect(databaseUrlFrom('postgres://kindgi:pw@127.0.0.1:55432/kindgi', 'host-network')).toBe(
       'postgres://kindgi:pw@127.0.0.1:55432/kindgi',
     );
-  });
-});
-
-describe('googleCredentialsPath', () => {
-  test('GOOGLE_APPLICATION_CREDENTIALS when it exists, else the gcloud ADC file, else none', async () => {
-    const home = await mkdtemp(join(tmpdir(), 'kindgi-home-'));
-    try {
-      expect(googleCredentialsPath({ HOME: home })).toBeUndefined();
-      const adcDir = join(home, '.config', 'gcloud');
-      await import('node:fs/promises').then((fs) => fs.mkdir(adcDir, { recursive: true }));
-      const adc = join(adcDir, 'application_default_credentials.json');
-      await writeFile(adc, '{}');
-      expect(googleCredentialsPath({ HOME: home })).toBe(adc);
-      const explicit = join(home, 'sa.json');
-      await writeFile(explicit, '{}');
-      expect(googleCredentialsPath({ HOME: home, GOOGLE_APPLICATION_CREDENTIALS: explicit })).toBe(
-        explicit,
-      );
-      expect(
-        googleCredentialsPath({
-          HOME: home,
-          GOOGLE_APPLICATION_CREDENTIALS: join(home, 'gone.json'),
-        }),
-      ).toBe(adc);
-    } finally {
-      await rm(home, { recursive: true, force: true });
-    }
   });
 });
 

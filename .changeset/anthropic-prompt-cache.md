@@ -1,0 +1,6 @@
+---
+"@kindgi/adapter-model-anthropic": patch
+"@kindgi/cli": patch
+---
+
+Claude agents use Anthropic's prompt cache. Before, the Anthropic adapter marked nothing for caching, so every call paid the full input price for a prompt the previous call had just sent. Now it marks up to three breakpoints with the 5-minute cache: the last tool, the agent's prompt (the first system block; each system message is now its own block), and the conversation so far when another call will send it again (a call with tools, or a conversation with an earlier answer). The next call in a turn reads that prefix at 5% of the input price on Claude Opus 5.5 and Sonnet 5.5 (10% on Haiku) and writes only what's new; the first write costs 125%. Live, a three-call turn with a 7,700-token prompt cost 53% less on both Sonnet 5.5 and Opus 5.5. A prompt below the model's minimum isn't cached and costs nothing extra. The `anthropic` preset now carries Anthropic's cache rates (writes 1.25x; reads 0.05x on Opus and Sonnet 5.5, 0.1x on Haiku). A registration from an earlier preset keeps the 0.1x read rate on every model: register the preset again to get 0.05x. New exports: `withPromptCache`, `PROMPT_CACHE`; `toAnthropicMessages` also returns `systemParts`.
