@@ -215,6 +215,7 @@
           "already-terminal": 409,
           "fact-changed": 409,
           "legal-hold": 409,
+          "erasure-in-progress": 409,
           "run-already-terminal": 409,
           "run-lease-lost": 409,
           "idempotency-key-body-mismatch": 409,
@@ -15797,7 +15798,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "Idempotency-Key was reused with a different body; or an erasure of the turn's person (its conversation, its `participantId`, or the user it acts for) is in progress (`erasure-in-progress`): no new turn starts for them until it completes.",
             "content": {
               "application/json": {
                 "schema": {

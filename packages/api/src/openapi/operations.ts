@@ -1284,6 +1284,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'Agent or flow not found; or `projectId` names no project of this tenant (`project-not-found`).',
       ),
       '422': ErrorResponse('Guardrail violation or budget exceeded.'),
+      '409': ErrorResponse(
+        "Idempotency-Key was reused with a different body; or an erasure of the turn's person (its conversation, its `participantId`, or the user it acts for) is in progress (`erasure-in-progress`): no new turn starts for them until it completes.",
+      ),
       '400': ErrorResponse(
         "Malformed request body, or the body's `projectId` isn't a project id (a UUID).",
       ),
