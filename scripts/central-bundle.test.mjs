@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -18,6 +18,7 @@ import { after, before, describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { bundleArtifacts, bundleEntries } from './central-bundle.mjs';
+import { ARTIFACTS } from './check-jars.mjs';
 import { writeZip } from './lib/zip.mjs';
 
 const SCRIPT = fileURLToPath(new URL('./central-bundle.mjs', import.meta.url));
@@ -243,5 +244,69 @@ describe('the Portal', () => {
     assert.equal(status, 1);
     assert.match(output, /MAVEN_CENTRAL_USERNAME and MAVEN_CENTRAL_PASSWORD/);
     assert.deepEqual(portal.calls, []);
+  });
+
+  test('on-central waits until Central has every JVM artifact at a version', async () => {
+    portal.onCentral = new Set(Object.keys(ARTIFACTS));
+    let { status, output } = await run('on-central', '--version', '1.2.3');
+    assert.equal(status, 0, output);
+    assert.match(output, /Central has every JVM artifact at 1\.2\.3/);
+
+    portal.onCentral = new Set([
+      'kindgi-java-parent',
+      'kindgi-models',
+      'kindgi-client',
+      'kindgi-pack',
+    ]);
+    ({ status, output } = await run(
+      'on-central',
+      '--version',
+      '1.2.3',
+      '--wait-minutes',
+      '0.0001',
+    ));
+    assert.equal(status, 1);
+    assert.match(output, /doesn't have kindgi-pack-scala_2\.13, kindgi-pack-scala_3 at 1\.2\.3/);
+  });
+});
+
+describe('the Release workflow', () => {
+  const workflow = readFileSync(
+    new URL('../.github/workflows/release.yml', import.meta.url),
+    'utf8',
+  );
+  const job = (name) => {
+    const start = workflow.indexOf(`\n  ${name}:\n`);
+    assert.ok(start !== -1, `no ${name} job`);
+    const next = workflow.slice(start + 1).search(/\n {2}[a-z][\w-]*:\n/);
+    return next === -1 ? workflow.slice(start) : workflow.slice(start, start + 1 + next);
+  };
+
+  test('npm publishes a CLI only once its kindgi-pack version is on Central', () => {
+    const npm = job('publish');
+    assert.match(npm, /needs: publish-maven/);
+    const guard = npm.indexOf(
+      'central-bundle.mjs on-central --version "$(node -p "require(\'./packages/cli/package.json\').version")"',
+    );
+    const publish = npm.indexOf('pnpm -r publish --no-git-checks');
+    assert.ok(guard !== -1, 'the on-central step is gone');
+    assert.ok(guard < publish, 'the on-central step runs after npm publishes');
+  });
+
+  test('Maven Central gets the checked, signature-verified bundle', () => {
+    const maven = job('publish-maven');
+    const order = [
+      'sync-jvm-version.mjs --check',
+      'check-jars.mjs --signed --complete',
+      'central-bundle.mjs bundle',
+      '--fingerprint "$MAVEN_GPG_FINGERPRINT"',
+      'central-bundle.mjs validate',
+      'central-bundle.mjs publish',
+    ].map((text) => maven.indexOf(text));
+    assert.ok(!order.includes(-1), `a step is missing: ${order}`);
+    assert.deepEqual(
+      [...order].sort((a, b) => a - b),
+      order,
+    );
   });
 });

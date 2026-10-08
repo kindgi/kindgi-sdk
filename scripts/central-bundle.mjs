@@ -19,6 +19,10 @@
  *   publish   Uploads the bundle to publish, and waits until it's published.
  *             A version Central already has is skipped (versions are
  *             permanent), and a version it has part of is refused.
+ *   on-central  Waits until every JVM artifact at a version resolves from
+ *             Central. The npm job runs it before it publishes: a CLI
+ *             scaffolds Java and Scala packs on kindgi-pack at its own
+ *             version, so npm never gets a CLI whose kindgi-pack isn't there.
  *
  * The Portal user token comes from MAVEN_CENTRAL_USERNAME and
  * MAVEN_CENTRAL_PASSWORD, by name, and is never printed.
@@ -27,6 +31,7 @@
  *   node scripts/central-bundle.mjs bundle --out <zip> (--fingerprint <fpr> | --unsigned) <staging dir>…
  *   node scripts/central-bundle.mjs validate --bundle <zip> [--wait-minutes <n>]
  *   node scripts/central-bundle.mjs publish --bundle <zip> [--wait-minutes <n>]
+ *   node scripts/central-bundle.mjs on-central --version <v> [--wait-minutes <n>]
  */
 
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -255,6 +260,26 @@ async function publish(bundlePath, minutes) {
   console.log(`${NAME}: published ${artifacts.map((a) => a.artifact).join(', ')} at ${version}`);
 }
 
+/** Waits until Central serves every artifact we publish at `version`. */
+async function onCentral(version, minutes) {
+  const artifacts = Object.keys(ARTIFACTS).map((artifact) => ({ artifact, version }));
+  const deadline = Date.now() + minutes * 60_000;
+  for (;;) {
+    const present = new Set(await alreadyOnCentral(artifacts));
+    const missing = artifacts.filter(({ artifact }) => !present.has(artifact));
+    if (missing.length === 0) {
+      console.log(`${NAME}: Central has every JVM artifact at ${version}`);
+      return;
+    }
+    if (Date.now() > deadline) {
+      throw new BundleError(
+        `Central doesn't have ${missing.map((a) => a.artifact).join(', ')} at ${version} after ${minutes} minutes: a CLI at ${version} would scaffold packs on artifacts that don't resolve`,
+      );
+    }
+    await sleep(POLL_SECONDS * 1000);
+  }
+}
+
 // ---- the command ---------------------------------------------------------------
 
 function option(args, name) {
@@ -269,7 +294,8 @@ function option(args, name) {
 const USAGE = `usage:
   node scripts/central-bundle.mjs bundle --out <zip> (--fingerprint <fpr> | --unsigned) <staging dir>…
   node scripts/central-bundle.mjs validate --bundle <zip> [--wait-minutes <n>]
-  node scripts/central-bundle.mjs publish --bundle <zip> [--wait-minutes <n>]`;
+  node scripts/central-bundle.mjs publish --bundle <zip> [--wait-minutes <n>]
+  node scripts/central-bundle.mjs on-central --version <v> [--wait-minutes <n>]`;
 
 /** `bundle`: the staged files, checked and signed-verified, into one zip. */
 function bundleCommand(args) {
@@ -292,20 +318,34 @@ function bundleCommand(args) {
   );
 }
 
+/** `validate`, `publish`: a bundle to the Portal. */
+async function portalCommand(command, args) {
+  const bundle = option(args, '--bundle');
+  const minutes = Number(option(args, '--wait-minutes') ?? (command === 'publish' ? 60 : 30));
+  if (bundle === undefined || args.length > 0 || !(minutes > 0)) throw new BundleError(USAGE);
+  await (command === 'validate' ? validate(bundle, minutes) : publish(bundle, minutes));
+}
+
+/** `on-central`: wait until Central serves a version. */
+async function onCentralCommand(args) {
+  const version = option(args, '--version');
+  const minutes = Number(option(args, '--wait-minutes') ?? 30);
+  if (version === undefined || args.length > 0 || !(minutes >= 0)) throw new BundleError(USAGE);
+  await onCentral(version, minutes);
+}
+
+const COMMANDS = {
+  bundle: (args) => bundleCommand(args),
+  validate: (args) => portalCommand('validate', args),
+  publish: (args) => portalCommand('publish', args),
+  'on-central': (args) => onCentralCommand(args),
+};
+
 async function main(argv) {
   const [command, ...args] = argv;
-  if (command === 'bundle') {
-    bundleCommand(args);
-    return;
-  }
-  if (command === 'validate' || command === 'publish') {
-    const bundle = option(args, '--bundle');
-    const minutes = Number(option(args, '--wait-minutes') ?? (command === 'publish' ? 60 : 30));
-    if (bundle === undefined || args.length > 0 || !(minutes > 0)) throw new BundleError(USAGE);
-    await (command === 'validate' ? validate(bundle, minutes) : publish(bundle, minutes));
-    return;
-  }
-  throw new BundleError(USAGE);
+  const run = Object.hasOwn(COMMANDS, command) ? COMMANDS[command] : undefined;
+  if (run === undefined) throw new BundleError(USAGE);
+  await run(args);
 }
 
 if (

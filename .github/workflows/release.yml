@@ -249,6 +249,12 @@ jobs:
       - name: Publish (dry-run)
         if: ${{ inputs.dry-run }}
         run: pnpm -r publish --dry-run --no-git-checks --tag "${{ steps.dist-tag.outputs.tag }}"
+      # The CLI scaffolds Java and Scala packs on kindgi-pack at its own version: npm never
+      # gets a CLI whose JVM artifacts don't resolve from Central (publish-maven ran first;
+      # this waits out Central's sync, and stops a release that skipped it).
+      - name: The JVM SDKs at the CLI's version are on Maven Central
+        if: ${{ !inputs.dry-run }}
+        run: node scripts/central-bundle.mjs on-central --version "$(node -p "require('./packages/cli/package.json').version")"
       - name: Publish
         if: ${{ !inputs.dry-run }}
         run: pnpm -r publish --no-git-checks --tag "${{ steps.dist-tag.outputs.tag }}"
