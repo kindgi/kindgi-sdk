@@ -32,6 +32,7 @@
  * deferred until a real user reports one.
  */
 
+import { readFile } from 'node:fs/promises';
 import { KINDGI_CONFIG_FILENAMES, type PackLanguage, findKindgiConfig } from '@kindgi/handler-runtime';
 import { dirname, isAbsolute, join, parse, resolve } from 'node:path';
 
@@ -91,12 +92,13 @@ export async function resolvePackRoots(inputs: ResolveInputs): Promise<ResolveRe
   const packDir = isAbsolute(rawPath) ? rawPath : resolve(inputs.cwd, rawPath);
 
   // 1. Verify a kindgi.config.* exists at packDir — or a Python pack's
-  //    [tool.kindgi] in pyproject.toml, or a Java pack's kindgi.config.json,
-  //    whose root is the pack itself.
-  if ((await findKindgiConfig(packDir))?.format === 'json') {
+  //    [tool.kindgi] in pyproject.toml, or a JVM pack's kindgi.config.json
+  //    (Java or Scala), whose root is the pack itself.
+  const found = await findKindgiConfig(packDir);
+  if (found?.format === 'json') {
     return {
       kind: 'ok',
-      roots: { packDir, repoRoot: packDir, mode: 'standalone', language: 'java' },
+      roots: { packDir, repoRoot: packDir, mode: 'standalone', language: await jvmLanguageOf(found.path) },
     };
   }
   const hasConfig = await hasAnyConfig(packDir, fileExists);
@@ -148,5 +150,16 @@ async function findAncestorWithPackageJson(
     if (await fileExists(join(current, 'package.json'))) return current;
     if (current === rootMarker) return null;
     current = dirname(current);
+  }
+}
+
+/** A `kindgi.config.json`'s language: `scala` when it says so, else `java`. */
+async function jvmLanguageOf(path: string): Promise<'java' | 'scala'> {
+  try {
+    return (JSON.parse(await readFile(path, 'utf8')) as { language?: unknown }).language === 'scala'
+      ? 'scala'
+      : 'java';
+  } catch {
+    return 'java';
   }
 }

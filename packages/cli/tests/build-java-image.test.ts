@@ -112,6 +112,7 @@ describe("a Java pack's build context", () => {
       '.mvn/wrapper/maven-wrapper.properties': 'x=1\n',
       'src/main/java/com/acme/tools/Greet.java': 'class Greet {}',
       'src/main/java/com/acme/build/Report.java': 'class Report {}',
+      'src/main/java/com/acme/target/Aim.java': 'class Aim {}',
       'src/main/resources/app.properties': 'a=1\n',
       'target/classes/com/acme/tools/Greet.class': 'x',
       'module/target/x.jar': 'x',
@@ -132,6 +133,8 @@ describe("a Java pack's build context", () => {
         'mvnw',
         'pom.xml',
         'src/main/java/com/acme/build/Report.java',
+        // A package named target is source, not a module's build output.
+        'src/main/java/com/acme/target/Aim.java',
         'src/main/java/com/acme/tools/Greet.java',
         'src/main/resources/app.properties',
       ],

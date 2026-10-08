@@ -22,12 +22,14 @@ import { readSse } from '@kindgi/sdk/client';
 
 import { runJavaIndexer, runPythonIndexer } from '../dev/defaults.js';
 import { createJavaPackBuilder } from '../dev/java-builder.js';
+import { createScalaPackBuilder } from '../dev/scala-builder.js';
 import { REQUIRE_BANNER, collectPackEntries, nodeModulesExternalPlugin } from './bundle.js';
 import { loadEsbuild } from '../esbuild-loader.js';
 import { readPnpmVersion } from '../package-manager.js';
 import { renderContainerfile } from './containerfile.js';
 import { installCommands, withoutInstallScripts } from './host-install.js';
 import { renderJavaContainerfile } from './java-image.js';
+import { renderScalaContainerfile } from './scala-image.js';
 import { renderPythonContainerfile } from './python-image.js';
 import type {
   BuildRunners,
@@ -35,7 +37,7 @@ import type {
   DockerBuildResult,
   EsbuildBundleOptions,
   EsbuildBundleResult,
-  JavaBuildRunners,
+  JvmBuildRunners,
   LocalIndexResult,
   PostBuildOptions,
   PostBuildResult,
@@ -358,15 +360,20 @@ export const PYTHON_BUILD_RUNNERS: PythonBuildRunners = {
   writeContext: writePythonContextReal,
 };
 
-/** The Java pack's steps of `kindgi build`. */
-export const JAVA_BUILD_RUNNERS: JavaBuildRunners = {
+/** A JVM pack's steps of `kindgi build` (Java, Scala). */
+export const JVM_BUILD_RUNNERS: JvmBuildRunners = {
   async prepare(opts) {
-    const built = await createJavaPackBuilder({
-      packDir: opts.packDir,
-      code: opts.code,
-      env: async () => opts.env,
-    }).build();
-    return built.kind === 'ok' ? { kind: 'ok' } : { kind: 'err', errors: built.errors };
+    const builder =
+      opts.code.language === 'java'
+        ? createJavaPackBuilder({ packDir: opts.packDir, code: opts.code, env: async () => opts.env })
+        : createScalaPackBuilder({ packDir: opts.packDir, code: opts.code, env: async () => opts.env });
+    try {
+      const built = await builder.build();
+      return built.kind === 'ok' ? { kind: 'ok' } : { kind: 'err', errors: built.errors };
+    } finally {
+      // A Scala build's sbt server, when this build started it, stops here.
+      await builder.dispose();
+    }
   },
   runLocalIndexer: (opts) =>
     runJavaIndexer({
@@ -379,16 +386,17 @@ export const JAVA_BUILD_RUNNERS: JavaBuildRunners = {
     }),
   async writeContainerfile(opts) {
     await mkdir(join(opts.outputPath, '..'), { recursive: true });
+    const inputs = {
+      buildImageRef: opts.buildImageRef,
+      runtimeImageRef: opts.runtimeImageRef,
+      artifactVersion: opts.artifactVersion,
+      publishedAt: opts.publishedAt,
+      buildTarget: opts.buildTarget,
+      systemPackages: opts.systemPackages,
+    };
     await writeFile(
       opts.outputPath,
-      renderJavaContainerfile({
-        buildImageRef: opts.buildImageRef,
-        runtimeImageRef: opts.runtimeImageRef,
-        artifactVersion: opts.artifactVersion,
-        publishedAt: opts.publishedAt,
-        buildTarget: opts.buildTarget,
-        systemPackages: opts.systemPackages,
-      }),
+      opts.language === 'java' ? renderJavaContainerfile(inputs) : renderScalaContainerfile(inputs),
       'utf8',
     );
   },
@@ -730,7 +738,7 @@ export const REAL_BUILD_RUNNERS: BuildRunners = {
   pullImageIndex: pullImageIndexReal,
   signEnvelope: signEnvelopeReal,
   python: PYTHON_BUILD_RUNNERS,
-  java: JAVA_BUILD_RUNNERS,
+  jvm: JVM_BUILD_RUNNERS,
   hostPnpmVersion: readPnpmVersion,
 };
 

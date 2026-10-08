@@ -25,7 +25,7 @@
  * looking at a failing stage can substitute only that field.
  */
 
-import type { JavaPackCode } from '../dev/pack-code.js';
+import type { JvmPackCode } from '../dev/pack-code.js';
 import type { IndexResult } from '../dev/runners.js';
 
 /**
@@ -239,24 +239,26 @@ export interface PythonBuildRunners {
 }
 
 /**
- * The steps that differ for a Java pack (`kindgi.config.json`): Maven
- * compiles it and resolves its classpath (`prepare`), its own indexer runs
- * with the pack's JDK, its own Containerfile, the pack root as the context.
+ * The steps that differ for a JVM pack (`kindgi.config.json`, Java or
+ * Scala): Maven or sbt compiles it and resolves its classpath (`prepare`),
+ * kindgi-pack's indexer runs with the pack's JDK, its own Containerfile,
+ * the pack root as the context.
  */
-export interface JavaBuildRunners {
+export interface JvmBuildRunners {
   /** Compiles the pack and writes its classpath `@argfile` (the `kindgi dev` build, once). */
   readonly prepare: (opts: {
     readonly packDir: string;
-    readonly code: JavaPackCode;
+    readonly code: JvmPackCode;
     readonly env: Readonly<Record<string, string>>;
   }) => Promise<{ readonly kind: 'ok' } | { readonly kind: 'err'; readonly errors: readonly string[] }>;
   readonly runLocalIndexer: (
     opts: Omit<RunLocalIndexerOptions, 'bundleDir'> & {
-      readonly code: JavaPackCode;
+      readonly code: JvmPackCode;
       readonly env: Readonly<Record<string, string>>;
     },
   ) => Promise<LocalIndexResult>;
   readonly writeContainerfile: (opts: {
+    readonly language: JvmPackCode['language'];
     readonly outputPath: string;
     readonly artifactVersion: string;
     readonly publishedAt: string;
@@ -317,8 +319,8 @@ export interface BuildRunners {
   readonly signEnvelope: (opts: SignOptions) => Promise<SignResult>;
   /** A Python pack's steps; absent → `kindgi build` refuses a Python pack. */
   readonly python?: PythonBuildRunners;
-  /** A Java pack's steps; absent → `kindgi build` refuses a Java pack. */
-  readonly java?: JavaBuildRunners;
+  /** A JVM pack's steps (Java, Scala); absent → `kindgi build` refuses a JVM pack. */
+  readonly jvm?: JvmBuildRunners;
   /**
    * The pnpm version the host runs in `root` (`pnpm --version` there).
    * Rejects, with the reason, when it can't be read.

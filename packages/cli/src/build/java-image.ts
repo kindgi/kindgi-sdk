@@ -126,6 +126,15 @@ function javaForbidden(name: string): boolean {
   return name === 'settings.xml' || name === 'settings-security.xml' || /\.(jks|keystore|truststore)$/.test(name);
 }
 
+/**
+ * A module's `target/` (a Maven or sbt build's output): any directory named
+ * `target` outside the sources. Under `src/` it's a package, and ships.
+ */
+export function isBuildOutput(rel: string): boolean {
+  const segments = rel.split('/');
+  return segments[segments.length - 1] === 'target' && !segments.slice(0, -1).includes('src');
+}
+
 export type JavaContextFiles =
   | { readonly kind: 'ok'; readonly files: readonly string[] }
   | { readonly kind: 'error'; readonly message: string };
@@ -140,7 +149,7 @@ export async function collectJavaContextFiles(packDir: string): Promise<JavaCont
     for (const entry of entries) {
       const child = rel === '' ? entry.name : `${rel}/${entry.name}`;
       if (entry.isDirectory()) {
-        if (entry.name === 'target' || (rel === '' && SKIPPED_ROOT_DIRS.has(entry.name))) continue;
+        if (isBuildOutput(child) || (rel === '' && SKIPPED_ROOT_DIRS.has(entry.name))) continue;
         if (forbiddenReason(`${child}/x`) !== undefined) continue;
         await walk(child);
       } else if (
