@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { resolve } from 'node:path';
+
 import type { KindgiClient } from '@kindgi/client';
 
 import type { BuildRunners } from './build/runners.js';
+import { cliPinWarning, readCliPin } from './cli-pin.js';
 import type { RegistryAuthSeam } from './commands/auth.js';
 import type { DoctorSeam } from './commands/doctor.js';
 import type { EnvInitInputSeam } from './commands/env.js';
@@ -255,20 +258,36 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
   });
 
   const label = commandLabel(command, argv, consumed);
+  // A Java pack pins the CLI it runs with (`cli-pin.ts`): say when this isn't it.
+  // `kindgi dev` runs until stopped, so it hears it now, before it starts.
+  const pinWarning = PIN_EXEMPT.has(topLevel ?? '')
+    ? undefined
+    : await pinWarningFor(ctx.cwd, parsed.options.path);
+  if (pinWarning !== undefined && topLevel === 'dev') process.stderr.write(pinWarning);
+  const before = topLevel === 'dev' ? '' : (pinWarning ?? '');
   try {
     const result = await command.run(ctx);
     if (result.kind === 'ok') {
       return {
         stdout: result.rendered.stdout,
-        stderr: result.rendered.stderr,
+        stderr: `${before}${result.rendered.stderr}`,
         exitCode: result.exitCode ?? 0,
       };
     }
-    return { stdout: '', stderr: result.stderr, exitCode: result.exitCode };
+    return { stdout: '', stderr: `${before}${result.stderr}`, exitCode: result.exitCode };
   } catch (err) {
     const formatted = formatThrown(err, { commandLabel: label, verbose: parsed.globals.verbose });
     return { stdout: '', stderr: formatted.stderr, exitCode: formatted.exitCode };
   }
+}
+
+/** Commands that never warn about the pin: they make it, move it, or don't run against a pack. */
+const PIN_EXEMPT: ReadonlySet<string> = new Set(['init', 'upgrade', 'version']);
+
+async function pinWarningFor(cwd: string, pathOption: unknown): Promise<string | undefined> {
+  const dir = typeof pathOption === 'string' && pathOption !== '' ? resolve(cwd, pathOption) : cwd;
+  const pin = await readCliPin(dir);
+  return pin === undefined ? undefined : cliPinWarning(pin, CLI_VERSION);
 }
 
 function commandLabel(_command: Command, argv: readonly string[], consumed: number): string {

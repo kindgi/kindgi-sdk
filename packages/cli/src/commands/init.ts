@@ -2,8 +2,8 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
-import { dirname, join, relative } from 'node:path';
+import { chmod, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { basename, dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import type { PackLanguage } from '@kindgi/handler-runtime';
@@ -12,17 +12,21 @@ import { PACK_UV_REQUIRED_VERSION } from '../build/python-image.js';
 import type { CommandContext } from '../context.js';
 import { runInitAugment } from '../init/augment-scaffolder.js';
 import {
+  KINDGI_PACK_ON_MAVEN_CENTRAL,
   type KindgiDependencySpecs,
   kindgiCliRequirement,
   kindgiRequirementFor,
   resolveKindgiDependencySpecs,
+  resolveKindgiJavaSource,
   resolveKindgiPythonSource,
 } from '../init/dependency-specs.js';
+import { runInitJavaAugment } from '../init/java-augment.js';
 import { detectInitMode } from '../init/mode-detect.js';
 import { runInitPythonAugment } from '../init/python-augment.js';
 import {
   type Substitutions,
   collectTemplateFiles,
+  javaPackageOf,
   substitute,
   templateTarget,
 } from '../init/template-files.js';
@@ -61,14 +65,14 @@ export const initCommand: LeafCommand = {
   kind: 'leaf',
   name: 'init',
   description:
-    'Scaffold a new Kindgi pack repo, or add Kindgi to an existing Node.js project (auto-detected when a `package.json` is present and no pack-name is given).',
+    'Scaffold a new Kindgi pack repo, or add Kindgi to an existing app: a Node.js, Python or Maven project, auto-detected from its `package.json`, `pyproject.toml` or `pom.xml` when no pack-name is given.',
   usage:
-    'kindgi init [<pack-name>] [--template=minimal|sample|python] [--path=<dir>] [--force] [--link-local] [--new-repo]',
+    'kindgi init [<pack-name>] [--template=minimal|sample|python|java] [--path=<dir>] [--force] [--link-local] [--new-repo]',
   optionSpec: {
     template: {
       type: 'string',
       description:
-        'The starter: `minimal` (default; empty primitive folders), `sample` (tools, a guardrail, an agent and a flow) or `python` (a Python pack).',
+        'The starter: `minimal` (default; empty primitive folders), `sample` (tools, a guardrail, an agent and a flow), `python` (a Python pack) or `java` (a Java pack, built with Maven).',
     },
     path: {
       type: 'string',
@@ -110,7 +114,7 @@ export const initCommand: LeafCommand = {
 /** Pack ids: lowercase dot-separated segments, e.g. `acme.billing`. */
 export const PACK_ID_REGEX = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)*$/;
 
-export const AVAILABLE_TEMPLATES = ['minimal', 'sample', 'python'] as const;
+export const AVAILABLE_TEMPLATES = ['minimal', 'sample', 'python', 'java'] as const;
 export type TemplateName = (typeof AVAILABLE_TEMPLATES)[number];
 
 const DEFAULT_TEMPLATE: TemplateName = 'minimal';
@@ -156,13 +160,35 @@ export async function runInit(
     return { kind: 'error', stderr: detected.message, exitCode: 1 };
   }
 
+  if (detected.mode === 'augment' && detected.language === 'java') {
+    const packIdRaw = ctx.options['pack-id'];
+    const template = ctx.options.template;
+    if (typeof template === 'string' && template !== '' && template !== 'java') {
+      return {
+        kind: 'error',
+        stderr: `A Maven app gets a Java pack: --template=${template} doesn't apply here (omit it, or --template=java).\n`,
+        exitCode: 1,
+      };
+    }
+    return runInitJavaAugment({
+      targetDir: detected.targetDir,
+      templatesRoot,
+      ...(skillsRoot !== undefined && { skillsRoot }),
+      ...(typeof packIdRaw === 'string' && packIdRaw !== '' && { packIdOverride: packIdRaw }),
+      force: ctx.options.force === true,
+    });
+  }
+
   if (detected.mode === 'augment' && detected.language === 'python') {
     const packIdRaw = ctx.options['pack-id'];
     const template = ctx.options.template;
     if (typeof template === 'string' && template !== '' && template !== 'python') {
       return {
         kind: 'error',
-        stderr: `A Python app gets a Python pack: --template=${template} doesn't apply here (omit it, or --template=python).\n`,
+        stderr:
+          template === 'java'
+            ? 'The java template makes a Java pack of its own; this is a Python app, where init adds a Python pack.\nFor a standalone Java pack here: kindgi init <pack-name> --template=java --new-repo\n'
+            : `A Python app gets a Python pack: --template=${template} doesn't apply here (omit it, or --template=python).\n`,
         exitCode: 1,
       };
     }
@@ -212,6 +238,13 @@ function augmentTemplate(
         'The python template makes a Python pack: there is no pyproject.toml here, and in a Node app init adds a TypeScript pack.\nFor a standalone Python pack here: kindgi init <pack-name> --template=python --new-repo\n',
     };
   }
+  if (name === 'java') {
+    return {
+      kind: 'err',
+      stderr:
+        'The java template makes a Java pack of its own; in a Node app init adds a TypeScript pack.\nFor a standalone Java pack here: kindgi init <pack-name> --template=java --new-repo\n',
+    };
+  }
   return {
     kind: 'err',
     stderr: `Unknown template: ${name}. Available: ${AVAILABLE_TEMPLATES.join(', ')}\n`,
@@ -254,6 +287,7 @@ async function runInitFresh(
   }
 
   if (args.template === 'python') return runInitPython(ctx, args, templateDir, skillsRoot);
+  if (args.template === 'java') return runInitJava(ctx, args, templateDir, skillsRoot);
 
   const substitutions: Substitutions = {
     PACK_NAME: args.packName,
@@ -469,6 +503,84 @@ async function runInitPython(
   return { kind: 'ok', rendered: { stdout: rendered.stdout, stderr } };
 }
 
+/**
+ * The java template: a Maven project (`pom.xml` with `com.kindgi:kindgi-pack`
+ * at this CLI's version, the Maven wrapper) whose sources sit under a
+ * package named from the pack id. Until kindgi-pack is on Maven Central,
+ * the next steps install it from the Kindgi SDK into the local Maven
+ * repository: from a checkout, that checkout's `sdks/java`.
+ */
+async function runInitJava(
+  ctx: CommandContext,
+  args: ResolvedArgs,
+  templateDir: string,
+  skillsRoot: string | undefined,
+): Promise<CommandResult> {
+  const source = await resolveKindgiJavaSource();
+  if (source.kind === 'error') return { kind: 'error', stderr: `${source.message}\n`, exitCode: 1 };
+  const javaPackage = javaPackageOf(args.packName);
+  const filesWritten = await scaffoldTemplate({
+    templateDir,
+    targetDir: args.targetDir,
+    substitutions: {
+      PACK_NAME: args.packName,
+      PACK_ID: args.packName,
+      PACK_VERSION: DEFAULT_PACK_VERSION,
+      JAVA_PACKAGE: javaPackage,
+      JAVA_PACKAGE_PATH: javaPackage.split('.').join('/'),
+      KINDGI_JAVA_VERSION: source.version,
+      KINDGI_CLI_VERSION: CLI_VERSION,
+    },
+  });
+  const skillsWritten = await copyClaudeSkills({
+    skillsRoot,
+    targetDir: args.targetDir,
+    language: 'java',
+  });
+  for (const s of skillsWritten) filesWritten.push(s);
+  const displayPath = relative(ctx.cwd, args.targetDir) || '.';
+  const install =
+    source.kind === 'local-checkout'
+      ? [
+          `(cd ${source.path} && ./mvnw -q install -DskipTests)  # kindgi-pack ${source.version} into your local Maven repository`,
+        ]
+      : KINDGI_PACK_ON_MAVEN_CENTRAL
+        ? []
+        : [
+            `# kindgi-pack ${source.version} isn't on Maven Central yet: build it from the Kindgi SDK repository (sdks/java: ./mvnw install)`,
+          ];
+  const nextSteps = [
+    ...install,
+    `cd ${displayPath}`,
+    './mvnw test',
+    `${binDisplay('kindgiw', 'kindgi', ['dev'])}  # the CLI the pack pins (kindgi.config.json "cli"): boots Kindgi locally + compiles and runs this pack, recompiling on save`,
+  ];
+  const stderr = [
+    `✓ Java pack scaffolded at ${args.targetDir}/`,
+    '',
+    'Next steps (a JDK 17 or later, JAVA_HOME set):',
+    ...nextSteps.map((s) => `  ${s}`),
+    '',
+    "Read the pack's README.md for details.",
+    '',
+  ].join('\n');
+  const rendered = renderJson(
+    {
+      template: args.template,
+      packId: args.packName,
+      packVersion: DEFAULT_PACK_VERSION,
+      javaPackage,
+      kindgiPack: source,
+      path: args.targetDir,
+      filesWritten: filesWritten.length,
+      files: filesWritten.map((p) => relative(args.targetDir, p)),
+      nextSteps,
+    },
+    ctx.globals.format,
+  );
+  return { kind: 'ok', rendered: { stdout: rendered.stdout, stderr } };
+}
+
 type ArgsOutcome =
   | { readonly kind: 'ok'; readonly args: ResolvedArgs }
   | (CommandResult & { readonly kind: 'error' });
@@ -514,7 +626,10 @@ async function scaffoldTemplate(inputs: {
   const written: string[] = [];
   for (const rel of files) {
     const src = join(inputs.templateDir, rel);
-    const dest = join(inputs.targetDir, templateTarget(rel));
+    const dest = join(
+      inputs.targetDir,
+      templateTarget(rel, inputs.substitutions.JAVA_PACKAGE_PATH),
+    );
     await mkdir(dirname(dest), { recursive: true });
     if (rel.endsWith('.tmpl')) {
       const raw = await readFile(src, 'utf8');
@@ -523,6 +638,8 @@ async function scaffoldTemplate(inputs: {
     } else {
       const bytes = await readFile(src);
       await writeFile(dest, bytes);
+      // The wrappers run as programs (npm drops the template's own mode).
+      if (basename(dest) === 'mvnw' || basename(dest) === 'kindgiw') await chmod(dest, 0o755);
     }
     written.push(dest);
   }

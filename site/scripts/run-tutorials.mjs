@@ -34,7 +34,10 @@
  * apps pinned to that release.
  *
  * Needs the workspace built (`pnpm run build`), Docker with the pinned
- * runtime image available, and uv for Python pages.
+ * runtime image available, uv for Python pages, and for Java pages (those
+ * that make a `--template=java` pack) a JDK 17 or later: the run installs
+ * this checkout's kindgi-pack into the local Maven repository first, as a
+ * reader does from the SDK repository.
  *
  * Usage: node site/scripts/run-tutorials.mjs [<page under site/src/content/docs> …]
  */
@@ -93,7 +96,7 @@ function steps(markdown) {
 }
 
 /** A `kindgi dev` command, however the CLI is invoked. */
-const KINDGI_DEV = /(?:\bkindgi|@kindgi\/cli(?:@\S+)?)\s+dev\b/;
+const KINDGI_DEV = /(?:\bkindgiw?|@kindgi\/cli(?:@\S+)?)\s+dev\b/;
 
 function freePort() {
   return new Promise((resolvePort, reject) => {
@@ -447,9 +450,30 @@ for (const signalName of ['SIGINT', 'SIGTERM']) {
     process.exit(130);
   });
 }
+/** A Java page's packs need this checkout's kindgi-pack in the local Maven repository. */
+function installJavaSdk() {
+  const installed = spawnSync(
+    'sh',
+    ['./mvnw', '-q', '-B', 'install', '-DskipTests', '-pl', 'kindgi-pack', '-am'],
+    {
+      cwd: join(repo, 'sdks', 'java'),
+      encoding: 'utf8',
+    },
+  );
+  if (installed.status !== 0) {
+    throw new Error(
+      `couldn't install kindgi-pack from sdks/java (a JDK 17 or later, with JAVA_HOME set, is needed):\n${installed.stdout}${installed.stderr}`,
+    );
+  }
+}
+let javaInstalled = false;
 let failed = 0;
 try {
   for (const [index, page] of targets.entries()) {
+    if (!javaInstalled && readFileSync(page, 'utf8').includes('--template=java')) {
+      installJavaSdk();
+      javaInstalled = true;
+    }
     const name = relative(docs, page);
     const started = Date.now();
     const result = await runPage(page, createDatabase(postgres, `tutorial_${index + 1}`));

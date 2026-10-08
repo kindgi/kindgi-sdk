@@ -48,7 +48,7 @@ export interface DetectInputs {
    * scaffold a standalone pack in a nested subdir.
    */
   readonly newRepoFlag: boolean;
-  /** `--template=<name>` — `python` picks the Python app when both project files exist. */
+  /** `--template=<name>` — `python` or `java` picks that app when several project files exist. */
   readonly templateFlag?: string;
   /** Test injection point. */
   readonly fileExists?: (path: string) => Promise<boolean>;
@@ -66,7 +66,7 @@ export type DetectResult =
       readonly mode: 'augment';
       readonly targetDir: string;
       /** The app's language — the pack's. */
-      readonly language: 'node' | 'python';
+      readonly language: 'node' | 'python' | 'java';
     }
   | {
       readonly kind: 'err';
@@ -132,6 +132,12 @@ export async function detectInitMode(inputs: DetectInputs): Promise<DetectResult
 
   const hasPackageJson = await fileExists(`${augmentTargetDir}/package.json`);
   const hasPyproject = await fileExists(`${augmentTargetDir}/pyproject.toml`);
+  const hasPom = await fileExists(`${augmentTargetDir}/pom.xml`);
+
+  // A Maven app: alone, or picked with --template=java.
+  if (hasPom && ((!hasPackageJson && !hasPyproject) || inputs.templateFlag === 'java')) {
+    return { kind: 'ok', mode: 'augment', targetDir: augmentTargetDir, language: 'java' };
+  }
 
   // Cases 3 and 4: no positional + a project file → augment, in its language.
   if (hasPyproject && (!hasPackageJson || inputs.templateFlag === 'python')) {
@@ -144,7 +150,7 @@ export async function detectInitMode(inputs: DetectInputs): Promise<DetectResult
   // Case 5: no positional + neither → error.
   return {
     kind: 'err',
-    message: `No pack-name provided and no package.json or pyproject.toml at ${augmentTargetDir}.\n  - To scaffold a new pack:      kindgi init <pack-name> [--template=python]\n  - To add Kindgi to existing:   run inside a directory with package.json (Node) or pyproject.toml (Python)\n`,
+    message: `No pack-name provided and no package.json, pyproject.toml or pom.xml at ${augmentTargetDir}.\n  - To scaffold a new pack:      kindgi init <pack-name> [--template=python|java]\n  - To add Kindgi to existing:   run inside a directory with package.json (Node), pyproject.toml (Python) or pom.xml (Java, Maven)\n`,
   };
 }
 
