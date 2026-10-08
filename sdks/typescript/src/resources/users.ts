@@ -34,8 +34,9 @@ import type {
  *
  * User records live in the deployment's identity directory (LDAP,
  * SCIM or a bespoke store, plugged in through
- * `IdentityDirectoryBinding`), so the API has no routes to create,
- * update or deactivate users — `users.create` / `.update` /
+ * `IdentityDirectoryBinding`). A tenant admin can add a person
+ * (`users.create`, `POST /v1/identity/users`) where the directory can; the
+ * API has no routes to update or deactivate users — `users.update` /
  * `.deactivate` throw `not-yet-wired`.
  *
  * `users.me()` returns `WhoamiResult`, which carries more than a
@@ -44,10 +45,15 @@ import type {
  */
 export interface UsersClient {
   /**
-   * @unwired No user-creation route — users live in the deployment's
-   *   identity directory.
+   * Add a person to the tenant, with no grants: give them a role, then
+   * mint their first key with `tokens.create({ for: { kind: 'user', id } })`.
+   * Tenant admins only; mounted where the identity directory can add
+   * people. Another person's email is `409 identity-user-email-taken`.
+   *
+   * @wire `POST /v1/identity/users` — see
+   *   `@kindgi/api/openapi.json#/paths/~1v1~1identity~1users/post`.
    */
-  create(spec: UserSpec): Promise<UserId>;
+  create(spec: UserSpec, options?: { readonly idempotencyKey?: string }): Promise<UserId>;
 
   /**
    * @wire `GET /v1/identity/users/{userId}` — see
@@ -128,13 +134,24 @@ export interface UserFilter extends Filter {
 
 export function makeUsersClient(transport: Transport): UsersClient {
   return {
-    async create(_spec) {
-      throw new KindgiApiError(
-        notYetWired(
-          'users.create',
-          'no user-creation route on the wire — framework does NOT own user persistence (deployments plug LDAP / SCIM / bespoke stores via IdentityDirectoryBinding)',
-        ),
-      );
+    async create(spec, options) {
+      if (spec.orgId !== undefined || spec.metadata !== undefined) {
+        throw new KindgiApiError(
+          notYetWired('users.create', '`orgId` and `metadata` are not on the wire'),
+        );
+      }
+      const created = await transport.request<User>({
+        method: 'POST',
+        path: '/v1/identity/users',
+        body: {
+          displayName: spec.displayName,
+          ...(spec.email !== undefined && { primaryEmail: spec.email }),
+        },
+        ...(options?.idempotencyKey !== undefined && {
+          idempotencyKey: options.idempotencyKey,
+        }),
+      });
+      return created.userId;
     },
 
     async get(id) {

@@ -190,7 +190,8 @@ jobs:
         if: matrix.python == '3.11'
         run: |
           uv venv /tmp/kindgi-floors
-          uv pip install --python /tmp/kindgi-floors --resolution lowest-direct -e . "pytest>=8"
+          # With the `verify` extra, so kindgi.exports is tested at its cryptography floor.
+          uv pip install --python /tmp/kindgi-floors --resolution lowest-direct -e ".[verify]" "pytest>=8"
           /tmp/kindgi-floors/bin/python -m pytest -p no:cacheprovider -k "not in_step_with_openapi"
       - name: Generated client in step with openapi.json
         run: uv run python scripts/gen_client.py --check

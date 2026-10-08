@@ -4,7 +4,9 @@
 export {
   GEMINI_ADAPTER_ID,
   createGeminiProvider,
+  geminiAdapterEntry,
   geminiAdapterFactory,
+  geminiCheckConfig,
   vertexTarget,
 } from './provider.js';
 export type { GeminiClient, GeminiProviderOptions } from './provider.js';

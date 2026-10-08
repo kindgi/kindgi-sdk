@@ -21,12 +21,13 @@ sidebar:
 Nothing else: the runtime is a container image that `kindgi dev` pulls and
 runs for you.
 
-:::note[Private preview]
-The runtime image is in private preview: request access at contact@kindgi.com.
-With the pull credentials you receive (a robot name and a token), log in to
-its registry once. The CLI asks for the token without showing it, hands both
-to `docker login` (Kindgi keeps no copy), and checks that you can pull the
-image it runs:
+### Access to the runtime image
+
+Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub: it
+shows the runtime image's pull credentials, a robot name and a token. Log in
+to its registry once with them. The CLI asks for the token without showing
+it, hands both to `docker login` (Kindgi keeps no copy), and checks that you
+can pull the image it runs:
 
 ```sh
 npx --yes @kindgi/cli@0.1 auth registry --username <your robot name>
@@ -38,8 +39,7 @@ npx --yes @kindgi/cli@0.1 auth registry --username <your robot name>
 ```
 
 The first `kindgi dev` then pulls the image (about 700 MB; `amd64` and
-`arm64`).
-:::
+`arm64`). Questions or trouble: contact@kindgi.com.
 
 ### Check this machine
 
@@ -61,6 +61,8 @@ run:
   ✗ Runtime image: Docker couldn't run its credential helper (docker-credential-kindgi-nope): ERROR: error getting credentials - err: exec: "docker-credential-kindgi-nope": executable file not found in $PATH, out: ``
       Fix: Docker's config (~/.docker/config.json, or the one in $DOCKER_CONFIG: "credsStore" or "credHelpers") names docker-credential-kindgi-nope, and Docker couldn't run it. Put it on your PATH (Docker Desktop on macOS keeps it in /Applications/Docker.app/Contents/Resources/bin), or remove that entry from the config, then run this again.
 ```
+
+A `!` line is a warning: it doesn't fail, and things work now, but read it.
 
 `--json` gives the same checks as JSON, for a script or a coding agent
 ([Set up with a coding agent](../agent/) has an agent read it).

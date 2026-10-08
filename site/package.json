@@ -1,6 +1,6 @@
 {
   "name": "kindgi-docs",
-  "version": "0.0.5-rc.4",
+  "version": "0.0.5",
   "private": true,
   "description": "Kindgi's documentation site (docs.kindgi.com), built with Astro Starlight.",
   "license": "Apache-2.0",
