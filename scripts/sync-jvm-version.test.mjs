@@ -283,7 +283,10 @@ describe('sync-jvm-version --check', () => {
     // A longer version: offsets applied twice would corrupt the file.
     const result = run(root, []);
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(read(root, 'sdks/java/a/pom.xml'), moved(module('a'), PARENT_ANCHOR, '1.3.0-rc.10'));
+    assert.equal(
+      read(root, 'sdks/java/a/pom.xml'),
+      moved(module('a'), PARENT_ANCHOR, '1.3.0-rc.10'),
+    );
     assert.equal(result.stdout.match(/a\/pom\.xml <parent><version>/g)?.length, 1);
   });
 
