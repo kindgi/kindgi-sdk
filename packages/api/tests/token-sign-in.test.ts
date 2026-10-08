@@ -96,8 +96,11 @@ function makeStore() {
     async list() {
       return { data: [] };
     },
-    async revoke() {
-      return { revoked: false };
+    async revoke({ sessionId }) {
+      const row = rows.get(sessionId);
+      if (row === undefined || row.session.revokedAt !== undefined) return { revoked: false };
+      row.session = { ...row.session, revokedAt: new Date().toISOString() as Timestamp };
+      return { revoked: true };
     },
     async revokeAllForUser() {
       return { revokedCount: 0 };
@@ -184,6 +187,20 @@ describe('POST /v1/auth/token-sign-in', () => {
     const whoami = await app.request('/v1/identity/whoami', { headers: { cookie } });
     expect(whoami.status).toBe(200);
     expect(((await whoami.json()) as { userId: string }).userId).toBe(alice);
+  });
+
+  test('with no identity providers, the console can still sign out', async () => {
+    const { app } = makeApp();
+    const res = await signIn(app, 'kgi_person_full');
+    const cookie = (res.headers.get('set-cookie') ?? '').split(';')[0] as string;
+    const out = await app.request('/v1/auth/logout', {
+      method: 'POST',
+      headers: { cookie, origin: CONSOLE },
+    });
+    expect(out.status).toBe(200);
+    expect(out.headers.get('set-cookie')).toContain('Max-Age=0');
+    const after = await app.request('/v1/identity/whoami', { headers: { cookie } });
+    expect(after.status).toBe(401);
   });
 
   test("the deployment's own seeded token (a person, no key id) signs in too", async () => {

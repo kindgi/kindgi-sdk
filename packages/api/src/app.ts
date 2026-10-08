@@ -91,7 +91,7 @@ import { agentsRouter } from './routes/agents.js';
 import { approvalsRouter } from './routes/approvals.js';
 import { artifactsRouter } from './routes/artifacts.js';
 import { auditRouter } from './routes/audit.js';
-import { authRouters } from './routes/auth.js';
+import { authRouters, logoutHandler } from './routes/auth.js';
 import { blocksRouter } from './routes/blocks.js';
 import { capabilitiesRouter } from './routes/capabilities.js';
 import { complianceRouter } from './routes/compliance.js';
@@ -1453,6 +1453,11 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // sessions and refusing (403 token-sign-in-off) unless the deployment
   // allows it.
   if (input.sessionStore !== undefined && input.session?.cookie !== undefined) {
+    // Browser sessions need a way out even without identity providers
+    // (which bring their own `/auth` routes, logout included).
+    if (input.identityProvider === undefined) {
+      v1.post('/auth/logout', logoutHandler(input.sessionStore));
+    }
     v1.route(
       '/auth/token-sign-in',
       tokenSignInRouter({

@@ -500,31 +500,7 @@ export function authRouters(options: AuthRouterOptions): {
   });
 
   // ---------- POST /logout ----------
-  authed.post('/logout', async (c) => {
-    const requestId = c.get('requestId');
-    const tenantId = c.get('tenantId') as TenantId;
-    const sessionId = c.get('sessionId') as SessionId | undefined;
-    if (sessionId === undefined) {
-      c.status(statusFor('auth-not-session-token') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'auth-not-session-token',
-            message:
-              'Logout is only valid for session tokens (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`',
-          },
-          requestId,
-        ),
-      );
-    }
-    const outcome = await sessionStore.revoke({ tenantId, sessionId });
-    const cookieName = c.get('sessionCookieName');
-    if (cookieName !== undefined) {
-      // A browser session: the cookie goes with it.
-      c.header('Set-Cookie', `${cookieName}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`);
-    }
-    return c.json({ sessionId, revoked: outcome.revoked });
-  });
+  authed.post('/logout', logoutHandler(sessionStore));
 
   const callback = new Hono<AppEnv>();
 
@@ -1213,4 +1189,39 @@ function parseCallbackBody(
     };
   }
   return { kind: 'ok', value: { code, state } };
+}
+
+/**
+ * `POST /v1/auth/logout`: revokes the caller's session; a browser session
+ * loses its cookie too. Also mounted on its own with cookie sessions and
+ * no identity providers (console token sign-in).
+ */
+export function logoutHandler(
+  sessionStore: SessionStoreBinding,
+): (c: Context<AppEnv>) => Promise<Response> {
+  return async (c) => {
+    const requestId = c.get('requestId');
+    const tenantId = c.get('tenantId') as TenantId;
+    const sessionId = c.get('sessionId') as SessionId | undefined;
+    if (sessionId === undefined) {
+      c.status(statusFor('auth-not-session-token') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'auth-not-session-token',
+            message:
+              'Logout is only valid for session tokens (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`',
+          },
+          requestId,
+        ),
+      );
+    }
+    const outcome = await sessionStore.revoke({ tenantId, sessionId });
+    const cookieName = c.get('sessionCookieName');
+    if (cookieName !== undefined) {
+      // A browser session: the cookie goes with it.
+      c.header('Set-Cookie', `${cookieName}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`);
+    }
+    return c.json({ sessionId, revoked: outcome.revoked });
+  };
 }
