@@ -3,16 +3,19 @@
   "description": "Claude on the Anthropic API (key: ANTHROPIC_API_KEY).",
   "adapterId": "@kindgi/adapter-model-anthropic",
   "secret": "ANTHROPIC_API_KEY",
-  "pricesCheckedAt": "2026-10-01",
+  "pricesCheckedAt": "2026-10-07",
   "metadata": {
     "id": "anthropic",
     "region": "unspecified",
+    "defaultModel": "claude-sonnet-5-5",
     "description": "Claude on the Anthropic API",
     "models": [
       {
         "name": "claude-opus-5-5",
         "contextWindow": 1000000,
         "maxOutputTokens": 16000,
+        "thinking": { "mode": "always", "lowest": "low" },
+        "sampling": false,
         "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
         "cost": {
           "promptUsdPer1kTokens": 0.004,
@@ -24,12 +27,32 @@
         "name": "claude-sonnet-5-5",
         "contextWindow": 1000000,
         "maxOutputTokens": 16000,
+        "thinking": { "mode": "adaptive", "lowest": "between_tools" },
+        "sampling": false,
         "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
         "cost": {
           "promptUsdPer1kTokens": 0.002,
           "completionUsdPer1kTokens": 0.01
         },
         "description": "Balanced performance and cost."
+      },
+      {
+        "name": "claude-haiku-5-5",
+        "contextWindow": 1000000,
+        "maxOutputTokens": 16000,
+        "thinking": { "mode": "adaptive", "lowest": "disabled" },
+        "sampling": false,
+        "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
+        "cost": {
+          "promptUsdPer1kTokens": 0.0001,
+          "completionUsdPer1kTokens": 0.0005,
+          "longContext": {
+            "thresholdTokens": 100000,
+            "promptUsdPer1kTokens": 0.0005,
+            "completionUsdPer1kTokens": 0.0025
+          }
+        },
+        "description": "Fastest and cheapest \u2014 routing, classification, simple calls. A prompt over 100,000 tokens costs 5\u00d7."
       },
       {
         "name": "claude-haiku-4-5",
@@ -40,7 +63,7 @@
           "promptUsdPer1kTokens": 0.001,
           "completionUsdPer1kTokens": 0.005
         },
-        "description": "Fastest and cheapest \u2014 routing, classification, simple calls."
+        "description": "Fastest and cheapest \u2014 routing, classification, simple calls. Anthropic retires it on or after 2026-10-15: move to claude-haiku-5-5 before then."
       }
     ]
   }
