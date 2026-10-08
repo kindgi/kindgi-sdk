@@ -107,6 +107,15 @@ describe('fromWire — live versions', () => {
     });
   });
 
+  it('a provider registration its adapter refuses (422) is an invalid request, with its issues', () => {
+    const issues = [
+      { path: '/adapter_config/api', message: 'adapter_config.api must be one of …' },
+    ];
+    expect(
+      fromWire({ code: 'provider-config-invalid', message: 'm', details: { issues } }, 422),
+    ).toMatchObject({ code: 'invalid-request', serverCode: 'provider-config-invalid', issues });
+  });
+
   it('a scope-invalid is an invalid request', () => {
     expect(fromWire({ code: 'scope-invalid', message: 'no such project' })).toMatchObject({
       code: 'invalid-request',

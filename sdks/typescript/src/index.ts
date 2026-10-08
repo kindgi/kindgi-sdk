@@ -361,6 +361,8 @@ export type {
   ListProvidersFilter,
   Provider,
   ProviderCapabilities,
+  ProviderCheck,
+  ProviderConfigProblem,
   ProviderPage,
   ProvidersClient,
   RegisterProviderInput,
