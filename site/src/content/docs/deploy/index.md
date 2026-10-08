@@ -25,4 +25,7 @@ The runtime image is in private preview: request access at contact@kindgi.com.
   what it doesn't yet, and running OpenFGA next to the runtime.
 - **[Google Cloud Run](cloud-run/):** the runtime and your pack's service as
   two Cloud Run services, with Cloud SQL, from Kindgi's Terraform module.
+- **[Azure Container Apps](azure-container-apps/):** the runtime and your
+  pack's service as two container apps, with PostgreSQL Flexible Server and
+  Key Vault, from Kindgi's Terraform module.
 - **Kindgi Cloud:** we run it for you. In private preview.
