@@ -181,7 +181,7 @@ Sign every reply as The Acme team.
 A required parameter with no value fails the turn before the model is called:
 
 ```text
-Error [server]: Prompt render failed: Required parameter missing: tone
+Error [model-invocation-failed]: Prompt render failed: Required parameter missing: tone
 ```
 
 ## In a flow step
@@ -387,7 +387,7 @@ A direct run has no `{{ input }}`, so an agent whose instructions read it fails
 when run directly:
 
 ```text
-Error [server]: Prompt render failed: Template references an unresolved variable: input
+Error [model-invocation-failed]: Prompt render failed: Template references an unresolved variable: input
 ```
 :::
 
@@ -403,7 +403,7 @@ A turn's result is the run's `output`:
 | `usage` | `steps` (model calls), `promptTokens`, `completionTokens`, `totalCostUsd`, `durationMs`. |
 | `provider` | The provider `id` and `model` that answered. |
 | `appended` | The messages the turn added to the conversation: the user message, tool calls and their results, the answer. |
-| `warnings` | For example `fallback-provider`, when `dev-echo` answered. |
+| `warnings` | For example `fallback-provider` and `dev-echo-not-a-model`, when `dev-echo` answered. |
 | `violations` | Guardrail results. |
 | `provenance` | The turn's provenance record: see [Trace an answer and its cost](../../observability/trace-an-answer/). |
 

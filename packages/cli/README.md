@@ -272,8 +272,8 @@ A turn the fallback answers carries a `fallback-provider` warning, which
 `kindgi runs start` prints. `kindgi providers unregister dev-echo` removes it
 for good.
 
-A preset's models carry their own output limit (Gemini 2.5: 65,536 tokens,
-thinking included). `--max-output-tokens=<n>` registers them with a lower
+A preset's models carry their own output limit (Gemini 3.8 Flash: 65,536
+tokens, thinking included). `--max-output-tokens=<n>` registers them with a lower
 or different cap.
 
 **Declared in the config**, `kindgi dev` registers them itself. Each project
@@ -286,7 +286,7 @@ export default {
   pack: { id: 'acme', version: '0.1.0' },
   providers: [
     { preset: 'anthropic' },                     // its key, ANTHROPIC_API_KEY, in the env files
-    { preset: 'gemini', project: 'acme-gcp', models: ['gemini-2.5-flash'] },
+    { preset: 'gemini', project: 'acme-gcp', models: ['gemini-3.8-flash'] },
     { spec: { /* a --spec body */ secret_ref: { name: 'QWEN_API_KEY' } } },
   ],
 };

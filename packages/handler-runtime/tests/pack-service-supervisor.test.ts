@@ -97,7 +97,11 @@ async function supervisor(
 function invoke(
   running: Running,
   tool: string,
-  init: { readonly token?: string; readonly signal?: AbortSignal } = {},
+  init: {
+    readonly token?: string;
+    readonly signal?: AbortSignal;
+    readonly traceparent?: string;
+  } = {},
 ): Promise<Response> {
   return fetch(`${running.url}/v1/invoke`, {
     method: 'POST',
@@ -105,6 +109,7 @@ function invoke(
       'content-type': 'application/json',
       [PACK_HEADERS.token]: init.token ?? running.supervisor.token,
       [PACK_HEADERS.runId]: 'run-1',
+      ...(init.traceparent !== undefined && { [PACK_HEADERS.traceparent]: init.traceparent }),
     },
     body: JSON.stringify({
       v: PACK_PROTOCOL_VERSION,
@@ -367,6 +372,35 @@ describe('createPackServiceSupervisor — the front', () => {
     });
     expect(info.status).toBe(200);
     expect(await info.json()).toMatchObject({ packId: 'local' });
+  });
+
+  test("passes the caller's trace context (traceparent) on to the child", async () => {
+    // A stand-in child that answers every call with the traceparent it received.
+    const echo = join(dir, 'echo-child.mjs');
+    await writeFile(
+      echo,
+      `import { createServer } from 'node:http';
+const server = createServer((req, res) => {
+  req.resume();
+  req.on('end', () => {
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ v: ${PACK_PROTOCOL_VERSION}, kind: 'result', output: { traceparent: req.headers.traceparent ?? null } }));
+  });
+});
+server.listen(0, '127.0.0.1', () => {
+  process.stderr.write(JSON.stringify({ kind: 'listening', port: server.address().port }) + '\\n');
+});
+`,
+      'utf8',
+    );
+    const running = await supervisor({}, [], [], { command: [process.execPath, echo] });
+    expect((await running.supervisor.start(join(dir, 'unused.json'))).kind).toBe('ok');
+    const traceparent = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01';
+    const res = await invoke(running, 'any', { traceparent });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ output: { traceparent } });
+    const none = await invoke(running, 'any');
+    expect(await none.json()).toMatchObject({ output: { traceparent: null } });
   });
 
   test("a supervisor given the previous one's token and port answers the same caller", async () => {

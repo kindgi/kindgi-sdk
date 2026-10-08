@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/cli",
-  "version": "0.1.4-rc.4",
+  "version": "0.1.4",
   "description": "Command-line interface for Kindgi™ — the sovereign AI OS. Create a pack, run it on your machine (`kindgi dev`), build, sign and deploy it, and work with a running Kindgi API from the terminal.",
   "license": "Apache-2.0",
   "repository": {

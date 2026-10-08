@@ -73,6 +73,33 @@ describe('root-level flags and help', () => {
     expect(out.stderr).toContain('Unknown command: bogus');
   });
 
+  test('an unknown subcommand exits 2, naming it and the nearest one, with the group help on stderr', async () => {
+    const out = await runCli(baseInputs({ argv: ['agents', 'register', '--spec=@agent.json'] }));
+    expect(out.exitCode).toBe(2);
+    expect(out.stdout).toBe('');
+    expect(out.stderr).toMatch(
+      /^Unknown subcommand "register" for kindgi agents\. Did you mean "publish"\?\n\n/,
+    );
+    expect(out.stderr).toContain('Usage: kindgi agents <subcommand>');
+  });
+
+  test('a typo of a subcommand: the nearest one; nothing near: no hint', async () => {
+    const typo = await runCli(baseInputs({ argv: ['runs', 'lsit'] }));
+    expect(typo.exitCode).toBe(2);
+    expect(typo.stderr).toContain(
+      'Unknown subcommand "lsit" for kindgi runs. Did you mean "list"?',
+    );
+    const far = await runCli(baseInputs({ argv: ['runs', 'zzzzzz'] }));
+    expect(far.exitCode).toBe(2);
+    expect(far.stderr.split('\n')[0]).toBe('Unknown subcommand "zzzzzz" for kindgi runs.');
+  });
+
+  test('a group with only a flag still prints its help', async () => {
+    const out = await runCli(baseInputs({ argv: ['runs', '--help'] }));
+    expect(out.exitCode).toBe(0);
+    expect(out.stdout).toContain('Usage: kindgi runs <subcommand>');
+  });
+
   test('group command without leaf prints group help', async () => {
     const out = await runCli(baseInputs({ argv: ['runs'] }));
     expect(out.exitCode).toBe(0);
