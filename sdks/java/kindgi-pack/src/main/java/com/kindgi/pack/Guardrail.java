@@ -50,7 +50,7 @@ public final class Guardrail<C> {
    * @return a builder (its config is any JSON object until {@code config} says otherwise)
    */
   public static Builder<Map<String, Object>> define(String id) {
-    return new Builder<>(id, StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE).getCallerClass());
+    return new Builder<>(id, Callers.definer());
   }
 
   /** @return the guardrail's id */

@@ -119,10 +119,12 @@ final class PackService implements HttpServer.Handler {
   // Boot
   // ---------------------------------------------------------------------------------------------
 
-  /** {@code src/main/java/com/acme/tools/Greet.java} → its class name; {@code null} for any other path. */
+  /**
+   * {@code src/main/java/com/acme/tools/Greet.java} → its class name ({@code …Greet$}, the object,
+   * for a Scala file); {@code null} for any other path.
+   */
   static @Nullable String classOf(String modulePath) {
-    if (!modulePath.startsWith(Indexer.SOURCE_ROOT) || !modulePath.endsWith(".java")
-        || modulePath.contains("..") || modulePath.contains("\\")) {
+    if (modulePath.contains("..") || modulePath.contains("\\")) {
       return null;
     }
     return Indexer.className(modulePath);

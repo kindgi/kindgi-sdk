@@ -15,7 +15,8 @@ import org.jspecify.annotations.Nullable;
 
 /**
  * A JVM pack's config: its {@code kindgi.config.json}. Same keys as {@code kindgi.config.ts} and
- * Python's {@code [tool.kindgi]}, plus the language:
+ * Python's {@code [tool.kindgi]}, plus the language ({@code java} or {@code scala}, which sets the
+ * default discovery globs; see {@link SourceLayout}):
  *
  * <pre>{@code
  * {
@@ -27,6 +28,7 @@ import org.jspecify.annotations.Nullable;
  * }</pre>
  *
  * @param path the file
+ * @param layout the {@code language}'s source layout
  * @param id {@code pack.id}
  * @param version {@code pack.version}
  * @param description {@code pack.description}
@@ -37,6 +39,7 @@ import org.jspecify.annotations.Nullable;
  */
 public record PackConfig(
     Path path,
+    SourceLayout layout,
     String id,
     String version,
     @Nullable String description,
@@ -46,20 +49,6 @@ public record PackConfig(
 
   /** The config's file name. */
   public static final String FILE_NAME = "kindgi.config.json";
-
-  /** The language a Java pack names. */
-  public static final String LANGUAGE = "java";
-
-  /** The discovery globs when the config doesn't set them. */
-  public static final Map<String, String> DEFAULT_DISCOVERY;
-
-  static {
-    Map<String, String> d = new LinkedHashMap<>();
-    for (String folder : List.of("tools", "guardrails", "agents", "flows")) {
-      d.put(folder, "src/main/java/**/" + folder + "/**/*.java");
-    }
-    DEFAULT_DISCOVERY = java.util.Collections.unmodifiableMap(d);
-  }
 
   private static final Pattern ENV_NAME = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
   private static final String RESERVED_ENV_PREFIX = "KINDGI_";
@@ -128,10 +117,11 @@ public record PackConfig(
     }
     Map<String, Object> raw = (Map<String, Object>) document;
     Object language = raw.get("language");
-    if (!LANGUAGE.equals(language)) {
+    SourceLayout layout = SourceLayout.forLanguage(language);
+    if (layout == null) {
       throw parseFailed(path, language == null
-          ? "'language' is missing; a Java pack says \"language\": \"java\""
-          : "'language' is " + Json.compactString(language) + "; this indexer reads Java packs (\"java\")");
+          ? "'language' is missing; a JVM pack says \"language\": \"java\" or \"scala\""
+          : "'language' is " + Json.compactString(language) + "; this indexer reads JVM packs (\"java\", \"scala\")");
     }
     if (!(raw.get("pack") instanceof Map)) {
       throw parseFailed(path, "'pack' field is missing or not an object");
@@ -147,11 +137,12 @@ public record PackConfig(
     if (!(discovery instanceof Map) || !((Map<String, Object>) discovery).values().stream().allMatch(v -> v instanceof String)) {
       throw parseFailed(path, "'discovery' must map kinds to glob strings");
     }
-    Map<String, String> globs = new LinkedHashMap<>(DEFAULT_DISCOVERY);
+    Map<String, String> globs = new LinkedHashMap<>(layout.defaultDiscovery());
     ((Map<String, Object>) discovery).forEach((k, v) -> globs.put(k, (String) v));
     Object description = pack.get("description");
     return new PackConfig(
         path,
+        layout,
         (String) pack.get("id"),
         (String) pack.get("version"),
         description instanceof String ? (String) description : null,

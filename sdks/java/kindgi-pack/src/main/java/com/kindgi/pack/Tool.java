@@ -75,7 +75,7 @@ public final class Tool<I, O> {
    * @return a builder
    */
   public static Builder<Map<String, Object>, Map<String, Object>> define(String id) {
-    return new Builder<>(id, StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE).getCallerClass());
+    return new Builder<>(id, Callers.definer());
   }
 
   /** @return the tool's id */

@@ -42,7 +42,7 @@ public final class Agent {
    * @return a builder
    */
   public static Builder define(String id) {
-    return new Builder(id, StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE).getCallerClass());
+    return new Builder(id, Callers.definer());
   }
 
   /** @return the agent's id */

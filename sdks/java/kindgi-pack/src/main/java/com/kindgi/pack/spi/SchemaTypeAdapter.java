@@ -15,7 +15,9 @@ import org.jspecify.annotations.Nullable;
  * the deriver asks every adapter on the classpath before its own rules.
  *
  * <p>Each method has a default that knows nothing, so an adapter implements only what its language
- * needs. A type no adapter knows is derived as Java's.
+ * needs. A type no adapter knows is derived as Java's. To refuse a type it knows but can't express (a
+ * map whose keys aren't strings), {@link #schema} throws an {@code IllegalArgumentException} saying
+ * why; the index names the property.
  */
 public interface SchemaTypeAdapter {
   /**
@@ -24,6 +26,7 @@ public interface SchemaTypeAdapter {
    * @param type the type
    * @param derive derives another type (an element, a value) with every rule and adapter
    * @return the schema; {@code null} when this adapter doesn't know the type
+   * @throws IllegalArgumentException when the adapter knows the type but it can't be a schema
    */
   default @Nullable Map<String, Object> schema(JavaType type, Function<JavaType, Map<String, Object>> derive) {
     return null;

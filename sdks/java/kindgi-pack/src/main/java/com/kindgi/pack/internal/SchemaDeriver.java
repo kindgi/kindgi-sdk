@@ -126,7 +126,12 @@ public final class SchemaDeriver {
       return of(optional, annotations, where);
     }
     for (SchemaTypeAdapter adapter : adapters()) {
-      Map<String, Object> adapted = adapter.schema(t, inner -> of(inner, List.of(), where + "[]"));
+      Map<String, Object> adapted;
+      try {
+        adapted = adapter.schema(t, inner -> of(inner, List.of(), where + "[]"));
+      } catch (IllegalArgumentException e) {
+        throw new DerivationException(where + ": " + e.getMessage());
+      }
       if (adapted != null) {
         Map<String, Object> copy = new LinkedHashMap<>(adapted);
         constraints(copy, annotations, where);
@@ -223,7 +228,12 @@ public final class SchemaDeriver {
           ps.put("default", defaultOf(defaultValue, ps, where + "." + p.getName()));
         } else {
           for (SchemaTypeAdapter adapter : adapters()) {
-            Optional<Object> adapted = adapter.defaultValue(raw, p.getName());
+            Optional<Object> adapted;
+            try {
+              adapted = adapter.defaultValue(raw, p.getName());
+            } catch (IllegalArgumentException e) {
+              throw new DerivationException(where + "." + p.getName() + ": " + e.getMessage());
+            }
             if (adapted.isPresent()) {
               ps.put("default", Json.unbind(adapted.get()));
               break;
