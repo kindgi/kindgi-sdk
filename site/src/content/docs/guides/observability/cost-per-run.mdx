@@ -295,18 +295,17 @@ the whole tree: this flow's two calls were made by its agent step.
 ## A failed call
 
 A model call that fails is recorded too, at no cost. A turn whose provider key
-was wrong (captured on `claude-haiku-4-5`; on another model the record names
-that model):
+was wrong:
 
 ```json
 {
-  "runId": "97a6a04b-b6e2-4b14-a682-4dc5f653e075",
-  "model": "claude-haiku-4-5",
+  "runId": "28a40635-eb0b-44db-9b8f-3748c2f8165e",
+  "model": "claude-sonnet-5-5",
   "status": "failed",
   "costUsd": 0,
-  "durationMs": 381,
+  "durationMs": 252,
   "attempts": 1,
-  "error": { "message": "401 {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"API key is invalid.\"},\"request_id\":null}" },
+  "error": { "message": "401 {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"},\"request_id\":null}" },
   …
 }
 ```
