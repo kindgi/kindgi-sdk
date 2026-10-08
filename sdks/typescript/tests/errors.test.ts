@@ -134,6 +134,20 @@ describe('fromWire — live versions', () => {
       code: 'invalid-request',
     });
   });
+
+  it("a guardrail-config-invalid (422) is an invalid request with the check's issues", () => {
+    const issue = { path: '/config/maxChars', message: 'must be > 0' };
+    expect(
+      fromWire(
+        { code: 'guardrail-config-invalid', message: 'm', details: { issues: [issue] } },
+        422,
+      ),
+    ).toMatchObject({
+      code: 'invalid-request',
+      serverCode: 'guardrail-config-invalid',
+      issues: [issue],
+    });
+  });
 });
 
 describe('fromWire — a code this client does not list is read by its HTTP status', () => {
@@ -221,6 +235,8 @@ function expectedFamily(code: string, status: number): string {
     'guardrail-violation': 'guardrail-violation',
     // A provider registration the adapter refuses: an invalid request, with its issues.
     'provider-config-invalid': 'invalid-request',
+    // A guardrail whose config its check refuses: the same.
+    'guardrail-config-invalid': 'invalid-request',
   };
   if (exceptions[code] !== undefined) return exceptions[code];
   const byStatus: Record<number, string> = {

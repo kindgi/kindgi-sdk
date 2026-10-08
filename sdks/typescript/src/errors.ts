@@ -337,6 +337,7 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'unknown-effect':
     case 'invalid-guardrail':
     case 'invalid-provider':
+    case 'guardrail-config-invalid':
     case 'provider-config-invalid':
     case 'supervisor-header-missing':
     case 'scope-invalid':

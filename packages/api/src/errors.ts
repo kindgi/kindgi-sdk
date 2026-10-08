@@ -78,6 +78,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'tool-gone': 410,
   'tool-already-registered': 409,
   'guardrail-already-registered': 409,
+  'guardrail-config-invalid': 422,
   'flow-already-registered': 409,
   'conversation-closed': 409,
   'invalid-agent': 400,

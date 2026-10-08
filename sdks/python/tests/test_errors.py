@@ -102,6 +102,14 @@ def test_a_documented_422_is_still_a_server_error(code: str) -> None:
     assert error.server_code == code
 
 
+def test_a_guardrail_config_invalid_is_an_invalid_request_with_its_issues() -> None:
+    issue = {"path": "/config/maxChars", "message": "must be > 0"}
+    error = from_wire(body("guardrail-config-invalid", issues=[issue]), 422)
+    assert type(error) is InvalidRequestError
+    assert error.server_code == "guardrail-config-invalid"
+    assert error.issues == [issue]
+
+
 # The family a documented code belongs in: its HTTP status's (`x-error-codes` in
 # openapi.json), except where this client classifies a code on purpose.
 _EXCEPTIONS: dict[str, type] = {
@@ -109,6 +117,8 @@ _EXCEPTIONS: dict[str, type] = {
     "guardrail-violation": GuardrailViolationError,
     # A provider registration the adapter refuses: an invalid request, with its issues.
     "provider-config-invalid": InvalidRequestError,
+    # A guardrail whose config its check refuses: the same.
+    "guardrail-config-invalid": InvalidRequestError,
 }
 _BY_STATUS: dict[int, type] = {
     400: InvalidRequestError,

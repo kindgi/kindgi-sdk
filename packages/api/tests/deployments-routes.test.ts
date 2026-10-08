@@ -854,7 +854,7 @@ describe('POST /v1/deployments — happy path', () => {
     expect(writes).toHaveLength(2);
   });
 
-  test('a guardrail as the indexer writes it (checkId, configSchema) deploys, its check from checkId', async () => {
+  test('a guardrail as the indexer writes it (checkId, configSchema) deploys, its check from checkId, its configSchema kept (T338)', async () => {
     const fixture = buildSignedDeploy({
       index: {
         v: 1,
@@ -898,7 +898,11 @@ describe('POST /v1/deployments — happy path', () => {
       codeArtifactRef: { kind: 'oci', modulePath: 'guardrails/cites.mjs' },
     });
     expect(guardrail.checkId).toBeUndefined();
-    expect(guardrail.configSchema).toBeUndefined();
+    // Kept: the runtime checks a guardrail naming this check against it.
+    expect(guardrail.configSchema).toEqual({
+      type: 'object',
+      properties: { strict: { type: 'boolean' } },
+    });
   });
 
   test("an index that declares the pack's process env deploys; the env is signed content, not a primitive", async () => {
