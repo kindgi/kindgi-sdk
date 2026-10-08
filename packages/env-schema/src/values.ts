@@ -38,6 +38,9 @@ export const SESSION_TTL_MS_VAR = 'KINDGI_SESSION_TTL_MS';
 /** How long a browser session may sit idle, in milliseconds. */
 export const SESSION_IDLE_TIMEOUT_MS_VAR = 'KINDGI_SESSION_IDLE_TIMEOUT_MS';
 
+/** Whether a person may sign in to the console with an API token (`on` / `off`). */
+export const CONSOLE_TOKEN_SIGN_IN_VAR = 'KINDGI_CONSOLE_TOKEN_SIGN_IN';
+
 /** The shared secret between the server and the pack service. */
 export const PACK_SERVICE_TOKEN_VAR = 'KINDGI_PACK_SERVICE_TOKEN';
 

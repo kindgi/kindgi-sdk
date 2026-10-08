@@ -53,6 +53,7 @@ import type { AgentReleaseBindings } from './live-version-binding.js';
 import type { MCPClientProbeBinding, MCPEndpointRegistryBinding } from './mcp-endpoint-binding.js';
 import type { MemoryBinding } from './memory-binding.js';
 import {
+  SESSION_COOKIE_NAME,
   type SessionCookieOptions,
   type TokenResolver,
   bearerAuthMiddleware,
@@ -128,6 +129,7 @@ import { type SignInOptionsRateLimit, signInOptionsRouter } from './routes/sign-
 import { signingKeysRouter } from './routes/signing-keys.js';
 import { teamsRouter } from './routes/teams.js';
 import { tenantRouter } from './routes/tenant.js';
+import { tokenSignInRouter } from './routes/token-sign-in.js';
 import { tokensRouter } from './routes/tokens.js';
 import { toolsRouter } from './routes/tools.js';
 import { webhookEndpointsRouter } from './routes/webhook-endpoints.js';
@@ -908,6 +910,13 @@ export interface SessionConfig {
    * the `Authorization` header.
    */
   readonly cookie?: SessionCookieOptions;
+  /**
+   * Whether a person may sign in to the console with an API token
+   * (`POST /v1/auth/token-sign-in`): a person's full key is exchanged once
+   * for a browser session in `cookie`. Needs `cookie` and a session store.
+   * Absent or `false`: the route answers 403 `token-sign-in-off`.
+   */
+  readonly tokenSignIn?: boolean;
 }
 
 /**
@@ -926,6 +935,9 @@ export interface ScalarDocsConfig {
    */
   readonly theme?: string;
 }
+
+/** A token sign-in's session lifetime when `SessionConfig.ttl` is unset: 12 hours. */
+const DEFAULT_TOKEN_SIGN_IN_TTL_MS = 12 * 60 * 60 * 1000;
 
 export function createApp(input: CreateAppInput): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -1419,15 +1431,36 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     if (input.exchangeCode !== undefined) app.route('/v1/auth/callback', routers.callback);
   }
   // How a person can sign in, before anyone is: outside the bearer chain
-  // too (mounted ahead of `/v1`, like the callback).
-  if (input.identityProvider !== undefined) {
+  // too (mounted ahead of `/v1`, like the callback). Mounted whenever there
+  // is a way in: identity providers, or browser sessions an API token can
+  // open.
+  const cookieSessions = input.sessionStore !== undefined && input.session?.cookie !== undefined;
+  const tokenSignIn = cookieSessions && input.session?.tokenSignIn === true;
+  if (input.identityProvider !== undefined || cookieSessions) {
     app.route(
       '/v1/auth/sign-in-options',
       signInOptionsRouter({
-        identityProvider: input.identityProvider,
+        ...(input.identityProvider !== undefined && { identityProvider: input.identityProvider }),
+        tokenSignIn,
         ...(input.signInOptionsRateLimit !== undefined && {
           rateLimit: input.signInOptionsRateLimit,
         }),
+      }),
+    );
+  }
+  // A person signs in to the console with an API token: inside the bearer
+  // chain (the token arrives in `Authorization`), mounted with cookie
+  // sessions and refusing (403 token-sign-in-off) unless the deployment
+  // allows it.
+  if (input.sessionStore !== undefined && input.session?.cookie !== undefined) {
+    v1.route(
+      '/auth/token-sign-in',
+      tokenSignInRouter({
+        sessionStore: input.sessionStore,
+        enabled: tokenSignIn,
+        ttlMs: input.session.ttl ?? DEFAULT_TOKEN_SIGN_IN_TTL_MS,
+        cookieName: input.session.cookie.name ?? SESSION_COOKIE_NAME,
+        ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
       }),
     );
   }

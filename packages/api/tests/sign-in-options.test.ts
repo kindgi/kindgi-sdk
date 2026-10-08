@@ -86,6 +86,7 @@ describe('sign-in options', () => {
       data: [
         { providerId: 'acme-okta', displayName: 'Acme Okta', signInUrl: '/auth/start/idp_7f3a' },
       ],
+      methods: { identityProviders: true, apiToken: false },
     });
     expect(calls).toEqual([{ emailDomain: 'acme.com' }]);
   });
@@ -105,7 +106,10 @@ describe('sign-in options', () => {
     const { app, calls } = makeApp();
     const res = await lookup(app);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ data: [] });
+    expect(await res.json()).toEqual({
+      data: [],
+      methods: { identityProviders: true, apiToken: false },
+    });
     expect(calls).toEqual([]);
   });
 
@@ -113,13 +117,19 @@ describe('sign-in options', () => {
     const { app } = makeApp();
     const res = await lookup(app, 'someone@elsewhere.org');
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ data: [] });
+    expect(await res.json()).toEqual({
+      data: [],
+      methods: { identityProviders: true, apiToken: false },
+    });
   });
 
   test('a binding without signInOptions answers an empty list', async () => {
     const { app } = makeApp({ withSignInOptions: false });
     const res = await lookup(app, 'alice@acme.com');
-    expect(await res.json()).toEqual({ data: [] });
+    expect(await res.json()).toEqual({
+      data: [],
+      methods: { identityProviders: true, apiToken: false },
+    });
   });
 
   test('an email that is no email → 400 bad-input', async () => {

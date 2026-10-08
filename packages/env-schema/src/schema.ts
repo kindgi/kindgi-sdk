@@ -335,6 +335,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_CONSOLE_TOKEN_SIGN_IN',
+    description:
+      "Whether a person may sign in to the console with an API token: `on` or `off`. Default `off`, and `on` in local development (`kindgi dev`). The token is exchanged once for a browser session (the same cookie as sign-in with an identity provider) and never kept in the browser. Only a person's full key opens a session, never a service account's or a narrowed key. API tokens work for the API, CLI and SDKs either way. Set `on` to keep signing in to the console by pasting a token when it has no identity provider.",
+    example: 'on',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_CORS_ORIGINS',
     description:
       'Comma-separated browser origins allowed to call, cross-origin, the routes a public run token can use (`GET /v1/runs/{runId}/progress` and its stream). Exact origins, no wildcards. Unset: no CORS headers on any route.',

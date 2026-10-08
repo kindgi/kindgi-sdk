@@ -333,6 +333,9 @@ export function bearerAuthMiddleware(
     if (resolution.tokenProjectId !== undefined) {
       c.set('tokenProjectId', resolution.tokenProjectId);
     }
+    if (resolution.expiresAt !== undefined && !isSessionToken) {
+      c.set('tokenExpiresAt', resolution.expiresAt);
+    }
     if (resolution.sessionId !== undefined) {
       c.set('sessionId', resolution.sessionId);
     }

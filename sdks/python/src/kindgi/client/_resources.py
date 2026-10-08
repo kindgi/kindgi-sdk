@@ -501,6 +501,9 @@ OPERATIONS: dict[str, Operation] = {
     "auth.signInOptions": Operation(
         "auth.signInOptions", "GET", "/v1/auth/sign-in-options", "json", False
     ),
+    "auth.tokenSignIn": Operation(
+        "auth.tokenSignIn", "POST", "/v1/auth/token-sign-in", "json", False
+    ),
     "auth.providers.get": Operation(
         "auth.providers.get", "GET", "/v1/auth/providers/{providerId}", "json", False
     ),
@@ -4907,7 +4910,7 @@ class AuthResource:
     ) -> _models.SignInOptions:
         """How a person can sign in. `GET /v1/auth/sign-in-options`
 
-        Public: nobody is signed in yet. With `email`, the identity providers for that email's domain (from the one tenant that claims it); without, an empty list: sign-in is email first, so nothing is offered before an email (the empty answer still says sign-in is on; off is a 404). The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`).
+        Public: nobody is signed in yet. With `email`, the identity providers for that email's domain (from the one tenant that claims it); without, an empty list: sign-in is email first, so nothing is offered before an email (the empty answer still says sign-in is on; off is a 404). `methods` says which ways in the deployment allows: identity providers, and/or an API token (`POST /v1/auth/token-sign-in`). Mounted when either is possible. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`).
         """
         return self._client._request(
             _OPERATIONS["auth.signInOptions"],
@@ -4915,6 +4918,20 @@ class AuthResource:
             query={"email": email},
             headers={},
             response=_models.SignInOptions,
+            timeout=timeout,
+        )
+
+    def token_sign_in(self, /, *, timeout: float | None = None) -> _models.TokenSignInResult:
+        """Sign in to the console with an API token. `POST /v1/auth/token-sign-in`
+
+        The API token in `Authorization` is exchanged once for a browser session in the session cookie (HttpOnly; the same as a sign-in with an identity provider), so the browser never keeps the token. Only a person's full key opens a session: a service account's key, or a narrowed one (a `member` role, or one project), is refused `403 token-sign-in-not-allowed`. The session ends after its lifetime, or when the key expires if sooner. `403 token-sign-in-off` when the deployment doesn't allow it; `400 token-sign-in-needs-an-api-token` when the request is already signed in by a session.
+        """
+        return self._client._request(
+            _OPERATIONS["auth.tokenSignIn"],
+            path={},
+            query={},
+            headers={},
+            response=_models.TokenSignInResult,
             timeout=timeout,
         )
 
@@ -11082,7 +11099,7 @@ class AsyncAuthResource:
     ) -> _models.SignInOptions:
         """How a person can sign in. `GET /v1/auth/sign-in-options`
 
-        Public: nobody is signed in yet. With `email`, the identity providers for that email's domain (from the one tenant that claims it); without, an empty list: sign-in is email first, so nothing is offered before an email (the empty answer still says sign-in is on; off is a 404). The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`).
+        Public: nobody is signed in yet. With `email`, the identity providers for that email's domain (from the one tenant that claims it); without, an empty list: sign-in is email first, so nothing is offered before an email (the empty answer still says sign-in is on; off is a 404). `methods` says which ways in the deployment allows: identity providers, and/or an API token (`POST /v1/auth/token-sign-in`). Mounted when either is possible. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`).
         """
         return await self._client._request(
             _OPERATIONS["auth.signInOptions"],
@@ -11090,6 +11107,20 @@ class AsyncAuthResource:
             query={"email": email},
             headers={},
             response=_models.SignInOptions,
+            timeout=timeout,
+        )
+
+    async def token_sign_in(self, /, *, timeout: float | None = None) -> _models.TokenSignInResult:
+        """Sign in to the console with an API token. `POST /v1/auth/token-sign-in`
+
+        The API token in `Authorization` is exchanged once for a browser session in the session cookie (HttpOnly; the same as a sign-in with an identity provider), so the browser never keeps the token. Only a person's full key opens a session: a service account's key, or a narrowed one (a `member` role, or one project), is refused `403 token-sign-in-not-allowed`. The session ends after its lifetime, or when the key expires if sooner. `403 token-sign-in-off` when the deployment doesn't allow it; `400 token-sign-in-needs-an-api-token` when the request is already signed in by a session.
+        """
+        return await self._client._request(
+            _OPERATIONS["auth.tokenSignIn"],
+            path={},
+            query={},
+            headers={},
+            response=_models.TokenSignInResult,
             timeout=timeout,
         )
 

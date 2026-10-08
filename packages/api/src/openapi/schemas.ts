@@ -6415,6 +6415,38 @@ export const SignInOptionsSchema: JsonSchema = {
   required: ['data'],
   properties: {
     data: { type: 'array', items: { $ref: '#/components/schemas/SignInOption' } },
+    methods: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['identityProviders', 'apiToken'],
+      description:
+        'The ways in this deployment allows, for a sign-in page to show. Absent from older servers.',
+      properties: {
+        identityProviders: {
+          type: 'boolean',
+          description: "Sign-in with an organization's identity provider (email first).",
+        },
+        apiToken: {
+          type: 'boolean',
+          description: 'Sign-in to the console with an API token (`POST /v1/auth/token-sign-in`).',
+        },
+      },
+    },
+  },
+};
+
+export const TokenSignInResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['userId', 'expiresAt'],
+  properties: {
+    userId: { type: 'string', minLength: 1, description: 'The person now signed in.' },
+    expiresAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "When the session ends at the latest: its lifetime, or the key's expiry if sooner.",
+    },
   },
 };
 
@@ -9035,6 +9067,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['IdentityProviderCollectionPage', IdentityProviderCollectionPageSchema],
   ['SignInOption', SignInOptionSchema],
   ['SignInOptions', SignInOptionsSchema],
+  ['TokenSignInResult', TokenSignInResultSchema],
   ['RegisterIdentityProviderResult', RegisterIdentityProviderResultSchema],
   ['UnregisterIdentityProviderResult', UnregisterIdentityProviderResultSchema],
   ['UpdateIdentityProviderBody', UpdateIdentityProviderBodySchema],

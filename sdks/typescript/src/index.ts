@@ -399,6 +399,7 @@ export type {
   LoginResult,
   LogoutResultShape,
   SignInOptionsResult,
+  TokenSignInResultShape,
   RefreshResultShape,
 } from './resources/auth.js';
 export type { ListRunsFilter, RunPage } from './resources/runs.js';

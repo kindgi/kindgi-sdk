@@ -34,6 +34,7 @@ import type {
   RefreshResult,
   RegisterIdentityProviderResult,
   SignInOptions,
+  TokenSignInResult,
   UnregisterIdentityProviderResult,
   UpdateIdentityProviderBody,
   UpdateIdentityProviderResult,
@@ -57,6 +58,7 @@ export type CallbackResultShape = CallbackResult;
 export type RefreshResultShape = RefreshResult;
 export type LogoutResultShape = LogoutResult;
 export type SignInOptionsResult = SignInOptions;
+export type TokenSignInResultShape = TokenSignInResult;
 
 export interface AuthClient {
   readonly providers: AuthProvidersClient;
@@ -91,6 +93,14 @@ export interface AuthClient {
    * @wire POST /v1/auth/refresh
    */
   refresh(options?: { readonly idempotencyKey?: string }): Promise<RefreshResultShape>;
+  /**
+   * Sign in to the console with this client's API token: the runtime opens a
+   * browser session and sets its cookie (useful from a browser; a server has
+   * no cookie jar). Only a person's full key; refused when the deployment
+   * doesn't allow it (403 `token-sign-in-off`).
+   * @wire POST /v1/auth/token-sign-in
+   */
+  tokenSignIn(): Promise<TokenSignInResultShape>;
   /**
    * Revoke the current session token. Requires a session bearer;
    * 400 if called with a plain API bearer.
@@ -212,6 +222,12 @@ export function makeAuthClient(transport: Transport): AuthClient {
         method: 'POST',
         path: '/v1/auth/refresh',
         ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+      });
+    },
+    async tokenSignIn() {
+      return transport.request<TokenSignInResultShape>({
+        method: 'POST',
+        path: '/v1/auth/token-sign-in',
       });
     },
     async logout(options) {
