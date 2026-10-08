@@ -6,6 +6,7 @@ import {
   type GenerateContentParameters,
   type GenerateContentResponse,
   GoogleGenAI,
+  type ThinkingLevel,
 } from '@google/genai';
 import type {
   AdapterFactory,
@@ -14,6 +15,7 @@ import type {
   ModelProvider,
   ProviderMetadata,
 } from '@kindgi/capabilities';
+import { samplingFor } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
 
 import { type GeminiModelInfo, computeCostUsd, toFrameworkUsage } from './cost.js';
@@ -63,6 +65,15 @@ export interface GeminiProviderOptions {
 const CLOUD_PLATFORM_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
 
 /**
+ * The SDK retries a call only when it's given `retryOptions`: three
+ * attempts on a transient status (408, 429, 500, 502, 503, 504), backing
+ * off from a second, with jitter, the OpenAI and Anthropic SDKs' default
+ * count. Unlike theirs, it doesn't retry a failed connection (Node's
+ * `fetch failed`).
+ */
+const RETRY_ATTEMPTS = 3;
+
+/**
  * A Gemini `ModelProvider`, on Vertex AI (`vertex`) or the Gemini
  * Developer API (`apiKey`). Non-streaming, tool-use enabled: one
  * `generateContent` call per `invoke`.
@@ -89,7 +100,10 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
         );
       }
       if (cached?.key === key) return cached.client;
-      const client = new GoogleGenAI({ apiKey: key, httpOptions: { fetch: attempts.fetch } });
+      const client = new GoogleGenAI({
+        apiKey: key,
+        httpOptions: { fetch: attempts.fetch, retryOptions: { attempts: RETRY_ATTEMPTS } },
+      });
       cached = { key, client };
       return client;
     }
@@ -100,7 +114,7 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
       vertexai: true,
       project: vertex.project,
       location: vertex.location,
-      httpOptions: { fetch: attempts.fetch },
+      httpOptions: { fetch: attempts.fetch, retryOptions: { attempts: RETRY_ATTEMPTS } },
       ...(key !== '' && {
         googleAuthOptions: {
           credentials: parseServiceAccountKey(key),
@@ -125,6 +139,7 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
       const startedAt = Date.now();
       const { systemInstruction, contents } = toGeminiRequest(input.messages);
       const maxOutputTokens = input.maxOutputTokens ?? model.maxOutputTokens;
+      const sampling = samplingFor(model, input);
       const config: GenerateContentConfig = {
         ...(systemInstruction !== undefined && { systemInstruction }),
         ...(input.tools !== undefined &&
@@ -135,7 +150,12 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
           responseMimeType: 'application/json',
           responseJsonSchema: input.structuredOutput.schema,
         }),
-        ...(input.temperature !== undefined && { temperature: input.temperature }),
+        ...(sampling.temperature !== undefined && { temperature: sampling.temperature }),
+        ...(input.thinking === 'lowest' &&
+          model.thinking !== undefined && {
+            // Gemini's thinking levels: `low`, `minimal` (3.8 Flash refuses `minimal`).
+            thinkingConfig: { thinkingLevel: model.thinking.lowest.toUpperCase() as ThinkingLevel },
+          }),
         ...(maxOutputTokens !== undefined && { maxOutputTokens }),
         ...(input.abortSignal !== undefined && { abortSignal: input.abortSignal }),
       };
@@ -164,6 +184,7 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
         // An injected client sends with its own fetch: nothing was counted.
         ...(counted.attempts > 0 && { attempts: counted.attempts }),
         ...(response.usageMetadata !== undefined && { rawUsage: { ...response.usageMetadata } }),
+        ...(sampling.warnings.length > 0 && { warnings: sampling.warnings }),
       };
     },
   };

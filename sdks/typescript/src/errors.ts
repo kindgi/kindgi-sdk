@@ -38,6 +38,8 @@ export interface NetworkError {
   readonly code: 'network';
   readonly message: string;
   readonly cause?: unknown;
+  /** Set when the client's own timeout ended the request: that timeout, in milliseconds. */
+  readonly timeoutMs?: number;
 }
 
 export interface AuthError {

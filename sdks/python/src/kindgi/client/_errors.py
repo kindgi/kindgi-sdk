@@ -60,6 +60,13 @@ class NetworkError(KindgiApiError):
 
     code = "network"
 
+    def __init__(
+        self, message: str, *, timeout: float | None = None, status: int | None = None
+    ) -> None:
+        super().__init__(message, status=status)
+        self.timeout = timeout
+        """Set when the client's own timeout ended the request: that timeout, in seconds."""
+
 
 class AuthError(KindgiApiError):
     code = "auth"

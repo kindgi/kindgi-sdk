@@ -9,8 +9,11 @@ import asyncio
 import json
 import subprocess
 import sys
+import threading
+import time
 import uuid
 from collections.abc import Callable, Iterator
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
@@ -351,6 +354,160 @@ def test_a_connection_error_is_a_network_error() -> None:
     with pytest.raises(NetworkError, match="ConnectError"):
         api.runs.get("r")
     assert len(seen) == 1
+
+
+WAITED_START_TIMEOUT = (
+    "The run didn't end within {} s, the client's timeout (timeout). "
+    "A waited start answers only when the run ends, so the run may still be going, "
+    "and its id didn't arrive. Start a run that can take longer with "
+    '`options={{"wait": False}}`: the answer carries its id at once. Then follow it '
+    "with `runs.stream(run_id)` or `runs.get(run_id)`. Or raise `timeout`."
+)
+
+
+def read_timeout(request: httpx.Request) -> httpx.Response:
+    raise httpx.ReadTimeout("timed out", request=request)
+
+
+def test_a_waited_start_is_not_sent_again_after_a_read_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # It may be running on the server, and its key isn't held while it runs:
+    # a repeat would start the run again.
+    monkeypatch.setattr("kindgi.client._base.time.sleep", lambda s: None)
+    api, seen = client(read_timeout)
+    with pytest.raises(NetworkError) as raised:
+        api.runs.start(flow="f", input={})
+    assert len(seen) == 1
+    assert str(raised.value) == WAITED_START_TIMEOUT.format(60)
+    assert raised.value.timeout == 60.0
+
+
+def test_a_waited_start_names_the_calls_own_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("kindgi.client._base.time.sleep", lambda s: None)
+    api, seen = client(read_timeout)
+    with pytest.raises(NetworkError) as raised:
+        api.runs.start(flow="f", input={}, timeout=2.5)
+    assert len(seen) == 1
+    assert str(raised.value) == WAITED_START_TIMEOUT.format(2.5)
+    assert raised.value.timeout == 2.5
+
+
+def test_a_start_without_waiting_gets_the_plain_timeout_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("kindgi.client._base.time.sleep", lambda s: None)
+    api, seen = client(read_timeout)
+    with pytest.raises(NetworkError) as raised:
+        api.runs.start(flow="f", input={}, options={"wait": False})
+    assert len(seen) == 1
+    assert str(raised.value) == "runs.start: no answer within 60 s, the client's timeout (timeout)."
+
+
+def test_a_get_is_still_retried_after_a_read_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("kindgi.client._base.time.sleep", lambda s: None)
+    api, seen = client(read_timeout)
+    with pytest.raises(NetworkError) as raised:
+        api.runs.get("r")
+    assert len(seen) == 3
+    assert str(raised.value) == "runs.get: no answer within 60 s, the client's timeout (timeout)."
+
+
+def test_a_post_is_retried_when_it_never_reached_the_server(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("kindgi.client._base.time.sleep", lambda s: None)
+    answers: Iterator[Callable[[httpx.Request], httpx.Response]] = iter(
+        [
+            lambda r: (_ for _ in ()).throw(httpx.ConnectError("refused", request=r)),
+            lambda r: (_ for _ in ()).throw(httpx.ConnectTimeout("no connect", request=r)),
+            lambda r: httpx.Response(201, json=RUN),
+        ]
+    )
+    api, seen = client(lambda r: next(answers)(r))
+    api.runs.start(flow="f", input={})
+    assert len(seen) == 3
+    assert len({r.headers["idempotency-key"] for r in seen}) == 1
+
+
+@pytest.mark.parametrize(
+    "fail",
+    [
+        lambda r: (_ for _ in ()).throw(httpx.RemoteProtocolError("dropped", request=r)),
+        lambda r: httpx.Response(504),
+        lambda r: httpx.Response(502),
+    ],
+    ids=["a dropped connection", "a proxy's 504", "a proxy's 502"],
+)
+def test_a_post_is_not_sent_again_once_it_may_be_running(
+    monkeypatch: pytest.MonkeyPatch, fail: Callable[[httpx.Request], httpx.Response]
+) -> None:
+    monkeypatch.setattr("kindgi.client._base.time.sleep", lambda s: None)
+    api, seen = client(fail)
+    with pytest.raises((NetworkError, ServerError)):
+        api.runs.start(flow="f", input={})
+    assert len(seen) == 1
+
+
+def test_async_a_waited_start_is_not_sent_again_after_a_read_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def no_sleep(seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr("kindgi.client._base.asyncio.sleep", no_sleep)
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        raise httpx.ReadTimeout("timed out", request=request)
+
+    async def scenario() -> None:
+        http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        async with AsyncKindgi("http://kindgi.test", token="t", http_client=http) as api:
+            with pytest.raises(NetworkError) as raised:
+                await api.runs.start(flow="f", input={})
+            assert str(raised.value) == WAITED_START_TIMEOUT.format(60)
+
+    asyncio.run(scenario())
+    assert len(seen) == 1
+
+
+def test_a_server_slower_than_the_timeout_gets_one_start_not_three() -> None:
+    """A real server that answers after the client's timeout: one run start reaches it."""
+    starts: list[str] = []
+
+    class Slow(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            self.rfile.read(int(self.headers["content-length"]))
+            starts.append(self.headers["idempotency-key"])
+            time.sleep(0.6)
+            try:
+                payload = json.dumps(RUN).encode()
+                self.send_response(201)
+                self.send_header("content-type", "application/json")
+                self.send_header("content-length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+            except (BrokenPipeError, ConnectionResetError):
+                pass  # the client stopped waiting
+
+        def log_message(self, format: str, *args: Any) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Slow)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    api = Kindgi(f"http://127.0.0.1:{server.server_port}", token="kgi_bt_test", timeout=0.2)
+    try:
+        with pytest.raises(NetworkError) as raised:
+            api.runs.start(flow="acme.slow", input={})
+        # Any retry would have been sent before the error was raised.
+        assert len(starts) == 1
+        assert str(raised.value) == WAITED_START_TIMEOUT.format(0.2)
+    finally:
+        api.close()
+        server.shutdown()
+        server.server_close()
 
 
 def sse(*events: dict[str, Any]) -> bytes:

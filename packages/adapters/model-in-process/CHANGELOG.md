@@ -1,5 +1,24 @@
 # @kindgi/adapter-model-in-process
 
+## 0.1.4
+
+### Patch Changes
+
+- Updated dependencies [1c0252c]
+- Updated dependencies [1c0252c]
+- Updated dependencies [b9d3c01]
+- Updated dependencies [7b63137]
+- Updated dependencies [f999acd]
+- Updated dependencies [2923703]
+- Updated dependencies [d0ebeb6]
+  - @kindgi/capabilities@0.1.4
+
+## 0.1.4-rc.5
+
+### Patch Changes
+
+- @kindgi/capabilities@0.1.4-rc.5
+
 ## 0.1.4-rc.4
 
 ### Patch Changes
