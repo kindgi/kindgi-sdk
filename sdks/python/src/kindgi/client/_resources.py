@@ -4591,7 +4591,7 @@ class AuthProvidersResource:
 
     def register(
         self,
-        body: _models.IdentityProviderConfig | Mapping[str, Any] | None = None,
+        body: _models.RegisterIdentityProviderBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
@@ -4607,7 +4607,7 @@ class AuthProvidersResource:
             path={},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.IdentityProviderConfig, body, fields),
+            body=_body(_models.RegisterIdentityProviderBody, body, fields),
             response=_models.RegisterIdentityProviderResult,
             timeout=timeout,
         )
@@ -10524,7 +10524,7 @@ class AsyncAuthProvidersResource:
 
     async def register(
         self,
-        body: _models.IdentityProviderConfig | Mapping[str, Any] | None = None,
+        body: _models.RegisterIdentityProviderBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
@@ -10540,7 +10540,7 @@ class AsyncAuthProvidersResource:
             path={},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.IdentityProviderConfig, body, fields),
+            body=_body(_models.RegisterIdentityProviderBody, body, fields),
             response=_models.RegisterIdentityProviderResult,
             timeout=timeout,
         )

@@ -6154,6 +6154,28 @@ export const IdentityProviderConfigSchema: JsonSchema = {
   },
 };
 
+// Its own schema, used only as the request body: a union that other
+// schemas also name gets inlined away by the Python generator, so a body
+// naming `IdentityProviderConfig` would fail at call time (the same as
+// `ServiceAccountGrantBody`).
+export const RegisterIdentityProviderBodySchema: JsonSchema = {
+  description:
+    'The identity provider to register, one shape per `kind`: `oidc`, `saml` or `oauth2`. Secrets by reference only (`clientSecretRef`, `spSigningKeyRef`, `spDecryptionKeyRef`); a `clientSecret` field is refused.',
+  oneOf: [
+    { $ref: '#/components/schemas/OidcIdentityProviderConfig' },
+    { $ref: '#/components/schemas/SamlIdentityProviderConfig' },
+    { $ref: '#/components/schemas/OAuth2IdentityProviderConfig' },
+  ],
+  discriminator: {
+    propertyName: 'kind',
+    mapping: {
+      oidc: '#/components/schemas/OidcIdentityProviderConfig',
+      saml: '#/components/schemas/SamlIdentityProviderConfig',
+      oauth2: '#/components/schemas/OAuth2IdentityProviderConfig',
+    },
+  },
+};
+
 export const IdentityProviderCollectionPageSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -8686,6 +8708,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['SamlIdentityProviderConfig', SamlIdentityProviderConfigSchema],
   ['OAuth2IdentityProviderConfig', OAuth2IdentityProviderConfigSchema],
   ['IdentityProviderConfig', IdentityProviderConfigSchema],
+  ['RegisterIdentityProviderBody', RegisterIdentityProviderBodySchema],
   ['IdentityProviderCollectionPage', IdentityProviderCollectionPageSchema],
   ['SignInOption', SignInOptionSchema],
   ['SignInOptions', SignInOptionsSchema],
