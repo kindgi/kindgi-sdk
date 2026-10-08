@@ -241,7 +241,7 @@ Kindgi API server listening on http://localhost:4000 (reached at https://kindgi.
 
 ### Behind a load balancer or ingress
 
-The runtime limits how often one client can ask for some things, such as a page that starts sign-in or an emailed sign-in link. It also records the client's address in its sign-in records. For both, it needs to know which address is the client's.
+The runtime limits how often one client can ask for some things, such as a page that starts sign-in. It also records the client's address in its sign-in records. For both, it needs to know which address is the client's.
 
 **Unset, it uses the address of whatever connects to it.** It ignores `X-Forwarded-For`, because any client can send that header with any address in it. That's right when clients connect directly. Behind a proxy, every request comes from the proxy, so every client shares one limit, and the runtime warns once:
 
@@ -267,7 +267,7 @@ Each proxy appends the address it got the request from to the right of `X-Forwar
 
 Count only the proxies that are really in front. One too many, and a client can choose its own address; one too few, and every client counts as your outermost proxy.
 
-The start log says which it uses:
+The start log says which it uses, with one of these lines:
 
 ```text
   Client address: the connection's peer (KINDGI_TRUSTED_PROXIES unset; behind a proxy, set it)
@@ -276,8 +276,6 @@ The start log says which it uses:
 ```
 
 Point the load balancer's health check at `/ready` (see [Operate](../operate/#check-health-and-logs)).
-
-<!-- documentation: the Cloud Run module's line goes here once w2 has verified its value on a live request ("The Cloud Run module sets `KINDGI_TRUSTED_PROXIES=…` for you."); Azure Container Apps (w8) the same. -->
 
 ## 7. Trust your key and deploy
 
