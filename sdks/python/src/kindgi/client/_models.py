@@ -8110,52 +8110,64 @@ class SecretRevokeResult(BaseModel):
     hard: bool
 
 
-class ScheduleRecord(BaseModel):
+class TriggerOwner(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
+    kind: Literal["user", "service"]
+    id: str
+
+
+class ScheduleFire(BaseModel):
+    """
+    One fire of a schedule (an occurrence, or a `run-now`) and what came of it. `pending` while its run is being started.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    fire_id: Annotated[str, Field(alias="fireId")]
     schedule_id: Annotated[str, Field(alias="scheduleId")]
-    """
-    Domain-friendly alias for `triggerId` — the trigger id (a UUID). Use interchangeably in admin URLs.
-    """
     trigger_id: Annotated[str, Field(alias="triggerId")]
-    flow_id: Annotated[str, Field(alias="flowId", min_length=1)]
-    flow_version: Annotated[str, Field(alias="flowVersion", min_length=1)]
-    cron_expression: Annotated[str, Field(alias="cronExpression", min_length=1)]
+    scheduled_for: Annotated[AwareDatetime | None, Field(alias="scheduledFor")] = None
     """
-    5- or 6-field cron expression (croner-compatible). 6-field enables second precision.
+    The occurrence it is for; absent on a `run-now` fire.
     """
-    timezone: str | None = None
+    fired_at: Annotated[AwareDatetime, Field(alias="firedAt")]
+    outcome: Literal[
+        "pending", "started", "skipped-overlap", "skipped-erasure", "refused", "failed"
+    ]
     """
-    IANA timezone (e.g. `UTC`, `America/New_York`). Absent → `UTC`.
+    `skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. Neither counts toward the auto-pause; `refused` and `failed` do.
     """
-    input: Any | None = None
+    run_id: Annotated[UUID | None, Field(alias="runId")] = None
     """
-    Static input handed to the flow on every fire. Absent → `{}`.
+    The run it started.
     """
-    label: str | None
-    status: Literal["active", "paused"]
+    detail: str | None = None
     """
-    Lifecycle status. Only `active` triggers fire. Tombstoned rows are excluded from every read path.
+    Why it was refused, skipped or failed.
     """
-    next_fire_at: Annotated[AwareDatetime | None, Field(alias="nextFireAt")]
+    missed_count: Annotated[int | None, Field(alias="missedCount", ge=1)] = None
     """
-    Wall-clock time of the next scheduled fire. `null` on paused rows if the cron scheduler never re-armed.
+    Occurrences this fire stood in for after a gap (`catchUp: latest`).
     """
-    last_fired_at: Annotated[AwareDatetime | None, Field(alias="lastFiredAt")]
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    manual: bool | None = None
+    """
+    A `run-now` fire, outside the schedule.
+    """
 
 
-class ScheduleCollectionPage(BaseModel):
+class ScheduleFirePage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    data: list[ScheduleRecord]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    data: list[ScheduleFire]
     has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
 class Config6(BaseModel):
@@ -8166,16 +8178,49 @@ class Config6(BaseModel):
     cron_expression: Annotated[str, Field(alias="cronExpression", min_length=1)]
     timezone: str | None = None
     input: Any | None = None
+    """
+    What each run gets. An agent schedule's runs take the agent payload, `{ userMessage, parameters? }`, so it needs `userMessage`; a flow's take the flow's input.
+    """
 
 
 class RegisterScheduleBody(BaseModel):
+    """
+    Name what it runs: `flowId` with `flowVersion`, or `agentId` (with an optional `agentVersion`). Registering needs `write` on the project and `execute` on what it runs; its runs act as the caller.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    flow_id: Annotated[str, Field(alias="flowId", min_length=1)]
-    flow_version: Annotated[str, Field(alias="flowVersion", min_length=1)]
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    Run a flow (with `flowVersion`).
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    Run an agent (instead of a flow): at `agentVersion`, else its live version.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The schedule's project. Absent → the tenant's default project.
+    """
     config: Config6
+    catch_up: Annotated[Literal["latest", "skip"] | None, Field(alias="catchUp")] = None
+    """
+    Default `latest`.
+    """
+    overlap: Literal["skip", "allow"] | None = None
+    """
+    Default `skip`.
+    """
+    starting_deadline_seconds: Annotated[
+        int | None, Field(alias="startingDeadlineSeconds", ge=1, le=86400)
+    ] = None
+    """
+    Default 600.
+    """
     label: str | None = None
 
 
@@ -8187,19 +8232,49 @@ class Config7(BaseModel):
     cron_expression: Annotated[str | None, Field(alias="cronExpression")] = None
     timezone: str | None = None
     input: Any | None = None
+    """
+    What each run gets. An agent schedule's runs take the agent payload, `{ userMessage, parameters? }`, so it needs `userMessage`; a flow's take the flow's input.
+    """
 
 
 class PatchScheduleBody(BaseModel):
+    """
+    Change what it runs (the target fields, as at registration, which also needs `execute` on the new target), when, or its policies.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    Run a flow (with `flowVersion`).
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    Run an agent (instead of a flow): at `agentVersion`, else its live version.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
     config: Config7 | None = None
+    catch_up: Annotated[Literal["latest", "skip"] | None, Field(alias="catchUp")] = None
+    """
+    Default `latest`.
+    """
+    overlap: Literal["skip", "allow"] | None = None
+    """
+    Default `skip`.
+    """
+    starting_deadline_seconds: Annotated[
+        int | None, Field(alias="startingDeadlineSeconds", ge=1, le=86400)
+    ] = None
+    """
+    Default 600.
+    """
     label: str | None = None
     """
     `null` clears the label; omit to leave unchanged.
     """
-    flow_version: Annotated[str | None, Field(alias="flowVersion")] = None
 
 
 class ScheduleUnregisterResult(BaseModel):
@@ -9785,6 +9860,96 @@ class DeploymentSecretsSyncRequest(BaseModel):
     """
     Zero or more secret entries. Each entry MUST set exactly one of `ref` (validate-only) or `value` (write new version).
     """
+
+
+class ScheduleRecord(BaseModel):
+    """
+    A schedule: what it runs (a flow at a version, or an agent), when (a cron expression in a timezone), as whom (its owner), and what it does after a gap or while a run is still going.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    schedule_id: Annotated[str, Field(alias="scheduleId")]
+    """
+    Domain-friendly alias for `triggerId` — the trigger id (a UUID). Use interchangeably in admin URLs.
+    """
+    trigger_id: Annotated[str, Field(alias="triggerId")]
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    A schedule that runs a flow: the flow, at `flowVersion`.
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    A schedule that runs an agent: the agent, at `agentVersion`, else its version live for the schedule's project (else the latest), as a run that names none.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The schedule's project: its runs are this project's.
+    """
+    owner: TriggerOwner | None = None
+    """
+    Who its runs act as: whoever registered it, until an admin takes it over (`POST …/owner`). Checked again at every fire.
+    """
+    cron_expression: Annotated[str, Field(alias="cronExpression", min_length=1)]
+    """
+    5- or 6-field cron expression (croner-compatible). 6-field enables second precision.
+    """
+    timezone: str | None = None
+    """
+    IANA timezone (e.g. `UTC`, `America/New_York`). Absent → `UTC`.
+    """
+    input: Any | None = None
+    """
+    Static input handed to the run on every fire. Absent → `{}`.
+    """
+    catch_up: Annotated[Literal["latest", "skip"] | None, Field(alias="catchUp")] = None
+    """
+    After a gap (the runtime was down, or a fire is later than `startingDeadlineSeconds`): `latest` runs once, for the latest missed occurrence, and its fire says how many it missed; `skip` drops the missed occurrences. Never a run per missed occurrence.
+    """
+    overlap: Literal["skip", "allow"] | None = None
+    """
+    When an occurrence comes while the previous run of this schedule is still running: `skip` records the fire as skipped; `allow` starts another run.
+    """
+    starting_deadline_seconds: Annotated[
+        int | None, Field(alias="startingDeadlineSeconds", ge=1)
+    ] = None
+    """
+    How late a fire may start and still count as on time; past it, `catchUp` applies.
+    """
+    label: str | None
+    status: Literal["active", "paused"]
+    """
+    Lifecycle status. Only `active` triggers fire. Tombstoned rows are excluded from every read path.
+    """
+    status_reason: Annotated[str | None, Field(alias="statusReason")] = None
+    """
+    Why the runtime paused it: repeated fires that were refused (the owner lost access) or failed. Skipped fires (an overlap, an erasure in progress) never count.
+    """
+    next_fire_at: Annotated[AwareDatetime | None, Field(alias="nextFireAt")]
+    """
+    Wall-clock time of the next scheduled fire. `null` on paused rows if the cron scheduler never re-armed.
+    """
+    upcoming: list[AwareDatetime] | None = None
+    """
+    The next occurrences, when the request asked for them (`?upcoming=N`).
+    """
+    last_fired_at: Annotated[AwareDatetime | None, Field(alias="lastFiredAt")]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+
+
+class ScheduleCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[ScheduleRecord]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
 
 
 class WebhookEndpoint(BaseModel):

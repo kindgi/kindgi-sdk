@@ -347,6 +347,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'trigger-register-failed': 500,
   'trigger-update-failed': 500,
   'trigger-lifecycle-failed': 500,
+  /** The deployment's trigger registry can't do this yet (fire history, run-now, a new owner). */
+  'trigger-operation-unsupported': 501,
   'webhook-signature-invalid': 401,
   'webhook-inactive': 410,
   'webhook-secret-missing': 500,

@@ -702,6 +702,15 @@ OPERATIONS: dict[str, Operation] = {
     "schedules.unregister": Operation(
         "schedules.unregister", "POST", "/v1/schedules/{triggerId}/unregister", "json", True
     ),
+    "schedules.fires": Operation(
+        "schedules.fires", "GET", "/v1/schedules/{triggerId}/fires", "json", False
+    ),
+    "schedules.runNow": Operation(
+        "schedules.runNow", "POST", "/v1/schedules/{triggerId}/run-now", "json", True
+    ),
+    "schedules.takeOwnership": Operation(
+        "schedules.takeOwnership", "POST", "/v1/schedules/{triggerId}/owner", "json", True
+    ),
     "eventTriggers.list": Operation(
         "eventTriggers.list", "GET", "/v1/event-triggers", "json", False
     ),
@@ -6630,13 +6639,18 @@ class SchedulesResource:
         )
 
     def get(
-        self, trigger_id: str | UUID, /, *, timeout: float | None = None
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        upcoming: int | None = None,
+        timeout: float | None = None,
     ) -> _models.ScheduleRecord:
         """Fetch a cron schedule. `GET /v1/schedules/{triggerId}`"""
         return self._client._request(
             _OPERATIONS["schedules.get"],
             path={"triggerId": trigger_id},
-            query={},
+            query={"upcoming": upcoming},
             headers={},
             response=_models.ScheduleRecord,
             timeout=timeout,
@@ -6726,6 +6740,70 @@ class SchedulesResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.ScheduleUnregisterResult,
+            timeout=timeout,
+        )
+
+    def fires(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ScheduleFirePage:
+        """A schedule's fire history. `GET /v1/schedules/{triggerId}/fires`
+
+        Newest first: each occurrence (and `run-now`) the schedule fired for, and what came of it: the run it started, or why it was skipped, refused or failed.
+        """
+        return self._client._request(
+            _OPERATIONS["schedules.fires"],
+            path={"triggerId": trigger_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.ScheduleFirePage,
+            timeout=timeout,
+        )
+
+    def run_now(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ScheduleFire:
+        """Run a schedule now. `POST /v1/schedules/{triggerId}/run-now`
+
+        One fire outside the schedule (`manual: true` in its history), starting one run as the schedule's owner. The schedule's next occurrence is unchanged.
+        """
+        return self._client._request(
+            _OPERATIONS["schedules.runNow"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ScheduleFire,
+            timeout=timeout,
+        )
+
+    def take_ownership(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ScheduleRecord:
+        """Take over a schedule. `POST /v1/schedules/{triggerId}/owner`
+
+        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access.
+        """
+        return self._client._request(
+            _OPERATIONS["schedules.takeOwnership"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ScheduleRecord,
             timeout=timeout,
         )
 
@@ -13047,13 +13125,18 @@ class AsyncSchedulesResource:
         )
 
     async def get(
-        self, trigger_id: str | UUID, /, *, timeout: float | None = None
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        upcoming: int | None = None,
+        timeout: float | None = None,
     ) -> _models.ScheduleRecord:
         """Fetch a cron schedule. `GET /v1/schedules/{triggerId}`"""
         return await self._client._request(
             _OPERATIONS["schedules.get"],
             path={"triggerId": trigger_id},
-            query={},
+            query={"upcoming": upcoming},
             headers={},
             response=_models.ScheduleRecord,
             timeout=timeout,
@@ -13143,6 +13226,70 @@ class AsyncSchedulesResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.ScheduleUnregisterResult,
+            timeout=timeout,
+        )
+
+    async def fires(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ScheduleFirePage:
+        """A schedule's fire history. `GET /v1/schedules/{triggerId}/fires`
+
+        Newest first: each occurrence (and `run-now`) the schedule fired for, and what came of it: the run it started, or why it was skipped, refused or failed.
+        """
+        return await self._client._request(
+            _OPERATIONS["schedules.fires"],
+            path={"triggerId": trigger_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.ScheduleFirePage,
+            timeout=timeout,
+        )
+
+    async def run_now(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ScheduleFire:
+        """Run a schedule now. `POST /v1/schedules/{triggerId}/run-now`
+
+        One fire outside the schedule (`manual: true` in its history), starting one run as the schedule's owner. The schedule's next occurrence is unchanged.
+        """
+        return await self._client._request(
+            _OPERATIONS["schedules.runNow"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ScheduleFire,
+            timeout=timeout,
+        )
+
+    async def take_ownership(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ScheduleRecord:
+        """Take over a schedule. `POST /v1/schedules/{triggerId}/owner`
+
+        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access.
+        """
+        return await self._client._request(
+            _OPERATIONS["schedules.takeOwnership"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ScheduleRecord,
             timeout=timeout,
         )
 

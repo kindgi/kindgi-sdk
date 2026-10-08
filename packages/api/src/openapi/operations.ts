@@ -6807,7 +6807,16 @@ export const OPERATIONS: readonly OperationSpec[] = [
     summary: 'Fetch a cron schedule',
     tags: ['schedules'],
     security: 'bearer',
-    parameters: [TriggerIdPathParam],
+    parameters: [
+      TriggerIdPathParam,
+      {
+        name: 'upcoming',
+        in: 'query',
+        required: false,
+        description: 'Include the next N occurrences (`upcoming`), 1 to 20.',
+        schema: { type: 'integer', minimum: 1, maximum: 20 },
+      },
+    ],
     responses: {
       '200': { description: 'Schedule record.', schema: ref('ScheduleRecord') },
       ...CommonAuthErrors,
@@ -6880,6 +6889,67 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Tombstone outcome.', schema: ref('ScheduleUnregisterResult') },
       ...CommonMutationErrors,
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/schedules/:triggerId/fires',
+    openapiPath: '/v1/schedules/{triggerId}/fires',
+    operationId: 'schedules.fires',
+    summary: "A schedule's fire history",
+    description:
+      'Newest first: each occurrence (and `run-now`) the schedule fired for, and what came of it: the run it started, or why it was skipped, refused or failed.',
+    tags: ['schedules'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': { description: 'Page of fires.', schema: ref('ScheduleFirePage') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No cron trigger with that id.'),
+      '501': ErrorResponse(
+        '`trigger-operation-unsupported`: this deployment keeps no fire history.',
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/schedules/:triggerId/run-now',
+    openapiPath: '/v1/schedules/{triggerId}/run-now',
+    operationId: 'schedules.runNow',
+    summary: 'Run a schedule now',
+    description:
+      "One fire outside the schedule (`manual: true` in its history), starting one run as the schedule's owner. The schedule's next occurrence is unchanged.",
+    tags: ['schedules'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '202': {
+        description: 'The fire; its run starts in the background.',
+        schema: ref('ScheduleFire'),
+      },
+      ...CommonMutationErrors,
+      '404': ErrorResponse('No cron trigger with that id.'),
+      '501': ErrorResponse('`trigger-operation-unsupported`: this deployment has no run-now.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/schedules/:triggerId/owner',
+    openapiPath: '/v1/schedules/{triggerId}/owner',
+    operationId: 'schedules.takeOwnership',
+    summary: 'Take over a schedule',
+    description:
+      "The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access.",
+    tags: ['schedules'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'The schedule, with its new owner.', schema: ref('ScheduleRecord') },
+      ...CommonMutationErrors,
+      '404': ErrorResponse('No cron trigger with that id.'),
+      '501': ErrorResponse(
+        "`trigger-operation-unsupported`: this deployment can't change a schedule's owner.",
+      ),
     },
   },
 
