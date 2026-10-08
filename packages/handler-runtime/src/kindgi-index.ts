@@ -318,6 +318,8 @@ export interface IndexedAgent {
   readonly output?: Readonly<Record<string, unknown>>;
   /** How the agent's turns retry failed tool calls (`{ maxRetries?, retryOn? }`). */
   readonly toolErrors?: Readonly<Record<string, unknown>>;
+  /** How the agent uses what it retrieves (`{ instructionTypes? }`). */
+  readonly memory?: Readonly<Record<string, unknown>>;
   readonly modulePath: string;
 }
 
@@ -1632,6 +1634,7 @@ function optionalAgentFields(rec: Record<string, unknown>): Partial<IndexedAgent
     'output',
     'toolErrors',
     'modelSettings',
+    'memory',
   ] as const) {
     if (isObject(rec[key])) out[key] = rec[key];
   }

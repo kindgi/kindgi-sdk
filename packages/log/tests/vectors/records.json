@@ -1,0 +1,242 @@
+{
+  "now": "2026-10-08T12:00:00.000Z",
+  "cases": [
+    {
+      "name": "a record: the fixed five, then the ids, then the event's fields",
+      "logger": {
+        "level": "info"
+      },
+      "bindings": [
+        {
+          "subsystem": "pack"
+        },
+        {
+          "tenantId": "t-1",
+          "runId": "run-1"
+        }
+      ],
+      "level": "info",
+      "message": "tool acme.lookup ok 12ms",
+      "fields": {
+        "event": "call",
+        "outcome": "ok",
+        "durationMs": 12,
+        "traceId": "4bf92f3577b34da6a3ce929d0e0e4736"
+      },
+      "expected": {
+        "time": "2026-10-08T12:00:00.000Z",
+        "level": "info",
+        "severity": "INFO",
+        "subsystem": "pack",
+        "message": "tool acme.lookup ok 12ms",
+        "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+        "tenantId": "t-1",
+        "runId": "run-1",
+        "event": "call",
+        "outcome": "ok",
+        "durationMs": 12
+      }
+    },
+    {
+      "name": "below the level: not written",
+      "logger": {
+        "level": "info"
+      },
+      "bindings": [
+        {
+          "subsystem": "pack"
+        }
+      ],
+      "level": "debug",
+      "message": "not shown",
+      "fields": {},
+      "expected": null
+    },
+    {
+      "name": "a subsystem's own level, inherited by its dotted children",
+      "logger": {
+        "level": "warn",
+        "levels": {
+          "pack": "debug"
+        }
+      },
+      "bindings": [
+        {
+          "subsystem": "pack.tool"
+        }
+      ],
+      "level": "debug",
+      "message": "shown at debug",
+      "fields": {},
+      "expected": {
+        "time": "2026-10-08T12:00:00.000Z",
+        "level": "debug",
+        "severity": "DEBUG",
+        "subsystem": "pack.tool",
+        "message": "shown at debug"
+      }
+    },
+    {
+      "name": "secret-looking keys are redacted at any depth; token counts are not",
+      "logger": {
+        "level": "info"
+      },
+      "bindings": [
+        {
+          "subsystem": "pack"
+        }
+      ],
+      "level": "info",
+      "message": "keys",
+      "fields": {
+        "apiKey": "a1",
+        "accessToken": "a2",
+        "x-api-key": "a3",
+        "secrets": {
+          "A": "a4"
+        },
+        "tokenCount": 3,
+        "promptTokens": 5,
+        "nested": {
+          "password": "a5",
+          "ok": "fine"
+        },
+        "list": [
+          {
+            "Authorization": "a6"
+          },
+          "plain"
+        ]
+      },
+      "expected": {
+        "time": "2026-10-08T12:00:00.000Z",
+        "level": "info",
+        "severity": "INFO",
+        "subsystem": "pack",
+        "message": "keys",
+        "apiKey": "[redacted]",
+        "accessToken": "[redacted]",
+        "x-api-key": "[redacted]",
+        "secrets": "[redacted]",
+        "tokenCount": 3,
+        "promptTokens": 5,
+        "nested": {
+          "password": "[redacted]",
+          "ok": "fine"
+        },
+        "list": [
+          {
+            "Authorization": "[redacted]"
+          },
+          "plain"
+        ]
+      }
+    },
+    {
+      "name": "known secret shapes are scrubbed from every string, the message too",
+      "logger": {
+        "level": "info"
+      },
+      "bindings": [
+        {
+          "subsystem": "pack"
+        }
+      ],
+      "level": "info",
+      "message": "auth Bearer abc.def and kgi_bt_0123456789abcdefWXYZ and kgi_pt_short",
+      "fields": {
+        "url": "postgres://user:pa55@db:5432/acme",
+        "note": "plain text, run 1a2b3c"
+      },
+      "expected": {
+        "time": "2026-10-08T12:00:00.000Z",
+        "level": "info",
+        "severity": "INFO",
+        "subsystem": "pack",
+        "message": "auth Bearer [redacted] and kgi_bt_…WXYZ and kgi_pt_…",
+        "url": "postgres://user:***@db:5432/acme",
+        "note": "plain text, run 1a2b3c"
+      }
+    },
+    {
+      "name": "an error: name, message (scrubbed) and code; no stack at warn when the logger is at info",
+      "logger": {
+        "level": "info"
+      },
+      "bindings": [
+        {
+          "subsystem": "pack"
+        }
+      ],
+      "level": "warn",
+      "message": "lookup failed",
+      "fields": {},
+      "error": {
+        "name": "TypeError",
+        "message": "failed with kgi_bt_0123456789abcdefABCD",
+        "code": "E_LOOKUP"
+      },
+      "expected": {
+        "time": "2026-10-08T12:00:00.000Z",
+        "level": "warn",
+        "severity": "WARNING",
+        "subsystem": "pack",
+        "message": "lookup failed",
+        "err": {
+          "name": "TypeError",
+          "message": "failed with kgi_bt_…ABCD",
+          "code": "E_LOOKUP"
+        }
+      }
+    },
+    {
+      "name": "severity: Cloud Logging's names, trace as DEBUG",
+      "logger": {
+        "level": "trace"
+      },
+      "bindings": [
+        {
+          "subsystem": "pack"
+        }
+      ],
+      "level": "trace",
+      "message": "fine detail",
+      "fields": {},
+      "expected": {
+        "time": "2026-10-08T12:00:00.000Z",
+        "level": "trace",
+        "severity": "DEBUG",
+        "subsystem": "pack",
+        "message": "fine detail"
+      }
+    },
+    {
+      "name": "warn is WARNING",
+      "logger": {
+        "level": "info"
+      },
+      "bindings": [
+        {
+          "subsystem": "pack"
+        }
+      ],
+      "level": "warn",
+      "message": "careful",
+      "fields": {
+        "count": 2,
+        "ok": false,
+        "none": null
+      },
+      "expected": {
+        "time": "2026-10-08T12:00:00.000Z",
+        "level": "warn",
+        "severity": "WARNING",
+        "subsystem": "pack",
+        "message": "careful",
+        "count": 2,
+        "ok": false,
+        "none": null
+      }
+    }
+  ]
+}

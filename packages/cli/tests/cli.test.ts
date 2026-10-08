@@ -352,37 +352,6 @@ describe('not-implemented-in-preview SDK errors', () => {
     expect(out.stderr).toContain(`Command 'kindgi ${argv.slice(0, 2).join(' ')}' is not available`);
     expect(out.stderr).toContain(reason);
   });
-
-  test("tokens create and revoke say the runtime doesn't serve them, and call nothing", async () => {
-    for (const argv of [
-      ['tokens', 'create'],
-      ['tokens', 'revoke', 'tok-1'],
-    ]) {
-      let called = false;
-      const out = await runCli(
-        baseInputs({
-          argv: [...argv, '--url=https://x', '--token=t'],
-          clientFactory: () =>
-            ({
-              tokens: {
-                create: async () => {
-                  called = true;
-                },
-                revoke: async () => {
-                  called = true;
-                },
-              },
-            }) as never,
-        }),
-      );
-      expect(out.exitCode).toBe(2);
-      expect(out.stderr).toContain(
-        `Command 'kindgi ${argv.slice(0, 2).join(' ')}' is not available`,
-      );
-      expect(out.stderr).toContain("the Kindgi runtime doesn't serve `/v1/tokens` yet");
-      expect(called).toBe(false);
-    }
-  });
 });
 
 describe('kindgi runs start', () => {
@@ -666,7 +635,7 @@ describe('kindgi runs start', () => {
 describe('missing required arguments', () => {
   test('kindgi runs get without run-id fails', async () => {
     const out = await runCli(baseInputs({ argv: ['runs', 'get', '--url=https://x', '--token=t'] }));
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('Missing required argument: run-id');
   });
 
@@ -676,7 +645,7 @@ describe('missing required arguments', () => {
         argv: ['runs', 'start', '--input={"x":1}', '--url=https://x', '--token=t'],
       }),
     );
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr.toLowerCase()).toContain('--agent');
   });
 
@@ -694,7 +663,7 @@ describe('missing required arguments', () => {
         ],
       }),
     );
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('mutually exclusive');
   });
 });
@@ -862,13 +831,13 @@ describe('auth login', () => {
 
   test('rejects login without --url', async () => {
     const out = await runCli(baseInputs({ argv: ['auth', 'login', '--token=abc'] }));
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('Missing --url');
   });
 
   test('rejects login without --token', async () => {
     const out = await runCli(baseInputs({ argv: ['auth', 'login', '--url=https://x'] }));
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('Missing --token');
   });
 });

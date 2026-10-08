@@ -13,6 +13,7 @@ import type {
 import type { AgentId } from '@kindgi/types';
 
 import type { CommandContext } from '../context.js';
+import { UsageError } from '../errors.js';
 import {
   type TableSpec,
   integerFlag,
@@ -117,7 +118,7 @@ const publish: LeafCommand = {
   run: (ctx) =>
     runSdk(ctx, 'agents publish', async () => {
       const specText = stringFlag(ctx, 'spec');
-      if (specText === undefined) throw new Error('--spec=<json-or-@file> is required');
+      if (specText === undefined) throw new UsageError('--spec=<json-or-@file> is required');
       const spec = (await readJsonInput(specText)) as AgentDefinitionSpec;
       const projectId = await projectIdFlag(ctx);
       const agentId = await ctx.client().agents.define(spec, { projectId });
@@ -131,7 +132,7 @@ function pinSwaps(values: readonly string[], flag: string): Record<string, strin
   for (const value of values) {
     const at = value.indexOf('=');
     if (at <= 0 || at === value.length - 1) {
-      throw new Error(`--${flag} takes <block-id>=<version>, got '${value}'`);
+      throw new UsageError(`--${flag} takes <block-id>=<version>, got '${value}'`);
     }
     pins[value.slice(0, at)] = value.slice(at + 1);
   }
@@ -173,11 +174,11 @@ const derive: LeafCommand = {
     runSdk(ctx, 'agents derive', async () => {
       const agentId = requiredPositional(ctx, 0, 'agent-id');
       const from = stringFlag(ctx, 'from');
-      if (from === undefined) throw new Error('--from=<semver> is required');
+      if (from === undefined) throw new UsageError('--from=<semver> is required');
       const prompts = pinSwaps(listFlag(ctx, 'prompt'), 'prompt');
       const settings = pinSwaps(listFlag(ctx, 'setting'), 'setting');
       if (Object.keys(prompts).length + Object.keys(settings).length === 0) {
-        throw new Error(
+        throw new UsageError(
           'Name at least one pin to swap: --prompt=<id>=<version> or --setting=<id>=<version>',
         );
       }
@@ -258,8 +259,9 @@ export function scopeFrom(ctx: CommandContext, required: boolean): LiveScope | u
   const projectId = stringFlag(ctx, 'project');
   const segments = segmentsFlag(ctx);
   const named = [tenant, orgId !== undefined, projectId !== undefined].filter(Boolean).length;
-  if (named > 1) throw new Error('Give one of --tenant, --org or --project');
-  if (segments.length > 0 && projectId === undefined) throw new Error('--segment needs --project');
+  if (named > 1) throw new UsageError('Give one of --tenant, --org or --project');
+  if (segments.length > 0 && projectId === undefined)
+    throw new UsageError('--segment needs --project');
   if (tenant) return { kind: 'tenant' };
   if (orgId !== undefined) return { kind: 'org', orgId };
   if (projectId !== undefined) {
@@ -267,7 +269,7 @@ export function scopeFrom(ctx: CommandContext, required: boolean): LiveScope | u
       ? { kind: 'segment', projectId, path: [...segments] }
       : { kind: 'project', projectId };
   }
-  if (required) throw new Error(`Name the scope: ${SCOPE_USAGE}`);
+  if (required) throw new UsageError(`Name the scope: ${SCOPE_USAGE}`);
   return undefined;
 }
 
@@ -319,7 +321,7 @@ const live: LeafCommand = {
       const projectId = stringFlag(ctx, 'project');
       const segments = segmentsFlag(ctx);
       if (segments.length > 0 && projectId === undefined) {
-        throw new Error('--segment needs --project');
+        throw new UsageError('--segment needs --project');
       }
       return await ctx.client().agents.live.resolve(agentId, {
         ...(projectId !== undefined && { projectId }),

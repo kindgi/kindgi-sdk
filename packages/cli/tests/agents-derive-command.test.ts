@@ -86,15 +86,15 @@ describe('kindgi agents derive', () => {
 
   test('refuses a missing --from, no swaps, or a malformed swap', async () => {
     const noFrom = await derive(['acme.intake', '--prompt=acme.p=1.0.0']);
-    expect(noFrom.out.exitCode).toBe(1);
+    expect(noFrom.out.exitCode).toBe(2);
     expect(noFrom.out.stderr).toContain('--from=<semver> is required');
 
     const none = await derive(['acme.intake', '--from=1.4.0']);
-    expect(none.out.exitCode).toBe(1);
+    expect(none.out.exitCode).toBe(2);
     expect(none.out.stderr).toContain('Name at least one pin to swap');
 
     const bad = await derive(['acme.intake', '--from=1.4.0', '--prompt=acme.p']);
-    expect(bad.out.exitCode).toBe(1);
+    expect(bad.out.exitCode).toBe(2);
     expect(bad.out.stderr).toContain("--prompt takes <block-id>=<version>, got 'acme.p'");
     expect([noFrom, none, bad].flatMap((r) => r.calls)).toEqual([]);
   });

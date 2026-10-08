@@ -64,7 +64,7 @@ class AsyncKindgi(AsyncClientBase, AsyncResources):
 
     async with AsyncKindgi() as client:
         run = await client.runs.start(flow="acme.ledger.record-flow", input={...})
-        async for event in client.runs.stream(run.id):
+        async for event in client.runs.follow(run.id):  # to the run's end
             ...
     """
 
