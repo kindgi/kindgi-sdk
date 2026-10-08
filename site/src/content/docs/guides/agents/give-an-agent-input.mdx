@@ -181,7 +181,7 @@ Sign every reply as The Acme team.
 A required parameter with no value fails the turn before the model is called:
 
 ```text
-Error [server]: Prompt render failed: Required parameter missing: tone
+Error [model-invocation-failed]: Prompt render failed: Required parameter missing: tone
 ```
 
 ## In a flow step
@@ -387,7 +387,7 @@ A direct run has no `{{ input }}`, so an agent whose instructions read it fails
 when run directly:
 
 ```text
-Error [server]: Prompt render failed: Template references an unresolved variable: input
+Error [model-invocation-failed]: Prompt render failed: Template references an unresolved variable: input
 ```
 :::
 
