@@ -27,10 +27,26 @@ export function cliError(message: string, exitCode = 1): CliError {
  * plus the preview stub (`not-implemented-in-preview`), and falls back
  * to raw `Error.message` for anything else.
  */
+/**
+ * The command line was wrong: a missing or conflicting argument or flag, or
+ * a value a flag can't take. The CLI exits 2 for it, as for an unknown
+ * command, subcommand or flag (`main.ts`), so a script can tell "called it
+ * wrong" (2) from "the call failed" (1).
+ */
+export class UsageError extends Error {
+  override readonly name = 'UsageError';
+}
+
 export function formatThrown(
   thrown: unknown,
   options: { readonly verbose?: boolean; readonly commandLabel: string },
 ): CliError {
+  if (thrown instanceof UsageError) {
+    const label = options.commandLabel.startsWith('kindgi ')
+      ? options.commandLabel
+      : `kindgi ${options.commandLabel}`;
+    return cliError(`Error: ${thrown.message}\nUsage: ${label} --help`, 2);
+  }
   const wire = extractKindgiError(thrown);
   if (wire !== null) {
     if (wire.code === 'not-implemented-in-preview') {

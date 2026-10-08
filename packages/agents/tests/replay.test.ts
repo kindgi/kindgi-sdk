@@ -229,6 +229,43 @@ describe('a replay turn decides each tool call', () => {
     expect(replayReport(d.ctx)?.tools[0]?.source).toBe('live');
   });
 
+  test("live with the past run's env: the tool reads it, the decision keeps it, the report doesn't show it", async () => {
+    let seenEnv: unknown;
+    const tool = {
+      ...lookupTool({ mutating: false }),
+      handler: async (_input: unknown, ctx: { readonly env?: unknown }) => {
+        seenEnv = ctx.env;
+        return { found: 3 };
+      },
+    } as unknown as AnyTool;
+    const records = new Map<string, unknown>();
+    const d = await dispatch({
+      tool,
+      binding: { decideTool: async () => ({ kind: 'live', env: { ORDERS_REGION: 'us' } }) },
+      records,
+    });
+    expect(d.ran).toBe(1);
+    expect(seenEnv).toEqual({ ORDERS_REGION: 'us' });
+    expect(records.get('replay-tool:call-1')).toMatchObject({
+      source: 'live',
+      env: { ORDERS_REGION: 'us' },
+    });
+    expect(replayReport(d.ctx)?.tools[0]).not.toHaveProperty('env');
+  });
+
+  test('live without env: the tool gets no preset env (it resolves as usual)', async () => {
+    let seenEnv: unknown = 'unset';
+    const tool = {
+      ...lookupTool({ mutating: false }),
+      handler: async (_input: unknown, ctx: { readonly env?: unknown }) => {
+        seenEnv = ctx.env;
+        return { found: 3 };
+      },
+    } as unknown as AnyTool;
+    await dispatch({ tool, binding: { decideTool: async () => ({ kind: 'live' }) } });
+    expect(seenEnv).toBeUndefined();
+  });
+
   test.each([
     ['undeclared (so it changes things)', {}],
     ['mutating', { mutating: true }],
