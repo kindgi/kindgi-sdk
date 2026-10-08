@@ -37,6 +37,7 @@ export type {
 export type {
   Run,
   RunAgent,
+  RunFailure,
   RunsClient,
   ResumeRunInput,
   StartedRun,
@@ -297,6 +298,16 @@ export type {
   TrustedSigningKey,
 } from './resources/signing-keys.js';
 export type {
+  ExportSigningKey,
+  ExportSigningKeysClient,
+} from './resources/export-signing-keys.js';
+export { SIGNED_EXPORT_ALGORITHMS, verifySignedExport } from './verify-export.js';
+export type {
+  SignedExportEnvelope,
+  SignedExportVerification,
+  VerifySignedExportOptions,
+} from './verify-export.js';
+export type {
   ComplianceClient,
   Evidence,
   EvidenceClient,
@@ -425,6 +436,7 @@ export type {
   ApprovalDecisionRecord,
   ApprovalId,
   ApprovalStatus,
+  ArtifactHead,
   ArtifactId,
   AuditBundle,
   AuditBundleId,
@@ -451,6 +463,7 @@ export type {
   CostEstimate,
   Cursor,
   DatasetId,
+  DownloadedArtifact,
   DryRunCriterion,
   DryRunProposalResult,
   DryRunResult,
@@ -466,6 +479,8 @@ export type {
   Fact,
   FactFilter,
   FactId,
+  FactRetention,
+  FactSubject,
   GetArtifactResult,
   InstallationId,
   InstalledPack,
@@ -604,6 +619,7 @@ export type {
   ToolInvocationResult,
   ToolManifest,
   TurnDetailEvent,
+  UploadArtifactInput,
   UsageQueryFilter,
   UsageRecord,
   UsageSummary,
@@ -616,6 +632,7 @@ export type {
   WebhookEndpointId,
   WhoamiResult,
   WriteFactInput,
+  SupersedeFactInput,
   UpdateJudgeClassInput,
   Verdict,
 } from './types.js';
