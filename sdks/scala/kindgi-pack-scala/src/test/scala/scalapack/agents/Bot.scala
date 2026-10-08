@@ -11,6 +11,7 @@ object Bot {
   val agent: Agent = Agent("acme.bot")
     .version("1.0.0")
     .name("Greeter")
+    .description("Greets whoever asks.")
     .instructions("Greet whoever asks.")
     .capability(Map("needs" -> List(Map("feature" -> "tool-use"))))
     .tool(Greet.tool)

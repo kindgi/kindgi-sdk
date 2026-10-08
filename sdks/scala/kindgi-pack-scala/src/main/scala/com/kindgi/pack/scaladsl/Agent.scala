@@ -15,6 +15,8 @@ object Agent {
 final class AgentBuilder private[scaladsl] (b: com.kindgi.pack.Agent.Builder) {
   def version(version: String): AgentBuilder = new AgentBuilder(b.version(version))
   def name(name: String): AgentBuilder = new AgentBuilder(b.name(name))
+  /** What the agent is for, for people choosing it. */
+  def description(text: String): AgentBuilder = new AgentBuilder(b.description(text))
   def instructions(text: String): AgentBuilder = new AgentBuilder(b.instructions(text))
   def instructions(instructions: Map[String, Any]): AgentBuilder = new AgentBuilder(b.instructions(JsonValues.javaMap(instructions)))
   def capability(capability: Map[String, Any]): AgentBuilder = new AgentBuilder(b.capability(JsonValues.javaMap(capability)))
