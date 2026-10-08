@@ -168,7 +168,15 @@ describe('kindgi sso providers finish / update', () => {
       auth: { providers: { register: rec('register', { providerId: 'acme-saml' }) } },
     };
     const out = await run(
-      ['sso', 'providers', 'finish', 'acme-saml', '--kind=saml', `--idp-metadata=@${file}`],
+      [
+        'sso',
+        'providers',
+        'finish',
+        'acme-saml',
+        '--kind=saml',
+        `--idp-metadata=@${file}`,
+        '--domains=acme.com',
+      ],
       client,
     );
     expect(out.exitCode, out.stderr).toBe(0);
@@ -185,6 +193,14 @@ describe('kindgi sso providers finish / update', () => {
     const noKind = await run(['sso', 'providers', 'finish', 'acme-saml'], client);
     expect(noKind.exitCode).toBe(1);
     expect(noKind.stderr).toContain('--kind=oidc|saml is required');
+    const noDomains = await run(
+      ['sso', 'providers', 'finish', 'acme-saml', '--kind=saml', `--idp-metadata=@${file}`],
+      client,
+    );
+    expect(noDomains.exitCode).toBe(1);
+    expect(noDomains.stderr).toContain(
+      '--domains=<your-domain> is required: sign-in is email first',
+    );
   });
 
   test('update sends only the changes; --remove sends null', async () => {

@@ -101,12 +101,12 @@ describe('sign-in options', () => {
     expect(await known.text()).toBe(await unknown.text());
   });
 
-  test('without an email: the buttons (the binding decides; here, one tenant)', async () => {
+  test('without an email: nothing, and the binding is not asked (email first)', async () => {
     const { app, calls } = makeApp();
     const res = await lookup(app);
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { data: unknown[] }).data).toHaveLength(1);
-    expect(calls).toEqual([{}]);
+    expect(await res.json()).toEqual({ data: [] });
+    expect(calls).toEqual([]);
   });
 
   test('a domain nobody claims answers an empty list, same shape', async () => {

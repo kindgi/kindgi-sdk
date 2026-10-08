@@ -62,9 +62,9 @@ export interface AuthClient {
   readonly providers: AuthProvidersClient;
   /**
    * How a person can sign in, before anyone is signed in (no credential
-   * needed): the identity providers for the email's domain, or, with no
-   * email, a single-tenant deployment's sign-in buttons. Each has a
-   * `signInUrl` for the browser.
+   * needed): the identity providers for the email's domain, each with a
+   * `signInUrl` for the browser. Sign-in is email first: with no email,
+   * the list is empty (it still says sign-in is on; off is a 404).
    * @wire GET /v1/auth/sign-in-options
    */
   signInOptions(input?: { readonly email?: string }): Promise<SignInOptionsResult>;

@@ -30,8 +30,8 @@ export interface IdentityProviderBinding {
    * - with `emailDomain`: the providers whose (verified) `domains` include
    *   it, from the one tenant that claims it; none when no tenant does,
    *   or when more than one does;
-   * - without: the providers to show as buttons when the deployment has
-   *   exactly one tenant; none otherwise.
+   * - without: the route doesn't ask. Sign-in is email first, so nothing
+   *   is offered before an email.
    * Absent → the route answers an empty list.
    */
   readonly signInOptions?: (input: SignInOptionsInput) => Promise<readonly SignInOption[]>;
@@ -78,7 +78,7 @@ export type IdentityProviderUpdateOutcome =
   | { readonly kind: 'not-found' };
 
 export interface SignInOptionsInput {
-  /** Lowercase, from the email the person typed. Absent for the buttons. */
+  /** Lowercase, from the email the person typed. */
   readonly emailDomain?: string;
 }
 

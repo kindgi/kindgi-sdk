@@ -253,7 +253,7 @@ const finish: LeafCommand = {
   name: 'finish',
   description: 'Register the provider with what your identity provider gave back.',
   usage:
-    'kindgi sso providers finish <provider-id> --kind=oidc --issuer=<url> --client-id=<id> --client-secret-ref=<NAME> [--domains=<d>] [--name=<text>] | --kind=saml --idp-metadata=@<file> [...]',
+    'kindgi sso providers finish <provider-id> --domains=<d> (--kind=oidc --issuer=<url> --client-id=<id> --client-secret-ref=<NAME> | --kind=saml --idp-metadata=@<file>) [--name=<text>] [...]',
   optionSpec: configOptions,
   run: (ctx) =>
     runSdk(ctx, 'sso providers finish', async () => {
@@ -261,6 +261,11 @@ const finish: LeafCommand = {
       kindFlag(ctx);
       const config: Record<string, unknown> = { ...(await configFromFlags(ctx)), providerId };
       if (config.kind === undefined) throw new Error('--kind=oidc|saml is required');
+      if (!Array.isArray(config.domains) || config.domains.length === 0) {
+        throw new Error(
+          "--domains=<your-domain> is required: sign-in is email first, so people find this provider by their email's domain",
+        );
+      }
       return await ctx.client().auth.providers.register(config as IdentityProviderRegisterInput);
     }),
 };
@@ -385,7 +390,7 @@ const test: LeafCommand = {
         }
         const why =
           email === undefined
-            ? `"${providerId}" has no domains and the runtime has more than one tenant, so no sign-in page offers it: kindgi sso providers update ${providerId} --domains=<your-domain>`
+            ? `"${providerId}" has no domains. Sign-in is email first, so people find a provider by their email's domain: kindgi sso providers update ${providerId} --domains=<your-domain>`
             : `No sign-in page offers "${providerId}" for ${email}: its domain isn't one of the provider's, or another tenant claims it too.`;
         return { stdout: '', stderr: `${why}\n`, exitCode: 1 };
       },
