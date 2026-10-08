@@ -96,6 +96,8 @@ export interface SecretProviderPayload {
   readonly versionId: number;
   readonly createdAt: string;
   readonly value: string;
+  /** The provider's own id for this version (see `SecretProviderPutOutput.providerVersion`). */
+  readonly providerVersion?: string;
 }
 
 export interface SecretProviderListInput {

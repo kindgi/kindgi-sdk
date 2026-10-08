@@ -417,6 +417,7 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
       ...(b.tags !== undefined && { tags: b.tags as Readonly<Record<string, string>> }),
       ...(b.rotationDueAt !== undefined && { rotationDueAt: b.rotationDueAt as string }),
       ...(b.ifVersion !== undefined && { ifVersion: b.ifVersion as number }),
+      ...idempotencyKeyOf(c.req.header('Idempotency-Key')),
       // Authorization — write `secret#scope@X` tuple on fresh insert.
       enqueueTuples: (secretRowId) =>
         tuplesForCreate({ kind: 'secret', id: secretRowId, tenantId, scope: setScope }),
@@ -559,6 +560,7 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
       name,
       ...(b.newValue !== undefined && { newValue: b.newValue as string }),
       ...(b.revokeOldAfterMs !== undefined && { revokeOldAfterMs: b.revokeOldAfterMs as number }),
+      ...idempotencyKeyOf(c.req.header('Idempotency-Key')),
     });
 
     if (result.kind === 'err') {
@@ -974,4 +976,13 @@ function serializeRotationStatus(s: RotationStatus): Record<string, unknown> {
     ...(s.oldVersionId !== undefined && { oldVersionId: s.oldVersionId }),
     ...(s.error !== undefined && { error: s.error }),
   };
+}
+
+/**
+ * The request's `Idempotency-Key`, for a binding that finishes a retried
+ * write (the secret-manager backend). Blank: none.
+ */
+function idempotencyKeyOf(raw: string | undefined): { readonly idempotencyKey?: string } {
+  const key = raw?.trim();
+  return key === undefined || key === '' ? {} : { idempotencyKey: key };
 }

@@ -200,6 +200,14 @@ export interface SecretSetInput {
   readonly rotationDueAt?: string;
   readonly ifVersion?: number;
   /**
+   * The request's `Idempotency-Key`, when it had one. A binding that
+   * writes to an external store in a second step (the secret-manager
+   * backend) uses it to finish a retried write instead of starting a new
+   * version: a retry with the same key completes the version the first
+   * attempt began. Bindings that write in one transaction may ignore it.
+   */
+  readonly idempotencyKey?: string;
+  /**
    * REQUIRED. Called inside the binding's write tx on FRESH insert
    * (writeMode: 'create-new' → new secret identity). Receives the new
    * secret's id as the FGA subject id. Returns tuples for
@@ -223,6 +231,8 @@ export interface SecretRotateInput {
   readonly name: string;
   readonly newValue?: string;
   readonly revokeOldAfterMs?: number;
+  /** The request's `Idempotency-Key`, when it had one: as `SecretSetInput.idempotencyKey`. */
+  readonly idempotencyKey?: string;
 }
 
 /**
