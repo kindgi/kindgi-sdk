@@ -208,6 +208,31 @@ When it starts, the runtime brings the database up to date: it applies the migra
 
 Migrations only go forward, and an older runtime isn't guaranteed to work on a database a newer one migrated. To go back, [restore the backup](#restore-into-a-fresh-database) you took before the upgrade, and run the older version on it.
 
+### Runtime 0.1.4.1
+
+Runtime 0.1.4.1 fixes one bug in 0.1.4, for deployments with authorization on
+(`KINDGI_OPENFGA_API_URL` set): a redeploy that published a new version of an
+existing agent could leave other permission changes made in the same few
+seconds unapplied. A newly published agent or project could then answer `403`
+to the person who made it. Without authorization, and under `kindgi dev`, 0.1.4
+is unaffected. Only the runtime changes: the 0.1.4 CLI and SDKs (npm, PyPI)
+stay as they are.
+
+With authorization on, run 0.1.4.1, pulled by its digest, with the same
+`kindgi.env`. It has no migration, so going back to 0.1.4 works, but the bug
+comes back with it:
+
+```sh
+docker pull quay.io/kindgi/runtime:0.1.4.1@sha256:3f14fcf7336c846b276c6119bc8dc96eaf44faee6dacfd45ba40b2e7c08d555f
+```
+
+On Cloud Run, copy it into your repository the same way as 0.1.4 (see
+[The images into Artifact Registry](../cloud-run/#2-the-images-into-artifact-registry))
+and set `server_image` to its digest.
+
+A change 0.1.4 already lost stays lost after the upgrade: 0.1.4.1 retries
+only changes still pending.
+
 ### From 0.1.3 to 0.1.4
 
 `kindgi.env` needs no change: the database migrates when 0.1.4 starts. What's different after:

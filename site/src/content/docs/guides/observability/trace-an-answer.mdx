@@ -18,7 +18,7 @@ Use it to answer "where did this answer come from?" and "what did it cost?".
 Fetch it by the run's id:
 
 ```sh
-kindgi provenance get 11a79b0a-ebdd-4d21-9e66-e0cacaea50e8
+kindgi provenance get a64ce71c-9cfc-4263-87b1-b5562f09079c
 ```
 
 Over HTTP it's `GET /v1/provenance/<run-id>`. With `kindgi dev`,
@@ -26,7 +26,7 @@ Over HTTP it's `GET /v1/provenance/<run-id>`. With `kindgi dev`,
 (they're also in the pack's `.kindgirc.json`):
 
 ```sh
-curl "$KINDGI_API_URL/v1/provenance/11a79b0a-ebdd-4d21-9e66-e0cacaea50e8" \
+curl "$KINDGI_API_URL/v1/provenance/a64ce71c-9cfc-4263-87b1-b5562f09079c" \
   -H "Authorization: Bearer $KINDGI_API_TOKEN"
 ```
 
@@ -34,36 +34,33 @@ Both answer the record:
 
 ```json
 {
-  "id": "11308345-89bc-4620-a705-69c2beff5317",
-  "runId": "11a79b0a-ebdd-4d21-9e66-e0cacaea50e8",
+  "id": "9f0f7385-5270-484d-9ee4-13716c4edb6e",
+  "runId": "a64ce71c-9cfc-4263-87b1-b5562f09079c",
   …
   "dag": {
     "nodes": [
-      {"id": "input:0", "kind": "input", "timestamp": "2026-10-05T07:07:25.067Z"},
-      {"id": "model-call:1", "kind": "model-call", "timestamp": "2026-10-05T07:07:27.039Z", "modelVersion": "anthropic/claude-haiku-4-5", "attributes": {"step": 1, "model": "claude-haiku-4-5", "callId": "b4fd91c7-e38d-44c2-9b1e-888296324280", "providerId": "anthropic", "finishReason": "tool-use"}},
-      {"id": "tool-call:toolu_019Evao73J4aVhpAaf2f4jVN", "kind": "tool-call", "timestamp": "2026-10-05T07:07:27.736Z", "attributes": {"toolId": "acme-ops.echo", "toolVersion": "0.1.0", "invocationId": "toolu_019Evao73J4aVhpAaf2f4jVN", "toolVersionRange": "0.1.0"}},
-      {"id": "tool-result:toolu_019Evao73J4aVhpAaf2f4jVN", "kind": "tool-result", "timestamp": "2026-10-05T07:07:27.736Z"},
-      {"id": "model-call:2", "kind": "model-call", "timestamp": "2026-10-05T07:07:28.828Z", "modelVersion": "anthropic/claude-haiku-4-5", "attributes": {"step": 2, "model": "claude-haiku-4-5", "callId": "ce07551c-16de-4290-a8cb-e19833481545", "providerId": "anthropic", "finishReason": "stop"}},
-      {"id": "model-output:2", "kind": "model-output", "timestamp": "2026-10-05T07:07:28.905Z", "modelVersion": "anthropic/claude-haiku-4-5"}
+      {"id": "input:0", "kind": "input", "timestamp": "2026-10-08T15:13:29.826Z"},
+      {"id": "model-call:1", "kind": "model-call", "timestamp": "2026-10-08T15:13:31.345Z", "modelVersion": "anthropic/claude-sonnet-5-5", "attributes": {"step": 1, "model": "claude-sonnet-5-5", "callId": "975d170b-d14f-4fbf-b662-85bcf26b9431", "providerId": "anthropic", "finishReason": "tool-use"}},
+      {"id": "tool-call:toolu_01LiLE7Xk9BK16Hkr2tLBEq4", "kind": "tool-call", "timestamp": "2026-10-08T15:13:31.369Z", "attributes": {"toolId": "acme.echo", "toolVersion": "0.1.0", "invocationId": "toolu_01LiLE7Xk9BK16Hkr2tLBEq4", "toolVersionRange": "0.1.0"}},
+      {"id": "tool-result:toolu_01LiLE7Xk9BK16Hkr2tLBEq4", "kind": "tool-result", "timestamp": "2026-10-08T15:13:31.369Z"},
+      {"id": "model-call:2", "kind": "model-call", "timestamp": "2026-10-08T15:13:32.418Z", "modelVersion": "anthropic/claude-sonnet-5-5", "attributes": {"step": 2, "model": "claude-sonnet-5-5", "callId": "99929d2e-05e2-4452-853e-b6c6f0deed6e", "providerId": "anthropic", "finishReason": "stop"}},
+      {"id": "model-output:2", "kind": "model-output", "timestamp": "2026-10-08T15:13:32.442Z", "modelVersion": "anthropic/claude-sonnet-5-5"}
     ],
     "edges": [
       {"from": "model-call:1", "to": "input:0", "kind": "caused-by"},
-      {"from": "tool-call:toolu_019Evao73J4aVhpAaf2f4jVN", "to": "model-call:1", "kind": "invoked"},
-      {"from": "tool-result:toolu_019Evao73J4aVhpAaf2f4jVN", "to": "tool-call:toolu_019Evao73J4aVhpAaf2f4jVN", "kind": "produced"},
+      {"from": "tool-call:toolu_01LiLE7Xk9BK16Hkr2tLBEq4", "to": "model-call:1", "kind": "invoked"},
+      {"from": "tool-result:toolu_01LiLE7Xk9BK16Hkr2tLBEq4", "to": "tool-call:toolu_01LiLE7Xk9BK16Hkr2tLBEq4", "kind": "produced"},
       {"from": "model-call:2", "to": "input:0", "kind": "caused-by"},
-      {"from": "model-call:2", "to": "tool-result:toolu_019Evao73J4aVhpAaf2f4jVN", "kind": "influenced-by"},
+      {"from": "model-call:2", "to": "tool-result:toolu_01LiLE7Xk9BK16Hkr2tLBEq4", "kind": "influenced-by"},
       {"from": "model-output:2", "to": "model-call:2", "kind": "produced"}
     ]
   },
   "callUsage": {
-    "b4fd91c7-e38d-44c2-9b1e-888296324280": {"usage": {"promptTokens": 786, "completionTokens": 57, "cacheReadTokens": 0, "cacheWriteTokens": 0}, "costUsd": 0.0010710000000000001, "durationMs": 1558, "servedModel": "claude-haiku-4-5-20251001"},
-    "ce07551c-16de-4290-a8cb-e19833481545": {"usage": {"promptTokens": 885, "completionTokens": 40, "cacheReadTokens": 0, "cacheWriteTokens": 0}, "costUsd": 0.001085, "durationMs": 699, "servedModel": "claude-haiku-4-5-20251001"}
+    "975d170b-d14f-4fbf-b662-85bcf26b9431": {"usage": {"promptTokens": 645, "completionTokens": 132, "cacheReadTokens": 0, "cacheWriteTokens": 0}, "costUsd": 0.0026100000000000003, "durationMs": 1460, "servedModel": "claude-sonnet-5-5"},
+    "99929d2e-05e2-4452-853e-b6c6f0deed6e": {"usage": {"promptTokens": 740, "completionTokens": 42, "cacheReadTokens": 0, "cacheWriteTokens": 0}, "costUsd": 0.0019, "durationMs": 1012, "servedModel": "claude-sonnet-5-5"}
   }
 }
 ```
-
-This record was captured on `claude-haiku-4-5` (retiring on or after
-2026-10-15); a newer model's record differs in tokens and cost, not shape.
 
 Read it from the answer backwards: the answer (`model-output:2`) was
 produced by the second model call. That call answered the user's message
@@ -148,11 +145,11 @@ Both print each node, with the tokens and cost of each model call:
 
 ```text
 input
-model-call anthropic/claude-haiku-4-5 786+57 tokens, 0.0010710000000000001 USD
+model-call anthropic/claude-sonnet-5-5 645+132 tokens, 0.0026100000000000003 USD
 tool-call
 tool-result
-model-call anthropic/claude-haiku-4-5 885+40 tokens, 0.001085 USD
-model-output anthropic/claude-haiku-4-5
+model-call anthropic/claude-sonnet-5-5 740+42 tokens, 0.0019 USD
+model-output anthropic/claude-sonnet-5-5
 ```
 
 ## What a turn cost
