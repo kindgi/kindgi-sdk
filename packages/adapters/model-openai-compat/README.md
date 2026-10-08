@@ -15,7 +15,12 @@ Translate between the framework's `ModelCallInput` / `ModelCallResult` and one n
 - `tools` become `function` tools; `structuredOutput` becomes `response_format: { type: 'json_schema', json_schema: { name, schema, strict: true } }`; `temperature` and `maxOutputTokens` (as `max_tokens`) are sent only when set.
 - Chat Completions endpoints reject `.` in function names, so tool names are encoded `.` → `__` on send and decoded on receive (`acme.orders.lookup` ↔ `acme__orders__lookup`). Tool ids must not contain a literal `__`. Tool-call arguments that are not valid JSON decode to `{}`.
 - `finish_reason` maps `tool_calls` / `function_call` → `tool-use`, `content_filter` → `content-filter`, `length` → `length`, anything else → `stop`.
-- `costUsd` is computed from the matching `ModelInfo.cost`: prompt and completion tokens, each per 1K tokens. The wire format carries no pricing, so rates come from the caller.
+- `costUsd` is computed from the matching `ModelInfo.cost` (`computeCost`), on both APIs. The wire format carries no pricing, so rates come from the caller (`OpenAICompatCostRates`, the names the Gemini and Anthropic adapters price with):
+  - prompt and completion tokens per 1K tokens (`promptUsdPer1kTokens`, `completionUsdPer1kTokens`);
+  - cached prompt tokens at `cachedPromptMultiplier` of the prompt rate, and cache-write tokens at `promptCacheCreationMultiplier` (each absent: the prompt rate);
+  - `longContext: { thresholdTokens, promptUsdPer1kTokens, completionUsdPer1kTokens }`: past the threshold (cached and cache-write prompt tokens included), the whole call bills at those rates, the cache multipliers applying to the long prompt rate;
+  - `dataResidencyMultiplier`: an uplift on the whole call, only when `baseURL` is a data-residency host (`eu.api.openai.com`; `isDataResidencyHost`).
+  A rate that isn't a finite, non-negative number is ignored. The `openai` preset carries OpenAI's GPT-6 rates. Its `longContext` applies per call, counting all of the call's input tokens (cached and cache-write ones included) past 272,000: that's how we read OpenAI's pricing page, which doesn't spell it out. These costs are estimates from published prices; the provider's invoice is authoritative.
 
 ### Responses
 
@@ -95,7 +100,6 @@ A local runner uses the same factory: `baseURL: BASE_URLS.OLLAMA_LOCAL`, `apiKey
 - **Streaming.** Requests are sent with `stream: false`; `invoke()` resolves with the complete response.
 - **Server-side conversation state** (Responses `previous_response_id`, `store: true`). Every call carries its whole conversation.
 - **Pricing discovery.** Cost rates are caller-supplied per model.
-- **Cached-token pricing.** Cached prompt tokens are reported apart in `usage`, but all prompt tokens are billed at `promptUsdPer1kTokens`.
 
 ## Related
 

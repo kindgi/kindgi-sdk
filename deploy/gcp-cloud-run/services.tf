@@ -279,9 +279,12 @@ resource "google_cloud_run_v2_service" "server" {
       env {
         name = "KINDGI_SECRETS_AAD_KEY"
         value_source {
+          # Pinned (var.secrets_aad_key_version): every secret stored in
+          # Postgres is bound to this key, so a version added by mistake
+          # must never reach the server.
           secret_key_ref {
             secret  = google_secret_manager_secret.server["secrets_aad_key"].secret_id
-            version = "latest"
+            version = var.secrets_aad_key_version
           }
         }
       }
