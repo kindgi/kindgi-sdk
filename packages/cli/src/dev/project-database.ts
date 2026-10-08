@@ -137,7 +137,7 @@ export function createProjectDatabases(input: {
       if (folderExists(current.root)) {
         return {
           kind: 'refused',
-          message: `the database ${project.database} belongs to ${current.root}, another folder whose project is also named "${project.name}". Give this one its own name: set \`project\` in kindgi.config.ts (or \`project\` under [tool.kindgi] in pyproject.toml), or pass --database-url.`,
+          message: `the database ${project.database} belongs to ${current.root}, another folder whose project is also named "${project.name}". Give this one its own name: set \`project\` in kindgi.config.ts (or \`project\` under [tool.kindgi] in pyproject.toml, or in kindgi.config.json), or pass --database-url.`,
         };
       }
       const moved = await setOwner(project.database, {

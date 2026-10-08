@@ -89,6 +89,28 @@
         </executions>
       </plugin>
       <plugin>
+        <!--
+          What an app compiles against besides the client's own jar (its dependencies as the published
+          POM lists them: the shaded Jackson isn't one). The docs' sample check reads it.
+        -->
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>samples-classpath</id>
+            <phase>package</phase>
+            <goals>
+              <goal>build-classpath</goal>
+            </goals>
+            <configuration>
+              <includeScope>runtime</includeScope>
+              <excludeGroupIds>tools.jackson.core,com.fasterxml.jackson.core</excludeGroupIds>
+              <outputFile>${project.build.directory}/samples-classpath.txt</outputFile>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-shade-plugin</artifactId>
         <version>3.6.2</version>

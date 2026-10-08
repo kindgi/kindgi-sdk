@@ -47,6 +47,12 @@ import {
 } from '../build/host-install.js';
 import { readImageConfig } from '../build/image-config.js';
 import { checkIntegrity } from '../build/integrity.js';
+import {
+  DEFAULT_JAVA_BUILD_IMAGE_REF,
+  DEFAULT_JAVA_RUNTIME_IMAGE_REF,
+  JAVA_PACK_SERVICE_COMMAND,
+  collectJavaContextFiles,
+} from '../build/java-image.js';
 import { nodeBaseImageFor } from '../build/node-image.js';
 import { resolvePackRoots } from '../build/pack-root.js';
 import {
@@ -63,7 +69,7 @@ import type {
   TerminalPayload,
 } from '../build/runners.js';
 import type { CommandContext } from '../context.js';
-import { resolvePackPython } from '../dev/pack-code.js';
+import { resolvePackJava, resolvePackPython } from '../dev/pack-code.js';
 import type { IndexedCounts } from '../dev/runners.js';
 import { renderJson } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
@@ -527,7 +533,12 @@ async function runLocalBuild(
   lines(
     `    docker run --rm -p 8080:8080 -e KINDGI_PACK_SERVICE_TOKEN=<token> --env-file <the pack's env> ${tag}`,
   );
-  const service = args.language === 'python' ? PYTHON_PACK_SERVICE_COMMAND : PACK_SERVICE_COMMAND;
+  const service =
+    args.language === 'python'
+      ? PYTHON_PACK_SERVICE_COMMAND
+      : args.language === 'java'
+        ? JAVA_PACK_SERVICE_COMMAND
+        : PACK_SERVICE_COMMAND;
   lines(`    (the pack service: ${service.join(' ')})`);
   lines('');
 
@@ -682,6 +693,8 @@ function preparePackContext(
   expectedIndexPath: string,
   lines: (s: string) => void,
 ): Promise<PackContext> {
+  if (args.language === 'java')
+    return prepareJavaContext(ctx, runners, args, expectedIndexPath, lines);
   return args.language === 'python'
     ? preparePythonContext(ctx, runners, args, expectedIndexPath, lines)
     : prepareNodeContext(runners, args, expectedIndexPath, lines);
@@ -982,6 +995,95 @@ async function preparePythonContext(
   });
   lines(
     `    ✓ ${packFiles.files.length} pack file(s) in the image (the pack root, minus caches, virtualenvs and secrets); dependencies from ${PYTHON_LOCKFILES[packFiles.installer]}${system.packages.length > 0 ? `; Debian packages: ${system.packages.join(', ')}` : ''}`,
+  );
+  return { kind: 'ok', contextDir, counts: localIndex.counts, secrets: [] };
+}
+
+/**
+ * A Java pack: Maven compiles it with the pack's JDK and the local index
+ * runs on its classes, then the Java Containerfile
+ * (`build/java-image.ts`), the pack root as the context (`<out>/context`).
+ */
+async function prepareJavaContext(
+  ctx: CommandContext,
+  runners: BuildRunners,
+  args: ResolvedBuildArgs,
+  expectedIndexPath: string,
+  lines: (s: string) => void,
+): Promise<PackContext> {
+  const java = runners.java;
+  if (java === undefined)
+    return failure('This CLI cannot build Java packs (no Java build runners).\n');
+  // The JDK and Maven as `kindgi dev` finds them; the build's own files under the output folder.
+  const resolved = await resolvePackJava(args.packDir, args.config, ctx.env);
+  if (resolved.kind === 'err') return failure(`kindgi build: ${resolved.message}\n`);
+  const code = { ...resolved.value, workDir: join(args.outDir, 'java') };
+  const env: Record<string, string> = {};
+  for (const name of ['PATH', 'HOME', 'TMPDIR'] as const) {
+    const value = ctx.env[name];
+    if (value !== undefined) env[name] = value;
+  }
+  const prepared = await java.prepare({ packDir: args.packDir, code, env });
+  if (prepared.kind === 'err') {
+    return failure(
+      `The pack didn't compile — fix it before building:\n${prepared.errors.map((e) => `  ${e}`).join('\n')}\n`,
+    );
+  }
+  const localIndex = await java.runLocalIndexer({
+    packDir: args.packDir,
+    outputPath: expectedIndexPath,
+    artifactVersion: args.artifactVersion,
+    publishedAt: args.publishedAt,
+    code,
+    env,
+  });
+  if (localIndex.kind === 'err') {
+    return failure(
+      `Local indexer failed: [${localIndex.code}] ${localIndex.message}${localIndex.filePath !== undefined ? ` (at ${localIndex.filePath})` : ''}\n`,
+    );
+  }
+  if (localIndex.fileErrors.length > 0) {
+    return failure(
+      `Local indexer reported file errors — fix them before building:\n${localIndex.fileErrors
+        .map((e) => `  [${e.code}] ${e.message}`)
+        .join('\n')}\n`,
+    );
+  }
+  lines(`  Indexing (Java — ${code.javaHome ?? code.java}; ${code.maven.join(' ')})`);
+  lines(
+    `    ✓ ${localIndex.counts.tools} tools, ${localIndex.counts.guardrails} guardrails, ` +
+      `${localIndex.counts.agents} agents, ${localIndex.counts.flows} flows discovered`,
+  );
+
+  const packFiles = await collectJavaContextFiles(args.packDir);
+  if (packFiles.kind === 'error') return failure(`${packFiles.message}\n`);
+  const image = args.config.image;
+  const system = checkAptPackages(
+    image !== null && typeof image === 'object'
+      ? (image as Record<string, unknown>).systemPackages
+      : undefined,
+    'image.systemPackages in kindgi.config.json',
+  );
+  if (system.kind === 'err') return failure(`kindgi build: ${system.message}\n`);
+  const containerfilePath = join(args.outDir, 'Containerfile');
+  await java.writeContainerfile({
+    outputPath: containerfilePath,
+    artifactVersion: args.artifactVersion,
+    publishedAt: args.publishedAt,
+    buildTarget: args.buildTarget,
+    buildImageRef: DEFAULT_JAVA_BUILD_IMAGE_REF,
+    runtimeImageRef: DEFAULT_JAVA_RUNTIME_IMAGE_REF,
+    systemPackages: system.packages,
+  });
+  const contextDir = join(args.outDir, 'context');
+  await java.writeContext({
+    packDir: args.packDir,
+    files: packFiles.files,
+    containerfilePath,
+    contextDir,
+  });
+  lines(
+    `    ✓ ${packFiles.files.length} pack file(s) in the image (the pack root, minus build output, IDE files and secrets); classes and dependencies from pom.xml${system.packages.length > 0 ? `; Debian packages: ${system.packages.join(', ')}` : ''}`,
   );
   return { kind: 'ok', contextDir, counts: localIndex.counts, secrets: [] };
 }

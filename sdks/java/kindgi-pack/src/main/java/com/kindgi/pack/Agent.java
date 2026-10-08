@@ -105,6 +105,15 @@ public final class Agent {
     }
 
     /**
+     * @param description what the agent is for (shown to people, not the model)
+     * @return this
+     */
+    public Builder description(String description) {
+      entry.put("description", description);
+      return this;
+    }
+
+    /**
      * @param instructions the agent's instructions
      * @return this
      */

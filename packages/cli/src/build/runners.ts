@@ -25,6 +25,7 @@
  * looking at a failing stage can substitute only that field.
  */
 
+import type { JavaPackCode } from '../dev/pack-code.js';
 import type { IndexResult } from '../dev/runners.js';
 
 /**
@@ -238,6 +239,43 @@ export interface PythonBuildRunners {
 }
 
 /**
+ * The steps that differ for a Java pack (`kindgi.config.json`): Maven
+ * compiles it and resolves its classpath (`prepare`), its own indexer runs
+ * with the pack's JDK, its own Containerfile, the pack root as the context.
+ */
+export interface JavaBuildRunners {
+  /** Compiles the pack and writes its classpath `@argfile` (the `kindgi dev` build, once). */
+  readonly prepare: (opts: {
+    readonly packDir: string;
+    readonly code: JavaPackCode;
+    readonly env: Readonly<Record<string, string>>;
+  }) => Promise<{ readonly kind: 'ok' } | { readonly kind: 'err'; readonly errors: readonly string[] }>;
+  readonly runLocalIndexer: (
+    opts: Omit<RunLocalIndexerOptions, 'bundleDir'> & {
+      readonly code: JavaPackCode;
+      readonly env: Readonly<Record<string, string>>;
+    },
+  ) => Promise<LocalIndexResult>;
+  readonly writeContainerfile: (opts: {
+    readonly outputPath: string;
+    readonly artifactVersion: string;
+    readonly publishedAt: string;
+    readonly buildTarget: string;
+    readonly buildImageRef: string;
+    readonly runtimeImageRef: string;
+    /** Debian packages for the image, checked (`checkAptPackages`). */
+    readonly systemPackages: readonly string[];
+  }) => Promise<void>;
+  /** Writes the build context: `files` (pack-relative) and the Containerfile. */
+  readonly writeContext: (opts: {
+    readonly packDir: string;
+    readonly files: readonly string[];
+    readonly containerfilePath: string;
+    readonly contextDir: string;
+  }) => Promise<void>;
+}
+
+/**
  * Injected seams the `build` command consumes. Every side effect must
  * pass through one of these — no `import('esbuild')` / `import('tar')`
  * inside `commands/build.ts` and no direct docker or filesystem writes
@@ -279,6 +317,8 @@ export interface BuildRunners {
   readonly signEnvelope: (opts: SignOptions) => Promise<SignResult>;
   /** A Python pack's steps; absent → `kindgi build` refuses a Python pack. */
   readonly python?: PythonBuildRunners;
+  /** A Java pack's steps; absent → `kindgi build` refuses a Java pack. */
+  readonly java?: JavaBuildRunners;
   /**
    * The pnpm version the host runs in `root` (`pnpm --version` there).
    * Rejects, with the reason, when it can't be read.
