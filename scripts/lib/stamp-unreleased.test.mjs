@@ -85,22 +85,26 @@ Intro text.
 
   test('refuses a changelog without exactly one Unreleased, above every version', () => {
     assert.throws(
-      () => stampUnreleased('# Acme\n\n## 1.0.0\n', '1.1.0', EMPTY, 'C.md'),
+      () => stampUnreleased('# Acme\n\n## 1.0.0\n', '1.1.0', EMPTY, 'sdks/java/CHANGELOG.md'),
       (err) => {
         assert.ok(err instanceof StampError);
-        assert.match(err.message, /C\.md needs one "## Unreleased" heading; it has 0/);
+        assert.match(err.message, /CHANGELOG\.md needs one "## Unreleased" heading; it has 0/);
         return true;
       },
     );
-    assert.deepEqual(unreleasedProblems('## Unreleased\n\n## Unreleased\n', 'C.md'), [
-      'C.md needs one "## Unreleased" heading; it has 2',
-      'C.md has "## Unreleased" twice',
+    assert.deepEqual(
+      unreleasedProblems('## Unreleased\n\n## Unreleased\n', 'sdks/java/CHANGELOG.md'),
+      [
+        'sdks/java/CHANGELOG.md needs one "## Unreleased" heading; it has 2',
+        'sdks/java/CHANGELOG.md has "## Unreleased" twice',
+      ],
+    );
+    assert.deepEqual(unreleasedProblems('## 1.0.0\n\n## Unreleased\n', 'sdks/java/CHANGELOG.md'), [
+      'sdks/java/CHANGELOG.md: "## Unreleased" must be the first section, above every version',
     ]);
-    assert.deepEqual(unreleasedProblems('## 1.0.0\n\n## Unreleased\n', 'C.md'), [
-      'C.md: "## Unreleased" must be the first section, above every version',
-    ]);
-    assert.deepEqual(unreleasedProblems('## Unreleased\n\n## 1.0.0\n\n## 1.0.0\n', 'C.md'), [
-      'C.md has "## 1.0.0" twice',
-    ]);
+    assert.deepEqual(
+      unreleasedProblems('## Unreleased\n\n## 1.0.0\n\n## 1.0.0\n', 'sdks/java/CHANGELOG.md'),
+      ['sdks/java/CHANGELOG.md has "## 1.0.0" twice'],
+    );
   });
 });
