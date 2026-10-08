@@ -259,6 +259,7 @@
           "flow-runs-not-supported": 422,
           "flow-resume-not-supported": 422,
           "run-resume-not-supported": 422,
+          "semantic-unavailable": 422,
           "rate-limit-exceeded": 429,
           "internal-server-error": 500,
           "journal-error": 500,
@@ -4379,9 +4380,11 @@
             "type": "string",
             "enum": [
               "same-conversation",
+              "same-user",
               "same-project",
               "tenant"
-            ]
+            ],
+            "description": "What the intent selects within what the run may see: this conversation's facts; this run's end user's and user's; the run's project's (none without a project); or every fact of the type it may see."
           },
           "limit": {
             "type": "integer",
@@ -4393,7 +4396,23 @@
               "keyword",
               "semantic",
               "both"
-            ]
+            ],
+            "description": "With the user's message as the query: full-text, by meaning (fails the turn with `semantic-unavailable` on a runtime without embeddings), or both fused by rank (without embeddings, the keyword half). Absent: the newest facts."
+          }
+        }
+      },
+      "AgentMemoryPolicy": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "How the agent uses what it retrieves.",
+        "properties": {
+          "instructionTypes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Fact types that are instructions for this agent: a retrieved, verified fact of one of these types goes into the system message under 'Policies (verified)'. Default: none."
           }
         }
       },
@@ -4579,6 +4598,9 @@
             "items": {
               "$ref": "#/components/schemas/RetrievalIntent"
             }
+          },
+          "memory": {
+            "$ref": "#/components/schemas/AgentMemoryPolicy"
           },
           "guardrails": {
             "type": "array",
@@ -4941,6 +4963,9 @@
               "$ref": "#/components/schemas/RetrievalIntent"
             }
           },
+          "memory": {
+            "$ref": "#/components/schemas/AgentMemoryPolicy"
+          },
           "guardrails": {
             "type": "array",
             "items": {
@@ -4990,6 +5015,26 @@
           },
           "version": {
             "type": "string"
+          },
+          "warnings": {
+            "type": "array",
+            "description": "What the agent should know about this deployment before its first turn, e.g. `semantic-unavailable`: a retrieval intent searches by meaning and the deployment has no embeddings.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "code",
+                "message"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       },
@@ -7053,7 +7098,7 @@
         }
       },
       "RetrieveIntent": {
-        "description": "Retrieval intent — mirrors `RetrievalIntent` from `@kindgi/agents`, widened for direct-HTTP use. `mode: \"list\"` returns a plain scoped list (no query). `mode: \"keyword\"` runs full-text search. `mode: \"semantic\"` runs vector similarity search — requires an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`. `mode: \"both\"` unions keyword + semantic results, dedup by fact id.",
+        "description": "Retrieval intent — mirrors `RetrievalIntent` from `@kindgi/agents`, widened for direct-HTTP use. `mode: \"list\"` returns a plain scoped list (no query), newest first. `mode: \"keyword\"` runs full-text search. `mode: \"semantic\"` searches by meaning — it needs embeddings on the deployment; without them the route answers `422 semantic-unavailable`. `mode: \"both\"` runs both and fuses them by rank (reciprocal rank fusion), as `semantic` needing embeddings.",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -7090,7 +7135,7 @@
         }
       },
       "RetrieveMemoryBody": {
-        "description": "Retrieval intent — mirrors `RetrievalIntent` from `@kindgi/agents`, widened for direct-HTTP use. `mode: \"list\"` returns a plain scoped list (no query). `mode: \"keyword\"` runs full-text search. `mode: \"semantic\"` runs vector similarity search — requires an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`. `mode: \"both\"` unions keyword + semantic results, dedup by fact id.",
+        "description": "Retrieval intent — mirrors `RetrievalIntent` from `@kindgi/agents`, widened for direct-HTTP use. `mode: \"list\"` returns a plain scoped list (no query), newest first. `mode: \"keyword\"` runs full-text search. `mode: \"semantic\"` searches by meaning — it needs embeddings on the deployment; without them the route answers `422 semantic-unavailable`. `mode: \"both\"` runs both and fuses them by rank (reciprocal rank fusion), as `semantic` needing embeddings.",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -7138,7 +7183,7 @@
           },
           "score": {
             "type": "number",
-            "description": "Relevance score. Keyword mode returns an implementation-defined rank (higher = better). Semantic mode returns cosine similarity in [-1, 1] (higher = better). Absent for `list` mode."
+            "description": "Relevance score. Keyword mode returns an implementation-defined rank (higher = better). Semantic mode returns cosine similarity in [-1, 1] (higher = better). Both: the fused rank score, `Σ 1/(60 + rank)` (higher = better). Absent for `list` mode."
           }
         }
       },
@@ -24048,7 +24093,7 @@
             }
           },
           "400": {
-            "description": "Malformed intent, or semantic mode requested and no embedding provider is bound.",
+            "description": "Malformed intent.",
             "content": {
               "application/json": {
                 "schema": {
@@ -24077,6 +24122,16 @@
               }
             }
           },
+          "422": {
+            "description": "`semantic-unavailable`: `semantic` or `both` asked to search by meaning, and the deployment has no embeddings (`KINDGI_MEMORY_EMBEDDINGS`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Server error (unmapped domain code or framework crash).",
             "content": {
@@ -24088,7 +24143,7 @@
             }
           },
           "501": {
-            "description": "`memory-operation-unsupported`: this runtime's memory can't retrieve by intent yet.",
+            "description": "`memory-operation-unsupported`: this runtime's memory can't retrieve by intent.",
             "content": {
               "application/json": {
                 "schema": {
@@ -24098,7 +24153,7 @@
             }
           }
         },
-        "description": "Cross-history retrieval over the facts the caller may see (as for listing). Body is a `RetrieveIntent` shape mirroring the agent-side declarative retrieval. Semantic modes require an embedding provider bound on the deployment.",
+        "description": "Retrieval over the facts the caller may see (as for listing), current revisions only. `mode`: `list` (newest first, no query), `keyword` (full-text), `semantic` (by meaning), or `both` (the two searches fused by rank: reciprocal rank fusion). Searching by meaning needs embeddings on the deployment (`KINDGI_MEMORY_EMBEDDINGS`); without them `semantic` and `both` answer `422 semantic-unavailable`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
