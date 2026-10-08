@@ -8,6 +8,8 @@ export {
   OPENAI_COMPAT_ADAPTER_ID,
   OPENAI_COMPAT_APIS,
   createOpenAICompatModelProvider,
+  openAICompatAdapterEntry,
+  openAICompatCheckConfig,
   defaultOpenAICompatApi,
   isDataResidencyHost,
   openAICompatAdapterFactory,

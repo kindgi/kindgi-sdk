@@ -4196,6 +4196,35 @@ class UnregisterProviderResult(BaseModel):
     unregistered: Literal[True]
 
 
+class AdapterConfigProblem(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    path: str
+    """
+    The setting at fault, as a JSON pointer into the registration: `/adapter_config/<key>`, `/secret_ref`, `/metadata/region`, `/metadata/models/<i>/name`, or `/adapter_id` (an adapter this runtime does not have).
+    """
+    message: str
+    """
+    What's wrong with that setting and what it takes (e.g. `adapter_config.api must be one of responses, chat-completions.`). The error's `message` names the provider and its adapter.
+    """
+
+
+class ProviderCheckResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    provider_id: Annotated[str, Field(alias="providerId")]
+    adapter_id: Annotated[str, Field(alias="adapterId")]
+    checked: bool
+    """
+    False when this runtime has no check for the provider's adapter; `issues` is then empty.
+    """
+    issues: list[AdapterConfigProblem]
+
+
 class Config(BaseModel):
     """
     Transport-tagged config union. Server enforces `config.transport === transport` at registration.
