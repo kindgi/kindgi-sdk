@@ -14,6 +14,11 @@ export const PUBLIC_TOKEN_KEY_PATH_VAR = 'KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH';
 /** The same key's PEM file, base64: the alternative to the path. */
 export const PUBLIC_TOKEN_KEY_VAR = 'KINDGI_PUBLIC_TOKEN_SIGNING_KEY';
 
+/** The export signing key's PEM file (an absolute path), its base64 value, or a Cloud KMS key version: exactly one. */
+export const EXPORT_SIGNING_KEY_PATH_VAR = 'KINDGI_EXPORT_SIGNING_KEY_PATH';
+export const EXPORT_SIGNING_KEY_VAR = 'KINDGI_EXPORT_SIGNING_KEY';
+export const EXPORT_SIGNING_KMS_KEY_VAR = 'KINDGI_EXPORT_SIGNING_KMS_KEY';
+
 /** The license key the server checks at startup outside development mode. */
 export const LICENSE_KEY_VAR = 'KINDGI_LICENSE_KEY';
 

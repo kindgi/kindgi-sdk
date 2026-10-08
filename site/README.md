@@ -59,6 +59,17 @@ builds in a temporary worktree at its tag. A page of an older release says so
 and links to the latest, since a later release may have fixed what it says;
 the version menu keeps you on the same page when the other version has it.
 
+**Fixing a released version's docs.** A release's pages can be fixed after it
+ships, without a new release: open a PR into its `release-docs/<version>`
+branch (create the branch at the release's tag first: `git push origin
+'@kindgi/sdk@0.1.4^{commit}:refs/heads/release-docs/0.1.4'`). The branch may
+change only `site/`, and must describe that version's behaviour, not a later
+one's. `docs:versions` builds a release from `origin/release-docs/<version>`
+when it exists (fetch first), else from its tag, and fails if the branch
+changes anything outside `site/` or doesn't start at the tag. The code and the
+generated reference stay the tag's; `versions.json` and the redirects don't
+change. Land the same fix on `main` too, so the next release has it.
+
 The preview is this checkout (usually `main`, merged but not released), for
 checking before a release. Every page says it's a preview, search engines
 don't index it, and it's deployed only behind a login
