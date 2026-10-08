@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { plan } from './versions-plan.mjs';
+import { menu, plan, redirects } from './versions-plan.mjs';
 
 const tag = (v) => `@kindgi/sdk@${v}`;
 const tags = (...versions) => versions.map(tag);
@@ -59,4 +59,46 @@ test('tags that are not versions are ignored', () => {
     lines: [tag('0.1.3')],
     next: undefined,
   });
+});
+
+test('every release is listed, newest first; lines keep their newest release', () => {
+  const p = plan(tags('0.1.0', '0.1.2', '0.1.1', '0.2.0', '0.2.1-rc.0'));
+  assert.deepEqual(
+    p.releases.map((r) => r.tag),
+    tags('0.2.0', '0.1.2', '0.1.1', '0.1.0'),
+  );
+  assert.deepEqual(
+    p.lines.map((l) => l.tag),
+    tags('0.2.0', '0.1.2'),
+  );
+});
+
+test('versions.json: the root, each release under its own path, and next', () => {
+  assert.deepEqual(menu(plan(tags('0.1.0', '0.1.1', '0.1.2', '0.1.3', '0.1.4-rc.3'))), {
+    latest: '0.1.3',
+    versions: [
+      { version: '0.1.3', line: '0.1', path: '/' },
+      { version: '0.1.3', line: '0.1', path: '/v0.1.3/' },
+      { version: '0.1.2', line: '0.1', path: '/v0.1.2/' },
+      { version: '0.1.1', line: '0.1', path: '/v0.1.1/' },
+      { version: '0.1.0', line: '0.1', path: '/v0.1.0/' },
+      { version: '0.1.4-rc.3', line: '0.1', path: '/next/', next: true },
+    ],
+  });
+});
+
+test('versions.json: no next once its release ships', () => {
+  const { latest, versions } = menu(plan(tags('0.1.3', '0.1.4-rc.3', '0.1.4')));
+  assert.equal(latest, '0.1.4');
+  assert.deepEqual(
+    versions.map((v) => v.path),
+    ['/', '/v0.1.4/', '/v0.1.3/'],
+  );
+});
+
+test('_redirects: each line path goes to its newest release, page for page', () => {
+  assert.equal(
+    redirects(plan(tags('0.1.2', '0.1.3', '0.2.0'))),
+    '/v0.2 /v0.2.0/ 301\n/v0.2/* /v0.2.0/:splat 301\n/v0.1 /v0.1.3/ 301\n/v0.1/* /v0.1.3/:splat 301\n',
+  );
 });

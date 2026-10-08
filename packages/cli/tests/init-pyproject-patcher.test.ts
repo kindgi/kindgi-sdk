@@ -36,6 +36,7 @@ describe('readPyproject', () => {
         isPack: false,
         dependencyStyle: 'pep621',
         hasKindgiDependency: true,
+        hasKindgiCli: false,
         usesPoetry: false,
         usesUv: false,
         uvRequiredVersion: undefined,
@@ -55,6 +56,37 @@ describe('readPyproject', () => {
       usesPoetry: true,
     });
     expect(readPyproject('[project\n').kind).toBe('err');
+  });
+
+  test('kindgi-cli is found wherever a dev tool can be listed', () => {
+    const listed = (text: string): boolean => {
+      const r = readPyproject(text);
+      if (r.kind !== 'ok') throw new Error(r.message);
+      return r.info.hasKindgiCli;
+    };
+    // uv / PEP 735 groups (a path source still lists the name).
+    expect(
+      listed('[project]\nname = "x"\n\n[dependency-groups]\ndev = ["pytest>=8", "kindgi-cli"]\n'),
+    ).toBe(true);
+    expect(
+      listed('[project]\nname = "x"\n\n[dependency-groups]\ntools = ["Kindgi_CLI>=0.1,<0.2"]\n'),
+    ).toBe(true);
+    expect(
+      listed('[project]\nname = "x"\n[project.optional-dependencies]\ndev = ["kindgi-cli"]\n'),
+    ).toBe(true);
+    // Poetry: dev-dependencies, or a group's.
+    expect(
+      listed('[tool.poetry]\nname = "x"\n[tool.poetry.dev-dependencies]\nkindgi-cli = "^0.1"\n'),
+    ).toBe(true);
+    expect(
+      listed(
+        '[tool.poetry]\nname = "x"\n[tool.poetry.group.dev.dependencies]\nkindgi_cli = "^0.1"\n',
+      ),
+    ).toBe(true);
+    // Not kindgi-cli: kindgi itself, or a lookalike.
+    expect(listed('[project]\nname = "x"\ndependencies = ["kindgi>=0.1", "kindgi-client"]\n')).toBe(
+      false,
+    );
   });
 
   test('names normalize per PEP 503', () => {

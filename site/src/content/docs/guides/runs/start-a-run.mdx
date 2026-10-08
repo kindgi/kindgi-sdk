@@ -121,6 +121,34 @@ completed {'status': 'held', 'orderId': 'A-200'}
 person's approval, for example: `status` is then `suspended`). Use it when the
 run is short and the caller needs the answer.
 
+Each client waits for an answer up to its timeout: 30 seconds in TypeScript
+(`timeoutMs`, on `createClient` or on one call to `start`), 60 seconds in
+Python (`timeout=`, on `Kindgi(...)` or on one call). A waited start whose run
+takes longer fails on the client, and the run's id never arrives, though the
+run may still be going:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```text
+The run didn't end within 30 s, the client's timeout (timeoutMs). A waited start answers only when the run ends, so the run may still be going, and its id didn't arrive. Start a run that can take longer with `options: { wait: false }`: the answer carries its id at once. Then follow it with `runs.stream(runId)` or `runs.get(runId)`. Or raise `timeoutMs`.
+```
+
+</TabItem>
+<TabItem label="Python">
+
+A `NetworkError`, after 60 seconds:
+
+```text
+The run didn't end within 60 s, the client's timeout (timeout). A waited start answers only when the run ends, so the run may still be going, and its id didn't arrive. Start a run that can take longer with `options={"wait": False}`: the answer carries its id at once. Then follow it with `runs.stream(run_id)` or `runs.get(run_id)`. Or raise `timeout`.
+```
+
+</TabItem>
+</Tabs>
+
+So start a run that can take longer than the timeout in the background
+(below), and follow it, rather than waiting on it or sending the start again.
+
 ### Start it in the background
 
 With `wait: false`, `start` returns as soon as the run exists, with `status`

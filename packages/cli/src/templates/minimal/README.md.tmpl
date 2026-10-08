@@ -48,18 +48,24 @@ kindgi runs start --agent=demo.echo-agent --input='{"userMessage":"hi"}'
 
 ## Use a real model
 
-`kindgi dev` gives a new pack `dev-echo`, a fallback provider that calls the
-first tool and replies "Tool responded: …" — it answers only while no other
-provider fits. To use Claude, with `kindgi dev` running, from another terminal:
+`kindgi dev` gives a new pack `dev-echo`, a fallback provider that isn't a
+model: it calls the first tool and replies "Tool responded: …", after a
+warning line that says so. It answers only while no other provider fits. To
+use a real model, set one LLM provider's key and register its preset, with
+`kindgi dev` running, from another terminal. For Claude:
 
 ```sh
 kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant   # no-echo prompt; writes .env.local
-kindgi providers register --preset=anthropic                      # Opus 5.5, Sonnet 5.5, Haiku 4.5
+kindgi providers register --preset=anthropic                      # Opus 5.5, Sonnet 5.5 (default), Haiku 5.5, Haiku 4.5
 ```
 
 Claude takes over from dev-echo on the next turn; nothing to restart.
-`--models=claude-haiku-4-5` registers one model only; `kindgi providers
-presets` lists the presets (Gemini on Vertex AI too). Picking a model per
+`--models=claude-sonnet-5-5` registers one model only. OpenAI
+(`OPENAI_API_KEY`, `--preset=openai`), Gemini (`GEMINI_API_KEY`,
+`--preset=gemini-api`), Groq (`GROQ_API_KEY`, `--preset=groq`) and
+OpenRouter, a hosted service your prompts pass through (`OPENROUTER_API_KEY`,
+`--preset=openrouter`), work the same way; `kindgi providers presets` lists
+the presets (Gemini on Vertex AI too). Picking a model per
 agent, and other providers: `.claude/skills/kindgi-authoring-providers/SKILL.md`.
 
 ## Note on `@kindgi/sdk` versioning

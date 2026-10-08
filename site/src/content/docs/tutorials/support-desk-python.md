@@ -11,14 +11,14 @@ urgent tickets and records a reply on the rest. Along the way you'll write
 two tools over your own code (one that reads, one that writes), an agent with
 a typed answer, and a flow that branches on that answer.
 
-You need Python 3.11 or later with uv, Node 22.12 (for the CLI), Docker with
-access to the runtime image ([Install](../../start/install/)), and an
+You need Python 3.11 or later with uv, Docker with access to the runtime
+image ([Install](../../start/install/)), and an
 Anthropic API key for step 6. About 20 minutes.
 
 ## 1. Create the pack
 
 ```sh tutorial=run
-npx --yes @kindgi/cli@0.1 init acme-desk --template=python
+uvx --from "kindgi-cli>=0.1,<0.2" kindgi init acme-desk --template=python
 cd acme-desk
 rm tools/echo.py tools/greet.py agents/echo_agent.py flows/echo_flow.py guardrails/response_not_empty.py tests/test_tools.py
 mkdir support && touch support/__init__.py
@@ -153,7 +153,7 @@ triage = Agent(
     name="Triage",
     description="Classifies a support ticket and drafts a first reply.",
     instructions=(
-        "You triage support tickets. Read the ticket with `acme-desk.get-ticket`, then answer "
+        "You triage support tickets. Read the ticket with the get-ticket tool, then answer "
         "with its category (billing, access or other), its priority (low, normal or urgent) "
         "and a short, friendly first reply to the customer. "
         "A ticket is urgent when the customer cannot work at all."
@@ -258,7 +258,7 @@ uv run python -m kindgi.pack index --pack-dir .
 ## 6. Run it
 
 ```sh tutorial=background ready="Kindgi is up"
-npx --yes @kindgi/cli@0.1 dev
+uv run kindgi dev
 ```
 
 ```text tutorial=expect
@@ -271,8 +271,8 @@ can't produce one). Store your Anthropic key (you're prompted for it; it isn't
 echoed) and register the provider:
 
 ```sh
-npx --yes @kindgi/cli@0.1 secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
-npx --yes @kindgi/cli@0.1 providers register --preset=anthropic
+uv run kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
+uv run kindgi providers register --preset=anthropic
 ```
 
 ## 7. Triage a ticket
@@ -280,7 +280,7 @@ npx --yes @kindgi/cli@0.1 providers register --preset=anthropic
 Run the agent on its own first:
 
 ```sh
-npx --yes @kindgi/cli@0.1 runs start --agent=acme-desk.triage --input='{"userMessage":"Triage ticket T-101"}'
+uv run kindgi runs start --agent=acme-desk.triage --input='{"userMessage":"Triage ticket T-101"}'
 ```
 
 ```text
@@ -301,8 +301,8 @@ gave it. Your reply will read differently: it's the model's.
 Now the flow, once for each ticket:
 
 ```sh
-npx --yes @kindgi/cli@0.1 runs start --flow=acme-desk.handle-ticket --input='{"ticketId":"T-100"}'
-npx --yes @kindgi/cli@0.1 runs start --flow=acme-desk.handle-ticket --input='{"ticketId":"T-101"}'
+uv run kindgi runs start --flow=acme-desk.handle-ticket --input='{"ticketId":"T-100"}'
+uv run kindgi runs start --flow=acme-desk.handle-ticket --input='{"ticketId":"T-101"}'
 ```
 
 The first returns `"category": "billing"`, `"priority": "normal"` and a
@@ -310,7 +310,7 @@ drafted reply; the second `"category": "access"`, `"priority": "urgent"`.
 The journal shows which way each run went. For `T-101`:
 
 ```sh
-npx --yes @kindgi/cli@0.1 runs journal <run-id>
+uv run kindgi runs journal <run-id>
 ```
 
 ```text

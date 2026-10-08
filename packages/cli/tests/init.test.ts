@@ -33,7 +33,7 @@ function baseInputs(overrides: Partial<Parameters<typeof runCli>[0]> = {}) {
     cwd,
     home,
     // The host's pnpm, never this machine's real one.
-    initSeam: { pnpmVersion: async () => '10.28.0' },
+    initSeam: { pnpmVersion: async () => '10.28.0', packageManagerRuns: async () => true },
     ...overrides,
   };
 }
@@ -191,6 +191,53 @@ describe('kindgi init — minimal template', () => {
     expect(out.stderr).toContain('cd my-pack');
     expect(out.stderr).toContain('pnpm install');
     expect(out.stderr).toContain('kindgi dev');
+  });
+});
+
+describe('kindgi init — python template, from the PyPI CLI (kindgi-cli)', () => {
+  test('the pack lists kindgi-cli in its dev group, and the next steps say uv run kindgi', async () => {
+    const out = await runCli(
+      baseInputs({
+        argv: ['init', 'my-pack', '--template=python'],
+        env: { KINDGI_CLI_INSTALL: 'pypi' },
+      }),
+    );
+    expect(out.exitCode).toBe(0);
+    const pyproject = await readFile(join(cwd, 'my-pack', 'pyproject.toml'), 'utf8');
+    expect(pyproject).toMatch(
+      /^dev = \["pytest>=8", "kindgi-cli>=\d+\.\d+(\.\d+)?((a|b|rc)\d+)?,<\d+\.\d+"\]$/m,
+    );
+    expect(out.stderr).toContain('uv run kindgi dev');
+    expect(out.stderr).not.toContain('npx');
+  });
+
+  test('from the npm CLI: no kindgi-cli, and the npx line as before', async () => {
+    const out = await runCli(baseInputs({ argv: ['init', 'my-pack', '--template=python'] }));
+    const pyproject = await readFile(join(cwd, 'my-pack', 'pyproject.toml'), 'utf8');
+    expect(pyproject).toMatch(/^dev = \["pytest>=8"\]$/m);
+    expect(out.stderr).toContain('npx --yes @kindgi/cli@');
+  });
+});
+
+describe('kindgi init — a machine without pnpm (T280)', () => {
+  test('the next steps install and run with npm, never naming pnpm', async () => {
+    const out = await runCli(
+      baseInputs({
+        argv: ['init', 'my-pack'],
+        initSeam: {
+          pnpmVersion: async () => {
+            throw new Error('spawn pnpm ENOENT');
+          },
+          packageManagerRuns: async (pm) => pm !== 'pnpm',
+        },
+      }),
+    );
+    expect(out.exitCode).toBe(0);
+    expect(out.stderr).toContain('  npm install');
+    expect(out.stderr).toContain('npx --no kindgi dev');
+    expect(out.stderr).not.toMatch(/^ {2}pnpm /m);
+    // No advice to pin a pnpm this machine doesn't have.
+    expect(out.stderr).not.toContain('packageManager');
   });
 });
 

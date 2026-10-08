@@ -143,17 +143,65 @@ const register: LeafCommand = {
       }
       const input = await presetInput(ctx, presetName as string);
       const outcome = await ctx.client().providers.register(input);
-      const models = input.metadata.models.map((m) => m.name).join(', ');
+      const wanted = input.metadata.defaultModel;
+      const models = input.metadata.models
+        .map((m) => (m.name === wanted ? `${m.name} (default)` : m.name))
+        .join(', ');
       const key =
         input.secret_ref !== undefined
           ? ` — key ${input.secret_ref.name} (env ${input.secret_ref.envName})`
           : '';
+      const kept = await runtimeNotes(ctx, input);
       return {
         stdout: renderJson(outcome, ctx.globals.format).stdout,
-        stderr: `✓ Registered ${input.metadata.id}: ${models}${key}\n`,
+        stderr: `✓ Registered ${input.metadata.id}: ${models}${key}\n${kept}`,
       };
     }),
 };
+
+/**
+ * A runtime from before 0.1.4 keeps only the provider fields it knows: it
+ * drops `defaultModel`, and each model's `sampling` and `thinking`. Read
+ * the provider back and say what that means: what an agent that chooses
+ * no model gets instead, and that the models' sampling and thinking rules
+ * don't apply. Nothing when the runtime kept them, when there were none
+ * to keep, or when the provider can't be read back.
+ */
+async function runtimeNotes(ctx: CommandContext, input: RegisterProviderInput): Promise<string> {
+  const wanted = input.metadata.defaultModel;
+  const noSampling = input.metadata.models.filter((m) => m.sampling === false).map((m) => m.name);
+  const thinks = input.metadata.models.some((m) => m.thinking !== undefined);
+  if (wanted === undefined && noSampling.length === 0 && !thinks) return '';
+  let got: {
+    readonly defaultModel?: string;
+    readonly models: readonly {
+      readonly name: string;
+      readonly sampling?: boolean;
+      readonly thinking?: unknown;
+    }[];
+  };
+  try {
+    got = await ctx.client().providers.get(input.metadata.id);
+  } catch {
+    return '';
+  }
+  const notes: string[] = [];
+  if (wanted !== undefined && got.defaultModel !== wanted) {
+    const first = [...got.models.map((m) => m.name)].sort((a, b) => a.localeCompare(b))[0];
+    notes.push(
+      `  This runtime predates default models, so it didn't keep one: an agent that chooses none gets ${first ?? 'the first model by name'}, not ${wanted}. Name one on your agents (preferredModel), or upgrade the runtime.\n`,
+    );
+  }
+  const keptRules = got.models.some((m) => m.sampling !== undefined || m.thinking !== undefined);
+  if ((noSampling.length > 0 || thinks) && !keptRules) {
+    notes.push(
+      noSampling.length > 0
+        ? `  This runtime doesn't apply the models' sampling and thinking rules: an agent that sets a temperature on ${noSampling.join(', ')} may be refused. Upgrade the runtime to 0.1.4 or later.\n`
+        : "  This runtime doesn't apply the models' thinking rules: a guardrail judge on them may run out of room for its verdict. Upgrade the runtime to 0.1.4 or later.\n",
+    );
+  }
+  return notes.join('');
+}
 
 /**
  * The registration body for `--preset=<name>`. In `kindgi dev`'s
@@ -212,7 +260,12 @@ async function missingPackSecret(
     env: ctx.env,
   });
   if (Object.hasOwn(packValues(env.values), name)) return undefined;
-  const runner = await detectBinRunner(ctx.cwd, packLanguage(settings.config as KindgiConfig));
+  const runner = await detectBinRunner(
+    ctx.cwd,
+    packLanguage(settings.config as KindgiConfig),
+    undefined,
+    ctx.env,
+  );
   const files = env.files.read.map((p) => displayEnvPath(ctx.cwd, p)).join(', ');
   return [
     `${name} (the ${preset.name} key) is not in ${files}. Set it first, then register again:`,

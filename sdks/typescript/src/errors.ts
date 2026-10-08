@@ -38,6 +38,8 @@ export interface NetworkError {
   readonly code: 'network';
   readonly message: string;
   readonly cause?: unknown;
+  /** Set when the client's own timeout ended the request: that timeout, in milliseconds. */
+  readonly timeoutMs?: number;
 }
 
 export interface AuthError {
@@ -303,6 +305,7 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'gate-policy-scope-changed':
     case 'gate-policy-scope-unpinned':
     case 'gate-policy-needs-pin':
+    case 'gate-policy-descendant-unpinned':
       return { code: 'conflict', message, reason: code };
     case 'invalid-request':
     case 'validation-failed':
