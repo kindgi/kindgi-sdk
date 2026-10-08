@@ -527,6 +527,21 @@ describe('kindgi runs start', () => {
     );
   });
 
+  test("a run that carries `failure` (0.1.5 runtimes): its code and message, not the raw message's", async () => {
+    const out = await startThenRead(['--agent=pack.agent'], {
+      status: 'failed',
+      failureMessage: routing,
+      failure: {
+        code: 'budget-exceeded',
+        message: 'Agent turn steps budget exceeded (limit 1, observed 1)',
+      },
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      'Error [budget-exceeded]: Agent turn steps budget exceeded (limit 1, observed 1)\n',
+    );
+  });
+
   test("failures joined with '; ': the first turn error", async () => {
     const out = await startThenRead(['--agent=pack.agent'], {
       status: 'failed',

@@ -27,6 +27,7 @@ import type {
 } from '../handler-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { MintPublicRunTokenResult } from '../public-run-token.js';
+import { type RunFailure, runFailure } from '../run-failure.js';
 import type { AppEnv } from '../types.js';
 import { liveScopeToWire } from './live-scope-wire.js';
 import type { DecodedCursor } from './pagination.js';
@@ -678,6 +679,7 @@ function serializeRun(
     updatedAt: row.updatedAt as unknown as string,
     completedAt: row.completedAt ?? undefined,
     failureMessage: row.failureMessage ?? undefined,
+    ...withFailure(row),
     ...(opts.output && row.output !== undefined && { output: row.output }),
     ...(row.parentRunId != null && { parentRunId: row.parentRunId as unknown as string }),
     ...(row.parentNodeId != null && { parentNodeId: row.parentNodeId as unknown as string }),
@@ -701,6 +703,12 @@ function serializeRun(
       }),
     ...(row.traceId != null && { traceId: row.traceId }),
   };
+}
+
+/** `failure` on a failed run's wire row: its error, decoded once, here. */
+function withFailure(row: KernelRunRecord): { readonly failure?: RunFailure } {
+  const failure = runFailure(row);
+  return failure !== undefined ? { failure } : {};
 }
 
 /** A run's progress: status and timing, no data. */
