@@ -303,6 +303,9 @@ OPERATIONS: dict[str, Operation] = {
     "providers.capabilities": Operation(
         "providers.capabilities", "GET", "/v1/providers/{providerId}/capabilities", "json", False
     ),
+    "providers.check": Operation(
+        "providers.check", "GET", "/v1/providers/{providerId}/check", "json", False
+    ),
     "providers.unregister": Operation(
         "providers.unregister", "POST", "/v1/providers/{providerId}/unregister", "json", True
     ),
@@ -3238,7 +3241,7 @@ class ProvidersResource:
     ) -> _models.RegisterProviderResult:
         """Register a model provider. `POST /v1/providers`
 
-        Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped; optional `labels` within their limits — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding.
+        Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped; optional `labels` within their limits — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding. When the runtime has the adapter the body names, that adapter checks the registration first (its `adapter_config`, the metadata and the presence of `secret_ref`; static: no network, no secret read): a problem refuses it with `422 provider-config-invalid`.
         """
         return self._client._request(
             _OPERATIONS["providers.register"],
@@ -3279,6 +3282,22 @@ class ProvidersResource:
             query={},
             headers={},
             response=_models.ProviderCapabilitiesResult,
+            timeout=timeout,
+        )
+
+    def check(
+        self, provider_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.ProviderCheckResult:
+        """Check a provider's registration. `GET /v1/providers/{providerId}/check`
+
+        Runs the provider's adapter check over its stored registration (its `adapter_config`, its metadata, whether it names a `secret_ref`): the check `POST /v1/providers` runs before it stores one. Static: no network call, no secret read. `issues` lists what would keep the runtime from building the provider, each with a JSON-pointer `path`; an adapter this runtime doesn't have is one (`/adapter_id`). `checked` is false when this runtime has no check for the provider's adapter.
+        """
+        return self._client._request(
+            _OPERATIONS["providers.check"],
+            path={"providerId": provider_id},
+            query={},
+            headers={},
+            response=_models.ProviderCheckResult,
             timeout=timeout,
         )
 
@@ -9310,7 +9329,7 @@ class AsyncProvidersResource:
     ) -> _models.RegisterProviderResult:
         """Register a model provider. `POST /v1/providers`
 
-        Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped; optional `labels` within their limits — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding.
+        Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped; optional `labels` within their limits — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding. When the runtime has the adapter the body names, that adapter checks the registration first (its `adapter_config`, the metadata and the presence of `secret_ref`; static: no network, no secret read): a problem refuses it with `422 provider-config-invalid`.
         """
         return await self._client._request(
             _OPERATIONS["providers.register"],
@@ -9351,6 +9370,22 @@ class AsyncProvidersResource:
             query={},
             headers={},
             response=_models.ProviderCapabilitiesResult,
+            timeout=timeout,
+        )
+
+    async def check(
+        self, provider_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.ProviderCheckResult:
+        """Check a provider's registration. `GET /v1/providers/{providerId}/check`
+
+        Runs the provider's adapter check over its stored registration (its `adapter_config`, its metadata, whether it names a `secret_ref`): the check `POST /v1/providers` runs before it stores one. Static: no network call, no secret read. `issues` lists what would keep the runtime from building the provider, each with a JSON-pointer `path`; an adapter this runtime doesn't have is one (`/adapter_id`). `checked` is false when this runtime has no check for the provider's adapter.
+        """
+        return await self._client._request(
+            _OPERATIONS["providers.check"],
+            path={"providerId": provider_id},
+            query={},
+            headers={},
+            response=_models.ProviderCheckResult,
             timeout=timeout,
         )
 

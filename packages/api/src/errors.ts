@@ -158,6 +158,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'provider-not-found': 404,
   'provider-already-registered': 409,
   'invalid-provider': 400,
+  'provider-config-invalid': 422,
   // Admin plane — cost readback.
   'cost-record-not-found': 404,
   // Admin plane — adapters.
