@@ -29,6 +29,7 @@ import { findKindgiConfig } from '@kindgi/handler-runtime';
 import { LOCAL_ENV_NAME, displayEnvPath, readPackEnv } from '@kindgi/secrets-dotenv';
 
 import type { CommandContext } from '../context.js';
+import { javaMajor } from '../dev/pack-code.js';
 import { type DockerRunner, docker } from '../dev/runtime-container.js';
 import { DEFAULT_RUNTIME_IMAGE, registryOf } from '../dev/runtime-image.js';
 import { checkDocker, checkImageAccess, credentialHelperHint } from '../dev/runtime-registry.js';
@@ -56,12 +57,18 @@ const DEV_ECHO_PROVIDER_ID = 'dev-echo';
 export const MIN_NODE = '22.12.0';
 /** The Python a Python project needs (`requires-python` in its pyproject.toml). */
 export const MIN_PYTHON = '3.11.0';
+/** The JDK a Java project needs (kindgi-pack's baseline). */
+export const MIN_JAVA = 17;
+
+type ProjectLanguage = 'node' | 'python' | 'java';
 
 export type DoctorCheckId =
   | 'node'
   | 'npm'
   | 'python'
   | 'uv'
+  | 'java'
+  | 'maven'
   | 'docker'
   | 'registry'
   | 'project'
@@ -85,7 +92,7 @@ export interface DoctorReport {
   readonly ok: boolean;
   readonly cliVersion: string;
   /** The Kindgi project in the folder checked, or `null` outside one. */
-  readonly project: { readonly dir: string; readonly language: 'node' | 'python' } | null;
+  readonly project: { readonly dir: string; readonly language: ProjectLanguage } | null;
   readonly checks: readonly DoctorCheck[];
 }
 
@@ -113,6 +120,8 @@ const TITLES: Readonly<Record<DoctorCheckId, string>> = {
   npm: 'npm',
   python: 'Python',
   uv: 'uv',
+  java: 'Java',
+  maven: 'Maven',
   docker: 'Docker',
   registry: 'Runtime image',
   project: 'Project',
@@ -153,13 +162,20 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
   const checks: DoctorCheck[] = [];
 
   const config = await findKindgiConfig(dir);
-  const language =
-    config === undefined ? undefined : config.format === 'pyproject' ? 'python' : 'node';
+  const language: ProjectLanguage | undefined =
+    config === undefined
+      ? undefined
+      : config.format === 'pyproject'
+        ? 'python'
+        : config.format === 'json'
+          ? 'java'
+          : 'node';
   const pypi = cliInstall(ctx.env) === 'pypi';
   const kindgi = await kindgiCommand(dir, language, pypi, tool);
 
   checks.push(...(await nodeChecks(seam.nodeVersion ?? process.versions.node, tool, pypi)));
   checks.push(...(await pythonChecks(tool, language)));
+  checks.push(...(await javaChecks(tool, language, dir, ctx.env)));
   const dockerCheck = await checkDockerRunning(run);
   checks.push(dockerCheck);
   checks.push(
@@ -172,7 +188,7 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
     checks.push({
       id: 'project',
       status: 'skip',
-      message: `No Kindgi project in ${dir}: no kindgi.config.ts, and no pyproject.toml with [tool.kindgi].`,
+      message: `No Kindgi project in ${dir}: no kindgi.config.ts, no pyproject.toml with [tool.kindgi], and no kindgi.config.json.`,
       fix: createProjectFix(kindgi, pypi),
     });
     for (const id of ['dependencies', 'model-key', 'runtime', 'provider'] as const) {
@@ -257,7 +273,7 @@ async function nodeChecks(
 function createProjectFix(kindgi: Kindgi, pypi: boolean): string {
   return pypi
     ? `Create one: ${kindgi('init', '<name>', '--template=python')}, then run doctor in its folder.`
-    : `Create one: ${kindgi('init', '<name>')} (TypeScript; add --template=python for Python), then run doctor in its folder.`;
+    : `Create one: ${kindgi('init', '<name>')} (TypeScript; add --template=python for Python, --template=java for Java), then run doctor in its folder.`;
 }
 
 function nodeCheck(version: string, pypi: boolean): DoctorCheck {
@@ -284,7 +300,7 @@ async function npmCheck(tool: NonNullable<DoctorSeam['tool']>): Promise<DoctorCh
 /** Python and uv: needed by a Python project; elsewhere, what's installed (for choosing a template). */
 async function pythonChecks(
   tool: NonNullable<DoctorSeam['tool']>,
-  language: 'node' | 'python' | undefined,
+  language: ProjectLanguage | undefined,
 ): Promise<DoctorCheck[]> {
   const python = await pythonVersion(tool);
   const uv = await tool('uv', ['--version']);
@@ -299,7 +315,7 @@ async function pythonChecks(
   const uvFix =
     'Install uv: curl -LsSf https://astral.sh/uv/install.sh | sh (or: brew install uv).';
   if (language !== 'python') {
-    const why = language === 'node' ? 'a TypeScript project' : 'no project yet';
+    const why = projectKind(language);
     return [
       skip(
         'python',
@@ -325,6 +341,84 @@ async function pythonChecks(
       ? pass('uv', `uv ${uvVersion}.`)
       : fail('uv', "uv isn't installed: a Kindgi Python project installs and runs with it.", uvFix),
   ];
+}
+
+/** Why a language's tools aren't needed: the project's kind, or no project. */
+function projectKind(language: ProjectLanguage | undefined): string {
+  return language === 'node'
+    ? 'a TypeScript project'
+    : language === 'python'
+      ? 'a Python project'
+      : language === 'java'
+        ? 'a Java project'
+        : 'no project yet';
+}
+
+/**
+ * A JDK 17+ and Maven: needed by a Java project; elsewhere, what's
+ * installed (for choosing a template). The JDK is `JAVA_HOME`'s, else the
+ * `java` on PATH, as `kindgi dev` finds it; Maven is the project's wrapper
+ * (`mvnw`), else `mvn`.
+ */
+async function javaChecks(
+  tool: NonNullable<DoctorSeam['tool']>,
+  language: ProjectLanguage | undefined,
+  dir: string,
+  env: Readonly<Record<string, string | undefined>>,
+): Promise<DoctorCheck[]> {
+  const home = env.JAVA_HOME !== undefined && env.JAVA_HOME !== '' ? env.JAVA_HOME : undefined;
+  const javaCommand = home === undefined ? 'java' : join(home, 'bin', 'java');
+  const got = await tool(javaCommand, ['-version']);
+  const version = /version "([^"]+)"/.exec(`${got.stderr}\n${got.stdout}`)?.[1];
+  const major = version === undefined ? undefined : javaMajor(version);
+  const javaFix = `Install a JDK ${MIN_JAVA} or later (e.g. Eclipse Temurin, https://adoptium.net) and set JAVA_HOME to it.`;
+  const wrapper = await isFile(join(dir, 'mvnw'));
+  const mvn = wrapper ? undefined : await tool('mvn', ['--version']);
+  const mvnVersion = mvn?.code === 0 ? /Apache Maven (\S+)/.exec(mvn.stdout)?.[1] : undefined;
+  const mavenFix =
+    'Add the Maven wrapper to the project (mvn wrapper:wrapper), or install Maven 3.9 or later (https://maven.apache.org/install.html).';
+  if (language !== 'java') {
+    const why = projectKind(language);
+    return [
+      skip(
+        'java',
+        `Not needed (${why}); ${version !== undefined && got.code === 0 ? `Java ${version} is installed` : "Java isn't installed"}, for a Java project (kindgi init --template=java).`,
+      ),
+      skip(
+        'maven',
+        `Not needed (${why}); ${mvnVersion !== undefined ? `Maven ${mvnVersion} is installed` : "Maven isn't installed"}, for a Java project.`,
+      ),
+    ];
+  }
+  const where = home === undefined ? 'the java on your PATH' : `JAVA_HOME, ${home}`;
+  return [
+    got.code === null || version === undefined
+      ? fail('java', `No JDK: ${where} doesn't run.`, javaFix)
+      : major !== undefined && major >= MIN_JAVA
+        ? pass('java', `Java ${version} (${where}).`)
+        : fail(
+            'java',
+            `Java ${version} (${where}); a Kindgi Java project needs ${MIN_JAVA} or later.`,
+            javaFix,
+          ),
+    wrapper
+      ? pass('maven', 'The project has the Maven wrapper (mvnw).')
+      : mvnVersion !== undefined
+        ? pass('maven', `Maven ${mvnVersion}.`)
+        : fail(
+            'maven',
+            "Maven isn't installed, and the project has no Maven wrapper (mvnw).",
+            mavenFix,
+          ),
+  ];
+}
+
+async function isFile(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isFile();
+  } catch {
+    return false;
+  }
 }
 
 async function pythonVersion(tool: NonNullable<DoctorSeam['tool']>): Promise<string | undefined> {
@@ -419,11 +513,13 @@ async function readKindgirc(dir: string): Promise<Kindgirc> {
   }
 }
 
-function projectCheck(dir: string, language: 'node' | 'python', rc: Kindgirc): DoctorCheck {
+function projectCheck(dir: string, language: ProjectLanguage, rc: Kindgirc): DoctorCheck {
   const kind =
     language === 'python'
       ? 'A Python project (pyproject.toml)'
-      : 'A TypeScript project (kindgi.config.ts)';
+      : language === 'java'
+        ? 'A Java project (kindgi.config.json)'
+        : 'A TypeScript project (kindgi.config.ts)';
   if (rc.malformed !== undefined) {
     return fail(
       'project',
@@ -439,9 +535,33 @@ function projectCheck(dir: string, language: 'node' | 'python', rc: Kindgirc): D
 
 async function dependenciesCheck(
   dir: string,
-  language: 'node' | 'python',
+  language: ProjectLanguage,
   tool: NonNullable<DoctorSeam['tool']>,
 ): Promise<DoctorCheck> {
+  if (language === 'java') {
+    let pom: string;
+    try {
+      pom = await readFile(join(dir, 'pom.xml'), 'utf8');
+    } catch {
+      return fail(
+        'dependencies',
+        'No pom.xml: a Kindgi Java project builds with Maven.',
+        'Create one with the com.kindgi:kindgi-pack dependency (kindgi init --template=java writes one).',
+      );
+    }
+    return /<groupId>\s*com\.kindgi\s*<\/groupId>\s*<artifactId>\s*kindgi-pack\s*<\/artifactId>/.test(
+      pom,
+    )
+      ? pass(
+          'dependencies',
+          'pom.xml has com.kindgi:kindgi-pack (Maven downloads it on the first build).',
+        )
+      : fail(
+          'dependencies',
+          "pom.xml doesn't have com.kindgi:kindgi-pack.",
+          'Add the com.kindgi:kindgi-pack dependency to pom.xml.',
+        );
+  }
   if (language === 'python') {
     return (await pythonPackageInstalled(dir))
       ? pass('dependencies', 'The kindgi package is installed in .venv.')
@@ -626,13 +746,14 @@ type Kindgi = (...args: string[]) => string;
  */
 async function kindgiCommand(
   dir: string,
-  language: 'node' | 'python' | undefined,
+  language: ProjectLanguage | undefined,
   pypi: boolean,
   tool: NonNullable<DoctorSeam['tool']>,
 ): Promise<Kindgi> {
   if (pypi) {
-    // The PyPI build runs from the project's own environment; outside one, uvx.
-    if (language === undefined) {
+    // The PyPI build runs from the project's own environment; outside one (or in a
+    // Java project, which has none), uvx.
+    if (language === undefined || language === 'java') {
       return (...args) => ['uvx', '--from', 'kindgi-cli', 'kindgi', ...args].join(' ');
     }
     const runner = await pythonBinRunner(dir, { KINDGI_CLI_INSTALL: 'pypi' });

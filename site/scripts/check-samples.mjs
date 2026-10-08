@@ -17,8 +17,15 @@
  * which imports every module it discovers), with no file errors allowed,
  * and every other file (app code, `# derive.py`) is type-checked with
  * pyright against the pack's environment, since importing it would run its
- * calls. The pack's id is the one the samples use. A sample without a file
- * name is a fragment and isn't checked.
+ * calls. The pack's id is the one the samples use. Its Java files
+ * (`// src/main/java/com/acme/Name.java`) are compiled together with
+ * `javac --release 17` against the Java SDK this checkout builds
+ * (`sdks/java`: the client's jar and what its published POM depends on,
+ * and kindgi-pack's classes and dependencies), offline. When they're a
+ * pack's (they use `com.kindgi.pack`), they go over a fresh `java` pack,
+ * compile with its sources, and the pack is indexed
+ * (`com.kindgi.pack.Main index`), with no file errors allowed. A sample
+ * without a file name is a fragment and isn't checked.
  *
  * A sample may import the reader's own app code (`@/lib/requests`,
  * `acme.orders`). The page gives the checker a stand-in for it in a comment
@@ -29,7 +36,10 @@
  * an app with its own settings (Next.js: `moduleResolution: "bundler"`, the
  * `@/*` paths).
  *
- * Needs the workspace built (`pnpm run build`), and uv for Python samples.
+ * Needs the workspace built (`pnpm run build`), uv for Python samples, and for
+ * Java samples a JDK 17 or later and the Java SDK built
+ * (`cd sdks/java && ./mvnw package -DskipTests`). A missing tool fails the
+ * check; it's never skipped.
  *
  * Usage: node site/scripts/check-samples.mjs [<page or skill file> …]
  *   (a page path is relative to site/src/content/docs; default: every page and skill)
@@ -46,7 +56,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, relative, resolve } from 'node:path';
+import { delimiter, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const site = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -69,8 +79,22 @@ const LANGUAGES = {
     id: /\bid:\s*'([a-z0-9-]+)\.[^']+'/,
   },
   python: { template: 'python', file: /^#\s*(\S+\.py)\s*$/, id: /\bid="([a-z0-9-]+)\.[^"]+"/ },
+  // A Java file: an app's (compiled against the Java SDK) or a pack's (over a `java` pack).
+  java: {
+    template: 'java',
+    file: /^\/\/\s*(src\/main\/java\/\S+\.java)\s*$/,
+    id: /\bdefine\("([a-z0-9-]+)\.[^"]+"\)/,
+  },
 };
-const FENCE_LANGUAGE = { ts: 'ts', typescript: 'ts', tsx: 'ts', python: 'python', py: 'python' };
+const FENCE_LANGUAGE = {
+  ts: 'ts',
+  typescript: 'ts',
+  tsx: 'ts',
+  python: 'python',
+  py: 'python',
+  java: 'java',
+};
+const javaSdk = join(repo, 'sdks', 'java');
 
 function pages(dir = docs) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -134,7 +158,7 @@ function blocks(markdown) {
 
 /** A page's samples that are whole files, by language: `{ path, content }[]`. */
 function fileSamples(markdown) {
-  const byLanguage = { ts: [], python: [] };
+  const byLanguage = { ts: [], python: [], java: [] };
   for (const block of blocks(markdown)) {
     if (block.stub && ['json', 'jsonc'].includes(block.language)) {
       const config = block.lines[0]?.match(/^\/\/\s*(\S+\.json)\s*$/);
@@ -176,16 +200,116 @@ function freshPack(template, packId) {
     );
     if (!init.ok)
       throw new Error(`kindgi init ${packId} --template=${template} failed:\n${init.output}`);
+    // A Java pack compiles against the SDK this checkout built (`java()`): nothing to install.
     const prepare =
       template === 'python'
         ? run('uv', ['sync', '--quiet'], dir)
-        : run('pnpm', ['install', '--prefer-offline', '--silent'], dir);
+        : template === 'java'
+          ? { ok: true, output: '' }
+          : run('pnpm', ['install', '--prefer-offline', '--silent'], dir);
     if (!prepare.ok) throw new Error(`preparing the ${template} pack failed:\n${prepare.output}`);
     scaffolds.set(key, dir);
   }
   const copy = mkdtempSync(join(work, 'page-'));
   cpSync(scaffolds.get(key), copy, { recursive: true, verbatimSymlinks: true });
   return copy;
+}
+
+/**
+ * The JDK's javac (JAVA_HOME's, else PATH's) and the classpath of the Java SDK
+ * this checkout built: found once; a missing one fails the check, saying what to do.
+ */
+let javaToolchain;
+function java() {
+  if (javaToolchain) return javaToolchain;
+  const javac = process.env.JAVA_HOME ? join(process.env.JAVA_HOME, 'bin', 'javac') : 'javac';
+  const version = run(javac, ['-version'], repo);
+  const major = Number(version.output.match(/javac (\d+)/)?.[1] ?? 0);
+  if (!version.ok || major < 17) {
+    const found = version.ok ? version.output.trim() : 'no javac';
+    throw new Error(
+      `Java samples need a JDK 17 or later (found: ${found}). Install one (Temurin 17, say) and set JAVA_HOME or put javac on PATH.`,
+    );
+  }
+  const target = (module) => join(javaSdk, module, 'target');
+  const client = existsSync(target('kindgi-client'))
+    ? readdirSync(target('kindgi-client')).find((f) =>
+        /^kindgi-client-[^/]+(?<!-sources|-javadoc)\.jar$/.test(f),
+      )
+    : undefined;
+  const classpathFile = join(target('kindgi-client'), 'samples-classpath.txt');
+  const packClasspathFile = join(target('kindgi-pack'), 'classpath.txt');
+  if (client === undefined || !existsSync(classpathFile) || !existsSync(packClasspathFile)) {
+    throw new Error(
+      'Java samples compile against the Java SDK this checkout builds, and it is not built: run `cd sdks/java && ./mvnw package -DskipTests` first.',
+    );
+  }
+  const classpath = [
+    join(target('kindgi-client'), client),
+    ...readFileSync(classpathFile, 'utf8').trim().split(delimiter),
+    join(target('kindgi-pack'), 'classes'),
+    ...readFileSync(packClasspathFile, 'utf8').trim().split(delimiter),
+  ];
+  javaToolchain = { javac, classpath: classpath.join(delimiter) };
+  return javaToolchain;
+}
+
+/** Every `.java` file under `dir`, relative to it. */
+function javaSources(dir, rel = '') {
+  return readdirSync(join(dir, rel), { withFileTypes: true }).flatMap((entry) => {
+    const child = rel === '' ? entry.name : `${rel}/${entry.name}`;
+    if (entry.isDirectory()) return javaSources(dir, child);
+    return entry.name.endsWith('.java') ? [child] : [];
+  });
+}
+
+function checkJava(files) {
+  // A pack's samples go over a fresh `java` pack and are indexed; an app's compile alone.
+  const pack = files.some((file) => /\bimport com\.kindgi\.pack\./.test(file.content));
+  const packId = files.map((file) => file.content.match(LANGUAGES.java.id)?.[1]).find(Boolean);
+  const dir = pack ? freshPack('java', packId ?? 'my-pack') : mkdtempSync(join(work, 'java-'));
+  for (const file of files) {
+    const target = join(dir, file.path);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, file.content);
+  }
+  const { javac, classpath } = java();
+  const sources = pack ? javaSources(dir, 'src/main/java') : files.map((f) => f.path);
+  const classes = join(dir, 'target', 'classes');
+  const compiled = run(
+    javac,
+    ['--release', '17', '-Xlint:none', '-d', classes, '-cp', classpath, ...sources],
+    dir,
+  );
+  if (!compiled.ok || !pack) return compiled.ok ? undefined : compiled.output;
+  const javaBin = process.env.JAVA_HOME ? join(process.env.JAVA_HOME, 'bin', 'java') : 'java';
+  const index = run(
+    javaBin,
+    [
+      '-cp',
+      [classes, classpath].join(delimiter),
+      'com.kindgi.pack.Main',
+      'index',
+      '--pack-dir',
+      dir,
+      '--output',
+      join(dir, 'target', 'index.json'),
+      '--json',
+    ],
+    dir,
+  );
+  const outcome = (() => {
+    try {
+      return JSON.parse(index.output.slice(index.output.indexOf('{')));
+    } catch {
+      return undefined;
+    }
+  })();
+  if (outcome?.kind !== 'ok') return index.output;
+  const errors = outcome.value.fileErrors ?? [];
+  return errors.length > 0
+    ? errors.map((error) => `${error.filePath}: ${error.code}: ${error.message}`).join('\n')
+    : undefined;
 }
 
 function check(language, files, packDir) {
@@ -233,9 +357,14 @@ try {
     const markdown = readFileSync(page, 'utf8');
     for (const [language, files] of Object.entries(fileSamples(markdown))) {
       if (files.length === 0) continue;
-      const { template, id } = LANGUAGES[language];
-      const packId = files.map((file) => file.content.match(id)?.[1]).find(Boolean) ?? 'my-pack';
-      const error = check(language, files, freshPack(template, packId));
+      let error;
+      if (language === 'java') {
+        error = checkJava(files);
+      } else {
+        const { template, id } = LANGUAGES[language];
+        const packId = files.map((file) => file.content.match(id)?.[1]).find(Boolean) ?? 'my-pack';
+        error = check(language, files, freshPack(template, packId));
+      }
       const samples = files.filter((file) => !file.stub);
       checked += samples.length;
       const where = `${relative(repo, page)} (${language}: ${samples.map((file) => file.path).join(', ')})`;

@@ -38,6 +38,13 @@ final class ResourceWriter {
   static final ClassName PAGING = ClassName.get(INTERNAL, "Paging");
   static final ClassName STREAM = ClassName.get(java.util.stream.Stream.class);
 
+  /**
+   * A run's event streams, which the server ends after the run's terminal event or after a time
+   * limit: each gets a method that follows it through to the end, reconnecting with {@code
+   * Last-Event-Id} ({@code runs.stream} → {@code follow}), as the TypeScript client's streams do.
+   */
+  static final Map<String, String> FOLLOWS = Map.of("runs.stream", "follow", "runs.progressStream", "followProgress");
+
   private final OperationPlanner ops;
   private final ModelPlanner models;
 
@@ -194,6 +201,9 @@ final class ResourceWriter {
       for (MethodSpec m : methods(op, async)) {
         tb.addMethod(m);
       }
+      if (FOLLOWS.containsKey(op.id)) {
+        tb.addMethod(follow(op, async, FOLLOWS.get(op.id)));
+      }
       if (op.pageItem != null && !async) {
         tb.addMethod(autoPaging(op, true));
         if (op.paramsOptional) {
@@ -213,6 +223,39 @@ final class ResourceWriter {
       sb.append(Names.camel(p)).append("()");
     }
     return sb.toString();
+  }
+
+  /** {@code follow(runId)}: a run's stream, through to its terminal event. */
+  private MethodSpec follow(OperationPlanner.Op op, boolean async, String name) {
+    if (op.responseKind != OperationPlanner.ResponseKind.SSE) {
+      throw new GenerationException(op.id + ": only an event stream can be followed");
+    }
+    MethodSpec.Builder m =
+        MethodSpec.methodBuilder(name)
+            .addModifiers(Modifier.PUBLIC)
+            .returns(returns(op, async));
+    CodeBlock.Builder doc = CodeBlock.builder();
+    doc.add("Follows a run's events through to its end: {@code run.completed}, {@code run.failed} or {@code run.cancelled}.\n\n");
+    doc.add("<p><code>$L $L</code> ({@code $L}), reconnected: the server ends a stream after a time limit while the run is still going, and this reconnects with {@code Last-Event-Id}, so each event comes once. $L\n\n",
+        op.method, Docs.javadoc(op.path), op.id, async ? "Cancel the subscription to stop early." : "Close it to stop early.");
+    for (OperationPlanner.PathParam p : op.pathParams) {
+      String d = Docs.javadoc(p.description());
+      doc.add("@param $L $L\n", p.java(), d.isEmpty() ? "the {@code " + p.wire() + "}" : d);
+      m.addParameter(p.type(), p.java());
+    }
+    doc.add("@return the events, through to the run's terminal one\n");
+    doc.add("@throws $T when the API refuses the call or can't be reached\n", API_EXCEPTION);
+    m.addJavadoc(doc.build());
+    for (OperationPlanner.PathParam p : op.pathParams) {
+      m.addStatement("$T.requireNonNull($N, $S)", java.util.Objects.class, p.java(), p.java());
+    }
+    CodeBlock.Builder req = CodeBlock.builder().add("$T request = $T.of($T.$L)", REQUEST, REQUEST, OPERATIONS, op.operationConstant);
+    for (OperationPlanner.PathParam p : op.pathParams) {
+      req.add("\n.path($S, $N)", p.wire(), p.java());
+    }
+    m.addStatement("$L", req.build());
+    m.addStatement("return transport.follow$L(request, $L)", async ? "Async" : "", typeToken(op.response));
+    return m.build();
   }
 
   /** The return type of an operation's method. */
