@@ -432,7 +432,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const encoder = new TextEncoder();
   const body = new ReadableStream({
     async start(controller) {
-      for await (const event of kindgi.runs.stream(run.id)) {
+      for await (const event of kindgi.runs.follow(run.id)) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
       }
       controller.close();
