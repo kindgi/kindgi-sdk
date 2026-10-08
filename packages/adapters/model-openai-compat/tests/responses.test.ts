@@ -88,6 +88,7 @@ const functionCallItem = (n: number, args = `{"orderId":"A-${n}"}`) => ({
 
 interface Seen {
   readonly url: string;
+  readonly traceparent: string | null;
   readonly body: Record<string, unknown>;
 }
 
@@ -96,7 +97,11 @@ function fakeEndpoint(...answers: unknown[]): { seen: Seen[]; fetch: typeof fetc
   const seen: Seen[] = [];
   const fake = async (url: string | URL | Request, init?: RequestInit): Promise<Response> => {
     init?.signal?.throwIfAborted();
-    seen.push({ url: String(url), body: JSON.parse(String(init?.body)) });
+    seen.push({
+      url: String(url),
+      traceparent: new Headers(init?.headers).get('traceparent'),
+      body: JSON.parse(String(init?.body)),
+    });
     const answer = answers[Math.min(seen.length - 1, answers.length - 1)];
     return new Response(JSON.stringify(answer), {
       status: 200,
@@ -291,6 +296,15 @@ describe('what the Responses path sends', () => {
         extraBody: { max_output_tokens: 1 },
       }),
     ).toThrow("extraBody can't set max_output_tokens");
+  });
+
+  test('a call with a traceparent sends it as a header, never in the body; without, none', async () => {
+    const endpoint = fakeEndpoint(response([textMessage('hi')]));
+    const traceparent = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01';
+    await openai(endpoint).invoke({ ...ask(), traceparent });
+    await openai(endpoint).invoke(ask());
+    expect(endpoint.seen.map((s) => s.traceparent)).toEqual([traceparent, null]);
+    expect(JSON.stringify(endpoint.seen[0]?.body)).not.toContain('traceparent');
   });
 
   test("the turn's abort signal reaches the request", async () => {

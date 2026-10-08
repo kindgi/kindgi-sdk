@@ -174,8 +174,12 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
           ? toAnthropicTools(input.tools)
           : undefined;
 
-      const requestOptions: Record<string, unknown> =
-        input.abortSignal !== undefined ? { signal: input.abortSignal } : {};
+      // `traceparent` is a header on this request only, when the caller
+      // sets it (the provider's registration opted in); never logged.
+      const requestOptions: Record<string, unknown> = {
+        ...(input.abortSignal !== undefined && { signal: input.abortSignal }),
+        ...(input.traceparent !== undefined && { headers: { traceparent: input.traceparent } }),
+      };
       const maxTokens = input.maxOutputTokens ?? modelInfo.maxOutputTokens ?? DEFAULT_MAX_TOKENS;
       const sampling = samplingFor(modelInfo, input);
       const thinking = input.thinking === 'lowest' ? lowestThinking(modelInfo) : {};
