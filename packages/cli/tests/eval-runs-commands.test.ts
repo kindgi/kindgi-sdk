@@ -96,7 +96,7 @@ describe('kindgi eval-runs start', () => {
 
   test('--class-weights takes as-recorded or restricted-only', async () => {
     const { out, calls } = await start(['--agent=acme.triage', '--class-weights=some']);
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain(
       '--class-weights must be one of as-recorded, restricted-only, got "some"',
     );
@@ -237,14 +237,14 @@ describe('kindgi eval-runs start', () => {
 
   test('errors: no project', async () => {
     const out = await run(['eval-runs', 'start', 'acme.matches', '--agent=a'], { evalRuns: {} });
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('--project=<id> is required');
   });
 
   test('errors: both or neither of agent and flow', async () => {
     for (const extra of [['--agent=a', '--flow=f'], []]) {
       const { out, calls } = await start(extra);
-      expect(out.exitCode).toBe(1);
+      expect(out.exitCode).toBe(2);
       expect(out.stderr).toContain('Give exactly one of --agent=<id> or --flow=<id>');
       expect(calls).toEqual([]);
     }
@@ -257,7 +257,7 @@ describe('kindgi eval-runs start', () => {
 
   test('errors: a bad --reads', async () => {
     const { out } = await start(['--agent=a', '--reads=maybe']);
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('--reads must be one of recorded, live');
   });
 
@@ -268,7 +268,7 @@ describe('kindgi eval-runs start', () => {
       ['--baseline-project=p-2'],
     ]) {
       const { out, calls } = await start(['--agent=a', ...extra]);
-      expect(out.exitCode).toBe(1);
+      expect(out.exitCode).toBe(2);
       expect(out.stderr).toContain('need --baseline=live');
       expect(calls).toEqual([]);
     }
@@ -282,7 +282,7 @@ describe('kindgi eval-runs start', () => {
         '--baseline-project=p-2',
         `--baseline-segment=${bad}`,
       ]);
-      expect(out.exitCode).toBe(1);
+      expect(out.exitCode).toBe(2);
       expect(out.stderr).toContain('--baseline-segment must be key:value');
     }
     const { out, calls } = await start([
@@ -290,7 +290,7 @@ describe('kindgi eval-runs start', () => {
       '--baseline=live',
       '--baseline-segment=tier:gold',
     ]);
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain(
       '--baseline-segment is a segment path in a project: it needs --baseline-project',
     );
@@ -300,7 +300,7 @@ describe('kindgi eval-runs start', () => {
   test('errors: a malformed --baseline', async () => {
     for (const bad of ['acme.triage', 'acme.triage@', '@1.0.0']) {
       const { out } = await start(['--agent=a', `--baseline=${bad}`]);
-      expect(out.exitCode).toBe(1);
+      expect(out.exitCode).toBe(2);
       expect(out.stderr).toContain('--baseline must be recorded, live or <agentId>@<version>');
     }
   });
@@ -393,7 +393,7 @@ describe('kindgi eval-runs show / list / cancel', () => {
 
   test('list rejects an unknown status', async () => {
     const out = await run(['eval-runs', 'list', '--status=bogus'], { evalRuns: {} });
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('--status must be one of');
   });
 

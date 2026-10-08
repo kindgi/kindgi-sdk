@@ -422,7 +422,7 @@ export type PromptChange =
  */
 export interface RetrievalIntentShape {
   readonly types: readonly string[];
-  readonly scope: 'same-conversation' | 'same-project' | 'tenant';
+  readonly scope: 'same-conversation' | 'same-user' | 'same-project' | 'tenant';
   readonly limit?: number;
 }
 

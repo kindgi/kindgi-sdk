@@ -2,14 +2,18 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { Hono } from 'hono';
+import type { Context, Next } from 'hono';
 
 import type { ConversationBinding } from '@kindgi/agents';
 import type { AuditEventBinding } from '@kindgi/audit-events';
+import { ref } from '@kindgi/authz';
 import type { ExportSigningBinding } from '@kindgi/crypto';
+import type { RunBinding } from '@kindgi/runtime';
 import type { ConversationId, RunId, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 
+import type { Authorizer } from '../middleware/authorize.js';
 import type {
   CallUsageByCallId,
   ProvenanceBinding,
@@ -28,6 +32,7 @@ import {
 import type { AppEnv } from '../types.js';
 import { clampLimit, decodeCursor, encodeCursor } from './pagination.js';
 import { parseListScope } from './scope-params.js';
+import { UUID_RE } from './uuid-param.js';
 
 /**
  * Provenance resource routes.
@@ -58,6 +63,8 @@ export interface ProvenanceRouterOptions {
    * DAGs. Absent = the export omits messages (empty array).
    */
   readonly conversationBinding?: ConversationBinding;
+  /** Where a run's project is read, for the per-run checks (T243 A). */
+  readonly runBinding?: RunBinding;
 }
 
 /** Bundle schema version — bump when the wire shape of `bundle.body` changes. */
@@ -68,8 +75,33 @@ const BUNDLE_SCHEMA_VERSION = '1.2.0';
 export function provenanceRouter(
   binding: ProvenanceBinding,
   options: ProvenanceRouterOptions = {},
+  /**
+   * With one (T243 A): a run's provenance (and its export) needs `read`
+   * on the run's project; the list holds only records whose project the
+   * caller may read (the tenant, for one with no project).
+   */
+  authorizer?: Authorizer,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  if (authorizer !== undefined) {
+    // A run that isn't there is the handler's 404 (`read` on the tenant).
+    // An id that isn't a run id is never looked up (its uuid cast would
+    // fail the query as a 500).
+    const onRunProject = async (c: Context<AppEnv>, next: Next) => {
+      const tenantId = c.get('tenantId') as TenantId;
+      const runId = c.req.param('runId') ?? '';
+      const run = UUID_RE.test(runId)
+        ? await options.runBinding?.getRun(tenantId, runId as RunId)
+        : undefined;
+      const at =
+        run === undefined || run === null
+          ? ref('tenant', tenantId as unknown as string)
+          : ref('project', run.projectId as unknown as string);
+      return authorizer.authorize('read', () => at)(c, next);
+    };
+    r.use('/:runId', async (c, next) => (c.req.method === 'GET' ? onRunProject(c, next) : next()));
+    r.use('/:runId/export', onRunProject);
+  }
   const exportSigning = options.exportSigning;
 
   // ---------- GET / (list metadata, cursor-paginated) ----------
@@ -136,8 +168,16 @@ export function provenanceRouter(
     }
     const { records, nextCursor } = result.value;
     const hasMore = nextCursor !== undefined;
+    const visible =
+      authorizer === undefined
+        ? records
+        : await authorizer.filterByCan(c, 'read', records, (rec) =>
+            rec.projectId !== undefined
+              ? ref('project', rec.projectId as unknown as string)
+              : ref('tenant', tenantId as unknown as string),
+          );
     return c.json({
-      data: records.map(serializeRecordMetadata),
+      data: visible.map(serializeRecordMetadata),
       hasMore,
       ...(nextCursor !== undefined && {
         nextCursor: encodeCursor({ createdAt: nextCursor.createdAt, id: nextCursor.id }),

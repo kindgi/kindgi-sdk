@@ -11,3 +11,7 @@ export {
   type StubAppBindings,
 } from './app-bindings.js';
 export { StubBindingError, createStubBinding, type StubMethods } from './stub-binding.js';
+export {
+  createInMemoryTriggerRegistry,
+  type InMemoryTriggerRegistry,
+} from './trigger-registry.js';
