@@ -130,6 +130,64 @@ describe('users.sessions.list / revokeAll', () => {
   });
 });
 
+describe('users.unregister — POST /v1/identity/users/{userId}/unregister', () => {
+  it('removes a person: the record with unregisteredAt, and what went', async () => {
+    const stub = jsonFetch({
+      user: { ...WIRE_USER, unregisteredAt: '2026-10-07T12:00:00.000Z' },
+      keysRevoked: 2,
+      sessionsRevoked: 1,
+      grantsRemoved: 3,
+    });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+
+    const result = await client.users.unregister('user-alice' as never, {
+      idempotencyKey: 'idem-rm',
+    });
+    expect(result.user.unregisteredAt).toBe('2026-10-07T12:00:00.000Z');
+    expect(result).toMatchObject({ keysRevoked: 2, sessionsRevoked: 1, grantsRemoved: 3 });
+    const req = stub.calls[0]!;
+    expect(req.method).toBe('POST');
+    expect(req.url).toBe('https://api.example.com/v1/identity/users/user-alice/unregister');
+    expect(req.headers['idempotency-key']).toBe('idem-rm');
+  });
+
+  it('a refusal is a conflict naming its reason', async () => {
+    for (const code of ['last-tenant-admin', 'identity-user-unregister-refused']) {
+      const stub = errorFetch(409, { code, message: 'refused' });
+      const client = createClient({
+        apiUrl: 'https://api.example.com',
+        auth: AUTH,
+        fetch: stub.fetch,
+      });
+      await expect(client.users.unregister('user-alice' as never)).rejects.toMatchObject({
+        error: { code: 'conflict', reason: code },
+      });
+    }
+  });
+
+  it('list asks for removed people too only when told', async () => {
+    const stub = recordingFetch([
+      { status: 200, body: JSON.stringify({ data: [WIRE_USER], hasMore: false }) },
+      { status: 200, body: JSON.stringify({ data: [WIRE_USER], hasMore: false }) },
+    ]);
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    await client.users.list();
+    await client.users.list({ includeUnregistered: true });
+    expect(stub.calls[0]?.url).toBe('https://api.example.com/v1/identity/users');
+    expect(stub.calls[1]?.url).toBe(
+      'https://api.example.com/v1/identity/users?includeUnregistered=true',
+    );
+  });
+});
+
 describe('users.create — POST /v1/identity/users', () => {
   it('adds a person and returns their id', async () => {
     const stub = jsonFetch(WIRE_USER, { status: 201 });
