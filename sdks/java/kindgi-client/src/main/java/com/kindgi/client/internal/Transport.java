@@ -35,6 +35,7 @@ import tools.jackson.core.exc.StreamReadException;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.DatabindException;
 import tools.jackson.databind.JavaType;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -166,7 +167,21 @@ public final class Transport {
    * @return the events
    */
   public <T> EventStream<T> stream(RequestSpec request, Class<T> type) {
-    return new SseStream<>(prepare(request), mapper.constructType(type));
+    return new SseStream<>(prepare(request), mapper.constructType(type), false);
+  }
+
+  /**
+   * Follows a run's stream of events through to its terminal one ({@code run.completed}, {@code
+   * run.failed}, {@code run.cancelled}). The server ends a stream after a time limit while the run
+   * is still going; this reconnects with {@code Last-Event-Id}, so each event comes once.
+   *
+   * @param <T> the event type (one with a {@code kind})
+   * @param request the call
+   * @param type the event type
+   * @return the events, through to the run's terminal one
+   */
+  public <T> EventStream<T> follow(RequestSpec request, Class<T> type) {
+    return new SseStream<>(prepare(request), mapper.constructType(type), true);
   }
 
   private Class<?> shape(RequestSpec request, HttpResponse<byte[]> response, Map<Integer, ? extends Class<?>> types) {
@@ -344,9 +359,25 @@ public final class Transport {
    * @return the publisher
    */
   public <T> Flow.Publisher<T> streamAsync(RequestSpec request, Class<T> type) {
+    return publisher(request, () -> stream(request, type));
+  }
+
+  /**
+   * {@link #follow}, as a publisher.
+   *
+   * @param <T> the event type
+   * @param request the call
+   * @param type the event type
+   * @return the publisher
+   */
+  public <T> Flow.Publisher<T> followAsync(RequestSpec request, Class<T> type) {
+    return publisher(request, () -> follow(request, type));
+  }
+
+  private <T> Flow.Publisher<T> publisher(RequestSpec request, java.util.function.Supplier<EventStream<T>> open) {
     return subscriber -> {
       SubmissionPublisher<T> publisher = new SubmissionPublisher<>();
-      AtomicReference<EventStream<T>> open = new AtomicReference<>();
+      AtomicReference<EventStream<T>> opened = new AtomicReference<>();
       publisher.subscribe(
           new Flow.Subscriber<T>() {
             @Override
@@ -361,7 +392,7 @@ public final class Transport {
                     @Override
                     public void cancel() {
                       subscription.cancel();
-                      EventStream<T> s = open.get();
+                      EventStream<T> s = opened.get();
                       if (s != null) {
                         s.close();
                       }
@@ -387,8 +418,8 @@ public final class Transport {
       Thread reader =
           new Thread(
               () -> {
-                try (EventStream<T> events = stream(request, type)) {
-                  open.set(events);
+                try (EventStream<T> events = open.get()) {
+                  opened.set(events);
                   while (events.hasNext()) {
                     T next = events.next();
                     if (publisher.getNumberOfSubscribers() == 0) {
@@ -526,9 +557,17 @@ public final class Transport {
   // Streams
   // ---------------------------------------------------------------------------------------------
 
+  /** What ends a run: a followed stream stops after one of these. */
+  static final Set<String> TERMINAL_KINDS = Set.of("run.completed", "run.failed", "run.cancelled");
+
+  /** How long a followed stream waits before reconnecting after a connection that brought nothing. */
+  static final Duration EMPTY_CONNECTION_PAUSE = Duration.ofMillis(500);
+
   private final class SseStream<T> implements EventStream<T> {
     private final Prepared prepared;
     private final JavaType type;
+    private final boolean follow;
+    private int receivedSinceConnect;
     private @Nullable BufferedReader reader;
     private @Nullable InputStream body;
     private @Nullable SseParser parser;
@@ -537,13 +576,17 @@ public final class Transport {
     private volatile boolean closed;
     private boolean ended;
 
-    SseStream(Prepared prepared, JavaType type) {
+    SseStream(Prepared prepared, JavaType type, boolean follow) {
       this.prepared = prepared;
       this.type = type;
+      this.follow = follow;
       connect(0);
     }
 
-    /** Connects, retrying a connection error; a refused call throws. */
+    /**
+     * Connects, retrying a connection error and a 429 or 502–504 (backing off, up to 10 in a row);
+     * any other refusal throws.
+     */
     private void connect(int priorAttempts) {
       int attempt = priorAttempts;
       while (true) {
@@ -555,6 +598,18 @@ public final class Transport {
         try {
           HttpResponse<InputStream> response =
               http.send(p.request(timeout, "text/event-stream"), HttpResponse.BodyHandlers.ofInputStream());
+          if (RETRY_STATUSES.contains(response.statusCode())) {
+            // Busy or briefly away (429, 502–504): retried like a drop, as the other clients do.
+            closeQuietly(response.body());
+            attempt++;
+            if (attempt > STREAM_ATTEMPTS) {
+              throw new NetworkException(
+                  prepared.operation.id() + ": the stream couldn't connect after " + (attempt - 1) + " attempts: HTTP " + response.statusCode(),
+                  response.statusCode(), null);
+            }
+            sleep(streamBackoff(attempt));
+            continue;
+          }
           check(prepared.operation, response);
           body = response.body();
           reader = new BufferedReader(new InputStreamReader(body, StandardCharsets.UTF_8));
@@ -603,8 +658,19 @@ public final class Transport {
           continue;
         }
         if (line == null) {
-          ended = true;
           closeBody();
+          if (follow && !closed) {
+            // The server closed the stream before the run ended (its time limit): reconnect after
+            // the last event. Pause first when the connection brought nothing, so a server that
+            // keeps closing doesn't spin us.
+            if (receivedSinceConnect == 0) {
+              sleep(EMPTY_CONNECTION_PAUSE);
+            }
+            receivedSinceConnect = 0;
+            connect(0);
+            continue;
+          }
+          ended = true;
           return false;
         }
         SseParser.Event event = Objects.requireNonNull(parser).feed(line);
@@ -615,13 +681,26 @@ public final class Transport {
           lastEventId = event.id();
         }
         T value;
+        boolean terminal = false;
         try {
-          value = mapper.readValue(event.data(), type);
+          if (follow) {
+            JsonNode node = mapper.readTree(event.data());
+            terminal = TERMINAL_KINDS.contains(node.path("kind").asString(""));
+            value = mapper.readerFor(type).readValue(node);
+          } else {
+            value = mapper.readValue(event.data(), type);
+          }
         } catch (StreamReadException e) {
           continue; // Not JSON: dropped, as the other clients do; one bad event doesn't end the stream.
         } catch (DatabindException e) {
           throw new KindgiApiException(
               prepared.operation.id() + ": an event doesn't match the API's schema: " + e.getOriginalMessage(), null, "invalid-response", null, null, e);
+        }
+        receivedSinceConnect++;
+        if (terminal) {
+          // The run ended: so does the stream, whatever the server does next.
+          ended = true;
+          closeBody();
         }
         if (value != null) {
           next = value;
@@ -645,6 +724,14 @@ public final class Transport {
     public void close() {
       closed = true;
       closeBody();
+    }
+
+    private void closeQuietly(InputStream in) {
+      try {
+        in.close();
+      } catch (IOException e) {
+        // An answer we don't read: nothing to do.
+      }
     }
 
     private void closeBody() {
