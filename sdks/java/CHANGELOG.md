@@ -7,6 +7,14 @@ heading into its version.
 
 ## Unreleased
 
+- `kindgi-client`: **every 409 is a `ConflictException`.** A 409 whose code the
+  client didn't list was a `ServerException`; now it's a conflict, as a 404 is
+  a `NotFoundException`. Twenty codes the API documents move, such as
+  `run-lease-lost`, `agent-version-mismatch` and `secret-write-conflict`. Match
+  on `serverCode()`, which every exception carries. An unlisted 413 is an
+  `InvalidRequestException`, and `provider-config-invalid` is one too, as in
+  the TypeScript and Python clients. A test holds every code the API documents
+  (`x-error-codes` in openapi.json) to its status's family.
 - Skills for coding agents in Scala packs: `kindgi-scala-getting-started` and
   the Scala authoring skills for tools, guardrails, agents and flows in
   `.claude/skills/`, with the shared skills for providers, MCP servers and
