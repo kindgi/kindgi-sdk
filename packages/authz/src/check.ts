@@ -93,4 +93,32 @@ export interface AuthzCheckBinding {
     resources: readonly ResourceRef[],
     ctx?: AuthzCheckContext,
   ): Promise<readonly Decision[]>;
+
+  /**
+   * The ids of every object of `type` the principal may `action`, after
+   * its downscope, and only those its `onBehalfOf` may too (OpenFGA
+   * `ListObjects`). For a guard compiled into a query, such as which
+   * projects' memory a caller reads. Optional: without it, callers fall
+   * back to `checkBatch` over the objects they can enumerate.
+   */
+  listObjects?(
+    principal: Principal,
+    action: Action,
+    type: ResourceRef['type'],
+    ctx?: AuthzCheckContext,
+  ): Promise<readonly string[]>;
+
+  /**
+   * Optional. Whether `resource` belongs to project `projectId` in the
+   * principal's tenant: its `parent` is that project (an agent, a flow, a
+   * run, …), or its `scope` is (a secret, an env). The API layer asks it
+   * to hold an API key limited to a project to that project's resources.
+   * Without it, such a key reaches only the project itself.
+   */
+  inProject?(
+    principal: Principal,
+    resource: ResourceRef,
+    projectId: string,
+    ctx?: AuthzCheckContext,
+  ): Promise<boolean>;
 }

@@ -2,8 +2,6 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { AgentId, RunId, Timestamp } from '@kindgi/types';
-
-import { KindgiApiError, notYetWired } from '../errors.js';
 import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import { scopeToQuery } from '../scope-wire.js';
 import type { Transport } from '../transport.js';
@@ -14,6 +12,7 @@ import type {
   ProvenanceRecordMetadata,
   ProvenanceVerifyResult,
 } from '../types.js';
+import { verifySignedExport } from '../verify-export.js';
 
 /**
  * Provenance resource — read + export + verify the causal DAG
@@ -54,9 +53,10 @@ export interface ProvenanceClient {
   export(input: ProvenanceExportInput): Promise<ExportedProvenance>;
 
   /**
-   * @unwired Client-side Ed25519 verification is not bundled in the
-   *   SDK (`verifyEd25519` lives in `@kindgi/crypto`). Throws
-   *   `KindgiApiError` with `code: 'not-yet-wired'`.
+   * Verify an export where it's read (Web Crypto's Ed25519; no
+   * request): its signature over the bytes shipped, and that it was
+   * signed with `publicKey`, a key you trust (a `publicKeyPem` from
+   * `exportSigningKeys.list()`, or one you pinned).
    */
   verify(exported: ExportedProvenance, publicKey: string): Promise<ProvenanceVerifyResult>;
 }
@@ -64,8 +64,8 @@ export interface ProvenanceClient {
 export interface ProvenanceExportInput {
   /** Target run. */
   readonly runId: RunId;
-  /** Signing key id (looked up in the deployment's `SigningKeyBinding`). */
-  readonly signingKeyId: string;
+  /** Sign with this key (one of `exportSigningKeys.list()`). Absent: the deployment's active key. */
+  readonly signingKeyId?: string;
   /**
    * When `true`, the exported bundle includes the run's conversation
    * messages. Defaults to `false`; setting `true` on a flow-only run
@@ -110,20 +110,16 @@ export function makeProvenanceClient(transport: Transport): ProvenanceClient {
         method: 'POST',
         path: `/v1/provenance/${encodeURIComponent(input.runId as unknown as string)}/export`,
         body: {
-          signingKeyId: input.signingKeyId,
+          ...(input.signingKeyId !== undefined && { signingKeyId: input.signingKeyId }),
           ...(input.includeMessages !== undefined && { includeMessages: input.includeMessages }),
         },
         ...(input.idempotencyKey !== undefined && { idempotencyKey: input.idempotencyKey }),
       });
     },
 
-    async verify(_exported, _publicKey) {
-      throw new KindgiApiError(
-        notYetWired(
-          'provenance.verify',
-          'client-side ed25519 verification requires the crypto module subpackage to be reachable from the SDK',
-        ),
-      );
+    async verify(exported, publicKey) {
+      const checked = await verifySignedExport(exported, { trustedKeys: [publicKey] });
+      return checked.valid ? { valid: true } : { valid: false, issues: checked.issues ?? [] };
     },
   };
 }

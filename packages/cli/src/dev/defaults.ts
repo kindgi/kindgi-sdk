@@ -79,6 +79,7 @@ import {
   startRuntimeContainer,
 } from './runtime-container.js';
 import {
+  RUNTIME_EXPORT_SIGNING_KEY,
   RUNTIME_GOOGLE_CREDENTIALS,
   RUNTIME_PACK_DIR,
   RUNTIME_PUBLIC_TOKEN_KEY,
@@ -354,6 +355,9 @@ export async function startApiServerContainerReal(
     ...(opts.publicRunTokenKeyPath !== undefined && {
       publicTokenKeyPath: RUNTIME_PUBLIC_TOKEN_KEY,
     }),
+    ...(opts.exportSigningKeyPath !== undefined && {
+      exportSigningKeyPath: RUNTIME_EXPORT_SIGNING_KEY,
+    }),
     ...(googleCredentials !== undefined && { googleCredentialsPath: RUNTIME_GOOGLE_CREDENTIALS }),
     shellReferences: await shellReferencesOf({
       packDir: opts.packDir,
@@ -373,6 +377,9 @@ export async function startApiServerContainerReal(
     ...(googleCredentials !== undefined && { googleCredentials }),
     ...(opts.publicRunTokenKeyPath !== undefined && {
       publicTokenKey: opts.publicRunTokenKeyPath,
+    }),
+    ...(opts.exportSigningKeyPath !== undefined && {
+      exportSigningKey: opts.exportSigningKeyPath,
     }),
     onLog: opts.onLog ?? (() => undefined),
     ...(opts.signal !== undefined && { signal: opts.signal }),
@@ -434,6 +441,9 @@ export async function attachToRuntimeReal(
       corsOrigins: opts.corsOrigins ?? [],
       ...(opts.publicRunTokenKeyPath !== undefined && {
         publicTokenKeyPath: opts.publicRunTokenKeyPath,
+      }),
+      ...(opts.exportSigningKeyPath !== undefined && {
+        exportSigningKeyPath: opts.exportSigningKeyPath,
       }),
       ...(googleCredentials !== undefined && { googleCredentialsPath: googleCredentials }),
       shellReferences: await shellReferencesOf({
