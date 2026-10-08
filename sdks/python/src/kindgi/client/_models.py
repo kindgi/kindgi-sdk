@@ -54,6 +54,27 @@ class RunStatus(
     root: Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]
 
 
+class RunTrigger(BaseModel):
+    """
+    Set on a run a trigger started (a schedule, an event trigger or an inbound webhook): the trigger and the fire that started it. Absent on other runs.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    trigger_id: Annotated[UUID, Field(alias="triggerId")]
+    kind: Literal["schedule", "event", "webhook"]
+    fire_id: Annotated[str, Field(alias="fireId")]
+    """
+    The fire that started the run: one entry of the trigger's fire history.
+    """
+    scheduled_for: Annotated[AwareDatetime | None, Field(alias="scheduledFor")] = None
+    """
+    A schedule's fire: the occurrence the run is for.
+    """
+
+
 class ScopeSegment(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -6092,7 +6113,26 @@ class UserRecord(BaseModel):
     display_name: Annotated[str | None, Field(alias="displayName")] = None
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     last_active_at: Annotated[AwareDatetime | None, Field(alias="lastActiveAt")] = None
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    When they were removed from the tenant (`POST /v1/identity/users/{userId}/unregister`); absent while they are here.
+    """
     metadata: dict[str, Any] | None = None
+
+
+class UnregisterUserResult(BaseModel):
+    """
+    A removed person, and what removing them took away (each 0 when they were already removed).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    user: UserRecord
+    keys_revoked: Annotated[int, Field(alias="keysRevoked", ge=0)]
+    sessions_revoked: Annotated[int, Field(alias="sessionsRevoked", ge=0)]
+    grants_removed: Annotated[int, Field(alias="grantsRemoved", ge=0)]
 
 
 class CreateUserBody(BaseModel):
@@ -6105,6 +6145,33 @@ class CreateUserBody(BaseModel):
     """
     Unique among the tenant's people.
     """
+
+
+class PersonReviewerRole(BaseModel):
+    """
+    A person's active entry on the reviewer roster.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    role: Literal["standard", "senior", "admin"]
+    """
+    Reviewer role class. Hierarchy: standard < senior < admin.
+    """
+
+
+class PersonGrantBody(BaseModel):
+    """
+    The grant to give or take: tenant admin. A person's project and team roles have their own membership routes.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["tenant-admin"]
 
 
 class UserCollectionPage(BaseModel):
@@ -6445,6 +6512,8 @@ class EvidenceKind(RootModel[str]):
                 "service-account-ungranted",
                 "service-account-unregistered",
                 "person-added",
+                "person-granted",
+                "person-ungranted",
             ],
             min_length=1,
         ),
@@ -6604,6 +6673,8 @@ class ComplianceEvidence(BaseModel):
                 "service-account-ungranted",
                 "service-account-unregistered",
                 "person-added",
+                "person-granted",
+                "person-ungranted",
             ],
             min_length=1,
         ),
@@ -6688,6 +6759,8 @@ class ExportComplianceEvidenceFilter(BaseModel):
                 "service-account-ungranted",
                 "service-account-unregistered",
                 "person-added",
+                "person-granted",
+                "person-ungranted",
             ],
             min_length=1,
         ),
@@ -6754,6 +6827,8 @@ class Filter(BaseModel):
                 "service-account-ungranted",
                 "service-account-unregistered",
                 "person-added",
+                "person-granted",
+                "person-ungranted",
             ],
             min_length=1,
         ),
@@ -8390,6 +8465,7 @@ class Run(BaseModel):
     Set on a child run: the node in the parent run that started it.
     """
     agent: RunAgent | None = None
+    trigger: RunTrigger | None = None
     replay_of: Annotated[UUID | None, Field(alias="replayOf")] = None
     """
     Set on a replay run (an eval run re-running a past run): the run it replays.
@@ -8458,6 +8534,7 @@ class Datum(BaseModel):
     Set on a child run: the node in the parent run that started it.
     """
     agent: RunAgent | None = None
+    trigger: RunTrigger | None = None
     replay_of: Annotated[UUID | None, Field(alias="replayOf")] = None
     """
     Set on a replay run (an eval run re-running a past run): the run it replays.
@@ -9329,6 +9406,38 @@ class WhoamiResult(BaseModel):
     """
 
 
+class PersonProjectRole(BaseModel):
+    """
+    A person's direct role on a project.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[str, Field(alias="projectId")]
+    role: Literal["viewer", "editor", "owner", "admin", "member"]
+    """
+    Role on a project membership.
+    """
+
+
+class PersonTeamRole(BaseModel):
+    """
+    A person's role in a team.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    team_id: Annotated[str, Field(alias="teamId")]
+    role: Literal["member", "admin"]
+    """
+    Role on a team membership.
+    """
+
+
 class DeploymentSecretsSyncRequest(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -9457,3 +9566,32 @@ class WebhookEndpointCollectionPage(BaseModel):
     data: list[WebhookEndpoint]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class PersonGrants(BaseModel):
+    """
+    What a person may do, as granted directly: tenant admin, a role on a project (its memberships), a role in a team, and the reviewer roster. What a team's or an org's grants imply is not expanded.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    user_id: Annotated[str, Field(alias="userId")]
+    tenant_admin: Annotated[bool | None, Field(alias="tenantAdmin")] = None
+    """
+    Whether the person is a tenant admin. Absent when the runtime has no authorization store: nothing grants it then.
+    """
+    tenant_member: Annotated[bool | None, Field(alias="tenantMember")] = None
+    """
+    Whether the person is a tenant member: they read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. A person is one from being added. Absent when the runtime has no authorization store, or doesn't report it.
+    """
+    projects: list[PersonProjectRole]
+    """
+    Direct project memberships.
+    """
+    teams: list[PersonTeamRole]
+    """
+    Team memberships.
+    """
+    reviewer: PersonReviewerRole | None = None

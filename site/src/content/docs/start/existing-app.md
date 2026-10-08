@@ -444,7 +444,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 Each event has a `kind` (`run.started`, `run.step-started`,
 `run.step-completed`, …, `run.completed`) and a `payload`; the
 `run.completed` event's `payload.output` is the run's output. In Python,
-`kindgi.runs.stream(run.id)` is an iterator of the same events.
+`kindgi.runs.follow(run.id)` is an iterator of the same events, through to
+the run's end.
 
 A browser can also follow a run directly, with a short-lived read-only
 token, without your API token: see

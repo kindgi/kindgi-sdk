@@ -167,6 +167,31 @@ export const RunAgentSchema: JsonSchema = {
   },
 };
 
+/**
+ * The trigger that started a run. A component of its own, so generated
+ * clients name it `RunTrigger`.
+ */
+export const RunTriggerSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['triggerId', 'kind', 'fireId'],
+  description:
+    'Set on a run a trigger started (a schedule, an event trigger or an inbound webhook): the trigger and the fire that started it. Absent on other runs.',
+  properties: {
+    triggerId: { type: 'string', format: 'uuid' },
+    kind: { type: 'string', enum: ['schedule', 'event', 'webhook'] },
+    fireId: {
+      type: 'string',
+      description: "The fire that started the run: one entry of the trigger's fire history.",
+    },
+    scheduledFor: {
+      type: 'string',
+      format: 'date-time',
+      description: "A schedule's fire: the occurrence the run is for.",
+    },
+  },
+};
+
 export const ScopeSegmentSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -642,6 +667,7 @@ export const RunSchema: JsonSchema = {
       description: 'Set on a child run: the node in the parent run that started it.',
     },
     agent: { $ref: '#/components/schemas/RunAgent' },
+    trigger: { $ref: '#/components/schemas/RunTrigger' },
     replayOf: {
       type: 'string',
       format: 'uuid',
@@ -6588,7 +6614,27 @@ export const UserRecordSchema: JsonSchema = {
     displayName: { type: 'string' },
     createdAt: { type: 'string', format: 'date-time' },
     lastActiveAt: { type: 'string', format: 'date-time' },
+    unregisteredAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'When they were removed from the tenant (`POST /v1/identity/users/{userId}/unregister`); absent while they are here.',
+    },
     metadata: { type: 'object', additionalProperties: true },
+  },
+};
+
+export const UnregisterUserResultSchema: JsonSchema = {
+  description:
+    'A removed person, and what removing them took away (each 0 when they were already removed).',
+  type: 'object',
+  additionalProperties: false,
+  required: ['user', 'keysRevoked', 'sessionsRevoked', 'grantsRemoved'],
+  properties: {
+    user: { $ref: '#/components/schemas/UserRecord' },
+    keysRevoked: { type: 'integer', minimum: 0 },
+    sessionsRevoked: { type: 'integer', minimum: 0 },
+    grantsRemoved: { type: 'integer', minimum: 0 },
   },
 };
 
@@ -6600,6 +6646,77 @@ export const CreateUserBodySchema: JsonSchema = {
     displayName: { type: 'string', minLength: 1, maxLength: 200 },
     primaryEmail: { type: 'string', description: "Unique among the tenant's people." },
   },
+};
+
+export const PersonGrantsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "What a person may do, as granted directly: tenant admin, a role on a project (its memberships), a role in a team, and the reviewer roster. What a team's or an org's grants imply is not expanded.",
+  required: ['userId', 'projects', 'teams'],
+  properties: {
+    userId: { type: 'string' },
+    tenantAdmin: {
+      type: 'boolean',
+      description:
+        'Whether the person is a tenant admin. Absent when the runtime has no authorization store: nothing grants it then.',
+    },
+    tenantMember: {
+      type: 'boolean',
+      description:
+        "Whether the person is a tenant member: they read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. A person is one from being added. Absent when the runtime has no authorization store, or doesn't report it.",
+    },
+    projects: {
+      type: 'array',
+      description: 'Direct project memberships.',
+      items: { $ref: '#/components/schemas/PersonProjectRole' },
+    },
+    teams: {
+      type: 'array',
+      description: 'Team memberships.',
+      items: { $ref: '#/components/schemas/PersonTeamRole' },
+    },
+    reviewer: { $ref: '#/components/schemas/PersonReviewerRole' },
+  },
+};
+
+export const PersonProjectRoleSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectId', 'role'],
+  description: "A person's direct role on a project.",
+  properties: {
+    projectId: { type: 'string' },
+    role: { $ref: '#/components/schemas/ProjectRole' },
+  },
+};
+
+export const PersonTeamRoleSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['teamId', 'role'],
+  description: "A person's role in a team.",
+  properties: {
+    teamId: { type: 'string' },
+    role: { $ref: '#/components/schemas/TeamRole' },
+  },
+};
+
+export const PersonReviewerRoleSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['role'],
+  description: "A person's active entry on the reviewer roster.",
+  properties: { role: { $ref: '#/components/schemas/ReviewerRole' } },
+};
+
+export const PersonGrantBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind'],
+  description:
+    "The grant to give or take: tenant admin. A person's project and team roles have their own membership routes.",
+  properties: { kind: { type: 'string', enum: ['tenant-admin'] } },
 };
 
 export const UserCollectionPageSchema: JsonSchema = {
@@ -8789,6 +8906,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['HealthResult', HealthResultSchema],
   ['RunStatus', RunStatusSchema],
   ['RunAgent', RunAgentSchema],
+  ['RunTrigger', RunTriggerSchema],
   ['ScopeSegment', ScopeSegmentSchema],
   ['LiveScopeTenant', LiveScopeTenantSchema],
   ['LiveScopeOrg', LiveScopeOrgSchema],
@@ -9110,7 +9228,13 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['LogoutResult', LogoutResultSchema],
   ['WhoamiResult', WhoamiResultSchema],
   ['UserRecord', UserRecordSchema],
+  ['UnregisterUserResult', UnregisterUserResultSchema],
   ['CreateUserBody', CreateUserBodySchema],
+  ['PersonGrants', PersonGrantsSchema],
+  ['PersonProjectRole', PersonProjectRoleSchema],
+  ['PersonTeamRole', PersonTeamRoleSchema],
+  ['PersonReviewerRole', PersonReviewerRoleSchema],
+  ['PersonGrantBody', PersonGrantBodySchema],
   ['UserCollectionPage', UserCollectionPageSchema],
   ['IdentitySessionSummary', IdentitySessionSummarySchema],
   ['IdentitySessionCollectionPage', IdentitySessionCollectionPageSchema],

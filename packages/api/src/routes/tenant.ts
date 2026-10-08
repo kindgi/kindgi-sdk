@@ -148,6 +148,12 @@ export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
       '*',
       authorizer.authorize('read', (c) => ref('tenant', c.get('tenantId') as unknown as string)),
     );
+    // Changing the config writes the tenant's secrets and env: `admin`
+    // on the tenant (T243 A), as every tenant-wide write.
+    const admin = authorizer.authorize('admin', (c) =>
+      ref('tenant', c.get('tenantId') as unknown as string),
+    );
+    r.use('/config', async (c, next) => (c.req.method === 'PATCH' ? admin(c, next) : next()));
   }
 
   // ---------- GET / ----------

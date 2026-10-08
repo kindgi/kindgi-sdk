@@ -271,7 +271,7 @@ try:
 except GuardrailViolationError as blocked:
     print(blocked.violations)
 
-for event in client.runs.stream(str(turn.id)):        # SSE, resumes after a drop
+for event in client.runs.follow(turn.id):             # SSE, to the run's end
     print(event.kind)
 
 for agent in paginate(client.agents.list, limit=50):  # every page
