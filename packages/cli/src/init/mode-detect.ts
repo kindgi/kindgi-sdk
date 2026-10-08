@@ -66,7 +66,7 @@ export type DetectResult =
       readonly mode: 'augment';
       readonly targetDir: string;
       /** The app's language — the pack's. */
-      readonly language: 'node' | 'python' | 'java';
+      readonly language: 'node' | 'python' | 'java' | 'scala';
     }
   | {
       readonly kind: 'err';
@@ -133,6 +133,15 @@ export async function detectInitMode(inputs: DetectInputs): Promise<DetectResult
   const hasPackageJson = await fileExists(`${augmentTargetDir}/package.json`);
   const hasPyproject = await fileExists(`${augmentTargetDir}/pyproject.toml`);
   const hasPom = await fileExists(`${augmentTargetDir}/pom.xml`);
+  const hasBuildSbt = await fileExists(`${augmentTargetDir}/build.sbt`);
+
+  // An sbt app: alone, or picked with --template=scala.
+  if (
+    hasBuildSbt &&
+    ((!hasPackageJson && !hasPyproject && !hasPom) || inputs.templateFlag === 'scala')
+  ) {
+    return { kind: 'ok', mode: 'augment', targetDir: augmentTargetDir, language: 'scala' };
+  }
 
   // A Maven app: alone, or picked with --template=java.
   if (hasPom && ((!hasPackageJson && !hasPyproject) || inputs.templateFlag === 'java')) {
@@ -150,7 +159,7 @@ export async function detectInitMode(inputs: DetectInputs): Promise<DetectResult
   // Case 5: no positional + neither → error.
   return {
     kind: 'err',
-    message: `No pack-name provided and no package.json, pyproject.toml or pom.xml at ${augmentTargetDir}.\n  - To scaffold a new pack:      kindgi init <pack-name> [--template=python|java]\n  - To add Kindgi to existing:   run inside a directory with package.json (Node), pyproject.toml (Python) or pom.xml (Java, Maven)\n`,
+    message: `No pack-name provided and no package.json, pyproject.toml, pom.xml or build.sbt at ${augmentTargetDir}.\n  - To scaffold a new pack:      kindgi init <pack-name> [--template=python|java|scala]\n  - To add Kindgi to existing:   run inside a directory with package.json (Node), pyproject.toml (Python), pom.xml (Java, Maven) or build.sbt (Scala, sbt)\n`,
   };
 }
 

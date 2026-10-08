@@ -23,6 +23,7 @@ import {
 import { runInitJavaAugment } from '../init/java-augment.js';
 import { detectInitMode } from '../init/mode-detect.js';
 import { runInitPythonAugment } from '../init/python-augment.js';
+import { runInitScalaAugment } from '../init/scala-augment.js';
 import {
   type Substitutions,
   collectTemplateFiles,
@@ -175,6 +176,24 @@ export async function runInit(
       targetDir: detected.targetDir,
       templatesRoot,
       ...(skillsRoot !== undefined && { skillsRoot }),
+      ...(typeof packIdRaw === 'string' && packIdRaw !== '' && { packIdOverride: packIdRaw }),
+      force: ctx.options.force === true,
+    });
+  }
+
+  if (detected.mode === 'augment' && detected.language === 'scala') {
+    const packIdRaw = ctx.options['pack-id'];
+    const template = ctx.options.template;
+    if (typeof template === 'string' && template !== '' && template !== 'scala') {
+      return {
+        kind: 'error',
+        stderr: `An sbt app gets a Scala pack: --template=${template} doesn't apply here (omit it, or --template=scala).\n`,
+        exitCode: 1,
+      };
+    }
+    return runInitScalaAugment({
+      targetDir: detected.targetDir,
+      templatesRoot,
       ...(typeof packIdRaw === 'string' && packIdRaw !== '' && { packIdOverride: packIdRaw }),
       force: ctx.options.force === true,
     });
