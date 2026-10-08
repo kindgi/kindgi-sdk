@@ -14,8 +14,10 @@ You run four containers on one Docker network:
 
 You then deploy a pack to it, and run a flow end to end. Everything here runs on one machine with Docker Desktop. On a server the pieces are the same; step 2 says what changes.
 
-:::note[Private preview]
-The runtime image is in private preview: request access at contact@kindgi.com
+:::note[Access to the runtime image]
+Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
+runtime image's pull credentials, and log in once with `kindgi auth registry`
+(see [Install](../../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
 :::
 
 ## Before you start
@@ -35,7 +37,7 @@ The runtime image is in private preview: request access at contact@kindgi.com
 
 ```sh
 docker login quay.io
-docker pull quay.io/kindgi/runtime:0.1.3
+docker pull quay.io/kindgi/runtime:0.1.4
 ```
 
 ## 2. Start Postgres and a registry
@@ -188,7 +190,7 @@ Start the runtime:
 docker run -d --name kindgi-server --network kindgi \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.3
+  quay.io/kindgi/runtime:0.1.4
 ```
 
 ## 6. Check it

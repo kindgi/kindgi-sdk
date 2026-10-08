@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { menu, plan, redirects } from './versions-plan.mjs';
+import { docsSource, menu, plan, redirects } from './versions-plan.mjs';
 
 const tag = (v) => `@kindgi/sdk@${v}`;
 const tags = (...versions) => versions.map(tag);
@@ -101,4 +101,36 @@ test('_redirects: each line path goes to its newest release, page for page', () 
     redirects(plan(tags('0.1.2', '0.1.3', '0.2.0'))),
     '/v0.2 /v0.2.0/ 301\n/v0.2/* /v0.2.0/:splat 301\n/v0.1 /v0.1.3/ 301\n/v0.1/* /v0.1.3/:splat 301\n',
   );
+});
+
+test("a release's docs: its tag, or its docs branch when that changes only site/", () => {
+  assert.deepEqual(docsSource({ tag: tag('0.1.4') }), { ref: tag('0.1.4') });
+  assert.deepEqual(
+    docsSource({
+      tag: tag('0.1.4'),
+      branch: 'origin/release-docs/0.1.4',
+      startsAtTag: true,
+      changed: ['site/src/content/docs/start/quickstart-typescript.md'],
+    }),
+    { ref: 'origin/release-docs/0.1.4' },
+  );
+});
+
+test("a release's docs branch that changes code, or doesn't start at the tag, fails", () => {
+  const outside = docsSource({
+    tag: tag('0.1.4'),
+    branch: 'origin/release-docs/0.1.4',
+    startsAtTag: true,
+    changed: ['site/src/content/docs/start/agent.md', 'packages/cli/src/commands/dev.ts'],
+  });
+  assert.match(
+    outside.error,
+    /outside site\/ since @kindgi\/sdk@0\.1\.4 \(packages\/cli\/src\/commands\/dev\.ts\)/,
+  );
+  const elsewhere = docsSource({
+    tag: tag('0.1.4'),
+    branch: 'origin/release-docs/0.1.4',
+    startsAtTag: false,
+  });
+  assert.match(elsewhere.error, /doesn't start at @kindgi\/sdk@0\.1\.4/);
 });

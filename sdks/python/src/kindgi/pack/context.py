@@ -101,11 +101,14 @@ class ToolContext:
     """The project's org, when it belongs to one: set by the runtime from the project, never
     from input. `None` when the project has no org."""
     env: Mapping[str, Any] = field(default_factory=_empty)
-    """Environment the runtime resolves for the call — none yet (empty): read `os.environ`."""
+    """The env values the tool declares (`needs_spec["env"]`), by name, resolved for this call:
+    the project's value, else its org's, else the tenant's (a schema `default` when no scope sets
+    one). Strings. Empty when the tool declares none, and from an older runtime (protocol 2.5.0).
+    The pack service's own environment stays in `os.environ`."""
     secrets: Mapping[str, Any] = field(default_factory=_empty)
     """The secrets the tool declares (`needs_spec["secrets"]`), resolved for this call's tenant."""
     config: Mapping[str, Any] = field(default_factory=_empty)
-    """Configuration the runtime resolves for the call — none yet (empty)."""
+    """Reserved: no runtime sends it yet (empty)."""
     settings: Mapping[str, Mapping[str, Any]] = field(default_factory=_empty)
     """The settings blocks the calling agent version pins, by block id:
     `ctx.settings["acme.weights"]["recency"]`. Empty when it pins none, and from an older
