@@ -60,6 +60,13 @@ class NetworkError(KindgiApiError):
 
     code = "network"
 
+    def __init__(
+        self, message: str, *, timeout: float | None = None, status: int | None = None
+    ) -> None:
+        super().__init__(message, status=status)
+        self.timeout = timeout
+        """Set when the client's own timeout ended the request: that timeout, in seconds."""
+
 
 class AuthError(KindgiApiError):
     code = "auth"
@@ -146,13 +153,13 @@ _CONFLICT = {
     "version-already-exists", "eval-run-already-terminal", "approval-already-decided",
     "judge-class-name-taken", "promotion-superseded", "gate-policy-already-registered",
     "gate-policy-scope-taken", "gate-policy-scope-changed", "gate-policy-scope-unpinned",
-    "gate-policy-needs-pin", "fact-changed", "legal-hold",
+    "gate-policy-needs-pin", "gate-policy-descendant-unpinned", "fact-changed", "legal-hold",
 }  # fmt: skip
 _INVALID = {
     "invalid-request", "validation-failed", "unknown-field", "bad-input", "unresolved-tool",
     "unresolved-guardrail", "schema-validation-failed", "invalid-agent", "invalid-tool-definition",
     "invalid-schema", "unknown-effect", "invalid-guardrail", "invalid-provider",
-    "supervisor-header-missing", "scope-invalid",
+    "provider-config-invalid", "supervisor-header-missing", "scope-invalid", "artifact-too-large",
 }  # fmt: skip
 _AUTH: Mapping[str, Literal["unauthenticated", "forbidden", "token-expired"]] = {
     "auth-missing": "unauthenticated",
@@ -233,6 +240,7 @@ _BY_STATUS: Mapping[int, str] = {
     404: "not-found",
     410: "not-found",
     400: "invalid",
+    413: "invalid",
     401: "auth",
     403: "auth",
     429: "rate-limited",

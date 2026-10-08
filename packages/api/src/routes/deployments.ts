@@ -42,6 +42,7 @@ import { type FlowPinsLive, publishDeployedFlow, resolveFlowPins } from '../flow
 import type { GuardrailRegistryBinding } from '../guardrail-binding.js';
 import type { ImageRegistryBinding } from '../image-registry-binding.js';
 import type { LiveVersionBinding } from '../live-version-binding.js';
+import type { Authorizer } from '../middleware/authorize.js';
 import { PublishRefused } from '../publish-refused.js';
 import { type RegistryReadOnly, refuseReadOnly } from '../registry-read-only.js';
 import type { SecretBinding } from '../secrets-binding.js';
@@ -51,6 +52,7 @@ import type { AppEnv } from '../types.js';
 import { hasCapability, requireEnvName } from './env.js';
 import type { GuardrailWriteHook } from './guardrails.js';
 import { clampLimit } from './pagination.js';
+import { tenantResourceAccess } from './tenant-access.js';
 import type { ToolWriteHook } from './tools.js';
 
 /**
@@ -167,8 +169,12 @@ export interface DeploymentsRouterBindings {
   readonly onGuardrailWrite?: GuardrailWriteHook;
 }
 
-export function deploymentsRouter(bindings: DeploymentsRouterBindings): Hono<AppEnv> {
+export function deploymentsRouter(
+  bindings: DeploymentsRouterBindings,
+  authorizer?: Authorizer,
+): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  r.use('*', tenantResourceAccess(authorizer));
 
   // ---------- GET / (list, cursor-paginated) ----------
   r.get('/', async (c) => {

@@ -37,6 +37,7 @@ export type {
 export type {
   Run,
   RunAgent,
+  RunFailure,
   RunsClient,
   ResumeRunInput,
   StartedRun,
@@ -228,6 +229,10 @@ export type {
 } from './generated/api.js';
 export type { FollowRunOptions, RunProgressEvent, SubscribeToRunOptions } from './run-follow.js';
 export type { JudgeClassFilter, JudgeClassesClient } from './resources/judge-classes.js';
+export type {
+  ServiceAccountFilter,
+  ServiceAccountsClient,
+} from './resources/service-accounts.js';
 export type { JudgmentFilter, JudgmentsClient } from './resources/judgments.js';
 export type {
   McpClient,
@@ -292,6 +297,16 @@ export type {
   TrustSigningKeyInput,
   TrustedSigningKey,
 } from './resources/signing-keys.js';
+export type {
+  ExportSigningKey,
+  ExportSigningKeysClient,
+} from './resources/export-signing-keys.js';
+export { SIGNED_EXPORT_ALGORITHMS, verifySignedExport } from './verify-export.js';
+export type {
+  SignedExportEnvelope,
+  SignedExportVerification,
+  VerifySignedExportOptions,
+} from './verify-export.js';
 export type {
   ComplianceClient,
   Evidence,
@@ -361,6 +376,8 @@ export type {
   ListProvidersFilter,
   Provider,
   ProviderCapabilities,
+  ProviderCheck,
+  ProviderConfigProblem,
   ProviderPage,
   ProvidersClient,
   RegisterProviderInput,
@@ -401,6 +418,7 @@ export type {
   AdapterStatus,
   AdapterTestOutcome,
   AgentId,
+  ApiKeyPrincipal,
   ApiToken,
   ApiTokenCreated,
   ApiTokenId,
@@ -413,6 +431,7 @@ export type {
   ApprovalDecisionRecord,
   ApprovalId,
   ApprovalStatus,
+  ArtifactHead,
   ArtifactId,
   AuditBundle,
   AuditBundleId,
@@ -439,6 +458,7 @@ export type {
   CostEstimate,
   Cursor,
   DatasetId,
+  DownloadedArtifact,
   DryRunCriterion,
   DryRunProposalResult,
   DryRunResult,
@@ -508,6 +528,8 @@ export type {
   PackManifest,
   PackToolBinding,
   Page,
+  PersonGrant,
+  PersonGrants,
   PlannedMemoryWrite,
   PlannedNode,
   PlannedRetrieval,
@@ -546,8 +568,10 @@ export type {
   RetrievalResult,
   RevokeSessionsResult,
   RouteResult,
+  UnregisterUserResult,
   CreateJudgeClassInput,
   CreateJudgmentInput,
+  CreateServiceAccountInput,
   RegisterMcpEndpointInput,
   Reviewer,
   ReviewerId,
@@ -561,6 +585,9 @@ export type {
   RunStartedEvent,
   ScheduleId,
   ScheduleSpec,
+  ServiceAccount,
+  ServiceAccountGrant,
+  ServiceAccountGrantTarget,
   SearchInput,
   Session,
   SessionId,
@@ -590,6 +617,7 @@ export type {
   ToolInvocationResult,
   ToolManifest,
   TurnDetailEvent,
+  UploadArtifactInput,
   UsageQueryFilter,
   UsageRecord,
   UsageSummary,

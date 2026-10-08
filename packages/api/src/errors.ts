@@ -90,6 +90,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'budget-exceeded': 422,
   'output-schema-violation': 422,
   'model-invocation-failed': 422,
+  /** No registered provider satisfies the agent's capability declaration (`needs`). */
+  'capability-unsatisfiable': 422,
+  /** A tool the agent names has no version satisfying its range (or the pinned one is gone). */
+  'tool-version-unresolvable': 422,
   'tool-invocation-failed': 422,
   'capability-routing-failed': 422,
   'runtime-not-configured': 422,
@@ -158,6 +162,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'provider-not-found': 404,
   'provider-already-registered': 409,
   'invalid-provider': 400,
+  'provider-config-invalid': 422,
   // Admin plane — cost readback.
   'cost-record-not-found': 404,
   // Admin plane — adapters.
@@ -199,8 +204,35 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'gate-policy-scope-changed': 409,
   'gate-policy-scope-unpinned': 409,
   'gate-policy-needs-pin': 409,
+  'gate-policy-descendant-unpinned': 409,
+  // API keys: whom a key acts for, and what it may do.
+  /** Mint: the person or service account named doesn't exist. */
+  'principal-not-found': 404,
+  /** Mint: an `admin` key for a principal that isn't a tenant admin. */
+  'role-exceeds-principal': 403,
+  /** A key limited to one project, on a request that names another. */
+  'key-project-mismatch': 403,
+  'service-account-not-found': 404,
+  /** An active service account of the tenant already has the name. */
+  'service-account-name-taken': 409,
+  /** A grant for an unregistered service account. */
+  'service-account-unregistered': 409,
+  /** Adding a person with an email another person of the tenant has. */
+  'identity-user-email-taken': 409,
+  /** Removing tenant admin from the only person who holds it: the tenant would have none. */
+  'last-tenant-admin': 409,
+  /** Removing tenant admin from the seed user, whom the runtime re-grants it at every boot. */
+  'seed-user-admin': 409,
+  /** Unregistering yourself, or the deployment's seed user (`details.reason`). */
+  'identity-user-unregister-refused': 409,
+  /** A grant or a key for a person who was unregistered. */
+  'identity-user-unregistered': 409,
+  /** A person's grants on a runtime without an authorization store. */
+  'person-grants-unsupported': 501,
   /** Unregister: the version is live in a scope; move that pin first. */
   'agent-version-live': 409,
+  /** An artifact upload over the runtime's cap (`KINDGI_ARTIFACT_MAX_BYTES`). */
+  'artifact-too-large': 413,
   'run-not-finished': 409,
   'item-not-found': 400,
   // The judgment binding can't list judged runs, so no test sets from judgments.
@@ -291,6 +323,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'secret-provider-unauthorized': 502,
   'secret-provider-rate-limited': 429,
   'secret-store-error': 500,
+  /** The secret store doesn't do this by design (the dev store's rotate and revoke). */
+  'secret-operation-unsupported': 501,
   'env-store-error': 500,
   // Trigger HTTP surface.
   'trigger-not-found': 404,

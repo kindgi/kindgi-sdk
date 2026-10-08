@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/specs",
-  "version": "0.1.4-rc.3",
+  "version": "0.1.4",
   "description": "Canonical JSON Schemas (Draft 2020-12) for every Kindgi artifact kind — flow, agent, tool, capability, guardrail, policy, event, run event, memory, provenance, pack, compliance evidence, audit bundle, eval suite, discoverable entity. The wire contracts every SDK, runtime, and external tool validates against. Each schema is importable by name as `@kindgi/specs/<name>.schema.json`.",
   "license": "Apache-2.0",
   "repository": {
@@ -23,9 +23,18 @@
     },
     "./*.schema.json": "./schemas/*.schema.json",
     "./examples/*.json": "./examples/*.json",
+    "./test-vectors/*": "./test-vectors/*",
     "./package.json": "./package.json"
   },
-  "files": ["dist", "src", "schemas", "examples", "README.md", "type-manifest.json"],
+  "files": [
+    "dist",
+    "src",
+    "schemas",
+    "examples",
+    "test-vectors",
+    "README.md",
+    "type-manifest.json"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",

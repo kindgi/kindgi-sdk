@@ -23,6 +23,8 @@ import {
   type Action,
   type AuthzCheckBinding,
   type Decision,
+  OBJECT_ACTIONS,
+  type ObjectType,
   type Principal,
   type ResourceRef,
   denyPayload,
@@ -70,6 +72,24 @@ export interface Authorizer {
 }
 
 export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
+  /**
+   * Whether a resource is inside the project the caller's API key is
+   * limited to (always, for a caller with no such key). The tenant, orgs,
+   * teams and projects are held by `keyCeilingDeny`; anything else must
+   * belong to the key's project, as the store says (`inProject`). Without
+   * that answer, the key reaches no other resource.
+   */
+  async function inKeyProject(
+    c: Context<AppEnv>,
+    principal: Principal,
+    resource: ResourceRef,
+  ): Promise<boolean> {
+    const keyProject = c.get('tokenProjectId');
+    if (keyProject === undefined || STRUCTURAL.has(resource.type)) return true;
+    if (binding.inProject === undefined) return false;
+    return binding.inProject(principal, resource, keyProject);
+  }
+
   async function checkInternal(
     c: Context<AppEnv>,
     action: Action,
@@ -88,6 +108,17 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
           actorSubject: '',
         },
       };
+    }
+    const undefinedPair = undefinedRelation(action, resource);
+    if (undefinedPair !== undefined) return undefinedPair;
+    const ceiling = keyCeilingDeny(c, action, resource);
+    if (ceiling !== undefined) return ceiling;
+    if (!(await inKeyProject(c, principal, resource))) {
+      return keyDecision(
+        action,
+        resource,
+        `the API key is limited to project ${c.get('tokenProjectId')}`,
+      );
     }
     const requestId = c.get('requestId');
     const ctx =
@@ -134,7 +165,19 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
       if (items.length === 0) return [];
       const principal = c.get('principal') as Principal | undefined;
       if (principal === undefined) return [];
-      const refs = items.map(refFn);
+      // What the model can't answer, or the key itself rules out, never
+      // reaches the store.
+      const allowedByKey = await Promise.all(
+        items.map(
+          async (item) =>
+            undefinedRelation(action, refFn(item)) === undefined &&
+            keyCeilingDeny(c, action, refFn(item)) === undefined &&
+            (await inKeyProject(c, principal, refFn(item))),
+        ),
+      );
+      const open = items.filter((_, i) => allowedByKey[i]);
+      if (open.length === 0) return [];
+      const refs = open.map(refFn);
       const requestId = c.get('requestId');
       const ctx =
         typeof requestId === 'string' && requestId.length > 0
@@ -142,8 +185,8 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
           : undefined;
       const decisions = await binding.checkBatch(principal, action, refs, ctx);
       const out: (typeof items)[number][] = [];
-      for (let i = 0; i < items.length; i++) {
-        if (decisions[i]?.allowed) out.push(items[i] as (typeof items)[number]);
+      for (let i = 0; i < open.length; i++) {
+        if (decisions[i]?.allowed) out.push(open[i] as (typeof items)[number]);
       }
       return out;
     },
@@ -159,4 +202,74 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
       return binding.listObjects(principal, action, type, ctx);
     },
   };
+}
+
+/**
+ * A check must name a relation the authorization model defines for the
+ * resource's type (`OBJECT_ACTIONS`, kept equal to the runtime's model by
+ * its tests). Any other pair is a bug in the route: the PDP rejects it
+ * for everyone, the seed admin included, and only with authorization on,
+ * so it's refused here, naming the pair, and logged.
+ */
+function undefinedRelation(action: Action, resource: ResourceRef): Decision | undefined {
+  const defined = OBJECT_ACTIONS[resource.type as ObjectType] as readonly Action[] | undefined;
+  if (defined?.includes(action) === true) return undefined;
+  const reason = `the authorization model has no \`${action}\` on \`${resource.type}\` (a check that can never pass: a bug in the route)`;
+  console.error(`[authz] ${reason}`);
+  return {
+    allowed: false,
+    failing: 'invalid-action',
+    reason,
+    evidence: {
+      action,
+      relation: '',
+      resource: `${resource.type}:${resource.id}`,
+      actorSubject: '',
+    },
+  };
+}
+
+/** Types a key's project limit is checked on directly, not through `inProject`. */
+const STRUCTURAL: ReadonlySet<string> = new Set(['tenant', 'org', 'team', 'project']);
+
+function keyDecision(action: Action, resource: ResourceRef, reason: string): Decision {
+  return {
+    allowed: false,
+    failing: 'scope',
+    reason,
+    evidence: {
+      action,
+      relation: '',
+      resource: `${resource.type}:${resource.id}`,
+      actorSubject: '',
+    },
+  };
+}
+
+/**
+ * What an API key itself rules out, before the principal's grants are
+ * asked: a key can do less than its principal, never more.
+ *
+ * - A `member` key takes no `admin` action, even for a principal who is an
+ *   admin: a day-to-day key can't change keys, grants or policies.
+ * - A key limited to a project acts on no other project, and takes no
+ *   `admin` action on the tenant, an org or a team. Other resources must
+ *   be in its project (`inKeyProject`).
+ */
+function keyCeilingDeny(
+  c: Context<AppEnv>,
+  action: Action,
+  resource: ResourceRef,
+): Decision | undefined {
+  if (action === 'admin' && c.get('tokenRole') === 'member') {
+    return keyDecision(action, resource, 'a member API key takes no admin action');
+  }
+  const keyProject = c.get('tokenProjectId');
+  if (keyProject === undefined) return undefined;
+  const otherProject = resource.type === 'project' && resource.id !== keyProject;
+  const aboveIt =
+    resource.type !== 'project' && STRUCTURAL.has(resource.type) && action === 'admin';
+  return otherProject || aboveIt
+    ? keyDecision(action, resource, `the API key is limited to project ${keyProject}`)
+    : undefined;
 }

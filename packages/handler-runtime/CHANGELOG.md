@@ -1,5 +1,104 @@
 # @kindgi/handler-runtime
 
+## 0.1.4
+
+### Patch Changes
+
+- 82f3dec: `PACK_HEADERS.traceparent`'s description no longer says the runtime sends the header today: it's optional, and runtimes send it on every pack call from 0.1.5.
+- 814af63: The pack-service supervisor's front (what `kindgi dev` runs pack code behind) passes the caller's `traceparent` header on to the pack service, as the pack protocol says a pack service gets it. It dropped the header before, so a pack service under `kindgi dev` never saw the run's trace, while the same service called by the runtime directly did.
+- 024a47f: **An agent's prompt and settings can come from data blocks, pinned when the agent version is published.**
+  
+  - **References:**
+    - `instructions` is the system prompt, or a prompt block by range: `{ prompt: 'acme.intake-prompt', version: '^1.0.0' }`. Its template and declared parameters are used instead.
+    - `settings: [{ id, version }]` lists settings blocks.
+    - `modelSettings: { id, version }` names a model-settings block (`MODEL_SETTINGS_SCHEMA`: `temperature`, `maxOutputTokens`).
+  - **Pinned at publish:** `POST /v1/agents` and deploys resolve each reference by `pickVersion` into `pins.prompts` / `pins.settings`, alongside the tools.
+  - **Refusals:** a reference that matches no published version, names a block of the other kind, names model settings that aren't, or runs on a runtime with no block registry refuses the publish (`400 validation-failed`).
+  - **At run time:** a turn loads each block at its pinned version. A resumed turn uses the versions its `setup` journaled (`blockVersions`).
+    - The prompt block renders as the instructions.
+    - Settings values reach tools as `ToolContext.settings['<id>']` and templates as `settings["<id>"]`.
+    - Model settings go into the model call.
+    - A block that can't load fails the turn (`block-unresolvable`).
+    - `InvokeAgentBindings` takes an optional `blockReader`.
+  - **Changed elsewhere:** the agent spec, the pack index, both indexers (TS and Python: `Agent(instructions={...}, settings=[...], model_settings={...})`), and both clients.
+  - **Pack protocol 2.4.0:** `callContext` gets optional `settings`, so pack code reads them: `ctx.settings['acme.weights']` in TS, `ctx.settings["acme.weights"]` in Python. Older pack services still answer calls that carry it: a TS one passes it to the handler, a Python one drops it.
+  - **`settings` is now a reserved template name.**
+- f96bd58: **One Ctrl+C stops `kindgi dev` cleanly, the runtime container included.**
+  
+  - **Under a package manager** (`pnpm exec kindgi dev`, `npx kindgi dev`, a `pnpm run` script), `kindgi dev` no longer exits at once with code 130 and leaves the runtime container running. A terminal's Ctrl+C signals the whole process group, and the wrapper signals its child too: `npx` and `pnpm run` forward SIGINT; `pnpm exec` sends SIGTERM. So one Ctrl+C arrived twice and was read as the second, forced one.
+    - A signal that comes with the first is now the same Ctrl+C. That holds even when it's handled late because the stop held the event loop: closing the file watcher takes over a second on macOS.
+    - A SIGTERM never forces the exit.
+    - Pressing Ctrl+C again later still forces it.
+    - `pnpm exec` itself exits at once, so the prompt returns while `kindgi dev` finishes stopping and prints "stopped.".
+  - **The pack service isn't restarted mid-shutdown.** Its child gets the same Ctrl+C and exits. `kindgi dev` printed "pack service exited (SIGINT) — restarting" and started a new one. It now marks the pack service as closing the moment the stop arrives.
+  - **Every shutdown step runs**, even after one fails, so the runtime container is removed either way.
+  - **`@kindgi/handler-runtime`**: the pack service supervisor has `beginClose()`. From then on a child that exits is expected, not restarted, and `start()` is refused. `close()` does this too.
+- e197294: Two files in a pack that define a tool, guardrail, agent or flow with the same id are an error. The indexer kept both, and the pack service silently served only the last. Now the indexer keeps the first file in path order and reports the second: `tools/b.ts: duplicate tool id 'acme.echo' (also defined in tools/a.ts)` (`manifest-validation-failed`), as the Python indexer already does. That holds for two versions of one id as well: a pack serves one version of each primitive. `kindgi build` and `kindgi deploy` refuse the pack; `kindgi dev` prints the error and loads the rest. The same id on two different kinds (a tool and a flow) is still allowed.
+- b52d890: A pack can hold several versions of one tool, side by side: one agent version may pin `acme.scorer@1.0.0` while another pins `2.0.0`. The pack service (TypeScript and Python) keys its tools by id and version: a call runs the version it names; a call that names none runs the tool's only version, and is refused (`tool-version-mismatch`, naming the versions it has) when there are several. `GET /v1/info` lists every version. The Python indexer accepts several versions of one id, keyed by the version the index records (a tool without its own takes the pack's), and refuses the same version twice.
+- fe0ad36: **A pack service child stopped by the terminal's Ctrl+C isn't reported as a crash while `kindgi dev` stops.** Ctrl+C (or closing the terminal) signals the whole process group, the pack service's child included. Under load, the child's exit could be handled before `kindgi dev`'s own stop, which printed "pack service exited (SIGINT) — restarting" mid-shutdown; nothing actually restarted. A child killed by SIGINT or SIGHUP now gets two event-loop turns for its owner's stop to arrive before it counts as a crash. Every other exit is reported at once, as before.
+- 9801f64: **Request logs and trace context.**
+  
+  - **`createApp({ logger })`** takes a `@kindgi/log` logger. Without one, the app stays quiet.
+    - Each request gets `c.var.log`, with subsystem `http` and its `requestId`, `traceId` and `spanId` (plus `tenantId` once authenticated), and `c.var.trace`.
+    - An incoming `traceparent` is honoured, with a new span; a missing or malformed one starts a fresh trace. Every response answers `traceresponse`.
+  - **The access line:** `METHOD /v1/runs/:runId 200 12ms`, with the route's pattern and never the raw path.
+    - Writes and 4xx are logged at `info`, 5xx at `error`.
+    - Successful reads, probes and stream openings are logged at `debug`, so `info` stays readable while a console polls.
+    - A 500 also logs the error itself, redacted.
+  - **Runs carry their trace.** Starting a run hands the request's trace to the run handler (`RunTrace` on the agent and flow invoke inputs). `RunFlowInput`, `StartRunParams` and `KernelRunRecord` take an optional `traceId`. `Run.traceId` is on the wire when a run has one: optional in the TypeScript client, `trace_id` in the Python client.
+  - **Pack protocol 2.4.1:** the optional `traceparent` request header (`PACK_HEADERS.traceparent`), so a pack service's records can carry the run's trace id.
+  - **`KINDGI_LOG_LEVEL`, `KINDGI_LOG_LEVELS` and `KINDGI_LOG_FORMAT`** are in the env schema, for the runtime server. Under `auto`, the format is pretty on a terminal or with `KINDGI_DEV=true`.
+  - **`kindgi dev`** runs the runtime with pretty logs (`KINDGI_LOG_FORMAT=pretty`) and keeps only its last 200 lines in memory.
+- Updated dependencies [149a8c9]
+- Updated dependencies [fac7472]
+- Updated dependencies [846dd9c]
+- Updated dependencies [26b2a23]
+- Updated dependencies [b8ff156]
+- Updated dependencies [2040daf]
+- Updated dependencies [c0f1b56]
+- Updated dependencies [9801f64]
+- Updated dependencies [7c084e1]
+- Updated dependencies [ae417f7]
+  - @kindgi/env-schema@0.1.4
+  - @kindgi/types@0.1.4
+  - @kindgi/flow@0.1.4
+  - @kindgi/schema@0.1.4
+  - @kindgi/sandbox@0.1.4
+
+## 0.1.4-rc.5
+
+### Patch Changes
+
+- 9801f64: **Request logs and trace context.**
+  
+  - **`createApp({ logger })`** takes a `@kindgi/log` logger. Without one, the app stays quiet.
+    - Each request gets `c.var.log`, with subsystem `http` and its `requestId`, `traceId` and `spanId` (plus `tenantId` once authenticated), and `c.var.trace`.
+    - An incoming `traceparent` is honoured, with a new span; a missing or malformed one starts a fresh trace. Every response answers `traceresponse`.
+  - **The access line:** `METHOD /v1/runs/:runId 200 12ms`, with the route's pattern and never the raw path.
+    - Writes and 4xx are logged at `info`, 5xx at `error`.
+    - Successful reads, probes and stream openings are logged at `debug`, so `info` stays readable while a console polls.
+    - A 500 also logs the error itself, redacted.
+  - **Runs carry their trace.** Starting a run hands the request's trace to the run handler (`RunTrace` on the agent and flow invoke inputs). `RunFlowInput`, `StartRunParams` and `KernelRunRecord` take an optional `traceId`. `Run.traceId` is on the wire when a run has one: optional in the TypeScript client, `trace_id` in the Python client.
+  - **Pack protocol 2.4.1:** the optional `traceparent` request header (`PACK_HEADERS.traceparent`), so a pack service's records can carry the run's trace id.
+  - **`KINDGI_LOG_LEVEL`, `KINDGI_LOG_LEVELS` and `KINDGI_LOG_FORMAT`** are in the env schema, for the runtime server. Under `auto`, the format is pretty on a terminal or with `KINDGI_DEV=true`.
+  - **`kindgi dev`** runs the runtime with pretty logs (`KINDGI_LOG_FORMAT=pretty`) and keeps only its last 200 lines in memory.
+- Updated dependencies [9801f64]
+  - @kindgi/env-schema@0.1.4-rc.5
+  - @kindgi/flow@0.1.4-rc.5
+  - @kindgi/schema@0.1.4-rc.5
+  - @kindgi/sandbox@0.1.4-rc.5
+  - @kindgi/types@0.1.4-rc.5
+
+## 0.1.4-rc.4
+
+### Patch Changes
+
+- @kindgi/env-schema@0.1.4-rc.4
+  - @kindgi/flow@0.1.4-rc.4
+  - @kindgi/sandbox@0.1.4-rc.4
+  - @kindgi/schema@0.1.4-rc.4
+  - @kindgi/types@0.1.4-rc.4
+
 ## 0.1.4-rc.3
 
 ### Patch Changes

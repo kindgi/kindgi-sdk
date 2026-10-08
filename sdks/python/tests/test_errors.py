@@ -71,11 +71,20 @@ def test_an_unlisted_403_is_forbidden_and_401_unauthenticated() -> None:
         "version-already-exists",
         "gate-policy-already-registered",
         "gate-policy-needs-pin",
+        "gate-policy-descendant-unpinned",
         "promotion-superseded",
     ],
 )
 def test_an_already_registered_code_is_a_conflict(code: str) -> None:
     assert type(from_wire(body(code), 409)) is ConflictError
+
+
+def test_a_refused_provider_registration_is_an_invalid_request_with_its_issues() -> None:
+    issues = [{"path": "/adapter_config/api", "message": "adapter_config.api must be one of …"}]
+    error = from_wire(body("provider-config-invalid", issues=issues), 422)
+    assert type(error) is InvalidRequestError
+    assert error.issues == issues
+    assert error.server_code == "provider-config-invalid"
 
 
 def test_a_listed_code_keeps_its_class_whatever_the_status() -> None:

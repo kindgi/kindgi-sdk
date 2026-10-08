@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/agents",
-  "version": "0.1.4-rc.3",
+  "version": "0.1.4",
   "description": "Agent primitive for Kindgi. Composes capabilities (model routing), tools (execution), memory (facts + retrieval), guardrails (declarative guardrails), and provenance into a single declarative unit. Agents are data-as-code — a defineAgent() call produces a durable definition that runs on the kernel, with first-class multi-turn conversations, streaming output, and a provenance record per turn.",
   "license": "Apache-2.0",
   "repository": {
