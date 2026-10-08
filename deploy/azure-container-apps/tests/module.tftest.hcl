@@ -221,6 +221,46 @@ run "existing_vnet_shape_needs_all_three" {
   expect_failures = [var.environment_subnet_id]
 }
 
+# Container Apps' ingress appends the client to X-Forwarded-For (live,
+# 2026-10-08): one trusted hop by default, so rate limits see the client.
+run "trusts_one_proxy_by_default" {
+  command = plan
+  assert {
+    condition     = local.server_env.KINDGI_TRUSTED_PROXIES == "1"
+    error_message = "The server trusts one hop: the Container Apps ingress."
+  }
+}
+
+run "trusted_proxies_takes_ranges" {
+  command = plan
+  variables {
+    trusted_proxies = "10.0.0.0/8, 2001:db8::/32"
+  }
+  assert {
+    condition     = local.server_env.KINDGI_TRUSTED_PROXIES == "10.0.0.0/8, 2001:db8::/32"
+    error_message = "IP/CIDR ranges pass through as given."
+  }
+}
+
+run "empty_trusted_proxies_leaves_it_unset" {
+  command = plan
+  variables {
+    trusted_proxies = ""
+  }
+  assert {
+    condition     = !contains(keys(local.server_env), "KINDGI_TRUSTED_PROXIES")
+    error_message = "An empty trusted_proxies sets nothing."
+  }
+}
+
+run "refuses_a_trusted_proxies_that_is_neither" {
+  command = plan
+  variables {
+    trusted_proxies = "ingress"
+  }
+  expect_failures = [var.trusted_proxies]
+}
+
 run "refuses_a_pack_call_timeout_over_the_platform_cap" {
   command = plan
   variables {

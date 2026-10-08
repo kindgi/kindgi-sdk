@@ -160,6 +160,7 @@ locals {
     var.pack_call_timeout_ms == null ? {} : { KINDGI_PACK_CALL_TIMEOUT_MS = tostring(var.pack_call_timeout_ms) },
     length(var.cors_origins) == 0 ? {} : { KINDGI_CORS_ORIGINS = join(",", var.cors_origins) },
     var.openfga_api_url == "" ? {} : { KINDGI_OPENFGA_API_URL = var.openfga_api_url },
+    var.trusted_proxies == "" ? {} : { KINDGI_TRUSTED_PROXIES = var.trusted_proxies },
   )
 }
 

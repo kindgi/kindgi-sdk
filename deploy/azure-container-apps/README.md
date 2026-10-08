@@ -175,6 +175,7 @@ The runtime reads the pack image from the registry with its own identity (`KINDG
 
 ## Operating it
 
+- **Client addresses:** the server trusts one proxy, the Container Apps ingress, which appends the caller to `X-Forwarded-For` (`trusted_proxies = "1"`, `KINDGI_TRUSTED_PROXIES`), so rate limits and audit records see the caller. With Front Door or Application Gateway in front, set `"2"`.
 - **One server replica** until several are verified. Migrations run at boot over a direct connection (port 5432, not the built-in PgBouncer on 6432).
 - **Upgrades roll forward:** migrations only go forward. Before a new runtime version boots on the database, make sure a restorable backup exists (automatic backups with point-in-time restore are on), and roll back by restoring it.
 - **Rotating a secret:** add a version (`put` again). Container Apps picks up a new version of a versionless reference within 30 minutes and restarts the apps that read it. Never rotate the AAD key or the erasure ledger's key this way.

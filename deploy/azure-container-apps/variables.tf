@@ -105,6 +105,17 @@ variable "cors_origins" {
   default     = []
 }
 
+variable "trusted_proxies" {
+  description = "KINDGI_TRUSTED_PROXIES on the server: which proxies in front of it to trust for a client's address, which rate limits and audit records use. A hop count, or comma-separated IPs/CIDR ranges. Container Apps' ingress appends the client to X-Forwarded-For, so 1; add one for each proxy you put in front of it (Front Door or Application Gateway: 2). Empty leaves it unset, and every client counts as the ingress."
+  type        = string
+  default     = "1"
+
+  validation {
+    condition     = var.trusted_proxies == "" || can(regex("^[1-9][0-9]*$", var.trusted_proxies)) || can(regex("^[0-9a-fA-F]*[.:][0-9a-fA-F:./]*( *, *[0-9a-fA-F]*[.:][0-9a-fA-F:./]*)*$", var.trusted_proxies))
+    error_message = "trusted_proxies: a hop count (1, 2, ...) or comma-separated IPs/CIDR ranges."
+  }
+}
+
 variable "openfga_api_url" {
   description = "KINDGI_OPENFGA_API_URL, when authorization runs on an OpenFGA server."
   type        = string
