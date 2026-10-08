@@ -172,6 +172,28 @@ describe('API — capabilities list', () => {
   });
 });
 
+describe('API — the providers with each feature', () => {
+  test("a descriptor's providers reach the wire; absent stays absent", async () => {
+    const { app } = makeApp([
+      {
+        id: 'feature:vision',
+        feature: 'vision',
+        description: 'Reads images in its input.',
+        providers: [{ providerId: 'acme-openai', models: ['gpt-acme'] }],
+      },
+      { id: 'feature:batch', feature: 'batch', description: 'Batch.' },
+    ]);
+    const res = await app.request('/v1/capabilities', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    const body = (await res.json()) as { data: Record<string, unknown>[] };
+    expect(body.data.find((d) => d.id === 'feature:vision')?.providers).toEqual([
+      { providerId: 'acme-openai', models: ['gpt-acme'] },
+    ]);
+    expect(body.data.find((d) => d.id === 'feature:batch')).not.toHaveProperty('providers');
+  });
+});
+
 describe('API — capabilities get', () => {
   test('get roundtrip returns descriptor', async () => {
     const { app } = makeApp();

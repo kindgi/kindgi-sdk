@@ -581,6 +581,22 @@ export const UnpinBodySchema: JsonSchema = {
   },
 };
 
+export const RunFailureSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['code', 'message'],
+  description:
+    "Why a failed run failed; present only on a `failed` run. An agent turn's failure carries its own code (`budget-exceeded`, `capability-routing-failed`, `model-invocation-failed`, …); any other failure is `run-failed`, with the run's failure message.",
+  properties: {
+    code: { type: 'string' },
+    message: { type: 'string' },
+    cause: {
+      description:
+        "What the error came from, when it says: e.g. for `capability-routing-failed`, the router's `capability-unsatisfiable` with its reasons, by provider.",
+    },
+  },
+};
+
 export const RunSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -605,7 +621,12 @@ export const RunSchema: JsonSchema = {
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
     completedAt: { type: 'string', format: 'date-time' },
-    failureMessage: { type: 'string' },
+    failureMessage: {
+      type: 'string',
+      description:
+        'The failure as the runtime recorded it. Read `failure` instead: an agent turn records its typed error here in an internal form.',
+    },
+    failure: { $ref: '#/components/schemas/RunFailure' },
     output: {
       description:
         "The run's output once it completed. Present on single-run responses; on lists only with `?include=output`.",
@@ -4240,6 +4261,15 @@ export const BlobMetaSchema: JsonSchema = {
       format: 'uuid',
       description: 'Optional back-ref to the RunId that produced this blob.',
     },
+    projectId: {
+      type: 'string',
+      description:
+        "The project the artifact belongs to: its owner run's, else the upload's `projectId`, else the tenant's default project. Reading it needs `read` there; deleting it, `write`. Absent on blobs stored before projects were recorded.",
+    },
+    createdBy: {
+      type: 'string',
+      description: 'Who uploaded it: `user:<id>` or `service_account:<id>`.',
+    },
     createdAt: { type: 'string', format: 'date-time' },
   },
 };
@@ -4269,6 +4299,11 @@ export const UploadArtifactBodySchema: JsonSchema = {
       description: 'JSON-encoded `Record<string, string>` — parsed server-side.',
     },
     ownerRunId: { type: 'string', format: 'uuid' },
+    projectId: {
+      type: 'string',
+      description:
+        "The project it belongs to, when there's no `ownerRunId` (with one, the run's project, and this must agree). Default: the tenant's default project.",
+    },
     expectedHash: {
       type: 'string',
       pattern: '^[0-9a-f]{64}$',
@@ -4351,6 +4386,23 @@ export const CapabilityDescriptorSchema: JsonSchema = {
       description:
         'Optional JSON Schema fragment describing the parameters an agent may attach to `{ feature, params }` in a `Requirement`.',
     },
+    providers: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/CapabilityProvider' },
+      description:
+        "The tenant's registered providers with a model that has the feature, and those models. Absent from servers that don't read the provider registry; `[]` when no provider of the tenant has one.",
+    },
+  },
+};
+
+export const CapabilityProviderSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['providerId', 'models'],
+  description: 'A provider of the tenant with a model that has the feature.',
+  properties: {
+    providerId: { type: 'string' },
+    models: { type: 'array', items: { type: 'string' }, description: 'Its models that have it.' },
   },
 };
 
@@ -8651,6 +8703,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RollbackBody', RollbackBodySchema],
   ['UnpinBody', UnpinBodySchema],
   ['Run', RunSchema],
+  ['RunFailure', RunFailureSchema],
   ['StartRunOptions', StartRunOptionsSchema],
   ['StartRunBody', StartRunBodySchema],
   ['ResumeRunBody', ResumeRunBodySchema],
@@ -8844,6 +8897,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['DeleteArtifactResult', DeleteArtifactResultSchema],
   ['Feature', FeatureSchema],
   ['CapabilityDescriptor', CapabilityDescriptorSchema],
+  ['CapabilityProvider', CapabilityProviderSchema],
   ['CapabilityCollectionPage', CapabilityCollectionPageSchema],
   ['ModelThinking', ModelThinkingSchema],
   ['ProviderCost', ProviderCostSchema],

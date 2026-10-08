@@ -163,7 +163,10 @@ real one.
 
 Run doctor every few seconds until `runtime` passes. `model-key` and
 `provider` still fail: that's expected until step 4. Then tell the person
-it's running, and how to stop it: `kill <the process id>`.
+it's running, and how to stop it: `kill <the process id>`. Also tell them
+where the console is: the `Console` line of `.kindgi/dev.log`, an address
+ending in `/console/`. They sign in there with the token on its `Token` line,
+which they read themselves: don't print the token in the chat.
 
 ## Step 4: the model key
 

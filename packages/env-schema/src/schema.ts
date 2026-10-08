@@ -398,6 +398,24 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     appliesTo: appliesToServer,
     group: 'core',
   },
+  {
+    name: 'KINDGI_ARTIFACTS',
+    description:
+      "Where artifacts' files go, which turns on `/v1/artifacts`: `local:<absolute dir>` (a directory on this machine) or `gcs:<bucket>[/<prefix>]` (a Google Cloud Storage bucket, through Application Default Credentials: workload identity on GCP, no keys to store). Metadata is in Postgres; a deleted artifact is purged under the `artifact` retention policy. Unset (the default): no `/v1/artifacts`. `kindgi dev` sets it to the pack's `.kindgi/dev/artifacts`.",
+    example: 'gcs:acme-artifacts/prod',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_ARTIFACT_MAX_BYTES',
+    description:
+      'The most bytes one artifact upload may carry, the whole request body; more is `413 artifact-too-large`. Default 104857600 (100 MB).',
+    example: '104857600',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
 
   // ---- logging ----------------------------------------------------
   {

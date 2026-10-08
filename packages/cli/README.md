@@ -762,6 +762,8 @@ Inside a pack that `kindgi dev` runs, they find it on their own (see
 | `flows` | `list`, `get <flow-id> [<version>]`, `publish --spec=<json>`, `versions`, `unregister <flow-id> <version>`, `reinstate <flow-id> <version>` |
 | `guardrails` | `list`, `get`, `register`, `unregister` |
 | `providers` | `list`, `get`, `register`, `presets`, `unregister` |
+| `capabilities` | `list`, `get`: the features an agent can require, what each means, and your models that have them |
+| `artifacts` | `list` (by `--run`, `--project`, `--content-type`), `get`, `upload <file>`, `download <blob-id> [-o <file>]`, `delete`: files kept in the runtime, each in a project |
 | `adapters` | `prepare` |
 | `approvals` | `list`, `get`, `complete` |
 | `reviewers` | `list`, `get`, `register`, `unregister` |
@@ -782,9 +784,8 @@ false`).
 
 `kindgi <command> --help` prints a command's subcommands and flags.
 
-More of the API (superseding and searching memory, artifacts,
-proposals, observations, tokens and capabilities) has commands in
-progress. They're left out of `--help` until they work; until then, use
+More of the API (superseding and searching memory, proposals,
+observations and tokens) has commands in progress. They're left out of `--help` until they work; until then, use
 [`@kindgi/client`](../../sdks/typescript) for those resources.
 
 ## Auth and config
