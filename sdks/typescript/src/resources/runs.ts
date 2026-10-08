@@ -9,7 +9,7 @@ import { KindgiApiError, notYetWired } from '../errors.js';
 import type { LiveScope, RunProgress, ScopeSegment } from '../generated/api.js';
 import { type RunProgressEvent, followRun } from '../run-follow.js';
 import { scopeToQuery } from '../scope-wire.js';
-import type { Transport } from '../transport.js';
+import { type Transport, seconds } from '../transport.js';
 import type { DryRunResult, RunEvent } from '../types.js';
 
 /**
@@ -32,6 +32,11 @@ export interface RunsClient {
    * once the run completes, fails or suspends (201, with `output`);
    * with `options.wait: false` as soon as it exists (202) — poll
    * `get(runId)` until it finishes.
+   *
+   * A waited start is bound by the client's timeout (`timeoutMs`, 30 s by
+   * default; this call can set its own). When it runs out, the run may
+   * still be going and its id never arrived: the `network` error says so.
+   * Start a run that can take longer with `options.wait: false`.
    *
    * `idempotencyKey` makes retries safe: two calls with the same key
    * within the server's retention window return the same `Run`.
@@ -216,6 +221,13 @@ export type StartRunInput =
       readonly input: unknown;
       readonly options?: StartRunOptions;
       readonly idempotencyKey?: string;
+      /**
+       * How long to wait for the answer, in milliseconds: this call's
+       * `ClientOptions.timeoutMs`. A waited start answers only when the run
+       * ends, so a run that can take longer is better started with
+       * `options: { wait: false }` and followed.
+       */
+      readonly timeoutMs?: number;
     }
   | {
       readonly flow: FlowId | string;
@@ -227,6 +239,13 @@ export type StartRunInput =
       readonly input: unknown;
       readonly options?: StartRunOptions;
       readonly idempotencyKey?: string;
+      /**
+       * How long to wait for the answer, in milliseconds: this call's
+       * `ClientOptions.timeoutMs`. A waited start answers only when the run
+       * ends, so a run that can take longer is better started with
+       * `options: { wait: false }` and followed.
+       */
+      readonly timeoutMs?: number;
     };
 
 export interface StartRunOptions {
@@ -338,6 +357,23 @@ export interface StartedRun extends Run {
   readonly publicAccessTokenExpiresAt?: Timestamp;
 }
 
+/**
+ * A waited start that the client's timeout ended: the run may still be
+ * going, and its id never arrived. Says how to start a long run instead.
+ * Any other error is returned as it is.
+ */
+function waitedStartTimeout(e: unknown): unknown {
+  if (!(e instanceof KindgiApiError) || e.error.code !== 'network') return e;
+  const { timeoutMs } = e.error;
+  if (timeoutMs === undefined) return e;
+  return new KindgiApiError({
+    code: 'network',
+    message: `The run didn't end within ${seconds(timeoutMs)}, the client's timeout (timeoutMs). A waited start answers only when the run ends, so the run may still be going, and its id didn't arrive. Start a run that can take longer with \`options: { wait: false }\`: the answer carries its id at once. Then follow it with \`runs.stream(runId)\` or \`runs.get(runId)\`. Or raise \`timeoutMs\`.`,
+    cause: e.error.cause,
+    timeoutMs,
+  });
+}
+
 export function makeRunsClient(transport: Transport): RunsClient {
   return {
     async start(input) {
@@ -359,14 +395,19 @@ export function makeRunsClient(transport: Transport): RunsClient {
               input: input.input,
               ...(input.options !== undefined && { options: input.options }),
             };
-      return transport.request<StartedRun>({
-        method: 'POST',
-        path: '/v1/runs',
-        body,
-        ...(input.idempotencyKey !== undefined && {
-          idempotencyKey: input.idempotencyKey,
-        }),
-      });
+      try {
+        return await transport.request<StartedRun>({
+          method: 'POST',
+          path: '/v1/runs',
+          body,
+          ...(input.idempotencyKey !== undefined && {
+            idempotencyKey: input.idempotencyKey,
+          }),
+          ...(input.timeoutMs !== undefined && { timeoutMs: input.timeoutMs }),
+        });
+      } catch (e) {
+        throw input.options?.wait === false ? e : waitedStartTimeout(e);
+      }
     },
 
     async dryRun(_input) {

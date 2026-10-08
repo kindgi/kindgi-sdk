@@ -132,8 +132,8 @@ built for:
 ```sh
 REPO=$(terraform output -raw image_repository)
 gcloud auth configure-docker "${REPO%%/*}"
-docker buildx imagetools create --tag "$REPO/runtime:0.1.3" \
-  quay.io/kindgi/runtime:0.1.3@sha256:<the release's digest>
+docker buildx imagetools create --tag "$REPO/runtime:0.1.4" \
+  quay.io/kindgi/runtime:0.1.4@sha256:<the release's digest>
 ```
 
 The copy keeps the release's digest. (A plain `docker pull`, `tag` and `push`
@@ -177,11 +177,20 @@ openssl rand -hex 32 | tr -d '\n' | gcloud secrets versions add $N-pack-service-
 
 # The first API token, and the two keys, base64.
 printf 'kgi_bt_%s' "$(openssl rand -hex 32)" | gcloud secrets versions add $N-api-token --data-file=-
-openssl rand 32 | base64 | gcloud secrets versions add $N-secrets-aad-key --data-file=-
+openssl rand 32 | base64 | gcloud secrets versions add $N-secrets-aad-key --data-file=-   # version 1
 openssl genpkey -algorithm ed25519 | base64 | gcloud secrets versions add $N-public-token-key --data-file=-
 
 # The license key, pasted, never echoed.
 read -rs LICENSE_KEY && printf '%s' "$LICENSE_KEY" | gcloud secrets versions add $N-license-key --data-file=- && unset LICENSE_KEY
+```
+
+The server reads the AAD key's version that `secrets_aad_key_version` names in
+`prod.tfvars`: `"1"`, the one just added (the example files have it). Every
+secret stored in Postgres is bound to that key, so the module pins it and
+refuses `latest`:
+
+```text
+secrets_aad_key_version is a version number ("1" for a new deployment), never "latest": every secret stored in Postgres is bound to the key it names.
 ```
 
 **The database user** is a built-in Cloud SQL user. It isn't a superuser, but
@@ -285,14 +294,15 @@ on the Vertex AI API and grants the runtime's service account
 `roles/aiplatform.user`. Then register the preset:
 
 ```sh
-pnpm exec kindgi providers register --preset=gemini --project=<project> --models=gemini-2.5-flash --url … --token …
+pnpm exec kindgi providers register --preset=gemini --project=<project> --models=gemini-3.8-flash --url … --token …
 ```
 
 ```text
-✓ Registered gemini: gemini-2.5-flash
+✓ Registered gemini: gemini-3.8-flash (default)
 ```
 
-Without the role, every model call fails:
+Without the role, every model call fails (this one was captured with
+`gemini-2.5-flash`; another model's call names that model):
 
 ```text
 Model call to gemini (gemini-2.5-flash) failed: {"error":{"code":403,"message":"Permission 'aiplatform.endpoints.predict' denied on resource '//aiplatform.googleapis.com/projects/<project>/locations/global/publishers/google/models/gemini-2.5-flash' (or it may not exist). …
@@ -305,12 +315,22 @@ A new grant can take a minute or two to apply.
 - **Upgrade:** back up Cloud SQL, copy the new runtime image by digest, set
   `server_image`, and apply. The new revision takes all the traffic.
   Migrations only go forward: never run two runtime versions on one
-  database, and go back by restoring the backup.
+  database, and go back by restoring the backup. From a module copy older
+  than `secrets_aad_key_version`, add it to `prod.tfvars` first, set to the
+  version your server reads now (`gcloud secrets versions list $N-secrets-aad-key`,
+  normally `1`); without it, `terraform plan` stops with
+  `No value for required variable`.
 - **Rotate a secret:** add a version, then roll a new revision of each service
   that reads it (`gcloud run services update … --update-labels=rotated=$(date +%s)`).
-  Never rotate the AAD key this way: every stored secret is bound to it.
-- **Logs:** Cloud Logging, per service. The runtime's startup lines are in
-  [Operate](../operate/#the-startup-log).
+- **The AAD key is never rotated.** Every stored secret is bound to the
+  version the server reads, so a new version is a key change that needs every
+  stored secret re-encrypted first. The pin keeps a version added by mistake
+  away from the server.
+- **Logs:** Cloud Logging, per service. The runtime logs JSON there, one
+  record per line, and Cloud Logging reads each record's `severity`; filter by
+  `jsonPayload.traceId` to follow one request or run. The startup lines are
+  the `lines` of its `boot` record, as in
+  [Operate](../operate/#the-startup-log). See [Logs](../logs/).
 
 ## Tear it down
 

@@ -78,15 +78,16 @@ uv run kindgi runs start --flow=my-pack.echo-flow --input='{"message":"Ada"}'
 ```text tutorial=expect
   "status": "completed",
 …
-⚠ Answered by "dev-echo", a fallback provider: no other registered provider satisfies agent "my-pack.echo-agent".
+⚠ dev-echo answered, and it isn't a real model: it only repeats what it's given. …
 …
     "echo": "Ada",
 ```
 
 Without a model, the agent's answer comes from `dev-echo`, a stand-in that
 calls the agent's first tool with `{"message": <your userMessage>}` and
-replies with what it returned (the run carries a `fallback-provider`
-warning). The flow runs the `echo` tool on its input and returns what the
+replies with what it returned, after a first line that says it isn't a real
+model (the run carries the `fallback-provider` and `dev-echo-not-a-model`
+warnings). The flow runs the `echo` tool on its input and returns what the
 tool returned. Either way, your Python tool ran: the runtime called it over
 HTTP in the pack service.
 

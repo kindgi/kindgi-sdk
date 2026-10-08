@@ -1139,7 +1139,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     v1.route('/capabilities', capabilitiesRouter(input.capabilityRegistry));
   }
   if (input.providerRegistry !== undefined) {
-    v1.route('/providers', providersRouter(input.providerRegistry, input.onProviderWrite));
+    v1.route(
+      '/providers',
+      providersRouter(input.providerRegistry, input.onProviderWrite, input.adapterFactories),
+    );
   }
   if (input.mcpEndpointRegistry !== undefined) {
     v1.route(

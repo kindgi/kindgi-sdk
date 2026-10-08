@@ -16,6 +16,7 @@ Translate between the framework's `ModelCallInput` / `ModelCallResult` and a non
 
 ## Exports
 
+- **`anthropicAdapterEntry`** (`ANTHROPIC_ADAPTER_ID`) — the `AdapterFactoryEntry` a runtime registers. **`anthropicAdapterFactory`** builds the provider from a registration whose `secret_ref` names its Anthropic API key (resolved on every call); without one it throws, and **`anthropicCheckConfig(input)`** reports the same problem (`secret_ref`) without building anything.
 - **`createAnthropicProvider(options)`** — returns a `ModelProvider` whose `metadata` is `options.metadata`. `invoke()` throws when `input.model` is not one of `metadata.models[].name`.
 - **`AnthropicProviderOptions`**:
   - `apiKey: string | (() => string | Promise<string>)` — a static key, or a resolver called on every `invoke()`. The SDK client is cached and rebuilt only when the resolved key changes, so a rotated secret takes effect on the next call. A per-tenant registry can register one provider per tenant whose resolver reads that tenant's secret.
@@ -74,7 +75,7 @@ A single-key deployment passes `apiKey: process.env.ANTHROPIC_API_KEY` (checked 
 - **Streaming.** `invoke()` resolves with the complete response; streaming would need a different `ModelProvider` interface.
 - **Extended thinking.** `ModelMessage` has no thinking field; `thinking` blocks in responses are dropped.
 - **Image inputs.** `ModelMessage` content is text only.
-- **Structured output.** `structuredOutput` on `ModelCallInput` is ignored.
+- **Structured output.** `structuredOutput` on `ModelCallInput` is ignored. No Kindgi caller sends it today: an agent's typed output is checked by parse and repair on every provider, so the anthropic preset's models still declare `structured-output` (they can follow a JSON schema natively).
 - **Retry logic in the adapter.** Retries and timeouts are the SDK client's (`clientOptions.maxRetries`, `clientOptions.timeout`).
 
 ## Related

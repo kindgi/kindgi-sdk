@@ -80,13 +80,15 @@ pnpm exec kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"
 ```text tutorial=expect
   "status": "completed",
 …
-⚠ Answered by "dev-echo", a fallback provider: no other registered provider satisfies agent "my-pack.echo-agent".
+⚠ dev-echo answered, and it isn't a real model: it only repeats what it's given. …
 ```
 
 There's no model yet, so the answer comes from `dev-echo`, a stand-in a new
 pack gets: it calls the agent's first tool with `{"message": <your
-userMessage>}` and replies with what the tool returned, and the run carries a
-`fallback-provider` warning. That's enough to see the whole path: the agent's
+userMessage>}` and replies with what the tool returned, after a first line
+that says it isn't a real model. The run carries the `fallback-provider` and
+`dev-echo-not-a-model` warnings, and the command prints the second on its
+stderr, with how to add a key. That's enough to see the whole path: the agent's
 turn, the tool call into your code, the guardrail's check.
 
 :::caution[dev-echo checks the wiring, nothing more]

@@ -4031,6 +4031,25 @@ class CapabilityCollectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
+class ModelThinking(BaseModel):
+    """
+    How the model thinks before it answers, so a call that wants as little as it allows (a judge's) gets it. Absent: it doesn't think, or nothing is known.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    mode: Literal["adaptive", "always"]
+    """
+    `adaptive`: on unless turned down. `always`: on, and it can only be lowered.
+    """
+    lowest: Annotated[str, Field(min_length=1)]
+    """
+    The vendor's own setting for the least thinking: for Anthropic `disabled`, `between_tools` or an effort (`low`); for Gemini a thinking level (`low`, `minimal`); for OpenAI a reasoning effort (`low`, `none`).
+    """
+
+
 class ProviderCost(BaseModel):
     """
     USD per 1K tokens. An adapter may take more rate fields (see the adapter's README).
@@ -4086,6 +4105,11 @@ class ModelInfo(BaseModel):
     """
     Fallback cap on output tokens. Adapters that require `max_tokens` on every request (e.g. Anthropic) use this when `ModelCallInput.maxOutputTokens` is unset.
     """
+    sampling: bool | None = None
+    """
+    Whether the model takes sampling settings (`temperature`). `false`: its API rejects a non-default value, so the call goes without one and the answer's `warnings` say so (`sampling-unsupported`). Absent: it takes them.
+    """
+    thinking: ModelThinking | None = None
     description: str | None = None
     """
     Short per-model description surfaced in logs.
@@ -4110,6 +4134,10 @@ class ProviderMetadata(BaseModel):
     models: Annotated[list[ModelInfo], Field(min_length=1)]
     """
     Models this connection exposes. Non-empty. `models[i].name` must be unique within the list.
+    """
+    default_model: Annotated[str | None, Field(alias="defaultModel", min_length=1)] = None
+    """
+    The model to use when an agent doesn't choose: one of `models[].name`. When candidates rank equally, it comes before the provider's other models; without it, ties break by model name. A preset sets it. A runtime before 0.1.4 ignores it.
     """
     attributes: list[str] | None = None
     """
@@ -4203,6 +4231,35 @@ class ProviderCapabilitiesResult(BaseModel):
         populate_by_name=True,
     )
     data: list[CapabilityDescriptor]
+
+
+class AdapterConfigProblem(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    path: str
+    """
+    The setting at fault, as a JSON pointer into the registration: `/adapter_config/<key>`, `/secret_ref`, `/metadata/region`, `/metadata/models/<i>/name`, or `/adapter_id` (an adapter this runtime does not have).
+    """
+    message: str
+    """
+    What's wrong with that setting and what it takes (e.g. `adapter_config.api must be one of responses, chat-completions.`). The error's `message` names the provider and its adapter.
+    """
+
+
+class ProviderCheckResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    provider_id: Annotated[str, Field(alias="providerId")]
+    adapter_id: Annotated[str, Field(alias="adapterId")]
+    checked: bool
+    """
+    False when this runtime has no check for the provider's adapter; `issues` is then empty.
+    """
+    issues: list[AdapterConfigProblem]
 
 
 class Config(BaseModel):
