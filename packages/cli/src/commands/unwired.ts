@@ -13,21 +13,13 @@ import type { Command } from './types.js';
  * whole group. Wiring a command means removing it here (a test counts the
  * `throwUnwired` call sites against this list).
  */
-export const UNWIRED_COMMANDS: ReadonlySet<string> = new Set([
-  'observations',
-  'proposals',
-  'memory facts retrieve',
-]);
+export const UNWIRED_COMMANDS: ReadonlySet<string> = new Set(['observations', 'proposals']);
 
 /**
  * Why a command (or a whole group: a command's nearest listed path counts)
  * is unwired, when there's more to say than "not yet wired".
  */
 export const UNWIRED_REASONS: ReadonlyMap<string, string> = new Map([
-  [
-    'memory facts retrieve',
-    "the Kindgi runtime doesn't search memory yet (keyword or semantic): a retrieval would find nothing. To list facts by type or scope: `kindgi memory facts list --type=<type> --scope=<json>`.",
-  ],
   [
     'observations',
     "the Kindgi runtime doesn't record supervisor observations yet, so there's nothing to list; how a run went is in `kindgi runs get <run-id>` and `kindgi runs journal <run-id>`.",

@@ -40,7 +40,7 @@ export interface TriggerAccess {
 
 export function triggerAccess(
   binding: TriggerRegistryBinding,
-  kind: TriggerRecord['kind'],
+  kind: Exclude<TriggerRecord['kind'], 'cron'>,
   authorizer: Authorizer | undefined,
 ): TriggerAccess {
   const onFlow = async (
@@ -60,7 +60,8 @@ export function triggerAccess(
       if (authorizer === undefined) return undefined;
       const tenantId = c.get('tenantId') as TenantId;
       const rec = await binding.get({ tenantId, triggerId });
-      if (rec === null || rec.kind !== kind) return undefined;
+      // A schedule's access is the schedules router's own (it may run an agent).
+      if (rec === null || rec.kind === 'cron' || rec.kind !== kind) return undefined;
       return onFlow(c, rec.flowId, actions);
     },
     async visible(c, rows) {

@@ -97,17 +97,43 @@ export interface PromptParameter {
  * user, and tenant-wide facts; never another conversation's or another
  * end user's):
  *   - `same-conversation`: this conversation's facts.
+ *   - `same-user`:         the facts of this run's end user (the
+ *                          conversation's participant) and of the Kindgi
+ *                          user it acts for; none when it has neither.
  *   - `same-project`:      the run's project's facts; none in a run
  *                          without a project.
  *   - `tenant`:            any fact of the declared type the run may see.
+ *
+ * Mode, with the user's message as the query:
+ *   - absent:    no query, the newest facts first;
+ *   - `keyword`: full-text search;
+ *   - `semantic`: search by meaning. A runtime without embeddings fails
+ *                the turn with `semantic-unavailable` (never a silent skip);
+ *   - `both`:    both, fused by rank (reciprocal rank fusion). Without
+ *                embeddings it runs the keyword half, and the turn's
+ *                journal says so (`degraded: no-embeddings`).
  */
 export interface RetrievalIntent {
   readonly types: readonly string[];
-  readonly scope: 'same-conversation' | 'same-project' | 'tenant';
+  readonly scope: 'same-conversation' | 'same-user' | 'same-project' | 'tenant';
   /** Cap on facts loaded per turn to keep the prompt small. Default 10. */
   readonly limit?: number;
-  /** If `keyword` or `semantic`, biases which retrieval mode is used. */
   readonly mode?: 'keyword' | 'semantic' | 'both';
+}
+
+/**
+ * How an agent uses what it retrieves. By default every retrieved fact
+ * is data, in a labelled block the model reads as information, never as
+ * instructions.
+ */
+export interface AgentMemoryPolicy {
+  /**
+   * Fact types that are instructions for this agent (e.g. `policy`): a
+   * retrieved fact of one of these types that a person **verified** goes
+   * into the system message under "Policies (verified)". Unverified
+   * facts of these types stay data. Default: none.
+   */
+  readonly instructionTypes?: readonly string[];
 }
 
 /**
@@ -362,6 +388,8 @@ export interface Agent {
    * retrieval pass before the model call.
    */
   readonly retrieval: readonly RetrievalIntent[];
+  /** How the agent uses what it retrieves (`instructionTypes`). Absent: all data. */
+  readonly memory?: AgentMemoryPolicy;
   /**
    * Guardrail ids the agent is subject to. Resolved at turn start
    * against the guardrail definitions bound for the run
@@ -518,6 +546,11 @@ export interface AgentBindings {
 export interface RetrievedFact {
   readonly fact: Fact<unknown>;
   readonly intent: RetrievalIntent;
-  /** Similarity or keyword-rank score, if the retrieval mode produced one. */
+  /**
+   * The mode's score, if it produced one: a full-text rank (`keyword`),
+   * a cosine similarity (`semantic`) or the fused rank score (`both`).
+   */
   readonly score?: number;
+  /** Its 1-based rank in each search that found it: why it was retrieved. */
+  readonly ranks?: { readonly keyword?: number; readonly semantic?: number };
 }

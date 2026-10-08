@@ -14,6 +14,8 @@ import type {
   RunId,
   ScopeSegment,
   TenantId,
+  Timestamp,
+  TriggerId,
 } from '@kindgi/types';
 
 import type { HandlerMissingError } from './errors.js';
@@ -77,6 +79,26 @@ export interface RunReplayRef {
 }
 
 /**
+ * Marks a run a trigger started: the trigger, the fire that started it,
+ * and for a schedule the occurrence it ran for.
+ */
+export interface RunTriggerRef {
+  readonly triggerId: TriggerId;
+  readonly kind: 'schedule' | 'event' | 'webhook';
+  readonly fireId: string;
+  /** A schedule's fire: the occurrence it ran for. */
+  readonly scheduledFor?: Timestamp;
+}
+
+/**
+ * The idempotency key of a run start: a start with a key a run of the
+ * tenant already has starts nothing and answers that run (`existing`), so
+ * a retried or re-driven start never runs twice. A trigger's fire uses
+ * `fire:<fireId>`. Keys are opaque, at most 255 characters.
+ */
+export type RunIdempotencyKey = string;
+
+/**
  * Binds the handlers for a flow the runtime is about to run or resume —
  * the root flow and every child flow a subgraph node starts. Lets a
  * child flow get handlers for its own nodes instead of sharing the
@@ -123,6 +145,14 @@ export interface RunFlowInput {
   readonly agent?: RunAgentRef;
   /** Set when an eval run is replaying a past run; see `RunReplayRef`. */
   readonly replay?: RunReplayRef;
+  /**
+   * Set when the run doesn't exist yet (no `runId`): start it at most once
+   * per key; see `RunIdempotencyKey`. A key a run already has runs nothing
+   * and answers that run's current state.
+   */
+  readonly idempotencyKey?: RunIdempotencyKey;
+  /** Set when a trigger started the run; see `RunTriggerRef`. */
+  readonly trigger?: RunTriggerRef;
   /**
    * The W3C trace id of the request that started the run (32 lowercase
    * hex), kept on the run so its later turns and resumes can name the
@@ -215,6 +245,10 @@ export interface StartRunParams {
   readonly agent?: RunAgentRef;
   /** Set when an eval run is replaying a past run; see `RunReplayRef`. */
   readonly replay?: RunReplayRef;
+  /** Start it at most once per key; see `RunIdempotencyKey`. */
+  readonly idempotencyKey?: RunIdempotencyKey;
+  /** Set when a trigger started the run; see `RunTriggerRef`. */
+  readonly trigger?: RunTriggerRef;
   /** The trace id of the request that started the run; see `RunFlowInput.traceId`. */
   readonly traceId?: string;
   /** The versions the run swaps in over its flow version's pins; see `RunFlowInput.versions`. */

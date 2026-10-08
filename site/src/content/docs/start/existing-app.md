@@ -322,8 +322,9 @@ KINDGI_API_URL=http://127.0.0.1:4000
 KINDGI_API_TOKEN=kgi_bt_…
 ```
 
-The banner's `Console` line is the console's address, ending in `/console/`
-(`http://127.0.0.1:4000/console/`), where you sign in with the same token.
+The banner's first line, `Console`, is the console's address
+(`http://127.0.0.1:4000/console/`; `kindgi console` opens it). Sign in there
+with **Sign in as seeded user**, or with the same token.
 
 The token stays the same when you restart `kindgi dev`. `kindgi dev --reset`
 starts the project over, dropping its database
@@ -431,7 +432,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const encoder = new TextEncoder();
   const body = new ReadableStream({
     async start(controller) {
-      for await (const event of kindgi.runs.stream(run.id)) {
+      for await (const event of kindgi.runs.follow(run.id)) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
       }
       controller.close();
@@ -444,7 +445,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 Each event has a `kind` (`run.started`, `run.step-started`,
 `run.step-completed`, …, `run.completed`) and a `payload`; the
 `run.completed` event's `payload.output` is the run's output. In Python,
-`kindgi.runs.stream(run.id)` is an iterator of the same events.
+`kindgi.runs.follow(run.id)` is an iterator of the same events, through to
+the run's end.
 
 A browser can also follow a run directly, with a short-lived read-only
 token, without your API token: see

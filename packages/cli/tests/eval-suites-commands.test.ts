@@ -57,7 +57,7 @@ describe('kindgi eval-suites', () => {
 
   test('list rejects an unknown kind', async () => {
     const out = await run(['eval-suites', 'list', '--kind=bogus'], { evalSuites: {} });
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('--kind must be one of');
   });
 
