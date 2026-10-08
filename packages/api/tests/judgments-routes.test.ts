@@ -219,6 +219,24 @@ describe('POST /v1/judgments', () => {
     expect(res.body.error.code).toBe('run-not-finished');
   });
 
+  test('a run an erasure cleared: 410 run-erased, never run-not-finished (T273 M-5)', async () => {
+    const run = row({
+      status: 'completed',
+      output: null,
+      contentErasedAt: '2026-10-08T00:00:00.000Z',
+    } as never);
+    const h = harness([run]);
+    const classId = await tenantClass(h);
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { key: 'c1' },
+      verdict: 'no',
+      judgeClassId: classId,
+    });
+    expect(res.status).toBe(410);
+    expect(res.body.error.code).toBe('run-erased');
+  });
+
   test('an unknown run: 404 run-not-found', async () => {
     const h = harness([]);
     const classId = await tenantClass(h);

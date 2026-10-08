@@ -43,6 +43,7 @@ export type { RetrievalHit } from './retrieval.js';
 
 // ============ Errors ============
 export type {
+  ErasureInProgressError,
   FactNotFoundError,
   InvalidFactError,
   InvalidLogEntryError,

@@ -2866,6 +2866,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'Malformed body, or the fact type requires semantic indexing and no embedding provider is bound.',
       ),
       '403': ErrorResponse("`permission-denied`: the caller may not write in the fact's scope."),
+      '409': ErrorResponse(
+        "Idempotency-Key was reused with a different body; or an erasure of the fact's person (by scope or subject) or conversation is in progress (`erasure-in-progress`): nothing new is stored for them until it completes.",
+      ),
     },
   },
   {
@@ -3634,6 +3637,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '404': ErrorResponse('`run-not-found`.'),
       '409': ErrorResponse('`run-not-finished`: the run has no output to judge yet.'),
+      '410': ErrorResponse(
+        "`run-erased`: an erasure cleared the run's content (a person's words were removed); there's nothing to judge.",
+      ),
     },
   },
   {

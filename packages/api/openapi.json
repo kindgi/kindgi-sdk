@@ -226,6 +226,7 @@
           "agent-already-registered": 409,
           "registry-read-only": 409,
           "agent-gone": 410,
+          "run-erased": 410,
           "flow-gone": 410,
           "policy-gone": 410,
           "eval-suite-gone": 410,
@@ -22709,7 +22710,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "Idempotency-Key was reused with a different body; or an erasure of the fact's person (by scope or subject) or conversation is in progress (`erasure-in-progress`): nothing new is stored for them until it completes.",
             "content": {
               "application/json": {
                 "schema": {
@@ -26189,6 +26190,16 @@
           },
           "409": {
             "description": "`run-not-finished`: the run has no output to judge yet.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "`run-erased`: an erasure cleared the run's content (a person's words were removed); there's nothing to judge.",
             "content": {
               "application/json": {
                 "schema": {

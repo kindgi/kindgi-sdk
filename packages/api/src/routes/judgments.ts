@@ -430,6 +430,13 @@ async function prepareJudgment(
   ) {
     return err('permission-denied', `Not allowed to judge run "${body.runId}".`);
   }
+  // An erasure cleared its content: there's nothing to judge (T273 M-5).
+  if (run.contentErasedAt !== undefined) {
+    return err(
+      'run-erased',
+      `Run "${body.runId}" was erased (a person's words were removed): there's nothing to judge.`,
+    );
+  }
   if (run.status !== 'completed' || run.output === undefined || run.output === null) {
     return err(
       'run-not-finished',
