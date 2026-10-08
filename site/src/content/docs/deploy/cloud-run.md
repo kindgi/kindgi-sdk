@@ -213,13 +213,33 @@ terraform apply -var-file=prod.tfvars
 ```
 
 The pack's service comes up first (22 seconds), and is ready only when every
-module loaded and every required variable is set. Then the runtime. Its
-startup log names the pack's service it reached, and how it calls it:
+module loaded and every required variable is set. Then the runtime. On Cloud
+Run it logs JSON, so its startup lines are the `lines` of one log record,
+`Kindgi runtime ready`:
+
+```sh
+gcloud logging read 'resource.labels.service_name="'$N'-server" AND jsonPayload.message="Kindgi runtime ready"' \
+  --limit=1 --format=json | jq -r '.[0].jsonPayload.lines[]'
+```
+
+They name the pack's service it reached, and how it calls it:
 
 ```text
 Pack service: https://kindgi-pack-…a.run.app — acme (artifact 20261004.1), protocol 2, 3 tools, 1 check
 Pack service auth: a Google ID token per call (KINDGI_PACK_SERVICE_AUTH)
 ```
+
+**On the first apply,** the pack service line can read instead:
+
+```text
+⚠ Pack service at https://… isn't answering (pack-service-unauthorized: The platform in front of the pack service refused the call: check the identity token (KINDGI_PACK_SERVICE_AUTH) and that the server may invoke the service). The server is up; pack tools and checks fail until it answers.
+```
+
+The runtime's permission to call the pack's service is seconds old then, and
+Google Cloud is still applying it. It clears without a restart: in our run,
+the first tool call, 3½ minutes after the warning, worked. If tool calls still
+fail after that, check that the runtime's service account has
+`roles/run.invoker` on the pack's service.
 
 ### How the runtime calls your pack's service
 
