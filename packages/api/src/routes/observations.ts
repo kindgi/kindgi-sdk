@@ -13,7 +13,10 @@ import type {
   Timestamp,
 } from '@kindgi/types';
 
+import { ref } from '@kindgi/authz';
+
 import { statusFor, toWireError } from '../errors.js';
+import type { Authorizer } from '../middleware/authorize.js';
 import type { Observation, ObservationStatus, SupervisorBinding } from '../supervisor-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
@@ -43,7 +46,11 @@ const OBSERVATION_STATUSES: ReadonlySet<ObservationStatus> = new Set([
  * Persistence + query wiring is caller-plugged via `SupervisorBinding`
  * — the API package doesn't own the supervisor runtime.
  */
-export function observationsRouter(binding: SupervisorBinding): Hono<AppEnv> {
+export function observationsRouter(
+  binding: SupervisorBinding,
+  /** With one (T243 A): only observations of agents the caller may read. */
+  authorizer?: Authorizer,
+): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
   r.get('/', async (c) => {
@@ -143,8 +150,14 @@ export function observationsRouter(binding: SupervisorBinding): Hono<AppEnv> {
       return c.json(toWireError({ code: outcome.code, message: outcome.message }, requestId));
     }
     const { data, nextCursor } = outcome.page;
+    const visible =
+      authorizer === undefined
+        ? data
+        : await authorizer.filterByCan(c, 'read', data, (o) =>
+            ref('agent', o.agentId as unknown as string),
+          );
     return c.json({
-      data: data.map(serializeObservation),
+      data: visible.map(serializeObservation),
       hasMore: nextCursor !== undefined,
       ...(nextCursor !== undefined && { nextCursor: nextCursor as unknown as string }),
     });

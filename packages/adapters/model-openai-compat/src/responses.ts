@@ -71,6 +71,21 @@ export interface ResponsesCall {
   readonly startedAt: number;
 }
 
+/**
+ * A call's per-request options, on both paths: its abort signal, and its
+ * `traceparent` as a header when the caller set it (the provider's
+ * registration opted in). A header only: never in the body, and never logged.
+ */
+export function requestOptions(
+  input: ModelCallInput,
+): { signal?: AbortSignal; headers?: Record<string, string> } | undefined {
+  if (input.abortSignal === undefined && input.traceparent === undefined) return undefined;
+  return {
+    ...(input.abortSignal !== undefined && { signal: input.abortSignal }),
+    ...(input.traceparent !== undefined && { headers: { traceparent: input.traceparent } }),
+  };
+}
+
 export async function invokeResponses(call: ResponsesCall): Promise<ModelCallResult> {
   const { input } = call;
   const tools = input.tools?.map(toTool);
@@ -102,7 +117,7 @@ export async function invokeResponses(call: ResponsesCall): Promise<ModelCallRes
         store: false,
         stream: false,
       },
-      input.abortSignal !== undefined ? { signal: input.abortSignal } : undefined,
+      requestOptions(input),
     ),
   );
   const response = counted.value;

@@ -4,7 +4,12 @@
 import { Hono } from 'hono';
 
 import { type Principal, ref, tuplesForCreate } from '@kindgi/authz';
-import { type Guardrail, validateGuardrailSpec } from '@kindgi/guardrails';
+import {
+  type Guardrail,
+  type GuardrailConfigProblem,
+  describeGuardrailConfigProblems,
+  validateGuardrailSpec,
+} from '@kindgi/guardrails';
 import type { Cursor, GuardrailId, ProjectId, TenantId, UserId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
@@ -42,10 +47,24 @@ export type GuardrailWriteHook = (params: {
   readonly kind: 'register' | 'unregister';
 }) => void | Promise<void>;
 
+/**
+ * Checks a guardrail being registered against the check it names: every
+ * way its `config` breaks that check's `configSchema` (a pack check's,
+ * from its deployment), via `guardrailConfigProblems`. Any problem
+ * refuses the registration with `422 guardrail-config-invalid`
+ * (`details.issues`). Absent, or nothing to check against (an unknown
+ * check, a check without a schema): no problems.
+ */
+export type GuardrailConfigCheck = (input: {
+  readonly tenantId: TenantId;
+  readonly guardrail: Guardrail;
+}) => Promise<readonly GuardrailConfigProblem[]>;
+
 export function guardrailsRouter(
   binding: GuardrailRegistryBinding,
   authorizer?: Authorizer,
   onWrite?: GuardrailWriteHook,
+  checkConfig?: GuardrailConfigCheck,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // A read-only registry (under `kindgi dev`, the pack's files) refuses
@@ -127,8 +146,15 @@ export function guardrailsRouter(
       ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
     });
+    // Only what the caller may read (T243 A), as `GET …/:id` asks.
+    const visible =
+      authorizer === undefined
+        ? page.data
+        : await authorizer.filterByCan(c, 'read', page.data, (a) =>
+            ref('guardrail', a.id as unknown as string),
+          );
     return c.json({
-      data: page.data.map(serializeGuardrail),
+      data: visible.map(serializeGuardrail),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -204,6 +230,27 @@ export function guardrailsRouter(
             code: 'validation-failed',
             message: validated.error.message,
             issues: validated.error.issues as unknown as Record<string, unknown>[],
+          },
+          requestId,
+        ),
+      );
+    }
+
+    const problems = await checkConfig?.({ tenantId, guardrail: validated.value });
+    if (problems !== undefined && problems.length > 0) {
+      c.status(statusFor('guardrail-config-invalid') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'guardrail-config-invalid',
+            message: describeGuardrailConfigProblems(
+              {
+                guardrailId: validated.value.id as unknown as string,
+                check: validated.value.check,
+              },
+              problems,
+            ),
+            issues: problems as unknown as Record<string, unknown>[],
           },
           requestId,
         ),

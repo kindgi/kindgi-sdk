@@ -60,6 +60,9 @@ class SignedExportVerification:
     """What failed, in words. Empty when `valid`."""
     body: Mapping[str, Any] | None = None
     """The signed body, parsed: present when the signature checks out."""
+    notes: tuple[str, ...] = field(default=())
+    """What a valid export's reader should know, in words: for an audit bundle made by Kindgi
+    0.1.4 whose envelope `exportedAt` isn't the signed one, the signed time. Empty otherwise."""
 
 
 def verify_signed_export(
@@ -139,13 +142,39 @@ def verify_signed_export(
         return fail()
 
     body = json.loads(data.decode("utf-8"))
+    notes: list[str] = []
     # The envelope's own exportedAt isn't signed; the body's is.
     if "exportedAt" in body and body["exportedAt"] != envelope.get("exportedAt"):
         outer, signed = envelope.get("exportedAt"), body["exportedAt"]
-        issues.append(f"the envelope's exportedAt ({outer}) isn't the signed one ({signed})")
-        return fail()
+        if not _made_by_kindgi_014(envelope, body):
+            issues.append(f"the envelope's exportedAt ({outer}) isn't the signed one ({signed})")
+            return fail()
+        notes.append(
+            "made by Kindgi 0.1.4, which stamped the envelope's exportedAt separately: "
+            f"the signed export time is {signed} (the envelope says {outer})"
+        )
     return SignedExportVerification(
-        valid=True, signing_key_id=key_id, checked_against=against, body=body
+        valid=True, signing_key_id=key_id, checked_against=against, body=body, notes=tuple(notes)
+    )
+
+
+def _made_by_kindgi_014(envelope: Mapping[str, Any], body: Mapping[str, Any]) -> bool:
+    """An audit bundle in Kindgi 0.1.4's format: the envelope's `bundleSchemaVersion` is the
+    integer 1, over a signed body with `bundleVersion: 1` (and no `bundleSchemaVersion`).
+
+    0.1.4 stamped the envelope's `exportedAt` separately from the signed one, so the two can be
+    a millisecond apart; only this format is let off comparing them, and the signed time is the
+    one reported. The body is signed, so an envelope can't claim the format for a later bundle.
+    """
+
+    def is_one(value: object) -> bool:
+        # JSON's 1, not True (a bool is an int in Python) and not "1".
+        return type(value) is int and value == 1
+
+    return (
+        is_one(envelope.get("bundleSchemaVersion"))
+        and is_one(body.get("bundleVersion"))
+        and "bundleSchemaVersion" not in body
     )
 
 
