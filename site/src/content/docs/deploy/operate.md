@@ -230,8 +230,30 @@ On Cloud Run, copy it into your repository the same way as 0.1.4 (see
 [The images into Artifact Registry](../cloud-run/#2-the-images-into-artifact-registry))
 and set `server_image` to its digest.
 
-A change 0.1.4 already lost stays lost after the upgrade: 0.1.4.1 retries
-only changes still pending.
+0.1.4.1 doesn't retry a change 0.1.4 already lost. What comes back, and
+when:
+
+- **A project or agent that answered `403`** reads again from the
+  upgrade on, since the upgrade restarts the runtime. At every start, the
+  runtime writes again the permissions that place each project, agent,
+  flow, tool, guardrail and test set of its tenant (`KINDGI_TENANT_ID`).
+- **The creator's own rights on an agent** come back when a new version of
+  it is published on 0.1.4.1.
+- **A project membership added while the bug hit** stays missing, through
+  restarts and publishes, though the project's member list still shows the
+  person. Add them again on 0.1.4.1 with the same call
+  (`POST /v1/projects/<project-id>/memberships`, see
+  [Project memberships](../authorization/#project-memberships)), and their
+  access applies within seconds.
+
+On 0.1.4.1, re-publishing an agent can log a warning like this one:
+
+```text
+WARN  [authz.outbox] drain: FGA refused a batch; trying its tuples one by one tenantId=<tenant> rowCount=2 error="cannot write a tuple which already exists: user: 'project:<id>', relation: 'parent', object: 'agent:acme.alpha': tuple to be written already existed or the tuple to be deleted did not exist"
+```
+
+It's expected: the runtime then applies the batch's changes one at a time,
+and a change that's already there counts as applied.
 
 ### From 0.1.3 to 0.1.4
 
