@@ -35,6 +35,27 @@ export const AUTH_PRIVATE_IDP_ORIGINS_VAR = 'KINDGI_AUTH_PRIVATE_IDP_ORIGINS';
 /** Email domains the operator verified, each for one tenant: `domain:tenant,…`. */
 export const AUTH_VERIFIED_DOMAINS_VAR = 'KINDGI_AUTH_VERIFIED_DOMAINS';
 
+/** "Continue with Google": the deployment's own app's client id. */
+export const AUTH_GOOGLE_CLIENT_ID_VAR = 'KINDGI_AUTH_GOOGLE_CLIENT_ID';
+
+/** Its client secret, or a file holding it (`…_SECRET_PATH`). */
+export const AUTH_GOOGLE_CLIENT_SECRET_VAR = 'KINDGI_AUTH_GOOGLE_CLIENT_SECRET';
+export const AUTH_GOOGLE_CLIENT_SECRET_PATH_VAR = 'KINDGI_AUTH_GOOGLE_CLIENT_SECRET_PATH';
+
+/** "Continue with Microsoft": the deployment's own app's client id. */
+export const AUTH_MICROSOFT_CLIENT_ID_VAR = 'KINDGI_AUTH_MICROSOFT_CLIENT_ID';
+
+/** Its client secret, or a file holding it (`…_SECRET_PATH`). */
+export const AUTH_MICROSOFT_CLIENT_SECRET_VAR = 'KINDGI_AUTH_MICROSOFT_CLIENT_SECRET';
+export const AUTH_MICROSOFT_CLIENT_SECRET_PATH_VAR = 'KINDGI_AUTH_MICROSOFT_CLIENT_SECRET_PATH';
+
+/** "Continue with GitHub": the deployment's own app's client id. */
+export const AUTH_GITHUB_CLIENT_ID_VAR = 'KINDGI_AUTH_GITHUB_CLIENT_ID';
+
+/** Its client secret, or a file holding it (`…_SECRET_PATH`). */
+export const AUTH_GITHUB_CLIENT_SECRET_VAR = 'KINDGI_AUTH_GITHUB_CLIENT_SECRET';
+export const AUTH_GITHUB_CLIENT_SECRET_PATH_VAR = 'KINDGI_AUTH_GITHUB_CLIENT_SECRET_PATH';
+
 /** A browser session's absolute lifetime, in milliseconds. */
 export const SESSION_TTL_MS_VAR = 'KINDGI_SESSION_TTL_MS';
 
