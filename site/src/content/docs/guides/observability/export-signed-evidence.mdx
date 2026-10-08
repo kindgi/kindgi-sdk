@@ -163,9 +163,9 @@ It exits 1. The TypeScript and Python verifiers give the same line in `issues`. 
 
 Checked without trusted keys, a valid export only proves its bytes weren't changed: anyone could have signed it with a key of their own. Checking against your deployment's keys is what tells you it's yours.
 
-### An audit bundle made by Kindgi 0.1.4
+### An audit bundle made with `@kindgi/api` 0.1.4
 
-Audit bundles exported with Kindgi 0.1.4 verify. That version stamped a bundle's envelope `exportedAt` separately from the signed one, so the two can be a millisecond apart. The envelope's copy isn't signed, so the verifiers report the signed time in `notes` and don't compare the two:
+The 0.1.4 runtime didn't sign exports (its three export routes answered `404 signing-not-configured`), but an app that embedded `@kindgi/api` 0.1.4 with its own key could export audit bundles. Those verify. That version stamped a bundle's envelope `exportedAt` separately from the signed one, so the two can be a millisecond apart. The envelope's copy isn't signed, so the verifiers report the signed time in `notes` and don't compare the two:
 
 ```text
 $ kindgi exports verify approval.json --trust=export-signing.pub.pem
