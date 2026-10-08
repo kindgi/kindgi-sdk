@@ -13,10 +13,14 @@ Four presets connect a provider with one API key, the way
 | `openai` | GPT on the OpenAI API | `OPENAI_API_KEY` |
 | `gemini-api` | Gemini on the Gemini Developer API, with an API key from Google AI Studio | `GEMINI_API_KEY` |
 | `groq` | Open-weight models on Groq's fast inference | `GROQ_API_KEY` |
-| `openrouter` | OpenRouter, a hosted gateway that forwards to other vendors' models | `OPENROUTER_API_KEY` |
+| `openrouter` | A hosted service in front of several vendors: your prompts pass through OpenRouter | `OPENROUTER_API_KEY` |
 
 For Gemini with your Google Cloud credentials instead of a key, use
 [Gemini on Vertex AI](../gemini-on-vertex-ai/) (the `gemini` preset).
+
+OpenRouter is an option if you choose it. It's one more hosted service your
+prompts pass through: for data that must stay in your environment, use a
+direct vendor's preset, or [a model you serve yourself](../serve-your-own-model/).
 
 ## 1. Store the key
 

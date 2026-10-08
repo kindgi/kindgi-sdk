@@ -1,6 +1,6 @@
 {
   "name": "openrouter",
-  "description": "OpenRouter, a hosted gateway that forwards to other vendors' models (key: OPENROUTER_API_KEY).",
+  "description": "A hosted service in front of several vendors: your prompts pass through OpenRouter (key: OPENROUTER_API_KEY).",
   "adapterId": "@kindgi/adapter-model-openai-compat",
   "adapterConfigValues": {
     "baseURL": "https://openrouter.ai/api/v1"
