@@ -211,6 +211,7 @@
           "auth-revoked": 401,
           "permission-denied": 403,
           "host-access-denied": 403,
+          "csrf-origin-mismatch": 403,
           "not-found": 404,
           "run-not-found": 404,
           "agent-not-found": 404,
@@ -372,12 +373,14 @@
           "session-inactive": 401,
           "identity-provider-not-found": 404,
           "identity-provider-already-registered": 409,
+          "identity-provider-invalid": 422,
           "oauth-state-invalid": 400,
           "oauth-code-exchange-failed": 422,
           "oauth-refresh-failed": 422,
           "oauth-refresh-not-supported": 422,
           "invalid-provider-config": 400,
           "auth-not-session-token": 400,
+          "cookie-session-not-refreshable": 400,
           "redirect-uri-not-allowed": 400,
           "redirect-uri-mismatch": 400,
           "refresh-token-invalid": 401,
@@ -11749,8 +11752,10 @@
         "type": "string",
         "enum": [
           "oauth2",
-          "oidc"
-        ]
+          "oidc",
+          "saml"
+        ],
+        "description": "`oidc`: an OpenID Connect identity provider people sign in with (Okta, Entra ID, Google, Keycloak…); its endpoints come from its discovery document. `saml`: a SAML 2.0 identity provider people sign in with. `oauth2`: a plain OAuth 2.0 provider that isn't OpenID Connect (e.g. GitHub), with its endpoints given; pick `oidc` for any provider that speaks OpenID Connect."
       },
       "ClaimMappingScopesSpec": {
         "description": "Claim path + optional delimiter for extracting Kindgi OAuth scopes from provider claims. When absent, scopes come from the token response `scope` field instead.",
@@ -11798,8 +11803,247 @@
           }
         }
       },
-      "IdentityProviderConfig": {
-        "description": "OAuth 2.0 / OIDC provider configuration registered on a tenant. `clientSecretRef` is a REFERENCE resolved server-side (env-var key, secrets-manager path, KMS handle) — the plaintext client secret never crosses the wire.",
+      "IdentityProviderSignIn": {
+        "description": "What to give the identity provider so it can send people back: set by the deployment on what it returns, ignored on registration. OIDC / OAuth 2.0: `redirectUri`. SAML: `spEntityId`, `acsUrl`, `spMetadataUrl`.",
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "redirectUri"
+            ],
+            "properties": {
+              "redirectUri": {
+                "type": "string",
+                "format": "uri"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "spEntityId",
+              "acsUrl",
+              "spMetadataUrl"
+            ],
+            "properties": {
+              "spEntityId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "acsUrl": {
+                "type": "string",
+                "format": "uri"
+              },
+              "spMetadataUrl": {
+                "type": "string",
+                "format": "uri"
+              }
+            }
+          }
+        ]
+      },
+      "OidcIdentityProviderConfig": {
+        "description": "An OpenID Connect identity provider people sign in with. The endpoints come from the issuer's discovery document when absent, and are returned once the deployment has them.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "providerId",
+          "kind",
+          "issuer",
+          "clientId",
+          "clientSecretRef"
+        ],
+        "properties": {
+          "providerId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The name a sign-in page shows (\"Sign in with …\"). Default: `providerId`."
+          },
+          "domains": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "The email domains whose people sign in with this provider (lowercase, e.g. `acme.com`): how an email-first sign-in page finds it."
+          },
+          "join": {
+            "type": "string",
+            "enum": [
+              "invite",
+              "domain"
+            ],
+            "description": "Who may sign in the first time: `invite` (default) only people a tenant admin added; `domain` also anyone from one of `domains`, once the deployment has verified them."
+          },
+          "signIn": {
+            "$ref": "#/components/schemas/IdentityProviderSignIn"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "kind": {
+            "type": "string",
+            "const": "oidc"
+          },
+          "issuer": {
+            "type": "string",
+            "format": "uri"
+          },
+          "clientId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "clientSecretRef": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Opaque reference resolved server-side. Never a plaintext secret."
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Default `openid email profile`."
+          },
+          "authorizationEndpoint": {
+            "type": "string",
+            "format": "uri"
+          },
+          "tokenEndpoint": {
+            "type": "string",
+            "format": "uri"
+          },
+          "userinfoEndpoint": {
+            "type": "string",
+            "format": "uri"
+          },
+          "jwksEndpoint": {
+            "type": "string",
+            "format": "uri"
+          },
+          "allowedRedirectUris": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "OAuth 2.1 BCP redirect-URI allowlist. Exact-string match required at /v1/auth/login. Absent/empty means no redirect-URI allowlist check (pass-through)."
+          },
+          "claimMapping": {
+            "$ref": "#/components/schemas/ClaimMappingSpec"
+          }
+        }
+      },
+      "SamlIdentityProviderConfig": {
+        "description": "A SAML 2.0 identity provider people sign in with: its metadata XML, or its entity ID, single sign-on URL and signing certificates. Keys are given as references, never as keys.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "providerId",
+          "kind"
+        ],
+        "properties": {
+          "providerId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The name a sign-in page shows (\"Sign in with …\"). Default: `providerId`."
+          },
+          "domains": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "The email domains whose people sign in with this provider (lowercase, e.g. `acme.com`): how an email-first sign-in page finds it."
+          },
+          "join": {
+            "type": "string",
+            "enum": [
+              "invite",
+              "domain"
+            ],
+            "description": "Who may sign in the first time: `invite` (default) only people a tenant admin added; `domain` also anyone from one of `domains`, once the deployment has verified them."
+          },
+          "signIn": {
+            "$ref": "#/components/schemas/IdentityProviderSignIn"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "kind": {
+            "type": "string",
+            "const": "saml"
+          },
+          "idpMetadataXml": {
+            "type": "string",
+            "minLength": 1
+          },
+          "idpEntityId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "idpSsoUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "The IdP's single sign-on URL (HTTP-Redirect binding)."
+          },
+          "idpCertificates": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "The IdP's signing certificates (PEM); several during a rollover."
+          },
+          "spSigningKeyRef": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Opaque reference to the service provider's signing key, for IdPs that require signed AuthnRequests. Never a plaintext key."
+          },
+          "spDecryptionKeyRef": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Opaque reference to the key that decrypts encrypted assertions. Never a plaintext key."
+          },
+          "wantAssertionsSigned": {
+            "type": "boolean",
+            "description": "Require signed assertions. Default `true`."
+          },
+          "attributeMapping": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Assertion attribute names. Defaults: `userId` = the NameID, `email` = `email`.",
+            "properties": {
+              "userId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "email": {
+                "type": "string",
+                "minLength": 1
+              },
+              "displayName": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      },
+      "OAuth2IdentityProviderConfig": {
+        "description": "A plain OAuth 2.0 provider that isn't OpenID Connect (e.g. GitHub), run by this API's own OAuth flow (`/v1/auth/login` + callback). For a provider that speaks OpenID Connect, use `oidc`.",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -11816,12 +12060,37 @@
             "type": "string",
             "minLength": 1
           },
-          "kind": {
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The name a sign-in page shows (\"Sign in with …\"). Default: `providerId`."
+          },
+          "domains": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "The email domains whose people sign in with this provider (lowercase, e.g. `acme.com`): how an email-first sign-in page finds it."
+          },
+          "join": {
             "type": "string",
             "enum": [
-              "oauth2",
-              "oidc"
-            ]
+              "invite",
+              "domain"
+            ],
+            "description": "Who may sign in the first time: `invite` (default) only people a tenant admin added; `domain` also anyone from one of `domains`, once the deployment has verified them."
+          },
+          "signIn": {
+            "$ref": "#/components/schemas/IdentityProviderSignIn"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "kind": {
+            "type": "string",
+            "const": "oauth2"
           },
           "clientId": {
             "type": "string",
@@ -11860,10 +12129,50 @@
           },
           "claimMapping": {
             "$ref": "#/components/schemas/ClaimMappingSpec"
+          }
+        }
+      },
+      "IdentityProviderConfig": {
+        "description": "An identity provider registered on a tenant, one shape per `kind` (narrow on `kind` before reading kind-specific fields). Secrets are always REFERENCES resolved server-side (`clientSecretRef`, `spSigningKeyRef`, `spDecryptionKeyRef`); a plaintext secret never crosses the wire, and a `clientSecret` field is refused.",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/OidcIdentityProviderConfig"
           },
-          "metadata": {
-            "type": "object",
-            "additionalProperties": true
+          {
+            "$ref": "#/components/schemas/SamlIdentityProviderConfig"
+          },
+          {
+            "$ref": "#/components/schemas/OAuth2IdentityProviderConfig"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind",
+          "mapping": {
+            "oidc": "#/components/schemas/OidcIdentityProviderConfig",
+            "saml": "#/components/schemas/SamlIdentityProviderConfig",
+            "oauth2": "#/components/schemas/OAuth2IdentityProviderConfig"
+          }
+        }
+      },
+      "RegisterIdentityProviderBody": {
+        "description": "The identity provider to register, one shape per `kind`: `oidc`, `saml` or `oauth2`. Secrets by reference only (`clientSecretRef`, `spSigningKeyRef`, `spDecryptionKeyRef`); a `clientSecret` field is refused.",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/OidcIdentityProviderConfig"
+          },
+          {
+            "$ref": "#/components/schemas/SamlIdentityProviderConfig"
+          },
+          {
+            "$ref": "#/components/schemas/OAuth2IdentityProviderConfig"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind",
+          "mapping": {
+            "oidc": "#/components/schemas/OidcIdentityProviderConfig",
+            "saml": "#/components/schemas/SamlIdentityProviderConfig",
+            "oauth2": "#/components/schemas/OAuth2IdentityProviderConfig"
           }
         }
       },
@@ -11886,6 +12195,46 @@
           }
         }
       },
+      "SignInOption": {
+        "description": "One way to sign in, as a sign-in page shows it.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "providerId",
+          "displayName",
+          "signInUrl"
+        ],
+        "properties": {
+          "providerId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "description": "\"Sign in with …\"."
+          },
+          "signInUrl": {
+            "type": "string",
+            "description": "Where the browser goes to start signing in with this provider."
+          }
+        }
+      },
+      "SignInOptions": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SignInOption"
+            }
+          }
+        }
+      },
       "RegisterIdentityProviderResult": {
         "type": "object",
         "additionalProperties": false,
@@ -11896,6 +12245,10 @@
           "providerId": {
             "type": "string",
             "minLength": 1
+          },
+          "provider": {
+            "$ref": "#/components/schemas/IdentityProviderConfig",
+            "description": "The provider as stored: discovered endpoints, and `signIn` (what to give the identity provider). Absent from older servers."
           }
         }
       },
@@ -31958,7 +32311,7 @@
             }
           }
         },
-        "description": "Returns the OAuth 2.0 / OIDC providers a caller can `login` through. `clientSecretRef` is a REFERENCE — the plaintext client secret is never on the wire.",
+        "description": "Returns the tenant's identity providers (OIDC, SAML, OAuth 2.0), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.",
         "security": [
           {
             "bearerAuth": []
@@ -31967,7 +32320,7 @@
       },
       "post": {
         "operationId": "auth.providers.register",
-        "summary": "Register a new OAuth/OIDC identity provider",
+        "summary": "Register an identity provider (OIDC, SAML or OAuth 2.0)",
         "tags": [
           "auth"
         ],
@@ -32012,6 +32365,16 @@
               }
             }
           },
+          "422": {
+            "description": "The deployment could not use the configuration (`identity-provider-invalid`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Server error (unmapped domain code or framework crash).",
             "content": {
@@ -32023,7 +32386,7 @@
             }
           }
         },
-        "description": "Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered` — unregister it first, then register again.",
+        "description": "Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered` — unregister it first, then register again. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`. The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -32041,7 +32404,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/IdentityProviderConfig"
+                "$ref": "#/components/schemas/RegisterIdentityProviderBody"
               }
             }
           }
@@ -32051,6 +32414,61 @@
             "bearerAuth": []
           }
         ]
+      }
+    },
+    "/v1/auth/sign-in-options": {
+      "get": {
+        "operationId": "auth.signInOptions",
+        "summary": "How a person can sign in",
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "The ways to sign in (possibly none).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignInOptions"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`email` is not an email address.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many lookups from this client.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Public: nobody is signed in yet. With `email`, the identity providers for that email's domain (from the one tenant that claims it); without, the deployment's sign-in buttons when it has exactly one tenant. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`).",
+        "parameters": [
+          {
+            "name": "email",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 3
+            },
+            "required": false,
+            "description": "The email the person typed; only its domain is used."
+          }
+        ],
+        "security": []
       }
     },
     "/v1/auth/providers/{providerId}/unregister": {
@@ -32341,7 +32759,7 @@
             }
           },
           "400": {
-            "description": "Caller presented a bearer token; refresh is session-only.",
+            "description": "Caller presented a bearer token (refresh is session-only), or a browser session (cookie).",
             "content": {
               "application/json": {
                 "schema": {
@@ -32401,7 +32819,7 @@
             }
           }
         },
-        "description": "Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. When the deployment wired a `refreshToken` callback and the provider issued a refresh token, provider tokens rotate too; otherwise only the framework session token rotates. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth.",
+        "description": "Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. When the deployment wired a `refreshToken` callback and the provider issued a refresh token, provider tokens rotate too; otherwise only the framework session token rotates. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth. A browser session (the session cookie) is not refreshed: `400 cookie-session-not-refreshable`, so a new token never reaches page scripts; it ends at its TTL.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -32480,7 +32898,7 @@
             }
           }
         },
-        "description": "Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. Idempotent — revoking an already-revoked session returns `{ revoked: false }`.",
+        "description": "Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. Idempotent — revoking an already-revoked session returns `{ revoked: false }`. A browser session (the session cookie) also gets its cookie cleared (`Set-Cookie` with `Max-Age=0`).",
         "parameters": [
           {
             "name": "Idempotency-Key",

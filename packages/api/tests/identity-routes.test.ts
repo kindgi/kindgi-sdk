@@ -132,7 +132,7 @@ function makeInMemorySessionStore(): {
         tenantId,
         userId,
         providerId,
-        accessToken,
+        ...(accessToken !== undefined && { accessToken }),
         expiresAt,
         scopes,
         createdAt: created,

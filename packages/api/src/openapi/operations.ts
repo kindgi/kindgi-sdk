@@ -4808,7 +4808,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.providers.list',
     summary: 'List identity providers configured for the tenant',
     description:
-      'Returns the OAuth 2.0 / OIDC providers a caller can `login` through. `clientSecretRef` is a REFERENCE — the plaintext client secret is never on the wire.',
+      "Returns the tenant's identity providers (OIDC, SAML, OAuth 2.0), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.",
     tags: ['auth'],
     security: 'bearer',
     responses: {
@@ -4820,23 +4820,51 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'get',
+    honoPath: '/v1/auth/sign-in-options',
+    openapiPath: '/v1/auth/sign-in-options',
+    operationId: 'auth.signInOptions',
+    summary: 'How a person can sign in',
+    description:
+      "Public: nobody is signed in yet. With `email`, the identity providers for that email's domain (from the one tenant that claims it); without, the deployment's sign-in buttons when it has exactly one tenant. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`).",
+    tags: ['auth'],
+    security: 'public',
+    parameters: [
+      {
+        name: 'email',
+        in: 'query',
+        required: false,
+        schema: { type: 'string', minLength: 3 },
+        description: 'The email the person typed; only its domain is used.',
+      },
+    ],
+    responses: {
+      '200': { description: 'The ways to sign in (possibly none).', schema: ref('SignInOptions') },
+      '400': ErrorResponse('`email` is not an email address.'),
+      '429': ErrorResponse('Too many lookups from this client.'),
+    },
+  },
+  {
     method: 'post',
     honoPath: '/v1/auth/providers',
     openapiPath: '/v1/auth/providers',
     operationId: 'auth.providers.register',
-    summary: 'Register a new OAuth/OIDC identity provider',
+    summary: 'Register an identity provider (OIDC, SAML or OAuth 2.0)',
     description:
-      'Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered` — unregister it first, then register again.',
+      'Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered` — unregister it first, then register again. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`. The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.',
     tags: ['auth'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('IdentityProviderConfig') },
+    requestBody: { required: true, schema: ref('RegisterIdentityProviderBody') },
     responses: {
       '201': {
         description: 'Provider registered.',
         schema: ref('RegisterIdentityProviderResult'),
       },
       ...CommonMutationErrors,
+      '422': ErrorResponse(
+        'The deployment could not use the configuration (`identity-provider-invalid`).',
+      ),
     },
   },
   {
@@ -4926,14 +4954,16 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.refresh',
     summary: 'Refresh the current session token',
     description:
-      'Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. When the deployment wired a `refreshToken` callback and the provider issued a refresh token, provider tokens rotate too; otherwise only the framework session token rotates. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth.',
+      'Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. When the deployment wired a `refreshToken` callback and the provider issued a refresh token, provider tokens rotate too; otherwise only the framework session token rotates. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth. A browser session (the session cookie) is not refreshed: `400 cookie-session-not-refreshable`, so a new token never reaches page scripts; it ends at its TTL.',
     tags: ['auth'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
     responses: {
       '200': { description: 'New session token.', schema: ref('RefreshResult') },
       ...CommonMutationErrors,
-      '400': ErrorResponse('Caller presented a bearer token; refresh is session-only.'),
+      '400': ErrorResponse(
+        'Caller presented a bearer token (refresh is session-only), or a browser session (cookie).',
+      ),
       '404': ErrorResponse('Session no longer exists.'),
       '422': ErrorResponse('Refresh with the provider failed.'),
     },
@@ -4945,7 +4975,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.logout',
     summary: 'Revoke the current session',
     description:
-      'Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. Idempotent — revoking an already-revoked session returns `{ revoked: false }`.',
+      'Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. Idempotent — revoking an already-revoked session returns `{ revoked: false }`. A browser session (the session cookie) also gets its cookie cleared (`Set-Cookie` with `Max-Age=0`).',
     tags: ['auth'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
