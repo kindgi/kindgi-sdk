@@ -145,7 +145,7 @@ import type { SupervisorBinding } from './supervisor-binding.js';
 import type { TenantHostAccess } from './tenant-host-access.js';
 import type { TokenAdmin } from './token-admin.js';
 import type { ToolRegistryBinding } from './tool-binding.js';
-import type { TriggerRegistryBinding } from './trigger-binding.js';
+import { TRIGGER_KINDS, type TriggerKind, type TriggerRegistryBinding } from './trigger-binding.js';
 import type { AppEnv } from './types.js';
 import type { WebhookEndpointBinding } from './webhook-endpoint-binding.js';
 
@@ -600,6 +600,13 @@ export interface CreateAppInput {
    * want bespoke persistence substitute their own binding.
    */
   readonly triggerRegistry?: TriggerRegistryBinding;
+  /**
+   * The trigger kinds whose admin surface mounts with `triggerRegistry`:
+   * `cron` → `/v1/schedules`, `event` → `/v1/event-triggers`, `webhook` →
+   * `/v1/webhooks`. Absent: all three. A runtime that fires only some kinds
+   * lists those, so nobody registers a trigger that would never fire.
+   */
+  readonly triggerKinds?: readonly TriggerKind[];
   /**
    * Optional. When present, mounts the outbound webhook surface at
    * `/v1/webhook-endpoints/*`: endpoints the platform sends signed
@@ -1304,9 +1311,19 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // external webhook receiver route here (it would need
   // unauthenticated tenant resolution).
   if (input.triggerRegistry !== undefined) {
-    v1.route('/schedules', schedulesRouter(input.triggerRegistry));
-    v1.route('/event-triggers', eventTriggersRouter(input.triggerRegistry, authorizer));
-    v1.route('/webhooks', webhooksRouter(input.triggerRegistry, authorizer));
+    const kinds = new Set<TriggerKind>(input.triggerKinds ?? TRIGGER_KINDS);
+    if (kinds.has('cron')) {
+      v1.route(
+        '/schedules',
+        schedulesRouter(input.triggerRegistry, authorizer, input.projectBinding),
+      );
+    }
+    if (kinds.has('event')) {
+      v1.route('/event-triggers', eventTriggersRouter(input.triggerRegistry, authorizer));
+    }
+    if (kinds.has('webhook')) {
+      v1.route('/webhooks', webhooksRouter(input.triggerRegistry, authorizer));
+    }
   }
   if (input.webhookEndpoints !== undefined) {
     v1.route('/webhook-endpoints', webhookEndpointsRouter(input.webhookEndpoints, authorizer));

@@ -37,6 +37,7 @@ import { provenanceCommand } from './provenance.js';
 import { providersCommand } from './providers.js';
 import { reviewersCommand } from './reviewers.js';
 import { runsCommand } from './runs.js';
+import { schedulesCommand } from './schedules.js';
 import { secretsCommand } from './secrets.js';
 import { serviceAccountsCommand } from './service-accounts.js';
 import { skillsCommand } from './skills.js';
@@ -71,6 +72,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   exportsCommand,
   artifactsCommand,
   flowsCommand,
+  schedulesCommand,
   approvalsCommand,
   reviewersCommand,
   observationsCommand,

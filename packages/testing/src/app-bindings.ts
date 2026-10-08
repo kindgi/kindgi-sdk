@@ -132,6 +132,9 @@ export function createStubKernelBinding(): KernelBinding {
       resume: true,
       unregister: true,
       fetchActiveByWebhookId: true,
+      listFires: true,
+      fireNow: true,
+      setOwner: true,
     }),
   };
 }
