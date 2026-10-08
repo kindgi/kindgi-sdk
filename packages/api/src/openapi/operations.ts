@@ -190,6 +190,14 @@ const RunEvalRunIdQueryParam: ParameterSpec = {
   schema: { type: 'string', minLength: 1 },
 };
 
+const RunTriggerIdQueryParam: ParameterSpec = {
+  name: 'triggerId',
+  in: 'query',
+  required: false,
+  description: 'Only the runs this trigger started (`Run.trigger.triggerId`).',
+  schema: { type: 'string', format: 'uuid' },
+};
+
 const LiveProjectQueryParam: ParameterSpec = {
   name: 'projectId',
   in: 'query',
@@ -1308,6 +1316,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       RunAgentIdQueryParam,
       RunReplaysQueryParam,
       RunEvalRunIdQueryParam,
+      RunTriggerIdQueryParam,
       RunIncludeQueryParam,
     ],
     responses: {
@@ -3066,7 +3075,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'memory.retrieve',
     summary: 'Retrieve facts by intent',
     description:
-      'Cross-history retrieval over the facts the caller may see (as for listing). Body is a `RetrieveIntent` shape mirroring the agent-side declarative retrieval. Semantic modes require an embedding provider bound on the deployment.',
+      'Retrieval over the facts the caller may see (as for listing), current revisions only. `mode`: `list` (newest first, no query), `keyword` (full-text), `semantic` (by meaning), or `both` (the two searches fused by rank: reciprocal rank fusion). Searching by meaning needs embeddings on the deployment (`KINDGI_MEMORY_EMBEDDINGS`); without them `semantic` and `both` answer `422 semantic-unavailable`.',
     tags: ['memory'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -3074,11 +3083,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Retrieval results.', schema: ref('RetrieveMemoryResult') },
       ...CommonMutationErrors,
-      '400': ErrorResponse(
-        'Malformed intent, or semantic mode requested and no embedding provider is bound.',
+      '400': ErrorResponse('Malformed intent.'),
+      '422': ErrorResponse(
+        '`semantic-unavailable`: `semantic` or `both` asked to search by meaning, and the deployment has no embeddings (`KINDGI_MEMORY_EMBEDDINGS`).',
       ),
       '501': ErrorResponse(
-        "`memory-operation-unsupported`: this runtime's memory can't retrieve by intent yet.",
+        "`memory-operation-unsupported`: this runtime's memory can't retrieve by intent.",
       ),
     },
   },
@@ -4950,7 +4960,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.users.list',
     summary: 'List users in the tenant',
     description:
-      'Cursor-paginated list of tenant users (sort order is binding-defined). Optional `?query=` is a prefix match on `displayName` — the natural filter shape for a "search users" surface. `primaryEmail` may be redacted per tenant policy.',
+      'Cursor-paginated list of tenant users (sort order is binding-defined), for tenant admins only. Optional `?query=` is a prefix match on `displayName` — the natural filter shape for a "search users" surface. `primaryEmail` may be redacted per tenant policy. Anyone else adds a person to a project by their email or id (`POST /v1/projects/{projectId}/memberships`).',
     tags: ['identity'],
     security: 'bearer',
     parameters: [
@@ -4963,10 +4973,18 @@ export const OPERATIONS: readonly OperationSpec[] = [
         description: 'Prefix match on `displayName`.',
         schema: { type: 'string' },
       },
+      {
+        name: 'includeUnregistered',
+        in: 'query',
+        required: false,
+        description: 'With `true`, people who were removed (`unregisteredAt`) too.',
+        schema: { type: 'boolean' },
+      },
     ],
     responses: {
       '200': { description: 'Page of users.', schema: ref('UserCollectionPage') },
       ...CommonAuthErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
     },
   },
   {
@@ -4996,6 +5014,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/identity/users/{userId}',
     operationId: 'identity.users.get',
     summary: 'Get a user by id',
+    description: 'A tenant admin, or the person themselves.',
     tags: ['identity'],
     security: 'bearer',
     parameters: [
@@ -5004,6 +5023,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'User record.', schema: ref('UserRecord') },
       ...CommonAuthErrors,
+      '403': ErrorResponse("Someone else's record, and not a tenant admin."),
       '404': ErrorResponse('No user with that id under this tenant.'),
     },
   },
@@ -5014,7 +5034,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.users.listSessions',
     summary: 'List active sessions for a user',
     description:
-      'Returns the wire-safe `IdentitySessionSummary` shape — provider access-token + refresh-token never cross the wire, even to admins. Unknown user id returns an empty list (call `GET /v1/identity/users/:userId` first to distinguish "no sessions" from "no user").',
+      'A tenant admin, or the person themselves. Returns the wire-safe `IdentitySessionSummary` shape — provider access-token + refresh-token never cross the wire, even to admins. Unknown user id returns an empty list (call `GET /v1/identity/users/:userId` first to distinguish "no sessions" from "no user").',
     tags: ['identity'],
     security: 'bearer',
     parameters: [
@@ -5023,6 +5043,34 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Page of sessions.', schema: ref('IdentitySessionCollectionPage') },
       ...CommonAuthErrors,
+      '403': ErrorResponse("Someone else's sessions, and not a tenant admin."),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/identity/users/:userId/unregister',
+    openapiPath: '/v1/identity/users/{userId}/unregister',
+    operationId: 'identity.users.unregister',
+    summary: 'Remove a person',
+    description:
+      "Removes a person from the tenant, in one step: they're marked removed (`unregisteredAt`; their record stays, so their history still says who they were), every API key and session of theirs is revoked, and every grant and membership they hold is taken away, all before it answers. Their keys get `401` at once. Their email is free again: adding it makes a new person. Removing someone already removed changes nothing. Refused for yourself and the deployment's seed user (`identity-user-unregister-refused`), and for the only tenant admin (`last-tenant-admin`). Tenant admins only. Mounted when the identity directory can remove people.",
+    tags: ['identity'],
+    security: 'bearer',
+    parameters: [
+      { name: 'userId', in: 'path', required: true, schema: { type: 'string', minLength: 1 } },
+      IdempotencyKeyParam,
+    ],
+    responses: {
+      '200': {
+        description: 'The removed person, and what removing them took away.',
+        schema: ref('UnregisterUserResult'),
+      },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse('No user with that id under this tenant (`identity-user-not-found`).'),
+      '409': ErrorResponse(
+        'Yourself or the seed user (`identity-user-unregister-refused`, `details.reason`), the only tenant admin (`last-tenant-admin`), or an idempotency conflict.',
+      ),
     },
   },
   {
@@ -5044,6 +5092,79 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '403': ErrorResponse("Another person's sessions, and not a tenant admin."),
       '500': ErrorResponse('Session revocation failed inside the caller-plugged binding.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/identity/users/:userId/grants',
+    openapiPath: '/v1/identity/users/{userId}/grants',
+    operationId: 'identity.users.grants',
+    summary: "Read a person's grants",
+    description:
+      "What the person may do, as granted directly: tenant admin, project and team roles, the reviewer roster. A tenant admin reads anyone's; anyone else only their own.",
+    tags: ['identity'],
+    security: 'bearer',
+    parameters: [
+      { name: 'userId', in: 'path', required: true, schema: { type: 'string', minLength: 1 } },
+    ],
+    responses: {
+      '200': { description: "The person's grants.", schema: ref('PersonGrants') },
+      ...CommonAuthErrors,
+      '403': ErrorResponse("Another person's grants, and not a tenant admin."),
+      '404': ErrorResponse('No user with that id under this tenant (`identity-user-not-found`).'),
+      '501': ErrorResponse('The runtime has no authorization store (`person-grants-unsupported`).'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/identity/users/:userId/grant',
+    openapiPath: '/v1/identity/users/{userId}/grant',
+    operationId: 'identity.users.grant',
+    summary: 'Make a person a tenant admin',
+    description:
+      "Written before the call answers, so the person's next request holds it. A no-op when held. Tenant admins only.",
+    tags: ['identity'],
+    security: 'bearer',
+    parameters: [
+      { name: 'userId', in: 'path', required: true, schema: { type: 'string', minLength: 1 } },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('PersonGrantBody') },
+    responses: {
+      '200': { description: "The person's grants, after.", schema: ref('PersonGrants') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse('No user with that id under this tenant (`identity-user-not-found`).'),
+      '409': ErrorResponse(
+        'The person was removed from the tenant (`identity-user-unregistered`), or an idempotency conflict.',
+      ),
+      '501': ErrorResponse('The runtime has no authorization store (`person-grants-unsupported`).'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/identity/users/:userId/ungrant',
+    openapiPath: '/v1/identity/users/{userId}/ungrant',
+    operationId: 'identity.users.ungrant',
+    summary: 'Remove tenant admin from a person',
+    description:
+      'A no-op when not held. Refused for the only person who is a tenant admin (`last-tenant-admin`: make someone else one first), and for the seed user, whom the runtime makes tenant admin at every boot (`seed-user-admin`: unset `KINDGI_SEED_USER_ID` and restart it first). Tenant admins only.',
+    tags: ['identity'],
+    security: 'bearer',
+    parameters: [
+      { name: 'userId', in: 'path', required: true, schema: { type: 'string', minLength: 1 } },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('PersonGrantBody') },
+    responses: {
+      '200': { description: "The person's grants, after.", schema: ref('PersonGrants') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse('No user with that id under this tenant (`identity-user-not-found`).'),
+      '409': ErrorResponse(
+        'The only person who is a tenant admin (`last-tenant-admin`), the seed user (`seed-user-admin`), or an idempotency conflict.',
+      ),
+      '501': ErrorResponse('The runtime has no authorization store (`person-grants-unsupported`).'),
     },
   },
   {
@@ -5808,12 +5929,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.getDefault',
     summary: "Fetch the tenant's Default project",
     description:
-      'Returns the row where `Project.isDefault = true` (exactly one per tenant). Returns 404 `project-not-found` when no Default has been provisioned.',
+      'Returns the row where `Project.isDefault = true` (exactly one per tenant), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when no Default has been provisioned.',
     tags: ['projects'],
     security: 'bearer',
     responses: {
       '200': { description: 'Default project.', schema: ref('Project') },
       ...CommonAuthErrors,
+      '403': ErrorResponse("The caller can't read the Default project."),
       '404': ErrorResponse('Tenant has no Default project.'),
     },
   },
@@ -5983,7 +6105,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.memberships.add',
     summary: 'Add a user directly to a project',
     description:
-      'Idempotent on `(projectId, userId)` — re-adding an existing member with a different role does NOT overwrite; use PATCH for role changes.',
+      'Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Idempotent on `(projectId, userId)` — re-adding an existing member with a different role does NOT overwrite; use PATCH for role changes.',
     tags: ['projects'],
     security: 'bearer',
     parameters: [
@@ -6003,7 +6125,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('AddProjectMembershipResult'),
       },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No project with that id under this tenant.'),
+      '404': ErrorResponse(
+        'No project with that id under this tenant (`project-not-found`), or the person named is not a member of this tenant (`identity-user-not-found`).',
+      ),
     },
   },
   {

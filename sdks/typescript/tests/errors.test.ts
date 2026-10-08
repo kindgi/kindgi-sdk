@@ -141,8 +141,9 @@ describe('fromWire — a code this client does not list is read by its HTTP stat
     [404, { code: 'not-found', resource: { kind: 'org', id: 'o-1' } }],
     [410, { code: 'not-found' }],
     [400, { code: 'invalid-request', issues: [] }],
-    // 409 and 422 stay server errors: the docs match codes there.
-    [409, { code: 'server', serverCode: 'org-not-found' }],
+    [413, { code: 'invalid-request', issues: [] }],
+    [409, { code: 'conflict', reason: 'org-not-found' }],
+    // 422 stays a server error: the docs match its codes there.
     [422, { code: 'server', serverCode: 'org-not-found' }],
     [401, { code: 'auth', reason: 'unauthenticated' }],
     [403, { code: 'auth', reason: 'forbidden' }],
@@ -180,7 +181,7 @@ describe('fromWire — a code this client does not list is read by its HTTP stat
     });
   });
 
-  it('every 4xx code but 409/422 maps to a typed error; every error keeps its serverCode', () => {
+  it("every code the API documents is in its status's family, and keeps its serverCode", () => {
     const spec = JSON.parse(
       readFileSync(createRequire(import.meta.url).resolve('@kindgi/api/openapi.json'), 'utf8'),
     ) as {
@@ -188,11 +189,18 @@ describe('fromWire — a code this client does not list is read by its HTTP stat
     };
     const codes = Object.entries(spec.components.schemas.WireError['x-error-codes']);
     expect(codes.length).toBeGreaterThan(100);
-    const server = codes
-      .filter(([, status]) => status >= 400 && status < 500 && status !== 409 && status !== 422)
-      .filter(([code, status]) => fromWire({ code, message: 'm' }, status).code === 'server')
-      .map(([code, status]) => `${code} (${status})`);
-    expect(server).toEqual([]);
+    const wrong = codes
+      .map(([code, status]) => ({
+        code,
+        status,
+        family: fromWire({ code, message: 'm' }, status).code,
+      }))
+      .filter(({ code, status, family }) => family !== expectedFamily(code, status))
+      .map(
+        ({ code, status, family }) =>
+          `${code} (${status}): ${family}, not ${expectedFamily(code, status)}`,
+      );
+    expect(wrong).toEqual([]);
     const withoutCode = codes
       .filter(([code, status]) => {
         const error = fromWire({ code, message: 'm' }, status) as { serverCode?: string };
@@ -202,3 +210,29 @@ describe('fromWire — a code this client does not list is read by its HTTP stat
     expect(withoutCode).toEqual([]);
   });
 });
+
+/**
+ * The family a documented code belongs in: its HTTP status's (`x-error-codes`
+ * in openapi.json), except where this client classifies a code on purpose.
+ */
+function expectedFamily(code: string, status: number): string {
+  const exceptions: Record<string, string> = {
+    // Its own variant, with the violations.
+    'guardrail-violation': 'guardrail-violation',
+    // A provider registration the adapter refuses: an invalid request, with its issues.
+    'provider-config-invalid': 'invalid-request',
+  };
+  if (exceptions[code] !== undefined) return exceptions[code];
+  const byStatus: Record<number, string> = {
+    400: 'invalid-request',
+    413: 'invalid-request',
+    401: 'auth',
+    403: 'auth',
+    404: 'not-found',
+    410: 'not-found',
+    409: 'conflict',
+    429: 'rate-limited',
+  };
+  // 422 and 5xx are server errors: the docs match their codes by `serverCode`.
+  return byStatus[status] ?? 'server';
+}

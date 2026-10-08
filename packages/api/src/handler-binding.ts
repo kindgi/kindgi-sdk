@@ -4,6 +4,7 @@
 import type { AgentId } from '@kindgi/agents';
 import type { Principal } from '@kindgi/authz';
 import type { FlowVersionOverrides } from '@kindgi/flow';
+import type { RunIdempotencyKey, RunTriggerRef } from '@kindgi/runtime';
 import type { FlowId, ProjectId, RunId, ScopeSegment, Semver, TenantId } from '@kindgi/types';
 
 /**
@@ -109,6 +110,13 @@ export interface InvokeAgentBindingInput {
    */
   readonly wait?: boolean;
   /**
+   * Start the run at most once per key (`RunIdempotencyKey`): a key a run
+   * already has starts nothing and answers that run, with `existing`.
+   */
+  readonly idempotencyKey?: RunIdempotencyKey;
+  /** Set when a trigger starts the run; the run records it (`RunTriggerRef`). */
+  readonly trigger?: RunTriggerRef;
+  /**
    * Who started the run (the authenticated caller), when known: whom the
    * turn acts for, e.g. whose own memory its retrievals may read. Set by
    * the route, never from the body. On its own it enforces nothing.
@@ -135,6 +143,13 @@ export interface InvokeFlowBindingInput {
    * can't run in the background may treat `false` like `true`.
    */
   readonly wait?: boolean;
+  /**
+   * Start the run at most once per key (`RunIdempotencyKey`): a key a run
+   * already has starts nothing and answers that run, with `existing`.
+   */
+  readonly idempotencyKey?: RunIdempotencyKey;
+  /** Set when a trigger starts the run; the run records it (`RunTriggerRef`). */
+  readonly trigger?: RunTriggerRef;
   /** Agents and tools to run at other exact versions than the flow version's pins (`RunFlowInput.versions`). */
   readonly versions?: FlowVersionOverrides;
   /** Who started the run, as for `InvokeAgentBindingInput.principal`: its agent steps act for them. */
@@ -144,7 +159,12 @@ export interface InvokeFlowBindingInput {
 }
 
 export type RunHandlerOutcome =
-  | { readonly kind: 'ok'; readonly runId: RunId }
+  | {
+      readonly kind: 'ok';
+      readonly runId: RunId;
+      /** The `idempotencyKey` named a run that already existed: nothing new started. */
+      readonly existing?: true;
+    }
   | { readonly kind: 'err'; readonly error: RunHandlerFailure };
 
 /**

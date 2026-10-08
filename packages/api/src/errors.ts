@@ -107,6 +107,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // belongs to an approval (decided through the approvals routes, which
   // check the reviewer and record the decision) or to the runtime itself.
   'run-resume-not-supported': 422,
+  /** Memory was asked to search by meaning, and no embedding model is configured. */
+  'semantic-unavailable': 422,
   // 429 — rate limit. No route in this package emits it; a rate limiter
   // in front of the routes can.
   'rate-limit-exceeded': 429,
@@ -217,6 +219,16 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'service-account-unregistered': 409,
   /** Adding a person with an email another person of the tenant has. */
   'identity-user-email-taken': 409,
+  /** Removing tenant admin from the only person who holds it: the tenant would have none. */
+  'last-tenant-admin': 409,
+  /** Removing tenant admin from the seed user, whom the runtime re-grants it at every boot. */
+  'seed-user-admin': 409,
+  /** Unregistering yourself, or the deployment's seed user (`details.reason`). */
+  'identity-user-unregister-refused': 409,
+  /** A grant or a key for a person who was unregistered. */
+  'identity-user-unregistered': 409,
+  /** A person's grants on a runtime without an authorization store. */
+  'person-grants-unsupported': 501,
   /** Unregister: the version is live in a scope; move that pin first. */
   'agent-version-live': 409,
   /** An artifact upload over the runtime's cap (`KINDGI_ARTIFACT_MAX_BYTES`). */

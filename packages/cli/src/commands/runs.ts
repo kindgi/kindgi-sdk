@@ -44,12 +44,17 @@ const list: LeafCommand = {
   name: 'list',
   description: 'List runs (paginated).',
   usage:
-    'kindgi runs list [--agent=<agent-id>] [--replays=exclude|include|only] [--eval-run=<id>] [--limit=<n>] [--cursor=<c>]',
+    'kindgi runs list [--agent=<agent-id>] [--trigger=<schedule-id>] [--replays=exclude|include|only] [--eval-run=<id>] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
     agent: {
       type: 'string',
       description:
         "Only this agent's turns, at any version: its own runs and the turns its steps start inside flows. Turns from before Kindgi 0.1.3 don't name their agent and aren't listed.",
+    },
+    trigger: {
+      type: 'string',
+      description:
+        'Only the runs this trigger started: a schedule, by its id (`kindgi schedules list`).',
     },
     replays: {
       type: 'string',
@@ -81,6 +86,7 @@ const list: LeafCommand = {
         }
         const evalRunId = stringFlag(ctx, 'eval-run');
         const agentId = stringFlag(ctx, 'agent');
+        const triggerId = stringFlag(ctx, 'trigger');
         const limitStr = stringFlag(ctx, 'limit');
         const limit = limitStr !== undefined ? Number.parseInt(limitStr, 10) : undefined;
         if (limit !== undefined && Number.isNaN(limit)) {
@@ -92,6 +98,7 @@ const list: LeafCommand = {
           ...(replays !== undefined && { replays: replays as (typeof REPLAYS)[number] }),
           ...(evalRunId !== undefined && { evalRunId }),
           ...(agentId !== undefined && { agentId }),
+          ...(triggerId !== undefined && { triggerId }),
         });
       },
       RUNS_TABLE,

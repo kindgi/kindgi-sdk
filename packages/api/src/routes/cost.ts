@@ -5,6 +5,7 @@ import { Hono } from 'hono';
 
 import type { Cursor, TenantId, Timestamp } from '@kindgi/types';
 
+import { type ResourceRef, ref } from '@kindgi/authz';
 import {
   COST_AGGREGATE_DEFAULT_LIMIT,
   COST_AGGREGATE_MAX_LIMIT,
@@ -16,10 +17,13 @@ import {
   type CostRecordFilter,
   type CostTokenTotals,
 } from '../cost-binding.js';
+
 import { statusFor, toWireError } from '../errors.js';
+import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
+import { deniedBy } from './denied.js';
 import { clampLimit } from './pagination.js';
-import { parseScopeParams } from './scope-params.js';
+import { parseScopeParams, scopeResourceRef } from './scope-params.js';
 
 /**
  * Cost readback routes — part of the admin control plane. Three
@@ -38,8 +42,19 @@ import { parseScopeParams } from './scope-params.js';
  *
  * Budgets are not part of this surface.
  */
-export function costRouter(binding: CostBinding): Hono<AppEnv> {
+export function costRouter(
+  binding: CostBinding,
+  /**
+   * With one (T243 A): a record needs `read` on its project (the tenant,
+   * for one with no project); an aggregate, on the scope it's asked for.
+   */
+  authorizer?: Authorizer,
+): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  const recordRef = (tenantId: TenantId, rec: { readonly projectId?: unknown }): ResourceRef =>
+    rec.projectId !== undefined && rec.projectId !== null
+      ? ref('project', rec.projectId as string)
+      : ref('tenant', tenantId as unknown as string);
 
   const DEFAULT_AGGREGATE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
@@ -81,8 +96,12 @@ export function costRouter(binding: CostBinding): Hono<AppEnv> {
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
       ...(include.rawUsage && { includeRawUsage: true }),
     });
+    const visible =
+      authorizer === undefined
+        ? page.data
+        : await authorizer.filterByCan(c, 'read', page.data, (rec) => recordRef(tenantId, rec));
     return c.json({
-      data: page.data.map(serializeRecord),
+      data: visible.map(serializeRecord),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -117,6 +136,8 @@ export function costRouter(binding: CostBinding): Hono<AppEnv> {
         ),
       );
     }
+    const refused = await deniedBy(authorizer, c, 'read', recordRef(tenantId, record));
+    if (refused !== undefined) return refused;
     return c.json(serializeRecord(record));
   });
 
@@ -248,6 +269,14 @@ export function costRouter(binding: CostBinding): Hono<AppEnv> {
         toWireError({ code: 'scope-invalid', message: scopeParsed.message }, requestId),
       );
     }
+
+    const refused = await deniedBy(
+      authorizer,
+      c,
+      'read',
+      scopeResourceRef(scopeParsed.scope, tenantId),
+    );
+    if (refused !== undefined) return refused;
 
     const result = await binding.aggregate({
       tenantId,

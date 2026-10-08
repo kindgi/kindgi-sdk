@@ -18,9 +18,15 @@ import type {
   RefreshTokenFn,
 } from '../identity-provider-binding.js';
 import { encodeSessionToken } from '../middleware/auth.js';
-import type { Session, SessionStoreBinding } from '../session-store-binding.js';
+import type { Authorizer } from '../middleware/authorize.js';
+import type {
+  Session,
+  SessionCreateOutput,
+  SessionStoreBinding,
+} from '../session-store-binding.js';
 import type { OauthStateStore } from '../state-store-binding.js';
 import type { AppEnv } from '../types.js';
+import { tenantResourceAccess } from './tenant-access.js';
 
 /**
  * Auth routes. Layer OAuth 2.0 / OIDC on top of the static
@@ -48,6 +54,13 @@ export interface AuthRouterOptions {
    * without keeping a lost row around forever.
    */
   readonly stateTtlMs?: number;
+  /**
+   * With one (T243 A): the provider catalog is tenant-wide, so reading it
+   * needs `read` on the tenant and changing it `admin`, as for every
+   * tenant-wide resource (`tenantResourceAccess`). Logging in, refreshing
+   * and logging out are the caller's own, and stay unchecked.
+   */
+  readonly authorizer?: Authorizer;
 }
 
 const DEFAULT_STATE_TTL_MS = 10 * 60 * 1000;
@@ -71,6 +84,12 @@ export function authRouters(options: AuthRouterOptions): {
   const stateTtlMs = options.stateTtlMs ?? DEFAULT_STATE_TTL_MS;
 
   const authed = new Hono<AppEnv>();
+
+  // The provider catalog is tenant-wide: any GET (the list, one provider,
+  // its sign-in URLs) needs `read` on the tenant, any change `admin`.
+  const providerAccess = tenantResourceAccess(options.authorizer);
+  authed.use('/providers', providerAccess);
+  authed.use('/providers/*', providerAccess);
 
   // ---------- GET /providers ----------
   authed.get('/providers', async (c) => {
@@ -314,7 +333,7 @@ export function authRouters(options: AuthRouterOptions): {
       });
       const fresh = await sessionStore.get({ tenantId, sessionId: createdSession.sessionId });
       if (fresh === null) throw new Error('session vanished immediately after create');
-      created = { session: fresh, rawToken: encodeSessionToken(createdSession.sessionId) };
+      created = { session: fresh, rawToken: sessionTokenOf(createdSession) };
     } else {
       // Rotate the framework token only; keep provider tokens as-is.
       const createdSession = await sessionStore.create({
@@ -329,7 +348,7 @@ export function authRouters(options: AuthRouterOptions): {
       });
       const fresh = await sessionStore.get({ tenantId, sessionId: createdSession.sessionId });
       if (fresh === null) throw new Error('session vanished immediately after create');
-      created = { session: fresh, rawToken: encodeSessionToken(createdSession.sessionId) };
+      created = { session: fresh, rawToken: sessionTokenOf(createdSession) };
     }
 
     // OAuth 2.1 BCP: mark the old session as ROTATED (not just revoked)
@@ -471,7 +490,7 @@ export function authRouters(options: AuthRouterOptions): {
 
     c.status(201);
     return c.json({
-      sessionToken: encodeSessionToken(created.sessionId),
+      sessionToken: sessionTokenOf(created),
       sessionId: created.sessionId,
       expiresAt: created.expiresAt,
     });
@@ -481,6 +500,11 @@ export function authRouters(options: AuthRouterOptions): {
 }
 
 // ---------- helpers ----------
+
+/** The token a store minted, or the older `kgi_sk_<sessionId>` for a store that mints none. */
+function sessionTokenOf(created: SessionCreateOutput): string {
+  return created.token ?? encodeSessionToken(created.sessionId);
+}
 
 function base64Url(buf: Buffer): string {
   return buf.toString('base64url');
