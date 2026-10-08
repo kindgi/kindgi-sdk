@@ -294,7 +294,9 @@ uv run kindgi runs start --agent=acme-desk.triage --input='{"userMessage":"Triag
 ```
 
 The agent called `get_ticket`, read the ticket, and answered in the shape you
-gave it. Your reply will read differently: it's the model's.
+gave it. Your reply will read differently: it's the model's. To see the run's
+page, with each step, the tool call and the cost, run `uv run kindgi console`
+and open **Runs**.
 
 ## 8. Handle tickets
 

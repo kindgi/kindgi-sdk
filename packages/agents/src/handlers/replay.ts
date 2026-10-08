@@ -53,7 +53,18 @@ export interface ReplayToolInput extends ReplayTurnRef {
 }
 
 export type ReplayToolDecision =
-  | { readonly kind: 'live' }
+  | {
+      readonly kind: 'live';
+      /**
+       * The env values the past run's call of this tool was sent, for a
+       * read-only tool run live: the replay sends them, so the tool reads
+       * the config the past run saw rather than today's. Names it doesn't
+       * hold (a tool version that declares more) resolve as usual.
+       * Absent: the past run recorded none (from before env was recorded,
+       * or a tool it didn't call), and the call resolves today's values.
+       */
+      readonly env?: Readonly<Record<string, string>>;
+    }
   | { readonly kind: 'recorded'; readonly result: unknown }
   | { readonly kind: 'refused'; readonly result: unknown; readonly reason: string };
 
@@ -139,9 +150,10 @@ function refusedResult(reason: string): Readonly<Record<string, unknown>> {
   return { status: 'not-executed', reason };
 }
 
-/** The journaled decision of one call: its trace entry, and the result the model got. */
+/** The journaled decision of one call: its trace entry, the result the model got, and a live call's env. */
 interface RecordedDecision extends ReplayToolTrace {
   readonly result?: unknown;
+  readonly env?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -205,18 +217,20 @@ export async function decideReplayTool(
       // `live` runs only a read-only tool, and never waits for an approval.
       if (!isReadOnlyTool(call.tool)) return refuse(CHANGES_REASON);
       if (call.gated) return refuse(GATED_REASON);
-      return { ...base, source: 'live' };
+      return { ...base, source: 'live', ...(decision.env !== undefined && { env: decision.env }) };
     },
   );
   addReplayTrace(ctx, traceOf(decided));
-  if (decided.source === 'live') return { kind: 'live' };
+  if (decided.source === 'live') {
+    return { kind: 'live', ...(decided.env !== undefined && { env: decided.env }) };
+  }
   if (decided.source === 'recorded') return { kind: 'recorded', result: decided.result };
   return { kind: 'refused', result: decided.result, reason: decided.reason ?? CHANGES_REASON };
 }
 
-/** A journaled decision's trace entry (without the result). */
+/** A journaled decision's trace entry (without the result or the env values). */
 function traceOf(decided: RecordedDecision): ReplayToolTrace {
-  const { result: _result, ...trace } = decided;
+  const { result: _result, env: _env, ...trace } = decided;
   return trace;
 }
 

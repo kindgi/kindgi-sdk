@@ -97,8 +97,6 @@ export interface PackConfig {
 }
 
 export const DEFAULT_OUT_DIR = '.kindgi/build';
-/** SOURCE_DATE_EPOCH=0 baseline — the build-server also pins epoch=0. */
-export const DEFAULT_PUBLISHED_AT = '1970-01-01T00:00:00.000Z';
 
 export const buildCommand: LeafCommand = {
   kind: 'leaf',
@@ -149,12 +147,12 @@ export const buildCommand: LeafCommand = {
     'artifact-version': {
       type: 'string',
       description:
-        "The artifact version, in the image and its signature. Default: today's date as `YYYYMMDD.1` (UTC).",
+        'The artifact version, in the image and its signature. Default: the build time as `YYYYMMDD.HHMMSS` (UTC). For a reproducible build, pass `--artifact-version` and `--published-at`.',
     },
     'published-at': {
       type: 'string',
       description:
-        'The publish time (ISO 8601), in the image and its signature. Default: the Unix epoch, so builds are reproducible.',
+        'The publish time (ISO 8601), in the image and its signature. Default: the build time. For a reproducible build, pass `--artifact-version` and `--published-at`.',
     },
     tenant: {
       type: 'string',
@@ -1153,14 +1151,13 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
   const outDirRaw = typeof outFlag === 'string' && outFlag !== '' ? outFlag : DEFAULT_OUT_DIR;
   const outDir = isAbsolute(outDirRaw) ? outDirRaw : resolve(packDir, outDirRaw);
 
-  // --artifact-version — pinned or auto YYYYMMDD.1.
+  // --artifact-version and --published-at: pinned, else the build time.
+  const defaults = buildTimeDefaults(new Date());
   const avFlag = ctx.options['artifact-version'];
   const artifactVersion =
-    typeof avFlag === 'string' && avFlag !== '' ? avFlag : defaultArtifactVersion();
-
-  // --published-at — SOURCE_DATE_EPOCH=0 baseline unless overridden.
+    typeof avFlag === 'string' && avFlag !== '' ? avFlag : defaults.artifactVersion;
   const paFlag = ctx.options['published-at'];
-  const publishedAt = typeof paFlag === 'string' && paFlag !== '' ? paFlag : DEFAULT_PUBLISHED_AT;
+  const publishedAt = typeof paFlag === 'string' && paFlag !== '' ? paFlag : defaults.publishedAt;
 
   // --tenant — flag > env block > KINDGI_TENANT_ID env var > error.
   const tenantFlag = ctx.options.tenant;
@@ -1316,12 +1313,20 @@ export function discoveryPatternsOf(config: PackConfig): readonly string[] {
   );
 }
 
-function defaultArtifactVersion(): string {
-  const now = new Date();
-  const yyyy = now.getUTCFullYear();
-  const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(now.getUTCDate()).padStart(2, '0');
-  return `${yyyy}${mm}${dd}.1`;
+/**
+ * An unpinned build's artifact version and publish time, from one clock
+ * reading: `YYYYMMDD.HHMMSS` and the ISO time, both UTC. Builds a second or
+ * more apart get different versions, so a second build the same day gets
+ * its own image tag; the versions sort in build order.
+ */
+export function buildTimeDefaults(now: Date): {
+  readonly artifactVersion: string;
+  readonly publishedAt: string;
+} {
+  const two = (n: number): string => String(n).padStart(2, '0');
+  const day = `${now.getUTCFullYear()}${two(now.getUTCMonth() + 1)}${two(now.getUTCDate())}`;
+  const time = `${two(now.getUTCHours())}${two(now.getUTCMinutes())}${two(now.getUTCSeconds())}`;
+  return { artifactVersion: `${day}.${time}`, publishedAt: now.toISOString() };
 }
 
 function expandHome(path: string, home: string | undefined): string {

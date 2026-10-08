@@ -41,7 +41,7 @@ from typing import Any, Literal, cast
 from pydantic import ValidationError as PydanticError
 
 from .._json import compact_dumps
-from .._schema import SchemaValidator, apply_defaults, issues_from_pydantic
+from .._schema import Issue, SchemaValidator, apply_defaults, issues_from_pydantic
 from .context import Cancellation, ToolContext
 from .define import Guardrail, Tool, check_result_to_wire
 from .loader import import_pack_module, mount_pack, primitives_of
@@ -504,26 +504,34 @@ class PackService:
             return {**found, "checkId": check_id}
         guardrail = cast("Guardrail", found)
 
+        # Checked as sent (no defaults filled in), as the indexer checks a declared
+        # config; a schema that doesn't compile is refused, as a tool's input schema is.
         schema = entry.get("configSchema")
         if isinstance(schema, Mapping):
             validator = self._validator(cast("Mapping[str, Any]", schema))
-            if not isinstance(validator, Exception):
-                issues = validator.issues(dict(message.config))
-                if issues:
-                    return pack_error(
-                        "input-validation-failed",
-                        f'Check "{check_id}" config failed validation',
-                        checkId=check_id,
-                        issues=issues,
-                    )
+            if isinstance(validator, Exception):
+                return pack_error(
+                    "input-validation-failed",
+                    f'Check "{check_id}" config schema failed to compile: {_describe(validator)}',
+                    checkId=check_id,
+                )
+            issues = validator.issues(dict(message.config))
+            if issues:
+                return pack_error(
+                    "input-validation-failed",
+                    f'Check "{check_id}" config failed validation{_first_issue(issues)}',
+                    checkId=check_id,
+                    issues=issues,
+                )
         try:
             config = guardrail.parse_config(message.config)
         except PydanticError as error:
+            issues = issues_from_pydantic(error)
             return pack_error(
                 "input-validation-failed",
-                f'Check "{check_id}" config failed validation',
+                f'Check "{check_id}" config failed validation{_first_issue(issues)}',
                 checkId=check_id,
-                issues=issues_from_pydantic(error),
+                issues=issues,
             )
         try:
             trace = guardrail.parse_trace(message.trace)
@@ -672,6 +680,19 @@ def _parse_timeout(raw: str | None) -> int | None:
 
 def _reject_constant(name: str) -> Any:
     raise ValueError(f"{name} is not JSON")
+
+
+def _first_issue(issues: list[Issue]) -> str:
+    """Where the first issue is and what it says (` at /maxChars: must be >= 0`).
+
+    For a message read without its issues: a runtime reports a check's error by
+    its code and message alone.
+    """
+    if not issues:
+        return ""
+    first = issues[0]
+    at = f" at {first['instancePath']}" if first.get("instancePath") else ""
+    return f"{at}: {first.get('message') or 'invalid'}"
 
 
 def _describe(cause: BaseException) -> str:
