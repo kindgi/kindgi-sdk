@@ -274,6 +274,7 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'already-terminal':
     case 'run-already-terminal':
     case 'idempotency-key-body-mismatch':
+    case 'idempotency-key-in-flight':
     case 'hitl-required':
     case 'agent-already-registered':
     case 'tool-already-registered':
