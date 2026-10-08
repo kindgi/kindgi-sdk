@@ -64,7 +64,7 @@ terraform apply -var-file=dev.tfvars \
   -target=azurerm_role_assignment.pack_pulls
 ```
 
-- The image variables only need a digest-shaped placeholder here, and `secrets_aad_key_version` may stay empty.
+- The image variables only need a digest-shaped placeholder here, and `secrets_aad_key_version` and `erasure_ledger_key_version` may stay empty.
 - The PostgreSQL server takes several minutes.
 - The PostgreSQL admin password is write-only: Terraform sends a random one that nobody keeps, and it never reaches the state or the plan. You set the real one in step 3.
 
@@ -107,6 +107,10 @@ printf 'kgi_bt_%s' "$(openssl rand -hex 32)" | put api-token
 # secret's id; its last segment is secrets_aad_key_version.
 openssl rand 32 | base64 | tr -d '\n' | put secrets-aad-key
 
+# The erasure ledger's key: 32 bytes, base64. It prints the secret's id;
+# its last segment is erasure_ledger_key_version.
+openssl rand 32 | base64 | tr -d '\n' | put erasure-ledger-key
+
 # The key that signs public run tokens: Ed25519, PKCS#8 PEM, base64.
 openssl genpkey -algorithm ed25519 | base64 | tr -d '\n' | put public-token-key
 
@@ -114,7 +118,9 @@ openssl genpkey -algorithm ed25519 | base64 | tr -d '\n' | put public-token-key
 read -rs LICENSE_KEY && printf '%s' "$LICENSE_KEY" | put license-key && unset LICENSE_KEY
 ```
 
-Put the AAD key's version in `secrets_aad_key_version`. The server reads that one version, never "latest": every secret stored in Postgres is bound to it, so a new version would make them all unreadable.
+Put the two keys' versions in `secrets_aad_key_version` and `erasure_ledger_key_version`. The server reads those versions, never "latest":
+- every secret stored in Postgres is bound to the AAD key, so a new version would make them all unreadable;
+- erasures replay after a backup restore only with the same ledger key.
 
 **Your pack's own secrets** (`secret_env` in `kindgi env plan --env dev`): create each one in the same vault with `put`. The pack service gets read access to exactly those.
 
@@ -161,7 +167,7 @@ The runtime reads the pack image from the registry with its own identity (`KINDG
 
 - **One server replica** until several are verified. Migrations run at boot over a direct connection (port 5432, not the built-in PgBouncer on 6432).
 - **Upgrades roll forward:** migrations only go forward. Before a new runtime version boots on the database, make sure a restorable backup exists (automatic backups with point-in-time restore are on), and roll back by restoring it.
-- **Rotating a secret:** add a version (`put` again). Container Apps picks up a new version of a versionless reference within 30 minutes and restarts the apps that read it. Never rotate the AAD key this way.
+- **Rotating a secret:** add a version (`put` again). Container Apps picks up a new version of a versionless reference within 30 minutes and restarts the apps that read it. Never rotate the AAD key or the erasure ledger's key this way.
 - **Rotating the key:** with `key_rotation_days` (default 90) Key Vault adds a key version on schedule. New secrets use it; old ones keep unwrapping with theirs.
 - **Hardening:** the vault and registry are reached over their public endpoints, guarded by Entra RBAC. To close those, add private endpoints (the registry needs the Premium tier) and network rules.
 

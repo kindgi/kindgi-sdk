@@ -132,6 +132,7 @@ locals {
     KINDGI_PUBLIC_TOKEN_SIGNING_KEY = "public-token-key"
     KINDGI_LICENSE_KEY              = "license-key"
     KINDGI_PACK_SERVICE_TOKEN       = "pack-service-token"
+    KINDGI_ERASURE_LEDGER_KEY       = "erasure-ledger-key"
   }
   server_env = merge(
     {
@@ -262,6 +263,10 @@ resource "azurerm_container_app" "server" {
     precondition {
       condition     = var.secrets_aad_key_version != ""
       error_message = "secrets_aad_key_version is needed for the services: the version `az keyvault secret set` printed for secrets-aad-key (README, step 3)."
+    }
+    precondition {
+      condition     = var.erasure_ledger_key_version != ""
+      error_message = "erasure_ledger_key_version is needed for the services: the version `az keyvault secret set` printed for erasure-ledger-key (README, step 3)."
     }
   }
 

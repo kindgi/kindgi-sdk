@@ -84,14 +84,15 @@ mock_provider "azurerm" {
 mock_provider "time" {}
 
 variables {
-  subscription_id         = "00000000-0000-0000-0000-000000000000"
-  resource_group_name     = "acme-kindgi-dev"
-  kindgi_env              = "dev"
-  server_image            = "kindgiab12.azurecr.io/runtime@sha256:0000000000000000000000000000000000000000000000000000000000000000"
-  pack_image              = "kindgiab12.azurecr.io/acme-app@sha256:1111111111111111111111111111111111111111111111111111111111111111"
-  seed_tenant_id          = "00000000-0000-0000-0000-000000000001"
-  seed_user_id            = "00000000-0000-0000-0000-000000000002"
-  secrets_aad_key_version = "0123456789abcdef0123456789abcdef"
+  subscription_id            = "00000000-0000-0000-0000-000000000000"
+  resource_group_name        = "acme-kindgi-dev"
+  kindgi_env                 = "dev"
+  server_image               = "kindgiab12.azurecr.io/runtime@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  pack_image                 = "kindgiab12.azurecr.io/acme-app@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  seed_tenant_id             = "00000000-0000-0000-0000-000000000001"
+  seed_user_id               = "00000000-0000-0000-0000-000000000002"
+  secrets_aad_key_version    = "0123456789abcdef0123456789abcdef"
+  erasure_ledger_key_version = "fedcba9876543210fedcba9876543210"
   pack_secret_env = {
     ACME_API_KEY = { secret = "acme-api-key", version = "latest" }
   }
@@ -138,14 +139,18 @@ run "new_vnet_shape_meets_the_contract" {
     condition     = local.secret_ids.secrets_aad_key == "https://kindgi-ab12.vault.azure.net/secrets/secrets-aad-key/0123456789abcdef0123456789abcdef" && local.secret_ids.database_url == "https://kindgi-ab12.vault.azure.net/secrets/database-url"
     error_message = "The AAD key is pinned to its version; other secrets are versionless."
   }
+  assert {
+    condition     = local.secret_ids.erasure_ledger_key == "https://kindgi-ab12.vault.azure.net/secrets/erasure-ledger-key/fedcba9876543210fedcba9876543210"
+    error_message = "The erasure ledger's key is pinned to its version."
+  }
   # C-SEC-2, C-PK-6: grants are per secret; the pack reads the shared token and its own secrets only.
   assert {
     condition     = toset(keys(azurerm_role_assignment.pack_reads_its_secrets)) == toset(["acme-api-key"]) && length(azurerm_role_assignment.pack_reads_token) == 1
     error_message = "C-PK-6: the pack reads exactly the pack token and its own secrets."
   }
   assert {
-    condition     = alltrue([for a in values(azurerm_role_assignment.server_reads) : a.role_definition_name == "Key Vault Secrets User"]) && length(azurerm_role_assignment.server_reads) == 6
-    error_message = "C-SEC-2: the server reads its five secrets and the pack token, each on its own."
+    condition     = alltrue([for a in values(azurerm_role_assignment.server_reads) : a.role_definition_name == "Key Vault Secrets User"]) && length(azurerm_role_assignment.server_reads) == 7
+    error_message = "C-SEC-2: the server reads its six secrets and the pack token, each on its own."
   }
   # C-IMG-2: the server reads deployments' images with its own identity.
   assert {
@@ -226,6 +231,14 @@ run "the_services_need_the_aad_key_version" {
   command = plan
   variables {
     secrets_aad_key_version = ""
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+run "the_services_need_the_erasure_ledger_key_version" {
+  command = plan
+  variables {
+    erasure_ledger_key_version = ""
   }
   expect_failures = [azurerm_container_app.server]
 }

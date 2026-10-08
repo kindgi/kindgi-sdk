@@ -81,20 +81,29 @@ locals {
     secrets_aad_key  = "secrets-aad-key"  # 32 random bytes, base64: KINDGI_SECRETS_AAD_KEY (read at a pinned version)
     public_token_key = "public-token-key" # Ed25519 PKCS#8 PEM, base64: KINDGI_PUBLIC_TOKEN_SIGNING_KEY
     license_key      = "license-key"      # KINDGI_LICENSE_KEY (kgi_lk_…), issued by Kindgi
+    # 32 random bytes, base64: KINDGI_ERASURE_LEDGER_KEY, the erasure ledger's
+    # keyed hash, so erasures replay after a backup restore (read at a pinned version).
+    erasure_ledger_key = "erasure-ledger-key"
   }
   shared_secrets = {
     pack_service_token = "pack-service-token" # KINDGI_PACK_SERVICE_TOKEN, both services
   }
 
   # Versionless references: Container Apps picks up a new version within 30
-  # minutes and restarts the revisions that read it (C-SEC-4). The AAD key
-  # is the exception: pinned to one version (C-SEC-3), since a new version
-  # would make every secret stored in Postgres unreadable.
+  # minutes and restarts the revisions that read it (C-SEC-4). Two keys are
+  # the exception, pinned to one version: the AAD key (C-SEC-3: a new
+  # version would make every secret stored in Postgres unreadable) and the
+  # erasure ledger's key (a new version would make the ledger unreplayable
+  # after a restore).
+  pinned_versions = {
+    secrets_aad_key    = var.secrets_aad_key_version
+    erasure_ledger_key = var.erasure_ledger_key_version
+  }
   secret_ids = {
     for role, name in merge(local.server_secrets, local.shared_secrets) :
     role => (
-      role == "secrets_aad_key"
-      ? "${azurerm_key_vault.kindgi.vault_uri}secrets/${name}/${var.secrets_aad_key_version}"
+      contains(keys(local.pinned_versions), role)
+      ? "${azurerm_key_vault.kindgi.vault_uri}secrets/${name}/${local.pinned_versions[role]}"
       : "${azurerm_key_vault.kindgi.vault_uri}secrets/${name}"
     )
   }

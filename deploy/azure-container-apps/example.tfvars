@@ -22,6 +22,10 @@ seed_user_id   = "00000000-0000-0000-0000-000000000002"
 # "latest": every secret stored in Postgres is bound to it.
 secrets_aad_key_version = "0123456789abcdef0123456789abcdef"
 
+# The erasure ledger's key, pinned the same way: erasures replay after a
+# backup restore only with the same key.
+erasure_ledger_key_version = "fedcba9876543210fedcba9876543210"
+
 cors_origins = ["https://app.acme.example"]
 
 pack_env = {

@@ -302,3 +302,14 @@ variable "secrets_aad_key_version" {
     error_message = "secrets_aad_key_version: a 32-hex Key Vault secret version id."
   }
 }
+
+variable "erasure_ledger_key_version" {
+  description = "The version of the `erasure-ledger-key` secret the server reads (`az keyvault secret set` prints it): KINDGI_ERASURE_LEDGER_KEY, the erasure ledger's keyed hash. Pinned, never `latest`: erasures replay after a backup restore only with the same key. Needed for the services apply."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.erasure_ledger_key_version == "" || can(regex("^[0-9a-f]{32}$", var.erasure_ledger_key_version))
+    error_message = "erasure_ledger_key_version: a 32-hex Key Vault secret version id."
+  }
+}
