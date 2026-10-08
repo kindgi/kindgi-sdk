@@ -49,11 +49,27 @@ export interface TokenResolution {
    */
   readonly userId?: UserId;
   /**
-   * The id of a durable API key (`POST /v1/tokens`). The caller is then
-   * the key's service account (`service_account:<tokenId>`), not a user;
-   * the middleware surfaces it as `c.get('tokenId')`.
+   * The id of a durable API key (`POST /v1/tokens`), surfaced as
+   * `c.get('tokenId')`. The caller is the key's principal: `userId` for a
+   * person's key, `serviceAccountId` for a service account's. A key with
+   * neither (a store built before principals) is its own service account,
+   * `service_account:<tokenId>`.
    */
   readonly tokenId?: ApiTokenId;
+  /** The service account an API key acts for (`service_account:<id>`). */
+  readonly serviceAccountId?: string;
+  /**
+   * An API key's role: the most it may do, under its principal's grants.
+   * A `member` key is refused tenant-admin actions even when its principal
+   * is an admin.
+   */
+  readonly tokenRole?: 'admin' | 'member';
+  /**
+   * The project an API key is narrowed to. A request naming another
+   * project is refused (`key-project-mismatch`), and so is an `admin`
+   * action on the tenant.
+   */
+  readonly tokenProjectId?: string;
   /**
    * Optional session id. Populated by the session-token verifier path
    * (`kgi_sk_*` tokens) so `/v1/identity/whoami` and `/v1/auth/logout`
@@ -297,6 +313,15 @@ export function bearerAuthMiddleware(
     }
     if (resolution.tokenId !== undefined) {
       c.set('tokenId', resolution.tokenId);
+    }
+    if (resolution.serviceAccountId !== undefined) {
+      c.set('serviceAccountId', resolution.serviceAccountId);
+    }
+    if (resolution.tokenRole !== undefined) {
+      c.set('tokenRole', resolution.tokenRole);
+    }
+    if (resolution.tokenProjectId !== undefined) {
+      c.set('tokenProjectId', resolution.tokenProjectId);
     }
     if (resolution.sessionId !== undefined) {
       c.set('sessionId', resolution.sessionId);

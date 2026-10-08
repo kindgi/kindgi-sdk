@@ -36,6 +36,10 @@ pack_image   = "northamerica-northeast2-docker.pkg.dev/acme-app-dev/kindgi-dev/a
 seed_tenant_id = "00000000-0000-0000-0000-000000000001"
 seed_user_id   = "00000000-0000-0000-0000-000000000002"
 
+# The version of the AAD key the server reads: the first one added (README step 3).
+# Pinned, never "latest": every secret stored in Postgres is bound to it.
+secrets_aad_key_version = "1"
+
 pack_min_instances = 0
 pack_max_instances = 2
 pack_timeout       = "600s"

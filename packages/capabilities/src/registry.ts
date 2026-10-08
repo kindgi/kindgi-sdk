@@ -5,7 +5,7 @@ import type { Result, TenantId } from '@kindgi/types';
 
 import type { CapabilityError, DuplicateProviderError, InvalidProviderError } from './errors.js';
 import { validateProviderLabels } from './provider-labels.js';
-import type { ModelProvider, ProviderRegistry } from './types.js';
+import type { ModelProvider, ModelThinking, ProviderRegistry } from './types.js';
 
 /**
  * Create an in-memory registry of model providers. Tenant-scoped:
@@ -124,6 +124,28 @@ export function createProviderRegistry(
           reason: 'invalid-max-output-tokens',
         };
       }
+      if (m.sampling !== undefined && typeof m.sampling !== 'boolean') {
+        return {
+          code: 'invalid-provider',
+          message: `provider "${p.metadata.id}" model "${m.name}" sampling must be true or false`,
+          reason: 'invalid-sampling',
+        };
+      }
+      if (m.thinking !== undefined && !isModelThinking(m.thinking)) {
+        return {
+          code: 'invalid-provider',
+          message: `provider "${p.metadata.id}" model "${m.name}" thinking must be { mode: 'adaptive' | 'always', lowest: <the vendor's setting> }`,
+          reason: 'invalid-thinking',
+        };
+      }
+    }
+    const defaultModel = p.metadata.defaultModel;
+    if (defaultModel !== undefined && !p.metadata.models.some((m) => m.name === defaultModel)) {
+      return {
+        code: 'invalid-provider',
+        message: `provider "${p.metadata.id}" defaultModel "${String(defaultModel)}" isn't one of its models (${p.metadata.models.map((m) => m.name).join(', ')})`,
+        reason: 'unknown-default-model',
+      };
     }
     const badLabels = validateProviderLabels(p.metadata.id, p.metadata.labels);
     if (badLabels !== undefined) return { code: 'invalid-provider', ...badLabels };
@@ -180,4 +202,16 @@ export function createProviderRegistry(
   }
 
   return { registry, register };
+}
+
+/** `ModelInfo.thinking`'s shape: a known mode and a non-empty vendor setting. */
+export function isModelThinking(value: unknown): value is ModelThinking {
+  if (typeof value !== 'object' || value === null) return false;
+  const t = value as Record<string, unknown>;
+  return (
+    (t.mode === 'adaptive' || t.mode === 'always') &&
+    typeof t.lowest === 'string' &&
+    t.lowest.length > 0 &&
+    Object.keys(t).every((k) => k === 'mode' || k === 'lowest')
+  );
 }
