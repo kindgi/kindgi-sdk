@@ -1043,6 +1043,15 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       runBinding,
       {
         ...(input.eventBus !== undefined && { eventBus: input.eventBus }),
+        ...(input.agentRegistry !== undefined &&
+          input.flowRegistry !== undefined && {
+            targetExists: async (tenantId, target) =>
+              target.kind === 'agent'
+                ? (await input.agentRegistry?.get({ tenantId, agentId: target.id as never })) !==
+                  null
+                : (await input.flowRegistry?.get({ tenantId, flowId: target.id as never })) !==
+                  null,
+          }),
         ...(publicRunTokenLimits !== undefined && {
           publicRunTokens: {
             mint: (tenantId, runIds) =>
@@ -1055,7 +1064,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   );
   v1.route(
     '/conversations',
-    conversationsRouter(input.conversationBinding, runBinding, input.projectBinding),
+    conversationsRouter(input.conversationBinding, runBinding, input.projectBinding, authorizer),
   );
   if (publicRunTokenLimits !== undefined) {
     v1.route(
@@ -1096,11 +1105,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           // new state (running / completed / re-suspended).
           runHandler: input.runHandler,
         },
+        authorizer,
       ),
     );
   }
   if (input.enableObservations === true && input.supervisor !== undefined) {
-    v1.route('/observations', observationsRouter(input.supervisor));
+    v1.route('/observations', observationsRouter(input.supervisor, authorizer));
   }
   if (input.agentRegistry !== undefined) {
     v1.route(
@@ -1164,10 +1174,15 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   v1.route('/export-signing-keys', exportSigningKeysRouter(exportSigning));
   v1.route(
     '/provenance',
-    provenanceRouter(input.provenanceBinding, {
-      conversationBinding: input.conversationBinding,
-      ...exportOptions,
-    }),
+    provenanceRouter(
+      input.provenanceBinding,
+      {
+        conversationBinding: input.conversationBinding,
+        runBinding,
+        ...exportOptions,
+      },
+      authorizer,
+    ),
   );
   if (
     input.auditEvents !== undefined &&
@@ -1176,11 +1191,14 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   ) {
     v1.route(
       '/compliance',
-      complianceRouter({
-        auditEvents: input.auditEvents,
-        classifier: input.complianceClassifier,
-        ...(exportSigning !== undefined && { exportSigning }),
-      }),
+      complianceRouter(
+        {
+          auditEvents: input.auditEvents,
+          classifier: input.complianceClassifier,
+          ...(exportSigning !== undefined && { exportSigning }),
+        },
+        authorizer,
+      ),
     );
   }
   if (input.blobStorage !== undefined) {
@@ -1195,12 +1213,17 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     );
   }
   if (input.capabilityRegistry !== undefined) {
-    v1.route('/capabilities', capabilitiesRouter(input.capabilityRegistry));
+    v1.route('/capabilities', capabilitiesRouter(input.capabilityRegistry, authorizer));
   }
   if (input.providerRegistry !== undefined) {
     v1.route(
       '/providers',
-      providersRouter(input.providerRegistry, input.onProviderWrite, input.adapterFactories),
+      providersRouter(
+        input.providerRegistry,
+        input.onProviderWrite,
+        input.adapterFactories,
+        authorizer,
+      ),
     );
   }
   if (input.mcpEndpointRegistry !== undefined) {
@@ -1226,10 +1249,13 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     }),
   );
   if (input.cost !== undefined) {
-    v1.route('/cost', costRouter(input.cost));
+    v1.route('/cost', costRouter(input.cost, authorizer));
   }
   if (input.adapterRegistry !== undefined) {
-    v1.route('/adapters', adaptersRouter(input.adapterRegistry, input.adapterFactories));
+    v1.route(
+      '/adapters',
+      adaptersRouter(input.adapterRegistry, input.adapterFactories, authorizer),
+    );
   }
   // Trigger admin surfaces. Three sibling routers over the same
   // `TriggerRegistryBinding` — each pins its own kind. There is no
@@ -1237,14 +1263,14 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // unauthenticated tenant resolution).
   if (input.triggerRegistry !== undefined) {
     v1.route('/schedules', schedulesRouter(input.triggerRegistry));
-    v1.route('/event-triggers', eventTriggersRouter(input.triggerRegistry));
-    v1.route('/webhooks', webhooksRouter(input.triggerRegistry));
+    v1.route('/event-triggers', eventTriggersRouter(input.triggerRegistry, authorizer));
+    v1.route('/webhooks', webhooksRouter(input.triggerRegistry, authorizer));
   }
   if (input.webhookEndpoints !== undefined) {
-    v1.route('/webhook-endpoints', webhookEndpointsRouter(input.webhookEndpoints));
+    v1.route('/webhook-endpoints', webhookEndpointsRouter(input.webhookEndpoints, authorizer));
   }
   if (input.policyRegistry !== undefined) {
-    v1.route('/policies', policiesRouter(input.policyRegistry));
+    v1.route('/policies', policiesRouter(input.policyRegistry, authorizer));
   }
   if (input.evalSuiteRegistry !== undefined) {
     v1.route('/eval-suites', evalSuitesRouter(input.evalSuiteRegistry, authorizer));
@@ -1359,7 +1385,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // Mounted on its own: a deployment can trust keys before it accepts
   // deployments.
   if (input.signingKeyRegistry !== undefined) {
-    v1.route('/signing-keys', signingKeysRouter(input.signingKeyRegistry));
+    v1.route('/signing-keys', signingKeysRouter(input.signingKeyRegistry, authorizer));
   }
   if (
     input.deploymentRegistry !== undefined &&
@@ -1368,33 +1394,36 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   ) {
     v1.route(
       '/deployments',
-      deploymentsRouter({
-        deploymentRegistry: input.deploymentRegistry,
-        signingKeyRegistry: input.signingKeyRegistry,
-        imageRegistry: input.imageRegistry,
-        ...(input.toolRegistry !== undefined && { toolRegistry: input.toolRegistry }),
-        ...(input.blockRegistry !== undefined && { blockRegistry: input.blockRegistry }),
-        ...(input.guardrailRegistry !== undefined && {
-          guardrailRegistry: input.guardrailRegistry,
-        }),
-        ...(input.agentRegistry !== undefined && { agentRegistry: input.agentRegistry }),
-        ...(input.flowRegistry !== undefined && { flowRegistry: input.flowRegistry }),
-        ...(input.agentReleases !== undefined && { liveVersions: input.agentReleases.live }),
-        // The deployments router's agents publish loop resolves the
-        // Default project through this binding. Optional at wiring so
-        // app compositions without a project binding still boot; the loop
-        // fails fast at runtime if agents are in the deployment index
-        // but the binding is absent.
-        ...(input.projectBinding !== undefined && { projectBinding: input.projectBinding }),
-        // POST /v1/deployments/:deploymentId/secrets needs the
-        // secretsBinding. Absent binding → the route answers 500 with an
-        // operator-actionable message.
-        ...(input.secretsBinding !== undefined && { secretsBinding: input.secretsBinding }),
-        // A deploy registers tools and guardrails: the same cache hooks
-        // `POST /v1/tools` / `POST /v1/guardrails` call.
-        ...(input.onToolWrite !== undefined && { onToolWrite: input.onToolWrite }),
-        ...(input.onGuardrailWrite !== undefined && { onGuardrailWrite: input.onGuardrailWrite }),
-      }),
+      deploymentsRouter(
+        {
+          deploymentRegistry: input.deploymentRegistry,
+          signingKeyRegistry: input.signingKeyRegistry,
+          imageRegistry: input.imageRegistry,
+          ...(input.toolRegistry !== undefined && { toolRegistry: input.toolRegistry }),
+          ...(input.blockRegistry !== undefined && { blockRegistry: input.blockRegistry }),
+          ...(input.guardrailRegistry !== undefined && {
+            guardrailRegistry: input.guardrailRegistry,
+          }),
+          ...(input.agentRegistry !== undefined && { agentRegistry: input.agentRegistry }),
+          ...(input.flowRegistry !== undefined && { flowRegistry: input.flowRegistry }),
+          ...(input.agentReleases !== undefined && { liveVersions: input.agentReleases.live }),
+          // The deployments router's agents publish loop resolves the
+          // Default project through this binding. Optional at wiring so
+          // app compositions without a project binding still boot; the loop
+          // fails fast at runtime if agents are in the deployment index
+          // but the binding is absent.
+          ...(input.projectBinding !== undefined && { projectBinding: input.projectBinding }),
+          // POST /v1/deployments/:deploymentId/secrets needs the
+          // secretsBinding. Absent binding → the route answers 500 with an
+          // operator-actionable message.
+          ...(input.secretsBinding !== undefined && { secretsBinding: input.secretsBinding }),
+          // A deploy registers tools and guardrails: the same cache hooks
+          // `POST /v1/tools` / `POST /v1/guardrails` call.
+          ...(input.onToolWrite !== undefined && { onToolWrite: input.onToolWrite }),
+          ...(input.onGuardrailWrite !== undefined && { onGuardrailWrite: input.onGuardrailWrite }),
+        },
+        authorizer,
+      ),
     );
   }
   if (input.evalRunBinding !== undefined) {
@@ -1413,6 +1442,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
             ...(input.toolRegistry !== undefined && { tools: input.toolRegistry }),
           }
         : undefined,
+      authorizer,
     );
     v1.route('/eval-suites', evalRuns.start);
     v1.route('/eval-runs', evalRuns.readback);
@@ -1436,6 +1466,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       exchangeCode: input.exchangeCode,
       ...(input.refreshToken !== undefined && { refreshToken: input.refreshToken }),
       stateStore: input.oauthStateStore ?? createInMemoryOauthStateStore(),
+      ...(authorizer !== undefined && { authorizer }),
     });
     v1.route('/auth', routers.authed);
     // Callback mounts on the parent `app` under /v1/auth/callback so it
