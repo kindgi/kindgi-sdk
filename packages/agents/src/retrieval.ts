@@ -2,8 +2,8 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { EmbeddingProviderRegistry } from '@kindgi/embedding';
-import type { Fact, MemoryQueryBinding, RetrievalHit } from '@kindgi/memory';
-import type { ProjectId, Result, TenantId, ThreadId } from '@kindgi/types';
+import type { Fact, MemoryQueryBinding, MemoryReaders, RetrievalHit } from '@kindgi/memory';
+import type { OrgId, ProjectId, Result, TenantId, ThreadId, UserId } from '@kindgi/types';
 
 import type { AgentError, PersistenceError } from './errors.js';
 import type {
@@ -31,8 +31,50 @@ export interface RetrievalBindings {
 }
 
 /**
+ * Who a turn runs as, for what its retrievals may see. Absent fields come
+ * from the conversation (its project, end user and scope).
+ */
+export interface RetrievalRun {
+  /** The run's project. */
+  readonly projectId?: ProjectId;
+  /** The org of the run's project. */
+  readonly orgId?: OrgId;
+  /** The Kindgi user the run acts for, when it acts for one. */
+  readonly userId?: UserId;
+  /** The turn's end user (the app's own id for them), when the conversation names none. */
+  readonly participantId?: string;
+}
+
+/**
+ * What a turn may see in memory (the scope guard), from the run, never
+ * from the model or the intent: tenant-wide facts, its project's and its
+ * org's, the user it acts for, its conversation's end user, and its own
+ * conversation. Another conversation's or another end user's facts are
+ * never visible, whatever an intent asks for.
+ */
+export function runMemoryReaders(
+  conversation: Conversation,
+  conversationId: ConversationId,
+  run: RetrievalRun = {},
+): MemoryReaders {
+  const projectId = runProjectId(conversation, run);
+  const orgId = run.orgId ?? conversation.scope.orgId;
+  const userId = run.userId;
+  // The conversation's end user is the one it was opened for.
+  const participantId = conversation.participantId ?? run.participantId;
+  return {
+    ...(projectId !== undefined && { projectIds: [projectId] }),
+    ...(orgId !== undefined && { orgIds: [orgId] }),
+    ...(userId !== undefined && { userIds: [userId] }),
+    ...(participantId !== undefined && { participantIds: [participantId] }),
+    threadIds: [conversationId as unknown as ThreadId],
+  };
+}
+
+/**
  * Execute every retrieval intent declared on the agent against the
- * current conversation's scope. Returns retrieved facts paired with
+ * current conversation's scope. Each one sees only what the run may
+ * (`runMemoryReaders`); the intent's scope selects within that. Returns retrieved facts paired with
  * the intent that pulled them, so downstream provenance can attribute
  * each fact to its retrieval declaration.
  *
@@ -54,16 +96,23 @@ export async function runRetrievals(
   conversationId: ConversationId,
   userMessage: string,
   bindings: RetrievalBindings,
+  run: RetrievalRun = {},
 ): Promise<Result<readonly RetrievedFact[], AgentError>> {
   const out: RetrievedFact[] = [];
+  if (agent.retrieval.length === 0) return { kind: 'ok', value: out };
+  const readers = runMemoryReaders(conversation, conversationId, run);
   for (const intent of agent.retrieval) {
+    const scope = scopeFilter(intent, conversation, conversationId, run);
+    // `same-project` in a run without a project selects nothing.
+    if (scope === null) continue;
     for (const type of intent.types) {
       const one = await runOneIntent(
-        conversation,
-        conversationId,
+        conversation.tenantId,
         userMessage,
         intent,
         type,
+        scope,
+        readers,
         bindings,
       );
       if (one.kind === 'err') return one;
@@ -94,19 +143,18 @@ export function formatRetrievedForPrompt(facts: readonly RetrievedFact[]): strin
 // ============ internals ============
 
 async function runOneIntent(
-  conversation: Conversation,
-  conversationId: ConversationId,
+  tenantId: TenantId,
   userMessage: string,
   intent: RetrievalIntent,
   type: string,
+  scope: Partial<import('@kindgi/memory').MemoryScope> | undefined,
+  readers: MemoryReaders,
   bindings: RetrievalBindings,
 ): Promise<Result<readonly RetrievedFact[], PersistenceError>> {
   const limit = intent.limit ?? 10;
-  const tenantId = conversation.tenantId;
-  const scope = scopeFilter(intent, conversation, conversationId);
 
   if (intent.mode === undefined) {
-    return await listMode(bindings.memory, tenantId, type, scope, limit, intent);
+    return await listMode(bindings.memory, tenantId, type, scope, readers, limit, intent);
   }
 
   const doKeyword = intent.mode === 'keyword' || intent.mode === 'both';
@@ -121,6 +169,7 @@ async function runOneIntent(
       query: userMessage,
       type,
       ...(scope !== undefined && { scope }),
+      readers,
       topK: limit,
     });
     if (kw.kind === 'err') return persistErr('runOneIntent.keyword', kw.error);
@@ -134,6 +183,7 @@ async function runOneIntent(
       ...(bindings.embeddingModel !== undefined && { embeddingModel: bindings.embeddingModel }),
       type,
       ...(scope !== undefined && { scope }),
+      readers,
       topK: limit,
     });
     if (sem.kind === 'err') return persistErr('runOneIntent.semantic', sem.error);
@@ -147,6 +197,7 @@ async function listMode(
   tenantId: TenantId,
   type: string,
   scope: Partial<import('@kindgi/memory').MemoryScope> | undefined,
+  readers: MemoryReaders,
   limit: number,
   intent: RetrievalIntent,
 ): Promise<Result<readonly RetrievedFact[], PersistenceError>> {
@@ -154,8 +205,8 @@ async function listMode(
     tenantId,
     type,
     ...(scope !== undefined && { scope }),
+    readers,
     limit,
-    latestOnly: true,
   });
   if (listed.kind === 'err') return persistErr('runOneIntent.list', listed.error);
   return {
@@ -164,20 +215,26 @@ async function listMode(
   };
 }
 
+function runProjectId(conversation: Conversation, run: RetrievalRun): ProjectId | undefined {
+  return run.projectId ?? conversation.projectId ?? conversation.scope.projectId;
+}
+
+/**
+ * What an intent selects within what the run may see: `undefined` for
+ * no narrowing, `null` for nothing.
+ */
 function scopeFilter(
   intent: RetrievalIntent,
   conversation: Conversation,
   conversationId: ConversationId,
-): Partial<import('@kindgi/memory').MemoryScope> | undefined {
+  run: RetrievalRun,
+): Partial<import('@kindgi/memory').MemoryScope> | undefined | null {
   if (intent.scope === 'same-conversation') {
     return { threadId: conversationId as unknown as ThreadId };
   }
   if (intent.scope === 'same-project') {
-    const projectId = conversation.scope.projectId;
-    // If the conversation has no project scope, treat as tenant-wide
-    // rather than empty-result — the intent still applies conceptually.
-    if (projectId === undefined) return undefined;
-    return { projectId: projectId as ProjectId };
+    const projectId = runProjectId(conversation, run);
+    return projectId === undefined ? null : { projectId };
   }
   return undefined;
 }

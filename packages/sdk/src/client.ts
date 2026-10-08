@@ -167,6 +167,15 @@ export type {
 export { readSse, unwrapSseData } from '@kindgi/client';
 export type { SseEvent, SseReadOptions } from '@kindgi/client';
 
+// ---- Signed exports: check one where it's read ----
+export { verifySignedExport } from '@kindgi/client';
+export type {
+  ExportSigningKey,
+  SignedExportEnvelope,
+  SignedExportVerification,
+  VerifySignedExportOptions,
+} from '@kindgi/client';
+
 // ---- Following a run (browser-safe: a page follows a run with a public token) ----
 export { followRun, subscribeToRun } from '@kindgi/client';
 export type {
