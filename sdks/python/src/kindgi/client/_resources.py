@@ -838,6 +838,7 @@ class RunsResource:
         agent_id: str | UUID | None = None,
         replays: Literal["exclude", "include", "only"] | None = None,
         eval_run_id: str | UUID | None = None,
+        trigger_id: str | UUID | None = None,
         include: Literal["output"] | None = None,
         timeout: float | None = None,
     ) -> _models.RunCollectionPage:
@@ -858,6 +859,7 @@ class RunsResource:
                 "agentId": agent_id,
                 "replays": replays,
                 "evalRunId": eval_run_id,
+                "triggerId": trigger_id,
                 "include": include,
             },
             headers={},
@@ -7107,6 +7109,7 @@ class AsyncRunsResource:
         agent_id: str | UUID | None = None,
         replays: Literal["exclude", "include", "only"] | None = None,
         eval_run_id: str | UUID | None = None,
+        trigger_id: str | UUID | None = None,
         include: Literal["output"] | None = None,
         timeout: float | None = None,
     ) -> _models.RunCollectionPage:
@@ -7127,6 +7130,7 @@ class AsyncRunsResource:
                 "agentId": agent_id,
                 "replays": replays,
                 "evalRunId": eval_run_id,
+                "triggerId": trigger_id,
                 "include": include,
             },
             headers={},
