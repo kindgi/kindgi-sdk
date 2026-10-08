@@ -3514,7 +3514,10 @@ class MemoryErasure(BaseModel):
     """
     `waiting-on-run`: a turn of the person's sits in a flow that serves other people; the erasure waits for it (`waitingOn`) until its deadline, then cancels it.
     """
-    phase: Literal["seed", "expand", "erase", "done"]
+    phase: Literal["seed", "expand", "settle", "erase", "done"]
+    """
+    Where a running erasure is: `seed`, `expand`, `settle` (the person's unfinished runs end, or it waits for them, before anything is cleared), `erase`, then `done`.
+    """
     requested_by: Annotated[str, Field(alias="requestedBy")]
     """
     `user:<id>` or `service:<id>`.
@@ -3542,6 +3545,10 @@ class MemoryErasure(BaseModel):
     forced: Literal[True] | None = None
     """
     A tenant admin said not to wait.
+    """
+    settle_rounds_capped: Annotated[Literal[True] | None, Field(alias="settleRoundsCapped")] = None
+    """
+    Runs of the person's kept appearing, round after round: the erasure went on to erase after its last round rather than wait any longer. Absent: it didn't.
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     started_at: Annotated[AwareDatetime | None, Field(alias="startedAt")] = None

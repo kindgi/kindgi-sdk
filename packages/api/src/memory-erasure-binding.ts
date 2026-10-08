@@ -82,8 +82,12 @@ export interface MemoryErasure {
   /** Only while it runs: a completed or failed erasure keeps no identifier. */
   readonly selector?: MemoryErasureSelector;
   readonly status: MemoryErasureStatus;
-  /** Where a running erasure is: `seed`, `expand`, `erase`, then `done`. */
-  readonly phase: 'seed' | 'expand' | 'erase' | 'done';
+  /**
+   * Where a running erasure is: `seed`, `expand`, `settle` (the person's
+   * unfinished runs end, or it waits for them, before anything is
+   * cleared), `erase`, then `done`.
+   */
+  readonly phase: 'seed' | 'expand' | 'settle' | 'erase' | 'done';
   readonly requestedBy: string;
   /** A replay after a backup restore can find this person again (a keyed hash was kept). */
   readonly matchable: boolean;
@@ -97,6 +101,11 @@ export interface MemoryErasure {
   readonly waitingOn?: { readonly runId: string; readonly until?: string };
   /** A tenant admin said not to wait. */
   readonly forced?: true;
+  /**
+   * Runs of the person's kept appearing, round after round: the erasure
+   * went on to erase after its last round rather than wait any longer.
+   */
+  readonly settleRoundsCapped?: true;
   readonly createdAt: string;
   readonly startedAt?: string;
   readonly completedAt?: string;

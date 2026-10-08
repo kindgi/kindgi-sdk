@@ -366,6 +366,19 @@ describe('an erased case (T273 M-5)', () => {
     const { summary } = await compare({});
     expect(summary.erased).toBeUndefined();
   });
+
+  test('erased after it was listed (the runtime refuses its replay): left out and counted, never an error', async () => {
+    const { invoked, summary, perCase } = await compare({
+      answer: (input) =>
+        (input.replay?.of as unknown as string) === 'case-b'
+          ? { erased: true, durationMs: 3 }
+          : (answers['case-a'] as EvalRunSubjectInvokeOutcome),
+    });
+    expect(invoked.map((i) => i.replay?.of)).toEqual(['case-a', 'case-b']);
+    expect(perCase.map((c) => c.caseId)).toEqual(['case-a']);
+    expect(summary).toMatchObject({ cases: 1, erased: 1, errors: 0, status: 'completed' });
+    expect(wireErrors({ summary, perCase })).toEqual([]);
+  });
 });
 
 describe('classWeights (T200)', () => {

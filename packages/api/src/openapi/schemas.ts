@@ -3557,7 +3557,12 @@ export const MemoryErasureSchema: JsonSchema = {
       description: 'Only while it runs: a completed or failed erasure keeps no identifier.',
     },
     status: ErasureStatusSchema,
-    phase: { type: 'string', enum: ['seed', 'expand', 'erase', 'done'] },
+    phase: {
+      type: 'string',
+      enum: ['seed', 'expand', 'settle', 'erase', 'done'],
+      description:
+        "Where a running erasure is: `seed`, `expand`, `settle` (the person's unfinished runs end, or it waits for them, before anything is cleared), `erase`, then `done`.",
+    },
     requestedBy: { type: 'string', description: '`user:<id>` or `service:<id>`.' },
     matchable: {
       type: 'boolean',
@@ -3586,6 +3591,12 @@ export const MemoryErasureSchema: JsonSchema = {
         'The run it waits (or waited) for, and until when; kept as the record of the wait.',
     },
     forced: { type: 'boolean', const: true, description: 'A tenant admin said not to wait.' },
+    settleRoundsCapped: {
+      type: 'boolean',
+      const: true,
+      description:
+        "Runs of the person's kept appearing, round after round: the erasure went on to erase after its last round rather than wait any longer. Absent: it didn't.",
+    },
     createdAt: { type: 'string', format: 'date-time' },
     startedAt: { type: 'string', format: 'date-time' },
     completedAt: { type: 'string', format: 'date-time' },

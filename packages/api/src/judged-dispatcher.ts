@@ -230,16 +230,24 @@ export function createJudgedDispatcher(options: JudgedDispatcherOptions): EvalRu
       }
       const results: JudgedCaseResult[] = [];
       const models = new Map<string, { providerId: string; model: string; runs: number }>();
+      // Erased after they were listed: the replay was refused (`run-erased`).
+      const erasedLate = new Set<string>();
       for (const judgedCase of all) {
         if (ctx.abortSignal.aborted) break;
         const result = await runCase(ctx, comparison, judgedCase, models);
+        if (result === 'erased') {
+          erasedLate.add(judgedCase.caseId);
+          continue;
+        }
         results.push(result);
         ctx.onProgress(result as unknown as Readonly<Record<string, unknown>>);
       }
       const pinsDigest = await candidatePins(options.agents, ctx);
+      const ran = all.filter((c) => !erasedLate.has(c.caseId));
+      const erasedAll = erased + erasedLate.size;
       const summary = {
-        ...summarize(ctx, comparison, all, results, [...models.values()], pinsDigest),
-        ...(erased > 0 && { erased }),
+        ...summarize(ctx, comparison, ran, results, [...models.values()], pinsDigest),
+        ...(erasedAll > 0 && { erased: erasedAll }),
       };
       return {
         result: { summary, perCase: results },
@@ -344,7 +352,7 @@ async function runCase(
   comparison: EvalComparison,
   judgedCase: JudgedEvalCase,
   models: Map<string, { providerId: string; model: string; runs: number }>,
-): Promise<JudgedCaseResult> {
+): Promise<JudgedCaseResult | 'erased'> {
   // An agent turn's items are its answer and typed result; a flow run's, its whole output.
   const agentTurn = judgedCase.subject.kind === 'agent';
   const baseline = scoreItems(
@@ -354,6 +362,8 @@ async function runCase(
   const tally = new CaseTally(judgedCase, comparison, agentTurn);
   for (let rep = 0; rep < comparison.repetitions; rep++) {
     const outcome = await invokeCase(ctx, judgedCase);
+    // Its past run was erased meanwhile: nothing left to replay.
+    if (outcome.erased === true) return 'erased';
     if (tally.add(outcome) === 'ran') countModel(models, outcome);
   }
   return tally.result(baseline);
