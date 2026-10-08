@@ -61,6 +61,18 @@ export const AUTH_GITHUB_CLIENT_ID_VAR = 'KINDGI_AUTH_GITHUB_CLIENT_ID';
 export const AUTH_GITHUB_CLIENT_SECRET_VAR = 'KINDGI_AUTH_GITHUB_CLIENT_SECRET';
 export const AUTH_GITHUB_CLIENT_SECRET_PATH_VAR = 'KINDGI_AUTH_GITHUB_CLIENT_SECRET_PATH';
 
+/** The emailed sign-in link: the SMTP server to send it through (a URL with its credentials), or a file holding it. */
+export const AUTH_EMAIL_SMTP_URL_VAR = 'KINDGI_AUTH_EMAIL_SMTP_URL';
+export const AUTH_EMAIL_SMTP_URL_PATH_VAR = 'KINDGI_AUTH_EMAIL_SMTP_URL_PATH';
+
+/** The emailed sign-in link's From address. */
+export const AUTH_EMAIL_FROM_VAR = 'KINDGI_AUTH_EMAIL_FROM';
+
+/** Cloudflare Turnstile on asking for an emailed link: its secret (or a file holding it) and its site key. */
+export const AUTH_TURNSTILE_SECRET_VAR = 'KINDGI_AUTH_TURNSTILE_SECRET';
+export const AUTH_TURNSTILE_SECRET_PATH_VAR = 'KINDGI_AUTH_TURNSTILE_SECRET_PATH';
+export const AUTH_TURNSTILE_SITE_KEY_VAR = 'KINDGI_AUTH_TURNSTILE_SITE_KEY';
+
 /** Which hops in front of the runtime to trust for the client's address: a hop count, or IPs/CIDRs. */
 export const TRUSTED_PROXIES_VAR = 'KINDGI_TRUSTED_PROXIES';
 
