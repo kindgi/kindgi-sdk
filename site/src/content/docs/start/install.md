@@ -21,12 +21,13 @@ sidebar:
 Nothing else: the runtime is a container image that `kindgi dev` pulls and
 runs for you.
 
-:::note[Private preview]
-The runtime image is in private preview: request access at contact@kindgi.com.
-With the pull credentials you receive (a robot name and a token), log in to
-its registry once. The CLI asks for the token without showing it, hands both
-to `docker login` (Kindgi keeps no copy), and checks that you can pull the
-image it runs:
+### Access to the runtime image
+
+Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub: it
+shows the runtime image's pull credentials, a robot name and a token. Log in
+to its registry once with them. The CLI asks for the token without showing
+it, hands both to `docker login` (Kindgi keeps no copy), and checks that you
+can pull the image it runs:
 
 ```sh
 npx --yes @kindgi/cli@0.1 auth registry --username <your robot name>
@@ -38,8 +39,7 @@ npx --yes @kindgi/cli@0.1 auth registry --username <your robot name>
 ```
 
 The first `kindgi dev` then pulls the image (about 700 MB; `amd64` and
-`arm64`).
-:::
+`arm64`). Questions or trouble: contact@kindgi.com.
 
 ### Check this machine
 
