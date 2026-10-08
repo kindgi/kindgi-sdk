@@ -17,8 +17,9 @@ import type { DeployRunners } from './deploy/runners.js';
 import type { DevRunners } from './dev/runners.js';
 import type { EnvRunners } from './env/runners.js';
 import { formatThrown } from './errors.js';
-import { commandHelpText, rootHelpText } from './help.js';
+import { commandHelpText, rootHelpText, unknownSubcommandText } from './help.js';
 import type { KeyRunners } from './key/runners.js';
+import type { OpenUrl } from './open-url.js';
 import { GLOBAL_OPTION_SPEC, parseCommand } from './parse.js';
 import type { TestRunners } from './test/runners.js';
 import { CLI_VERSION } from './version-info.js';
@@ -112,6 +113,8 @@ export interface RunCliInputs {
   readonly initSeam?: InitSeam;
   /** `kindgi doctor`'s seams (tools, docker, Node version, image, presets). */
   readonly doctorSeam?: DoctorSeam;
+  /** Opens a URL in the browser (`kindgi console`, `kindgi dev --open`). */
+  readonly openUrl?: OpenUrl;
 }
 
 /**
@@ -166,7 +169,15 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
   const remainingTokens = argv.slice(consumed);
 
   if (command.kind === 'group') {
-    return { stdout: commandHelpText(command, argv.slice(0, consumed)), stderr: '', exitCode: 0 };
+    const path = argv.slice(0, consumed);
+    // A word after the group that names none of its subcommands is a
+    // mistake (`kindgi agents register`), not a request for help: exit 2,
+    // as an unknown command does, so a script stops there.
+    const next = remainingTokens[0];
+    if (next !== undefined && !next.startsWith('-')) {
+      return { stdout: '', stderr: unknownSubcommandText(command, path, next), exitCode: 2 };
+    }
+    return { stdout: commandHelpText(command, path), stderr: '', exitCode: 0 };
   }
 
   let parsed: ReturnType<typeof parseCommand>;
@@ -252,6 +263,7 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
     ...(inputs.registryAuthSeam !== undefined ? { registryAuthSeam: inputs.registryAuthSeam } : {}),
     ...(inputs.initSeam !== undefined ? { initSeam: inputs.initSeam } : {}),
     ...(inputs.doctorSeam !== undefined ? { doctorSeam: inputs.doctorSeam } : {}),
+    ...(inputs.openUrl !== undefined ? { openUrl: inputs.openUrl } : {}),
   });
 
   const label = commandLabel(command, argv, consumed);

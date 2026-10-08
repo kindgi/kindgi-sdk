@@ -14,6 +14,11 @@ export const PUBLIC_TOKEN_KEY_PATH_VAR = 'KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH';
 /** The same key's PEM file, base64: the alternative to the path. */
 export const PUBLIC_TOKEN_KEY_VAR = 'KINDGI_PUBLIC_TOKEN_SIGNING_KEY';
 
+/** The export signing key's PEM file (an absolute path), its base64 value, or a Cloud KMS key version: exactly one. */
+export const EXPORT_SIGNING_KEY_PATH_VAR = 'KINDGI_EXPORT_SIGNING_KEY_PATH';
+export const EXPORT_SIGNING_KEY_VAR = 'KINDGI_EXPORT_SIGNING_KEY';
+export const EXPORT_SIGNING_KMS_KEY_VAR = 'KINDGI_EXPORT_SIGNING_KMS_KEY';
+
 /** The license key the server checks at startup outside development mode. */
 export const LICENSE_KEY_VAR = 'KINDGI_LICENSE_KEY';
 
@@ -22,6 +27,24 @@ export const CORS_ORIGINS_VAR = 'KINDGI_CORS_ORIGINS';
 
 /** The URL clients reach the runtime at, when it isn't the address it binds. */
 export const PUBLIC_URL_VAR = 'KINDGI_PUBLIC_URL';
+
+/** Sign-in with identity providers: the secret its browser flow signs with (a file). */
+export const AUTH_SECRET_PATH_VAR = 'KINDGI_AUTH_SECRET_PATH';
+
+/** The same secret, base64. */
+export const AUTH_SECRET_VAR = 'KINDGI_AUTH_SECRET';
+
+/** Identity provider origins on a private network the operator allows. */
+export const AUTH_PRIVATE_IDP_ORIGINS_VAR = 'KINDGI_AUTH_PRIVATE_IDP_ORIGINS';
+
+/** A browser session's absolute lifetime, in milliseconds. */
+export const SESSION_TTL_MS_VAR = 'KINDGI_SESSION_TTL_MS';
+
+/** How long a browser session may sit idle, in milliseconds. */
+export const SESSION_IDLE_TIMEOUT_MS_VAR = 'KINDGI_SESSION_IDLE_TIMEOUT_MS';
+
+/** Whether a person may sign in to the console with an API token (`on` / `off`). */
+export const CONSOLE_TOKEN_SIGN_IN_VAR = 'KINDGI_CONSOLE_TOKEN_SIGN_IN';
 
 /** The shared secret between the server and the pack service. */
 export const PACK_SERVICE_TOKEN_VAR = 'KINDGI_PACK_SERVICE_TOKEN';

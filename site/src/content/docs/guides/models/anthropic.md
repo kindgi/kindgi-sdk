@@ -5,9 +5,9 @@ sidebar:
   order: 1
 ---
 
-The `anthropic` preset registers Claude Opus 5.5, Sonnet 5.5 and Haiku 4.5 on
-the Anthropic API, with their features, context windows and prices. You
-provide the key.
+The `anthropic` preset registers Claude Opus 5.5, Sonnet 5.5, Haiku 5.5 and
+Haiku 4.5 on the Anthropic API, with their features, context windows and
+prices. Sonnet 5.5 is its default. You provide the key.
 
 ## 1. Store the key
 
@@ -32,11 +32,11 @@ kindgi providers register --preset=anthropic
 {
   "providerId": "anthropic"
 }
-✓ Registered anthropic: claude-opus-5-5, claude-sonnet-5-5, claude-haiku-4-5 — key ANTHROPIC_API_KEY (env local)
+✓ Registered anthropic: claude-opus-5-5, claude-sonnet-5-5 (default), claude-haiku-5-5, claude-haiku-4-5 — key ANTHROPIC_API_KEY (env local)
 ```
 
 - `--models=claude-sonnet-5-5` registers only the models you list
-  (comma-separated).
+  (comma-separated). The default stays the default when it's among them.
 - `--secret=<NAME>` reads the key from another variable than
   `ANTHROPIC_API_KEY`.
 - To have `kindgi dev` register it on every boot, in every worktree and after
@@ -67,38 +67,76 @@ kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my o
   …
   "output": {
     …
-    "usage": { "steps": 2, "durationMs": 2291, "promptTokens": 1449, "totalCostUsd": 0.001889, "completionTokens": 88 },
+    "usage": { "steps": 2, "durationMs": 3701, "promptTokens": 1119, "totalCostUsd": 0.004328, "completionTokens": 209 },
     …
-    "provider": { "id": "anthropic", "model": "claude-haiku-4-5" },
-    "response": { "role": "agent", "content": "Your order A-1001 has been shipped and is expected to arrive on October 6, 2026.", … },
+    "provider": { "id": "anthropic", "model": "claude-sonnet-5-5" },
+    "response": { "role": "agent", "content": "Order A-1001 shows as shipped, and its expected delivery date was October 6, 2026. That date has passed and I can't see any newer tracking details, so the order is running late.", … },
     …
   }
 }
 ```
 
-`totalCostUsd` is the turn's cost at the preset's prices. This answer was
-captured on `claude-haiku-4-5` (retiring on or after 2026-10-15); outputs on
-newer models differ in wording, not shape.
+`totalCostUsd` is the turn's cost at the preset's prices.
 
 ## Which Claude model answers
 
 | Model | Features | Context window | Per 1K input / output tokens |
 | --- | --- | --- | --- |
 | `claude-opus-5-5` | `tool-use`, `parallel-tool-use`, `structured-output`, `long-context` | 1,000,000 | $0.004 / $0.02 |
-| `claude-sonnet-5-5` | `tool-use`, `parallel-tool-use`, `structured-output`, `long-context` | 1,000,000 | $0.002 / $0.01 |
+| `claude-sonnet-5-5` (default) | `tool-use`, `parallel-tool-use`, `structured-output`, `long-context` | 1,000,000 | $0.002 / $0.01 |
+| `claude-haiku-5-5` | `tool-use`, `parallel-tool-use`, `structured-output`, `long-context` | 1,000,000 | $0.0001 / $0.0005; a prompt over 100,000 tokens: $0.0005 / $0.0025 |
 | `claude-haiku-4-5` | `tool-use`, `parallel-tool-use` | 200,000 | $0.001 / $0.005 |
 
 Among the models that meet an agent's needs, Kindgi takes the agent's preferred
-one, else the first alphabetically. So an agent that needs only `tool-use`
-gets Haiku, and one that needs `structured-output` gets Opus. To choose, set
-`preferredModel` or require the model: see
+one, else the default, `claude-sonnet-5-5`. To choose, set `preferredModel` or
+require the model: see
 [Choose the model an agent uses](../../agents/choose-a-model/). To offer only
 some models, register only those (`--models`).
 
+The Claude 5.5 models take no `temperature`, and they think before they
+answer: see [Temperature and thinking](../#temperature-and-thinking).
+
 Anthropic retires `claude-haiku-4-5` on or after **2026-10-15**; from then, a
-turn routed to it fails. Pin another model before then: register only the
-others (`--models=claude-opus-5-5,claude-sonnet-5-5`), or set
-`preferredModel`.
+turn routed to it fails. Its replacement is `claude-haiku-5-5`, which costs a
+tenth as much for a prompt up to 100,000 tokens, with five times the context. An agent that prefers or requires
+Haiku 4.5 needs a new version naming another model.
+
+## Prompt caching
+
+Kindgi asks Anthropic to cache the parts of a prompt that repeat: the tool
+definitions, the agent's instructions and, during a turn, the conversation so
+far. The turn's next call reads them at a fraction of the input price: 5% on
+Opus 5.5 and Sonnet 5.5, 10% on Haiku. The call that first writes them pays
+125% on what it writes. In a live check, a three-call turn with a
+7,700-token prompt on `claude-sonnet-5-5` came to $0.023 by Kindgi's estimate
+of the turn's cost (`totalCostUsd`), against $0.048 for the same calls
+uncached.
+
+There's nothing to set. A prompt shorter than the model's minimum (from 512
+tokens on the 5.5 models) isn't cached and costs nothing extra. How Anthropic
+keeps cached prompts, for how long, and whether caching is eligible for zero
+data retention: see Anthropic's
+[prompt caching documentation](https://platform.claude.com/docs/en/build-with-claude/prompt-caching) and
+[API and data retention](https://platform.claude.com/docs/en/manage-claude/api-and-data-retention).
+
+A registration from an earlier preset prices cache reads at 10% on every
+model, so it overstates them on Opus 5.5 and Sonnet 5.5. Register the preset
+again to get the 5% rate (see below).
+
+## If you registered it before 0.1.4
+
+A registration from an earlier release has no default and doesn't list Haiku
+5.5, so an agent that names no model gets `claude-haiku-4-5`, the first by
+name. Register the preset again with this release's CLI. A registration can't
+be edited, so unregister it first:
+
+```sh
+kindgi providers unregister anthropic
+kindgi providers register --preset=anthropic
+```
+
+If the pack's config declares the preset, restart `kindgi dev` instead: it
+registers the preset's new models in place of the old ones.
 
 ## If it doesn't answer
 
