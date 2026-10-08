@@ -255,7 +255,7 @@ for approval in pending.data:
 
 if pending.data:
     result = kindgi.approvals.complete(
-        str(pending.data[0].id), decision="approve", rationale="Checked the dashboard"
+        pending.data[0].id, decision="approve", rationale="Checked the dashboard"
     )
     print(result.approval.status, result.waitpoint_resolved)
 ```

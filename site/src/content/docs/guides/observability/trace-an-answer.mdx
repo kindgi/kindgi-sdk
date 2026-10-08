@@ -62,6 +62,9 @@ Both answer the record:
 }
 ```
 
+This record was captured on `claude-haiku-4-5` (retiring on or after
+2026-10-15); a newer model's record differs in tokens and cost, not shape.
+
 Read it from the answer backwards: the answer (`model-output:2`) was
 produced by the second model call. That call answered the user's message
 (`caused-by input:0`) and read the echo tool's result (`influenced-by`), which
@@ -197,7 +200,7 @@ kindgi runs journal <flow-run-id>
     "nodeId": "respond",
     "payload": {
       "output": {
-        "text": "Tool responded: …",
+        "text": "⚠ dev-echo isn't a real model: …\n\nTool responded: …",
         "runId": "4bdae2f9-ff67-48a3-9549-49028d290cc1",
         …
 ```
@@ -240,9 +243,10 @@ project's in an org (`scope` in the clients). Records from before Kindgi
 0.1.3 have no project and don't name their agent, so only a list without a
 scope or `--agent` shows them.
 
-`signed` is `false` for now: `kindgi provenance export <run-id> --signing-key=<key-id>`
-would export a record signed with one of the deployment's keys, but the
-runtime doesn't take a signing key yet, so it answers
-`` This deployment does not have a `signingKey` binding mounted; signed provenance exports are unavailable. ``
+`signed` is `false` for now: the records themselves aren't signed as
+they're written. To hand a run's provenance to someone, export it signed
+by the deployment, `kindgi provenance export <run-id> > provenance.json`,
+and check it with `kindgi exports verify provenance.json`: see
+[Export signed evidence](../export-signed-evidence/).
 
 See [Provenance in the HTTP API](../../../reference/api/operations/tags/provenance/).

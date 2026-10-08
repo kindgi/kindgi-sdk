@@ -105,6 +105,30 @@ if (priv === null) throw new Error('key not provisioned');
 
 `createInMemorySigningKeyBinding` is for tests and local development. Production deployments implement the interface against their own key store (a cloud KMS, a secrets vault, an HSM). This package never persists key material.
 
+## ExportSigningBinding
+
+The key a deployment signs its exports with (audit bundles, provenance, compliance evidence). It's async, so a KMS that never hands out its private key can implement it, as well as a key file can:
+
+```ts
+import { createExportSignerFromPem } from '@kindgi/crypto';
+
+// An Ed25519 key signs `ed25519`; an EC P-256 key signs `ecdsa-p256-sha256`.
+const made = createExportSignerFromPem(await readFile(keyPath, 'utf8'));
+if (made.kind === 'err') throw new Error(made.error.message);
+const signer = made.value;
+
+signer.activeKey(); // { keyId: 'ex_…', algorithm: 'ed25519', publicKeyPem, fingerprint: 'sha256:…' }
+const signed = await signer.sign(bytes); // the active key, or { keyId }
+```
+
+- **Key ids are derived from the public key** (`exportSigningKey`), so the same key keeps its id.
+- **`listKeys()`** is every key a verifier should trust, active first.
+- **`exportSignerFromSigningKeyBinding`** adapts a `SigningKeyBinding`'s Ed25519 keys.
+- **Two algorithms, chosen per key:** `ed25519` (the default) and `ecdsa-p256-sha256`, for a KMS without Ed25519. An ECDSA signature is IEEE P1363 `r‖s`, 64 bytes. A KMS binding that gets DER back (Cloud KMS, AWS KMS) converts with `ecdsaDerToP1363`.
+- **Test vectors** for both are in `@kindgi/specs` (`test-vectors/signed-export/`).
+
+`@kindgi/api` takes one as `createApp({ exportSigning })`. To verify an export, use `verifySignedExport` from `@kindgi/client` (Web Crypto, so it runs in a browser too).
+
 ## Security notes
 
 - **Never log private keys or shared secrets.** Journals, provenance blobs, structured logs, and wire payloads must not contain key material except by explicit caller intent.

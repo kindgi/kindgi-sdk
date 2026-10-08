@@ -10,7 +10,7 @@ This page is written for a coding agent (Claude Code, Cursor, Codex, or any
 other). A person pastes this prompt into their agent:
 
 ```text
-Set up Kindgi for me: read https://docs.kindgi.com/next/start/agent/ and follow it step by step. Tell me whenever you need me to do something, and wait for me.
+Set up Kindgi for me: read https://docs.kindgi.com/start/agent/ and follow it step by step. Tell me whenever you need me to do something, and wait for me.
 ```
 
 If you are that agent: follow the steps below in order. Do everything you
@@ -29,7 +29,7 @@ thing at a time, and wait until they say they've done it.
 - **When something fails, run doctor** (below) and read what it says before
   you guess.
 - **`kindgi` in the commands below** means, until step 2 makes a project:
-  `npx --yes @kindgi/cli@next` if `node --version` works; else, for someone
+  `npx --yes @kindgi/cli@0.1` if `node --version` works; else, for someone
   using Python without Node, `uvx --from "kindgi-cli>=0.1,<0.2" kindgi`
   (the CLI from PyPI; it needs no Node). From step 2 on, from the project's
   folder:
@@ -69,14 +69,14 @@ running and no model key yet:
 ```json
 {
   "ok": false,
-  "cliVersion": "0.1.4-rc.2",
+  "cliVersion": "0.1.4",
   "project": { "dir": "/Users/you/my-agents", "language": "node" },
   "checks": [
     {"id": "node", "status": "pass", "message": "Node 22.21.1."},
     …,
-    {"id": "model-key", "status": "fail", "message": "No model key in .env or .env.local (looked for ANTHROPIC_API_KEY).", "fix": "With kindgi dev running: pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant (it prompts without echoing; or pipe it in with --from-stdin). Never paste a key into a chat."},
+    {"id": "model-key", "status": "fail", "message": "No model key in .env or .env.local (looked for ANTHROPIC_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY).", "fix": "With kindgi dev running, set one LLM provider's key: pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant, or the same with GEMINI_API_KEY, GROQ_API_KEY, OPENAI_API_KEY or OPENROUTER_API_KEY (it prompts without echoing; or pipe it in with --from-stdin). Never paste a key into a chat."},
     {"id": "runtime", "status": "pass", "message": "The runtime answers at http://127.0.0.1:63421."},
-    {"id": "provider", "status": "fail", "message": "No provider is registered, so an agent has no model to call.", "fix": "Register one: pnpm exec kindgi providers register --preset=anthropic (its key must be set first; see Model key)."}
+    {"id": "provider", "status": "fail", "message": "Only dev-echo is registered: agents get its canned replies, not a model's.", "fix": "Register the provider whose key you set: pnpm exec kindgi providers register --preset=<preset>, where <preset> is anthropic, gemini-api, groq, openai or openrouter (see Model key)."}
   ]
 }
 ```
@@ -87,6 +87,11 @@ The checks come in this order: `node`, `npm`, `python`, `uv`, `docker`,
 - **`fail`:** run its `fix`, as written: it names the CLI to use in that
   folder. When the fix needs the person (start Docker Desktop, sign in, copy
   a key), ask them, then run doctor again.
+- **`warn`:** it works now, but the person should know: tell them its
+  `message` and `fix`, and go on. `ok` stays `true` and the exit code `0`.
+  In this release only `provider` warns: when an agent that names no model
+  would get a model the preset no longer lists, or one other than the
+  preset's default.
 - **`skip`:** not applicable yet. Outside a project, `project` and every
   check after it skip; `runtime` skips while `kindgi dev` isn't running.
 
@@ -121,7 +126,7 @@ runtime: skip this step.
 
    ```sh
    # TypeScript
-   npx --yes @kindgi/cli@next init my-agents
+   npx --yes @kindgi/cli@0.1 init my-agents
    cd my-agents
    pnpm install     # if pnpm --version works; else: npm install
    ```
@@ -162,33 +167,47 @@ it's running, and how to stop it: `kill <the process id>`.
 
 ## Step 4: the model key
 
-1. Ask the person: "Copy your Anthropic API key, and tell me when you're
-   done." Anthropic is the provider to use here.
+1. Ask the person: "Which model provider do you have an API key for:
+   Anthropic, OpenAI, Gemini, Groq or OpenRouter? Copy that key, tell me the
+   provider, and tell me when you're done." Each provider has its key's name
+   and a preset:
+
+   | Provider | Key | Preset |
+   | --- | --- | --- |
+   | Anthropic | `ANTHROPIC_API_KEY` | `anthropic` |
+   | OpenAI | `OPENAI_API_KEY` | `openai` |
+   | Gemini (a Google AI Studio key) | `GEMINI_API_KEY` | `gemini-api` |
+   | Groq | `GROQ_API_KEY` | `groq` |
+   | OpenRouter (a hosted gateway) | `OPENROUTER_API_KEY` | `openrouter` |
 
    **If they have no key, or don't want to add one now,** stop here,
    honestly: Kindgi is running with its stand-in model, `dev-echo`, which
-   only echoes what it gets, and adding an Anthropic key (this step) gives a
-   real answer. Don't write a tool that passes text through, or anything else
-   that makes `dev-echo`'s reply look like an agent's answer.
+   only repeats what it gets, and says so: its answers start with
+   `⚠ dev-echo isn't a real model: it only repeats what it's given. Add an LLM provider key (Anthropic, OpenAI, Gemini, Groq, OpenRouter…) to get real answers.`
+   Adding a key (this step) gives a real answer. Don't write a tool that
+   passes text through, or anything else that makes `dev-echo`'s reply look
+   like an agent's answer.
 2. When they say they're done, pipe the clipboard into the project's
-   secrets, then register the provider:
+   secrets under that provider's key, then register its preset. For
+   OpenAI:
 
    ```sh
-   <read the clipboard> | kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant --from-stdin
-   kindgi providers register --preset=anthropic
+   <read the clipboard> | kindgi secrets set OPENAI_API_KEY --env=local --scope=tenant --from-stdin
+   kindgi providers register --preset=openai
    ```
 
    `secrets set` writes the key to the project's `.env.local`, which git
-   ignores. It needs `kindgi dev` running.
+   ignores. It needs `kindgi dev` running. `kindgi providers presets` lists
+   the presets and their models.
 3. Clear the clipboard, if this OS lets you.
 4. Run doctor again; `model-key` and `provider` should pass.
 
 Doctor's `model-key` only checks that a key is saved: a wrong key shows as a
 `401` on the first run. Then don't open, measure or print `.env.local`. Ask
-the person to copy the key again (they can check it at
-console.anthropic.com), and run the
+the person to copy the key again (they can check it in their provider's
+console), and run the
 `secrets set` command again with `--write-mode=add-version`: without it, a
-key that's already stored is refused (`Version conflict: ANTHROPIC_API_KEY
+key that's already stored is refused (`Version conflict: OPENAI_API_KEY
 already exists`). The new key is used from the next run: there's no need to
 register the provider again or to restart `kindgi dev`.
 
@@ -220,7 +239,7 @@ Tell the person, in your own words:
 >    the agent call it".
 > 2. **Judge a few answers:** say yes or no to what it answered, so later
 >    versions can be checked against your judgments
->    ([Judge a run's output](https://docs.kindgi.com/next/guides/evals/judge-a-runs-output/)).
+>    ([Judge a run's output](https://docs.kindgi.com/guides/evals/judge-a-runs-output/)).
 > 3. **Compare two versions:** change its instructions and see whether people's
 >    judgments rate the new version higher
->    ([Compare a version on a test set](https://docs.kindgi.com/next/guides/evals/compare-an-agent-version/)).
+>    ([Compare a version on a test set](https://docs.kindgi.com/guides/evals/compare-an-agent-version/)).

@@ -197,24 +197,11 @@ When the repairs run out (`maxRepairs`, default 1), the turn fails with
 `"high"` fails at once:
 
 ```text
-Error [server]: The agent's answer does not match its triage schema after 0 repairs: /priority must be equal to one of the allowed values
-{
-  "code": "server",
-  "serverCode": "output-schema-violation",
-  "message": "The agent's answer does not match its triage schema after 0 repairs: /priority must be equal to one of the allowed values",
-  "fields": {
-    "errors": [
-      "/priority must be equal to one of the allowed values"
-    ],
-    "attempts": 1,
-    "runId": "08152bc1-e4b8-423f-a16b-0ffe1aea8485"
-  }
-}
+Error [output-schema-violation]: The agent's answer does not match its triage schema after 0 repairs: /priority must be equal to one of the allowed values
 ```
 
-(That's `kindgi runs start … --verbose`.) A Zod object refuses fields it
-doesn't name (`"additionalProperties": false` above); the schema of the
-pydantic model doesn't.
+A Zod object refuses fields it doesn't name (`"additionalProperties": false`
+above); the schema of the pydantic model doesn't.
 
 ## In a flow
 
