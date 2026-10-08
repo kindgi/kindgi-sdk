@@ -61,6 +61,9 @@ export const AUTH_GITHUB_CLIENT_ID_VAR = 'KINDGI_AUTH_GITHUB_CLIENT_ID';
 export const AUTH_GITHUB_CLIENT_SECRET_VAR = 'KINDGI_AUTH_GITHUB_CLIENT_SECRET';
 export const AUTH_GITHUB_CLIENT_SECRET_PATH_VAR = 'KINDGI_AUTH_GITHUB_CLIENT_SECRET_PATH';
 
+/** Which hops in front of the runtime to trust for the client's address: a hop count, or IPs/CIDRs. */
+export const TRUSTED_PROXIES_VAR = 'KINDGI_TRUSTED_PROXIES';
+
 /** A browser session's absolute lifetime, in milliseconds. */
 export const SESSION_TTL_MS_VAR = 'KINDGI_SESSION_TTL_MS';
 

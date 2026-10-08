@@ -151,4 +151,13 @@ describe('sign-in options', () => {
     expect(Number(third.headers.get('retry-after'))).toBeGreaterThan(0);
     expect((await lookup(app, 'a@acme.com', '198.51.100.9')).status).toBe(200);
   });
+
+  test('a spoofed leftmost X-Forwarded-For hop never changes the bucket', async () => {
+    const { app } = makeApp({ rateLimit: { limit: 2, windowMs: 60_000 } });
+    // The client writes whatever it likes on the left; the proxy appends its peer.
+    for (const spoofed of ['10.9.9.1', '10.9.9.2']) {
+      expect((await lookup(app, 'a@acme.com', `${spoofed}, 203.0.113.50`)).status).toBe(200);
+    }
+    expect((await lookup(app, 'a@acme.com', '10.9.9.3, 203.0.113.50')).status).toBe(429);
+  });
 });

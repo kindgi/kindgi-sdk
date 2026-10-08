@@ -749,7 +749,7 @@ export interface CreateAppInput {
   /**
    * The rate limit on `GET /v1/auth/sign-in-options` (unauthenticated):
    * requests per client per window, and how to tell clients apart.
-   * Default: 30 a minute, per first `X-Forwarded-For` address.
+   * Default: 30 a minute, per nearest (rightmost) `X-Forwarded-For` hop.
    */
   readonly signInOptionsRateLimit?: SignInOptionsRateLimit;
   /**

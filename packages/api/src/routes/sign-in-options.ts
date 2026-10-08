@@ -34,9 +34,11 @@ export interface SignInOptionsRateLimit {
   /** Default 60 000 ms. */
   readonly windowMs?: number;
   /**
-   * Who the client is. Default: the first `X-Forwarded-For` address, else
-   * one shared bucket. A deployment whose proxy sets another header (or
-   * that sees the socket address) passes its own.
+   * Who the client is. Default: the nearest `X-Forwarded-For` hop (the
+   * rightmost, written by the proxy in front), else one shared bucket;
+   * never the leftmost, which the client writes. A deployment that knows
+   * its client's address (the socket's, or past its trusted proxies)
+   * passes its own.
    */
   readonly clientKey?: (request: Request) => string;
 }
@@ -117,9 +119,11 @@ export function signInOptionsRouter(options: SignInOptionsRouteOptions): Hono<Ap
 }
 
 function defaultClientKey(request: Request): string {
-  const forwarded = request.headers.get('x-forwarded-for');
-  const first = forwarded?.split(',')[0]?.trim();
-  return first !== undefined && first.length > 0 ? first : 'shared';
+  const hops = (request.headers.get('x-forwarded-for') ?? '')
+    .split(',')
+    .map((h) => h.trim())
+    .filter((h) => h !== '');
+  return hops.at(-1) ?? 'shared';
 }
 
 function pruneExpired(
