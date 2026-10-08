@@ -64,6 +64,12 @@ jobs:
       - name: Python SDK version in step with the npm packages
         run: pnpm run check:python-version
 
+      # So do the JVM SDKs (sdks/java, and sdks/scala's version.sbt):
+      # scripts/sync-jvm-version.mjs. A Version Packages PR whose poms lag
+      # fails here, before it merges.
+      - name: JVM SDKs' version in step with the npm packages
+        run: pnpm run check:jvm-version
+
       # Before 1.0, and while release candidates are out, a minor or major
       # changeset needs a `Release-decision:` line:
       # scripts/check-changeset-bumps.mjs.

@@ -83,7 +83,9 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # `version-packages` gives the Python projects the packages' new version
-      # (scripts/sync-python-version.mjs), and uv re-locks them.
+      # (scripts/sync-python-version.mjs), and uv re-locks them. It moves the
+      # JVM SDKs' poms too and stamps their changelog
+      # (scripts/sync-jvm-version.mjs --release; text edits, no Maven).
       - uses: astral-sh/setup-uv@v6
         with:
           version-file: sdks/python/pyproject.toml

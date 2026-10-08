@@ -12,6 +12,8 @@ on:
       - "packages/api/openapi.json"
       - "packages/specs/schemas/**"
       - ".github/workflows/java.yml"
+      # VersionOrderTest holds Maven to the version spelling this script writes.
+      - "scripts/sync-jvm-version.mjs"
   pull_request:
     # `ready_for_review` fires when a draft is marked ready; the job's `if:` skips drafts.
     types: [opened, synchronize, reopened, ready_for_review]
@@ -20,6 +22,8 @@ on:
       - "packages/api/openapi.json"
       - "packages/specs/schemas/**"
       - ".github/workflows/java.yml"
+      # VersionOrderTest holds Maven to the version spelling this script writes.
+      - "scripts/sync-jvm-version.mjs"
   workflow_dispatch:
 
 concurrency:

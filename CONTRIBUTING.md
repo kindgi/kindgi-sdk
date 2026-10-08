@@ -90,6 +90,17 @@ re-locks `uv.lock` (it needs uv). CI fails when they differ
 prerelease is `-alpha.N`, `-beta.N` or `-rc.N` (`aN`, `bN`, `rcN` on
 PyPI); the script refuses any other.
 
+The JVM SDKs (`sdks/java`) ship with that version too, spelled as npm
+spells it (Maven orders it the same way; `VersionOrderTest` in
+`sdks/java/codegen` holds it to that). `pnpm run version-packages` runs
+`scripts/sync-jvm-version.mjs --release`, which sets the root pom's own
+version and each module's parent version (no other `<version>`), the
+Scala module's `version.sbt` once it exists, and turns
+`sdks/java/CHANGELOG.md`'s **Unreleased** heading into the version. A
+branch whose poms lag main runs the script without `--release`: that
+moves the versions and stamps nothing. CI fails when they differ
+(`pnpm run check:jvm-version`).
+
 1. Every user-visible change adds a changeset: `pnpm changeset`. Before
    1.0, and while release candidates are out, it's a `patch`: one
    `minor` moves every package to the next minor, which no installed
