@@ -8064,7 +8064,7 @@ export const ScheduleRecordSchema: JsonSchema = {
     statusReason: {
       type: 'string',
       description:
-        'Why the runtime paused it: repeated fires that were refused (the owner lost access) or failed.',
+        'Why the runtime paused it: repeated fires that were refused (the owner lost access) or failed. Skipped fires (an overlap, an erasure in progress) never count.',
     },
     nextFireAt: {
       type: ['string', 'null'],
@@ -8111,7 +8111,9 @@ export const ScheduleFireSchema: JsonSchema = {
     firedAt: { type: 'string', format: 'date-time' },
     outcome: {
       type: 'string',
-      enum: ['pending', 'started', 'skipped-overlap', 'refused', 'failed'],
+      enum: ['pending', 'started', 'skipped-overlap', 'skipped-erasure', 'refused', 'failed'],
+      description:
+        "`skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. Neither counts toward the auto-pause; `refused` and `failed` do.",
     },
     runId: { type: 'string', format: 'uuid', description: 'The run it started.' },
     detail: { type: 'string', description: 'Why it was refused, skipped or failed.' },

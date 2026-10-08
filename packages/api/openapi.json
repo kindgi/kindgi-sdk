@@ -14815,7 +14815,7 @@
           },
           "statusReason": {
             "type": "string",
-            "description": "Why the runtime paused it: repeated fires that were refused (the owner lost access) or failed."
+            "description": "Why the runtime paused it: repeated fires that were refused (the owner lost access) or failed. Skipped fires (an overlap, an erasure in progress) never count."
           },
           "nextFireAt": {
             "type": [
@@ -14906,9 +14906,11 @@
               "pending",
               "started",
               "skipped-overlap",
+              "skipped-erasure",
               "refused",
               "failed"
-            ]
+            ],
+            "description": "`skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. Neither counts toward the auto-pause; `refused` and `failed` do."
           },
           "runId": {
             "type": "string",

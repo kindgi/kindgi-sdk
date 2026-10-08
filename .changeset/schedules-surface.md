@@ -16,7 +16,8 @@ Schedules run an agent or a flow, as their owner, with a catch-up and an overlap
 - **`catchUp`:** after a gap, `latest` (the default) runs once for the latest missed occurrence, and its fire says how many it missed; `skip` drops them. Never a run per missed occurrence.
 - **`overlap`:** while the previous run is still going, `skip` (the default) records the fire as skipped; `allow` starts another.
 - **`startingDeadlineSeconds`:** default 600.
-- **`statusReason`:** set when the runtime paused a schedule.
+- **`statusReason`:** set when the runtime paused a schedule. Repeated refused or failed fires pause it; skipped ones never count.
+- **`skipped-erasure`:** a fire whose person is being erased is recorded as `skipped-erasure` (the run start answered `erasure-in-progress`), so an erasure that waits on a shared flow can't pause an hourly schedule.
 - **New routes:**
   - `GET …/{id}?upcoming=N` shows the next occurrences;
   - `GET …/{id}/fires` is the fire history;

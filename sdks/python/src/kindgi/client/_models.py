@@ -7661,7 +7661,12 @@ class ScheduleFire(BaseModel):
     The occurrence it is for; absent on a `run-now` fire.
     """
     fired_at: Annotated[AwareDatetime, Field(alias="firedAt")]
-    outcome: Literal["pending", "started", "skipped-overlap", "refused", "failed"]
+    outcome: Literal[
+        "pending", "started", "skipped-overlap", "skipped-erasure", "refused", "failed"
+    ]
+    """
+    `skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. Neither counts toward the auto-pause; `refused` and `failed` do.
+    """
     run_id: Annotated[UUID | None, Field(alias="runId")] = None
     """
     The run it started.
@@ -9404,7 +9409,7 @@ class ScheduleRecord(BaseModel):
     """
     status_reason: Annotated[str | None, Field(alias="statusReason")] = None
     """
-    Why the runtime paused it: repeated fires that were refused (the owner lost access) or failed.
+    Why the runtime paused it: repeated fires that were refused (the owner lost access) or failed. Skipped fires (an overlap, an erasure in progress) never count.
     """
     next_fire_at: Annotated[AwareDatetime | None, Field(alias="nextFireAt")]
     """
