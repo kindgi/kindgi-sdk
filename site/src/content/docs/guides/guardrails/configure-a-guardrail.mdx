@@ -67,7 +67,7 @@ gives their values, keyed by their wire names, the aliases: `maxChars`, not
 
 ## Change a setting
 
-Edit the value and save; the next turn uses it. With `maxChars: 100`, the
+Edit the value and save; the next turn uses it. With `maxChars: 300`, the
 `dev-echo` answer from [Write a guardrail](../write-a-guardrail/#run-it)
 passes:
 
@@ -89,7 +89,7 @@ kindgi guardrails get my-pack.answer-length
 
 ```json
   "config": {
-    "maxChars": 100
+    "maxChars": 300
   },
 ```
 
@@ -120,6 +120,31 @@ A setting the schema requires, with no default, must be in `config`:
 guardrails/answer-length/index.ts: guardrail my-pack.answer-length's config doesn't fit its configSchema: must have required property 'maxChars'
 ```
 
+In a deployment, a guardrail registered through the API
+(`kindgi guardrails register`) names the pack's check with its own `config`.
+A config that doesn't fit the check's `configSchema` is refused
+(`422 guardrail-config-invalid`), and nothing is registered:
+
+```text
+Error [invalid-request]: Guardrail "acme.strict-length" doesn't fit check "my-pack.checks.answer-length": config.maxChars must be > 0.
+  ✗ /config/maxChars: config.maxChars must be > 0.
+```
+
+Under `kindgi dev` the indexer has refused such a config already.
+
+A guardrail registered before 0.1.5, or against a pack deployed before
+0.1.5, wasn't checked. The pack service checks the config on every call, as
+sent, against the indexed `configSchema`, so the check doesn't run, and every
+turn the guardrail checks fails, whatever its action. `kindgi runs start`
+exits 1 with:
+
+```text
+Error [run-failed]: input-validation-failed: Check "my-pack.checks.answer-length" config failed validation at /maxChars: must be > 0
+```
+
+To fix it, unregister it and register it again with a config that fits. A
+pack deployed before 0.1.5 needs one redeploy for registration to check it.
+
 </TabItem>
 <TabItem label="Python">
 
@@ -127,8 +152,8 @@ The check gets `config` parsed into its type:
 
 - **Defaults are filled in.** Give every field a default: a required field
   with no value isn't caught when the pack is indexed, and fails every turn
-  the guardrail checks, whatever its action
-  (`input-validation-failed: Check "my-pack.req-cfg" config failed validation`).
+  the guardrail checks, whatever its action. `kindgi runs start` exits 1 with
+  `Error [run-failed]: input-validation-failed: Check "my-pack.req-cfg" config failed validation: must have required property 'maxChars'`.
 - **Values are checked where they're declared.** A value that doesn't fit is
   a `DefinitionError`, and `python -m kindgi.pack index` (and `kindgi dev`)
   reports the file:

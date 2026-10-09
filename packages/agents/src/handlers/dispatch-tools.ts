@@ -5,7 +5,7 @@ import type { ModelMessage, ModelToolCall } from '@kindgi/capabilities';
 import type { NodeContext, NodeHandler } from '@kindgi/handler';
 import { WaitpointCancelledError } from '@kindgi/handler';
 import { stricterToolHitlRule } from '@kindgi/policy-contract';
-import { invokeTool } from '@kindgi/tools';
+import { invokeTool, toolCallRecordKey } from '@kindgi/tools';
 import type { Tool, ToolContext } from '@kindgi/tools';
 
 import { emitTurnEvent } from '../streaming.js';
@@ -386,7 +386,9 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
         continue;
       }
 
-      const dispatched = await dispatchOne(ctx, tool, call, kctx.runId as unknown as string);
+      // A replay's live call reads the env the past run's call saw.
+      const replayEnv = replayed?.kind === 'live' ? replayed.env : undefined;
+      const dispatched = await dispatchOne(ctx, tool, call, kctx, replayEnv);
       if (dispatched.kind === 'err') {
         await emitTurnEvent(ctx.bindings.onEvent, {
           kind: 'tool.failed',
@@ -578,7 +580,8 @@ async function dispatchOne(
   ctx: TurnContext,
   tool: Tool,
   call: ModelToolCall,
-  runId: string,
+  kctx: NodeContext,
+  replayEnv?: Readonly<Record<string, string>>,
 ): Promise<
   | {
       readonly kind: 'ok';
@@ -599,6 +602,8 @@ async function dispatchOne(
       };
     }
 > {
+  const runId = kctx.runId as unknown as string;
+  const toolId = tool.id as unknown as string;
   const toolCtx: ToolContext = {
     tenantId: ctx.input.tenantId,
     runId,
@@ -613,6 +618,12 @@ async function dispatchOne(
     ...(ctx.bindings.resolveSecret !== undefined && { resolveSecret: ctx.bindings.resolveSecret }),
     // The pinned settings blocks' values, by block id.
     ...(ctx.blocks !== undefined && { settings: ctx.blocks.settings }),
+    // The call's durable decisions (its resolved env): this step's own
+    // record, keyed by the call and the tool (`toolCallRecordKey`).
+    record: (key, decide) =>
+      kctx.record(toolCallRecordKey({ toolId, key, callId: call.id }), decide),
+    // A replay's live call: the past run's env values for the tool.
+    ...(replayEnv !== undefined && { env: replayEnv }),
   };
   const result = await invokeTool(tool, call.arguments, toolCtx);
   if (result.kind === 'err') {

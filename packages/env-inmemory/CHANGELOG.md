@@ -1,5 +1,88 @@
 # @kindgi/env-inmemory
 
+## 0.1.4
+
+### Patch Changes
+
+- Updated dependencies [1c0252c]
+- Updated dependencies [1c0252c]
+- Updated dependencies [b9d3c01]
+- Updated dependencies [ee0b6d5]
+- Updated dependencies [c313224]
+- Updated dependencies [024a47f]
+- Updated dependencies [0b1f48d]
+- Updated dependencies [2b34f78]
+- Updated dependencies [9a7f43b]
+- Updated dependencies [6260a59]
+- Updated dependencies [0359caf]
+- Updated dependencies [29fbd56]
+- Updated dependencies [fcc6a97]
+- Updated dependencies [d0ebeb6]
+- Updated dependencies [149a8c9]
+- Updated dependencies [86ec2ef]
+- Updated dependencies [e97958c]
+- Updated dependencies [a311b81]
+- Updated dependencies [a0652ac]
+- Updated dependencies [fa6680c]
+- Updated dependencies [e2ab2ac]
+- Updated dependencies [fac7472]
+- Updated dependencies [52c8f98]
+- Updated dependencies [bd3ce67]
+- Updated dependencies [d3dffb5]
+- Updated dependencies [7528aca]
+- Updated dependencies [26b2a23]
+- Updated dependencies [b67eee6]
+- Updated dependencies [b8ff156]
+- Updated dependencies [e58e35c]
+- Updated dependencies [5608264]
+- Updated dependencies [7a8e764]
+- Updated dependencies [8491dd8]
+- Updated dependencies [a0921a1]
+- Updated dependencies [d9cee7c]
+- Updated dependencies [dde7fdb]
+- Updated dependencies [933e00a]
+- Updated dependencies [2040daf]
+- Updated dependencies [71412f6]
+- Updated dependencies [ba2f212]
+- Updated dependencies [06b5fc0]
+- Updated dependencies [e17b230]
+- Updated dependencies [e7e2f86]
+- Updated dependencies [3d23304]
+- Updated dependencies [42a2e66]
+- Updated dependencies [7155588]
+- Updated dependencies [2923703]
+- Updated dependencies [7471e05]
+- Updated dependencies [bfeabfd]
+- Updated dependencies [8861bf8]
+- Updated dependencies [d0ebeb6]
+- Updated dependencies [9801f64]
+- Updated dependencies [dc5cfb1]
+- Updated dependencies [e2ba026]
+- Updated dependencies [1bec998]
+- Updated dependencies [62608e3]
+- Updated dependencies [3e427c5]
+- Updated dependencies [f90c285]
+- Updated dependencies [ffb6096]
+- Updated dependencies [ae417f7]
+  - @kindgi/api@0.1.4
+  - @kindgi/audit-events@0.1.4
+  - @kindgi/types@0.1.4
+  - @kindgi/compliance@0.1.4
+  - @kindgi/platform@0.1.4
+
+## 0.1.4-rc.5
+
+### Patch Changes
+
+- Updated dependencies [29fbd56]
+- Updated dependencies [52c8f98]
+- Updated dependencies [9801f64]
+  - @kindgi/api@0.1.4-rc.5
+  - @kindgi/compliance@0.1.4-rc.5
+  - @kindgi/audit-events@0.1.4-rc.5
+  - @kindgi/platform@0.1.4-rc.5
+  - @kindgi/types@0.1.4-rc.5
+
 ## 0.1.4-rc.4
 
 ### Patch Changes
