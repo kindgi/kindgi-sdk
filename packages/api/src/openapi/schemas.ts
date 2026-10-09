@@ -1616,6 +1616,33 @@ export const AgentMemoryPolicySchema: JsonSchema = {
       description:
         "Fact types that are instructions for this agent: a retrieved, verified fact of one of these types goes into the system message under 'Policies (verified)'. Default: none.",
     },
+    remember: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['types', 'scope'],
+      description:
+        'Lets the agent remember: its turns offer the built-in tool `kindgi_remember` (built-in tools are `kindgi_<verb>`; an agent cannot list one in `tools`, and a published tool cannot use the prefix). The model picks the type, the text (up to 2,000 characters), an optional slot `key` and when it stops being true; the scope comes from here and the run. Every remembered fact is `unverified`, attributed to the agent version and the call that wrote it, and expires after `keepDays` unless a person verifies it. A person approves it before any read sees it when the scope is wider than one person (`same-project`, `tenant`) or the text reads like an instruction.',
+      properties: {
+        types: {
+          type: 'array',
+          minItems: 1,
+          items: { type: 'string', minLength: 1 },
+          description: 'The fact types it may write.',
+        },
+        scope: {
+          type: 'string',
+          enum: ['same-user', 'same-conversation', 'same-project', 'tenant'],
+          description:
+            "Where its facts go: the conversation's end user (else the user the run acts for), the conversation, the run's project, or the tenant. Each but `tenant` includes the run's project.",
+        },
+        keepDays: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 3650,
+          description: 'Days an unverified fact is kept. Default 30.',
+        },
+      },
+    },
   },
 };
 
@@ -1953,7 +1980,7 @@ export const PublishAgentResultSchema: JsonSchema = {
     warnings: {
       type: 'array',
       description:
-        'What the agent should know about this deployment before its first turn, e.g. `semantic-unavailable`: a retrieval intent searches by meaning and the deployment has no embeddings.',
+        'What the agent should know about this deployment before its first turn, e.g. `semantic-unavailable` (a retrieval intent searches by meaning and the deployment has no embeddings) or `remember-unavailable` (the agent remembers and the deployment cannot store agent memories).',
       items: {
         type: 'object',
         additionalProperties: false,
@@ -3578,6 +3605,12 @@ export const FactSchema: JsonSchema = {
       type: 'string',
       enum: ['pending'],
       description: '`pending` while a person must approve it: a pending fact is never retrieved.',
+    },
+    expiresAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "When this revision stops being readable: from its retention (`keepUntil`, or `keepDays` from the fact's first write), or an agent-remembered fact's unverified window. No read returns it after; absent: it doesn't expire.",
     },
   },
 };
@@ -6759,6 +6792,12 @@ export const SignInOptionSchema: JsonSchema = {
       type: 'string',
       description: 'Where the browser goes to start signing in with this provider.',
     },
+    owner: {
+      type: 'string',
+      enum: ['tenant', 'deployment'],
+      description:
+        'Whose it is: a workspace\'s own identity provider (`tenant`), or one the deployment offers everyone it has added ("Continue with Google", `deployment`). A sign-in page shows a workspace\'s own first. Absent: `tenant`.',
+    },
   },
 };
 
@@ -6782,6 +6821,15 @@ export const SignInOptionsSchema: JsonSchema = {
         apiToken: {
           type: 'boolean',
           description: 'Sign-in to the console with an API token (`POST /v1/auth/token-sign-in`).',
+        },
+        emailLink: {
+          type: 'object',
+          additionalProperties: false,
+          description:
+            'Present when the deployment emails sign-in links: a sign-in page offers "Email me a sign-in link". With `captchaSiteKey`, the request needs a Cloudflare Turnstile token (`x-captcha-response`).',
+          properties: {
+            captchaSiteKey: { type: 'string', minLength: 1 },
+          },
         },
       },
     },
@@ -7000,6 +7048,11 @@ export const WhoamiResultSchema: JsonSchema = {
     projectId: {
       type: 'string',
       description: "The project the caller's API key is limited to, when it is.",
+    },
+    tenantAdmin: {
+      type: 'boolean',
+      description:
+        'Whether the caller is a tenant admin, decided as the admin routes decide it: `admin` on the tenant when the runtime authorizes, otherwise the `tenant-admin` scope of a full key (never a `member` key or one limited to a project). A console shows its admin pages by it. Absent from older servers: read `scopes`.',
     },
   },
 };

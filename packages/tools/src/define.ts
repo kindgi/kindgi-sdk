@@ -456,6 +456,13 @@ function checkEffectKinds(manifest: ToolManifest): UnknownEffectError | undefine
  * The returned value has the manifest fields only; there is no
  * `handler` (metadata-only shape).
  */
+/**
+ * The prefix of tools built into Kindgi (e.g. `kindgi_remember`): their
+ * ids are what the model calls, verbatim, so they have no dots. A
+ * published tool can't use it; pack tools are `<pack>.<tool>`.
+ */
+export const BUILT_IN_TOOL_PREFIX = 'kindgi_';
+
 export function validateToolManifest(
   manifest: unknown,
 ): Result<ToolManifest, InvalidToolDefinitionError | InvalidSchemaError | UnknownEffectError> {
@@ -482,6 +489,16 @@ export function validateToolManifest(
     return { kind: 'err', error: toDefinitionError(err) };
   }
   const parsed = candidate as unknown as ToolManifest;
+  if ((parsed.id as unknown as string).startsWith(BUILT_IN_TOOL_PREFIX)) {
+    return {
+      kind: 'err',
+      error: {
+        code: 'invalid-tool-definition',
+        message: `Tool id "${parsed.id as unknown as string}": the prefix "${BUILT_IN_TOOL_PREFIX}" is reserved for tools built into Kindgi. Name pack tools "<pack>.<tool>".`,
+        issues: [{ path: '/id', message: `must not start with "${BUILT_IN_TOOL_PREFIX}"` }],
+      },
+    };
+  }
   const badEffect = checkEffectKinds(parsed);
   if (badEffect) return { kind: 'err', error: badEffect };
   const badInput = compilesAsSchema(parsed.input, 'input', parsed);

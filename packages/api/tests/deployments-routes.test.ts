@@ -13,8 +13,8 @@ import { latestVersion } from '@kindgi/tools';
 import type { Cursor, ProjectId, Semver, SigningKeyId, TenantId } from '@kindgi/types';
 
 import type { Scope } from '@kindgi/platform';
-import { createStubAppBindings } from '@kindgi/testing';
 import { makeEnvName } from '@kindgi/types';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {

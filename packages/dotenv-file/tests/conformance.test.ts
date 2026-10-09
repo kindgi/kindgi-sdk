@@ -198,6 +198,38 @@ describe('expansion parity with dotenv-expand 10 (Next.js) and 12 (Vite)', () =>
   });
 });
 
+// A key that refers to itself, with the environment holding it: both
+// versions take the environment's value (T377). Without it, dotenv-expand
+// 10 overflows its stack, so those cases aren't compared. Not compared
+// either: `PATH=$PATH:/extra`. The hosts keep any name the environment
+// has and ignore the file's line (`/bin`); here a file's value is the
+// source, so it's the shell's reading, `/bin:/extra` (expand.test.ts).
+const SELF_CORPUS: readonly (readonly [string, string, Record<string, string>])[] = [
+  ['braced', 'KEY=${KEY}\n', { KEY: 'from-shell' }],
+  ['unbraced', 'KEY=$KEY\n', { KEY: 'from-shell' }],
+  ['with a default', 'KEY=${KEY:-fallback}\n', { KEY: 'from-shell' }],
+];
+
+describe('a self-reference, with the environment holding it: parity with dotenv-expand 10 and 12', () => {
+  test.each(SELF_CORPUS)('%s', (_name, src, env) => {
+    const parsed = dotenv.parse(src);
+    const saved = Object.fromEntries(Object.keys(env).map((k) => [k, process.env[k]]));
+    Object.assign(process.env, env);
+    let v10: Record<string, string>;
+    try {
+      v10 = expand10.expand({ parsed: { ...parsed }, ignoreProcessEnv: false }).parsed;
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+    const v12 = expand12.expand({ parsed: { ...parsed }, processEnv: { ...env } }).parsed;
+    expect(v10, 'oracles must agree for a corpus entry').toEqual(v12);
+    expect(expandEnv(ours(src), { env }).values).toEqual(v12);
+  });
+});
+
 // ---------------------------------------------------------------------
 // Writer round-trip through the reference pipeline
 // ---------------------------------------------------------------------

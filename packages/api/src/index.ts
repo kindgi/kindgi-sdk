@@ -56,6 +56,7 @@ export type {
   SessionPage,
   SessionResolveTokenInput,
   SessionRevokeAllForUserInput,
+  SessionRevokeByProviderInput,
   SessionRevokeAllForUserOutcome,
   SessionRevokeInput,
   SessionRevokeOutcome,

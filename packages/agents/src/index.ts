@@ -117,6 +117,14 @@ export {
   runRetrievals,
 } from './retrieval.js';
 export type { DegradedIntent, RetrievalPass, RetrievalRun } from './retrieval.js';
+export {
+  DEFAULT_REMEMBER_DAYS,
+  MAX_REMEMBER_DAYS,
+  REMEMBER_TOOL_ID,
+  REMEMBER_TOOL_VERSION,
+  looksLikeInstruction,
+} from './remember.js';
+export type { RememberToolOutput } from './handlers/remember-tool.js';
 export type { RetrievalBindings } from './retrieval.js';
 export type {
   MissingParameterError,
@@ -160,6 +168,8 @@ export type {
   MessageRole,
   PromptParameter,
   PromptRef,
+  RememberPolicy,
+  RememberScope,
   RetrievalIntent,
   RetrievedFact,
   ToolRef,
