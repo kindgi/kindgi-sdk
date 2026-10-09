@@ -71,6 +71,12 @@ export interface KernelRunRecord {
    * message and journal payloads). Absent on every other run.
    */
   readonly contentErasedAt?: Timestamp;
+  /**
+   * The W3C trace id of the request that started the run
+   * (`RunFlowInput.traceId`). Absent for a run no request started, and on
+   * runs from before runs recorded it.
+   */
+  readonly traceId?: string | null;
 }
 
 /**

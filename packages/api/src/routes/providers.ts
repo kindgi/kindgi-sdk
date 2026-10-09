@@ -5,19 +5,28 @@ import { Hono } from 'hono';
 
 import {
   type AdapterConfig,
+  type AdapterConfigProblem,
+  type AdapterFactoryRegistry,
   FEATURES,
   type Feature,
   type ModelInfo,
   type ProviderMetadata,
+  isModelThinking,
   validateProviderLabels,
 } from '@kindgi/capabilities';
 import type { Cursor, TenantId } from '@kindgi/types';
 
 import type { CapabilityDescriptor } from '../capability-binding.js';
 import { statusFor, toWireError } from '../errors.js';
-import type { ProviderRegistryBinding, ProviderSecretRef } from '../provider-binding.js';
+import type { Authorizer } from '../middleware/authorize.js';
+import type {
+  ProviderRegistryBinding,
+  ProviderRuntimeEntry,
+  ProviderSecretRef,
+} from '../provider-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import { tenantResourceAccess } from './tenant-access.js';
 
 /**
  * Providers resource routes — part of the admin control plane. Full
@@ -46,11 +55,20 @@ export type ProviderWriteHook = (params: {
   readonly kind: 'register' | 'unregister';
 }) => void | Promise<void>;
 
+/**
+ * `factories`: the deployment's in-process adapter factories. With them, a
+ * registration is checked against its adapter's `checkConfig` before it's
+ * stored, and `GET /:providerId/check` answers for a registered one.
+ * Without them, registration takes any flat `adapter_config`.
+ */
 export function providersRouter(
   binding: ProviderRegistryBinding,
   onWrite?: ProviderWriteHook,
+  factories?: AdapterFactoryRegistry,
+  authorizer?: Authorizer,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  r.use('*', tenantResourceAccess(authorizer));
 
   // ---------- GET / (list, cursor-paginated) ----------
   r.get('/', async (c) => {
@@ -216,6 +234,28 @@ export function providersRouter(
       );
     }
 
+    // The adapter's own check of what it'll be built from: refused now,
+    // naming the field, instead of skipped at the first model call.
+    const problems = configProblems(factories, {
+      metadata: validation.value,
+      adapterId: bodyObj.adapter_id,
+      ...(secretRefResult.value !== undefined && { secretRef: secretRefResult.value }),
+      ...(adapterConfigResult.value !== undefined && { adapterConfig: adapterConfigResult.value }),
+    });
+    if (problems !== undefined && problems.length > 0) {
+      c.status(statusFor('provider-config-invalid') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'provider-config-invalid',
+            message: refusalOf(validation.value.id, bodyObj.adapter_id, problems),
+            issues: problems,
+          },
+          requestId,
+        ),
+      );
+    }
+
     const outcome = await binding.register({
       tenantId,
       metadata: validation.value,
@@ -264,6 +304,31 @@ export function providersRouter(
     return c.json({ providerId: outcome.providerId });
   });
 
+  // ---------- GET /:providerId/check ----------
+  r.get('/:providerId/check', async (c) => {
+    const requestId = c.get('requestId');
+    const tenantId = c.get('tenantId') as TenantId;
+    const providerId = c.req.param('providerId');
+    const entries = await binding.resolveForRuntime({ tenantId });
+    const entry = entries.find((e) => e.metadata.id === providerId);
+    if (entry === undefined) {
+      c.status(statusFor('provider-not-found') as never);
+      return c.json(
+        toWireError(
+          { code: 'provider-not-found', message: `Provider "${providerId}" not found`, providerId },
+          requestId,
+        ),
+      );
+    }
+    const problems = configProblems(factories, entry);
+    return c.json({
+      providerId,
+      adapterId: entry.adapterId,
+      checked: problems !== undefined,
+      issues: problems ?? [],
+    });
+  });
+
   // ---------- POST /:providerId/unregister ----------
   r.post('/:providerId/unregister', async (c) => {
     const requestId = c.get('requestId');
@@ -305,14 +370,15 @@ function serializeProvider(m: ProviderMetadata): Record<string, unknown> {
       name: model.name,
       contextWindow: model.contextWindow,
       features: model.features,
-      cost: {
-        promptUsdPer1kTokens: model.cost.promptUsdPer1kTokens,
-        completionUsdPer1kTokens: model.cost.completionUsdPer1kTokens,
-      },
+      // As stored: the base rates and any an adapter widens it with.
+      cost: { ...model.cost },
       ...(model.p95LatencyMs !== undefined && { p95LatencyMs: model.p95LatencyMs }),
       ...(model.maxOutputTokens !== undefined && { maxOutputTokens: model.maxOutputTokens }),
+      ...(model.sampling !== undefined && { sampling: model.sampling }),
+      ...(model.thinking !== undefined && { thinking: model.thinking }),
       ...(model.description !== undefined && { description: model.description }),
     })),
+    ...(m.defaultModel !== undefined && { defaultModel: m.defaultModel }),
     ...(m.attributes !== undefined && { attributes: m.attributes }),
     ...(m.description !== undefined && { description: m.description }),
     ...(m.capabilityKind !== undefined && { capabilityKind: m.capabilityKind }),
@@ -328,6 +394,9 @@ function serializeCapability(d: CapabilityDescriptor): Record<string, unknown> {
     description: d.description,
     ...(d.kind !== undefined && { kind: d.kind }),
     ...(d.paramsSchema !== undefined && { paramsSchema: d.paramsSchema }),
+    ...(d.providers !== undefined && {
+      providers: d.providers.map((p) => ({ providerId: p.providerId, models: [...p.models] })),
+    }),
   };
 }
 
@@ -436,10 +505,20 @@ function validateProviderMetadata(
   }
   const badLabels = validateProviderLabels(b.id, b.labels);
   if (badLabels !== undefined) return { kind: 'err', error: badLabels };
+  if (b.defaultModel !== undefined && !seenNames.has(b.defaultModel as string)) {
+    return {
+      kind: 'err',
+      error: {
+        message: `provider "${b.id}" defaultModel must be one of its models (${[...seenNames].join(', ')}), got ${JSON.stringify(b.defaultModel)}`,
+        reason: 'unknown-default-model',
+      },
+    };
+  }
   const value: ProviderMetadata = {
     id: b.id,
     region: b.region,
     models: validatedModels,
+    ...(b.defaultModel !== undefined && { defaultModel: b.defaultModel as string }),
     ...(b.attributes !== undefined && { attributes: b.attributes as readonly string[] }),
     ...(b.description !== undefined && { description: b.description }),
     ...(b.capabilityKind !== undefined && { capabilityKind: b.capabilityKind as string }),
@@ -527,6 +606,16 @@ function validateModelInfo(
       },
     };
   }
+  const extraRates = costExtraRates(cost as unknown as Record<string, unknown>);
+  if (extraRates === undefined) {
+    return {
+      kind: 'err',
+      error: {
+        message: `provider "${providerId}" model "${m.name}" cost table's other rates must be non-negative numbers, or objects of them (e.g. longContext: { thresholdTokens, promptUsdPer1kTokens, completionUsdPer1kTokens })`,
+        reason: 'invalid-cost',
+      },
+    };
+  }
   if (m.p95LatencyMs !== undefined) {
     if (typeof m.p95LatencyMs !== 'number' || m.p95LatencyMs < 0) {
       return {
@@ -553,6 +642,24 @@ function validateModelInfo(
       };
     }
   }
+  if (m.sampling !== undefined && typeof m.sampling !== 'boolean') {
+    return {
+      kind: 'err',
+      error: {
+        message: `provider "${providerId}" model "${m.name}" sampling must be true or false`,
+        reason: 'invalid-sampling',
+      },
+    };
+  }
+  if (m.thinking !== undefined && !isModelThinking(m.thinking)) {
+    return {
+      kind: 'err',
+      error: {
+        message: `provider "${providerId}" model "${m.name}" thinking must be { mode: 'adaptive' | 'always', lowest: <the vendor's setting> }`,
+        reason: 'invalid-thinking',
+      },
+    };
+  }
   if (m.description !== undefined && typeof m.description !== 'string') {
     return {
       kind: 'err',
@@ -567,21 +674,101 @@ function validateModelInfo(
     contextWindow: m.contextWindow,
     features: m.features as readonly Feature[],
     cost: {
+      ...extraRates,
       promptUsdPer1kTokens: cost.promptUsdPer1kTokens,
       completionUsdPer1kTokens: cost.completionUsdPer1kTokens,
-    },
+    } as ModelInfo['cost'],
     ...(m.p95LatencyMs !== undefined && { p95LatencyMs: m.p95LatencyMs }),
     ...(m.maxOutputTokens !== undefined && { maxOutputTokens: m.maxOutputTokens }),
+    ...(m.sampling !== undefined && { sampling: m.sampling }),
+    ...(m.thinking !== undefined && {
+      thinking: { mode: m.thinking.mode, lowest: m.thinking.lowest },
+    }),
     ...(m.description !== undefined && { description: m.description }),
   };
   return { kind: 'ok', value };
 }
 
 /**
+ * The rates a cost table carries beyond the two base ones: an adapter
+ * widens it with its own (Anthropic's prompt-cache multipliers, Gemini's
+ * cached-prompt share, a long-context tier), each a non-negative number
+ * or one level of an object of them. Returned as given, or `undefined`
+ * when one isn't, so a registration keeps what its adapter prices with.
+ */
+function costExtraRates(
+  cost: Readonly<Record<string, unknown>>,
+): Record<string, number | Record<string, number>> | undefined {
+  const isRate = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
+  const out: Record<string, number | Record<string, number>> = {};
+  for (const [key, value] of Object.entries(cost)) {
+    if (key === 'promptUsdPer1kTokens' || key === 'completionUsdPer1kTokens') continue;
+    if (isRate(value)) {
+      out[key] = value;
+    } else if (
+      typeof value === 'object' &&
+      value !== null &&
+      !Array.isArray(value) &&
+      Object.keys(value).length > 0 &&
+      Object.values(value).every(isRate)
+    ) {
+      out[key] = { ...(value as Record<string, number>) };
+    } else {
+      return undefined;
+    }
+  }
+  return out;
+}
+
+/**
+ * What's wrong with a registration, by its adapter's own static check
+ * (`AdapterFactoryEntry.checkConfig`): no network, no secret read.
+ * `undefined` when there's nothing to check it with (no factories wired, or
+ * an adapter without a check). An adapter the deployment doesn't have is a
+ * problem: the runtime could never build the provider.
+ */
+function configProblems(
+  factories: AdapterFactoryRegistry | undefined,
+  registration: ProviderRuntimeEntry,
+): readonly AdapterConfigProblem[] | undefined {
+  if (factories === undefined) return undefined;
+  const entry = factories.get(registration.adapterId);
+  if (entry === undefined) {
+    return [
+      {
+        path: '/adapter_id',
+        message: `This runtime has no adapter "${registration.adapterId}", so it can't build provider "${registration.metadata.id}".`,
+      },
+    ];
+  }
+  return entry.checkConfig?.({
+    metadata: registration.metadata,
+    ...(registration.adapterConfig !== undefined && { config: registration.adapterConfig }),
+    hasSecretRef: registration.secretRef !== undefined,
+  });
+}
+
+/**
+ * The 422's message: one sentence naming the provider, its adapter and the
+ * first problem, with a count of the rest (`details.issues` lists each).
+ */
+function refusalOf(
+  providerId: string,
+  adapterId: string,
+  problems: readonly AdapterConfigProblem[],
+): string {
+  const [first, ...rest] = problems;
+  if (first === undefined) return `Provider "${providerId}" doesn't fit adapter ${adapterId}.`;
+  if (first.path === '/adapter_id') return first.message;
+  const more = rest.length > 0 ? ` (and ${rest.length} more)` : '';
+  return `Provider "${providerId}" doesn't fit adapter ${adapterId}: ${first.message.replace(/\.$/, '')}${more}.`;
+}
+
+/**
  * Parse the optional `adapter_config` on the register request body: a
  * flat object of string, number or boolean values. Credentials don't
- * belong here (they ride on `secret_ref`); the adapter validates its
- * own keys when it is instantiated.
+ * belong here (they ride on `secret_ref`); the adapter checks its own keys
+ * (`configProblems`).
  */
 function parseAdapterConfig(
   raw: unknown,

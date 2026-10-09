@@ -7,9 +7,12 @@ field-level docs. Iterate with `kindgi dev`; `kindgi --help` lists
 the full CLI.
 
 Agents answer through a model provider. `kindgi dev` gives a new pack
-`dev-echo`, a fallback that calls the first tool and replies
-"Tool responded: …" while no other provider fits. For Claude,
-put the key in `.env` and declare `{ preset: 'anthropic' }` in
+`dev-echo`, a fallback that isn't a model: it calls the first tool and
+replies "Tool responded: …" after a warning line, while no other provider
+fits. For a real model, put one LLM provider's key in `.env`
+(`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY` or
+`OPENROUTER_API_KEY`) and declare its preset (`{ preset: 'anthropic' }`,
+`'openai'`, `'gemini-api'`, `'groq'` or `'openrouter'`) in
 `kindgi.config.ts`'s `providers`: `kindgi dev` then registers it on every
 boot, in every worktree. Other providers and per-agent model choice:
 `.claude/skills/kindgi-authoring-providers/SKILL.md`.

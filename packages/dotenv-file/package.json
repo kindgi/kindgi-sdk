@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/dotenv-file",
-  "version": "0.1.4-rc.3",
+  "version": "0.1.4",
   "description": "Dotenv files the way applications read them (dotenv grammar, verified against the version Next.js bundles), expanded (${VAR}), layered (.env < .env.local) and edited losslessly. Used by @kindgi/secrets-dotenv. Zero runtime dependencies.",
   "license": "Apache-2.0",
   "repository": {

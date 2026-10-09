@@ -1,7 +1,7 @@
 {
   "name": "@kindgi/adapter-model-openai-compat",
-  "version": "0.1.4-rc.3",
-  "description": "OpenAI-compatible ModelProvider for @kindgi/capabilities. Points at any endpoint speaking the OpenAI Chat Completions wire format — OpenAI proper, Ollama (/v1), vLLM, llama-server, LM Studio, OpenRouter, Groq, Together, Fireworks, DeepInfra, LiteLLM proxy (base URLs exported as BASE_URLS), or any other compatible endpoint. One adapter, many backends. Cost per 1K tokens is supplied by the caller (from the provider's public pricing) since the API surface itself doesn't expose it.",
+  "version": "0.1.4",
+  "description": "OpenAI-compatible ModelProvider for @kindgi/capabilities. Speaks OpenAI's Responses API to OpenAI itself, and the Chat Completions wire format to any compatible endpoint — Ollama (/v1), vLLM, llama-server, LM Studio, OpenRouter, Groq, Together, Fireworks, DeepInfra, LiteLLM proxy (base URLs exported as BASE_URLS), or any other compatible endpoint. One adapter, many backends. Cost per 1K tokens is supplied by the caller (from the provider's public pricing) since the API surface itself doesn't expose it.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",

@@ -13,7 +13,9 @@
  * runtime `kindgi dev` runs, and a provider registered there. Outside a
  * project the project's checks are skipped, saying why; a check that
  * needs another (the registry needs Docker) is skipped when that one
- * fails. `skip` is never a failure.
+ * fails. `skip` is never a failure, and neither is `warn`: it works now,
+ * but the person should know (a provider whose agents land on a model its
+ * preset no longer lists, or not on the preset's default).
  *
  * Under `kindgi-cli` (the PyPI build, `KINDGI_CLI_INSTALL=pypi`), Node is
  * the one the wheel brings and npm isn't needed, so neither is a failure,
@@ -73,16 +75,17 @@ export type DoctorCheckId =
 
 export interface DoctorCheck {
   readonly id: DoctorCheckId;
-  readonly status: 'pass' | 'fail' | 'skip';
+  /** `warn` works now but needs the person's attention: never a failure (`ok` stays true). */
+  readonly status: 'pass' | 'warn' | 'fail' | 'skip';
   /** What was found, in a sentence. */
   readonly message: string;
-  /** The exact command or step that fixes it: on every failure, and on some skips. */
+  /** The exact command or step that fixes it: on every failure and warning, and on some skips. */
   readonly fix?: string;
 }
 
 /** What `kindgi doctor --json` prints. */
 export interface DoctorReport {
-  /** No check failed (skips don't count). */
+  /** No check failed (skips and warnings don't count). */
   readonly ok: boolean;
   readonly cliVersion: string;
   /** The Kindgi project in the folder checked, or `null` outside one. */
@@ -191,7 +194,7 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
   checks.push(runtime.check);
   checks.push(
     runtime.check.status === 'pass' && runtime.url !== undefined && rc.token !== undefined
-      ? await providerCheck(ctx, runtime.url, rc.token, kindgi)
+      ? await providerCheck(ctx, runtime.url, rc.token, kindgi, seam)
       : skip('provider', `Not checked: it needs the runtime running (${kindgi('dev')}).`),
   );
   checks.push(
@@ -206,18 +209,29 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
 export function doctorText(report: DoctorReport): string {
   const lines = [`kindgi doctor (CLI ${report.cliVersion})`];
   for (const check of report.checks) {
-    const mark = check.status === 'pass' ? '✓' : check.status === 'fail' ? '✗' : '–';
+    const mark = MARKS[check.status];
     lines.push(`  ${mark} ${TITLES[check.id]}: ${check.message}`);
     if (check.fix !== undefined && check.status !== 'pass') lines.push(`      Fix: ${check.fix}`);
   }
   const failed = report.checks.filter((c) => c.status === 'fail').length;
+  const warned = report.checks.filter((c) => c.status === 'warn').length;
+  const warnings = `${warned} ${warned === 1 ? 'warning' : 'warnings'}`;
   lines.push(
-    failed === 0
-      ? 'Everything checked is ready.'
-      : `${failed} ${failed === 1 ? 'problem' : 'problems'} to fix.`,
+    failed > 0
+      ? `${failed} ${failed === 1 ? 'problem' : 'problems'} to fix${warned > 0 ? `, and ${warnings}` : ''}.`
+      : warned > 0
+        ? `Everything checked is ready, with ${warnings}.`
+        : 'Everything checked is ready.',
   );
   return `${lines.join('\n')}\n`;
 }
+
+const MARKS: Readonly<Record<DoctorCheck['status'], string>> = {
+  pass: '✓',
+  warn: '!',
+  fail: '✗',
+  skip: '–',
+};
 
 function report(checks: readonly DoctorCheck[], project: DoctorReport['project']): DoctorReport {
   return {
@@ -229,6 +243,12 @@ function report(checks: readonly DoctorCheck[], project: DoctorReport['project']
 }
 
 const pass = (id: DoctorCheckId, message: string): DoctorCheck => ({ id, status: 'pass', message });
+const warn = (id: DoctorCheckId, message: string, fix: string): DoctorCheck => ({
+  id,
+  status: 'warn',
+  message,
+  fix,
+});
 const fail = (id: DoctorCheckId, message: string, fix: string): DoctorCheck => ({
   id,
   status: 'fail',
@@ -496,6 +516,23 @@ async function pythonPackageInstalled(dir: string): Promise<boolean> {
   return false;
 }
 
+/** `a`, `a or b`, `a, b or c`. */
+function orList(items: readonly string[]): string {
+  return items.length <= 1
+    ? (items[0] ?? '')
+    : `${items.slice(0, -1).join(', ')} or ${items[items.length - 1]}`;
+}
+
+/** The presets that take an LLM provider key, with the key's name, in preset order. */
+async function keyedPresets(
+  seam: DoctorSeam,
+): Promise<readonly { readonly name: string; readonly secret: string }[]> {
+  const presets = await (seam.presets ?? (() => loadProviderPresets()))();
+  return Object.values(presets).flatMap((p) =>
+    p.secret !== undefined ? [{ name: p.name, secret: p.secret }] : [],
+  );
+}
+
 /** A model key the presets name, set in the project's env files. Its value is never read out. */
 async function modelKeyCheck(
   dir: string,
@@ -503,10 +540,7 @@ async function modelKeyCheck(
   hostEnv: Readonly<Record<string, string | undefined>>,
   kindgi: Kindgi,
 ): Promise<DoctorCheck> {
-  const presets = await (seam.presets ?? (() => loadProviderPresets()))();
-  const names = [
-    ...new Set(Object.values(presets).flatMap((p) => (p.secret !== undefined ? [p.secret] : []))),
-  ];
+  const names = [...new Set((await keyedPresets(seam)).map((p) => p.secret))];
   const env = await readPackEnv({ packDir: dir, envName: LOCAL_ENV_NAME });
   const files = env.files.read.map((f) => displayEnvPath(dir, f)).join(' or ');
   const found = names.find((name) => (env.values[name] ?? '').trim() !== '');
@@ -519,10 +553,11 @@ async function modelKeyCheck(
   }
   const inShell = names.find((name) => (hostEnv[name] ?? '').trim() !== '');
   const want = names[0] ?? 'ANTHROPIC_API_KEY';
+  const others = names.slice(1);
   return fail(
     'model-key',
     `No model key in ${files} (looked for ${names.join(', ')})${inShell !== undefined ? `; ${inShell} is set in your shell, but kindgi dev reads keys from the project's env files` : ''}.`,
-    `With kindgi dev running: ${kindgi('secrets', 'set', want, '--env=local', '--scope=tenant')} (it prompts without echoing; or pipe it in with --from-stdin). Never paste a key into a chat.`,
+    `With kindgi dev running, set one LLM provider's key: ${kindgi('secrets', 'set', want, '--env=local', '--scope=tenant')}${others.length > 0 ? `, or the same with ${orList(others)}` : ''} (it prompts without echoing; or pipe it in with --from-stdin). Never paste a key into a chat.`,
   );
 }
 
@@ -606,17 +641,32 @@ async function providerCheck(
   apiUrl: string,
   token: string,
   kindgi: Kindgi,
+  seam: DoctorSeam,
 ): Promise<DoctorCheck> {
   try {
     const page = await ctx.clientFor(apiUrl, token).providers.list();
-    const ids = page.data.map((p) => (p as { id?: string }).id ?? '?');
+    const listed = page.data as readonly ListedProvider[];
+    const ids = listed.map((p) => p.id ?? '?');
     const models = ids.filter((id) => id !== DEV_ECHO_PROVIDER_ID);
-    const register = `Register one: ${kindgi('providers', 'register', '--preset=anthropic')} (its key must be set first; see Model key).`;
+    const presets = (await keyedPresets(seam)).map((p) => p.name);
+    const register =
+      presets.length > 1
+        ? `Register the provider whose key you set: ${kindgi('providers', 'register', '--preset=<preset>')}, where <preset> is ${orList(presets)} (see Model key).`
+        : `Register one: ${kindgi('providers', 'register', `--preset=${presets[0] ?? 'anthropic'}`)} (its key must be set first; see Model key).`;
     if (models.length > 0) {
-      return pass(
-        'provider',
-        `${models.length === 1 ? 'A provider is' : `${models.length} providers are`} registered: ${models.join(', ')}.`,
+      const registered = `${models.length === 1 ? 'A provider is' : `${models.length} providers are`} registered: ${models.join(', ')}.`;
+      const stale = staleDefaults(
+        listed,
+        await (seam.presets ?? (() => loadProviderPresets()))(),
+        kindgi,
       );
+      return stale.length === 0
+        ? pass('provider', registered)
+        : warn(
+            'provider',
+            [registered, ...stale.map((s) => s.message)].join(' '),
+            stale.map((s) => s.fix).join(' '),
+          );
     }
     return ids.length > 0
       ? fail(
@@ -632,6 +682,66 @@ async function providerCheck(
       'Run doctor again once kindgi dev has finished starting; if it persists, restart kindgi dev.',
     );
   }
+}
+
+/** A registered provider as `providers.list` answers it; a runtime before 0.1.4 sends no `defaultModel`. */
+interface ListedProvider {
+  readonly id?: string;
+  readonly models?: readonly { readonly name: string }[];
+  readonly defaultModel?: string;
+}
+
+/**
+ * Registrations made from a preset (the preset's provider id) whose
+ * agents that name no model land where the preset no longer would send
+ * them: on a model the preset dropped, or, for a registration with no
+ * default model, not on the preset's default.
+ */
+function staleDefaults(
+  listed: readonly ListedProvider[],
+  presets: Readonly<Record<string, ProviderPreset>>,
+  kindgi: Kindgi,
+): readonly { readonly message: string; readonly fix: string }[] {
+  const byId = new Map(Object.values(presets).map((p) => [p.metadata.id, p]));
+  return listed.flatMap((p) => {
+    const preset = p.id === undefined ? undefined : byId.get(p.id);
+    const names = (p.models ?? []).map((m) => m.name);
+    if (preset === undefined || names.length === 0) return [];
+    // As the router breaks a tie: the provider's default model, else the first by name.
+    const lands =
+      p.defaultModel !== undefined && names.includes(p.defaultModel)
+        ? p.defaultModel
+        : [...names].sort((a, b) => a.localeCompare(b))[0];
+    const register = kindgi(
+      'providers',
+      'register',
+      `--preset=${preset.name}`,
+      ...(preset.adapterConfig ?? []).map((s) => `--${s.key}=<${s.key}>`),
+    );
+    if (!preset.metadata.models.some((m) => m.name === lands)) {
+      return [
+        {
+          message: `On ${p.id}, an agent that names no model gets ${lands}, which the ${preset.name} preset no longer lists.`,
+          fix: `Re-register ${p.id} for the preset's current models: ${register}. Or name a model on your agents (preferredModel).`,
+        },
+      ];
+    }
+    const wanted = preset.metadata.defaultModel;
+    if (
+      p.defaultModel === undefined &&
+      wanted !== undefined &&
+      wanted !== lands &&
+      names.includes(wanted)
+    ) {
+      return [
+        {
+          message: `On ${p.id}, an agent that names no model gets ${lands}, the first by name: ${p.id} has no default model, and the ${preset.name} preset's is ${wanted}.`,
+          fix: `Re-register ${p.id}: ${register}. A runtime older than 0.1.4 doesn't keep a default model: there, name a model on your agents (preferredModel).`,
+        },
+      ];
+    }
+    return [];
+  });
 }
 
 // ---------- helpers ----------

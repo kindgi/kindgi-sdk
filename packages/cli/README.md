@@ -19,8 +19,10 @@ pnpm exec kindgi dev            # npm: npx --no kindgi dev
 Use the scoped name, `@kindgi/cli`: there is no unscoped `kindgi` package.
 
 **Requirements:** Node 22.12 or later, and Docker for `kindgi dev` (Docker
-Desktop, or a Docker engine on Linux). A Python pack also needs Python and
-the [`kindgi` Python SDK](../../sdks/python).
+Desktop, or a Docker engine on Linux). A Python pack needs Python and the
+[`kindgi` Python SDK](../../sdks/python), and gets this CLI from PyPI as
+`kindgi-cli`, with its own Node: `uv add --dev "kindgi-cli>=0.1,<0.2"`, then
+`uv run kindgi <command>`.
 
 ## The pack lifecycle
 
@@ -270,8 +272,8 @@ A turn the fallback answers carries a `fallback-provider` warning, which
 `kindgi runs start` prints. `kindgi providers unregister dev-echo` removes it
 for good.
 
-A preset's models carry their own output limit (Gemini 2.5: 65,536 tokens,
-thinking included). `--max-output-tokens=<n>` registers them with a lower
+A preset's models carry their own output limit (Gemini 3.8 Flash: 65,536
+tokens, thinking included). `--max-output-tokens=<n>` registers them with a lower
 or different cap.
 
 **Declared in the config**, `kindgi dev` registers them itself. Each project
@@ -284,7 +286,7 @@ export default {
   pack: { id: 'acme', version: '0.1.0' },
   providers: [
     { preset: 'anthropic' },                     // its key, ANTHROPIC_API_KEY, in the env files
-    { preset: 'gemini', project: 'acme-gcp', models: ['gemini-2.5-flash'] },
+    { preset: 'gemini', project: 'acme-gcp', models: ['gemini-3.8-flash'] },
     { spec: { /* a --spec body */ secret_ref: { name: 'QWEN_API_KEY' } } },
   ],
 };
@@ -404,10 +406,12 @@ data. `kindgi dev` runs it the same way, with the pack's own interpreter:
   it from a Node pack.
 - **Watch:** any `.py` file under the pack root (shared modules included)
   and `pyproject.toml`.
-- **The CLI:** a Python pack has no npm project, so it runs the published
-  CLI through npx (Node 22.12 needed): `npx --yes @kindgi/cli@0.1 <command>`, within
-  the CLI's minor, in the startup hints and in the `.mcp.json` entries
-  `kindgi mcp add` writes.
+- **The CLI:** a Python pack runs `kindgi-cli` from PyPI, the same CLI with
+  its own Node, pinned in its dev group (`kindgi-cli>=0.1,<0.2`), so it needs
+  no Node install. Run as `uv run kindgi <command>` (Poetry: `poetry run kindgi
+  <command>`), which is what the startup hints and the `.mcp.json` entries
+  `kindgi mcp add` writes say. The npm CLI still runs a Python pack:
+  `npx --yes @kindgi/cli@0.1 <command>`.
 
 ### Stopping
 
@@ -752,12 +756,17 @@ Inside a pack that `kindgi dev` runs, they find it on their own (see
 | `provenance` | `list`, `get <run-id>`: each run's graph of what ran; `export <run-id> --signing-key=<id>`, signed |
 | `memory facts` | `list` (by `--type`, `--scope`), `get <fact-id>`, `write --input=<json>`: the facts agents remember |
 | `conversations` | `list`, `get`, `open <agent-id> <version>`, `close`, `messages` |
+| `tokens` | API keys for you, a person (`--for=user:<id>`) or a service account (`--for=sa:<id>`): `create` (its secret shown once; `--role`, `--project`, `--expires`), `list`, `get`, `revoke` |
+| `service-accounts` | `create <name>` (with `--tenant-admin`, `--project=<id>:<role>`), `list`, `get`, `grant`, `ungrant`, `unregister` |
+| `people` | `add --name [--email]` (tenant admins), `list`, `get`, `grants <id>`, `grant`/`ungrant <id> --tenant-admin` (tenant admins) |
 | `runs` | `list`, `get`, `cancel`, `journal`, `stream` (one JSON event per line), `start`, `resume` |
 | `agents` | `list`, `get <agent-id> [<version>]`, `publish`, `derive`, `unregister <agent-id> <version>`, `versions`; which version runs where: `live`, `live-versions`, `promote`, `rollback`, `unpin`, `promotions` |
 | `tools` | `list`, `get`, `publish`, `unregister`, `versions`, `get-version`, `reinstate` |
 | `flows` | `list`, `get <flow-id> [<version>]`, `publish --spec=<json>`, `versions`, `unregister <flow-id> <version>`, `reinstate <flow-id> <version>` |
 | `guardrails` | `list`, `get`, `register`, `unregister` |
 | `providers` | `list`, `get`, `register`, `presets`, `unregister` |
+| `capabilities` | `list`, `get`: the features an agent can require, what each means, and your models that have them |
+| `artifacts` | `list` (by `--run`, `--project`, `--content-type`), `get`, `upload <file>`, `download <blob-id> [-o <file>]`, `delete`: files kept in the runtime, each in a project |
 | `adapters` | `prepare` |
 | `approvals` | `list`, `get`, `complete` |
 | `reviewers` | `list`, `get`, `register`, `unregister` |
@@ -778,9 +787,8 @@ false`).
 
 `kindgi <command> --help` prints a command's subcommands and flags.
 
-More of the API (superseding and searching memory, artifacts,
-proposals, observations, tokens and capabilities) has commands in
-progress. They're left out of `--help` until they work; until then, use
+More of the API (superseding and searching memory, proposals,
+observations and tokens) has commands in progress. They're left out of `--help` until they work; until then, use
 [`@kindgi/client`](../../sdks/typescript) for those resources.
 
 ## Auth and config

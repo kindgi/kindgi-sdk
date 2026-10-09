@@ -149,7 +149,9 @@ export interface DefineAgentSpec {
    * Required capabilities the agent needs from a `ModelProvider`.
    * Typically one entry: `[{ needs: [{ feature: 'tool-use' }] }]`
    * for a tool-calling agent, `[{ needs: [{ feature: 'structured-output' }] }]`
-   * for an agent that returns schema-constrained JSON. The router uses
+   * for an agent that should run on a model that can follow a JSON schema
+   * natively (its typed `output` is still checked by parse and repair, on
+   * every model). The router uses
    * the first entry to pick a compatible provider from the tenant's
    * `ProviderRegistry`.
    */

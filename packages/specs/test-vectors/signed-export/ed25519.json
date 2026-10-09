@@ -1,0 +1,29 @@
+{
+  "description": "A signed export (an audit bundle) signed with ed25519. \"valid\" checks out against \"publicKeyPem\"; \"tampered\" changed one byte of the bundle and must fail.",
+  "algorithm": "ed25519",
+  "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAebVWLo/mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ=\n-----END PUBLIC KEY-----\n",
+  "valid": {
+    "approvalId": "0b6e3c1e-2f4f-4a51-9d0e-7a1f2c3d4e5f",
+    "kind": "audit-bundle",
+    "bundle": "eyJhcHByb3ZhbElkIjoiMGI2ZTNjMWUtMmY0Zi00YTUxLTlkMGUtN2ExZjJjM2Q0ZTVmIiwiYnVuZGxlU2NoZW1hVmVyc2lvbiI6IjIuMC4wIiwiZGVjaXNpb24iOnsiZGVjaWRlZEF0IjoiMjAyNi0xMC0wN1QxMTo1OTowMC4wMDBaIiwiZGVjaXNpb24iOiJyZWplY3QiLCJyZXZpZXdlcklkIjoicmV2LTEifSwiZXhwb3J0ZWRBdCI6IjIwMjYtMTAtMDdUMTI6MDA6MDAuMDAwWiJ9",
+    "bundleSchemaVersion": "2.0.0",
+    "algorithm": "ed25519",
+    "signingKeyId": "ex_ZbYGc9btiEvwHCwi",
+    "signature": "auHSr03lOnru5Z8gTEuzYRU//5p4NqoeXUTNNM4XPKqcM8PCcMjj3I6ZKByve09LRQLgFfGqpQSIgpirptTuBg==",
+    "publicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAebVWLo/mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ=\n-----END PUBLIC KEY-----\n",
+    "canonicalization": "sorted-key-json",
+    "exportedAt": "2026-10-07T12:00:00.000Z"
+  },
+  "tampered": {
+    "approvalId": "0b6e3c1e-2f4f-4a51-9d0e-7a1f2c3d4e5f",
+    "kind": "audit-bundle",
+    "bundle": "eyJhcHByb3ZhbElkIjoiMGI2ZTNjMWUtMmY0Zi00YTUxLTlkMGUtN2ExZjJjM2Q0ZTVmIiwiYnVuZGxlU2NoZW1hVmVyc2lvbiI6IjIuMC4wIiwiZGVjaXNpb24iOnsiZGVjaWRlZEF0IjoiMjAyNi0xMC0wN1QxMTo1OTowMC4wMDBaIiwiZGVjaXNpb24iOiJSZWplY3QiLCJyZXZpZXdlcklkIjoicmV2LTEifSwiZXhwb3J0ZWRBdCI6IjIwMjYtMTAtMDdUMTI6MDA6MDAuMDAwWiJ9",
+    "bundleSchemaVersion": "2.0.0",
+    "algorithm": "ed25519",
+    "signingKeyId": "ex_ZbYGc9btiEvwHCwi",
+    "signature": "auHSr03lOnru5Z8gTEuzYRU//5p4NqoeXUTNNM4XPKqcM8PCcMjj3I6ZKByve09LRQLgFfGqpQSIgpirptTuBg==",
+    "publicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAebVWLo/mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ=\n-----END PUBLIC KEY-----\n",
+    "canonicalization": "sorted-key-json",
+    "exportedAt": "2026-10-07T12:00:00.000Z"
+  }
+}

@@ -10,12 +10,15 @@ import type {
   ConversationMessage,
   ConversationPageCursor,
 } from '@kindgi/agents';
+import { type ResourceRef, ref } from '@kindgi/authz';
 import type { ProjectBinding } from '@kindgi/platform';
 import type { RunBinding } from '@kindgi/runtime';
 import type { AgentId, ProjectId, Semver, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
+import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
+import { deniedBy } from './denied.js';
 import { clampLimit, decodeCursor, encodeCursor } from './pagination.js';
 import { parseListScope } from './scope-params.js';
 import { refuseMalformedUuidParam } from './uuid-param.js';
@@ -46,6 +49,12 @@ export function conversationsRouter(
    * tenant's projects, and an omitted one is the tenant's Default project.
    */
   projectBinding?: ProjectBinding,
+  /**
+   * With one (T243 A): reading a conversation or its messages needs `read`
+   * on its project (its agent, for one from before projects); opening or
+   * closing one needs `execute` on its agent, as starting a run does.
+   */
+  authorizer?: Authorizer,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -132,8 +141,12 @@ export function conversationsRouter(
             id: last.id as unknown as string,
           })
         : undefined;
+    const visible =
+      authorizer === undefined
+        ? data
+        : await authorizer.filterByCan(c, 'read', data, conversationRef);
     return c.json({
-      data: data.map(serializeConversation),
+      data: visible.map(serializeConversation),
       hasMore,
       ...(nextCursor !== undefined && { nextCursor }),
     });
@@ -150,6 +163,8 @@ export function conversationsRouter(
       c.status(statusFor(got.error.code) as never);
       return c.json(toWireError(got.error as never, requestId));
     }
+    const refused = await deniedBy(authorizer, c, 'read', conversationRef(got.value));
+    if (refused !== undefined) return refused;
     return c.json(serializeConversation(got.value));
   });
 
@@ -192,6 +207,13 @@ export function conversationsRouter(
     // Omitted: the tenant's Default project, as for a run. No Default (or
     // no project binding): no project, never a refusal.
     const projectId = supplied ?? (await projectBinding?.getDefault(tenantId))?.id;
+    const refused = await deniedBy(
+      authorizer,
+      c,
+      'execute',
+      ref('agent', parsed.value.agentId as unknown as string),
+    );
+    if (refused !== undefined) return refused;
 
     const opened = await conversationBinding.openConversation({
       tenantId,
@@ -224,6 +246,13 @@ export function conversationsRouter(
       c.status(statusFor(existing.error.code) as never);
       return c.json(toWireError(existing.error as never, requestId));
     }
+    const refused = await deniedBy(
+      authorizer,
+      c,
+      'execute',
+      ref('agent', existing.value.agentId as unknown as string),
+    );
+    if (refused !== undefined) return refused;
     // Close is idempotent — closing an already-closed conversation
     // returns 200 with the current row, no error and no timestamp bump.
     if (existing.value.closedAt !== undefined) {
@@ -291,6 +320,15 @@ export function conversationsRouter(
       sinceSequence = decoded + 1;
     }
 
+    if (authorizer !== undefined) {
+      const got = await conversationBinding.getConversation(tenantId, conversationId);
+      if (got.kind === 'err') {
+        c.status(statusFor(got.error.code) as never);
+        return c.json(toWireError(got.error as never, requestId));
+      }
+      const refused = await deniedBy(authorizer, c, 'read', conversationRef(got.value));
+      if (refused !== undefined) return refused;
+    }
     const result = await conversationBinding.readMessages({
       tenantId,
       conversationId,
@@ -315,6 +353,17 @@ export function conversationsRouter(
   });
 
   return r;
+}
+
+/**
+ * What a conversation is checked on: its project, or its agent for one
+ * opened before conversations recorded a project. (A `conversation`
+ * object has no parent tuple, so a check on it would refuse everyone.)
+ */
+function conversationRef(conv: Conversation): ResourceRef {
+  return conv.projectId !== undefined
+    ? ref('project', conv.projectId as unknown as string)
+    : ref('agent', conv.agentId as unknown as string);
 }
 
 // ============ serializers ============
