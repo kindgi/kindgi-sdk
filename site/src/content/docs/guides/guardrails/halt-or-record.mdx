@@ -113,8 +113,9 @@ them: there's no second attempt, escalation or compensating tool call.
 ## When the check can't run
 
 A guardrail whose check can't run at all (no check by that name is
-registered, its configuration is invalid, or an `llm-judge` guardrail's judge
-can't be routed to a model) never counts as passed:
+registered, its configuration is invalid, an `llm-judge` guardrail's judge
+can't be routed to a model, or the check throws: pack code that crashed, a
+pack service that couldn't be reached) never counts as passed:
 
 - With `halt`, the turn fails with `guardrail-violation`. Its `violations`
   is empty, and `evaluationErrors` names the guardrail and says why:

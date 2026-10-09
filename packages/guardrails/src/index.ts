@@ -69,6 +69,7 @@ export type {
 } from './types.js';
 export { BUILT_IN_GUARDRAIL_KINDS, BUILT_IN_ON_VIOLATIONS } from './types.js';
 export type {
+  CheckFailedError,
   InvalidCheckConfigError,
   InvalidCheckDefinitionError,
   InvalidGuardrailError,

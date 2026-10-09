@@ -193,6 +193,62 @@ describe('a halt guardrail whose check can’t run fails the turn (fails closed)
   });
 });
 
+describe('a check that throws is a check that couldn’t run', () => {
+  const crashing = (thrown: () => unknown): CheckRegistry => {
+    const checks = createCheckRegistry();
+    checks.register({
+      id: 'acme.crashes',
+      kind: 'zero-llm',
+      evaluate: async () => {
+        throw thrown();
+      },
+    } as never);
+    return checks;
+  };
+
+  test('halt: guardrail-violation, the thrown message in evaluationErrors (check-failed)', async () => {
+    const { ctx, seen } = turn(
+      [guardrail('acme.crashes', 'acme.crashes', 'halt')],
+      crashing(() => new Error('check-shape-invalid: no evaluate export')),
+    );
+    const payload = ((await run(ctx)) as AgentTurnFailure).payload;
+    expect(payload).toMatchObject({
+      code: 'guardrail-violation',
+      violations: [],
+      evaluationErrors: [
+        expect.objectContaining({
+          guardrailId: 'acme.crashes',
+          code: 'check-failed',
+          message: expect.stringContaining('check-shape-invalid: no evaluate export'),
+        }),
+      ],
+    });
+    expect(seen.events.map((e) => e.kind)).toEqual(['guardrail.error', 'turn.failed']);
+  });
+
+  test('log-only: the turn goes on, the error recorded', async () => {
+    const { ctx } = turn(
+      [guardrail('acme.crashes', 'acme.crashes', 'log-only')],
+      crashing(() => new Error('pack service unreachable')),
+    );
+    expect(await run(ctx)).toMatchObject({
+      blocking: 0,
+      errors: [expect.objectContaining({ code: 'check-failed', action: 'log-only' })],
+    });
+  });
+
+  test("the turn's own abort while a check runs propagates as it is, not as a guardrail error", async () => {
+    const { ctx, seen } = turn(
+      [guardrail('acme.crashes', 'acme.crashes', 'halt')],
+      crashing(() => ctx.turnAbort.signal.reason),
+    );
+    const reason = new Error('wall-clock budget exhausted');
+    ctx.turnAbort.abort(reason);
+    expect(await run(ctx)).toBe(reason);
+    expect(seen.events).toEqual([]);
+  });
+});
+
 describe('any other action: the turn goes on, and the error shows', () => {
   test('log-only: no failure; the event, the provenance node and the step’s output say so', async () => {
     const { ctx, seen } = turn(
