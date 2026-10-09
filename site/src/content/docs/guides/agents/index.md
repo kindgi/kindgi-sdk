@@ -28,8 +28,8 @@ like any other, with a journal of every model call and tool call.
 The examples use a pack named `acme` (from the `sample` template) with one more
 tool, `acme.lookup-order`, shown on [Write an agent](write-an-agent/). Where a
 real model matters, the output is from Claude Sonnet 5.5, or on older
-captures Claude Haiku 4.5 (retiring on or after 2026-10-15; outputs on newer
-models differ in wording, not shape), registered with
+captures Claude Haiku 4.5 (outputs on newer models differ in wording, not
+shape), registered with
 `kindgi providers register --preset=anthropic` (see
 [Connect Anthropic](../models/anthropic/)). Without a model, `dev-echo`
 answers.
