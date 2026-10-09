@@ -1,0 +1,74 @@
+---
+title: Keep files with a run
+description: Store a file in the runtime as an artifact, with the run it came from or in a project, and list, download and delete it.
+sidebar:
+  order: 9
+---
+
+An **artifact** is a file kept in the runtime: a report a run's output became,
+a document your app sent in, an export. Each one belongs to a project, and
+can name the run it came from. Its name, type, size and sha256 are kept in
+the runtime's database; its bytes on disk or in a Google Cloud Storage
+bucket ([Turn them on](#turn-them-on)).
+
+## Upload one
+
+```sh
+kindgi artifacts upload report.pdf --run=<run-id> --content-type=application/pdf --tag=kind=summary
+```
+
+It prints the artifact's record, with its `blobId`.
+
+- **Its project:** with `--run`, the run's project; else `--project`'s; else
+  the tenant's Default project. A `--project` that isn't the run's is
+  refused, and so is a run that doesn't exist (`404 run-not-found`).
+- **Its name** is the file's, unless `--name` gives another. `--content-type`
+  is `application/octet-stream` unless you say. `--tag=key=value` labels it
+  (repeatable).
+- **Its size:** the runtime refuses a bigger upload than its cap, 100 MB by
+  default (`413 artifact-too-large`, with the cap in `details.maxBytes`).
+
+From your app, `artifacts.upload` (TypeScript) sends the file; `download`
+streams it back, and `head` reads what's kept without the bytes.
+
+## Find and download them
+
+```sh
+kindgi artifacts list --run=<run-id> --table
+kindgi artifacts get <blob-id>
+kindgi artifacts download <blob-id> -o report.pdf
+```
+
+`list` is newest first; `--run`, `--project` and `--content-type` narrow it.
+`get` gives an artifact's name, type, size and sha256, without its bytes.
+`download` writes the file under its own name in this directory unless `-o`
+names one, and keeps a file that's already there unless you add `--force`.
+
+With [authorization](../../../deploy/authorization/) on, listing and
+downloading need `read` on the artifact's project, and uploading and deleting
+need `write`. An artifact you can't read answers `404`, as if it weren't
+there, and lists leave it out.
+
+## Delete one
+
+```sh
+kindgi artifacts delete <blob-id>
+```
+
+It's gone from lists and downloads at once. Its record and bytes stay until a
+retention policy on `artifact` purges them
+([Keep and purge deleted data](../../../deploy/retention/)).
+
+## Turn them on
+
+The runtime keeps artifacts once `KINDGI_ARTIFACTS` says where their bytes
+go:
+
+- `local:<absolute directory>`: a directory on the runtime's machine;
+- `gcs:<bucket>[/<prefix>]`: a Google Cloud Storage bucket, reached with the
+  runtime's own Google identity (Application Default Credentials), so there's
+  no key to store.
+
+Without it, the runtime serves no artifacts. `kindgi dev` keeps them in the
+pack's `.kindgi/dev/artifacts`. `KINDGI_ARTIFACT_MAX_BYTES` sets the upload
+cap. The startup output says where artifacts go, or that they're off.

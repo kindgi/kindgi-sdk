@@ -24,6 +24,8 @@ it, follows it, and reads what it returned; the journal records every step.
   a run.
 - [Show runs in your app](show-runs-in-your-app/): keep a run's id on your
   own row, and read the rest through the API, not Kindgi's database.
+- [Keep files with a run](keep-files-with-a-run/): store a file as an
+  artifact, with its run or in a project, and download it later.
 
 The examples use the flows from the [flow guides](../flows/), and a client
 for the Kindgi API: `@kindgi/sdk/client` in TypeScript, `kindgi.client` in
