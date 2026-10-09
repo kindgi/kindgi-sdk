@@ -42,14 +42,14 @@ const login: LeafCommand = {
       return {
         kind: 'error',
         stderr: 'Missing --url=<api-url> (or KINDGI_API_URL / existing config).\n',
-        exitCode: 1,
+        exitCode: 2,
       };
     }
     if (typeof token !== 'string' || token === '') {
       return {
         kind: 'error',
         stderr: 'Missing --token=<api-token> (or KINDGI_API_TOKEN / existing config).\n',
-        exitCode: 1,
+        exitCode: 2,
       };
     }
     const path = await saveHomeConfig({ apiUrl: url, token }, ctx.home);

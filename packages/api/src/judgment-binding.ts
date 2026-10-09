@@ -279,6 +279,13 @@ export interface JudgedRunContext {
   readonly sessionApproval?: { readonly approved: boolean; readonly rationale?: string };
   /** For a flow run: what it did (see `JudgedFlowContext`). */
   readonly flow?: JudgedFlowContext;
+  /**
+   * The env values each tool's calls were sent (`needsSpec.env`), by tool
+   * id: its first call's, as the run recorded them. A replay sends them to
+   * a read-only tool it runs live, so the tool reads the config the run
+   * saw, not today's. Absent for a run from before env was recorded.
+   */
+  readonly toolEnv?: Readonly<Record<string, Readonly<Record<string, string>>>>;
 }
 
 /** One tool call a judged run made, and its result. */

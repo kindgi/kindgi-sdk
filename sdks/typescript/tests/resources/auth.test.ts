@@ -50,4 +50,20 @@ describe('auth — wire round-trips', () => {
       'POST /v1/auth/logout',
     ]);
   });
+
+  it('signInOptions: the email goes in the query; no email, no query', async () => {
+    const option = { providerId: 'acme-okta', displayName: 'Acme Okta', signInUrl: '/auth/x' };
+    const stub = recordingFetch([
+      { status: 200, body: JSON.stringify({ data: [option] }) },
+      { status: 200, body: JSON.stringify({ data: [] }) },
+    ]);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    const found = await client.auth.signInOptions({ email: 'alice@acme.com' });
+    expect(found.data).toEqual([option]);
+    await client.auth.signInOptions();
+    const urls = stub.calls.map((c) => new URL(c.url));
+    expect(urls[0]?.pathname).toBe('/v1/auth/sign-in-options');
+    expect(urls[0]?.searchParams.get('email')).toBe('alice@acme.com');
+    expect(urls[1]?.search).toBe('');
+  });
 });

@@ -31,6 +31,7 @@ import type {
   LogoutResult,
   RefreshResult,
   RegisterIdentityProviderResult,
+  SignInOptions,
   UnregisterIdentityProviderResult,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
@@ -48,9 +49,18 @@ export type CallbackInput = CallbackBody;
 export type CallbackResultShape = CallbackResult;
 export type RefreshResultShape = RefreshResult;
 export type LogoutResultShape = LogoutResult;
+export type SignInOptionsResult = SignInOptions;
 
 export interface AuthClient {
   readonly providers: AuthProvidersClient;
+  /**
+   * How a person can sign in, before anyone is signed in (no credential
+   * needed): the identity providers for the email's domain, or, with no
+   * email, a single-tenant deployment's sign-in buttons. Each has a
+   * `signInUrl` for the browser.
+   * @wire GET /v1/auth/sign-in-options
+   */
+  signInOptions(input?: { readonly email?: string }): Promise<SignInOptionsResult>;
   /**
    * Initiate an OAuth login flow. Returns the URL to redirect the
    * browser to. Machine-to-machine callers typically don't use this
@@ -123,6 +133,13 @@ export function makeAuthClient(transport: Transport): AuthClient {
           ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
         });
       },
+    },
+    async signInOptions(input) {
+      return transport.request<SignInOptionsResult>({
+        method: 'GET',
+        path: '/v1/auth/sign-in-options',
+        ...(input?.email !== undefined && { query: { email: input.email } }),
+      });
     },
     async login(providerId, input, options) {
       return transport.request<LoginResult>({

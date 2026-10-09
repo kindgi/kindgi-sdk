@@ -120,10 +120,20 @@ export interface TriggerFire {
   readonly scheduledFor?: string;
   readonly firedAt: string;
   /**
+   * `skipped-erasure`: the person the fire acts for is being erased (the
+   * run start answered `erasure-in-progress`). Skipped fires never count
+   * toward the auto-pause; refused and failed ones do.
    * `skipped`: what the target waits for wasn't there (an `improve`
    * schedule's threshold, or its monthly cap), as `detail` says.
    */
-  readonly outcome: 'pending' | 'started' | 'skipped-overlap' | 'skipped' | 'refused' | 'failed';
+  readonly outcome:
+    | 'pending'
+    | 'started'
+    | 'skipped-overlap'
+    | 'skipped-erasure'
+    | 'skipped'
+    | 'refused'
+    | 'failed';
   /** The run it started, when it started one. */
   readonly runId?: string;
   /** The improvement pass it started, for an `improve` schedule. */
@@ -261,7 +271,7 @@ export interface CronTriggerRecord extends TriggerRecordBase {
   readonly overlap: ScheduleOverlap;
   readonly startingDeadlineSeconds: number;
   readonly nextFireAt: string | null;
-  /** Why the runtime paused it (repeated refused or failed fires), when it did. */
+  /** Why the runtime paused it (repeated refused or failed fires; skipped ones never count), when it did. */
   readonly statusReason?: string;
   /** The next occurrences, when the read asked for them (`GetTriggerInput.upcoming`). */
   readonly upcoming?: readonly string[];

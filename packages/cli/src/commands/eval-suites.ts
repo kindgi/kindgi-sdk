@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { CommandContext } from '../context.js';
+import { UsageError } from '../errors.js';
 import {
   integerFlag,
   listFlag,
@@ -33,7 +34,7 @@ function suiteVersion(ctx: CommandContext): string | undefined {
 
 function requiredSuiteVersion(ctx: CommandContext): string {
   const version = suiteVersion(ctx);
-  if (version === undefined) throw new Error('--suite-version=<semver> is required');
+  if (version === undefined) throw new UsageError('--suite-version=<semver> is required');
   return version;
 }
 
@@ -72,7 +73,7 @@ const list: LeafCommand = {
     runSdk(ctx, 'eval-suites list', async () => {
       const kind = stringFlag(ctx, 'kind');
       if (kind !== undefined && !(KINDS as readonly string[]).includes(kind)) {
-        throw new Error(`--kind must be one of ${KINDS.join(', ')}, got "${kind}"`);
+        throw new UsageError(`--kind must be one of ${KINDS.join(', ')}, got "${kind}"`);
       }
       const projectId = stringFlag(ctx, 'project');
       const limit = integerFlag(ctx, 'limit');
@@ -149,18 +150,18 @@ const fromJudgments: LeafCommand = {
       const suiteId = requiredPositional(ctx, 0, 'suite-id');
       const version = requiredSuiteVersion(ctx);
       const projectId = stringFlag(ctx, 'project');
-      if (projectId === undefined) throw new Error('--project=<id> is required');
+      if (projectId === undefined) throw new UsageError('--project=<id> is required');
       const agent = stringFlag(ctx, 'agent');
       const flow = stringFlag(ctx, 'flow');
       if ((agent === undefined) === (flow === undefined)) {
-        throw new Error('Give exactly one of --agent=<id> or --flow=<id>');
+        throw new UsageError('Give exactly one of --agent=<id> or --flow=<id>');
       }
       if (stringFlag(ctx, 'agent-version') !== undefined && agent === undefined) {
-        throw new Error('--agent-version needs --agent');
+        throw new UsageError('--agent-version needs --agent');
       }
       const minJudgments = integerFlag(ctx, 'min-judgments');
       if (minJudgments !== undefined && minJudgments < 1) {
-        throw new Error('--min-judgments must be 1 or more');
+        throw new UsageError('--min-judgments must be 1 or more');
       }
       const classes = listFlag(ctx, 'class');
       const segments = segmentsFlag(ctx);

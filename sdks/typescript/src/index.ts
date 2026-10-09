@@ -424,6 +424,7 @@ export type {
   LoginInput,
   LoginResult,
   LogoutResultShape,
+  SignInOptionsResult,
   RefreshResultShape,
 } from './resources/auth.js';
 export type { ListRunsFilter, RunPage } from './resources/runs.js';
@@ -549,6 +550,8 @@ export type {
   PackManifest,
   PackToolBinding,
   Page,
+  PersonGrant,
+  PersonGrants,
   PlannedMemoryWrite,
   PlannedNode,
   PlannedRetrieval,
@@ -587,6 +590,7 @@ export type {
   RetrievalResult,
   RevokeSessionsResult,
   RouteResult,
+  UnregisterUserResult,
   CreateJudgeClassInput,
   CreateJudgmentInput,
   CreateServiceAccountInput,
