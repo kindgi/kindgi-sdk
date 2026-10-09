@@ -39,4 +39,5 @@ version of Kindgi these docs describe.
   the model and tool calls behind it, and what each call cost.
 - [Evals](evals/judge-a-runs-output/): judge runs' answers, build a test set
   from them, change a prompt or a setting without a deploy, compare the new
-  version on the test set, and release it.
+  version on the test set, and release it; propose a change through review,
+  or let a pass look for a better setting or prompt.
