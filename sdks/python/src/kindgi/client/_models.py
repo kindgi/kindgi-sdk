@@ -3454,9 +3454,9 @@ class RetrieveMemoryResult(BaseModel):
     results: list[RetrievalHit]
 
 
-class MemoryErasureSelector1(BaseModel):
+class MemoryErasureFactSelector(BaseModel):
     """
-    Whose words to erase: one fact (`factId`), a person (`subject`: an app's end user `participant`, a Kindgi `user`, or an `external` subject facts name), or one conversation (`conversationId`).
+    One fact.
     """
 
     model_config = ConfigDict(
@@ -3475,9 +3475,9 @@ class Subject(BaseModel):
     id: Annotated[str, Field(max_length=256, min_length=1)]
 
 
-class MemoryErasureSelector2(BaseModel):
+class MemoryErasureSubjectSelector(BaseModel):
     """
-    Whose words to erase: one fact (`factId`), a person (`subject`: an app's end user `participant`, a Kindgi `user`, or an `external` subject facts name), or one conversation (`conversationId`).
+    A person: an app's end user (`participant`), a Kindgi `user`, or an `external` subject facts name.
     """
 
     model_config = ConfigDict(
@@ -3487,9 +3487,9 @@ class MemoryErasureSelector2(BaseModel):
     subject: Subject
 
 
-class MemoryErasureSelector3(BaseModel):
+class MemoryErasureConversationSelector(BaseModel):
     """
-    Whose words to erase: one fact (`factId`), a person (`subject`: an app's end user `participant`, a Kindgi `user`, or an `external` subject facts name), or one conversation (`conversationId`).
+    One conversation.
     """
 
     model_config = ConfigDict(
@@ -3497,6 +3497,19 @@ class MemoryErasureSelector3(BaseModel):
         populate_by_name=True,
     )
     conversation_id: Annotated[str, Field(alias="conversationId", max_length=256, min_length=1)]
+
+
+class CreateMemoryErasureBody(
+    RootModel[
+        MemoryErasureFactSelector | MemoryErasureSubjectSelector | MemoryErasureConversationSelector
+    ]
+):
+    root: (
+        MemoryErasureFactSelector | MemoryErasureSubjectSelector | MemoryErasureConversationSelector
+    )
+    """
+    Whose words to erase: one fact (`factId`), a person (`subject`: an app's end user `participant`, a Kindgi `user`, or an `external` subject facts name), or one conversation (`conversationId`).
+    """
 
 
 CountsAdditionalProperty = TypeAliasType("CountsAdditionalProperty", Annotated[int, Field(ge=0)])
@@ -3525,7 +3538,12 @@ class MemoryErasure(BaseModel):
         Literal["fact", "participant", "user", "external", "conversation"],
         Field(alias="selectorKind"),
     ]
-    selector: MemoryErasureSelector1 | MemoryErasureSelector2 | MemoryErasureSelector3 | None = None
+    selector: (
+        MemoryErasureFactSelector
+        | MemoryErasureSubjectSelector
+        | MemoryErasureConversationSelector
+        | None
+    ) = None
     """
     Only while it runs: a completed or failed erasure keeps no identifier.
     """

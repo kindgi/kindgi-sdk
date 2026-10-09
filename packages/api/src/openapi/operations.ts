@@ -3148,7 +3148,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     tags: ['memory'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('MemoryErasureSelector') },
+    requestBody: { required: true, schema: ref('CreateMemoryErasureBody') },
     responses: {
       '202': { description: 'Started.', schema: ref('MemoryErasureCreated') },
       ...CommonMutationErrors,

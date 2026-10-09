@@ -2954,7 +2954,7 @@ class MemoryResource:
 
     def create_erasure(
         self,
-        body: _models.MemoryErasureSelector | Mapping[str, Any] | None = None,
+        body: _models.CreateMemoryErasureBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
@@ -2970,7 +2970,7 @@ class MemoryResource:
             path={},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.MemoryErasureSelector, body, fields),
+            body=_body(_models.CreateMemoryErasureBody, body, fields),
             response=_models.MemoryErasureCreated,
             timeout=timeout,
         )
@@ -9586,7 +9586,7 @@ class AsyncMemoryResource:
 
     async def create_erasure(
         self,
-        body: _models.MemoryErasureSelector | Mapping[str, Any] | None = None,
+        body: _models.CreateMemoryErasureBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
@@ -9602,7 +9602,7 @@ class AsyncMemoryResource:
             path={},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.MemoryErasureSelector, body, fields),
+            body=_body(_models.CreateMemoryErasureBody, body, fields),
             response=_models.MemoryErasureCreated,
             timeout=timeout,
         )

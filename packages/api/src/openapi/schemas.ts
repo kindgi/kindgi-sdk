@@ -3791,40 +3791,64 @@ const ErasureStatusSchema: JsonSchema = {
     "`waiting-on-run`: a turn of the person's sits in a flow that serves other people; the erasure waits for it (`waitingOn`) until its deadline, then cancels it.",
 };
 
+/** Erase one fact. */
+export const MemoryErasureFactSelectorSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['factId'],
+  description: 'One fact.',
+  properties: { factId: { type: 'string', minLength: 1, maxLength: 256 } },
+};
+
+/** Erase a person's words. */
+export const MemoryErasureSubjectSelectorSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['subject'],
+  description:
+    "A person: an app's end user (`participant`), a Kindgi `user`, or an `external` subject facts name.",
+  properties: {
+    subject: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind', 'id'],
+      properties: {
+        kind: { type: 'string', enum: ['participant', 'user', 'external'] },
+        id: { type: 'string', minLength: 1, maxLength: 256 },
+      },
+    },
+  },
+};
+
+/** Erase one conversation. */
+export const MemoryErasureConversationSelectorSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['conversationId'],
+  description: 'One conversation.',
+  properties: { conversationId: { type: 'string', minLength: 1, maxLength: 256 } },
+};
+
+const MEMORY_ERASURE_SELECTORS = [
+  { $ref: '#/components/schemas/MemoryErasureFactSelector' },
+  { $ref: '#/components/schemas/MemoryErasureSubjectSelector' },
+  { $ref: '#/components/schemas/MemoryErasureConversationSelector' },
+];
+
 /** Whose words to erase: exactly one of a fact, a person or a conversation. */
 export const MemoryErasureSelectorSchema: JsonSchema = {
   description:
     "Whose words to erase: one fact (`factId`), a person (`subject`: an app's end user `participant`, a Kindgi `user`, or an `external` subject facts name), or one conversation (`conversationId`).",
-  oneOf: [
-    {
-      type: 'object',
-      additionalProperties: false,
-      required: ['factId'],
-      properties: { factId: { type: 'string', minLength: 1, maxLength: 256 } },
-    },
-    {
-      type: 'object',
-      additionalProperties: false,
-      required: ['subject'],
-      properties: {
-        subject: {
-          type: 'object',
-          additionalProperties: false,
-          required: ['kind', 'id'],
-          properties: {
-            kind: { type: 'string', enum: ['participant', 'user', 'external'] },
-            id: { type: 'string', minLength: 1, maxLength: 256 },
-          },
-        },
-      },
-    },
-    {
-      type: 'object',
-      additionalProperties: false,
-      required: ['conversationId'],
-      properties: { conversationId: { type: 'string', minLength: 1, maxLength: 256 } },
-    },
-  ],
+  oneOf: MEMORY_ERASURE_SELECTORS,
+};
+
+// Its own schema, used only as the request body: `MemoryErasure` names
+// `MemoryErasureSelector` too, and a union other schemas name gets inlined
+// away by the Python generator (as `RegisterIdentityProviderBody`).
+export const CreateMemoryErasureBodySchema: JsonSchema = {
+  description:
+    "Whose words to erase: one fact (`factId`), a person (`subject`: an app's end user `participant`, a Kindgi `user`, or an `external` subject facts name), or one conversation (`conversationId`).",
+  oneOf: MEMORY_ERASURE_SELECTORS,
 };
 
 export const MemoryErasureSchema: JsonSchema = {
@@ -9810,7 +9834,11 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RetrieveMemoryBody', RetrieveMemoryBodySchema],
   ['RetrievalHit', RetrievalHitSchema],
   ['RetrieveMemoryResult', RetrieveMemoryResultSchema],
+  ['MemoryErasureFactSelector', MemoryErasureFactSelectorSchema],
+  ['MemoryErasureSubjectSelector', MemoryErasureSubjectSelectorSchema],
+  ['MemoryErasureConversationSelector', MemoryErasureConversationSelectorSchema],
   ['MemoryErasureSelector', MemoryErasureSelectorSchema],
+  ['CreateMemoryErasureBody', CreateMemoryErasureBodySchema],
   ['MemoryErasure', MemoryErasureSchema],
   ['MemoryErasureCreated', MemoryErasureCreatedSchema],
   ['MemoryErasurePage', MemoryErasurePageSchema],

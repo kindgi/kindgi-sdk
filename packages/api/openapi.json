@@ -7304,68 +7304,94 @@
           }
         }
       },
+      "MemoryErasureFactSelector": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "factId"
+        ],
+        "description": "One fact.",
+        "properties": {
+          "factId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        }
+      },
+      "MemoryErasureSubjectSelector": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "subject"
+        ],
+        "description": "A person: an app's end user (`participant`), a Kindgi `user`, or an `external` subject facts name.",
+        "properties": {
+          "subject": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "id"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "participant",
+                  "user",
+                  "external"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              }
+            }
+          }
+        }
+      },
+      "MemoryErasureConversationSelector": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "conversationId"
+        ],
+        "description": "One conversation.",
+        "properties": {
+          "conversationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        }
+      },
       "MemoryErasureSelector": {
         "description": "Whose words to erase: one fact (`factId`), a person (`subject`: an app's end user `participant`, a Kindgi `user`, or an `external` subject facts name), or one conversation (`conversationId`).",
         "oneOf": [
           {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "factId"
-            ],
-            "properties": {
-              "factId": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 256
-              }
-            }
+            "$ref": "#/components/schemas/MemoryErasureFactSelector"
           },
           {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "subject"
-            ],
-            "properties": {
-              "subject": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "kind",
-                  "id"
-                ],
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "participant",
-                      "user",
-                      "external"
-                    ]
-                  },
-                  "id": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 256
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/schemas/MemoryErasureSubjectSelector"
           },
           {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "conversationId"
-            ],
-            "properties": {
-              "conversationId": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 256
-              }
-            }
+            "$ref": "#/components/schemas/MemoryErasureConversationSelector"
+          }
+        ]
+      },
+      "CreateMemoryErasureBody": {
+        "description": "Whose words to erase: one fact (`factId`), a person (`subject`: an app's end user `participant`, a Kindgi `user`, or an `external` subject facts name), or one conversation (`conversationId`).",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/MemoryErasureFactSelector"
+          },
+          {
+            "$ref": "#/components/schemas/MemoryErasureSubjectSelector"
+          },
+          {
+            "$ref": "#/components/schemas/MemoryErasureConversationSelector"
           }
         ]
       },
@@ -25824,7 +25850,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/MemoryErasureSelector"
+                "$ref": "#/components/schemas/CreateMemoryErasureBody"
               }
             }
           }
