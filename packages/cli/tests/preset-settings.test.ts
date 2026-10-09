@@ -110,6 +110,35 @@ describe('one table', () => {
       ),
     ).rejects.toThrow('"in" may only be "metadata", for "region"');
   });
+
+  test("a preset's region is its own, or the caller's and then never in the file", async () => {
+    const file = (preset: Record<string, unknown>) => ({
+      readdir: async () => ['bad.json'],
+      readFile: async () =>
+        JSON.stringify({
+          name: 'bad',
+          description: 'd',
+          adapterId: 'a',
+          pricesCheckedAt: '2026-10-09',
+          ...preset,
+        }),
+    });
+    const fromCaller = [{ key: 'region', description: 'd', in: 'metadata' }];
+    await expect(
+      loadProviderPresets(
+        '/presets',
+        file({
+          adapterConfig: fromCaller,
+          metadata: { id: 'bad', region: 'us-east-2', models: [{ name: 'm' }] },
+        }),
+      ),
+    ).rejects.toThrow('"metadata.region" comes from --region');
+    await expect(
+      loadProviderPresets('/presets', file({ metadata: { id: 'bad', models: [{ name: 'm' }] } })),
+    ).rejects.toThrow('"metadata.region" must be a non-empty string');
+    const { bedrock } = await loadProviderPresets();
+    expect(bedrock?.metadata).not.toHaveProperty('region');
+  });
 });
 
 describe('kindgi providers register --preset', () => {
@@ -236,6 +265,10 @@ describe('the vendors’ prices (checked 2026-10-09)', () => {
 
   test("bedrock: AWS's on-demand prices for the US cross-region profiles (Price List API, model cards)", async () => {
     const { bedrock } = await loadProviderPresets();
+    // Sonnet 5.5 has no long-context tier: Anthropic bills its whole 1M window at the standard
+    // rates (its pricing page, "Long context pricing"), and Bedrock's US profiles are those rates
+    // plus the 10% regional premium. GPT-6's cache writes are 1.25x input, as OpenAI lists them.
+    // Each was read on 2026-10-09.
     expect(pricesOf(bedrock)).toEqual({
       'us.anthropic.claude-sonnet-5-5': [2.2, 0.11, 2.75, 11],
       'us.amazon.nova-pro-v1:0': [0.8, 0.2, 0, 3.2],

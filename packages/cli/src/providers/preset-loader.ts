@@ -158,6 +158,18 @@ function checkPreset(input: unknown): ProviderPreset | string {
   ) {
     return '"metadata" must have an id and at least one named model';
   }
+  // The region is the preset's own, or the caller's (`--region`) and then never the preset's,
+  // so nobody takes a value that's never sent for a fallback.
+  const region = (metadata as { readonly region?: unknown }).region;
+  const regionFromCaller = ((p.adapterConfig ?? []) as readonly PresetSetting[]).some(
+    (s) => s.key === 'region' && s.in === 'metadata',
+  );
+  if (regionFromCaller && region !== undefined) {
+    return '"metadata.region" comes from --region (its "adapterConfig" setting): leave it out';
+  }
+  if (!regionFromCaller && (typeof region !== 'string' || region === '')) {
+    return '"metadata.region" must be a non-empty string, or an "adapterConfig" setting "region" with "in": "metadata"';
+  }
   const defaultModel = (metadata as { readonly defaultModel?: unknown }).defaultModel;
   if (
     defaultModel !== undefined &&
