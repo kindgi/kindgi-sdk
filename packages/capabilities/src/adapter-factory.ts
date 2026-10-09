@@ -82,7 +82,9 @@ export interface AdapterConfigCheckInput {
 export type AdapterIdentitiesPresent = { readonly [K in keyof AdapterIdentities]-?: boolean };
 
 /** `identities`, as the check input names them: which are there. */
-export function identitiesPresent(identities: AdapterIdentities | undefined): AdapterIdentitiesPresent {
+export function identitiesPresent(
+  identities: AdapterIdentities | undefined,
+): AdapterIdentitiesPresent {
   return { azure: identities?.azure !== undefined, aws: identities?.aws !== undefined };
 }
 
@@ -261,7 +263,10 @@ export function createAdapterFactoryRegistry(
         `AdapterFactoryRegistry: "${entry.adapterId}" is already registered. Duplicate adapter registration at boot indicates a wiring bug.`,
       );
     }
-    entries.set(entry.adapterId, identities === undefined ? entry : withIdentities(entry, identities));
+    entries.set(
+      entry.adapterId,
+      identities === undefined ? entry : withIdentities(entry, identities),
+    );
   }
 
   for (const entry of seed) register(entry);
