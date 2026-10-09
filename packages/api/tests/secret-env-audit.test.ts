@@ -16,11 +16,12 @@ import { describe, expect, test } from 'vitest';
 
 import type { AuditEvent, AuditEventBinding } from '@kindgi/audit-events';
 import { createInMemoryAuditEventBinding } from '@kindgi/audit-events-inmemory';
+import { EVIDENCE_KINDS } from '@kindgi/compliance';
 import type { ApiTokenId, ProjectId, TenantId, UserId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
-import { createApp } from '../src/index.js';
+import { WRITE_AUDIT_KINDS, createApp } from '../src/index.js';
 import type { EnvBinding, RunHandlerBinding, SecretBinding, TokenResolver } from '../src/index.js';
 
 const tenantId = randomUUID() as TenantId;
@@ -291,5 +292,25 @@ describe('best effort', () => {
     } as AuditEventBinding;
     const { call } = harness({}, failing);
     expect(await call('POST', '/v1/secrets', setBody())).toBe(201);
+  });
+});
+
+describe('WRITE_AUDIT_KINDS', () => {
+  test('lists every kind the routes write, each one a compliance evidence kind', () => {
+    expect([...WRITE_AUDIT_KINDS].sort()).toEqual(
+      [
+        'env-deleted',
+        'env-set',
+        'secret-hard-revoked',
+        'secret-revoked',
+        'secret-rotated',
+        'secret-rotation-failed',
+        'secret-rotation-started',
+        'secret-set',
+      ].sort(),
+    );
+    for (const kind of WRITE_AUDIT_KINDS) {
+      expect(EVIDENCE_KINDS as readonly string[]).toContain(kind);
+    }
   });
 });

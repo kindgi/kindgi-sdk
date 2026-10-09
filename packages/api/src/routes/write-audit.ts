@@ -11,16 +11,23 @@ import type { EnvName } from '@kindgi/types';
 import { callerIdentity } from '../caller.js';
 import type { AppEnv } from '../types.js';
 
-/** The secret and env writes the API records (the compliance lens's own kinds). */
-export type WriteAuditKind =
-  | 'secret-set'
-  | 'secret-rotated'
-  | 'secret-rotation-started'
-  | 'secret-rotation-failed'
-  | 'secret-revoked'
-  | 'secret-hard-revoked'
-  | 'env-set'
-  | 'env-deleted';
+/**
+ * Every kind of record the API's secret and env routes write (the
+ * compliance lens's own kinds). A deployment's retention classifier should
+ * give each a policy; one it doesn't list falls to its default.
+ */
+export const WRITE_AUDIT_KINDS = [
+  'secret-set',
+  'secret-rotated',
+  'secret-rotation-started',
+  'secret-rotation-failed',
+  'secret-revoked',
+  'secret-hard-revoked',
+  'env-set',
+  'env-deleted',
+] as const;
+
+export type WriteAuditKind = (typeof WRITE_AUDIT_KINDS)[number];
 
 export interface WriteAuditInput {
   readonly kind: WriteAuditKind;
