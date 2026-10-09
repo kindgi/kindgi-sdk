@@ -5,6 +5,7 @@ import { Hono } from 'hono';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { IdentityProviderBinding, SignInOption } from '../identity-provider-binding.js';
+import { type RateLimitStore, createInMemoryRateLimitStore } from '../rate-limit-store.js';
 import type { AppEnv } from '../types.js';
 
 /**
@@ -52,12 +53,18 @@ export interface SignInOptionsRateLimit {
    * passes its own.
    */
   readonly clientKey?: (request: Request) => string;
+  /**
+   * Where the counts live. Default: this process's memory, so each
+   * instance counts on its own (N instances let N × `limit` through). A
+   * deployment with several instances passes one they share. If it fails,
+   * the lookup is answered (the limit is a speed bump, not a lock) and the
+   * failure logged.
+   */
+  readonly store?: RateLimitStore;
 }
 
 const DEFAULT_LIMIT = 30;
 const DEFAULT_WINDOW_MS = 60_000;
-// The bucket map is pruned once it holds this many clients.
-const MAX_TRACKED_CLIENTS = 10_000;
 
 // One `@`, a non-empty local part, and a domain with a dot.
 const EMAIL_RE = /^[^\s@]+@([^\s@]+\.[^\s@]+)$/;
@@ -67,21 +74,24 @@ export function signInOptionsRouter(options: SignInOptionsRouteOptions): Hono<Ap
   const limit = options.rateLimit?.limit ?? DEFAULT_LIMIT;
   const windowMs = options.rateLimit?.windowMs ?? DEFAULT_WINDOW_MS;
   const clientKey = options.rateLimit?.clientKey ?? defaultClientKey;
-  const buckets = new Map<string, { windowStart: number; count: number }>();
+  const store = options.rateLimit?.store ?? createInMemoryRateLimitStore();
 
   const router = new Hono<AppEnv>();
   router.get('/', async (c) => {
     const requestId = c.get('requestId');
 
-    const now = Date.now();
-    const key = clientKey(c.req.raw);
-    const bucket = buckets.get(key);
-    if (bucket === undefined || now - bucket.windowStart >= windowMs) {
-      if (buckets.size >= MAX_TRACKED_CLIENTS) pruneExpired(buckets, now, windowMs);
-      buckets.set(key, { windowStart: now, count: 1 });
-    } else if (bucket.count >= limit) {
-      const retryAfter = Math.ceil((bucket.windowStart + windowMs - now) / 1000);
-      c.header('Retry-After', String(Math.max(retryAfter, 1)));
+    const key = `sign-in-options:${clientKey(c.req.raw)}`;
+    let taken: Awaited<ReturnType<RateLimitStore['take']>>;
+    try {
+      taken = await store.take({ key, limit, windowMs });
+    } catch (cause) {
+      c.get('log').warn(
+        `sign-in options: the rate-limit store failed, so this lookup isn't counted: ${cause instanceof Error ? cause.message : String(cause)}`,
+      );
+      taken = { allowed: true };
+    }
+    if (!taken.allowed) {
+      c.header('Retry-After', String(Math.max(Math.ceil(taken.retryAfterMs / 1000), 1)));
       c.status(statusFor('rate-limit-exceeded') as never);
       return c.json(
         toWireError(
@@ -89,8 +99,6 @@ export function signInOptionsRouter(options: SignInOptionsRouteOptions): Hono<Ap
           requestId,
         ),
       );
-    } else {
-      bucket.count += 1;
     }
 
     const email = c.req.query('email');
@@ -149,20 +157,4 @@ function defaultClientKey(request: Request): string {
     .map((h) => h.trim())
     .filter((h) => h !== '');
   return hops.at(-1) ?? 'shared';
-}
-
-function pruneExpired(
-  buckets: Map<string, { windowStart: number; count: number }>,
-  now: number,
-  windowMs: number,
-): void {
-  for (const [k, b] of buckets) {
-    if (now - b.windowStart >= windowMs) buckets.delete(k);
-  }
-  // Still full: every client is mid-window. Drop the oldest half rather
-  // than grow without bound.
-  if (buckets.size >= MAX_TRACKED_CLIENTS) {
-    const keys = [...buckets.keys()].slice(0, Math.floor(MAX_TRACKED_CLIENTS / 2));
-    for (const k of keys) buckets.delete(k);
-  }
 }
