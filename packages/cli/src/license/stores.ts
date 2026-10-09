@@ -40,16 +40,19 @@ export class SecretRefError extends Error {}
 
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-/** What a cloud store uses, by default: `fetch`, the environment, and `gcloud` / `az` when there. */
+/** Runs a cloud's CLI (`gcloud`, `az`, `aws`) for a token: its stdout. */
+export const runCloudCli: CloudDeps['run'] = (command, args) =>
+  new Promise((done, fail) => {
+    execFile(command, [...args], { timeout: 30_000 }, (error, stdout) =>
+      error === null ? done(stdout) : fail(error),
+    );
+  });
+
+/** What a cloud store uses, by default: `fetch`, the environment, and the cloud's CLI when there. */
 const DEFAULT_CLOUD: CloudDeps = {
   fetch: (...args) => fetch(...args),
   env: process.env,
-  run: (command, args) =>
-    new Promise((done, fail) => {
-      execFile(command, [...args], { timeout: 30_000 }, (error, stdout) =>
-        error === null ? done(stdout) : fail(error),
-      );
-    }),
+  run: runCloudCli,
 };
 
 /** Each scheme's store, from what follows its `:`; `undefined` when that isn't one. */

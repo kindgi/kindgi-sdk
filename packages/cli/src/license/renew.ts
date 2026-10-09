@@ -37,6 +37,11 @@ export interface RenewDeps {
   readonly timeoutMs?: number;
 }
 
+/** What `kindgi license renew` runs with: tests hand in their own clock and fetch. */
+export interface LicenseCommandDeps {
+  readonly renew?: RenewDeps;
+}
+
 export interface RenewInput {
   /** Where the license key is kept; the new one is written there. */
   readonly key: SecretStore;
