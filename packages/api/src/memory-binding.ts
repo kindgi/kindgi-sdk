@@ -47,6 +47,18 @@ export interface MemoryBinding {
    */
   readonly semanticSearch?: boolean;
   /**
+   * Whether agent turns can store what an agent remembers (an agent's
+   * `memory.remember`). Absent: unknown. When `false`, publishing an agent
+   * that remembers warns `remember-unavailable`.
+   */
+  readonly agentRemember?: boolean;
+  /**
+   * Whether agent turns can recall earlier conversations (an intent with
+   * `source: 'conversations'`). Absent: unknown. When `false`, publishing
+   * such an agent warns `recall-unavailable`.
+   */
+  readonly conversationRecall?: boolean;
+  /**
    * Cursor-paginated list of facts under the tenant. Filters:
    *   - `type` — exact fact-type match.
    *   - `scope` — partial-match filter (see `Scope` in the memory subsystem).

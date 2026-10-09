@@ -34,10 +34,14 @@ export async function devPackEnv(input: DevPackEnvInput): Promise<Record<string,
     const value = input.hostEnv[name];
     if (value !== undefined) host[name] = value;
   }
+  // The files' `${VAR}` references to names they don't define (and a key's
+  // reference to itself, `KEY=${KEY}`) take the shell's value, as the
+  // runtime's do (`shellReferencesOf`). Nothing else from the shell is passed.
   const files = await readPackEnv({
     packDir: input.packDir,
     envName: LOCAL_ENV_NAME,
     ...(input.localEnvFiles !== undefined && { localEnvFiles: input.localEnvFiles }),
+    env: input.hostEnv,
   });
   return { ...host, ...packValues(files.values), NODE_ENV: 'development' };
 }

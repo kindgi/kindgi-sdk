@@ -62,13 +62,14 @@ resource "google_sql_database" "kindgi" {
 
 locals {
   # Secret containers, by role. Each value is added out of band.
-  server_secrets = {
+  server_secrets = merge({
     database_url     = "${var.name_prefix}-database-url"     # postgres://…@/kindgi?host=/cloudsql/<connection name>, or …@<private ip>:5432/kindgi?sslmode=require
     api_token        = "${var.name_prefix}-api-token"        # KINDGI_API_TOKEN, the seeded bearer
-    secrets_aad_key  = "${var.name_prefix}-secrets-aad-key"  # 32 random bytes, base64: KINDGI_SECRETS_AAD_KEY
     public_token_key = "${var.name_prefix}-public-token-key" # Ed25519 PKCS#8 PEM, base64: KINDGI_PUBLIC_TOKEN_SIGNING_KEY
     license_key      = "${var.name_prefix}-license-key"      # KINDGI_LICENSE_KEY (kgi_lk_…), issued by Kindgi
-  }
+    }, local.kms ? {
+    secrets_aad_key = "${var.name_prefix}-secrets-aad-key" # 32 random bytes, base64: KINDGI_SECRETS_AAD_KEY (secrets_backend = "postgres" only)
+  } : {})
   shared_secrets = {
     pack_service_token = "${var.name_prefix}-pack-service-token" # KINDGI_PACK_SERVICE_TOKEN, both services
   }
@@ -105,6 +106,16 @@ resource "google_secret_manager_secret" "shared" {
 resource "google_secret_manager_secret_iam_member" "server_reads" {
   for_each  = merge(google_secret_manager_secret.server, google_secret_manager_secret.shared)
   secret_id = each.value.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.server.email}"
+}
+
+# The server's own secret settings (var.server_secret_env, e.g. sign-in's):
+# the operator created them; the server gets read access to exactly these.
+# One in another project is granted there, not here (README).
+resource "google_secret_manager_secret_iam_member" "server_reads_its_secrets" {
+  for_each  = { for name, ref in var.server_secret_env : name => ref if ref.project == null }
+  secret_id = "projects/${var.project_id}/secrets/${each.value.secret}"
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.server.email}"
 }

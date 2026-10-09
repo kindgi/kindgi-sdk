@@ -15,7 +15,7 @@ import type { KernelRunRecord, ListRunsInput, RunBinding } from '@kindgi/runtime
 import type { NodeId, ProjectId, RunId, TenantId, Timestamp } from '@kindgi/types';
 
 import { turnFailureMessage } from '@kindgi/agents';
-import { createStubAppBindings } from '@kindgi/testing';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {

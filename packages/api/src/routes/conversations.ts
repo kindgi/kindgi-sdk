@@ -270,6 +270,34 @@ export function conversationsRouter(
     return c.json(serializeConversation(closed.value));
   });
 
+  // ---------- POST /:conversationId/unregister ----------
+  // A tombstone: from now on no read, list or recall returns the
+  // conversation, and no message can be added; the retention sweep
+  // removes it after the tenant's grace. Unregistered already, or never: 404.
+  r.post('/:conversationId/unregister', refuseMalformedConversationId, async (c) => {
+    const requestId = c.get('requestId');
+    const tenantId = c.get('tenantId') as TenantId;
+    const conversationId = c.req.param('conversationId') as ConversationId;
+    if (conversationBinding.unregisterConversation === undefined) {
+      c.status(statusFor('conversation-unregister-unsupported') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'conversation-unregister-unsupported',
+            message: "This runtime can't unregister conversations.",
+          },
+          requestId,
+        ),
+      );
+    }
+    const unregistered = await conversationBinding.unregisterConversation(tenantId, conversationId);
+    if (unregistered.kind === 'err') {
+      c.status(statusFor(unregistered.error.code) as never);
+      return c.json(toWireError(unregistered.error as never, requestId));
+    }
+    return c.json(serializeConversation(unregistered.value));
+  });
+
   // ---------- GET /:conversationId/messages (cursor-paginated, sequence asc) ----------
   r.get('/:conversationId/messages', refuseMalformedConversationId, async (c) => {
     const requestId = c.get('requestId');
@@ -353,6 +381,9 @@ function serializeConversation(c: Conversation): Record<string, unknown> {
     status: (c.closedAt === undefined ? 'open' : 'closed') as 'open' | 'closed',
     openedAt: c.openedAt as unknown as string,
     ...(c.closedAt !== undefined && { closedAt: c.closedAt as unknown as string }),
+    ...(c.unregisteredAt !== undefined && {
+      unregisteredAt: c.unregisteredAt as unknown as string,
+    }),
     turnCount: c.turnCount,
     ...(c.lastMessageAt !== undefined && { lastMessageAt: c.lastMessageAt as unknown as string }),
     ...(c.metadata !== undefined && { metadata: c.metadata }),

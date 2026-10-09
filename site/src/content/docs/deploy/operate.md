@@ -14,7 +14,7 @@ The runtime reads its settings when it starts, so most changes on this page take
 ```sh
 docker stop --time 30 kindgi-server
 docker rm kindgi-server
-docker run -d --name kindgi-server --network kindgi \
+docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
   quay.io/kindgi/runtime:0.1.4
@@ -194,6 +194,87 @@ pnpm exec kindgi runs get <run id> --url http://localhost:4000 --token "$KINDGI_
   }
 ```
 
+A backup taken before an [erasure](../../guides/agents/erase-a-persons-data/)
+brings back what it cleared: replay the erasures next
+([Erasures and backups](#erasures-and-backups)).
+
+## Erasures and backups
+
+An erasure keeps no identifier of whom it erased, only a keyed hash in the
+erasure ledger, so a replay after a restore can find them again. Give the
+runtime the ledger's key:
+
+- **`KINDGI_ERASURE_LEDGER_KEY_PATH`:** the absolute path of a file holding
+  32 random bytes (`openssl rand 32`), mode `0600`;
+- **or `KINDGI_ERASURE_LEDGER_KEY`:** the same 32 bytes, base64, where secrets
+  come as environment variables.
+
+Use the same key on every replica, whatever the secrets backend, and keep it
+the same across a restore: losing it means losing replay. Without it,
+erasures still run, but each answers with an `erasure-unmatchable` warning,
+and a replay can't find whom it erased.
+
+Three places say whether erasures can be replayed:
+- **the startup log's `Erasures` line**, with the key:
+
+  ```text
+  …
+    Erasures: on; the ledger is replayable after a backup restore (key from KINDGI_ERASURE_LEDGER_KEY)
+  …
+  ```
+
+  and without it:
+
+  ```text
+  …
+    Erasures: on, but NOT replayable after a backup restore: no KINDGI_ERASURE_LEDGER_KEY, so the ledger can't keep a keyed hash
+  …
+  ```
+
+- **`/ready`'s `erasures`:** `replayable` or `unreplayable`;
+- **`kindgi doctor`'s `erasures` check.** It never fails, since a runtime
+  without the key is fine for development. With the key, then without it:
+
+  ```text
+  …
+    ✓ Erasures: Erasures can be replayed after a backup restore: the runtime has the erasure ledger key.
+  …
+  ```
+
+  ```text
+  …
+    – Erasures: Erasures run, but a replay after a backup restore can't find whom they erased: the runtime has no KINDGI_ERASURE_LEDGER_KEY. Fine for development; set it where you run in production.
+  …
+  ```
+
+Then:
+
+1. **Export the ledger off-box, regularly:** a restore rolls it back with
+   everything else.
+
+   ```sh
+   kindgi memory erasures export --out=erasures-$(date +%F).json
+   ```
+
+2. **After a restore, replay the latest export** before the runtime serves
+   anyone. It erases again whoever the restored database holds:
+
+   ```sh
+   kindgi memory erasures replay erasures-<date>.json
+   ```
+
+   Its answer lists the erasures it `replayed`, the ones it `restored` to the
+   ledger, and any it couldn't match (`unmatched`).
+
+Two more things keep erasures complete:
+
+- **End users' ids are opaque:** give `participantId` an id your app uses
+  for the person, never an email or a name. Ids stay on records an erasure
+  keeps.
+- **Postgres can keep a cleared row's old version on disk** until it's
+  vacuumed. Where that matters, run `VACUUM` (and `REINDEX` for indexes) on
+  the database after erasures.
+
 ## Upgrade the runtime
 
 1. [Back up Postgres.](#back-up-postgres)
@@ -203,7 +284,7 @@ pnpm exec kindgi runs get <run id> --url http://localhost:4000 --token "$KINDGI_
    docker pull quay.io/kindgi/runtime:<version>
    docker stop --time 30 kindgi-server
    docker rm kindgi-server
-   docker run -d --name kindgi-server --network kindgi \
+   docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
      --add-host registry.localhost:host-gateway \
      -p 127.0.0.1:4000:4000 --env-file kindgi.env \
      quay.io/kindgi/runtime:<version>
@@ -212,6 +293,218 @@ pnpm exec kindgi runs get <run id> --url http://localhost:4000 --token "$KINDGI_
 When it starts, the runtime brings the database up to date: it applies the migrations the database doesn't have yet, then serves. On a database that has them all, it applies nothing, so a restart on the same version changes nothing. The log doesn't list them: once the `Kindgi API server listening` lines appear, they're done. If one fails, the runtime exits with code 1, and its log says `kindgi-runtime: fatal: Error: migration failed for …` and why.
 
 Migrations only go forward, and an older runtime isn't guaranteed to work on a database a newer one migrated. To go back, [restore the backup](#restore-into-a-fresh-database) you took before the upgrade, and run the older version on it.
+
+### From 0.1.4 to 0.1.5
+
+The database migrates when 0.1.5 starts. What to check before you upgrade,
+and what's different after:
+
+- **Signing in to the console with an API token is now off by default,
+  except in `kindgi dev`.** If people sign in to your console by pasting an
+  API token, set `KINDGI_CONSOLE_TOKEN_SIGN_IN=on` on the runtime when you
+  upgrade (on Cloud Run, in the module's `server_env`:
+  [Turn on sign-in](../cloud-run/#7-turn-on-sign-in)), or set up sign-in
+  with your organization's identity provider
+  ([Turn on sign-in](../sign-in/)). Otherwise the console's sign-in page
+  offers no way in, and the runtime's startup output says so too. API tokens
+  keep working for the API, the CLI and the SDKs either way.
+- **Reach the console over `https`.** Every way of signing in now ends in a
+  session cookie marked `Secure`, which browsers keep only over `https`
+  ([MDN: Set-Cookie, `Secure`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Set-Cookie#secure)).
+  On the machine running Kindgi, Chrome also keeps it at `http://localhost`
+  (or `127.0.0.1`); Safari doesn't. At any other plain-`http` address, no
+  way of signing in works. Without `KINDGI_PUBLIC_URL`, the runtime also
+  accepts the console's changes only from `https`, or `http` on `localhost`
+  ([Requests from other sites](../../guides/sso/sessions/#requests-from-other-sites)).
+- **Behind a load balancer or ingress, set `KINDGI_TRUSTED_PROXIES`:** how
+  many proxies are in front of the runtime (`1` for one), or their addresses.
+  Rate limits and audit records then see each client's own address. Unset,
+  the runtime uses the connection's address and ignores `X-Forwarded-For`
+  ([Behind a load balancer or ingress](../self-host/#behind-a-load-balancer-or-ingress)).
+- **The API token keeps its user across restarts.** Without
+  `KINDGI_SEED_USER_ID`, 0.1.4 made a new user at every start; 0.1.5 keeps the
+  token's user while `KINDGI_API_TOKEN` stays the same. A changed token acts
+  as a new user, and the startup output warns. With authorization on, set
+  `KINDGI_SEED_USER_ID` to keep one user across token changes
+  ([Point the runtime at it](../authorization/#point-the-runtime-at-it)).
+  Changing `KINDGI_API_TOKEN` also signs out the console sessions the old
+  token opened ([Rotate the API token](#rotate-the-api-token)).
+- **Signing a person out everywhere works.** In 0.1.4,
+  `POST /v1/identity/users/<id>/revoke-sessions` answered as if it had, and
+  ended nothing. Revoking an API key now ends the console sessions it opened,
+  and removing an identity provider ends the sessions opened through it
+  ([Signing out](../../guides/sso/sessions/#signing-out)). The audit trail
+  gains `signed-out`, `sessions-revoked` and `sign-in-refused`.
+- **Only tenant admins list the tenant's people.** `GET /v1/identity/users`
+  answers anyone else `403`; a person still reads their own record and
+  sessions. A project admin adds a member by email
+  (`POST /v1/projects/<id>/memberships` with `email`), and a project admin's
+  member key can manage that project's members.
+- **With authorization on, every route checks what it touches.** Reading
+  tenant-wide settings (providers, policies, adapters, capabilities, signing
+  keys, deployments, sign-in providers) needs `read` on the tenant, and
+  changing them `admin`. Webhook endpoints and compliance evidence need
+  `admin`. Starting a run needs `execute` on what it runs, and `write` on a
+  project it names. Lists hold only what the caller may read. A single admin
+  sees no change ([Authorization](../authorization/)).
+- **With authorization on, a permission change that fails no longer holds up
+  the others.** In 0.1.4, one could leave a new project unreadable by its
+  creator (`403`) until an operator replayed the outbox. 0.1.5 also carries
+  the fixes in runtime 0.1.4.1 and 0.1.4.2 (below).
+- **Run OpenFGA v1.22.0.** Published OpenFGA advisories affect v1.9.0
+  ([An OpenFGA you already run](../authorization/#an-openfga-you-already-run)).
+- **Expired rows are deleted every hour:** idempotency answers, sessions and
+  sign-in state, which 0.1.4 kept for good ([Retention](../retention/)).
+- **Idempotency keys are per caller.** The same key from someone else is
+  their own request. A repeat sent while the first request still runs is
+  refused (`409 idempotency-key-in-flight`) instead of running again, and the
+  answer of a request that made a secret (a new API key, say) isn't kept, so
+  its repeat is refused with `idempotency-key-replay-withheld`. Keys 0.1.4
+  stored aren't found again; they'd have expired within 24 hours
+  ([Retry a start safely](../../guides/runs/retry-a-start-safely/#how-it-works)).
+- **A provider registration the runtime can't build is refused** when it's
+  registered (`422 provider-config-invalid`, each problem in
+  `details.issues`). `kindgi doctor` names any registered before 0.1.5; to
+  fix one, unregister it and register it again
+  ([Check a registration](../../guides/models/#check-a-registration)).
+- **A guardrail whose config its pack check would refuse is refused** when
+  it's registered (`422 guardrail-config-invalid`), for a pack deployed by
+  0.1.5: redeploy your pack once. A guardrail already registered with such a
+  config fails every turn it checks; unregister it, and register it again
+  with a config that fits
+  ([Configure a guardrail](../../guides/guardrails/configure-a-guardrail/)).
+- **The runtime signs exports** (audit bundles, provenance, compliance
+  evidence) with the deployment's export key: set
+  `KINDGI_EXPORT_SIGNING_KEY_PATH`, `KINDGI_EXPORT_SIGNING_KEY` or
+  `KINDGI_EXPORT_SIGNING_KMS_KEY`. 0.1.4's runtime didn't sign them. Without a
+  key, outside development, the exports answer `404 signing-not-configured`.
+  `kindgi exports verify` also checks audit bundles made with `@kindgi/api`
+  0.1.4
+  ([Export signed evidence](../../guides/observability/export-signed-evidence/#give-the-deployment-its-key)).
+- **The runtime's own address, `/`, leads to the console,** or lists what it
+  serves; it answered `404`. Health checks stay on `/ready`
+  ([Check health and logs](#check-health-and-logs)).
+- **Anthropic retires Claude Sonnet 4.5** (`claude-sonnet-4-5-20250929`) on
+  2026-11-30. A provider registration that names it should move to
+  `claude-sonnet-5-5`, the `anthropic` preset's default. No preset lists it,
+  so only a registration made with a spec is affected
+  ([Anthropic: model deprecations](https://platform.claude.com/docs/en/about-claude/model-deprecations)).
+- **Claude agents use Anthropic's prompt cache:** a turn's later calls read
+  the prompt they repeat at a fraction of the input price, and the first
+  write costs a little more. Register the `anthropic` preset again for the
+  5.5 models' cache-read rate
+  ([Prompt caching](../../guides/models/anthropic/#prompt-caching)).
+- **Retrieved memory reaches the model as data,** in a `<memory>` block in a
+  user message instead of a second system message, so what models see
+  changes. A retrieval that searches by meaning (`semantic`) on a runtime
+  without embeddings fails the turn with `semantic-unavailable`; 0.1.4
+  skipped that search without a word.
+- **Your pack's service writes log records** on stderr, as the runtime does:
+  one per tool call, at the levels `KINDGI_LOG_LEVEL` and `KINDGI_LOG_LEVELS`
+  set ([Logs](../logs/)). Printing a tool's context (`console.log(ctx)`,
+  `print(ctx)`) no longer shows its secrets.
+- **The clients read every `409` as a conflict** (TypeScript
+  `code: 'conflict'`, Python `ConflictError`). Twenty codes used to come back
+  as a server error, among them `run-lease-lost`, `agent-version-mismatch` and
+  `secret-write-conflict`. Code that matched one of them by its class should
+  match its code alone: `err.serverCode` (Python `e.server_code`).
+- **TypeScript's `runs.follow` and `runs.followProgress`** follow a run to its
+  end, as in Python, which gains `runs.follow` too. `runs.stream` and
+  `runs.streamProgress` are deprecated
+  ([Follow a run](../../guides/runs/follow-a-run/)).
+- **The CLI:**
+  - a usage error (a missing argument, a bad flag value) exits `2`; `1` is
+    for a call that failed;
+  - `kindgi build` versions each build by its time (`YYYYMMDD.HHMMSS`, UTC),
+    so a build without `--artifact-version` and `--published-at` is no
+    longer reproducible;
+  - `KEY=${KEY}` in a pack's `.env` takes the shell's value, as docker
+    compose does; it used to come out empty;
+  - `kindgi dev` gives the runtime your Google credentials only when
+    `KINDGI_DEV_GOOGLE_CREDENTIALS` names them: a pack that uses Vertex AI
+    adds `KINDGI_DEV_GOOGLE_CREDENTIALS=adc` to its `.env`
+    ([Gemini on Vertex AI](../../guides/models/gemini-on-vertex-ai/));
+  - `kindgi console` opens the console, and so does `kindgi dev --open`.
+- **New in 0.1.5:**
+  - **Sign-in** with your organization's identity provider
+    ([Set up SSO](../../guides/sso/)), and with Google, Microsoft or GitHub
+    accounts or an emailed link through the deployment's own apps
+    ([Turn on sign-in](../sign-in/)).
+  - **People, API keys and service accounts:** each person and pipeline acts
+    with its own key and grants
+    ([People, API keys and service accounts](../people-and-keys/)).
+  - **Schedules:** an agent or a flow at set times, as you, with a history
+    of each time it ran ([Run on a schedule](../../guides/runs/run-on-a-schedule/)).
+  - **Memory:** an agent remembers what its declaration allows
+    (`kindgi_remember`), with the scope and how long chosen by you, not the
+    model, and can recall earlier conversations. Retrieval can search by
+    meaning through an embeddings endpoint (`KINDGI_MEMORY_EMBEDDINGS`). A
+    tenant admin can erase an end user's words, their conversations and the
+    runs that served them (`kindgi memory erasures`).
+  - **Improvement passes:** propose new settings or a new prompt for an
+    agent version, compare the candidate on a test set, and promote it
+    through the scope's gate after review (`kindgi proposals`). A pass can
+    look for better settings on its own, and a schedule can start one.
+  - **Files kept with a run** (artifacts) and the capability catalog
+    ([Keep files with a run](../../guides/runs/keep-files-with-a-run/)).
+  - **A tool's env values per project** (`ctx.env`)
+    ([Give a tool env values](../../guides/tools/give-a-tool-env-values/)).
+  - **A failed run says why, as data:** `failure`, with its `code` and
+    `message`, on the run.
+  - **Logs:** a pack's service writes log records, `kindgi dev` shows them,
+    and records from a run carry its ids; providers and MCP endpoints can opt
+    in to the run's trace ([Logs](../logs/)).
+  - **Java and Scala, as a preview:**
+    [Quickstart: Java](../../start/quickstart-java/),
+    [Quickstart: Scala](../../start/quickstart-scala/) and
+    [Call Kindgi from a Java app](../../start/java-app/).
+  - **The Cloud Run module:** an image repository you already have, no KMS
+    key, calling your app's Cloud Run services from a tool, client
+    addresses, and the runtime's own settings for sign-in
+    ([Deploy on Google Cloud Run](../cloud-run/)).
+
+#### Known limitations in 0.1.5
+
+- **Safari can't sign in to `kindgi dev`'s console.** The console's sign-in
+  is a `Secure` cookie, and Safari doesn't keep one over plain `http`, even at
+  `http://localhost`, where Chrome and Firefox do. Open the local console in
+  Chrome or Firefox. A fix is planned. A deployment's console needs `https`
+  in every browser (above).
+
+### Runtime 0.1.4.2
+
+Runtime 0.1.4.2 fixes one bug in 0.1.4 and 0.1.4.1, for every deployment:
+when the database drops its connections (a restart, a failover, a network
+blip), the runtime could exit instead of reconnecting. Its log then ends like
+this:
+
+```text
+file:///app/node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/connection.js:255
+    const x = socket.write(chunk, fn)
+                     ^
+
+TypeError: Cannot read properties of null (reading 'write')
+    at Immediate.nextWrite (file:///app/node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/connection.js:255:22)
+```
+
+On 0.1.4.2, requests that need the database fail while it's down, and the
+runtime keeps running and answers again once it's back. Only the runtime
+changes: the 0.1.4 CLI and SDKs (npm, PyPI) stay as they are. `kindgi dev`
+keeps its pinned 0.1.4 runtime, so if your local database restarts under it,
+restart `kindgi dev`.
+
+Run 0.1.4.2, pulled by its digest, with the same `kindgi.env`. It has no
+migration, and it carries 0.1.4.1's fix ([Runtime 0.1.4.1](#runtime-0141)).
+Keep `--restart unless-stopped` on the runtime's container either way
+([Restart the runtime](#restart-the-runtime)):
+
+```sh
+docker pull quay.io/kindgi/runtime:0.1.4.2@sha256:420826ad9bac0c2fdb021c49517aabebeac1ff7ec236e02af47e90a31f5b825e
+```
+
+On Cloud Run, copy it into your repository the same way as 0.1.4 (see
+[The images into Artifact Registry](../cloud-run/#2-the-images-into-artifact-registry))
+and set `server_image` to its digest.
 
 ### Runtime 0.1.4.1
 
@@ -258,7 +551,11 @@ WARN  [authz.outbox] drain: FGA refused a batch; trying its tuples one by one te
 ```
 
 It's expected: the runtime then applies the batch's changes one at a time,
-and a change that's already there counts as applied.
+and a change that's already there counts as applied. From 0.1.5, with
+OpenFGA v1.22.0, the warning doesn't appear: the runtime asks OpenFGA to
+ignore changes already in place, and v1.22.0 does, so it takes the batch
+whole. With an older OpenFGA that doesn't, the runtime still applies them
+one at a time, and logs it at `info`.
 
 ### From 0.1.3 to 0.1.4
 
@@ -286,7 +583,7 @@ and a change that's already there counts as applied.
 - **`kindgi runs start` exits `1` for a failed run,** with `Error [<code>]: <message>` naming the error's own code, such as `budget-exceeded` or `model-invocation-failed`. 0.1.3 printed `Error [server]` and exited `0` for a run that failed. A script that checks the exit code now sees the failure; the run itself is still printed on stdout.
 - **`dev-echo` says it isn't a real model.** Its answers start with `⚠ dev-echo isn't a real model`, and a turn it answers carries a `dev-echo-not-a-model` warning.
 - **On Cloud Run,** the Terraform module pins the version of the secrets' AAD key it reads: add `secrets_aad_key_version` (normally `"1"`) to your `.tfvars` before you apply ([Deploy on Google Cloud Run](../cloud-run/#operate-it)).
-- **Two models retire.** Anthropic retires `claude-haiku-4-5` on or after 2026-10-15, and Vertex AI retires `gemini-2.5-pro` and `gemini-2.5-flash` on 2026-10-20; a turn routed to them fails after. The 0.1.4 presets list `claude-haiku-5-5`, and `gemini-3.8-flash` with `gemini-3.5-flash-lite`, instead ([Connect Anthropic](../../guides/models/anthropic/#if-you-registered-it-before-014), [If you registered Gemini 2.5](../../guides/models/gemini-on-vertex-ai/#if-you-registered-gemini-25)).
+- **Gemini 2.5 retires on Vertex AI.** Vertex AI retires `gemini-2.5-pro` and `gemini-2.5-flash` on 2026-10-20; a turn routed to them fails after. The 0.1.4 `gemini` preset lists `gemini-3.8-flash` with `gemini-3.5-flash-lite` instead ([If you registered Gemini 2.5](../../guides/models/gemini-on-vertex-ai/#if-you-registered-gemini-25)). The `anthropic` preset adds `claude-haiku-5-5` beside `claude-haiku-4-5`; Anthropic lists each model's status on its [model deprecations](https://platform.claude.com/docs/en/about-claude/model-deprecations) page.
 - **Register presets again.** A provider registered from a preset before 0.1.4 keeps what it had: no default model, so an agent that names none gets the first model by name (`claude-haiku-4-5` for `anthropic`); none of the models' temperature and thinking marks; and only the two base prices. Unregister it and register the preset again with the 0.1.4 CLI, or restart `kindgi dev` for one the pack's config declares. `kindgi doctor` warns (`!`) about one that's stale.
 - **Each provider can name a default model** (`metadata.defaultModel`): when nothing else decides, an agent gets it rather than the first model by name. Each preset names a mid-priced one, such as `claude-sonnet-5-5` ([How Kindgi picks](../../guides/agents/choose-a-model/#how-kindgi-picks)).
 - **Models that take no temperature get none.** A model registered with `"sampling": false` (the Claude 5.5 and GPT-6 models) is called without one, and the turn carries a `sampling-unsupported` warning instead of failing. A model's `thinking` says how it thinks; thinking counts against its output limit and bills as output ([Temperature and thinking](../../guides/models/#temperature-and-thinking)).
@@ -311,6 +608,15 @@ The `Token` line in the log now shows the new token's last four characters, and 
 ```
 
 `KINDGI_API_TOKEN` is one token: switch your CLI and apps to the new one when you restart.
+
+Console sessions signed in with the old token end at the restart, and people
+sign in again. The startup log counts them:
+
+```text
+  Signed out: 1 console session an earlier token opened
+```
+
+A request with such a session afterwards answers `401`.
 
 ## Rotate the pack service token
 
@@ -434,7 +740,7 @@ KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH=/etc/kindgi/public-token-signing.pem
 ```
 
 ```sh
-docker run -d --name kindgi-server --network kindgi \
+docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -v "$PWD/public-token-signing.pem:/etc/kindgi/public-token-signing.pem:ro" \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \

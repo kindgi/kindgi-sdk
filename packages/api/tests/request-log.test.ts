@@ -16,7 +16,7 @@ import { type LogLevel, createLogger } from '@kindgi/log';
 import type { RunBinding } from '@kindgi/runtime';
 import type { RunId, TenantId } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type { InvokeAgentBindingInput, RunHandlerBinding, TokenResolver } from '../src/index.js';

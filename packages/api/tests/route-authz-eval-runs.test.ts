@@ -15,8 +15,8 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
-import { createStubAppBindings } from '@kindgi/testing';
 import type { TenantId, UserId } from '@kindgi/types';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type { EvalRunBinding, RunHandlerBinding, TokenResolver } from '../src/index.js';
